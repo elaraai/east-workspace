@@ -10,7 +10,8 @@
  * and agencies (`Schedule.resources`), publishes its weeks
  * (`Schedule.periods`) and writes its targets (`Roster.targets`), with the
  * lists it reads over the app's rows (`Roster.shifts`, `groups`, `positions`,
- * `activities`, `proposals`). It stores nothing in a shape of its own.
+ * `activities`, `proposals`, and the People layout's `patterns`, #1406). It
+ * stores nothing in a shape of its own.
  *
  * The tag validates, builds the people and agencies from their kinds'
  * accessors, and assembles the closed payload; it composes no East UI
@@ -41,10 +42,10 @@ import { ScheduleClockType, SchedulePeriodsKindType, ScheduleRosterKindType } fr
 import { recordSources } from "../utils/record-sources.js";
 import { rosterCoverage, rosterWeekHours } from "./coverage.js";
 import { rosterAnswer, rosterFit } from "./fit.js";
-import { rosterActivitiesTab, rosterLibraryTab, rosterPeopleTab, type RosterLibraryTab } from "./library.js";
+import { rosterActivitiesTab, rosterLibraryTab, rosterPatternsTab, rosterPeopleTab, type RosterLibraryTab } from "./library.js";
 import {
-    isRosterList, rosterActivities, rosterGroups, rosterPositions, rosterProposals, rosterShifts,
-    type RosterGroups, type RosterPositions, type RosterProposals, type RosterShifts,
+    isRosterList, rosterActivities, rosterGroups, rosterPatterns, rosterPositions, rosterProposals, rosterShifts,
+    type RosterGroups, type RosterListKind, type RosterPatterns, type RosterPositions, type RosterProposals, type RosterShifts,
 } from "./lists.js";
 import { rosterCheck, rosterRest } from "./rules.js";
 import { isRosterTargets, rosterTargets, type RosterTargets } from "./targets.js";
@@ -54,12 +55,21 @@ import * as T from "./types.js";
 // The payload
 // ============================================================================
 
-/** Roster's layout: group shifts, or people across the week. */
+/** Roster's layout: group shifts, or people across the week or the month. */
 export const RosterLayoutType = VariantType({ shifts: NullType, people: NullType });
-/** Roster's displayed period. People always shows the whole week. */
-export const RosterPeriodType = VariantType({ day: NullType, week: NullType });
-/** A declared library tab: the People tab, the Activities tab, or an app's tab, its cards resolved over the duty kind. */
-export const RosterLibraryTabType = VariantType({ people: NullType, activities: NullType, tab: ScheduleAuthorTabType });
+/** Roster's displayed period: Shifts shows a day or a week, People a week or a month (#1406); each layout keeps its own. */
+export const RosterPeriodType = VariantType({ day: NullType, week: NullType, month: NullType });
+/** The periods each layout takes, in the Period segment's order. */
+export const ROSTER_LAYOUT_PERIODS: Readonly<Record<"shifts" | "people", readonly ("day" | "week" | "month")[]>> = { shifts: ["day", "week"], people: ["week", "month"] };
+/** Whether a People tile shows the shift's hours always, or only a duty's own times where they differ from the shift's (#1406). */
+export const RosterTileTimesType = VariantType({ always: NullType, different: NullType });
+/**
+ * A declared library tab: the People tab, the Activities tab, the Patterns tab — the app's week patterns under the name
+ * and icon `Roster.patterns` gives (#1406) — or an app's tab, its cards resolved over the duty kind.
+ */
+export const RosterLibraryTabType = VariantType({
+    people: NullType, activities: NullType, patterns: StructType({ name: StringType, icon: StringType }), tab: ScheduleAuthorTabType,
+});
 
 /**
  * The closed renderer payload. BuilderFrame is internal to the renderer.
@@ -69,10 +79,11 @@ export const RosterLibraryTabType = VariantType({ people: NullType, activities: 
  * @property periods - The app's weeks: their status and dismissals, and Publish; `none`, no Publish
  * @property targets - The app's targets, a row per slot; `none`, no slot has a target
  * @property groups - The groups, in their order
- * @property shifts - The shifts, in their order
+ * @property shifts - The shifts, in their order, each with its colour token, or none (#1406)
  * @property activities - Every activity: each group's skills and the duties of no group
  * @property positions - The positions, in their order; none for a duty kind with no `position` role
  * @property proposals - The app's suggestions, in key order
+ * @property patterns - The app's week patterns, in their order (#1406); none without `patterns`
  * @property rules - The built-in rules
  * @property pay - The app's pay, from a `PayRequest(R)` as bytes to each duty's cost by code; `none`, no costs show
  * @property currency - How costs print
@@ -80,9 +91,9 @@ export const RosterLibraryTabType = VariantType({ people: NullType, activities: 
  * @property fit - The app's fit, by its `e3.function`'s name: who fits a Find fix's need; `none`, no Find fix is offered (#1334)
  * @property library - The library's tabs, in order
  * @property inspector - Whether the inspector pane shows
- * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the people and the activities that show (#1342)
+ * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the people, the activities and the patterns that show (#1342)
  * @property slice - The narrowing's chrome: a Slice over the duties', the targets', the staff's and the activities' records, one rail
- * @property settings - The first view and the view settings
+ * @property settings - The first view and the view settings: the layout, its period, the date, the week's start, the density, the chip skills, the requirement rows, read-only, and the People layout's `tileTimes` and `letters` (#1406)
  * @property id - The viewer's identity
  */
 export const RosterPayloadType = StructType({
@@ -96,6 +107,7 @@ export const RosterPayloadType = StructType({
     activities: ArrayType(T.RosterSkillType),
     positions: ArrayType(T.RosterPositionType),
     proposals: ArrayType(T.RosterProposalType),
+    patterns: ArrayType(T.RosterPatternType),
     rules: T.RosterRulesType,
     pay: OptionType(FunctionType([BlobType], T.RosterPayType)),
     currency: OptionType(StringType),
@@ -103,12 +115,16 @@ export const RosterPayloadType = StructType({
     fit: OptionType(FuncBindingType),
     library: ArrayType(RosterLibraryTabType),
     inspector: BooleanType,
-    narrowed: StructType({ people: OptionType(RowSourceType(ArrayType(StringType))), activities: OptionType(RowSourceType(ArrayType(StringType))) }),
+    narrowed: StructType({
+        people: OptionType(RowSourceType(ArrayType(StringType))), activities: OptionType(RowSourceType(ArrayType(StringType))),
+        patterns: OptionType(RowSourceType(ArrayType(StringType))),
+    }),
     slice: OptionType(RecordSlicesChromeType),
     settings: StructType({
         layout: RosterLayoutType, period: RosterPeriodType, date: OptionType(DateTimeType),
         weekStart: VariantType({ monday: NullType, sunday: NullType }),
         density: VariantType({ compact: NullType, comfortable: NullType }), chipSkills: BooleanType, requirements: BooleanType, readOnly: BooleanType,
+        tileTimes: RosterTileTimesType, letters: BooleanType,
     }),
     id: OptionType(StringType),
 });
@@ -136,7 +152,7 @@ export interface RosterProps<R extends EastType = EastType> {
     periods?: SchedulePeriods;
     /** The app's targets, a row per slot: `Roster.targets(Record.bind(cover, [coverPatch]), { day, group, shift, positions, hours })`. */
     targets?: RosterTargets;
-    /** The shifts: `Roster.shifts(rows, { label, code, start, hours, order? })`. */
+    /** The shifts: `Roster.shifts(rows, { label, code, start, hours, order?, color? })`; `color` an `Option<ColorToken>`, the People tiles' fill (#1406). */
     shifts: RosterShifts;
     /** The groups: `Roster.groups(rows, { label, order? })`. */
     groups: RosterGroups;
@@ -149,6 +165,12 @@ export interface RosterProps<R extends EastType = EastType> {
     activities?: SubtypeExprOrValue<ArrayType<T.RosterSkillType>>;
     /** The app's suggestions: `Roster.proposals(rows, { person, day, group, shift, reason })`. */
     proposals?: RosterProposals;
+    /**
+     * The app's week patterns (#1406): `Roster.patterns(rows, { name, icon?, label, days, order? })` — the cards of the tab `name`
+     * titles (`Roster.library.patterns()`), and what a drop on a person's week applies: seven days from the week's first day,
+     * each a shift's key or none for a day off. Omitted, no patterns and no tab.
+     */
+    patterns?: RosterPatterns;
     /**
      * The app's pay (§5.6): an East function from `Roster.Types.PayRequest(R)` — one person's duties for the week, or one agency's
      * requests — to `Roster.Types.Pay`, each duty's cost by the app's own pay codes. Asked a person at a time; omitted, no costs show.
@@ -177,8 +199,11 @@ export interface RosterProps<R extends EastType = EastType> {
     library?: readonly RosterLibraryTab[];
     /** Shows the inspector pane: the duty kind's own `inspector` and `Roster.targets`' `inspector` draw in it where given. */
     inspector?: boolean;
-    /** Initial view, persisted under id. */
-    view?: { layout?: "shifts" | "people"; period?: "day" | "week"; date?: SubtypeExprOrValue<DateTimeType> };
+    /**
+     * Initial view, persisted under id. Shifts takes `"day"` or `"week"` (`"day"` by default); People `"week"` or `"month"`
+     * (`"week"` by default, #1406); a period its layout does not take is refused at build. Each layout keeps its own period per viewer.
+     */
+    view?: { layout?: "shifts" | "people"; period?: "day" | "week" | "month"; date?: SubtypeExprOrValue<DateTimeType> };
     /** Week boundary; Monday by default. */
     week?: { start?: "monday" | "sunday" };
     /** Assignment spacing; comfortable by default. */
@@ -189,6 +214,10 @@ export interface RosterProps<R extends EastType = EastType> {
     requirements?: SubtypeExprOrValue<BooleanType>;
     /** Disables edits; published weeks are always read-only. */
     readOnly?: SubtypeExprOrValue<BooleanType>;
+    /** Whether a People tile shows the shift's hours (`06–14`) always, or only a duty's own times where they differ from the shift's (#1406); `"always"` by default. */
+    tileTimes?: "always" | "different";
+    /** Whether a month's marks carry the shift's letter (#1406); `true` by default. */
+    letters?: boolean;
     /** Stable viewer identity when multiple Rosters share a surface. */
     id?: string;
 }
@@ -212,12 +241,13 @@ const REMOVED: readonly (readonly [string, string])[] = [
     ["duties", "`duties` is gone — a duty is an activity of no group in `activities` (Roster.activities)"],
 ];
 
-/** The lists the Roster reads, each its declaration's words. */
-const LISTS: readonly (readonly ["shifts" | "groups" | "positions" | "proposals", string])[] = [
-    ["shifts", "Roster.shifts(rows, { label, code, start, hours, order? }) over the app's shift rows"],
-    ["groups", "Roster.groups(rows, { label, order? }) over the app's group rows"],
-    ["positions", "Roster.positions(rows, { label, code, lead, order? }) over the app's position rows"],
-    ["proposals", "Roster.proposals(rows, { person, day, group, shift, reason }) over the app's suggestion rows"],
+/** The lists the Roster reads, each its declaration's words and the Roster type whose values it replaced. */
+const LISTS: readonly (readonly [RosterListKind, string, string])[] = [
+    ["shifts", "Roster.shifts(rows, { label, code, start, hours, order?, color? }) over the app's shift rows", "Shift"],
+    ["groups", "Roster.groups(rows, { label, order? }) over the app's group rows", "Group"],
+    ["positions", "Roster.positions(rows, { label, code, lead, order? }) over the app's position rows", "Position"],
+    ["proposals", "Roster.proposals(rows, { person, day, group, shift, reason }) over the app's suggestion rows", "Proposal"],
+    ["patterns", "Roster.patterns(rows, { name, icon?, label, days, order? }) over the app's week pattern rows", "Pattern"],
 ];
 
 /** A kind's accessor's value for a row, or `otherwise` when the kind has no such accessor. */
@@ -338,8 +368,10 @@ function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindin
  *   Roster values rather than its declaration; `events` holding other than one kind, or `resources` other than `people`
  *   and `agencies`; a duty kind whose resource names no `people`, or a resource kind read a window at a time; a `people`
  *   kind with no `group`; `positions` beside a duty kind with no `position` role; `pay` without `currency`; a `pay`, a
- *   `check` or a `fit` over another type; a library tab listed twice; and as `Schedule`'s checks, the duty kind's
- *   build (`buildRoster`) and the slice's (`recordSources`) do
+ *   `check` or a `fit` over another type; a library tab listed twice; a `view.period` its layout does not take, naming each
+ *   layout's periods; `Roster.library.patterns()` without `patterns`; a `tileTimes` other than `"always"` or
+ *   `"different"`, or a `letters` that is no boolean (#1406); and as `Schedule`'s checks, the duty kind's build
+ *   (`buildRoster`) and the slice's (`recordSources`) do
  * @internal
  */
 export function createRosterPayload<R extends EastType>(props: RosterProps<R>): ExprType<typeof RosterPayloadType> {
@@ -363,13 +395,26 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
         throw new Error(`Roster: \`rules.rest\` is the hours of rest between duties, zero or more — and it is ${String(rules.rest)}`);
     }
     // The lists: each its declaration over the app's rows, not Roster values.
-    for (const [prop, declaration] of LISTS) {
+    for (const [prop, declaration, type] of LISTS) {
         const value = given[prop];
         const required = prop === "shifts" || prop === "groups";
         if (value === undefined && !required) continue;
         if (!isRosterList(value, prop)) {
-            throw new Error(`Roster: \`${prop}\` is ${declaration}${value === undefined ? "" : ` — Roster.Types.${prop === "proposals" ? "Proposal" : prop === "shifts" ? "Shift" : prop === "groups" ? "Group" : "Position"} values are gone`}`);
+            throw new Error(`Roster: \`${prop}\` is ${declaration}${value === undefined ? "" : ` — Roster.Types.${type} values are gone`}`);
         }
+    }
+    // The first view: a period its layout takes (#1406).
+    const layout = props.view?.layout ?? "shifts";
+    const period = props.view?.period ?? (layout === "people" ? "week" : "day");
+    if (!ROSTER_LAYOUT_PERIODS[layout].includes(period)) {
+        throw new Error(`Roster: \`view.period\` "${period}" is not a period of the ${layout === "people" ? "People" : "Shifts"} layout — ` +
+            "Shifts takes \"day\" or \"week\", People takes \"week\" or \"month\"");
+    }
+    if (props.tileTimes !== undefined && props.tileTimes !== "always" && props.tileTimes !== "different") {
+        throw new Error(`Roster: \`tileTimes\` is "always" or "different" — whether a tile shows the shift's hours always, or only a duty's own times where they differ — and it is ${String(props.tileTimes)}`);
+    }
+    if (props.letters !== undefined && typeof props.letters !== "boolean") {
+        throw new Error(`Roster: \`letters\` is true or false — whether a month's marks carry the shift's letter — and it is ${String(props.letters)}`);
     }
     if (props.targets !== undefined && !isRosterTargets(props.targets)) {
         throw new Error("Roster: `targets` is Roster.targets(Record.bind(record, [patch]), { day, group, shift, positions, hours }) over the app's own targets");
@@ -427,10 +472,11 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
 
     // The narrowing: a source per record it narrows, named after what it narrows.
     const library = props.library ?? [];
-    const named = new Set([slot, ...(props.targets === undefined ? [] : ["targets"]), "people", "activities",
+    const named = new Set([slot, ...(props.targets === undefined ? [] : ["targets"]), "people", "activities", ...(props.patterns === undefined ? [] : ["patterns"]),
         ...library.flatMap(tab => tab.kind === "tab" && tab.config.source !== undefined ? [tab.config.source] : [])]);
     const narrowing = recordSources(props.slice, {
-        builder: "Roster", names: [...named], what: `its duties (${slot}), its targets, its people and its activities, and the tabs that name a source`,
+        builder: "Roster", names: [...named],
+        what: `its duties (${slot}), its targets, its people and its activities${props.patterns === undefined ? "" : ", its patterns"}, and the tabs that name a source`,
         takes: name => named.has(name),
     });
     const seen = new Set<string>();
@@ -438,15 +484,23 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
         const key = tab.kind === "tab" ? `tab:${tab.config.name}` : tab.kind;
         if (seen.has(key)) throw new Error(`Roster: library tab ${key} is listed twice`);
         seen.add(key);
-        return tab.kind === "tab"
-            ? East.value(variant("tab", buildScheduleTab(tab, [[slot, kind as ScheduleEventKind<EastType, EastType>]], "Roster", narrowing.names)), RosterLibraryTabType)
-            : East.value(variant(tab.kind, null), RosterLibraryTabType);
+        if (tab.kind === "tab") {
+            return East.value(variant("tab", buildScheduleTab(tab, [[slot, kind as ScheduleEventKind<EastType, EastType>]], "Roster", narrowing.names)), RosterLibraryTabType);
+        }
+        if (tab.kind === "patterns") {
+            if (props.patterns === undefined) {
+                throw new Error("Roster: Roster.library.patterns() lists the app's week patterns — give `patterns`: " +
+                    "patterns={Roster.patterns(rows, { name, icon?, label, days, order? })}");
+            }
+            return East.value(variant("patterns", { name: props.patterns.name, icon: props.patterns.icon }), RosterLibraryTabType);
+        }
+        return East.value(variant(tab.kind, null), RosterLibraryTabType);
     });
-    const lists = given as unknown as { shifts: RosterShifts; groups: RosterGroups; positions?: RosterPositions; proposals?: RosterProposals };
+    const lists = given as unknown as { shifts: RosterShifts; groups: RosterGroups; positions?: RosterPositions; proposals?: RosterProposals; patterns?: RosterPatterns };
     const positions = lists.positions;
     return Expr.block($ => {
         const bound = narrowing.bind($);
-        const keys = bound.keys as { people?: unknown; activities?: unknown };
+        const keys = bound.keys as { people?: unknown; activities?: unknown; patterns?: unknown };
         return East.value({
             // The duties, narrowed through their own source of the slice when the slice has one.
             duty: kind.buildRoster(slot, bound.parts[slot]),
@@ -457,6 +511,7 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
             groups: lists.groups.rows, shifts: lists.shifts.rows,
             activities: props.activities ?? [], positions: positions === undefined ? [] : positions.rows,
             proposals: lists.proposals === undefined ? [] : lists.proposals.rows,
+            patterns: lists.patterns === undefined ? [] : lists.patterns.rows,
             // The lead rule reads the positions: without them, there is none.
             rules: { rest: rules.rest ?? 10.0, lead: (rules.lead ?? true) && positions !== undefined, trainer: rules.trainer ?? true, skill: rules.skill ?? true },
             pay: pay === undefined ? none : some(pay),
@@ -468,13 +523,15 @@ export function createRosterPayload<R extends EastType>(props: RosterProps<R>): 
             narrowed: {
                 people: keys.people === undefined ? none : some(keys.people as never),
                 activities: keys.activities === undefined ? none : some(keys.activities as never),
+                patterns: keys.patterns === undefined ? none : some(keys.patterns as never),
             },
             slice: narrowing.chrome,
             settings: {
-                layout: variant(props.view?.layout ?? "shifts", null), period: variant(props.view?.layout === "people" ? "week" : props.view?.period ?? "day", null),
+                layout: variant(layout, null), period: variant(period, null),
                 date: props.view?.date === undefined ? none : some(props.view.date), weekStart: variant(props.week?.start ?? "monday", null),
                 density: variant(props.density ?? "comfortable", null), chipSkills: props.chipSkills ?? true,
                 requirements: props.requirements ?? true, readOnly: props.readOnly ?? false,
+                tileTimes: variant(props.tileTimes ?? "always", null), letters: props.letters ?? true,
             },
             id: props.id === undefined ? none : some(props.id),
         } as never, RosterPayloadType);
@@ -509,6 +566,8 @@ export interface RosterNamespace {
     activities: typeof rosterActivities;
     /** Reads the app's suggestion rows as the Roster's proposals. */
     proposals: typeof rosterProposals;
+    /** Reads the app's week pattern rows as the Roster's patterns, with their tab's name and icon (#1406). */
+    patterns: typeof rosterPatterns;
     /** Declares the app's targets, a row per slot, over its own record. */
     targets: typeof rosterTargets;
     /** `coverage(R)`: computes coverage without a browser. */
@@ -524,7 +583,7 @@ export interface RosterNamespace {
     /** `rest(R)`: computes the rest before and after a duty. */
     rest: typeof rosterRest;
     /** Declares the library's tabs. */
-    library: { people: typeof rosterPeopleTab; activities: typeof rosterActivitiesTab; tab: typeof rosterLibraryTab };
+    library: { people: typeof rosterPeopleTab; activities: typeof rosterActivitiesTab; patterns: typeof rosterPatternsTab; tab: typeof rosterLibraryTab };
     /** @deprecated Removed (#1368): the people are `resources={{ people: Schedule.resources(staff.read(), { name, icon, label, group, … }) }}`. */
     people: (...args: never[]) => never;
     /** @deprecated Removed (#1368): a card's `drop` returns `Schedule.patch(DutyRowType, { … })`, as Plan's tabs do. */
@@ -538,7 +597,8 @@ export interface RosterNamespace {
         CoverageLine: T.RosterCoverageLineType; Coverage: T.RosterCoverageType; Proposal: T.RosterProposalType; Fix: T.RosterFixType;
         Issue: T.RosterIssueType; CheckContext: typeof T.RosterCheckContextTypeFor; Need: T.RosterNeedType; FitRequest: typeof T.RosterFitRequestTypeFor;
         FitResult: T.RosterFitResultType; Fit: T.RosterFitType; Refusal: T.RosterRefusalType; PayRequest: typeof T.RosterPayRequestTypeFor;
-        Pay: T.RosterPayType; Layout: typeof RosterLayoutType; Period: typeof RosterPeriodType;
+        Pay: T.RosterPayType; Layout: typeof RosterLayoutType; Period: typeof RosterPeriodType; Pattern: T.RosterPatternType;
+        TileTimes: typeof RosterTileTimesType;
     };
 }
 
@@ -554,9 +614,10 @@ export const Roster: RosterNamespace = Object.assign(
     <R extends EastType>(props: RosterProps<R>): UIElement => RosterComponent.Root(createRosterPayload(props)),
     {
         shifts: rosterShifts, groups: rosterGroups, positions: rosterPositions, activities: rosterActivities, proposals: rosterProposals,
+        patterns: rosterPatterns,
         targets: rosterTargets, coverage: rosterCoverage, check: rosterCheck, fit: rosterFit, answer: rosterAnswer,
         weekHours: rosterWeekHours, rest: rosterRest,
-        library: { people: rosterPeopleTab, activities: rosterActivitiesTab, tab: rosterLibraryTab },
+        library: { people: rosterPeopleTab, activities: rosterActivitiesTab, patterns: rosterPatternsTab, tab: rosterLibraryTab },
         people: removed("Roster.people is gone — the people are resources={{ people: Schedule.resources(staff.read(), { name, icon, label, group, … }) }}"),
         patch: removed("Roster.patch is gone — a card's drop returns Schedule.patch(DutyRowType, { … }), the duty's own fields, as Plan's tabs do"),
         Types: {
@@ -567,7 +628,8 @@ export const Roster: RosterNamespace = Object.assign(
             CoverageLine: T.RosterCoverageLineType, Coverage: T.RosterCoverageType, Proposal: T.RosterProposalType, Fix: T.RosterFixType,
             Issue: T.RosterIssueType, CheckContext: T.RosterCheckContextTypeFor, Need: T.RosterNeedType, FitRequest: T.RosterFitRequestTypeFor,
             FitResult: T.RosterFitResultType, Fit: T.RosterFitType, Refusal: T.RosterRefusalType, PayRequest: T.RosterPayRequestTypeFor,
-            Pay: T.RosterPayType, Layout: RosterLayoutType, Period: RosterPeriodType,
+            Pay: T.RosterPayType, Layout: RosterLayoutType, Period: RosterPeriodType, Pattern: T.RosterPatternType,
+            TileTimes: RosterTileTimesType,
         },
     },
 );

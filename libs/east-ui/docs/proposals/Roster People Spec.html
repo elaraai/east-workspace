@@ -1,0 +1,3395 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roster People Spec</title>
+<!-- The hi-fi mock of the e3-ui Roster's People view by week and by month (libs/east-ui/docs/proposals/Roster People
+     Spec.md), from the Claude Design export "People · Week and Month": its people and groups are a warehouse's, every name
+     synthetic. Self-contained but for React 18 (unpkg, loaded by the design runtime), Font Awesome (cdnjs) and the fonts
+     (Google Fonts). URL parameters: period=week|month  week=<number, W1 is the week of 2 Jan 2028; 11 by default>
+     theme=dark|light  palette=example|time-of-day  density=comfortable|compact|condensed  times=always|different
+     letters=true|false. Opened from disk, the runtime's re-read of its own page is refused by the browser's file:// rule
+     and logged as a console error; the page works either way. -->
+
+<style>/* East — color tokens.
+ * Two layers:
+ *   1. Raw scales (--brand-*, --gray-*, accent hues) — NEVER use directly in components.
+ *   2. Semantic aliases — the ONLY colors components may reference:
+ *      --ink…--ink-5, --paper…--paper-3, --rule, --rule-strong, --brand, --brand-d,
+ *      --brand-dd, --brand-tint, --pos, --neg, --warn, --info, their text steps
+ *      --pos-text…--info-text, the sequential ramp --heat-1…--heat-5, and
+ *      --bg-inverse / --fg-inverse (Stamp and Tooltip only).
+ * The rest of the old page-level set (--bg-*, --fg-*, --border-*, --card-*, --link*,
+ * --brand-l) is DEPRECATED — see the last block of this file.
+ * Both themes resolve through the same semantic names; a component written
+ * against semantics works in dark mode for free. */
+
+:root {
+  /* ===== RAW: brand deep-teal scale ===== */
+  --brand-50:  #f0fffe;
+  --brand-100: #c2fcfc;
+  --brand-200: #94f9f9;
+  --brand-300: #79f8f8;
+  --brand-400: #5ce5e5;
+  --brand-500: #488e97;
+  --brand-600: #3a7780;
+  --brand-700: #2b4b55;
+  --brand-800: #1f363d;
+  --brand-900: #111b22;
+
+  /* ===== RAW: cool green-gray neutrals ===== */
+  --gray-50:  #f8fafa;
+  --gray-100: #f1f5f5;
+  --gray-200: #e2e8e8;
+  --gray-300: #cbd5d5;
+  --gray-400: #9bb0b0;
+  --gray-500: #6b8080;
+  --gray-600: #4a5f5f;
+  --gray-700: #374848;
+  --gray-800: #253333;
+  --gray-900: #1a2626;
+
+  /* ===== RAW: chart-only accent hues (see chart conventions) ===== */
+  --teal-500:   #14b8a6;
+  --purple-500: #8b5cf6;
+  --blue-500:   #3b82f6;
+  --green-500:  #22c55e;
+  --orange-500: #f97316;
+  --red-500:    #ef4444;
+  --yellow-500: #eab308;
+
+  /* ===== SEMANTIC: ink (text) scale, darkest → lightest ===== */
+  --ink:   #111b22;   /* primary text, headings */
+  --ink-2: #2b4b55;   /* strong secondary text */
+  --ink-3: #4a5f5f;   /* secondary text, ledes */
+  --ink-4: #5d7171;   /* labels, captions, annotations, placeholders — 5.2 / 4.9 / 4.7:1 on --paper / -2 / -3, 4.7:1 on --brand-tint */
+  --ink-5: #9bb0b0;   /* disabled text and icons, muted marks (the muted tone, 3rd stacked-column segment) — never readable text (2.3:1) */
+
+  /* ===== SEMANTIC: paper (surface) scale ===== */
+  --paper:   #ffffff; /* frames, rows, controls */
+  --paper-2: #f8fafa; /* page background, bands, sidebar, rail; hover on --paper */
+  --paper-3: #f1f5f5; /* wells, count chips; selected rows and cells; hover on --paper-2 */
+
+  /* ===== SEMANTIC: rules (borders are structural, never decorative) ===== */
+  --rule:        #e2e8e8;  /* 1px inside-card dividers */
+  --rule-strong: #cbd5d5;  /* frame edges, input and overlay borders */
+
+  /* ===== SEMANTIC: brand ===== */
+  --brand:      #488e97;  /* marks, dots */
+  --brand-d:    #3a7780;  /* interactive brand (buttons, links, checks) — text and ticks on it are --paper */
+  --brand-dd:   #2b4b55;  /* hover / pressed brand */
+  --brand-tint: #e8f6f7;  /* an active control or a dirty value — the ONLY tinted bg allowed; chart bands at 0.7 */
+
+  /* ===== SEMANTIC: valence (muted, never saturated) ===== */
+  /* base = dots, marks and 6% washes (≥ 3:1 on every paper);
+     -text = valence set as text: ≥ 4.5:1 on --paper, --paper-2, --paper-3 and
+     --brand-tint, and on its own 6% wash over each of them — so a DeltaPill
+     holds in a selected or dirty row */
+  --pos:  #2f7a5b;
+  --neg:  #b85a4a;
+  --warn: #b6842b;
+  --info: #416b9f;  /* its own blue hue, distinct from --brand-d */
+  --pos-text:  #2a7557;
+  --neg-text:  #a94c3e;
+  --warn-text: #8f6100;
+  --info-text: var(--info);  /* the base already passes: 4.6:1 on its wash over --brand-tint */
+
+  /* ===== SEMANTIC: page-level ===== */
+  --bg-inverse:   var(--brand-900);  /* Stamp and Tooltip fill only */
+  --fg-inverse:   #ffffff;           /* text on --bg-inverse */
+
+  /* ===== SEMANTIC: sequential ramp — heat cells and map areas, one measure's magnitude =====
+     Declared in both theme scopes so each step mixes that theme's --brand-d and --paper.
+     Value text --ink on 1–3, --paper on 4–5. */
+  --heat-1: color-mix(in oklch, var(--brand-d) 12%, var(--paper));
+  --heat-2: color-mix(in oklch, var(--brand-d) 32%, var(--paper));
+  --heat-3: color-mix(in oklch, var(--brand-d) 56%, var(--paper));
+  --heat-4: var(--brand-d);
+  --heat-5: var(--brand-dd);
+}
+
+/* ===== Dark theme — same semantic names, inverted values ===== */
+[data-theme="dark"], .dark {
+  --ink:   #f1f5f5;
+  --ink-2: #cfd9d9;
+  --ink-3: #aec3c3;
+  --ink-4: #96acac;   /* 6.5 / 5.5 / 4.6:1 on --paper / -2 / -3 */
+  --ink-5: #4a5f5f;
+
+  --paper:   #1a2626;
+  --paper-2: #253333;
+  --paper-3: #2e3f3f;   /* selected rows — every ink from --ink-4 up holds 4.5:1 on it */
+
+  --rule:        #374848;
+  --rule-strong: #4a5f5f;
+
+  --brand:      #488e97;
+  --brand-d:    #65b2bd;   /* interactive brand lifts one step in dark; 4.6:1 on --paper-3 */
+  --brand-dd:   #81ccd5;
+  --brand-tint: #1f363d;
+
+  --pos:  #4da583;
+  --neg:  #d98a7c;
+  --warn: #d4a74f;
+  --info: #7ca7df;
+  --pos-text:  #67bf9c;
+  --neg-text:  #eb9b8c;
+  --warn-text: #d7aa52;
+  --info-text: #87b3eb;
+
+  --bg-inverse:   #ffffff;
+  --fg-inverse:   var(--brand-900);
+
+  --heat-1: color-mix(in oklch, var(--brand-d) 12%, var(--paper));
+  --heat-2: color-mix(in oklch, var(--brand-d) 32%, var(--paper));
+  --heat-3: color-mix(in oklch, var(--brand-d) 56%, var(--paper));
+  --heat-4: var(--brand-d);
+  --heat-5: var(--brand-dd);
+}
+
+/* ===== DEPRECATED: duplicate page-level set =====
+ * Never use in new work. Each name is kept only as an alias of its
+ * replacement so older mocks still resolve, and is declared in both theme
+ * scopes so the alias follows the theme. */
+:root {
+  --bg-primary:    var(--paper);        /* use --paper */
+  --bg-secondary:  var(--paper-2);      /* use --paper-2 */
+  --bg-tertiary:   var(--paper-3);      /* use --paper-3 */
+  --fg-primary:    var(--ink);          /* use --ink */
+  --fg-secondary:  var(--ink-3);        /* use --ink-3 */
+  --fg-muted:      var(--ink-4);        /* use --ink-4 */
+  --border-subtle: var(--rule);         /* use --rule */
+  --border-strong: var(--rule-strong);  /* use --rule-strong */
+  --border-focus:  var(--brand);        /* use --shadow-focus */
+  --card-bg:       var(--paper);        /* use --paper */
+  --card-border:   var(--rule-strong);  /* use --rule-strong */
+  --link:          var(--brand-d);      /* use --brand-d */
+  --link-hover:    var(--brand-dd);     /* use --brand-dd */
+  --brand-l:       var(--brand-200);    /* no replacement */
+}
+[data-theme="dark"], .dark {
+  --bg-primary:    var(--paper);
+  --bg-secondary:  var(--paper-2);
+  --bg-tertiary:   var(--paper-3);
+  --fg-primary:    var(--ink);
+  --fg-secondary:  var(--ink-3);
+  --fg-muted:      var(--ink-4);
+  --border-subtle: var(--rule);
+  --border-strong: var(--rule-strong);
+  --border-focus:  var(--brand);
+  --card-bg:       var(--paper);
+  --card-border:   var(--rule-strong);
+  --link:          var(--brand-d);
+  --link-hover:    var(--brand-dd);
+}
+</style>
+<style>/* East — spacing, radii, shadow, and motion tokens. */
+:root {
+  /* spacing (4px base) — Main frames pad 20px, rail frames 12px, rows 12px
+     horizontal, internal gaps 8px. Never an off-scale px. */
+  --sp-0: 0; /* @kind spacing */ --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+  --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px; --sp-16: 64px; --sp-20: 80px;
+
+  /* radii — East is square-ish: chips, counts, NEW, DeltaPill and kbd 4px;
+     buttons, inputs, menus and popovers 6px; frames, dialogs, the Commit bar
+     and the Stamp 10px. Nothing pill-shaped: --r-full only on avatars/dots. */
+  --r-sm: 4px; --r-md: 6px; --r-lg: 10px; --r-full: 9999px;
+
+  /* shadows — the focus ring is the ONE allowed shadow: outside on controls,
+     inset on cells and rows. Nothing else is ever shadowed (frames, menus,
+     popovers, dialogs, the Commit bar); structure comes from 1px rules.
+     Light: 3px of --brand at 35%. Dark: 3px of --brand-d at 80%, which holds
+     3.5:1 on --paper-3 (the dark block below). */
+  --shadow-focus: 0 0 0 3px rgba(72, 142, 151, 0.35);
+  --shadow-focus-inset: inset 0 0 0 3px rgba(72, 142, 151, 0.35);
+  /* DEPRECATED — not allowed; kept only so older mocks resolve. */
+  --shadow-xs: 0 1px 2px rgba(17, 27, 34, 0.05);
+  --shadow-sm: 0 1px 2px rgba(17, 27, 34, 0.06), 0 1px 3px rgba(17, 27, 34, 0.08);
+  --shadow-md: 0 4px 6px -1px rgba(17, 27, 34, 0.08), 0 2px 4px -2px rgba(17, 27, 34, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(17, 27, 34, 0.10), 0 4px 6px -4px rgba(17, 27, 34, 0.08);
+  --shadow-xl: 0 20px 25px -5px rgba(17, 27, 34, 0.12), 0 8px 10px -6px rgba(17, 27, 34, 0.10);
+
+  /* motion — fast and matter-of-fact; no bounces. fast = hover/focus,
+     base = panels, banners, the Commit bar, slow = run pulse, diff settle.
+     --ease-out for everything that moves; --ease-in-out for state toggles only. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* @kind other */
+  --dur-fast: 120ms; /* @kind other */ --dur-base: 200ms; /* @kind other */ --dur-slow: 360ms; /* @kind other */
+}
+
+/* Dark: 35% of --brand disappears on the dark papers, so the ring takes the
+   lifted --brand-d at 80% — 4.6 / 4.0 / 3.5:1 on --paper / -2 / -3. */
+[data-theme="dark"], .dark {
+  --shadow-focus: 0 0 0 3px color-mix(in oklch, var(--brand-d) 80%, transparent);
+  --shadow-focus-inset: inset 0 0 0 3px color-mix(in oklch, var(--brand-d) 80%, transparent);
+}
+</style>
+<style>@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* East — typography tokens.
+ * Three families, three jobs:
+ *   --font-brand (DM Sans)      display: page, frame and dialog titles
+ *   --font-body  (Inter Tight)  running UI text
+ *   --font-mono  (JetBrains Mono) ALL numerals (tabular) incl. large numbers,
+ *                               labels/eyebrows, keys, statuses, kbd — the system's "data voice"
+ * JetBrains Mono loads italic 400 for the muted "no data" value, the only italic.
+ * DM Sans is a flagged substitution for the rounded geometric sans in the
+ * Elara lockup. All three load from Google Fonts. */
+/* latin-ext */
+/* latin */
+/* latin-ext */
+/* latin */
+/* latin-ext */
+/* latin */
+/* latin-ext */
+/* latin */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek-ext */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek-ext */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek-ext */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek-ext */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+
+
+:root {
+  --font-brand: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body:  'Inter Tight', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:  'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* sizes — only the sizes the guidelines use.
+     labels (mono): 9.5 annotation lines, section eyebrows · 10 eyebrows, table
+     headers, axis labels · 10.5 compact/condensed breadcrumb, legend · 11
+     breadcrumb, tabs, segmented control, tooltip, sidebar items */
+  --fs-label-xs: 9.5px; /* @kind font */ --fs-label-sm: 10px; /* @kind font */ --fs-label-md: 10.5px; /* @kind font */ --fs-label-lg: 11px; /* @kind font */
+  /* running text (Inter Tight): 12.5 buttons, captions · 13 body, table cells · 14 ledes */
+  --fs-body-sm: 12.5px; /* @kind font */ --fs-body: 13px; /* @kind font */ --fs-body-lg: 14px; /* @kind font */
+  /* titles (DM Sans): 15 empty state · 16 condensed bar · 18 compact bar, h3 · 20 dialog, h2 · 24 page, h1 */
+  --fs-title-xs: 15px; /* @kind font */ --fs-title-sm: 16px; /* @kind font */ --fs-title-md: 18px; /* @kind font */ --fs-title-lg: 20px; /* @kind font */ --fs-title-xl: 24px; /* @kind font */
+  /* large numbers (mono, tabular, 600): Stat values, data-rail cells */
+  --fs-num: 26px; /* @kind font */
+
+  --fw-light: 300; /* @kind font */ --fw-normal: 400; /* @kind font */ --fw-medium: 500; /* @kind font */
+  --fw-semibold: 600; /* @kind font */ --fw-bold: 700; /* @kind font */ --fw-extra: 800; /* @kind font */
+
+  --lh-tight: 1.25; /* @kind font */ --lh-snug: 1.375; /* @kind font */ --lh-normal: 1.5; /* @kind font */ --lh-relaxed: 1.625; /* @kind font */
+}
+</style>
+<style>/* East — base semantic element styles. */
+html, body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--paper-2);
+  font-feature-settings: "tnum" 1;
+  margin: 0;
+}
+
+[data-theme="dark"], .dark { color: var(--ink); } /* re-resolve inherited text colour inside a dark-scoped subtree */
+
+.h1, h1 { font-family: var(--font-brand); font-size: var(--fs-title-xl); font-weight: var(--fw-bold);     line-height: var(--lh-tight); letter-spacing: -0.02em;  color: var(--ink); }
+.h2, h2 { font-family: var(--font-brand); font-size: var(--fs-title-lg); font-weight: var(--fw-bold);     line-height: var(--lh-tight); letter-spacing: -0.015em; color: var(--ink); }
+.h3, h3 { font-family: var(--font-brand); font-size: var(--fs-title-md); font-weight: var(--fw-semibold); line-height: var(--lh-snug);  letter-spacing: -0.01em;  color: var(--ink); }
+.h4, h4 { font-family: var(--font-brand); font-size: var(--fs-title-sm); font-weight: var(--fw-semibold); line-height: var(--lh-snug);  letter-spacing: -0.01em;  color: var(--ink); }
+.h5, h5 { font-family: var(--font-brand); font-size: var(--fs-title-xs); font-weight: var(--fw-bold);     line-height: var(--lh-snug);  letter-spacing: -0.01em;  color: var(--ink); }
+.h6, h6 { font-family: var(--font-body);  font-size: var(--fs-body-lg);  font-weight: var(--fw-semibold); line-height: var(--lh-normal); color: var(--ink); }
+
+.p, p    { font-size: var(--fs-body);    line-height: var(--lh-relaxed); color: var(--ink); }
+.lead    { font-size: var(--fs-body-lg); line-height: var(--lh-relaxed); color: var(--ink-3); }
+.small   { font-size: var(--fs-body-sm); line-height: var(--lh-normal);  color: var(--ink-3); }
+.caption { font-size: var(--fs-body-sm); line-height: var(--lh-normal);  color: var(--ink-4); letter-spacing: 0.02em; }
+.eyebrow { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: var(--fw-semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
+.mono    { font-family: var(--font-mono); font-feature-settings: "tnum" 1; }
+.num     { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: var(--fw-medium); }
+.num-lg  { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-num); font-weight: var(--fw-semibold); line-height: 1; }
+.code, code { font-family: var(--font-mono); font-size: 0.92em; background: var(--paper-3); padding: 1px 5px; border-radius: var(--r-sm); color: var(--ink); }
+
+a       { color: var(--brand-d); text-decoration: none; }
+a:hover { color: var(--brand-dd); text-decoration: underline; text-underline-offset: 2px; }
+</style>
+<style>/* East — color tokens.
+ * Two layers:
+ *   1. Raw scales (--brand-*, --gray-*, accent hues) — NEVER use directly in components.
+ *   2. Semantic aliases — the ONLY colors components may reference:
+ *      --ink…--ink-5, --paper…--paper-3, --rule, --rule-strong, --brand, --brand-d,
+ *      --brand-dd, --brand-tint, --pos, --neg, --warn, --info, their text steps
+ *      --pos-text…--info-text, the sequential ramp --heat-1…--heat-5, and
+ *      --bg-inverse / --fg-inverse (Stamp and Tooltip only).
+ * The rest of the old page-level set (--bg-*, --fg-*, --border-*, --card-*, --link*,
+ * --brand-l) is DEPRECATED — see the last block of this file.
+ * Both themes resolve through the same semantic names; a component written
+ * against semantics works in dark mode for free. */
+
+:root {
+  /* ===== RAW: brand deep-teal scale ===== */
+  --brand-50:  #f0fffe;
+  --brand-100: #c2fcfc;
+  --brand-200: #94f9f9;
+  --brand-300: #79f8f8;
+  --brand-400: #5ce5e5;
+  --brand-500: #488e97;
+  --brand-600: #3a7780;
+  --brand-700: #2b4b55;
+  --brand-800: #1f363d;
+  --brand-900: #111b22;
+
+  /* ===== RAW: cool green-gray neutrals ===== */
+  --gray-50:  #f8fafa;
+  --gray-100: #f1f5f5;
+  --gray-200: #e2e8e8;
+  --gray-300: #cbd5d5;
+  --gray-400: #9bb0b0;
+  --gray-500: #6b8080;
+  --gray-600: #4a5f5f;
+  --gray-700: #374848;
+  --gray-800: #253333;
+  --gray-900: #1a2626;
+
+  /* ===== RAW: chart-only accent hues (see chart conventions) ===== */
+  --teal-500:   #14b8a6;
+  --purple-500: #8b5cf6;
+  --blue-500:   #3b82f6;
+  --green-500:  #22c55e;
+  --orange-500: #f97316;
+  --red-500:    #ef4444;
+  --yellow-500: #eab308;
+
+  /* ===== SEMANTIC: ink (text) scale, darkest → lightest ===== */
+  --ink:   #111b22;   /* primary text, headings */
+  --ink-2: #2b4b55;   /* strong secondary text */
+  --ink-3: #4a5f5f;   /* secondary text, ledes */
+  --ink-4: #5d7171;   /* labels, captions, annotations, placeholders — 5.2 / 4.9 / 4.7:1 on --paper / -2 / -3, 4.7:1 on --brand-tint */
+  --ink-5: #9bb0b0;   /* disabled text and icons, muted marks (the muted tone, 3rd stacked-column segment) — never readable text (2.3:1) */
+
+  /* ===== SEMANTIC: paper (surface) scale ===== */
+  --paper:   #ffffff; /* frames, rows, controls */
+  --paper-2: #f8fafa; /* page background, bands, sidebar, rail; hover on --paper */
+  --paper-3: #f1f5f5; /* wells, count chips; selected rows and cells; hover on --paper-2 */
+
+  /* ===== SEMANTIC: rules (borders are structural, never decorative) ===== */
+  --rule:        #e2e8e8;  /* 1px inside-card dividers */
+  --rule-strong: #cbd5d5;  /* frame edges, input and overlay borders */
+
+  /* ===== SEMANTIC: brand ===== */
+  --brand:      #488e97;  /* marks, dots */
+  --brand-d:    #3a7780;  /* interactive brand (buttons, links, checks) — text and ticks on it are --paper */
+  --brand-dd:   #2b4b55;  /* hover / pressed brand */
+  --brand-tint: #e8f6f7;  /* an active control or a dirty value — the ONLY tinted bg allowed; chart bands at 0.7 */
+
+  /* ===== SEMANTIC: valence (muted, never saturated) ===== */
+  /* base = dots, marks and 6% washes (≥ 3:1 on every paper);
+     -text = valence set as text: ≥ 4.5:1 on --paper, --paper-2, --paper-3 and
+     --brand-tint, and on its own 6% wash over each of them — so a DeltaPill
+     holds in a selected or dirty row */
+  --pos:  #2f7a5b;
+  --neg:  #b85a4a;
+  --warn: #b6842b;
+  --info: #416b9f;  /* its own blue hue, distinct from --brand-d */
+  --pos-text:  #2a7557;
+  --neg-text:  #a94c3e;
+  --warn-text: #8f6100;
+  --info-text: var(--info);  /* the base already passes: 4.6:1 on its wash over --brand-tint */
+
+  /* ===== SEMANTIC: page-level ===== */
+  --bg-inverse:   var(--brand-900);  /* Stamp and Tooltip fill only */
+  --fg-inverse:   #ffffff;           /* text on --bg-inverse */
+
+  /* ===== SEMANTIC: sequential ramp — heat cells and map areas, one measure's magnitude =====
+     Declared in both theme scopes so each step mixes that theme's --brand-d and --paper.
+     Value text --ink on 1–3, --paper on 4–5. */
+  --heat-1: color-mix(in oklch, var(--brand-d) 12%, var(--paper));
+  --heat-2: color-mix(in oklch, var(--brand-d) 32%, var(--paper));
+  --heat-3: color-mix(in oklch, var(--brand-d) 56%, var(--paper));
+  --heat-4: var(--brand-d);
+  --heat-5: var(--brand-dd);
+}
+
+/* ===== Dark theme — same semantic names, inverted values ===== */
+[data-theme="dark"], .dark {
+  --ink:   #f1f5f5;
+  --ink-2: #cfd9d9;
+  --ink-3: #aec3c3;
+  --ink-4: #96acac;   /* 6.5 / 5.5 / 4.6:1 on --paper / -2 / -3 */
+  --ink-5: #4a5f5f;
+
+  --paper:   #1a2626;
+  --paper-2: #253333;
+  --paper-3: #2e3f3f;   /* selected rows — every ink from --ink-4 up holds 4.5:1 on it */
+
+  --rule:        #374848;
+  --rule-strong: #4a5f5f;
+
+  --brand:      #488e97;
+  --brand-d:    #65b2bd;   /* interactive brand lifts one step in dark; 4.6:1 on --paper-3 */
+  --brand-dd:   #81ccd5;
+  --brand-tint: #1f363d;
+
+  --pos:  #4da583;
+  --neg:  #d98a7c;
+  --warn: #d4a74f;
+  --info: #7ca7df;
+  --pos-text:  #67bf9c;
+  --neg-text:  #eb9b8c;
+  --warn-text: #d7aa52;
+  --info-text: #87b3eb;
+
+  --bg-inverse:   #ffffff;
+  --fg-inverse:   var(--brand-900);
+
+  --heat-1: color-mix(in oklch, var(--brand-d) 12%, var(--paper));
+  --heat-2: color-mix(in oklch, var(--brand-d) 32%, var(--paper));
+  --heat-3: color-mix(in oklch, var(--brand-d) 56%, var(--paper));
+  --heat-4: var(--brand-d);
+  --heat-5: var(--brand-dd);
+}
+
+/* ===== DEPRECATED: duplicate page-level set =====
+ * Never use in new work. Each name is kept only as an alias of its
+ * replacement so older mocks still resolve, and is declared in both theme
+ * scopes so the alias follows the theme. */
+:root {
+  --bg-primary:    var(--paper);        /* use --paper */
+  --bg-secondary:  var(--paper-2);      /* use --paper-2 */
+  --bg-tertiary:   var(--paper-3);      /* use --paper-3 */
+  --fg-primary:    var(--ink);          /* use --ink */
+  --fg-secondary:  var(--ink-3);        /* use --ink-3 */
+  --fg-muted:      var(--ink-4);        /* use --ink-4 */
+  --border-subtle: var(--rule);         /* use --rule */
+  --border-strong: var(--rule-strong);  /* use --rule-strong */
+  --border-focus:  var(--brand);        /* use --shadow-focus */
+  --card-bg:       var(--paper);        /* use --paper */
+  --card-border:   var(--rule-strong);  /* use --rule-strong */
+  --link:          var(--brand-d);      /* use --brand-d */
+  --link-hover:    var(--brand-dd);     /* use --brand-dd */
+  --brand-l:       var(--brand-200);    /* no replacement */
+}
+[data-theme="dark"], .dark {
+  --bg-primary:    var(--paper);
+  --bg-secondary:  var(--paper-2);
+  --bg-tertiary:   var(--paper-3);
+  --fg-primary:    var(--ink);
+  --fg-secondary:  var(--ink-3);
+  --fg-muted:      var(--ink-4);
+  --border-subtle: var(--rule);
+  --border-strong: var(--rule-strong);
+  --border-focus:  var(--brand);
+  --card-bg:       var(--paper);
+  --card-border:   var(--rule-strong);
+  --link:          var(--brand-d);
+  --link-hover:    var(--brand-dd);
+}
+
+/* East — spacing, radii, shadow, and motion tokens. */
+:root {
+  /* spacing (4px base) — Main frames pad 20px, rail frames 12px, rows 12px
+     horizontal, internal gaps 8px. Never an off-scale px. */
+  --sp-0: 0; /* @kind spacing */ --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+  --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px; --sp-16: 64px; --sp-20: 80px;
+
+  /* radii — East is square-ish: chips, counts, NEW, DeltaPill and kbd 4px;
+     buttons, inputs, menus and popovers 6px; frames, dialogs, the Commit bar
+     and the Stamp 10px. Nothing pill-shaped: --r-full only on avatars/dots. */
+  --r-sm: 4px; --r-md: 6px; --r-lg: 10px; --r-full: 9999px;
+
+  /* shadows — the focus ring is the ONE allowed shadow: outside on controls,
+     inset on cells and rows. Nothing else is ever shadowed (frames, menus,
+     popovers, dialogs, the Commit bar); structure comes from 1px rules.
+     Light: 3px of --brand at 35%. Dark: 3px of --brand-d at 80%, which holds
+     3.5:1 on --paper-3 (the dark block below). */
+  --shadow-focus: 0 0 0 3px rgba(72, 142, 151, 0.35);
+  --shadow-focus-inset: inset 0 0 0 3px rgba(72, 142, 151, 0.35);
+  /* DEPRECATED — not allowed; kept only so older mocks resolve. */
+  --shadow-xs: 0 1px 2px rgba(17, 27, 34, 0.05);
+  --shadow-sm: 0 1px 2px rgba(17, 27, 34, 0.06), 0 1px 3px rgba(17, 27, 34, 0.08);
+  --shadow-md: 0 4px 6px -1px rgba(17, 27, 34, 0.08), 0 2px 4px -2px rgba(17, 27, 34, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(17, 27, 34, 0.10), 0 4px 6px -4px rgba(17, 27, 34, 0.08);
+  --shadow-xl: 0 20px 25px -5px rgba(17, 27, 34, 0.12), 0 8px 10px -6px rgba(17, 27, 34, 0.10);
+
+  /* motion — fast and matter-of-fact; no bounces. fast = hover/focus,
+     base = panels, banners, the Commit bar, slow = run pulse, diff settle.
+     --ease-out for everything that moves; --ease-in-out for state toggles only. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* @kind other */
+  --dur-fast: 120ms; /* @kind other */ --dur-base: 200ms; /* @kind other */ --dur-slow: 360ms; /* @kind other */
+}
+
+/* Dark: 35% of --brand disappears on the dark papers, so the ring takes the
+   lifted --brand-d at 80% — 4.6 / 4.0 / 3.5:1 on --paper / -2 / -3. */
+[data-theme="dark"], .dark {
+  --shadow-focus: 0 0 0 3px color-mix(in oklch, var(--brand-d) 80%, transparent);
+  --shadow-focus-inset: inset 0 0 0 3px color-mix(in oklch, var(--brand-d) 80%, transparent);
+}
+
+/* East — typography tokens.
+ * Three families, three jobs:
+ *   --font-brand (DM Sans)      display: page, frame and dialog titles
+ *   --font-body  (Inter Tight)  running UI text
+ *   --font-mono  (JetBrains Mono) ALL numerals (tabular) incl. large numbers,
+ *                               labels/eyebrows, keys, statuses, kbd — the system's "data voice"
+ * JetBrains Mono loads italic 400 for the muted "no data" value, the only italic.
+ * DM Sans is a flagged substitution for the rounded geometric sans in the
+ * Elara lockup. All three load from Google Fonts. */
+/* latin-ext */
+/* latin */
+/* latin-ext */
+/* latin */
+/* latin-ext */
+/* latin */
+/* latin-ext */
+/* latin */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek-ext */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek-ext */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek-ext */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek-ext */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+/* cyrillic-ext */
+/* cyrillic */
+/* greek */
+/* vietnamese */
+/* latin-ext */
+/* latin */
+
+
+:root {
+  --font-brand: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body:  'Inter Tight', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:  'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* sizes — only the sizes the guidelines use.
+     labels (mono): 9.5 annotation lines, section eyebrows · 10 eyebrows, table
+     headers, axis labels · 10.5 compact/condensed breadcrumb, legend · 11
+     breadcrumb, tabs, segmented control, tooltip, sidebar items */
+  --fs-label-xs: 9.5px; /* @kind font */ --fs-label-sm: 10px; /* @kind font */ --fs-label-md: 10.5px; /* @kind font */ --fs-label-lg: 11px; /* @kind font */
+  /* running text (Inter Tight): 12.5 buttons, captions · 13 body, table cells · 14 ledes */
+  --fs-body-sm: 12.5px; /* @kind font */ --fs-body: 13px; /* @kind font */ --fs-body-lg: 14px; /* @kind font */
+  /* titles (DM Sans): 15 empty state · 16 condensed bar · 18 compact bar, h3 · 20 dialog, h2 · 24 page, h1 */
+  --fs-title-xs: 15px; /* @kind font */ --fs-title-sm: 16px; /* @kind font */ --fs-title-md: 18px; /* @kind font */ --fs-title-lg: 20px; /* @kind font */ --fs-title-xl: 24px; /* @kind font */
+  /* large numbers (mono, tabular, 600): Stat values, data-rail cells */
+  --fs-num: 26px; /* @kind font */
+
+  --fw-light: 300; /* @kind font */ --fw-normal: 400; /* @kind font */ --fw-medium: 500; /* @kind font */
+  --fw-semibold: 600; /* @kind font */ --fw-bold: 700; /* @kind font */ --fw-extra: 800; /* @kind font */
+
+  --lh-tight: 1.25; /* @kind font */ --lh-snug: 1.375; /* @kind font */ --lh-normal: 1.5; /* @kind font */ --lh-relaxed: 1.625; /* @kind font */
+}
+
+/* East — base semantic element styles. */
+html, body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--paper-2);
+  font-feature-settings: "tnum" 1;
+  margin: 0;
+}
+
+[data-theme="dark"], .dark { color: var(--ink); } /* re-resolve inherited text colour inside a dark-scoped subtree */
+
+.h1, h1 { font-family: var(--font-brand); font-size: var(--fs-title-xl); font-weight: var(--fw-bold);     line-height: var(--lh-tight); letter-spacing: -0.02em;  color: var(--ink); }
+.h2, h2 { font-family: var(--font-brand); font-size: var(--fs-title-lg); font-weight: var(--fw-bold);     line-height: var(--lh-tight); letter-spacing: -0.015em; color: var(--ink); }
+.h3, h3 { font-family: var(--font-brand); font-size: var(--fs-title-md); font-weight: var(--fw-semibold); line-height: var(--lh-snug);  letter-spacing: -0.01em;  color: var(--ink); }
+.h4, h4 { font-family: var(--font-brand); font-size: var(--fs-title-sm); font-weight: var(--fw-semibold); line-height: var(--lh-snug);  letter-spacing: -0.01em;  color: var(--ink); }
+.h5, h5 { font-family: var(--font-brand); font-size: var(--fs-title-xs); font-weight: var(--fw-bold);     line-height: var(--lh-snug);  letter-spacing: -0.01em;  color: var(--ink); }
+.h6, h6 { font-family: var(--font-body);  font-size: var(--fs-body-lg);  font-weight: var(--fw-semibold); line-height: var(--lh-normal); color: var(--ink); }
+
+.p, p    { font-size: var(--fs-body);    line-height: var(--lh-relaxed); color: var(--ink); }
+.lead    { font-size: var(--fs-body-lg); line-height: var(--lh-relaxed); color: var(--ink-3); }
+.small   { font-size: var(--fs-body-sm); line-height: var(--lh-normal);  color: var(--ink-3); }
+.caption { font-size: var(--fs-body-sm); line-height: var(--lh-normal);  color: var(--ink-4); letter-spacing: 0.02em; }
+.eyebrow { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: var(--fw-semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
+.mono    { font-family: var(--font-mono); font-feature-settings: "tnum" 1; }
+.num     { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: var(--fw-medium); }
+.num-lg  { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-num); font-weight: var(--fw-semibold); line-height: 1; }
+.code, code { font-family: var(--font-mono); font-size: 0.92em; background: var(--paper-3); padding: 1px 5px; border-radius: var(--r-sm); color: var(--ink); }
+
+a       { color: var(--brand-d); text-decoration: none; }
+a:hover { color: var(--brand-dd); text-decoration: underline; text-underline-offset: 2px; }
+
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+
+
+<script>
+// GENERATED from dc-runtime/src/*.ts — do not edit. Rebuild with `cd dc-runtime && bun run build`.
+"use strict";
+(() => {
+  var __defProp = Object.defineProperty;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+
+  // src/react.ts
+  function getReact() {
+    const R = window.React;
+    if (!R) throw new Error("dc-runtime: window.React is not available yet");
+    return R;
+  }
+  function getReactDOM() {
+    const RD = window.ReactDOM;
+    if (!RD) throw new Error("dc-runtime: window.ReactDOM is not available yet");
+    return RD;
+  }
+  var h = ((...args) => getReact().createElement(
+    ...args
+  ));
+
+  // src/parse.ts
+  function parseDcDocument(doc) {
+    const dc = doc.querySelector("x-dc");
+    if (!dc) return null;
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template: dc.innerHTML,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDcText(src) {
+    const openMatch = /<x-dc(?:\s[^>]*)?>/.exec(src);
+    if (!openMatch) return null;
+    const close = src.lastIndexOf("</x-dc>");
+    if (close === -1 || close < openMatch.index) return null;
+    const template = src.slice(openMatch.index + openMatch[0].length, close);
+    const doc = new DOMParser().parseFromString(src, "text/html");
+    const scriptEl = doc.querySelector("script[data-dc-script]");
+    const { props, preview } = parseDataProps(
+      scriptEl?.getAttribute("data-props") ?? null
+    );
+    return {
+      template,
+      js: scriptEl ? scriptEl.textContent || "" : "",
+      props,
+      preview
+    };
+  }
+  function parseDataProps(raw) {
+    if (!raw) return { props: null, preview: null };
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { props: null, preview: null };
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { props: null, preview: null };
+    }
+    const obj = parsed;
+    const preview = obj.$preview && typeof obj.$preview === "object" ? obj.$preview : null;
+    const rest = {};
+    for (const k of Object.keys(obj)) {
+      if (k[0] !== "$") rest[k] = obj[k];
+    }
+    return { props: Object.keys(rest).length ? rest : null, preview };
+  }
+  function dcNameFromPath(pathname) {
+    let p = pathname || "";
+    try {
+      p = decodeURIComponent(p);
+    } catch {
+    }
+    const base = p.split("/").pop() || "Root";
+    return base.replace(/\.dc\.html$/, "").replace(/\.html?$/, "") || "Root";
+  }
+
+  // src/boot.ts
+  var BASE_CSS = `
+    .sc-placeholder{background:color-mix(in srgb,currentColor 8%,transparent);
+      border:1px solid color-mix(in srgb,currentColor 50%,transparent);
+      border-radius:2px;box-sizing:border-box;overflow:hidden}
+    @keyframes sc-shine{0%{background-position:100% 50%}100%{background-position:0% 50%}}
+    html.sc-dc-streaming .sc-placeholder,
+    html.sc-dc-streaming .sc-interp.sc-missing{position:relative;
+      background:color-mix(in srgb,currentColor 5%,transparent);
+      border-color:transparent}
+    html.sc-dc-streaming .sc-placeholder::before,
+    html.sc-dc-streaming .sc-interp.sc-missing::before{content:'';
+      position:absolute;inset:0;pointer-events:none;
+      background:linear-gradient(90deg,rgba(217,119,87,0) 25%,rgba(247,225,211,.95) 37%,rgba(217,119,87,0) 63%);
+      background-size:400% 100%;animation:sc-shine 1.4s ease infinite}
+    html.sc-dc-streaming .sc-placeholder:nth-child(n+9 of .sc-placeholder)::before,
+    html.sc-dc-streaming .sc-interp.sc-missing:nth-child(n+9 of .sc-interp.sc-missing)::before{animation:none;
+      background:color-mix(in srgb,currentColor 8%,transparent)}
+    .sc-placeholder-error{padding:4px 8px;font:11px/1.4 ui-monospace,monospace;
+      color:color-mix(in srgb,currentColor 70%,transparent);word-break:break-word}
+    .sc-interp.sc-missing{display:inline-block;width:2em;height:1em;overflow:hidden;
+      vertical-align:text-bottom;background:rgba(255,255,255,.3);border:1px solid rgba(0,0,0,.5);
+      border-radius:2px;box-sizing:border-box;color:transparent;
+      user-select:none}
+    .sc-interp.sc-unresolved{font-family:ui-monospace,monospace;font-size:.85em;
+      color:color-mix(in srgb,currentColor 50%,transparent);
+      background:color-mix(in srgb,currentColor 10%,transparent);border-radius:3px;
+      padding:0 3px}
+    .sc-host.sc-has-error{position:relative}
+    .sc-logic-error{position:absolute;top:8px;left:8px;z-index:2147483647;max-width:60ch;
+      padding:6px 10px;background:#b00020;color:#fff;font:12px/1.4 ui-monospace,monospace;
+      border-radius:4px;white-space:pre-wrap;pointer-events:none}
+    /* Mirrors PRINT_BASELINE_CSS in apps/web deck-stage-export.ts \u2014 keep both
+       in sync until dc-runtime regains a build step. */
+    @media print {
+      @page { margin: 0.5cm; }
+      figure, table { break-inside: avoid; }
+      #dc-root, #dc-root > .sc-host { height: auto; }
+      *, *::before, *::after {
+        print-color-adjust: exact; -webkit-print-color-adjust: exact;
+        backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+        animation-delay: -99s !important; animation-duration: .001s !important;
+        animation-iteration-count: 1 !important; animation-fill-mode: both !important;
+        animation-play-state: running !important; transition-duration: 0s !important;
+      }
+    }
+  `;
+  var FULL_PAGE_CSS = "html,body{height:100%;margin:0}#dc-root,#dc-root>.sc-host{height:100%}";
+  function rootNameForDocument(doc, loc) {
+    let bootPath = loc.pathname || "";
+    if (!/\.dc\.html?$/i.test(safeDecode(bootPath))) {
+      try {
+        bootPath = new URL(doc.baseURI || "/").pathname;
+      } catch {
+      }
+    }
+    return dcNameFromPath(bootPath);
+  }
+  function safeDecode(s) {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  }
+  function boot(runtime, doc = document) {
+    const parsed = parseDcDocument(doc);
+    if (!parsed) return null;
+    const React = getReact();
+    const rootName = rootNameForDocument(doc, location);
+    runtime.markFetched(rootName);
+    runtime.setRootName(rootName);
+    runtime.adoptParsed(rootName, parsed);
+    if (!window.__resources) {
+      fetch(location.href).then((res) => res.ok ? res.text() : "").then((t) => {
+        const raw = t ? parseDcText(t) : null;
+        if (raw?.template) runtime.updateHtml(rootName, raw.template);
+      }).catch(() => {
+      });
+    }
+    const dc = doc.querySelector("x-dc");
+    const hostEl = doc.createElement("div");
+    hostEl.id = "dc-root";
+    dc.replaceWith(hostEl);
+    if (!parsed.preview) {
+      const s = doc.createElement("style");
+      s.textContent = FULL_PAGE_CSS;
+      doc.head.appendChild(s);
+    }
+    const Root = runtime.getDC(rootName);
+    const entry = runtime.registry.get(rootName);
+    function StandaloneRoot() {
+      const [, setTick] = React.useState(0);
+      React.useEffect(() => {
+        const sub = () => setTick((n) => n + 1);
+        entry.subs.add(sub);
+        return () => {
+          entry.subs.delete(sub);
+        };
+      }, []);
+      const defaults = React.useMemo(() => {
+        const d = {};
+        for (const k in entry.propsMeta || {}) {
+          const v = entry.propsMeta?.[k]?.default;
+          if (v !== void 0) d[k] = v;
+        }
+        return d;
+      }, [entry.propsMeta]);
+      return h(Root, { ...defaults, ...entry.propOverrides || {} });
+    }
+    const ReactDOM = getReactDOM();
+    if (ReactDOM.createRoot)
+      ReactDOM.createRoot(hostEl).render(h(StandaloneRoot));
+    else ReactDOM.render(h(StandaloneRoot), hostEl);
+    return rootName;
+  }
+
+  // src/expr.ts
+  var IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*/;
+  var NUMBER_RE = /^-?\d+(\.\d+)?$/;
+  function resolve(vals, src) {
+    const expr = String(src).trim();
+    if (!expr) return void 0;
+    if (expr[0] === "(" && expr[expr.length - 1] === ")" && parensWrapWhole(expr)) {
+      return resolve(vals, expr.slice(1, -1));
+    }
+    const eq = findTopLevelEquality(expr);
+    if (eq) {
+      const lv = resolve(vals, expr.slice(0, eq.index));
+      const rv = resolve(vals, expr.slice(eq.index + eq.op.length));
+      switch (eq.op) {
+        case "===":
+          return lv === rv;
+        case "!==":
+          return lv !== rv;
+        case "==":
+          return lv == rv;
+        default:
+          return lv != rv;
+      }
+    }
+    if (expr[0] === "!") return !resolve(vals, expr.slice(1));
+    if (expr === "true") return true;
+    if (expr === "false") return false;
+    if (expr === "null") return null;
+    if (expr === "undefined") return void 0;
+    if (NUMBER_RE.test(expr)) return Number(expr);
+    if (expr.length >= 2 && (expr[0] === '"' || expr[0] === "'") && expr[expr.length - 1] === expr[0]) {
+      return expr.slice(1, -1);
+    }
+    return resolvePath(vals, expr);
+  }
+  function parensWrapWhole(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length - 1; i++) {
+      if (expr[i] === "(") depth++;
+      else if (expr[i] === ")") {
+        depth--;
+        if (depth === 0) return false;
+      }
+    }
+    return true;
+  }
+  function findTopLevelEquality(expr) {
+    let depth = 0;
+    for (let i = 0; i < expr.length; i++) {
+      const c = expr[i];
+      if (c === "[" || c === "(") depth++;
+      else if (c === "]" || c === ")") depth--;
+      else if (depth === 0 && (c === "=" || c === "!") && expr[i + 1] === "=") {
+        if (i > 0 && (expr[i - 1] === "=" || expr[i - 1] === "!")) continue;
+        if (!expr.slice(0, i).trim()) continue;
+        const op = expr[i + 2] === "=" ? c + "==" : c + "=";
+        return { index: i, op };
+      }
+    }
+    return null;
+  }
+  function resolvePath(vals, expr) {
+    const head = expr.match(IDENT_RE);
+    if (!head) return void 0;
+    let cur = vals == null ? void 0 : vals[head[0]];
+    let i = head[0].length;
+    while (i < expr.length) {
+      if (expr[i] === ".") {
+        const m = expr.slice(i + 1).match(IDENT_RE) || expr.slice(i + 1).match(/^\d+/);
+        if (!m) return void 0;
+        cur = cur == null ? void 0 : cur[m[0]];
+        i += 1 + m[0].length;
+      } else if (expr[i] === "[") {
+        let depth = 1;
+        let j = i + 1;
+        while (j < expr.length && depth > 0) {
+          if (expr[j] === "[") depth++;
+          else if (expr[j] === "]") {
+            depth--;
+            if (depth === 0) break;
+          }
+          j++;
+        }
+        if (depth !== 0) return void 0;
+        const key = resolve(vals, expr.slice(i + 1, j));
+        cur = cur == null ? void 0 : cur[key];
+        i = j + 1;
+      } else {
+        return void 0;
+      }
+    }
+    return cur;
+  }
+
+  // src/encode.ts
+  var CAMEL_ATTR = "sc-camel-";
+  var INLINE_TEXT_TAGS = new Set(
+    "a abbr b bdi bdo br cite code del dfn em i ins kbd mark q s samp small span strike strong sub sup u var wbr".split(
+      " "
+    )
+  );
+  var RAW_WRAP = {
+    select: "sc-raw-select",
+    table: "sc-raw-table",
+    tbody: "sc-raw-tbody",
+    thead: "sc-raw-thead",
+    tfoot: "sc-raw-tfoot",
+    tr: "sc-raw-tr",
+    td: "sc-raw-td",
+    th: "sc-raw-th",
+    caption: "sc-raw-caption"
+  };
+  var RAW_UNWRAP = Object.fromEntries(
+    Object.entries(RAW_WRAP).map(([k, v]) => [v, k])
+  );
+  var EVENT_MAP = {
+    onclick: "onClick",
+    onchange: "onChange",
+    oninput: "onInput",
+    onsubmit: "onSubmit",
+    onkeydown: "onKeyDown",
+    onkeyup: "onKeyUp",
+    onkeypress: "onKeyPress",
+    onmousedown: "onMouseDown",
+    onmouseup: "onMouseUp",
+    onmouseenter: "onMouseEnter",
+    onmouseleave: "onMouseLeave",
+    onfocus: "onFocus",
+    onblur: "onBlur",
+    ondoubleclick: "onDoubleClick",
+    oncontextmenu: "onContextMenu",
+    onmousemove: "onMouseMove",
+    onmouseover: "onMouseOver",
+    onmouseout: "onMouseOut",
+    onpointerdown: "onPointerDown",
+    onpointerup: "onPointerUp",
+    onpointermove: "onPointerMove",
+    onpointerenter: "onPointerEnter",
+    onpointerleave: "onPointerLeave",
+    onpointercancel: "onPointerCancel",
+    onpointerover: "onPointerOver",
+    onpointerout: "onPointerOut",
+    ongotpointercapture: "onGotPointerCapture",
+    onlostpointercapture: "onLostPointerCapture",
+    ontouchstart: "onTouchStart",
+    ontouchend: "onTouchEnd",
+    ontouchmove: "onTouchMove",
+    ontouchcancel: "onTouchCancel",
+    ondragstart: "onDragStart",
+    ondragend: "onDragEnd",
+    ondragenter: "onDragEnter",
+    ondragleave: "onDragLeave",
+    ondragover: "onDragOver",
+    onanimationstart: "onAnimationStart",
+    onanimationend: "onAnimationEnd",
+    onanimationiteration: "onAnimationIteration",
+    ontransitionend: "onTransitionEnd"
+  };
+  var ATTRS = `(?:[^>"']|"[^"]*"|'[^']*')*`;
+  var IMPORT_SELF_CLOSE_RE = new RegExp(
+    "<(x-import|dc-import)(" + ATTRS + ")/>",
+    "gi"
+  );
+  var CAMEL_ATTR_RE = /(\s)([a-z]+[A-Z][A-Za-z0-9]*)(\s*=)/g;
+  function encodeCamelAttrs(html) {
+    return html.replace(
+      CAMEL_ATTR_RE,
+      (_, sp, name, eq) => sp + CAMEL_ATTR + name.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase()) + eq
+    );
+  }
+  function encodeCase(html) {
+    html = html.replace(
+      IMPORT_SELF_CLOSE_RE,
+      (_, t, a) => "<" + t + a + "></" + t + ">"
+    );
+    html = html.replace(/<helmet(\s|>)/gi, "<sc-helmet$1");
+    html = html.replace(/<\/helmet\s*>/gi, "</sc-helmet>");
+    html = encodeCamelAttrs(html);
+    for (const [real, alias] of Object.entries(RAW_WRAP)) {
+      html = html.replace(
+        new RegExp("(</?)" + real + "(?=[\\s>])", "gi"),
+        "$1" + alias
+      );
+    }
+    return html;
+  }
+  function kebabToCamel(s) {
+    return s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  }
+  function cssToObj(css) {
+    const o = {};
+    for (const decl of css.split(";")) {
+      const i = decl.indexOf(":");
+      if (i < 0) continue;
+      const prop = decl.slice(0, i).trim();
+      o[prop.startsWith("--") ? prop : kebabToCamel(prop)] = decl.slice(i + 1).trim();
+    }
+    return o;
+  }
+  function compileAttr(raw) {
+    const whole = raw.match(/^\s*\{\{([\s\S]+?)\}\}\s*$/);
+    if (whole) {
+      const path = whole[1];
+      return (vals) => resolve(vals, path);
+    }
+    if (raw.includes("{{")) {
+      const parts = raw.split(/\{\{([\s\S]+?)\}\}/g);
+      return (vals) => parts.map((s, i) => i & 1 ? resolve(vals, s) ?? "" : s).join("");
+    }
+    return () => raw;
+  }
+
+  // src/compile.ts
+  function collectProps(node, kind, host) {
+    const propGetters = [];
+    const pseudoClasses = [];
+    let hintSize = null;
+    for (const { name, value } of [...node.attributes]) {
+      if (name === "sc-name" || name === "data-dc-tpl") continue;
+      let key = name;
+      if (key.startsWith(CAMEL_ATTR))
+        key = kebabToCamel(key.slice(CAMEL_ATTR.length));
+      if (key === "hint-size") {
+        hintSize = value;
+        continue;
+      }
+      if (key.startsWith("style-")) {
+        pseudoClasses.push(host.pseudoClass(key.slice(6), value));
+        continue;
+      }
+      if (kind !== "dom") {
+        if (key.includes("-") && !(kind === "x-import" && (key.startsWith("aria-") || key.startsWith("data-"))))
+          key = kebabToCamel(key);
+      } else {
+        if (key === "class") key = "className";
+        else if (key === "for") key = "htmlFor";
+        else if (key.startsWith("on"))
+          key = EVENT_MAP[key] || "on" + key[2].toUpperCase() + key.slice(3);
+      }
+      propGetters.push([key, compileAttr(value)]);
+    }
+    return { propGetters, pseudoClasses, hintSize };
+  }
+  var HOST_STYLE_PROPS = /* @__PURE__ */ new Set([
+    "position",
+    "left",
+    "right",
+    "top",
+    "bottom",
+    "inset",
+    "width",
+    "height",
+    "z-index",
+    "transform"
+  ]);
+  function hostPositionStyle(style) {
+    const all = typeof style === "string" ? cssToObj(style) : style != null && typeof style === "object" ? style : null;
+    if (!all) return void 0;
+    const out = {};
+    for (const [k, v] of Object.entries(all)) {
+      const kebab = k.replace(/[A-Z]/g, (c) => "-" + c.toLowerCase());
+      if (HOST_STYLE_PROPS.has(kebab)) out[k] = v;
+    }
+    return Object.keys(out).length ? out : void 0;
+  }
+  function compileTemplate(html, host) {
+    const tpl = document.createElement("template");
+    //! nosemgrep: direct-inner-html-assignment
+    tpl.innerHTML = encodeCase(html);
+    let tplN = 0;
+    (function stamp(node) {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        node.setAttribute("data-dc-tpl", String(tplN++));
+      }
+      for (const c of node.childNodes) stamp(c);
+    })(tpl.content);
+    const builders = walkChildren(tpl.content, host);
+    const render = ((vals, ctx) => builders.map((b, i) => b(vals || {}, ctx, i)));
+    render.__annotated = tpl.innerHTML;
+    return render;
+  }
+  function walkChildren(node, host) {
+    return [...node.childNodes].map((c) => walk(c, host)).filter((b) => b != null);
+  }
+  var SLIDE_ID_VALUE_RE = /^[0-9a-f]{8}$/;
+  var DECK_CONTROL_FLOW_RE = /^(sc-if|sc-for|sc-else|dc-import|x-import)$/;
+  var DECK_AUX_RE = /^(template|script|style|sc-helmet|helmet)$/;
+  function isDeckMountTag(el) {
+    if (el.localName === "deck-stage") return true;
+    return el.localName === "x-import" && (el.getAttribute("component-from-global-scope") || "") === "deck-stage";
+  }
+  function walkDeckChildren(el, host) {
+    const pairs = [...el.childNodes].map((c) => ({ c, b: walk(c, host) })).filter((p) => p.b !== null);
+    const kids = pairs.map((p) => p.b);
+    const seen = /* @__PURE__ */ new Set();
+    const wsSeen = /* @__PURE__ */ new Map();
+    const keys = [];
+    const nextSlideId = new Array(pairs.length);
+    {
+      let upcoming = null;
+      for (let j = pairs.length - 1; j >= 0; j--) {
+        const n = pairs[j].c;
+        if (n.nodeType === Node.ELEMENT_NODE) {
+          const t = n.localName;
+          upcoming = !DECK_AUX_RE.test(t) && !DECK_CONTROL_FLOW_RE.test(t) ? n.getAttribute("data-om-slide-id") : null;
+        }
+        nextSlideId[j] = upcoming;
+      }
+    }
+    for (let j = 0; j < pairs.length; j++) {
+      const { c } = pairs[j];
+      if (c.nodeType === Node.TEXT_NODE) {
+        if ((c.nodeValue ?? "").trim() === "") {
+          const base = nextSlideId[j] ? "omid-ws:" + nextSlideId[j] : "omid-ws:aux";
+          const n = wsSeen.get(base) ?? 0;
+          wsSeen.set(base, n + 1);
+          keys.push(n === 0 ? base : base + ":" + n);
+          continue;
+        }
+        return { kids, keys: null };
+      }
+      if (c.nodeType !== Node.ELEMENT_NODE) {
+        keys.push(j);
+        continue;
+      }
+      const child = c;
+      const tag = child.localName;
+      if (DECK_AUX_RE.test(tag)) {
+        keys.push(j);
+        continue;
+      }
+      if (DECK_CONTROL_FLOW_RE.test(tag)) return { kids, keys: null };
+      const v = child.getAttribute("data-om-slide-id");
+      if (!v || !SLIDE_ID_VALUE_RE.test(v) || seen.has(v)) {
+        return { kids, keys: null };
+      }
+      seen.add(v);
+      keys.push("omid:" + v);
+    }
+    return { kids, keys };
+  }
+  function renderDeckKids(kids, kidKeys, vals, ctx) {
+    return kids.map((b, j) => {
+      const k = kidKeys ? kidKeys[j] : j;
+      const out = b(vals, ctx, k);
+      return kidKeys != null && typeof out === "string" ? h(getReact().Fragment, { key: k }, out) : out;
+    });
+  }
+  function walk(node, host) {
+    if (node.nodeType === Node.TEXT_NODE) return walkText(node);
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    const el = node;
+    const tag = el.tagName.toLowerCase();
+    if (tag === "sc-for") return walkFor(el, host);
+    if (tag === "sc-if") return walkIf(el, host);
+    if (tag === "x-import") return walkXImport(el, host);
+    if (tag === "sc-helmet") return host.helmet(el);
+    if (tag === "dc-import") return walkComponent(el, host);
+    return walkElement(el, host);
+  }
+  var warnedHoles = /* @__PURE__ */ new Set();
+  function warnUnresolved(ctx, what) {
+    const key = (ctx?.__name || "?") + "\0" + what;
+    if (warnedHoles.has(key)) return;
+    warnedHoles.add(key);
+    console.warn("[dc-runtime] " + (ctx?.__name || "template") + ": " + what);
+  }
+  function walkText(node) {
+    const txt = node.nodeValue ?? "";
+    if (!txt.includes("{{")) {
+      if (!txt.trim() && !txt.includes(" ")) return null;
+      return () => txt;
+    }
+    const parts = txt.split(/\{\{([\s\S]+?)\}\}/g);
+    return (vals, ctx, key) => h(
+      getReact().Fragment,
+      { key },
+      ...parts.map((p, i) => {
+        if (!(i & 1)) return p;
+        const v = resolve(vals, p);
+        if (v === void 0) {
+          if (!ctx?.__streamingNow) {
+            if (document.body?.hasAttribute("data-dc-editor-on")) {
+              return h(
+                "span",
+                { key: i, className: "sc-interp sc-unresolved" },
+                "{{ " + p.trim() + " }}"
+              );
+            }
+            warnUnresolved(
+              ctx,
+              "{{ " + p.trim() + " }} never resolved \u2014 rendered as empty"
+            );
+            return null;
+          }
+          return h(
+            "span",
+            { key: i, className: "sc-interp sc-missing" },
+            p.trim()
+          );
+        }
+        if (getReact().isValidElement(v) || Array.isArray(v)) {
+          return h(getReact().Fragment, { key: i }, v);
+        }
+        if (v === null || typeof v === "boolean") return null;
+        return h("span", { key: i, className: "sc-interp" }, String(v));
+      })
+    );
+  }
+  function walkFor(el, host) {
+    const listGet = compileAttr(el.getAttribute("list") || "");
+    const asName = el.getAttribute("as") || "item";
+    const hintN = parseInt(el.getAttribute("hint-placeholder-count") || "0", 10);
+    const kids = walkChildren(el, host);
+    const listSrc = el.getAttribute("list") || "";
+    return (vals, ctx, key) => {
+      let list = listGet(vals);
+      if (!Array.isArray(list)) {
+        if (!ctx?.__streamingNow) {
+          if (list !== void 0 && list !== null) {
+            warnUnresolved(
+              ctx,
+              'sc-for list="' + listSrc + '" is not an array (' + typeof list + ")"
+            );
+          }
+          list = [];
+        } else {
+          list = hintN > 0 ? Array(hintN).fill(void 0) : [];
+        }
+      }
+      return h(
+        getReact().Fragment,
+        { key },
+        list.map((item, i) => {
+          const sub = { ...vals, [asName]: item, $index: i };
+          return h(
+            getReact().Fragment,
+            { key: i },
+            kids.map((b, j) => b(sub, ctx, j))
+          );
+        })
+      );
+    };
+  }
+  function walkIf(el, host) {
+    const valGet = compileAttr(el.getAttribute("value") || "");
+    const hintRaw = el.getAttribute("hint-placeholder-val");
+    const hintGet = hintRaw != null ? compileAttr(hintRaw) : null;
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      let v = valGet(vals);
+      if (v === void 0 && hintGet && ctx?.__streamingNow) v = hintGet(vals);
+      return v ? h(
+        getReact().Fragment,
+        { key },
+        kids.map((b, j) => b(vals, ctx, j))
+      ) : null;
+    };
+  }
+  function walkComponent(el, host) {
+    const name = el.getAttribute("name") || el.getAttribute("component") || "";
+    el.removeAttribute("name");
+    el.removeAttribute("component");
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const { propGetters, hintSize } = collectProps(el, "dc-import", host);
+    const kids = walkChildren(el, host);
+    return (vals, ctx, key) => {
+      const props = {
+        key,
+        __hintSize: hintSize,
+        __tplId: tplId,
+        __hostStyle: styleGet ? hostPositionStyle(styleGet(vals)) : void 0
+      };
+      for (const [k, g] of propGetters) {
+        const v = g(vals);
+        if (k === "dcProps") {
+          if (v && typeof v === "object") Object.assign(props, v);
+          continue;
+        }
+        props[k] = v;
+      }
+      if (kids.length) props.children = kids.map((b, j) => b(vals, ctx, j));
+      return h(host.component(name), props);
+    };
+  }
+  function walkXImport(el, host) {
+    const globalNameGet = compileAttr(
+      el.getAttribute("component-from-global-scope") || ""
+    );
+    const exportNameGet = compileAttr(
+      el.getAttribute("component") || el.getAttribute("name") || ""
+    );
+    const fromRaw = el.getAttribute("from") || (el.getAttribute("component-from-global-scope") ? "" : el.getAttribute("src") || el.getAttribute("import") || "");
+    const urls = fromRaw.trim() ? fromRaw.trim().split(/\s+/) : [];
+    const url = urls.length ? urls[urls.length - 1] : "";
+    const kindOf = (u) => /\.(jsx|tsx)(\?|#|$)/i.test(u) ? "jsx" : "js";
+    const tplId = el.getAttribute("data-dc-tpl");
+    const styleRaw = el.getAttribute("style");
+    el.removeAttribute("style");
+    const styleGet = styleRaw != null ? compileAttr(styleRaw) : null;
+    const wrap = tplId != null || styleGet != null;
+    const { propGetters, hintSize } = collectProps(el, "x-import", host);
+    const hasContent = el.children.length > 0 || !!(el.textContent || "").trim();
+    const deckKeyed = hasContent && isDeckMountTag(el) ? walkDeckChildren(el, host) : null;
+    const kids = deckKeyed ? deckKeyed.kids : hasContent ? walkChildren(el, host) : [];
+    const kidKeys = deckKeyed?.keys ?? null;
+    const urlBindable = fromRaw.includes("{{");
+    if (urls.length && !urlBindable) {
+      let prev;
+      for (const u of urls) prev = host.loadExternal(kindOf(u), u, prev);
+    }
+    const evalName = (g, vals) => {
+      const v = g(vals);
+      const s = v == null ? "" : String(v);
+      return s.includes("{{") ? "" : s;
+    };
+    return (vals, ctx, key) => {
+      const globalName = evalName(globalNameGet, vals);
+      const name = globalName || evalName(exportNameGet, vals);
+      const C = !name || urlBindable ? null : globalName ? host.resolveExternalGlobal(url, globalName) : host.resolveExternal(url, name);
+      const hostStyle = styleGet ? hostPositionStyle(styleGet(vals)) : void 0;
+      const wrapper = wrap ? {
+        key,
+        className: "sc-host-x",
+        "data-dc-tpl": tplId,
+        style: hostStyle || { display: "contents" }
+      } : null;
+      if (!C) {
+        const error = urlBindable ? "x-import `from` cannot contain {{ \u2026 }} \u2014 module URLs are resolved at parse time; use a literal URL" : host.resolveExternalError(url, name);
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      const props = wrapper ? {} : { key };
+      let unresolvedHole = false;
+      for (const [k, g] of propGetters) {
+        if (k === "component" || k === "componentFromGlobalScope" || k === "from") {
+          continue;
+        }
+        const v = g(vals);
+        if (v === void 0) unresolvedHole = true;
+        if (k === "dcProps") {
+          if (v && typeof v === "object") Object.assign(props, v);
+          continue;
+        }
+        props[k] = v;
+      }
+      if (unresolvedHole && ctx?.__htmlStreamingNow) {
+        const ph = host.placeholder({
+          key: wrapper ? void 0 : key,
+          name,
+          hintSize,
+          error: null
+        });
+        return wrapper ? h("div", wrapper, ph) : ph;
+      }
+      if (kids.length) {
+        props.children = renderDeckKids(kids, kidKeys, vals, ctx);
+      }
+      return wrapper ? h("div", wrapper, h(C, props)) : h(C, props);
+    };
+  }
+  function contentKey(el) {
+    const clone = el.cloneNode(true);
+    for (const d of clone.querySelectorAll("*")) {
+      while (d.attributes.length) d.removeAttribute(d.attributes[0].name);
+    }
+    const s = clone.innerHTML;
+    let h2 = 5381;
+    for (let i = 0; i < s.length; i++) h2 = (h2 << 5) + h2 + s.charCodeAt(i) | 0;
+    return s.length + "." + (h2 >>> 0).toString(36);
+  }
+  var NEVER_CONTENT_KEYED = new Set(
+    "script style textarea option title select canvas iframe video audio".split(
+      " "
+    )
+  );
+  var NOT_INLINE_SELECTOR = ":not(" + [...INLINE_TEXT_TAGS].join(",") + ")";
+  function walkElement(el, host) {
+    const realTag = RAW_UNWRAP[el.localName] || el.localName;
+    const tplId = el.getAttribute("data-dc-tpl");
+    const inlineOnly = el.childNodes.length > 0 && !NEVER_CONTENT_KEYED.has(realTag) && el.querySelector(NOT_INLINE_SELECTOR) === null;
+    const keySuffix = inlineOnly ? "|" + contentKey(el) : "";
+    const { propGetters, pseudoClasses } = collectProps(el, "dom", host);
+    const deckKeyed = isDeckMountTag(el) ? walkDeckChildren(el, host) : null;
+    const kids = deckKeyed ? deckKeyed.kids : walkChildren(el, host);
+    const kidKeys = deckKeyed?.keys ?? null;
+    return (vals, ctx, key) => {
+      const props = {
+        key: key + keySuffix,
+        "data-dc-tpl": tplId
+      };
+      for (const [k, g] of propGetters) {
+        let v = g(vals);
+        if (k === "style" && typeof v === "string") v = cssToObj(v);
+        if ((k === "value" || k === "checked") && v === void 0) {
+          v = k === "checked" ? false : "";
+        }
+        props[k] = v;
+      }
+      if (pseudoClasses.length) {
+        props.className = [props.className, ...pseudoClasses].filter(Boolean).join(" ");
+      }
+      return h(realTag, props, ...renderDeckKids(kids, kidKeys, vals, ctx));
+    };
+  }
+
+  // src/logic.ts
+  var StreamableLogic = class {
+    constructor(props) {
+      __publicField(this, "props");
+      __publicField(this, "state", {});
+      /** Back-pointer to the wrapper component, installed after construction. */
+      __publicField(this, "__host");
+      this.props = props || {};
+    }
+    setState(update, cb) {
+      this.__host && this.__host.__setLogicState(update, cb);
+    }
+    forceUpdate() {
+      this.__host && this.__host.forceUpdate();
+    }
+    componentDidMount() {
+    }
+    componentDidUpdate(_prevProps) {
+    }
+    componentWillUnmount() {
+    }
+    /** The flat object the template renders against (merged over props). */
+    renderVals() {
+      return {};
+    }
+  };
+  function evalDcLogic(src) {
+    //! nosemgrep: eval-and-function-constructor
+    const fn = new Function(
+      "DCLogic",
+      "StreamableLogic",
+      "React",
+      src + '\n;return (typeof Component!=="undefined"&&Component)||undefined;'
+    );
+    return fn(StreamableLogic, StreamableLogic, getReact());
+  }
+
+  // src/component.ts
+  function shallowEqual(a, b) {
+    if (!b) return false;
+    const ak = Object.keys(a).filter((k) => k !== "children");
+    const bk = Object.keys(b).filter((k) => k !== "children");
+    if (ak.length !== bk.length) return false;
+    for (const k of ak) if (a[k] !== b[k]) return false;
+    return true;
+  }
+  function Placeholder({
+    name,
+    hintSize,
+    streaming,
+    error
+  }) {
+    const [w, hgt] = (hintSize || "100%,60px").split(",");
+    return h(
+      "div",
+      {
+        className: "sc-placeholder" + (streaming ? " sc-streaming" : ""),
+        style: { width: w.trim(), height: hgt && hgt.trim() },
+        title: name
+      },
+      error ? h(
+        "div",
+        { className: "sc-placeholder-error" },
+        (name ? name + ": " : "") + error
+      ) : null
+    );
+  }
+  function hintToMin(hint) {
+    if (!hint) return void 0;
+    const [w, hgt] = hint.split(",");
+    return { minWidth: w.trim(), minHeight: hgt && hgt.trim() };
+  }
+  function createComponentFactory(registry, ensureFetched) {
+    const React = getReact();
+    const AncestorContext = React.createContext([]);
+    class StreamableComponent extends React.Component {
+      constructor(props) {
+        super(props);
+        __publicField(this, "__name");
+        __publicField(this, "__sub");
+        __publicField(this, "__needsDidMount", false);
+        /** Snapshot of the registry's streaming flags taken at render time —
+         *  builders read it off the RenderCtx (this) to pick placeholder vs
+         *  render-nothing for unresolved values. */
+        __publicField(this, "__streamingNow", false);
+        __publicField(this, "__htmlStreamingNow", false);
+        /** When a construct throws, remember the (class, registry.ver, props)
+         *  triple so render-time reconcile doesn't re-attempt it on every parent
+         *  re-render. A registry bump (new class, template, external module
+         *  resolving via bumpAll) changes `ver` and breaks the memo so an
+         *  env-dependent constructor can self-heal. */
+        __publicField(this, "__failedLogic", null);
+        __publicField(this, "__failedUserProps", null);
+        __publicField(this, "__failedVer", -1);
+        /** Per-instance constructor error — kept here (not on the registry entry)
+         *  so one instance's successful construct can't hide a sibling's failure,
+         *  and a construct can never wipe an eval error `updateJs` recorded on
+         *  `r.logicError`. */
+        __publicField(this, "__ctorError", null);
+        __publicField(this, "logic");
+        this.__name = props.__name;
+        this.state = { __v: 0, __err: null };
+        this.__sub = () => {
+          if (this.state.__err) this.setState({ __err: null });
+          this.forceUpdate();
+        };
+        this.__makeLogic(registry.get(this.__name).Logic, null);
+        ensureFetched(this.__name);
+      }
+      /** Error-boundary hook: a render crash anywhere in this DC's subtree
+       *  (its own template, an x-import'd component, a child DC without its
+       *  own deeper boundary) lands here instead of unmounting the page. */
+      static getDerivedStateFromError(e) {
+        return { __err: e instanceof Error && e.message ? e.message : String(e) };
+      }
+      componentDidCatch(e, info) {
+        console.error(
+          "[dc-runtime] render error in <" + this.__name + ">:",
+          e,
+          info?.componentStack || ""
+        );
+      }
+      /** Instantiate the logic class (or the no-op base) and adopt `prevState`
+       *  over its initial state — used both at mount and on hot-swap. */
+      __makeLogic(Logic, prevState) {
+        const L = Logic || StreamableLogic;
+        try {
+          this.logic = new L(this.__userProps());
+          this.__failedLogic = null;
+          this.__failedUserProps = null;
+          this.__ctorError = null;
+        } catch (e) {
+          console.error(e);
+          this.__failedLogic = Logic;
+          this.__failedUserProps = this.__userProps();
+          this.__failedVer = registry.get(this.__name).ver;
+          this.__ctorError = this.__name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+          this.logic = new StreamableLogic(
+            this.__userProps()
+          );
+        }
+        this.logic.__host = this;
+        if (prevState)
+          this.logic.state = { ...this.logic.state || {}, ...prevState };
+      }
+      /** The props the author's logic + template see — internal __-prefixed
+       *  wiring stripped. */
+      __userProps() {
+        const { __name, __hintSize, __tplId, __hostStyle, ...rest } = this.props;
+        return rest;
+      }
+      __setLogicState(update, cb) {
+        const prev = this.logic.state;
+        const patch = typeof update === "function" ? update(prev) : update;
+        this.logic.state = { ...prev, ...patch };
+        this.setState((s) => ({ __v: s.__v + 1 }), cb);
+      }
+      /** Swap the logic instance when the registry's Logic class changed
+       *  (streaming completion, hot reload). State carries over; didMount
+       *  re-fires after the swap commits so refs exist. */
+      __reconcileLogic() {
+        const r = registry.get(this.__name);
+        const Next = r.Logic;
+        const Cur = this.logic.constructor;
+        if (Next === Cur || !Next && Cur === StreamableLogic || Next === this.__failedLogic && r.ver === this.__failedVer && shallowEqual(this.__userProps(), this.__failedUserProps)) {
+          return;
+        }
+        if (!this.__needsDidMount) {
+          try {
+            this.logic.componentWillUnmount();
+          } catch (e) {
+            console.error(e);
+          }
+        }
+        this.__makeLogic(Next, this.logic.state);
+        this.__needsDidMount = true;
+      }
+      componentDidMount() {
+        registry.get(this.__name).subs.add(this.__sub);
+        try {
+          this.logic.componentDidMount();
+        } catch (e) {
+          console.error(e);
+        }
+      }
+      componentDidUpdate(prevProps) {
+        this.logic.props = this.__userProps();
+        if (this.__needsDidMount) {
+          if (this.state.__err || !registry.get(this.__name).tpl) return;
+          this.__needsDidMount = false;
+          try {
+            this.logic.componentDidMount();
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          try {
+            this.logic.componentDidUpdate(prevProps);
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      componentWillUnmount() {
+        registry.get(this.__name).subs.delete(this.__sub);
+        if (!this.__needsDidMount) {
+          try {
+            this.logic.componentWillUnmount();
+          } catch (e) {
+            console.error(e);
+          }
+        }
+      }
+      render() {
+        const r = registry.get(this.__name);
+        const cls = "sc-host" + (r.htmlStreaming ? " sc-streaming-html" : "") + (r.jsStreaming ? " sc-streaming-js" : "");
+        const hintStyle = r.htmlStreaming ? hintToMin(this.props.__hintSize) : void 0;
+        const hostStyle = this.props.__hostStyle || hintStyle ? { ...hintStyle || {}, ...this.props.__hostStyle || {} } : void 0;
+        const hostBase = {
+          className: cls,
+          style: hostStyle,
+          "data-sc-name": this.__name,
+          "data-dc-tpl": this.props.__tplId
+        };
+        const chain = Array.isArray(this.context) ? this.context : [];
+        if (chain.includes(this.__name)) {
+          const cycle = [
+            ...chain.slice(chain.indexOf(this.__name)),
+            this.__name
+          ].join(" \u2192 ");
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: "circular import: " + cycle
+            })
+          );
+        }
+        if (this.state.__err) {
+          return h(
+            "div",
+            { ...hostBase, className: cls + " sc-has-error" },
+            h(
+              "div",
+              { className: "sc-logic-error", "data-omelette-chrome": "" },
+              this.__name + ": " + this.state.__err
+            ),
+            h(Placeholder, {
+              name: this.__name,
+              hintSize: this.props.__hintSize,
+              error: this.state.__err
+            })
+          );
+        }
+        this.__reconcileLogic();
+        if (!r.tpl) {
+          return h(
+            "div",
+            hostBase,
+            h(Placeholder, { name: this.__name, hintSize: this.props.__hintSize })
+          );
+        }
+        const userProps = this.__userProps();
+        this.logic.props = userProps;
+        let vals = userProps;
+        let renderErr = r.logicError || this.__ctorError;
+        try {
+          vals = { ...userProps, ...this.logic.renderVals() || {} };
+        } catch (e) {
+          console.error(e);
+          renderErr = this.__name + ".renderVals(): " + (e instanceof Error && e.message ? e.message : String(e));
+        }
+        this.__streamingNow = !!(r.htmlStreaming || r.jsStreaming);
+        this.__htmlStreamingNow = !!r.htmlStreaming;
+        return h(
+          "div",
+          { ...hostBase, className: cls + (renderErr ? " sc-has-error" : "") },
+          renderErr && h(
+            "div",
+            { className: "sc-logic-error", "data-omelette-chrome": "" },
+            renderErr
+          ),
+          h(
+            AncestorContext.Provider,
+            { value: [...chain, this.__name] },
+            r.tpl(vals, this)
+          )
+        );
+      }
+    }
+    __publicField(StreamableComponent, "contextType", AncestorContext);
+    const named = /* @__PURE__ */ new Map();
+    function getDC(name) {
+      const hit = named.get(name);
+      if (hit) return hit;
+      function Dispatcher(p) {
+        const [, setTick] = React.useState(0);
+        React.useEffect(() => {
+          const sub = () => setTick((n) => n + 1);
+          registry.get(name).subs.add(sub);
+          return () => {
+            registry.get(name).subs.delete(sub);
+          };
+        }, []);
+        ensureFetched(name);
+        return h(StreamableComponent, { ...p, __name: name });
+      }
+      Dispatcher.displayName = name;
+      named.set(name, Dispatcher);
+      return Dispatcher;
+    }
+    return {
+      getDC,
+      StreamableComponent
+    };
+  }
+
+  // src/bundled.ts
+  function bundledBlob(url) {
+    const blobs = window.__resourceBlobs;
+    const b = blobs ? blobs[url.split("#")[0]] : void 0;
+    return b instanceof Blob ? b : null;
+  }
+
+  // src/cdn.ts
+  var REACT_URL = "https://unpkg.com/react@18.3.1/umd/react.production.min.js";
+  var REACT_SRI = "sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z";
+  var REACT_DOM_URL = "https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js";
+  var REACT_DOM_SRI = "sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1";
+  var BABEL_URL = "https://unpkg.com/@babel/standalone@7.29.0/babel.min.js";
+  var BABEL_SRI = "sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y";
+  function cdnScriptFor(url, sri) {
+    const res = window.__resources;
+    const v = res ? res[url] : void 0;
+    return typeof v === "string" && v ? { src: v } : { src: url, integrity: sri };
+  }
+
+  // src/external.ts
+  var isCustomElementName = (n) => !n.includes(".") && n.includes("-");
+  function isRenderableType(g) {
+    if (typeof g === "function") return !isElementClass(g);
+    return typeof g === "object" && g !== null && typeof g.$$typeof === "symbol";
+  }
+  function resolveDottedPath(root, name) {
+    let cur = root;
+    for (const seg of name.split(".")) {
+      if (cur == null) return void 0;
+      cur = cur[seg];
+    }
+    return cur;
+  }
+  var GLOBAL_POLL_INTERVAL_MS = 50;
+  var GLOBAL_POLL_TIMEOUT_MS = 3e4;
+  function createExternalModules(onResolved) {
+    const cache = /* @__PURE__ */ new Map();
+    let babelLoading = null;
+    const reportedMissing = /* @__PURE__ */ new Map();
+    const polling = /* @__PURE__ */ new Set();
+    function ensureBabel() {
+      if (window.Babel) return Promise.resolve();
+      if (babelLoading) return babelLoading;
+      const babel = cdnScriptFor(BABEL_URL, BABEL_SRI);
+      babelLoading = new Promise((res, rej) => {
+        const s = document.createElement("script");
+        s.src = babel.src;
+        if (babel.integrity) {
+          s.integrity = babel.integrity;
+          s.crossOrigin = "anonymous";
+        }
+        s.onload = () => res();
+        s.onerror = rej;
+        document.head.appendChild(s);
+      });
+      return babelLoading;
+    }
+    const pending = /* @__PURE__ */ new Map();
+    function load(kind, url, after) {
+      const existing = pending.get(url);
+      if (existing) return existing;
+      cache.set(url, null);
+      console.info("[dc-runtime] x-import: loading", url, "(" + kind + ")");
+      const ready = Promise.all([
+        kind === "jsx" ? ensureBabel() : Promise.resolve(),
+        after ?? Promise.resolve()
+      ]);
+      const p = ready.then(() => {
+        const pre = bundledBlob(url);
+        if (pre) return pre.text();
+        return fetch(url).then((r) => {
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          return r.text();
+        });
+      }).then((src) => {
+        const code = kind === "jsx" ? window.Babel.transform(src, {
+          filename: url,
+          presets: ["react", "typescript"]
+        }).code : src;
+        const module = { exports: {} };
+        const before = new Set(Object.keys(window));
+        //! nosemgrep: eval-and-function-constructor
+        new Function("React", "module", "exports", "require", code)(
+          getReact(),
+          module,
+          module.exports,
+          () => ({})
+        );
+        const globals = {};
+        for (const k of Object.keys(window)) {
+          if (!before.has(k) && typeof window[k] === "function") {
+            globals[k] = window[k];
+          }
+        }
+        cache.set(url, { mod: module.exports, globals });
+        console.info(
+          "[dc-runtime] x-import: loaded",
+          url,
+          "\u2014 exports:",
+          Object.keys(module.exports),
+          "window globals:",
+          Object.keys(globals)
+        );
+        onResolved();
+      }).catch((e) => {
+        cache.set(url, {
+          mod: {},
+          globals: {},
+          error: "failed to load: " + (e instanceof Error && e.message ? e.message : String(e))
+        });
+        console.error(
+          "[dc-runtime] x-import: FAILED to load",
+          url,
+          "(" + kind + ")",
+          e
+        );
+        onResolved();
+      });
+      pending.set(url, p);
+      return p;
+    }
+    function resolve2(url, name) {
+      const entry = cache.get(url);
+      if (!entry) return null;
+      const { mod, globals } = entry;
+      const C = mod && mod[name] || globals && globals[name] || typeof window !== "undefined" && window[name] || mod && mod.default;
+      if (typeof C === "function") return C;
+      const key = url + "\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(
+          key,
+          entry.error || 'no export named "' + name + '" (has: ' + Object.keys(mod).join(", ") + ")"
+        );
+        console.error(
+          "[dc-runtime] x-import: module",
+          url,
+          "loaded but has no component named",
+          JSON.stringify(name),
+          "\u2014 available exports:",
+          Object.keys(mod),
+          "window globals:",
+          Object.keys(globals),
+          ". The module must `module.exports = {" + name + "}` or set `window." + name + "`."
+        );
+      }
+      return null;
+    }
+    function waitForGlobal(name) {
+      if (polling.has(name)) return;
+      polling.add(name);
+      const started = Date.now();
+      const isCE = isCustomElementName(name);
+      const tick = () => {
+        const found = isCE ? customElements.get(name) : isRenderableType(resolveDottedPath(window, name));
+        if (found) {
+          polling.delete(name);
+          onResolved();
+          return;
+        }
+        if (Date.now() - started >= GLOBAL_POLL_TIMEOUT_MS) {
+          console.warn(
+            "[dc-runtime] x-import: global",
+            JSON.stringify(name),
+            "never appeared on window after " + GLOBAL_POLL_TIMEOUT_MS + "ms"
+          );
+          return;
+        }
+        setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+      };
+      setTimeout(tick, GLOBAL_POLL_INTERVAL_MS);
+    }
+    function resolveGlobal(url, name) {
+      const isCE = isCustomElementName(name);
+      if (!url) {
+        if (isCE) {
+          if (customElements.get(name)) return name;
+          waitForGlobal(name);
+          return null;
+        }
+        const g2 = resolveDottedPath(window, name);
+        if (isRenderableType(g2)) return g2;
+        waitForGlobal(name);
+        return null;
+      }
+      const entry = cache.get(url);
+      if (!entry) return null;
+      if (isCE && customElements.get(name)) return name;
+      const g = entry.globals[name] ?? resolveDottedPath(window, name);
+      if (isRenderableType(g)) return g;
+      if (name.includes(".")) return null;
+      const key = url + "\0global\0" + name;
+      if (!reportedMissing.has(key)) {
+        reportedMissing.set(key, null);
+        if (isCE && !customElements.get(name)) {
+          console.warn(
+            "[dc-runtime] x-import:",
+            url,
+            "loaded but no custom element",
+            JSON.stringify(name),
+            "is registered and window." + name + " is not a function \u2014 rendering <" + name + "> as an unknown element."
+          );
+        }
+      }
+      return name;
+    }
+    function getError(url, name) {
+      const entry = cache.get(url);
+      if (entry?.error) return entry.error;
+      return reportedMissing.get(url + "\0" + name) || null;
+    }
+    return { load, resolve: resolve2, resolveGlobal, getError };
+  }
+  function isElementClass(g) {
+    try {
+      return typeof g === "function" && typeof HTMLElement !== "undefined" && g.prototype instanceof HTMLElement;
+    } catch {
+      return false;
+    }
+  }
+
+  // src/atomics.ts
+  var ATOMIC_CSS = (
+    // layout
+    ".fx{display:flex}.col{display:flex;flex-direction:column}.grid{display:grid}.ac{align-items:center}.jc{justify-content:center}.jb{justify-content:space-between}.f1{flex:1}.noshrink{flex-shrink:0}.wrap{flex-wrap:wrap}.fw5{font-weight:500}.fw6{font-weight:600}.fw7{font-weight:700}.fw8{font-weight:800}.fs11{font-size:11px}.fs12{font-size:12px}.fs13{font-size:13px}.fs14{font-size:14px}.fs15{font-size:15px}.fs16{font-size:16px}.fs20{font-size:20px}.fs22{font-size:22px}.upper{text-transform:uppercase}.tc{text-align:center}.nowrap{white-space:nowrap}.gap8{gap:8px}.gap10{gap:10px}.gap12{gap:12px}.gap16{gap:16px}.gap24{gap:24px}.m0{margin:0}.mt8{margin-top:8px}.mt12{margin-top:12px}.mt16{margin-top:16px}.mb8{margin-bottom:8px}.mb12{margin-bottom:12px}.mb16{margin-bottom:16px}.posrel{position:relative}.posabs{position:absolute}.round{border-radius:50%}.ohide{overflow:hidden}.bbox{box-sizing:border-box}.pointer{cursor:pointer}.w100{width:100%}.b0{border:none}"
+  );
+
+  // src/helmet.ts
+  var DESIGN_DOC_MODE_RE = /<meta\b[^>]*\bname\s*=\s*["']design_doc_mode["'][^>]*\b(?:content|value)\s*=\s*["'](\w+)["']/i;
+  var CANVAS_BG_LIGHT = "#f0eee6";
+  var CANVAS_BG_DARK = "#2e2c26";
+  function createHelmetManager(doc, isStreaming) {
+    const mounted = /* @__PURE__ */ new Set();
+    const live = /* @__PURE__ */ new Map();
+    let designDocMode = null;
+    let canvasStyleEl = null;
+    let appTheme = "light";
+    try {
+      const ds = doc.documentElement.dataset.theme;
+      appTheme = ds === "dark" || ds === "light" ? ds : new URLSearchParams(doc.defaultView?.location.search ?? "").get(
+        "theme"
+      ) === "dark" ? "dark" : "light";
+    } catch {
+    }
+    function applyCanvasBg() {
+      if (!canvasStyleEl) return;
+      const bg = appTheme === "dark" ? CANVAS_BG_DARK : CANVAS_BG_LIGHT;
+      canvasStyleEl.textContent = `html,body{background:${bg}}#dc-root>.sc-host{position:relative}`;
+    }
+    function postDesignMode(mode) {
+      if (window.parent === window) return;
+      try {
+        window.parent.postMessage({ type: "__dc_design_mode", mode }, "*");
+      } catch {
+      }
+    }
+    function setDesignDocMode(mode) {
+      if (mode === designDocMode) return;
+      designDocMode = mode;
+      postDesignMode(mode);
+      if (mode === "canvas") {
+        doc.documentElement.setAttribute("data-dc-canvas", "");
+        canvasStyleEl = doc.createElement("style");
+        canvasStyleEl.setAttribute("data-dc-canvas", "");
+        applyCanvasBg();
+        doc.head.appendChild(canvasStyleEl);
+      } else {
+        doc.documentElement.removeAttribute("data-dc-canvas");
+        canvasStyleEl?.remove();
+        canvasStyleEl = null;
+      }
+    }
+    window.addEventListener("message", (e) => {
+      const type = e.data && e.data.type;
+      if (type === "__dc_theme") {
+        const t = e.data.theme;
+        if (t === "light" || t === "dark") {
+          appTheme = t;
+          applyCanvasBg();
+        }
+        return;
+      }
+      if (!designDocMode || type !== "__dc_probe") return;
+      postDesignMode(designDocMode);
+    });
+    function compile(node) {
+      const raw = [...node.children];
+      const helmetClosed = node.nextSibling != null || node.parentNode?.nextSibling != null;
+      if (node.hasAttribute("data-dc-atomics") && !mounted.has("__dc-atomics")) {
+        mounted.add("__dc-atomics");
+        const el = doc.createElement("style");
+        el.id = "__dc-atomics";
+        el.textContent = ATOMIC_CSS;
+        doc.head.appendChild(el);
+      }
+      return (_vals, ctx) => {
+        const name = ctx && ctx.__name || "";
+        const streaming = !!(name && isStreaming(name));
+        for (let i = 0; i < raw.length; i++) {
+          const child = raw[i];
+          const tag = child.tagName;
+          const mayBePartial = streaming && !helmetClosed && i === raw.length - 1;
+          if (tag === "SCRIPT") {
+            if (mayBePartial) continue;
+            const key = "SCRIPT|" + (child.getAttribute("src") || child.textContent || "");
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            const el = doc.createElement("script");
+            for (const { name: an, value } of [...child.attributes])
+              el.setAttribute(an, value);
+            if (child.textContent) el.textContent = child.textContent;
+            doc.head.appendChild(el);
+          } else if (tag === "LINK" || tag === "META") {
+            if (mayBePartial) continue;
+            const key = tag + "|" + (child.getAttribute("href") || child.getAttribute("src") || child.outerHTML);
+            if (mounted.has(key)) continue;
+            mounted.add(key);
+            if (tag === "LINK") {
+              const rel = (child.getAttribute("rel") || "").toLowerCase().split(/\s+/);
+              const href = (child.getAttribute("href") || "").trim();
+              const res = window.__resources;
+              const pre = res && rel.includes("stylesheet") && !rel.includes("alternate") ? res[href] : void 0;
+              const blob = typeof pre === "string" && pre ? bundledBlob(pre) : null;
+              if (blob) {
+                const el = doc.createElement("style");
+                if (child.hasAttribute("disabled")) {
+                  el.setAttribute("media", "not all");
+                } else if (child.getAttribute("media")) {
+                  el.setAttribute("media", child.getAttribute("media"));
+                }
+                if (child.getAttribute("title"))
+                  el.setAttribute("title", child.getAttribute("title"));
+                void blob.text().then((css) => {
+                  el.textContent = css;
+                });
+                doc.head.appendChild(el);
+                continue;
+              }
+            }
+            doc.head.appendChild(child.cloneNode(true));
+          } else {
+            const key = name + "|" + i;
+            let el = live.get(key);
+            if (!el || el.tagName !== tag) {
+              if (el) el.remove();
+              el = doc.createElement(tag.toLowerCase());
+              live.set(key, el);
+              doc.head.appendChild(el);
+            }
+            for (const { name: an, value } of [...child.attributes]) {
+              if (el.getAttribute(an) !== value) el.setAttribute(an, value);
+            }
+            if (el.textContent !== child.textContent)
+              el.textContent = child.textContent;
+          }
+        }
+        return null;
+      };
+    }
+    return { compile, setDesignDocMode };
+  }
+
+  // src/pseudo.ts
+  function scanUnquotedUrl(css, i) {
+    if (css[i] !== "u" && css[i] !== "U" || css.slice(i, i + 4).toLowerCase() !== "url(" || /[a-z0-9_-]/i.test(css[i - 1] ?? "")) {
+      return -1;
+    }
+    let j = i + 4;
+    while (j < css.length && /\s/.test(css[j])) j++;
+    if (css[j] === '"' || css[j] === "'") return -1;
+    while (j < css.length && css[j] !== ")") {
+      if (css[j] === "\\") j++;
+      j++;
+    }
+    return j < css.length ? j + 1 : css.length;
+  }
+  function stripComments(css) {
+    let out = "";
+    let quote = "";
+    for (let i = 0; i < css.length; i++) {
+      const c = css[i];
+      if (quote) {
+        if (c === "\\") {
+          out += c + (css[i + 1] ?? "");
+          i++;
+          continue;
+        }
+        if (c === quote) quote = "";
+        out += c;
+      } else if (c === "'" || c === '"') {
+        quote = c;
+        out += c;
+      } else if (c === "/" && css[i + 1] === "*") {
+        const end = css.indexOf("*/", i + 2);
+        i = end === -1 ? css.length : end + 1;
+        out += " ";
+      } else {
+        const end = scanUnquotedUrl(css, i);
+        if (end === -1) out += c;
+        else {
+          out += css.slice(i, end);
+          i = end - 1;
+        }
+      }
+    }
+    return out;
+  }
+  function importantify(css) {
+    css = stripComments(css);
+    const decls = [];
+    let start = 0;
+    let depth = 0;
+    let quote = "";
+    for (let i = 0; i < css.length; i++) {
+      const c = css[i];
+      if (quote) {
+        if (c === "\\") i++;
+        else if (c === quote) quote = "";
+      } else if (c === "'" || c === '"') quote = c;
+      else if (c === "(") depth++;
+      else if (c === ")") depth = Math.max(0, depth - 1);
+      else if (c === ";" && depth === 0) {
+        decls.push(css.slice(start, i));
+        start = i + 1;
+      } else {
+        const end = scanUnquotedUrl(css, i);
+        if (end !== -1) i = end - 1;
+      }
+    }
+    decls.push(css.slice(start));
+    return decls.map((d) => d.trim()).filter(Boolean).map((d) => /!\s*important$/i.test(d) ? d : d + " !important").join(";");
+  }
+  function createPseudoSheet(doc) {
+    let el = null;
+    const cache = /* @__PURE__ */ new Map();
+    let n = 0;
+    return (pseudo, css) => {
+      const k = pseudo + "|" + css;
+      const hit = cache.get(k);
+      if (hit) return hit;
+      if (!el) {
+        el = doc.createElement("style");
+        doc.head.appendChild(el);
+      }
+      const cls = "scp" + (n++).toString(36);
+      const isPseudoElement = pseudo === "before" || pseudo === "after";
+      const sel = isPseudoElement ? "." + cls + "::" + pseudo : "." + cls + ":" + pseudo;
+      el.sheet.insertRule(
+        sel + "{" + (isPseudoElement ? css : importantify(css)) + "}",
+        el.sheet.cssRules.length
+      );
+      cache.set(k, cls);
+      return cls;
+    };
+  }
+
+  // src/registry.ts
+  function createRegistry() {
+    const entries = /* @__PURE__ */ Object.create(null);
+    function get(name) {
+      return entries[name] || (entries[name] = {
+        html: "",
+        tpl: null,
+        Logic: null,
+        jsStreaming: false,
+        htmlStreaming: false,
+        ver: 0,
+        subs: /* @__PURE__ */ new Set(),
+        fetched: false
+      });
+    }
+    function bump(name) {
+      const r = get(name);
+      r.ver++;
+      for (const fn of r.subs) fn();
+    }
+    return {
+      entries,
+      get,
+      bump,
+      bumpAll() {
+        for (const n in entries) bump(n);
+      }
+    };
+  }
+
+  // src/runtime.ts
+  var COMPONENT_DIR = ".";
+  function createRuntime(doc = document) {
+    const registry = createRegistry();
+    const pseudoClass = createPseudoSheet(doc);
+    const helmet = createHelmetManager(
+      doc,
+      (name) => registry.get(name).htmlStreaming
+    );
+    const external = createExternalModules(() => registry.bumpAll());
+    const factory = createComponentFactory(registry, ensureFetched);
+    const host = {
+      component: (name) => factory.getDC(name),
+      placeholder: (props) => h(Placeholder, props),
+      helmet: (node) => helmet.compile(node),
+      loadExternal: (kind, url, after) => external.load(kind, url, after),
+      resolveExternal: (url, name) => external.resolve(url, name),
+      resolveExternalGlobal: (url, name) => external.resolveGlobal(url, name),
+      resolveExternalError: (url, name) => external.getError(url, name),
+      pseudoClass
+    };
+    function ensureFetched(name) {
+      const r = registry.get(name);
+      if (r.fetched) return;
+      r.fetched = true;
+      const url = COMPONENT_DIR + "/" + encodeURIComponent(name) + ".dc.html";
+      const res = window.__resources;
+      const pre = res ? res[url] : void 0;
+      const target = typeof pre === "string" && pre ? pre : url;
+      const blob = bundledBlob(target);
+      (blob ? blob.text() : fetch(target).then((res2) => {
+        if (!res2.ok) {
+          console.error(
+            '[dc-runtime] sibling fetch for "' + name + '" failed:',
+            url,
+            "returned",
+            res2.status,
+            "\u2014 the reference renders as an empty placeholder."
+          );
+          return "";
+        }
+        return res2.text();
+      })).then((t) => {
+        if (!t) return;
+        const parsed = parseDcText(t);
+        if (!parsed) {
+          console.error(
+            '[dc-runtime] sibling fetch for "' + name + '":',
+            url,
+            "has no <x-dc> block \u2014 not a Design Component."
+          );
+          return;
+        }
+        if (parsed.props) r.propsMeta = parsed.props;
+        if (parsed.preview) r.preview = parsed.preview;
+        if (parsed.template && !r.html) updateHtml(name, parsed.template);
+        if (parsed.js && !r.Logic) updateJs(name, parsed.js);
+      }).catch(
+        (e) => console.error(
+          '[dc-runtime] sibling fetch for "' + name + '" threw:',
+          url,
+          e
+        )
+      );
+    }
+    let rootName = null;
+    function updateHtml(name, html) {
+      const r = registry.get(name);
+      r.html = html;
+      if (name === rootName) {
+        const mode = DESIGN_DOC_MODE_RE.exec(html)?.[1] ?? null;
+        if (mode || !r.htmlStreaming) helmet.setDesignDocMode(mode);
+      }
+      try {
+        r.tpl = compileTemplate(html, host);
+      } catch (e) {
+        console.error("[dc-runtime] template compile FAILED for", name, e);
+      }
+      registry.bump(name);
+    }
+    function updateJs(name, src) {
+      const r = registry.get(name);
+      const seq = r.jsSeq = (r.jsSeq || 0) + 1;
+      try {
+        const Cls = evalDcLogic(src);
+        if (r.jsSeq !== seq) return;
+        if (typeof Cls !== "function") {
+          r.logicError = name + ".dc.html: <script data-dc-script> must define `class Component extends DCLogic`";
+        } else {
+          r.logicError = null;
+          r.Logic = Cls;
+        }
+      } catch (e) {
+        if (r.jsSeq !== seq) return;
+        console.error(
+          "[dc-runtime] logic class eval FAILED for",
+          name,
+          "\u2014 the template renders with props only.",
+          e
+        );
+        r.logicError = name + ": " + (e instanceof Error && e.message ? e.message : String(e));
+      }
+      registry.bump(name);
+    }
+    function setStreaming(name, kind, on) {
+      const r = registry.get(name);
+      if (kind === "html") r.htmlStreaming = !!on;
+      else r.jsStreaming = !!on;
+      let any = false;
+      for (const n in registry.entries) {
+        const e = registry.entries[n];
+        if (e && (e.htmlStreaming || e.jsStreaming)) {
+          any = true;
+          break;
+        }
+      }
+      doc.documentElement.classList.toggle("sc-dc-streaming", any);
+      registry.bump(name);
+    }
+    function dcUpdate(name, kind, content, streaming) {
+      if (streaming) registry.get(name).fetched = true;
+      if (kind === "html") {
+        setStreaming(name, "html", !!streaming);
+        updateHtml(name, content);
+      } else if (kind === "js") {
+        setStreaming(name, "js", !!streaming);
+        if (!streaming) updateJs(name, content);
+      } else if (kind === "props") {
+        const { props, preview } = parseDataProps(content);
+        const r = registry.get(name);
+        r.propsMeta = props ?? void 0;
+        r.preview = preview;
+        registry.bump(name);
+      }
+    }
+    function setProps(name, overrides) {
+      registry.get(name).propOverrides = overrides && typeof overrides === "object" ? { ...overrides } : null;
+      registry.bump(name);
+    }
+    function adoptParsed(name, parsed) {
+      if (!parsed) return;
+      const r = registry.get(name);
+      if (parsed.props) r.propsMeta = parsed.props;
+      if (parsed.preview) r.preview = parsed.preview;
+      if (parsed.template) updateHtml(name, parsed.template);
+      if (parsed.js) updateJs(name, parsed.js);
+    }
+    return {
+      registry,
+      getDC: factory.getDC,
+      updateHtml,
+      updateJs,
+      dcUpdate,
+      setProps,
+      adoptParsed,
+      setRootName: (name) => {
+        rootName = name;
+      },
+      markFetched: (name) => {
+        registry.get(name).fetched = true;
+      },
+      annotatedTemplate: (name) => {
+        const r = registry.get(name);
+        return r.tpl && r.tpl.__annotated || null;
+      },
+      templateSource: (name) => registry.get(name).html || null,
+      StreamableLogic
+    };
+  }
+
+  // src/stream-state.ts
+  function createStreamTracker(staleMs = 6e4, now = Date.now) {
+    const since = /* @__PURE__ */ new Map();
+    const liveOne = (n) => {
+      const t = since.get(n);
+      if (t === void 0) return false;
+      if (now() - t > staleMs) {
+        since.delete(n);
+        return false;
+      }
+      return true;
+    };
+    return {
+      push(name, streaming, viewportKey) {
+        if (viewportKey === "dc-model") return;
+        if (streaming) since.set(name, now());
+        else since.delete(name);
+      },
+      live(name) {
+        if (name !== void 0) return liveOne(name);
+        for (const n of [...since.keys()]) if (liveOne(n)) return true;
+        return false;
+      }
+    };
+  }
+
+  // src/index.ts
+  function hideRawTemplate() {
+    const s = document.createElement("style");
+    s.textContent = "x-dc{display:none!important}";
+    document.head.appendChild(s);
+  }
+  function loadScript(src, integrity) {
+    return new Promise((resolve2, reject) => {
+      //! nosemgrep: create-script-element
+      const s = document.createElement("script");
+      s.src = src;
+      if (integrity) {
+        s.integrity = integrity;
+        s.crossOrigin = "anonymous";
+      }
+      s.async = false;
+      s.onload = () => resolve2();
+      s.onerror = () => reject(new Error(`failed to load ${src}`));
+      document.head.appendChild(s);
+    });
+  }
+  function loadReactUmd() {
+    const w = window;
+    if (w.React && w.ReactDOM) return Promise.resolve();
+    const react = cdnScriptFor(REACT_URL, REACT_SRI);
+    const reactDom = cdnScriptFor(REACT_DOM_URL, REACT_DOM_SRI);
+    return Promise.all([
+      loadScript(react.src, react.integrity),
+      loadScript(reactDom.src, reactDom.integrity)
+    ]).then(() => void 0);
+  }
+  function init() {
+    const runtime = createRuntime(document);
+    let rootName = "Root";
+    const baseCss = document.createElement("style");
+    baseCss.textContent = BASE_CSS;
+    document.head.prepend(baseCss);
+    const notifyHost = () => {
+      if (window.parent === window) return;
+      const r = runtime.registry.entries[rootName];
+      try {
+        window.parent.postMessage(
+          {
+            type: "__dc_booted",
+            rootName,
+            propsMeta: r && r.propsMeta || null,
+            preview: r && r.preview || null
+          },
+          "*"
+        );
+      } catch {
+      }
+    };
+    const streams = createStreamTracker();
+    const api = {
+      __dcUpdate: (name, kind, content, streaming, viewportKey) => {
+        streams.push(name, streaming, viewportKey);
+        runtime.dcUpdate(name, kind, content, streaming);
+        if (name === rootName && !streaming && kind === "props") notifyHost();
+      },
+      __dcStreaming: (name) => streams.live(name),
+      __dcSetProps: (name, overrides) => runtime.setProps(name, overrides),
+      /** Name of the component currently mounted as the page root — DC tools
+       *  push their template-stream here when targeting "the open page". */
+      __dcRootName: () => rootName,
+      /** Editor bridge — the encoded, `data-dc-tpl`-annotated template source.
+       *  The host editor parses this into its own template DOM so it can map a
+       *  rendered node (carrying the same `data-dc-tpl`) back to the source
+       *  node that emitted it. Returns the encoded form (`sc-camel-*` attrs,
+       *  `<sc-raw-*>`/`<sc-helmet>` tags); the editor decodes on serialize. */
+      __dcAnnotatedTemplate: (name) => runtime.annotatedTemplate(name),
+      /** Editor bridge — the *original* (decoded) template source. */
+      __dcTemplateSource: (name) => runtime.templateSource(name),
+      __dcBoot: () => {
+        rootName = boot(runtime, document) ?? rootName;
+        notifyHost();
+      },
+      __dcRegistry: runtime.registry.entries,
+      getDC: (name) => runtime.getDC(name),
+      // `DCLogic` is the documented base class name; `StreamableLogic` is the
+      // implementation alias kept for any project that already references it.
+      DCLogic: runtime.StreamableLogic,
+      StreamableLogic: runtime.StreamableLogic
+    };
+    Object.assign(window, api);
+    window.__dcContentKeyed = true;
+    if (document.readyState !== "loading") api.__dcBoot();
+    else document.addEventListener("DOMContentLoaded", () => api.__dcBoot());
+  }
+  hideRawTemplate();
+  loadReactUmd().then(init).catch((err) => {
+    console.error("[dc] failed to load React or boot:", err);
+    throw err;
+  });
+})();
+
+</script>
+</head>
+<body>
+
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>
+html,body{margin:0;background:var(--paper-2);color:var(--ink);font-family:var(--font-body)}
+a{color:var(--brand-d);text-decoration:none}a:hover{color:var(--brand-dd);text-decoration:underline;text-underline-offset:2px}
+</style>
+</helmet>
+<div style="width:max-content;padding:32px">
+<div data-screen-label="People" sc-camel-on-drag-over="{{ frameOver }}" style="width:1600px;height:940px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-lg);font-family:var(--font-body);color:var(--ink)">
+
+  <div style="height:44px;flex:none;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--rule);background:var(--paper);white-space:nowrap;overflow:hidden">
+    <span role="button" aria-label="Filter" title="Filter" style="flex:none;display:inline-flex;align-items:center;gap:4px;cursor:pointer">
+      <span style="width:32px;height:24px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--brand-d);border-radius:var(--r-sm);background:var(--brand-tint);color:var(--brand-dd)"><i class="fa-solid fa-filter" style="font-size:10px" aria-hidden="true"></i></span>
+      <i class="fa-solid fa-chevron-down" style="font-size:8px;color:var(--ink-4)" aria-hidden="true"></i>
+    </span>
+    <span role="radiogroup" aria-label="View" style="flex:none;display:inline-flex;height:24px;box-sizing:border-box;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper)">
+      <span role="radio" aria-checked="false" style="display:inline-flex;align-items:center;padding:0 8px;border-radius:5px 0 0 5px;font-family:var(--font-mono);font-size:var(--fs-label-md);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;line-height:1;color:var(--ink-4);cursor:pointer" style-hover="background:var(--paper-2);color:var(--ink-2)">Shifts</span>
+      <span role="radio" aria-checked="true" style="display:inline-flex;align-items:center;padding:0 8px;border-left:1px solid var(--rule-strong);border-radius:0 5px 5px 0;background:var(--brand-tint);font-family:var(--font-mono);font-size:var(--fs-label-md);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;line-height:1;color:var(--brand-dd)">People</span>
+    </span>
+    <span role="button" aria-label="Display options" title="Display options" style="flex:none;width:32px;height:24px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper);color:var(--ink-2);cursor:pointer" style-hover="background:var(--paper-2)"><i class="fa-solid fa-sliders" style="font-size:12px" aria-hidden="true"></i></span>
+    <span role="radiogroup" aria-label="Period" style="flex:none;display:inline-flex;height:24px;box-sizing:border-box;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper)">
+      <sc-for list="{{ periods }}" as="p" hint-placeholder-count="2">
+        <button role="radio" aria-checked="{{ p.on }}" sc-camel-on-click="{{ p.click }}" style="display:inline-flex;align-items:center;padding:0 8px;border:0;border-left:{{ p.bl }};border-radius:{{ p.rad }};background:{{ p.bg }};font-family:var(--font-mono);font-size:var(--fs-label-md);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;line-height:1;color:{{ p.fg }};cursor:pointer" style-hover="background:{{ p.hov }};color:{{ p.hfg }}">{{ p.label }}</button>
+      </sc-for>
+    </span>
+    <span style="flex:none;display:inline-flex;align-items:center;gap:4px">
+      <button sc-camel-on-click="{{ prev }}" aria-label="{{ prevLabel }}" title="{{ prevLabel }}" style="width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:var(--r-md);background:transparent;color:var(--ink-3);cursor:pointer" style-hover="background:var(--paper-3);color:var(--ink)"><i class="fa-solid fa-chevron-left" style="font-size:12px" aria-hidden="true"></i></button>
+      <span role="button" aria-haspopup="dialog" style="height:24px;box-sizing:border-box;display:inline-flex;align-items:center;gap:8px;padding:0 8px;border-radius:var(--r-md);font-size:var(--fs-body-sm);font-weight:500;color:var(--ink);cursor:pointer" style-hover="background:var(--paper-3)">{{ dateMain }}<span style="font-family:var(--font-mono);font-size:var(--fs-label-lg);font-feature-settings:'tnum' 1;color:var(--ink-3)">{{ dateSub }}</span><i class="fa-solid fa-chevron-down" style="font-size:8px;color:var(--ink-4)" aria-hidden="true"></i></span>
+      <button sc-camel-on-click="{{ next }}" aria-label="{{ nextLabel }}" title="{{ nextLabel }}" style="width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:var(--r-md);background:transparent;color:var(--ink-3);cursor:pointer" style-hover="background:var(--paper-3);color:var(--ink)"><i class="fa-solid fa-chevron-right" style="font-size:12px" aria-hidden="true"></i></button>
+    </span>
+    <span style="flex:none;height:20px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 8px;border-radius:var(--r-sm);background:var(--paper-3);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;line-height:1;color:var(--ink-3)">Draft</span>
+    <span style="margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:4px">
+      <button sc-camel-on-click="{{ prevIssue }}" disabled="{{ issueNavDis }}" aria-label="Previous issue" title="Previous issue" style="width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:var(--r-md);background:transparent;color:{{ issueNavC }};cursor:pointer" style-hover="background:var(--paper-3)"><i class="fa-solid fa-chevron-left" style="font-size:11px" aria-hidden="true"></i></button>
+      <sc-if value="{{ hasIssues }}" hint-placeholder-val="{{ true }}">
+        <button sc-camel-on-click="{{ nextIssue }}" title="Step to the next issue" style="height:24px;box-sizing:border-box;display:inline-flex;align-items:center;gap:8px;padding:0 8px;border:1px solid var(--warn);border-radius:var(--r-sm);background:var(--paper);font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:500;font-feature-settings:'tnum' 1;line-height:1;color:var(--warn-text);cursor:pointer;white-space:nowrap" style-hover="background:color-mix(in oklch, var(--warn) 6%, var(--paper))"><i class="fa-solid fa-triangle-exclamation" style="font-size:11px;color:var(--warn)" aria-hidden="true"></i>{{ issueText }}</button>
+      </sc-if>
+      <sc-if value="{{ noIssues }}" hint-placeholder-val="{{ false }}">
+        <span style="height:24px;box-sizing:border-box;display:inline-flex;align-items:center;gap:8px;padding:0 8px;border:1px solid var(--rule-strong);border-radius:var(--r-sm);background:var(--paper);font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:500;line-height:1;color:var(--ink-3);white-space:nowrap"><i class="fa-solid fa-check" style="font-size:11px;color:var(--pos)" aria-hidden="true"></i>No issues</span>
+      </sc-if>
+      <button sc-camel-on-click="{{ nextIssue }}" disabled="{{ issueNavDis }}" aria-label="Next issue" title="Next issue" style="width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:var(--r-md);background:transparent;color:{{ issueNavC }};cursor:pointer" style-hover="background:var(--paper-3)"><i class="fa-solid fa-chevron-right" style="font-size:11px" aria-hidden="true"></i></button>
+    </span>
+    <span style="flex:none;display:inline-flex;align-items:center;gap:8px">
+      <sc-if value="{{ dirty }}" hint-placeholder-val="{{ false }}"><span style="font-family:var(--font-mono);font-size:var(--fs-label-md);font-feature-settings:'tnum' 1;color:var(--ink-3);white-space:nowrap"><b style="font-weight:600;color:var(--ink)">{{ nChg }}</b> {{ chgWord }}</span></sc-if>
+      <sc-for list="{{ hist }}" as="h" hint-placeholder-count="4">
+        <button sc-camel-on-click="{{ h.click }}" disabled="{{ h.dis }}" aria-label="{{ h.label }}" title="{{ h.label }}" style="width:24px;height:24px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;padding:0;border:1px solid {{ h.bd }};border-radius:var(--r-md);background:var(--paper);color:{{ h.fg }};cursor:{{ h.cur }}" style-hover="background:{{ h.hov }}"><i class="{{ h.icon }}" style="font-size:12px" aria-hidden="true"></i></button>
+      </sc-for>
+    </span>
+    <button style="flex:none;height:32px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 12px;border:1px solid var(--brand-d);border-radius:var(--r-md);background:var(--brand-d);font-family:var(--font-body);font-size:var(--fs-body-sm);font-weight:500;line-height:1;color:var(--paper);cursor:pointer" style-hover="background:var(--brand-dd);border-color:var(--brand-dd)">Publish</button>
+  </div>
+
+  <sc-if value="{{ last.show }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:none;min-height:36px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:8px 20px;background:{{ last.bg }};border-bottom:1px solid {{ last.bd }}">
+      <span style="width:8px;height:8px;flex:none;border-radius:var(--r-full);background:{{ last.bd }}"></span>
+      <span style="flex:none;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:{{ last.fg }}">{{ last.who }}</span>
+      <span style="flex:1;min-width:0;font-size:var(--fs-body);line-height:20px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ last.t }}<span style="font-family:var(--font-mono);font-weight:500;font-feature-settings:'tnum' 1;color:{{ last.vc }}">{{ last.v }}</span></span>
+      <sc-if value="{{ last.canUndo }}" hint-placeholder-val="{{ false }}"><button sc-camel-on-click="{{ undo }}" style="flex:none;border:0;background:none;padding:0;font-family:var(--font-body);font-size:var(--fs-body-sm);font-weight:500;color:var(--brand-d);cursor:pointer;white-space:nowrap" style-hover="color:var(--brand-dd);text-decoration:underline">Undo →</button></sc-if>
+      <button sc-camel-on-click="{{ closeLast }}" aria-label="Dismiss" title="Dismiss" style="flex:none;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:var(--r-md);background:transparent;color:var(--ink-3);cursor:pointer" style-hover="background:var(--paper-3);color:var(--ink)"><i class="fa-solid fa-xmark" style="font-size:14px" aria-hidden="true"></i></button>
+    </div>
+  </sc-if>
+
+  <div style="flex:1;min-height:0;display:flex">
+    <sc-if value="{{ libOpen }}" hint-placeholder-val="{{ true }}">
+      <div style="width:272px;flex:none;display:flex;flex-direction:column;min-height:0;background:var(--paper-2);border-right:1px solid var(--rule)">
+        <div style="height:36px;flex:none;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 8px 0 12px;border-bottom:1px solid var(--rule)">
+          <i class="fa-solid fa-layer-group" style="font-size:12px;color:var(--ink-3)" aria-hidden="true"></i>
+          <span style="font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink);white-space:nowrap">Library · Weeks</span>
+          <span style="height:18px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 4px;border:1px solid var(--rule);border-radius:var(--r-sm);background:var(--paper-3);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:500;font-feature-settings:'tnum' 1;line-height:1;color:var(--ink-3)">{{ libCount }}</span>
+          <button sc-camel-on-click="{{ toggleLib }}" aria-label="Collapse library" title="Collapse library" style="margin-left:auto;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:var(--r-md);background:transparent;color:var(--ink-3);cursor:pointer" style-hover="background:var(--paper-3);color:var(--ink)"><i class="fa-solid fa-angles-left" style="font-size:11px" aria-hidden="true"></i></button>
+        </div>
+        <div style="flex:none;padding:8px 12px;border-bottom:1px solid var(--rule)">
+          <label style="height:28px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 8px;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper)">
+            <i class="fa-solid fa-magnifying-glass" style="font-size:10px;color:var(--ink-4)" aria-hidden="true"></i>
+            <input value="{{ q }}" sc-camel-on-change="{{ onQ }}" placeholder="Search weeks" aria-label="Search weeks" style="flex:1;min-width:0;height:100%;padding:0;border:0;outline:none;background:transparent;font-family:var(--font-mono);font-size:var(--fs-label-lg);color:var(--ink)">
+          </label>
+        </div>
+        <div style="flex:1;min-height:0;overflow:auto">
+          <div style="position:sticky;top:0;z-index:1;display:grid;grid-template-columns:12px minmax(0,1fr);gap:0 8px;padding:6px 12px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-xs);font-weight:600;line-height:1;color:var(--ink-4)">
+            <span></span>
+            <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));text-align:center"><span>S</span><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span></div>
+          </div>
+          <sc-for list="{{ lib }}" as="w" hint-placeholder-count="8">
+            <div draggable="true" sc-camel-on-drag-start="{{ w.dragStart }}" sc-camel-on-drag-end="{{ w.dragEnd }}" title="{{ w.title }}" style="display:grid;grid-template-columns:12px minmax(0,1fr);gap:6px 8px;padding:8px 12px;border-bottom:1px solid var(--rule);background:{{ w.bg }};outline:{{ w.ol }};outline-offset:-1px;cursor:grab" style-hover="background:var(--paper-3)">
+              <i class="fa-solid fa-grip-vertical" style="grid-row:1 / span 2;align-self:center;font-size:10px;color:var(--ink-4)" aria-hidden="true"></i>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;min-width:0">
+                <span style="min-width:0;font-size:var(--fs-body);font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ w.name }}</span>
+                <span style="flex:none;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-feature-settings:'tnum' 1;color:var(--ink-4)">{{ w.meta }}</span>
+              </div>
+              <div style="height:18px;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));align-items:center">
+                <sc-for list="{{ w.marks }}" as="m" hint-placeholder-count="7">
+                  <span style="justify-self:{{ m.js }};width:{{ m.w }};height:{{ m.h }};margin:{{ m.mg }};box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:{{ m.bg }};border:{{ m.bd }};border-radius:{{ m.rad }};font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;line-height:1;color:{{ m.fg }}">{{ m.label }}</span>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+          <sc-if value="{{ libEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:20px 12px;font-family:var(--font-mono);font-size:var(--fs-label-sm);color:var(--ink-4)">No week matches “{{ q }}”</div>
+          </sc-if>
+        </div>
+        <div style="flex:none;padding:8px 12px;border-top:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:1.5;letter-spacing:0.04em;color:var(--ink-4);text-wrap:pretty">Drag a week onto a person’s week. It replaces all seven days.</div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ libClosed }}" hint-placeholder-val="{{ false }}">
+      <div style="width:36px;flex:none;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0;background:var(--paper-2);border-right:1px solid var(--rule)">
+        <button sc-camel-on-click="{{ toggleLib }}" aria-label="Expand library" title="Expand library" style="width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:var(--r-md);background:transparent;color:var(--ink-3);cursor:pointer" style-hover="background:var(--paper-3);color:var(--ink)"><i class="fa-solid fa-angles-right" style="font-size:11px" aria-hidden="true"></i></button>
+        <span style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-md);background:var(--paper-3);color:var(--ink-2)"><i class="fa-solid fa-layer-group" style="font-size:12px" aria-hidden="true"></i></span>
+        <span style="height:18px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 4px;border:1px solid var(--rule);border-radius:var(--r-sm);background:var(--paper-3);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:500;font-feature-settings:'tnum' 1;line-height:1;color:var(--ink-3)">{{ libCount }}</span>
+        <span style="writing-mode:vertical-rl;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-3)">Library</span>
+      </div>
+    </sc-if>
+
+    <div id="pm-grid" style="flex:1;min-width:0;overflow:auto;position:relative;background:var(--paper)">
+      <sc-if value="{{ isWeek }}" hint-placeholder-val="{{ true }}">
+        <div style="position:sticky;top:0;z-index:2;height:36px;box-sizing:border-box;display:grid;grid-template-columns:232px minmax(0,1fr);background:var(--paper);border-bottom:1px solid var(--rule-strong)">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px 0 20px;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4);white-space:nowrap"><span>People · Week</span><span>Hours</span></div>
+          <div style="min-width:0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));column-gap:1px;background:var(--rule);border-left:1px solid var(--rule-strong)">
+            <sc-for list="{{ wdays }}" as="d" hint-placeholder-count="7">
+              <div style="min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;background:var(--paper);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;font-feature-settings:'tnum' 1;white-space:nowrap;color:var(--ink-4)"><span>{{ d.dn }}</span><span style="color:var(--ink-2)">{{ d.num }}</span></div>
+            </sc-for>
+          </div>
+        </div>
+        <sc-for list="{{ groups }}" as="g" hint-placeholder-count="2">
+          <div role="button" aria-expanded="{{ g.open }}" sc-camel-on-click="{{ g.toggle }}" style="height:36px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);cursor:pointer" style-hover="background:var(--paper-3)">
+            <i class="{{ g.chev }}" style="width:12px;font-size:10px;color:var(--ink-3)" aria-hidden="true"></i>
+            <span style="font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:700;letter-spacing:-0.01em;color:var(--ink)">{{ g.name }}</span>
+            <span style="font-family:var(--font-mono);font-size:var(--fs-label-sm);font-feature-settings:'tnum' 1;color:var(--ink-4)">{{ g.count }}</span>
+          </div>
+          <sc-for list="{{ g.wrows }}" as="r" hint-placeholder-count="10">
+            <div data-row="{{ r.id }}" style="display:grid;grid-template-columns:232px minmax(0,1fr);height:{{ rowH }}px;box-sizing:border-box;border-bottom:1px solid var(--rule)">
+              <div role="button" sc-camel-on-click="{{ r.pick }}" title="{{ r.title }}" style="min-width:0;display:flex;align-items:center;gap:8px;padding:0 12px 0 20px;background:{{ r.nameBg }};cursor:pointer" style-hover="background:{{ r.nameHov }}">
+                <span style="min-width:0;font-size:var(--fs-body);font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</span>
+                <sc-if value="{{ r.agency }}" hint-placeholder-val="{{ false }}"><span style="flex:none;height:16px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 4px;border:1px solid var(--rule-strong);border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-xs);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;line-height:1;color:var(--ink-3)">Agency</span></sc-if>
+                <span style="margin-left:auto;flex:none;display:grid;justify-items:end;gap:3px">
+                  <span style="font-family:var(--font-mono);font-size:var(--fs-label-md);font-weight:500;font-feature-settings:'tnum' 1;line-height:1;white-space:nowrap;color:{{ r.hc }}">{{ r.hours }}</span>
+                  <span style="position:relative;width:56px;height:3px;overflow:hidden;background:var(--paper-3)"><span style="position:absolute;left:0;top:0;bottom:0;width:{{ r.hw }};background:{{ r.hb }}"></span></span>
+                </span>
+              </div>
+              <div sc-camel-on-drag-over="{{ r.over }}" sc-camel-on-drop="{{ r.drop }}" style="min-width:0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));column-gap:1px;background:var(--rule);border-left:1px solid var(--rule-strong);outline:{{ r.ol }};outline-offset:-1px">
+                <sc-for list="{{ r.days }}" as="c" hint-placeholder-count="7">
+                  <div style="position:relative;min-width:0;display:flex;align-items:center;padding:0 4px;background:{{ c.bg }}">
+                    <sc-if value="{{ c.on }}" hint-placeholder-val="{{ true }}">
+                      <button sc-camel-on-click="{{ c.click }}" aria-label="{{ c.title }}" title="{{ c.title }}" style="flex:1;min-width:0;height:{{ tileH }}px;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding:0 6px;border:{{ c.cbd }};border-radius:var(--r-sm);background:{{ c.cbg }};font-family:var(--font-body);font-size:var(--fs-body-sm);font-weight:500;line-height:1;text-align:left;white-space:nowrap;color:{{ c.cfg }};cursor:pointer" style-hover="background:{{ c.chov }}">
+                        <span style="flex:none">{{ c.label }}</span>
+                        <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-mono);font-size:{{ c.tfs }};font-feature-settings:'tnum' 1;font-weight:{{ c.tw }};letter-spacing:{{ c.tls }};text-transform:{{ c.tu }};color:{{ c.tc }}">{{ c.time }}</span>
+                        <sc-if value="{{ c.flag }}" hint-placeholder-val="{{ false }}"><i class="fa-solid fa-triangle-exclamation" style="flex:none;margin-left:auto;font-size:10px;color:var(--warn-text)" aria-hidden="true"></i></sc-if>
+                      </button>
+                    </sc-if>
+                    <sc-if value="{{ c.off }}" hint-placeholder-val="{{ false }}">
+                      <button data-slot="1" sc-camel-on-click="{{ c.assign }}" aria-label="{{ c.title }}" title="{{ c.title }}" style="flex:1;min-width:0;height:{{ tileH }}px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:4px;padding:0;border:{{ c.sbd }};border-radius:var(--r-sm);background:color-mix(in oklch, var(--ink) 7%, transparent);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;line-height:1;color:{{ c.sfg }};cursor:pointer" style-hover="color:var(--ink-2);background:color-mix(in oklch, var(--ink) 12%, transparent)" style-focus="color:var(--ink-2);outline:none;box-shadow:var(--shadow-focus-inset)"><i class="fa-solid fa-plus" style="font-size:9px" aria-hidden="true"></i>Assign</button>
+                    </sc-if>
+                    <sc-if value="{{ c.menu }}" hint-placeholder-val="{{ false }}">
+                      <div data-menu="1" role="menu" aria-label="{{ menuHead }}" style="position:absolute;top:calc(100% - 2px);left:{{ c.ml }};right:{{ c.mr }};z-index:5;width:196px;box-sizing:border-box;display:grid;padding:4px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)">
+                        <span style="padding:6px 8px;font-family:var(--font-mono);font-size:var(--fs-label-xs);font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-4)">{{ menuHead }}</span>
+                        <sc-for list="{{ menuOpts }}" as="a" hint-placeholder-count="3">
+                          <button role="menuitem" sc-camel-on-click="{{ a.click }}" style="height:28px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 8px;border:0;border-radius:var(--r-sm);background:transparent;font-family:var(--font-body);font-size:var(--fs-body-sm);text-align:left;color:var(--ink);cursor:pointer" style-hover="background:var(--paper-2)">
+                            <span style="flex:none;width:12px;height:12px;box-sizing:border-box;background:{{ a.bg }};border:{{ a.bd }};border-radius:var(--r-sm)"></span>
+                            <span style="flex:1;min-width:0">{{ a.label }}</span>
+                            <span style="flex:none;font-family:var(--font-mono);font-size:var(--fs-label-md);font-feature-settings:'tnum' 1;color:var(--ink-3)">{{ a.time }}</span>
+                          </button>
+                        </sc-for>
+                      </div>
+                    </sc-if>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </sc-for>
+      </sc-if>
+
+      <sc-if value="{{ isMonth }}" hint-placeholder-val="{{ false }}">
+        <div style="position:sticky;top:0;z-index:2;display:grid;grid-template-columns:{{ cols }};background:var(--paper);border-bottom:1px solid var(--rule-strong)">
+          <div style="display:flex;align-items:center;padding:0 12px 0 20px;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4);white-space:nowrap">People · Month</div>
+          <sc-for list="{{ weeks }}" as="w" hint-placeholder-count="5">
+            <div role="button" sc-camel-on-click="{{ w.open }}" title="{{ w.openTitle }}" style="min-width:0;display:grid;grid-template-rows:24px 32px;border-left:1px solid var(--rule-strong);cursor:pointer" style-hover="background:var(--paper-2)">
+              <div style="min-width:0;display:flex;align-items:center;gap:8px;padding:0 8px;border-bottom:1px solid var(--rule);white-space:nowrap;overflow:hidden;font-family:var(--font-mono);font-feature-settings:'tnum' 1;font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-4)"><span style="color:var(--ink-2)">{{ w.label }}</span><span style="letter-spacing:0.04em;overflow:hidden;text-overflow:ellipsis">{{ w.range }}</span></div>
+              <div style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr))">
+                <sc-for list="{{ w.ticks }}" as="d" hint-placeholder-count="7">
+                  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-family:var(--font-mono);font-feature-settings:'tnum' 1;line-height:1">
+                    <span style="font-size:var(--fs-label-xs);font-weight:600;color:var(--ink-4)">{{ d.di }}</span>
+                    <span style="font-size:var(--fs-label-sm);font-weight:500;color:var(--ink-2)">{{ d.dn }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+        <sc-for list="{{ groups }}" as="g" hint-placeholder-count="2">
+          <div role="button" aria-expanded="{{ g.open }}" sc-camel-on-click="{{ g.toggle }}" style="height:36px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 20px;background:var(--paper-2);border-bottom:1px solid var(--rule);cursor:pointer" style-hover="background:var(--paper-3)">
+            <i class="{{ g.chev }}" style="width:12px;font-size:10px;color:var(--ink-3)" aria-hidden="true"></i>
+            <span style="font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:700;letter-spacing:-0.01em;color:var(--ink)">{{ g.name }}</span>
+            <span style="font-family:var(--font-mono);font-size:var(--fs-label-sm);font-feature-settings:'tnum' 1;color:var(--ink-4)">{{ g.count }}</span>
+          </div>
+          <sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="10">
+            <div style="display:grid;grid-template-columns:{{ cols }};height:{{ rowH }}px;box-sizing:border-box;border-bottom:1px solid var(--rule)">
+              <div style="min-width:0;display:flex;align-items:center;gap:8px;padding:0 12px 0 20px;background:{{ r.nameBg }}">
+                <span style="min-width:0;font-size:var(--fs-body);font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</span>
+                <sc-if value="{{ r.agency }}" hint-placeholder-val="{{ false }}"><span style="flex:none;height:16px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 4px;border:1px solid var(--rule-strong);border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-xs);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;line-height:1;color:var(--ink-3)">Agency</span></sc-if>
+              </div>
+              <sc-for list="{{ r.cells }}" as="c" hint-placeholder-count="5">
+                <div data-cell="{{ c.key }}" role="button" aria-label="{{ c.title }}" title="{{ c.title }}" sc-camel-on-click="{{ c.click }}" sc-camel-on-drag-over="{{ c.over }}" sc-camel-on-drop="{{ c.drop }}" style="min-width:0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));align-items:center;border-left:1px solid var(--rule-strong);background:{{ c.bg }};outline:{{ c.ol }};outline-offset:-1px;cursor:pointer" style-hover="background:{{ c.hov }}">
+                  <sc-for list="{{ c.marks }}" as="m" hint-placeholder-count="7">
+                    <span style="justify-self:{{ m.js }};width:{{ m.w }};height:{{ m.h }};margin:{{ m.mg }};box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:{{ m.bg }};border:{{ m.bd }};border-radius:{{ m.rad }};font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;line-height:1;color:{{ m.fg }}">{{ m.label }}</span>
+                  </sc-for>
+                </div>
+              </sc-for>
+            </div>
+          </sc-for>
+        </sc-for>
+      </sc-if>
+    </div>
+
+    <sc-if value="{{ insOpen }}" hint-placeholder-val="{{ true }}">
+      <div style="width:320px;flex:none;display:flex;flex-direction:column;min-height:0;background:var(--paper-2);border-left:1px solid var(--rule)">
+        <div style="height:36px;flex:none;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 8px 0 12px;border-bottom:1px solid var(--rule)">
+          <i class="fa-solid fa-sliders" style="font-size:12px;color:var(--ink-3)" aria-hidden="true"></i>
+          <span style="font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink)">Inspector</span>
+          <button sc-camel-on-click="{{ toggleIns }}" aria-label="Collapse inspector" title="Collapse inspector" style="margin-left:auto;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:var(--r-md);background:transparent;color:var(--ink-3);cursor:pointer" style-hover="background:var(--paper-3);color:var(--ink)"><i class="fa-solid fa-angles-right" style="font-size:11px" aria-hidden="true"></i></button>
+        </div>
+        <div style="flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:12px">
+          <sc-if value="{{ ins.has }}" hint-placeholder-val="{{ true }}">
+            <sc-for list="{{ ins.issues }}" as="i" hint-placeholder-count="1">
+              <div style="display:grid;gap:4px;padding:8px 12px;border:1px solid var(--warn);border-radius:var(--r-md);background:color-mix(in oklch, var(--warn) 6%, var(--paper))">
+                <div style="display:flex;align-items:center;gap:8px">
+                  <i class="fa-solid fa-triangle-exclamation" style="font-size:12px;color:var(--warn)" aria-label="Issue"></i>
+                  <span style="flex:1;min-width:0;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--warn-text)">{{ i.title }}</span>
+                  <span style="flex:none;font-family:var(--font-mono);font-size:var(--fs-label-xs);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;font-feature-settings:'tnum' 1;color:var(--ink-4)">{{ i.pos }}</span>
+                </div>
+                <div style="font-size:var(--fs-body);line-height:1.45;color:var(--ink);text-wrap:pretty">{{ i.detail }}</div>
+              </div>
+            </sc-for>
+            <sc-if value="{{ ins.dayEd }}" hint-placeholder-val="{{ false }}">
+              <div style="border:1px solid var(--rule-strong);border-radius:var(--r-lg);background:var(--paper);overflow:hidden">
+                <div style="height:36px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;background:var(--paper-2);border-bottom:1px solid var(--rule)">
+                  <span style="font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.14em;text-transform:uppercase;font-feature-settings:'tnum' 1;color:var(--ink);white-space:nowrap">{{ ins.dayHead }}</span>
+                  <span style="font-family:var(--font-mono);font-size:var(--fs-label-xs);color:var(--ink-4);white-space:nowrap">{{ ins.dayNote }}</span>
+                </div>
+                <div style="display:grid;gap:8px;padding:12px">
+                  <span role="radiogroup" aria-label="Shift" style="display:flex;height:28px;box-sizing:border-box;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper)">
+                    <sc-for list="{{ ins.dayOpts }}" as="o" hint-placeholder-count="4">
+                      <button role="radio" aria-checked="{{ o.on }}" sc-camel-on-click="{{ o.click }}" style="flex:1;min-width:0;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;border:0;border-left:{{ o.bl }};border-radius:{{ o.rad }};background:{{ o.bg }};font-family:var(--font-mono);font-size:var(--fs-label-md);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;line-height:1;color:{{ o.fg }};cursor:pointer" style-hover="background:{{ o.hov }}">{{ o.label }}</button>
+                    </sc-for>
+                  </span>
+                  <sc-if value="{{ ins.hasX }}" hint-placeholder-val="{{ false }}"><span style="font-family:var(--font-mono);font-size:var(--fs-label-sm);line-height:1.5;font-feature-settings:'tnum' 1;color:var(--ink-3)">{{ ins.dayX }}</span></sc-if>
+                </div>
+              </div>
+            </sc-if>
+            <div style="border:1px solid var(--rule-strong);border-radius:var(--r-lg);background:var(--paper);overflow:hidden">
+              <div style="height:36px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;background:var(--paper-2);border-bottom:1px solid var(--rule)">
+                <span style="font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.14em;text-transform:uppercase;font-feature-settings:'tnum' 1;color:var(--ink);white-space:nowrap">{{ ins.head }}</span>
+                <span style="font-family:var(--font-mono);font-size:var(--fs-label-xs);color:var(--ink-4);white-space:nowrap">{{ ins.group }}</span>
+              </div>
+              <div style="display:grid;gap:8px;padding:12px">
+                <div style="display:flex;align-items:center;gap:8px;min-width:0">
+                  <span style="min-width:0;font-family:var(--font-brand);font-size:var(--fs-title-sm);font-weight:700;letter-spacing:-0.01em;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ ins.name }}</span>
+                  <sc-if value="{{ ins.agency }}" hint-placeholder-val="{{ false }}"><span style="flex:none;height:16px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 4px;border:1px solid var(--rule-strong);border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-xs);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;line-height:1;color:var(--ink-3)">Agency</span></sc-if>
+                </div>
+                <sc-if value="{{ ins.dirty }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:var(--fs-label-sm);color:var(--ink-3)"><span style="width:14px;height:14px;box-sizing:border-box;flex:none;background:var(--brand-tint);border:1px solid var(--brand-d);border-radius:var(--r-sm)"></span>{{ ins.src }}</div>
+                </sc-if>
+              </div>
+              <div role="list" style="display:grid;border-top:1px solid var(--rule)">
+                <sc-for list="{{ ins.days }}" as="d" hint-placeholder-count="7">
+                  <div role="{{ d.role }}" sc-camel-on-click="{{ d.click }}" style="height:28px;box-sizing:border-box;display:grid;grid-template-columns:52px 16px minmax(0,1fr) 14px;align-items:center;gap:8px;padding:0 12px;border-bottom:1px solid var(--rule);background:{{ d.rbg }};cursor:{{ d.cur }}" style-hover="background:{{ d.hov }}">
+                    <span style="font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.08em;text-transform:uppercase;font-feature-settings:'tnum' 1;color:var(--ink-2)">{{ d.label }}</span>
+                    <span style="width:16px;height:16px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:{{ d.bg }};border:{{ d.bd }};border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-xs);font-weight:600;line-height:1;color:{{ d.fg }}">{{ d.v }}</span>
+                    <span style="min-width:0;display:flex;align-items:baseline;gap:8px;white-space:nowrap;overflow:hidden">
+                      <span style="font-size:var(--fs-body);color:{{ d.tc }}">{{ d.text }}</span>
+                      <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-feature-settings:'tnum' 1;color:var(--ink-4)">{{ d.time }}</span>
+                    </span>
+                    <sc-if value="{{ d.flag }}" hint-placeholder-val="{{ false }}"><i class="fa-solid fa-triangle-exclamation" style="font-size:11px;color:var(--warn)" aria-label="Part of the issue"></i></sc-if>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:var(--paper-2);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-feature-settings:'tnum' 1;color:var(--ink-3)">
+                <b style="font-weight:600;color:var(--ink)">{{ ins.total }}</b>
+                <span>{{ ins.contract }}</span>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ ins.none }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:48px 12px;text-align:center">
+              <span style="font-family:var(--font-mono);font-size:var(--fs-num);line-height:1;color:var(--rule-strong)">☐</span>
+              <span style="font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:700;color:var(--ink)">Nothing selected</span>
+              <div style="display:grid;gap:4px;font-family:var(--font-mono);font-size:var(--fs-label-sm);line-height:1.5;color:var(--ink-3);text-align:left">
+                <span>☐ Click a day or a person’s week</span>
+                <span>☐ Or step through issues in the toolbar</span>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ insClosed }}" hint-placeholder-val="{{ false }}">
+      <div style="width:36px;flex:none;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;gap:12px;padding:8px 0;background:var(--paper-2);border-left:1px solid var(--rule)">
+        <button sc-camel-on-click="{{ toggleIns }}" aria-label="Expand inspector" title="Expand inspector" style="width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:var(--r-md);background:transparent;color:var(--ink-3);cursor:pointer" style-hover="background:var(--paper-3);color:var(--ink)"><i class="fa-solid fa-angles-left" style="font-size:11px" aria-hidden="true"></i></button>
+        <span style="width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-md);background:var(--paper-3);color:var(--ink-2)"><i class="fa-solid fa-sliders" style="font-size:12px" aria-hidden="true"></i></span>
+        <span style="writing-mode:vertical-rl;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-3)">Inspector</span>
+      </div>
+    </sc-if>
+  </div>
+
+  <div style="flex:none;min-height:36px;box-sizing:border-box;display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 20px;background:var(--paper-2);border-top:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-sm);color:var(--ink-3)">
+    <sc-for list="{{ legend }}" as="l" hint-placeholder-count="6">
+      <span style="display:inline-flex;align-items:center;gap:8px;white-space:nowrap">
+        <sc-if value="{{ l.isBox }}" hint-placeholder-val="{{ true }}"><span style="flex:none;width:16px;height:16px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;background:{{ l.bg }};border:{{ l.bd }};border-radius:var(--r-sm);font-size:var(--fs-label-xs);font-weight:600;line-height:1;color:var(--ink)">{{ l.letter }}<sc-if value="{{ l.icon }}" hint-placeholder-val="{{ false }}"><i class="fa-solid fa-triangle-exclamation" style="font-size:10px;color:var(--warn-text)" aria-hidden="true"></i></sc-if></span></sc-if>
+        <sc-if value="{{ l.isText }}" hint-placeholder-val="{{ false }}"><span style="font-size:var(--fs-label-md);font-weight:600;font-feature-settings:'tnum' 1;letter-spacing:{{ l.ls }};color:var(--ink)">{{ l.text }}</span></sc-if>
+        <span>{{ l.label }}</span>
+      </span>
+    </sc-for>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'dark'|'light'&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;palette&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;example&quot;,&quot;time-of-day&quot;],&quot;default&quot;:&quot;example&quot;,&quot;tsType&quot;:&quot;'example'|'time-of-day'&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;density&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;comfortable&quot;,&quot;compact&quot;,&quot;condensed&quot;],&quot;default&quot;:&quot;comfortable&quot;,&quot;tsType&quot;:&quot;'comfortable'|'compact'|'condensed'&quot;,&quot;section&quot;:&quot;Display&quot;},&quot;times&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;always&quot;,&quot;when different&quot;],&quot;default&quot;:&quot;always&quot;,&quot;tsType&quot;:&quot;'always'|'when different'&quot;,&quot;section&quot;:&quot;Week&quot;},&quot;letters&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Month&quot;}}">
+// The spec's URL parameters: period (week | month), week (W1 is the week of 2 Jan 2028), theme (dark | light),
+// palette (example | time-of-day), density (comfortable | compact | condensed), times (always | different) and
+// letters (true | false). A parameter given stands in for the design prop of the same name.
+const URLP = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams('');
+const urlProp = (name, fallback) => URLP.has(name) ? URLP.get(name) : fallback;
+const URL_PROPS = (() => {
+  const p = {};
+  for (const k of ['theme', 'palette', 'density']) if (URLP.has(k)) p[k] = URLP.get(k);
+  if (URLP.has('times')) p.times = URLP.get('times') === 'different' ? 'when different' : 'always';
+  if (URLP.has('letters')) p.letters = URLP.get('letters') !== 'false';
+  return p;
+})();
+class Component extends DCLogic {
+  static DAY = 864e5;
+  static W1 = Date.UTC(2028, 0, 2);
+  static MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  static MONL = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  static DI = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  static DN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  static SH = { E: { n: 'Early', s: 6, e: 14, tm: '06:00–14:00', st: '06–14' }, L: { n: 'Late', s: 14, e: 22, tm: '14:00–22:00', st: '14–22' }, N: { n: 'Night', s: 22, e: 30, tm: '22:00–06:00', st: '22–06' } };
+  static OFF = 'color-mix(in oklch, var(--ink) 7%, transparent)';
+  static PAL = { example: { E: '--blue-500', L: '--green-500', N: '--yellow-500' }, 'time-of-day': { E: '--yellow-500', L: '--orange-500', N: '--purple-500' } };
+  static LIB = [
+    { id: 'e5s', n: 'Early · Sun–Thu', p: 'EEEEE..' }, { id: 'e5m', n: 'Early · Mon–Fri', p: '.EEEEE.' },
+    { id: 'l5s', n: 'Late · Sun–Thu', p: 'LLLLL..' }, { id: 'l5m', n: 'Late · Mon–Fri', p: '.LLLLL.' },
+    { id: 'n4s', n: 'Night · Sun–Wed', p: 'NNNN...' }, { id: 'n4w', n: 'Night · Wed–Sat', p: '...NNNN' },
+    { id: 'fwd', n: 'Forward rotation', p: 'EELLN..' }, { id: 'e2l', n: 'Early to late', p: '.EEELL.' },
+    { id: 'wke', n: 'Weekend earlies', p: 'E....EE' }, { id: 'wkn', n: 'Weekend nights', p: 'N....NN' },
+    { id: 'pte', n: 'Part time · earlies', p: '.E.E.E.' }, { id: 'ptl', n: 'Part time · lates', p: '..L.L.L' },
+    { id: 'off', n: 'Off', p: '.......' }
+  ];
+  static LM = (() => { const o = {}; this.LIB.forEach(w => { o[w.id] = w; }); return o; })();
+  static GROUPS = [{ id: 'in', n: 'Inbound' }, { id: 'out', n: 'Outbound' }];
+  static GM = { in: 'Inbound', out: 'Outbound' };
+  static P = [
+    ['A. Alder', 'in', 5, ['e5s', 'l5s', 'n4s', 'fwd']], ['B. Lupin', 'in', 5, ['l5s', 'n4s', 'fwd', 'e5s']], ['H. Grove', 'in', 5, ['e5m', 'l5m', 'n4w', 'e5s']],
+    ['J. Marram', 'in', 5, ['n4s', 'fwd', 'e5s', 'l5s']], ['R. Hawthorn', 'in', 5, ['wke', 'e5s', 'l5m', 'n4s']], ['C. Rowan', 'in', 3, ['pte', 'ptl']],
+    ['D. Sedge', 'in', 5, ['e2l', 'l5s', 'e5m', 'n4s']], ['E. Bracken', 'in', 5, ['fwd', 'fwd', 'l5m', 'e5m']], ['F. Larch', 'in', 5, ['l5m', 'n4w', 'l5s', 'e5m']],
+    ['G. Teasel', 'in', 3, ['ptl', 'wkn', 'pte']], ['K. Willow', 'in', 5, ['e5s', 'e5s', 'l5s', 'l5s']], ['L. Hazel', 'out', 5, ['n4s', 'n4w', 'e5m', 'l5m']],
+    ['M. Sorrel', 'out', 5, ['l5s', 'e5s', 'n4s', 'fwd']], ['N. Fennel', 'out', 5, ['e5m', 'e5m', 'l5m', 'l5m']], ['P. Aspen', 'out', 5, ['fwd', 'e5s', 'l5s', 'n4s']],
+    ['S. Heather', 'out', 3, ['pte', 'wke']], ['T. Birch', 'out', 5, ['n4w', 'l5m', 'e5s', 'l5s']], ['V. Elder', 'out', 5, ['l5m', 'e2l', 'n4s', 'e5m']],
+    ['W. Holly', 'out', 5, ['e5s', 'fwd', 'l5s', 'n4w'], true], ['Y. Yarrow', 'out', 5, ['l5s', 'l5m'], true]
+  ].map((a, i) => ({ id: 'p' + (i + 1), n: a[0], g: a[1], c: a[2], cy: a[3], ag: !!a[4], off: i }));
+  static PM = (() => { const o = {}; this.P.forEach(p => { o[p.id] = p; }); return o; })();
+  static FIX = { 'p11|2028-03-18': 'L', 'p14|2028-03-11': 'L', 'p1|2028-03-17': 'E', 'p13|2028-03-20': 'E', 'p15|2028-03-08': 'E', 'p17|2028-03-11': 'N', 'p10|2028-03-14': 'E' };
+  static EXC = { 'p4|2028-03-15': { s: 7, e: 15 }, 'p18|2028-03-14': { s: 12, e: 20 }, 'p8|2028-03-15': { g: 'out' }, 'p12|2028-03-16': { g: 'in' } };
+
+  state = this.init();
+
+  init() {
+    const wn0 = Math.max(1, Math.floor(Number(urlProp('week', 11))) || 11), mid0 = this.midOf(wn0);
+    const st = { per: urlProp('period', 'week') === 'month' ? 'month' : 'week', wn: wn0, y: mid0.getUTCFullYear(), m: mid0.getUTCMonth(), ov: {}, src: {}, com: {}, hist: [], fut: [], sel: null, ix: null, lib: true, ins: true, q: '', last: null, hover: null, drag: null, closed: {}, menu: null };
+    const I = this.model(st).issues;
+    if (I.length) { const it = I[0]; st.ix = 0; st.sel = { pid: it.pid, wn: it.wn, t: it.type === 'contract' ? null : it.t }; }
+    return st;
+  }
+
+  componentDidMount() {
+    this.syncTheme();
+    this._down = e => {
+      if (!this.state.menu) return;
+      const el = e.target;
+      if (el && el.closest && (el.closest('[data-menu]') || el.closest('[data-slot]'))) return;
+      this.setState({ menu: null });
+    };
+    this._key = e => { if (e.key === 'Escape' && this.state.menu) this.setState({ menu: null }); };
+    document.addEventListener('mousedown', this._down, true);
+    document.addEventListener('keydown', this._key);
+    this.reveal();
+  }
+  componentDidUpdate() { this.syncTheme(); }
+  componentWillUnmount() { document.removeEventListener('mousedown', this._down, true); document.removeEventListener('keydown', this._key); }
+  syncTheme() { const t = (URL_PROPS.theme || (this.props || {}).theme) === 'light' ? 'light' : 'dark', el = document.documentElement; if (el.getAttribute('data-theme') !== t) el.setAttribute('data-theme', t); }
+
+  iso(t) { return new Date(t).toISOString().slice(0, 10); }
+  wkNo(t) { return Math.floor((t - Component.W1) / (7 * Component.DAY)) + 1; }
+  hh(h) { return String(h % 24).padStart(2, '0'); }
+  ownT(x) { return this.hh(x.s) + ':00–' + this.hh(x.e) + ':00'; }
+  base(p, t, key) {
+    const C = Component;
+    if (key in C.FIX) return C.FIX[key];
+    const n = p.cy.length, w = C.LM[p.cy[((this.wkNo(t) + p.off) % n + n) % n]], ch = w.p[new Date(t).getUTCDay()];
+    return ch === '.' ? '' : ch;
+  }
+  orig(st, p, t) { const key = p.id + '|' + this.iso(t); return key in st.com ? st.com[key] : this.base(p, t, key); }
+  val(st, p, t) { const key = p.id + '|' + this.iso(t); return key in st.ov ? st.ov[key] : this.orig(st, p, t); }
+  exc(st, key) { return key in st.ov || key in st.com ? null : Component.EXC[key] || null; }
+  isWeek(st) { return st.per === 'week'; }
+  weeksOf(y, m) {
+    const D = Component.DAY, f = Date.UTC(y, m, 1), l = Date.UTC(y, m + 1, 0), wks = [];
+    for (let s = f - new Date(f).getUTCDay() * D; s <= l; s += 7 * D) wks.push({ s, n: this.wkNo(s) });
+    return { first: wks[0].s, last: wks[wks.length - 1].s + 6 * D, wks };
+  }
+  weekR(wn) { const D = Component.DAY, s = Component.W1 + (wn - 1) * 7 * D; return { first: s, last: s + 6 * D, wks: [{ s, n: wn }] }; }
+  range(st) { return this.isWeek(st) ? this.weekR(st.wn) : this.weeksOf(st.y, st.m); }
+  midOf(wn) { const D = Component.DAY; return new Date(Component.W1 + (wn - 1) * 7 * D + 3 * D); }
+  refMonth(st) { return this.isWeek(st) ? this.midOf(st.wn).getUTCMonth() : st.m; }
+  md(t) { const d = new Date(t); return Component.MON[d.getUTCMonth()] + ' ' + d.getUTCDate(); }
+  dl(t, m) { const C = Component, d = new Date(t); return C.DN[d.getUTCDay()] + ' ' + d.getUTCDate() + (d.getUTCMonth() !== m ? ' ' + C.MON[d.getUTCMonth()] : ''); }
+  rl(s) { const C = Component, a = new Date(s), b = new Date(s + 6 * C.DAY); return this.md(s) + ' – ' + (b.getUTCMonth() !== a.getUTCMonth() ? C.MON[b.getUTCMonth()] + ' ' : '') + b.getUTCDate(); }
+  rlong(s) {
+    const C = Component, e = s + 6 * C.DAY, a = new Date(s), b = new Date(e);
+    if (a.getUTCFullYear() !== b.getUTCFullYear()) return this.md(s) + ', ' + a.getUTCFullYear() + ' – ' + this.md(e) + ', ' + b.getUTCFullYear();
+    return this.rl(s) + ', ' + b.getUTCFullYear();
+  }
+
+  model(st) {
+    const C = Component, D = C.DAY, M = this.range(st), N = M.wks.length, start = M.wks[0].s - 7 * D, len = (N + 1) * 7;
+    const vals = {}, dirty = {}, xs = {}, prevs = {};
+    C.P.forEach(p => {
+      const a = new Array(len), b = new Array(len), x = new Array(len);
+      for (let i = 0; i < len; i++) {
+        const t = start + i * D, key = p.id + '|' + this.iso(t);
+        b[i] = key in st.ov;
+        a[i] = b[i] ? st.ov[key] : key in st.com ? st.com[key] : this.base(p, t, key);
+        x[i] = a[i] ? this.exc(st, key) : null;
+      }
+      vals[p.id] = a; dirty[p.id] = b; xs[p.id] = x;
+      const pt = start - D, pv = this.val(st, p, pt);
+      prevs[p.id] = { v: pv, x: pv ? this.exc(st, p.id + '|' + this.iso(pt)) : null };
+    });
+    return { M, vals, dirty, xs, issues: this.findIssues(M, start, len, vals, xs, prevs, this.refMonth(st)) };
+  }
+
+  findIssues(M, start, len, vals, xs, prevs, m) {
+    const C = Component, D = C.DAY, out = [];
+    C.P.forEach((p, pi) => {
+      const a = vals[p.id], x = xs[p.id];
+      let prev = prevs[p.id].v, px = prevs[p.id].x, run = 0, rs = 0;
+      for (let i = 0; i < len; i++) {
+        const t = start + i * D, v = a[i], xi = x[i], on = t >= M.first;
+        if (v && prev) {
+          const s = xi && xi.s != null ? xi.s : C.SH[v].s, e = px && px.e != null ? px.e : C.SH[prev].e, rest = s + 24 - e;
+          if (rest < 10 && on) out.push({ type: 'rest', pid: p.id, pi, t, days: [t - D, t], title: 'Quick return',
+            detail: C.SH[prev].n + ' ' + this.dl(t - D, m) + ' ends ' + this.hh(e) + ':00' + (e >= 24 ? ' next morning' : '') + '; ' + C.SH[v].n + ' ' + this.dl(t, m) + ' starts ' + this.hh(s) + ':00. ' + rest + 'h rest, minimum 10h.' });
+        }
+        if (v) { if (!run) rs = i; run++; } else run = 0;
+        if (run === 7 && on) {
+          let j = i; while (j + 1 < len && a[j + 1]) j++;
+          const days = []; for (let k = rs; k <= j; k++) days.push(start + k * D);
+          out.push({ type: 'streak', pid: p.id, pi, t, days, title: (j - rs + 1) + ' days in a row', detail: 'Works ' + this.dl(start + rs * D, m) + ' – ' + this.dl(start + j * D, m) + ' without a day off. Maximum 6.' });
+        }
+        prev = v; px = xi;
+      }
+      M.wks.forEach((w, wi) => {
+        let n = 0; for (let d = 0; d < 7; d++) if (a[(wi + 1) * 7 + d]) n++;
+        if (n > p.c) out.push({ type: 'contract', pid: p.id, pi, t: w.s + 6 * D, days: [], title: 'Over contract', detail: n + ' shifts in W' + w.n + ' against a contract of ' + p.c + '. ' + n * 8 + 'h of ' + p.c * 8 + 'h.' });
+      });
+    });
+    const ord = { rest: 0, streak: 1, contract: 2 };
+    out.sort((x, y) => x.t - y.t || x.pi - y.pi || ord[x.type] - ord[y.type]);
+    out.forEach(x => { x.wn = this.wkNo(x.t); x.id = x.type + '|' + x.pid + '|' + x.t; });
+    return out;
+  }
+
+  mix(v, pal, pct) { return 'color-mix(in oklch, var(' + Component.PAL[pal][v] + ') ' + pct + '%, var(--paper))'; }
+  tone(v, pv, pal) {
+    const h = 'var(' + Component.PAL[pal][v] + ')';
+    return pv ? { bg: this.mix(v, pal, 12), bd: '1px dashed color-mix(in oklch, ' + h + ' 85%, var(--paper))', fg: 'var(--ink-3)' }
+      : { bg: this.mix(v, pal, 32), bd: '1px solid color-mix(in oklch, ' + h + ' 70%, var(--paper))', fg: 'var(--ink)' };
+  }
+  marks(days, z) {
+    return days.map((d, i) => {
+      if (!d.v) return { key: i, js: 'stretch', w: 'auto', h: z.tileH + 'px', mg: '0 2px', bg: Component.OFF, bd: '0 solid transparent', rad: 'var(--r-sm)', fg: 'transparent', label: '' };
+      const tn = this.tone(d.v, d.pv, z.pal);
+      return { key: i, js: 'stretch', w: 'auto', h: z.tileH + 'px', mg: '0 2px', bg: tn.bg, bd: tn.bd, rad: 'var(--r-sm)', fg: tn.fg, label: z.letters && z.dayPx >= 13 ? d.v : '' };
+    });
+  }
+  legend(pal, week) {
+    const C = Component, it = (key, label, o) => Object.assign({ key, label, isBox: true, isText: false, text: '', ls: '0', icon: false, bg: 'transparent', bd: '0 solid transparent', letter: '' }, o);
+    const out = ['E', 'L', 'N'].map(v => { const tn = this.tone(v, false, pal); return it(v, C.SH[v].n + ' ' + C.SH[v].st, { bg: tn.bg, bd: tn.bd, letter: v }); });
+    out.push(it('off', 'Off', { bg: C.OFF }));
+    if (week) {
+      out.push(it('iss', 'Part of an issue', { icon: true }));
+      out.push(it('own', 'Own times', { isBox: false, isText: true, text: '07–15' }));
+      out.push(it('grp', 'Shift in another group', { isBox: false, isText: true, text: 'OUTBOUND' }));
+    }
+    out.push(it('chg', 'Changed, not applied', { bg: 'var(--brand-tint)', bd: '1px solid var(--brand-d)' }));
+    out.push(it('pv', 'Drop preview', { bd: '1px dashed var(--brand-d)' }));
+    return out;
+  }
+
+  chg(st) {
+    if (this.isWeek(st)) { const n = Object.keys(st.ov).length; return { n, w: n === 1 ? 'changed day' : 'changed days' }; }
+    const s = new Set();
+    Object.keys(st.ov).forEach(key => { const i = key.indexOf('|'); s.add(key.slice(0, i) + '|' + this.wkNo(Date.parse(key.slice(i + 1)))); });
+    return { n: s.size, w: s.size === 1 ? 'changed week' : 'changed weeks' };
+  }
+  impact(st, next, pid) {
+    const ids = x => this.model(x).issues.filter(i => i.pid === pid).map(i => i.id);
+    const before = ids(st), after = ids(next);
+    const add = after.filter(x => !before.includes(x)).length, gone = before.filter(x => !after.includes(x)).length, parts = [];
+    if (add) parts.push(add + ' new issue' + (add > 1 ? 's' : ''));
+    if (gone) parts.push(gone + ' resolved');
+    return { v: parts.length ? ' · ' + parts.join(' · ') : ' · no change to issues', vc: add ? 'var(--warn-text)' : gone ? 'var(--pos-text)' : 'var(--ink-3)' };
+  }
+  ixFor(st, pid, wn, t) {
+    const I = this.model(st).issues;
+    let ix = t == null ? -1 : I.findIndex(i => i.pid === pid && i.wn === wn && i.days.includes(t));
+    if (ix < 0) ix = I.findIndex(i => i.pid === pid && i.wn === wn);
+    return ix >= 0 ? ix : null;
+  }
+
+  dStart(wid, e) {
+    this._drag = wid;
+    try { e.dataTransfer.effectAllowed = 'copy'; e.dataTransfer.setData('text/plain', wid); } catch (x) {}
+    setTimeout(() => this.setState({ drag: wid, menu: null }), 0);
+  }
+  dEnd() { this._drag = null; this.setState({ drag: null, hover: null }); }
+  cellOver(pid, wn, e) {
+    if (!this._drag) return;
+    e.preventDefault(); e.stopPropagation();
+    try { e.dataTransfer.dropEffect = 'copy'; } catch (x) {}
+    const h = this.state.hover;
+    if (!h || h.pid !== pid || h.wn !== wn) this.setState({ hover: { pid, wn } });
+  }
+  frameOver() { if (this.state.hover) this.setState({ hover: null }); }
+  cellDrop(pid, wn, e) {
+    e.preventDefault(); e.stopPropagation();
+    const wid = this._drag; this._drag = null;
+    if (wid) this.dropWeek(pid, wn, wid);
+  }
+  dropWeek(pid, wn, wid) {
+    const C = Component, D = C.DAY, st = this.state, p = C.PM[pid], w = C.LM[wid], s0 = C.W1 + (wn - 1) * 7 * D, ov = Object.assign({}, st.ov);
+    for (let d = 0; d < 7; d++) {
+      const t = s0 + d * D, key = pid + '|' + this.iso(t), ch = w.p[d] === '.' ? '' : w.p[d];
+      if (ch === this.orig(st, p, t)) delete ov[key]; else ov[key] = ch;
+    }
+    const ka = Object.keys(ov), same = ka.length === Object.keys(st.ov).length && ka.every(x => st.ov[x] === ov[x]);
+    if (same) { this.setState({ hover: null, drag: null, sel: { pid, wn, t: null }, last: { tone: 'info', who: 'You', t: p.n + ' · W' + wn + ' already matches ' + w.n, v: '', canUndo: false } }); return; }
+    const next = Object.assign({}, st, { ov }), im = this.impact(st, next, pid);
+    this.setState({ ov, src: Object.assign({}, st.src, { [pid + '|' + wn]: wid }), hist: st.hist.concat([{ ov: st.ov, src: st.src }]).slice(-50), fut: [], sel: { pid, wn, t: null }, ix: this.ixFor(next, pid, wn, null), hover: null, drag: null, menu: null,
+      last: { tone: 'info', who: 'You', t: p.n + ' · W' + wn + ' → ' + w.n, v: im.v, vc: im.vc, canUndo: true } });
+  }
+  setDay(pid, t, v) {
+    const C = Component, st = this.state, p = C.PM[pid], key = pid + '|' + this.iso(t), wn = this.wkNo(t);
+    if (this.val(st, p, t) === v) { this.setState({ menu: null }); return; }
+    const ov = Object.assign({}, st.ov);
+    if (v === this.orig(st, p, t)) delete ov[key]; else ov[key] = v;
+    const src = Object.assign({}, st.src); delete src[pid + '|' + wn];
+    const next = Object.assign({}, st, { ov }), im = this.impact(st, next, pid);
+    this.setState({ ov, src, hist: st.hist.concat([{ ov: st.ov, src: st.src }]).slice(-50), fut: [], menu: null, sel: { pid, wn, t }, ix: this.ixFor(next, pid, wn, t),
+      last: { tone: 'info', who: 'You', t: p.n + ' · ' + this.dl(t, this.refMonth(st)) + ' → ' + (v ? C.SH[v].n : 'Off'), v: im.v, vc: im.vc, canUndo: true } });
+  }
+  undo() {
+    const st = this.state; if (!st.hist.length) return;
+    const h = st.hist[st.hist.length - 1];
+    this.setState({ ov: h.ov, src: h.src, hist: st.hist.slice(0, -1), fut: st.fut.concat([{ ov: st.ov, src: st.src }]), last: null, ix: null, menu: null });
+  }
+  redo() {
+    const st = this.state; if (!st.fut.length) return;
+    const h = st.fut[st.fut.length - 1];
+    this.setState({ ov: h.ov, src: h.src, fut: st.fut.slice(0, -1), hist: st.hist.concat([{ ov: st.ov, src: st.src }]), last: null, ix: null, menu: null });
+  }
+  discard() {
+    const st = this.state, c = this.chg(st); if (!c.n) return;
+    this.setState({ ov: {}, src: {}, hist: st.hist.concat([{ ov: st.ov, src: st.src }]), fut: [], ix: null, menu: null, last: { tone: 'info', who: 'You', t: 'Discarded ' + c.n + ' ' + c.w, v: '', canUndo: true } });
+  }
+  applyAll() {
+    const st = this.state, c = this.chg(st); if (!c.n) return;
+    this.setState({ com: Object.assign({}, st.com, st.ov), ov: {}, src: {}, hist: [], fut: [], menu: null, last: { tone: 'pos', who: 'Applied', t: c.n + ' ' + c.w + ' saved to the draft roster', v: '', canUndo: false } });
+  }
+  step(dir) {
+    const C = Component, st = this.state, I = this.model(st).issues; if (!I.length) return;
+    const ix = st.ix == null || st.ix >= I.length ? (dir > 0 ? 0 : I.length - 1) : (st.ix + dir + I.length) % I.length, it = I[ix];
+    const t = this.isWeek(st) && it.type !== 'contract' ? it.t : null;
+    this.setState({ ix, sel: { pid: it.pid, wn: it.wn, t }, ins: true, menu: null, closed: Object.assign({}, st.closed, { [C.PM[it.pid].g]: false }) }, () => this.reveal());
+  }
+  pick(pid, wn) { this.setState({ sel: { pid, wn, t: null }, ix: this.ixFor(this.state, pid, wn, null), ins: true, menu: null }); }
+  pickDay(pid, t) { const wn = this.wkNo(t); this.setState({ sel: { pid, wn, t }, ix: this.ixFor(this.state, pid, wn, t), ins: true, menu: null }); }
+  openMenu(pid, t) {
+    const m = this.state.menu, same = !!m && m.pid === pid && m.t === t, wn = this.wkNo(t);
+    this.setState({ sel: { pid, wn, t }, ix: this.ixFor(this.state, pid, wn, t), ins: true, menu: same ? null : { pid, t } });
+  }
+  setPer(per) {
+    const D = Component.DAY, st = this.state; if (st.per === per) return;
+    if (per === 'month') {
+      const mid = this.midOf(st.wn);
+      this.setState({ per, y: mid.getUTCFullYear(), m: mid.getUTCMonth(), menu: null, hover: null, ix: null, sel: st.sel ? { pid: st.sel.pid, wn: st.sel.wn, t: null } : null }, () => this.reveal());
+      return;
+    }
+    const M = this.weeksOf(st.y, st.m), ns = M.wks.map(w => w.n);
+    const wn = st.sel && ns.includes(st.sel.wn) ? st.sel.wn : ns.includes(st.wn) ? st.wn : (M.wks.find(w => new Date(w.s + 3 * D).getUTCMonth() === st.m) || M.wks[0]).n;
+    this.setState({ per, wn, menu: null, hover: null, ix: null, sel: st.sel && st.sel.wn === wn ? st.sel : null }, () => this.reveal());
+  }
+  openWeek(wn) {
+    const st = this.state;
+    this.setState({ per: 'week', wn, ix: null, hover: null, menu: null, sel: st.sel && st.sel.wn === wn ? { pid: st.sel.pid, wn, t: null } : null }, () => this.reveal());
+  }
+  nav(dir) {
+    const st = this.state, reset = { sel: null, ix: null, hover: null, last: null, menu: null };
+    if (this.isWeek(st)) { const wn = st.wn + dir, mid = this.midOf(wn); this.setState(Object.assign(reset, { wn, y: mid.getUTCFullYear(), m: mid.getUTCMonth() })); return; }
+    let m = st.m + dir, y = st.y;
+    if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; }
+    this.setState(Object.assign(reset, { y, m }));
+  }
+  reveal() {
+    setTimeout(() => {
+      const st = this.state; if (!st.sel) return;
+      const wk = this.isWeek(st), sc = document.getElementById('pm-grid');
+      const el = sc && sc.querySelector(wk ? '[data-row="' + st.sel.pid + '"]' : '[data-cell="' + st.sel.pid + '-' + st.sel.wn + '"]');
+      if (!sc || !el) return;
+      const a = sc.getBoundingClientRect(), b = el.getBoundingClientRect(), s = (a.height / (sc.offsetHeight || a.height)) || 1;
+      const top = (b.top - a.top) / s, bot = (b.bottom - a.top) / s, hdr = wk ? 36 : 58;
+      if (top < hdr) sc.scrollTop += top - hdr - 36; else if (bot > sc.clientHeight) sc.scrollTop += bot - sc.clientHeight + 36;
+    }, 40);
+  }
+
+  renderVals() {
+    const C = Component, D = C.DAY, st = this.state, pr = Object.assign({}, this.props || {}, URL_PROPS);
+    const pal = pr.palette === 'time-of-day' ? 'time-of-day' : 'example';
+    const dens = pr.density === 'compact' || pr.density === 'condensed' ? pr.density : 'comfortable';
+    const showTimes = pr.times !== 'when different';
+    const wk = this.isWeek(st), md = this.model(st), M = md.M, N = M.wks.length, I = md.issues, refM = this.refMonth(st);
+    const rowH = { comfortable: 36, compact: 32, condensed: 28 }[dens], tileH = rowH - 12;
+    const gridW = 1598 - (st.lib ? 273 : 37) - (st.ins ? 321 : 37);
+    const z = { pal, letters: pr.letters !== false, dayPx: (gridW - 168) / N / 7, tileH };
+    const zp = { pal, letters: true, dayPx: 32, tileH: 18 };
+    const byCell = {};
+    I.forEach((it, ix) => { const kk = it.pid + '|' + it.wn; (byCell[kk] = byCell[kk] || []).push(ix); });
+    const flagsOf = (pid, wn) => { const fl = {}; (byCell[pid + '|' + wn] || []).forEach(ix => I[ix].days.forEach(t => { fl[t] = true; })); return fl; };
+    const drag = st.drag ? C.LM[st.drag] : null, hv = st.hover, sel = st.sel;
+
+    const weeks = wk ? [] : M.wks.map(w => ({ key: 'w' + w.n, label: 'W' + w.n, range: this.rl(w.s), open: () => this.openWeek(w.n), openTitle: 'Open W' + w.n + ' in week view',
+      ticks: C.DI.map((di, d) => ({ key: d, di, dn: String(new Date(w.s + d * D).getUTCDate()) })) }));
+    const wdays = !wk ? [] : C.DN.map((dn, d) => { const dt = new Date(M.first + d * D), n = dt.getUTCDate(); return { key: d, dn, num: n === 1 ? '1 ' + C.MON[dt.getUTCMonth()] : String(n) }; });
+
+    const mrow = p => {
+      const selRow = !!sel && sel.pid === p.id;
+      return { key: p.id, name: p.n, agency: p.ag, nameBg: selRow ? 'var(--paper-3)' : 'var(--paper)', cells: M.wks.map((w, wi) => {
+        const isSel = selRow && sel.wn === w.n, isHv = !!(drag && hv && hv.pid === p.id && hv.wn === w.n);
+        let dirty = false;
+        const days = C.DI.map((di, d) => {
+          const i = (wi + 1) * 7 + d;
+          if (md.dirty[p.id][i]) dirty = true;
+          if (isHv) { const ch = drag.p[d]; return { v: ch === '.' ? '' : ch, pv: true }; }
+          return { v: md.vals[p.id][i], pv: false };
+        });
+        return { key: p.id + '-' + w.n, title: p.n + ' · W' + w.n + ' · ' + days.map(x => x.v || '·').join(' '),
+          bg: dirty ? 'var(--brand-tint)' : isSel ? 'var(--paper-3)' : 'var(--paper)',
+          hov: dirty ? 'var(--brand-tint)' : isSel ? 'var(--paper-3)' : 'var(--paper-2)',
+          ol: isHv ? '1px dashed var(--brand-d)' : isSel ? '1px solid var(--ink)' : '0 solid transparent',
+          marks: this.marks(days, z),
+          click: () => this.pick(p.id, w.n), over: e => this.cellOver(p.id, w.n, e), drop: e => this.cellDrop(p.id, w.n, e) };
+      }) };
+    };
+
+    const wrow = p => {
+      const w = M.wks[0], selP = !!sel && sel.pid === p.id && sel.wn === w.n, fl = flagsOf(p.id, w.n);
+      const isHv = !!(drag && hv && hv.pid === p.id && hv.wn === w.n);
+      let n = 0;
+      const days = C.DI.map((di, d) => {
+        const t = w.s + d * D, i = 7 + d, dirty = md.dirty[p.id][i], isSel = selP && sel.t === t, lbl = this.dl(t, refM);
+        let v = md.vals[p.id][i], x = md.xs[p.id][i];
+        if (v) n++;
+        if (isHv) { const ch = drag.p[d]; v = ch === '.' ? '' : ch; x = null; }
+        const c = { key: d, menu: !!st.menu && st.menu.pid === p.id && st.menu.t === t, ml: d >= 5 ? 'auto' : '4px', mr: d >= 5 ? '4px' : 'auto',
+          bg: dirty ? 'var(--brand-tint)' : isSel ? 'var(--paper-3)' : 'var(--paper)' };
+        if (!v) return Object.assign(c, { on: false, off: true, title: p.n + ' · ' + lbl + ' · Off · assign a shift',
+          sbd: isHv ? '1px dashed var(--rule-strong)' : isSel ? '1px solid var(--ink)' : '0 solid transparent', sfg: isSel && !isHv ? 'var(--ink-3)' : 'transparent',
+          assign: () => this.openMenu(p.id, t), label: '', time: '', tc: 'var(--ink-2)', tw: '500', tu: 'none', tls: '0', tfs: 'var(--fs-label-md)', flag: false,
+          cbg: 'transparent', cbd: '0 solid transparent', cfg: 'var(--ink)', chov: 'transparent', click: () => this.pickDay(p.id, t) });
+        const tn = this.tone(v, isHv, pal), sh = C.SH[v], own = !!x && x.s != null, grp = !!x && !!x.g, f = !isHv && !!fl[t];
+        return Object.assign(c, { on: true, off: false, label: sh.n,
+          time: grp ? C.GM[x.g] : own ? this.hh(x.s) + '–' + this.hh(x.e) : showTimes ? sh.st : '',
+          tc: x ? 'var(--ink)' : 'var(--ink-2)', tw: x ? '600' : '500', tu: grp ? 'uppercase' : 'none', tls: '0', tfs: grp ? 'var(--fs-label-sm)' : 'var(--fs-label-md)', flag: f,
+          title: p.n + ' · ' + lbl + ' · ' + sh.n + ' ' + (own ? this.ownT(x) + ' · own times' : sh.tm) + (grp ? ' · in ' + C.GM[x.g] : '') + (f ? ' · part of an issue' : ''),
+          cbg: tn.bg, cbd: isSel ? '1px solid var(--ink)' : tn.bd, cfg: tn.fg, chov: isHv ? tn.bg : this.mix(v, pal, 44),
+          click: () => this.pickDay(p.id, t), sbd: '0 solid transparent', sfg: 'transparent', assign: () => this.openMenu(p.id, t) });
+      });
+      const hrs = n * 8, con = p.c * 8, over = hrs > con, sp = !!sel && sel.pid === p.id;
+      return { key: p.id, id: p.id, name: p.n, agency: p.ag, nameBg: sp ? 'var(--paper-3)' : 'var(--paper)', nameHov: sp ? 'var(--paper-3)' : 'var(--paper-2)',
+        title: p.n + ' · ' + hrs + ' h of ' + con + ' h contract', hours: hrs + ' / ' + con + ' h', hc: over ? 'var(--warn-text)' : 'var(--ink-2)',
+        hw: Math.min(hrs / con, 1) * 100 + '%', hb: over ? 'var(--warn)' : 'var(--brand-d)',
+        ol: isHv ? '1px dashed var(--brand-d)' : selP && sel.t == null ? '1px solid var(--ink)' : '0 solid transparent',
+        pick: () => this.pick(p.id, w.n), over: e => this.cellOver(p.id, w.n, e), drop: e => this.cellDrop(p.id, w.n, e), days };
+    };
+
+    const groups = C.GROUPS.map(g => {
+      const open = !st.closed[g.id], ppl = C.P.filter(p => p.g === g.id);
+      return { key: g.id, name: g.n, count: ppl.length + ' people', open, chev: 'fa-solid ' + (open ? 'fa-chevron-down' : 'fa-chevron-right'),
+        toggle: () => this.setState(s => ({ closed: Object.assign({}, s.closed, { [g.id]: !s.closed[g.id] }) })),
+        rows: open && !wk ? ppl.map(mrow) : [], wrows: open && wk ? ppl.map(wrow) : [] };
+    });
+
+    const menuOpts = !st.menu ? [] : ['E', 'L', 'N'].map(v => { const tn = this.tone(v, false, pal); return { key: v, label: C.SH[v].n, time: C.SH[v].tm, bg: tn.bg, bd: tn.bd, click: () => this.setDay(st.menu.pid, st.menu.t, v) }; });
+    const menuHead = st.menu ? 'Assign · ' + this.dl(st.menu.t, refM) : '';
+
+    const q = st.q.trim().toLowerCase();
+    const lib = C.LIB.filter(w => !q || w.n.toLowerCase().includes(q)).map(w => {
+      const days = w.p.split('').map(ch => ({ v: ch === '.' ? '' : ch, pv: false })), n = days.filter(x => x.v).length, on = st.drag === w.id;
+      return { key: w.id, name: w.n, meta: n ? n + ' shift' + (n > 1 ? 's' : '') + ' · ' + n * 8 + 'h' : 'no shifts', title: w.n + ' · ' + days.map(x => x.v || '·').join(' '),
+        marks: this.marks(days, zp), bg: on ? 'var(--paper-3)' : 'var(--paper-2)', ol: on ? '1px dashed var(--brand-d)' : '0 solid transparent',
+        dragStart: e => this.dStart(w.id, e), dragEnd: () => this.dEnd() };
+    });
+
+    let ins = { has: false, none: true, issues: [], days: [], agency: false, dayEd: false, dayOpts: [], hasX: false, dayX: '', dayHead: '', dayNote: '' };
+    const sp = sel && C.PM[sel.pid], swi = sp ? M.wks.findIndex(w => w.n === sel.wn) : -1;
+    if (sp && swi >= 0) {
+      const w = M.wks[swi], ixs = byCell[sp.id + '|' + w.n] || [], fl = flagsOf(sp.id, w.n);
+      let n = 0, dirty = false;
+      const days = C.DN.map((dn, d) => {
+        const t = w.s + d * D, i = (swi + 1) * 7 + d, v = md.vals[sp.id][i], x = md.xs[sp.id][i], tn = v ? this.tone(v, false, pal) : null, isSel = wk && sel.t === t;
+        if (v) n++;
+        if (md.dirty[sp.id][i]) dirty = true;
+        return { key: d, label: dn + ' ' + new Date(t).getUTCDate(), v: v || '', bg: tn ? tn.bg : C.OFF, bd: tn ? tn.bd : '0 solid transparent', fg: tn ? tn.fg : 'var(--ink-4)',
+          text: v ? C.SH[v].n : 'Off', tc: v ? 'var(--ink)' : 'var(--ink-4)',
+          time: !v ? '' : x && x.s != null ? this.ownT(x) + ' · own' : x && x.g ? 'in ' + C.GM[x.g] : C.SH[v].tm, flag: !!fl[t],
+          role: wk ? 'button' : 'listitem', rbg: isSel ? 'var(--paper-3)' : 'var(--paper)', cur: wk ? 'pointer' : 'default',
+          hov: isSel ? 'var(--paper-3)' : wk ? 'var(--paper-2)' : 'var(--paper)', click: wk ? () => this.pickDay(sp.id, t) : () => {} };
+      });
+      const sid = st.src[sp.id + '|' + w.n];
+      ins = { has: true, none: false, head: 'W' + w.n + ' · ' + this.rl(w.s), group: C.GM[sp.g], name: sp.n, agency: sp.ag, days,
+        issues: ixs.map(ix => ({ key: I[ix].id, title: I[ix].title, detail: I[ix].detail, pos: (ix + 1) + ' of ' + I.length })),
+        dirty, src: sid ? 'Not applied · from “' + C.LM[sid].n + '”' : 'Not applied',
+        total: n ? n + ' shift' + (n > 1 ? 's' : '') + ' · ' + n * 8 + 'h' : 'no shifts', contract: 'Contract ' + sp.c + ' · ' + sp.c * 8 + 'h',
+        dayEd: false, dayOpts: [], hasX: false, dayX: '', dayHead: '', dayNote: '' };
+      if (wk && sel.t != null && sel.t >= w.s && sel.t <= w.s + 6 * D) {
+        const d = Math.round((sel.t - w.s) / D), i = (swi + 1) * 7 + d, v = md.vals[sp.id][i] || '', x = md.xs[sp.id][i], dt = new Date(sel.t), o = this.orig(st, sp, sel.t);
+        ins.dayEd = true;
+        ins.dayHead = C.DN[d] + ' ' + dt.getUTCDate() + ' ' + C.MON[dt.getUTCMonth()];
+        ins.dayNote = md.dirty[sp.id][i] ? (!o ? 'Added' : !v ? 'Removed' : 'Changed') + ' · not applied' : v ? 'Rostered' : 'Off';
+        ins.dayOpts = ['E', 'L', 'N', ''].map((k, j) => { const on = k === v; return { key: k || 'off', label: k ? C.SH[k].n : 'Off', on,
+          bg: on ? 'var(--brand-tint)' : 'transparent', fg: on ? 'var(--brand-dd)' : 'var(--ink-3)', hov: on ? 'var(--brand-tint)' : 'var(--paper-2)',
+          bl: j ? '1px solid var(--rule-strong)' : '0 solid transparent', rad: j === 0 ? '5px 0 0 5px' : j === 3 ? '0 5px 5px 0' : '0',
+          click: () => this.setDay(sp.id, sel.t, k) }; });
+        ins.dayX = x && x.s != null ? 'Own times ' + this.ownT(x) + ' · shift ' + C.SH[v].tm : x && x.g ? 'Working in ' + C.GM[x.g] + ' · home group ' + C.GM[sp.g] : '';
+        ins.hasX = !!ins.dayX;
+      }
+    }
+
+    const ch = this.chg(st), ixOk = st.ix != null && st.ix < I.length;
+    const hb = (key, icon, label, on, fn) => ({ key, icon: 'fa-solid ' + icon, label, click: fn, dis: !on, bd: on ? 'var(--rule-strong)' : 'var(--rule)', fg: on ? 'var(--ink-2)' : 'var(--ink-5)', cur: on ? 'pointer' : 'default', hov: on ? 'var(--paper-2)' : 'var(--paper)' });
+    const L = st.last, TONE = { info: ['--info', '--info-text'], pos: ['--pos', '--pos-text'] };
+    const last = L ? { show: true, bg: 'color-mix(in oklch, var(' + TONE[L.tone][0] + ') 6%, transparent)', bd: 'var(' + TONE[L.tone][0] + ')', fg: 'var(' + TONE[L.tone][1] + ')', who: L.who, t: L.t, v: L.v || '', vc: L.vc || 'var(--ink-2)', canUndo: !!L.canUndo && st.hist.length > 0 } : { show: false };
+    const periods = [['week', 'Week'], ['month', 'Month']].map(([k, label], j) => { const on = st.per === k; return { key: k, label, on, click: () => this.setPer(k),
+      bg: on ? 'var(--brand-tint)' : 'transparent', fg: on ? 'var(--brand-dd)' : 'var(--ink-4)', hov: on ? 'var(--brand-tint)' : 'var(--paper-2)', hfg: on ? 'var(--brand-dd)' : 'var(--ink-2)',
+      bl: j ? '1px solid var(--rule-strong)' : '0 solid transparent', rad: j ? '0 5px 5px 0' : '5px 0 0 5px' }; });
+    const w0 = M.wks[0], wl = M.wks[N - 1];
+
+    return {
+      frameOver: () => this.frameOver(), periods,
+      dateMain: wk ? this.rlong(w0.s) : C.MONL[st.m] + ' ' + st.y,
+      dateSub: wk ? 'W' + w0.n : 'W' + w0.n + '–W' + wl.n + ' · ' + this.md(M.first) + ' – ' + this.md(M.last),
+      prev: () => this.nav(-1), next: () => this.nav(1), prevLabel: wk ? 'Previous week' : 'Previous month', nextLabel: wk ? 'Next week' : 'Next month',
+      hasIssues: I.length > 0, noIssues: !I.length,
+      issueText: ixOk ? (st.ix + 1) + ' of ' + I.length + ' issues' : I.length + (I.length === 1 ? ' issue' : ' issues'),
+      nextIssue: () => this.step(1), prevIssue: () => this.step(-1), issueNavDis: !I.length, issueNavC: I.length ? 'var(--ink-3)' : 'var(--ink-5)',
+      dirty: ch.n > 0, nChg: String(ch.n), chgWord: ch.w,
+      hist: [hb('u', 'fa-arrow-rotate-left', 'Undo', st.hist.length > 0, () => this.undo()), hb('r', 'fa-arrow-rotate-right', 'Redo', st.fut.length > 0, () => this.redo()),
+        hb('x', 'fa-xmark', 'Discard changes', ch.n > 0, () => this.discard()), hb('a', 'fa-check', 'Apply changes', ch.n > 0, () => this.applyAll())],
+      last, undo: () => this.undo(), closeLast: () => this.setState({ last: null }),
+      libOpen: st.lib, libClosed: !st.lib, toggleLib: () => this.setState(s => ({ lib: !s.lib })), libCount: String(C.LIB.length),
+      q: st.q, onQ: e => this.setState({ q: e.target.value }), lib, libEmpty: !lib.length,
+      isWeek: wk, isMonth: !wk, wdays, tileH, menuOpts, menuHead,
+      cols: '168px repeat(' + N + ', minmax(0, 1fr))', rowH, weeks, groups,
+      insOpen: st.ins, insClosed: !st.ins, toggleIns: () => this.setState(s => ({ ins: !s.ins })), ins,
+      legend: this.legend(pal, wk)
+    };
+  }
+}
+</script>
+
+
+</body></html>

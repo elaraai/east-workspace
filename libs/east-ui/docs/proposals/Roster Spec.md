@@ -1027,13 +1027,24 @@ mock.
 
 ### 9.12 The People layout (owner: People layout, *product*)
 
+Amended by `Roster People Spec.md` (#1406), which is the design of the People
+layout from here on: its week view drawn as that mock draws it, a month view
+beside it, and the Patterns tab. B59 and B60 read as that document's D1–D14
+and P1–P32 say; the two below are kept for the record.
+
 - **B59.** People × days, for the week: a toolbar segment Shifts · People
-  switches to it. A row per person, grouped by group, and a column per day. A cell holds the person's chip that day: the shift's
-  code, its group when not their own, and their flags. Their week's hours
-  are at the row's end.
-- **B60.** A chip drags to another day, and a person card from the library
-  onto a day, on the shift they usually work; drops follow §9.10. A click
-  selects as in B15.
+  switches to it. A row per person, grouped by group, and a column per day. A
+  cell holds a tile per duty that day (`Roster People Spec.md` D5): the
+  shift's label and, by `tileTimes`, its hours, a duty's own times where they
+  differ or the group where it is not the person's, a warning mark where an
+  issue names it; `+ Assign` on a day off. Their week's hours are in the
+  name cell (D8). People has two periods, Week and Month (D1, D2): a month is
+  a column per week touching it, a cell seven marks.
+- **B60.** A tile drags to another day of its own row, and a person card from
+  the library onto a day, on the shift they usually work; a pattern of the
+  app's onto a person's week (D3, D4); drops follow §9.10 and that document's
+  §11. A click selects as in B15, a name or a month cell the person-week
+  (D11).
 
 ## 10. Proposals, weeks and the forecast, as data
 
@@ -1262,9 +1273,10 @@ These requirements are also recorded in both e3-ui package BuilderFrame guides.
 
 ### Interaction and layout follow-up
 
-- Roster People is weekly and Calendar Resources is daily. Hide inapplicable
-  period segments and menu choices in every Toolbar fold and the narrow combined
-  picker; preserve the previous period when returning to a flexible layout.
+- Roster People shows Week · Month (`Roster People Spec.md`, #1406; Week alone
+  below 480px of main) and Calendar Resources is daily. Hide a period a layout
+  does not take from every Toolbar fold and the narrow combined picker; each
+  layout keeps its own period when returning to it.
 - Keep both Calendar and Roster footers to legends, using the shared rail's
   recipes. Do not accumulate counts, instructions or editing status there.
 - Roster group bands fill the whole scrolling canvas in Day, Week and People,

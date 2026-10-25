@@ -13,7 +13,10 @@
  * source, each read as the Roster reads it — the warehouse's seeded week, the
  * fixture the e3-ui specs hold the Roster's functions to; a move and back
  * leaves a duty's row as it was (B10, B1); and the app's pay and check cross
- * as bytes, each request carrying every duty's own row (B16).
+ * as bytes, each request carrying every duty's own row (B16). The People
+ * layout's additions (#1406) cross too: each shift's colour token, the week
+ * patterns in their order, the Patterns tab under its name and icon, the
+ * month period and the two display settings.
  */
 
 import { describe, test } from "node:test";
@@ -60,6 +63,7 @@ const program = East.function([], RosterPayloadType, ($) => {
     const teams = $.let(Data.bind(rx.rosterTeams));
     const roles = $.let(Data.bind(rx.rosterPositions));
     const ideas = $.let(Data.bind(rx.rosterSuggestions));
+    const weekPatterns = $.let(Data.bind(rx.rosterPatterns));
     const fit = $.let(Func.bind(rx.rosterStaffFit));
     const slice = $.let(Slice.bindRecords("spec.rosterPayload", { duty: { source: byTime, range: "start" } }));
     // The warehouse's pay and check (§5.6, §5.8), as its example writes them: ordinary time to the contract, OT1 past it, an agency at its rate.
@@ -106,7 +110,9 @@ const program = East.function([], RosterPayloadType, ($) => {
         return issues;
     }));
     return createRosterPayload({
-        id: "spec", week: { start: "sunday" }, view: { date: new Date("2028-03-09T00:00:00Z") }, slice: { slice }, fit, pay, currency: "AUD", check, inspector: true,
+        id: "spec", week: { start: "sunday" }, view: { layout: "people", period: "month", date: new Date("2028-03-09T00:00:00Z") }, slice: { slice }, fit, pay, currency: "AUD", check, inspector: true,
+        tileTimes: "different", letters: false,
+        library: [Roster.library.people(), Roster.library.patterns(), Roster.library.activities()],
         events: { duty: Schedule.events(rota, {
             name: "Duty", icon: "user-clock", entries,
             start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
@@ -121,11 +127,12 @@ const program = East.function([], RosterPayloadType, ($) => {
         },
         periods: Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" }),
         targets: Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" }),
-        shifts: Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order }),
+        shifts: Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order, color: s => s.colour }),
         groups: Roster.groups(teams.read(), { label: t => t.label, order: t => t.order }),
         positions: Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order }),
         activities: Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order }),
         proposals: Roster.proposals(ideas.read(), { person: s => s.person, day: s => s.day, group: s => s.team, shift: s => s.shift, reason: s => s.why }),
+        patterns: Roster.patterns(weekPatterns.read(), { name: "Patterns", icon: "calendar-week", label: w => w.label, days: w => w.days, order: w => w.order }),
     });
 });
 
@@ -176,6 +183,20 @@ describe("the Roster's payload over the warehouse's records", () => {
         assert.deepEqual([value.currency, value.fit, value.inspector], [some("AUD"), some({ name: "roster_staff_fit" }), true]);
         assert.ok(isTypeEqual(fromEastTypeValue(value.duty.rowType), Duty));
         assert.deepEqual([value.duty.roles.position, value.duty.roles.activity], [true, true]);
+    });
+
+    test("the People layout's additions cross the wire (#1406): each shift's colour token, the patterns in their order, the Patterns tab under its name and icon, the month, and the display settings", async () => {
+        const value = await built();
+        assert.deepEqual(value.shifts.map((shift) => [shift.key, shift.color]), [
+            ["early", some(variant("teal", variant("300", null)))], ["late", some(variant("orange", variant("300", null)))], ["night", some(variant("purple", variant("700", null)))],
+        ]);
+        assert.deepEqual(value.patterns.map((pattern) => pattern.key), ["e5s", "e5m", "l5s", "l5m", "n4s", "n4w", "fwd", "e2l", "wke", "wkn", "pte", "ptl", "off"]);
+        assert.deepEqual(value.patterns[6], { key: "fwd", label: "Forward rotation", days: [some("early"), some("early"), some("late"), some("late"), some("night"), none, none] });
+        assert.ok(value.patterns.every((pattern) => pattern.days.length === 7));
+        assert.deepEqual(value.library, [variant("people", null), variant("patterns", { name: "Patterns", icon: "calendar-week" }), variant("activities", null)]);
+        assert.deepEqual([value.settings.layout, value.settings.period, value.settings.tileTimes, value.settings.letters],
+            [variant("people", null), variant("month", null), variant("different", null), false]);
+        assert.equal(value.narrowed.patterns.type, "none", "no patterns source in the slice: the tab lists the record whole");
     });
 
     test("reads the week's duties through the slice's duty source, each as the Roster reads it — the warehouse's seeded week — and the record never whole", async () => {

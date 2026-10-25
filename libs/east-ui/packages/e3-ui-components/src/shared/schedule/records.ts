@@ -18,8 +18,8 @@
  */
 
 import {
-    EastTypeType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isVariant, none, some, variant, type EastType, type EastTypeValue,
-    type StructType, type ValueTypeOf, type option,
+    DateTimeType, EastTypeType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isVariant, none, parseFor, some, variant, type EastType,
+    type EastTypeValue, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { ScheduleKindType, SchedulePeriodsKindType } from "@elaraai/e3-ui/internal";
 import type { EditHistory, EntryVersion } from "@elaraai/east-ui-components";
@@ -30,6 +30,8 @@ export type SchedulePeriodsValue = ValueTypeOf<typeof SchedulePeriodsKindType>;
 
 const stringEqual = equalFor(StringType);
 const sameTypeValue = equalFor(EastTypeType);
+const dateCompare = (a: Date, b: Date) => a.getTime() - b.getTime();
+const parseInstant = parseFor(DateTimeType);
 
 /** A record's rows, as bytes and back: a period's, a target's, by their row type. */
 export interface RowCodec { readonly encode: (row: unknown) => Uint8Array; readonly decode: (bytes: Uint8Array) => unknown }
@@ -155,6 +157,29 @@ export function periodRowRead(periods: SchedulePeriodsValue, from: Date, to: Dat
         const got = rows();
         if (got.type !== "some") return none;
         const row = got.value.get(from);
+        return some(row === undefined ? none : some(row));
+    };
+}
+
+/**
+ * The rows of every period in a span, as the builder's read of them holds
+ * them, by each one's key's text — the Roster's month, its four to six weeks
+ * (#1406): a period's row, or none where the record holds none of it; a period
+ * outside the span is read by its key.
+ *
+ * @param periods - The builder's periods
+ * @param from - The read's start: the first period's
+ * @param to - The read's end: the period after the last's start
+ * @returns The read
+ */
+export function periodRowsRead(periods: SchedulePeriodsValue, from: Date, to: Date): ScheduleRowRead {
+    const rows = keptAtRevision(periods.entries, () => periods.rows(from, to));
+    return key => {
+        const at = parseInstant(key);
+        if (!at.success || dateCompare(at.value, from) < 0 || dateCompare(at.value, to) >= 0) return undefined;
+        const got = rows();
+        if (got.type !== "some") return none;
+        const row = got.value.get(at.value);
         return some(row === undefined ? none : some(row));
     };
 }

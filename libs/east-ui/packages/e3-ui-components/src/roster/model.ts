@@ -19,12 +19,16 @@ import {
     BlobType, DateTimeType, DictType, East, EastTypeType, IntegerType, SortedMap, SortedSet, StringType, StructType, compareFor, decodeBeast2For,
     encodeBeast2For, equalFor, fromEastTypeValue, none, parseFor, printFor, some, variant, type EastType, type EastTypeValue, type ValueTypeOf, type option,
 } from "@elaraai/east";
+import type { ColorTokenType } from "@elaraai/east-ui";
 import {
-    RosterAssignmentTypeFor, RosterCheckContextTypeFor, RosterContextType, RosterCoverageType, RosterFitRequestTypeFor, RosterIssueType, RosterPayRequestTypeFor,
-    RosterPayType, RosterPayloadType, RosterRequirementType, RosterShiftType, RosterSlotType, RosterStatusType, RosterTargetRolesType, RosterWeekTypeFor,
-    RosterWhoType, ScheduleRosterRolesType, rosterCheck, rosterCoverage, rosterDayOf, rosterMove, rosterNewDuty, rosterPlacement, rosterShiftStart,
-    rosterWeekHours,
+    ROSTER_LAYOUT_PERIODS, RosterAssignmentTypeFor, RosterCheckContextTypeFor, RosterContextType, RosterCoverageType, RosterFitRequestTypeFor, RosterIssueType,
+    RosterPayRequestTypeFor, RosterPayType, RosterPayloadType, RosterRequirementType, RosterShiftType, RosterSlotType, RosterStatusType, RosterTargetRolesType,
+    RosterWeekTypeFor, RosterWhoType, ScheduleRosterRolesType, rosterCheck, rosterCoverage, rosterDayOf, rosterMove, rosterNewDuty, rosterPlacement,
+    rosterShiftStart, rosterWeekHours,
 } from "@elaraai/e3-ui/internal";
+import type { Formatters } from "@elaraai/east-ui-components";
+import { DAY, weekStart } from "../shared/schedule/window.js";
+import { isoWeekUTC, shiftCalendar } from "../shared/time/scale.js";
 export { DAY, NARROW_WIDTH, dayStart, weekStart } from "../shared/schedule/window.js";
 
 /** The decoded payload. */
@@ -56,14 +60,138 @@ export type Person = RosterValue["people"][number];
 export type Activity = RosterValue["activities"][number];
 export type Shift = RosterValue["shifts"][number];
 export type Proposal = RosterValue["proposals"][number];
+/** A week pattern, as the app declares it (#1406): seven days from the week's first day, each a shift's key or none. */
+export type Pattern = RosterValue["patterns"][number];
 /** A suggestion the week can take: in its slot of the week. */
 export type PlacedProposal = Proposal & { readonly slot: Slot };
 export type RosterStyles = Record<string, Record<string, unknown>>;
-/** Persisted viewer preferences; dates are epochs for local storage. */
-export interface RosterView { layout: "shifts" | "people"; period: "day" | "week"; date: number }
-/** The inspector's selection is separate from edits and library filtering. */
+/** The Roster's layouts. */
+export type RosterLayout = RosterPayload["settings"]["layout"]["type"];
+/** The Roster's periods: Shifts shows a day or a week, People a week or a month (#1406). */
+export type RosterPeriod = RosterPayload["settings"]["period"]["type"];
+/**
+ * Persisted viewer preferences; dates are epochs for local storage. `period` is the period of the layout in view, and
+ * `held` the period the other layout had, so each layout keeps its own (#1406, P1); a view kept before `held` reads as
+ * the defaults.
+ */
+export interface RosterView { layout: RosterLayout; period: RosterPeriod; date: number; held?: Partial<Record<RosterLayout, RosterPeriod>> | undefined }
+/**
+ * The inspector's selection is separate from edits and library filtering. A `personWeek` is a person's week (#1406,
+ * D11): the inspector's person Details read that week, and a pattern applies to it.
+ */
 export type Selection = { type: "assignment" | "proposal" | "person"; key: string }
-    | { type: "slot" | "requirement"; slot: Slot } | { type: "group"; key: string } | { type: "shift"; key: string };
+    | { type: "slot" | "requirement"; slot: Slot } | { type: "group"; key: string } | { type: "shift"; key: string }
+    | { type: "personWeek"; key: string; start: number };
+
+/**
+ * A period a layout takes (#1406, D1): the one given where the layout takes it, else the layout's first — Shifts a
+ * day, People a week.
+ *
+ * @param layout - The layout
+ * @param period - The period asked for
+ * @returns The period the layout shows
+ */
+export function periodOf(layout: RosterLayout, period: RosterPeriod | undefined): RosterPeriod {
+    const takes = ROSTER_LAYOUT_PERIODS[layout];
+    return period !== undefined && takes.includes(period) ? period : takes[0]!;
+}
+
+/**
+ * The weeks in view, and the window the Roster reads them over (#1406, D2): one week — the Shifts layout's day is a
+ * day of it — or a month's, the four to six weeks that touch the month from the configured week start.
+ */
+export interface RosterSpan {
+    /** The period in view. */
+    readonly period: RosterPeriod;
+    /** The first week's first day. */
+    readonly start: Date;
+    /** Each week's first day, in order: one, or a month's four to six. */
+    readonly weeks: readonly Date[];
+    /** The span's first instant: its first week's first day. */
+    readonly from: Date;
+    /** The span's end, exclusive: the day after its last week's last. */
+    readonly to: Date;
+    /** The month in view, its first day; `undefined` for a week. */
+    readonly month: Date | undefined;
+}
+
+/** The first day of a UTC date's month. */
+export function monthStart(date: Date): Date { return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1)); }
+
+/**
+ * The span a view shows (see {@link RosterSpan}).
+ *
+ * @param date - The view's date, an epoch
+ * @param period - The period in view
+ * @param sunday - Whether weeks start on Sunday
+ * @returns The span
+ */
+export function rosterSpan(date: number, period: RosterPeriod, sunday: boolean): RosterSpan {
+    const at = new Date(date);
+    if (period !== "month") {
+        const start = weekStart(at, sunday);
+        return { period, start, weeks: [start], from: start, to: new Date(start.getTime() + 7 * DAY), month: undefined };
+    }
+    const month = monthStart(at);
+    const next = shiftCalendar(month, "month", 1);
+    const weeks: Date[] = [];
+    for (let week = weekStart(month, sunday); compareDate(week, next) < 0; week = new Date(week.getTime() + 7 * DAY)) weeks.push(week);
+    const start = weeks[0]!;
+    return { period, start, weeks, from: start, to: new Date(weeks[weeks.length - 1]!.getTime() + 7 * DAY), month };
+}
+
+/**
+ * The ISO week number of a week, by its fourth day — the week's Thursday where weeks start on Monday, its Wednesday
+ * where they start on Sunday: the number the shared navigator prints.
+ *
+ * @param week - The week's first day
+ * @returns Its number
+ */
+export function weekNumber(week: Date): number { return isoWeekUTC(new Date(week.getTime() + 3 * DAY)); }
+
+/**
+ * A span's words (#1406, P2, P28): a week's days — `12–18 Mar` — or a month's weeks — `W10–W14`.
+ *
+ * @param format - The app's formatters
+ * @param span - The span
+ * @returns Its words
+ */
+export function spanWords(format: Pick<Formatters, "range" | "number">, span: RosterSpan): string {
+    if (span.period !== "month") return format.range(span.from, new Date(span.to.getTime() - DAY));
+    return `W${format.number(weekNumber(span.weeks[0]!))}–W${format.number(weekNumber(span.weeks[span.weeks.length - 1]!))}`;
+}
+
+/**
+ * A month's label (#1406, P2): `March 2028 · W10–W14 · Mar 5 – Apr 1`.
+ *
+ * @param format - The app's formatters
+ * @param span - The month's span
+ * @returns The label
+ */
+export function monthWords(format: Pick<Formatters, "range" | "number" | "monthYear">, span: RosterSpan): string {
+    const month = span.month ?? span.start;
+    return `${format.monthYear(month)} · ${spanWords(format, span)} · ${format.range(span.from, new Date(span.to.getTime() - DAY))}`;
+}
+
+/**
+ * One week of a span, as the frame assembles it from the records' rows, drafts in place (#1406): what the month's
+ * cells draw, and what a pattern dropped on it applies to.
+ */
+export interface WeekState {
+    /** Its first day. */
+    readonly start: Date;
+    /** The week as drafted, and as the records hold it. */
+    readonly week: Week;
+    readonly held: Week;
+    /** Its duties as drafted, and as stored: each placed duty's row. */
+    readonly duties: PlacedDuties;
+    readonly heldDuties: PlacedDuties;
+    /** Its targets as drafted. */
+    readonly targets: PlacedTargets;
+    /** Its own row as drafted, and as stored. */
+    readonly period: PlacedPeriod;
+    readonly heldPeriod: PlacedPeriod;
+}
 
 export const sameSlot = equalFor(RosterSlotType);
 export const slotKey = printFor(RosterSlotType);
@@ -97,10 +225,13 @@ let days: {
     dayIndex: (start: Date, day: Date) => bigint;
     /** A shift's own times on a day: from its start, for its hours. */
     shiftSpan: (day: Date, shift: Shift) => { from: Date; to: Date };
+    /** The window a span's duties are read over: the span, and the twelve hours either side its duties' starts may stand from their shifts'. */
+    spanWindow: (from: Date, to: Date) => { from: Date; to: Date };
 } | undefined;
 function rosterDays() {
     days ??= {
         window: East.compile(East.function([DateTimeType], SpanType, (_$, start) => ({ from: start.subtractHours(12n), to: start.addDays(7n).addHours(12n) })), []),
+        spanWindow: East.compile(East.function([DateTimeType, DateTimeType], SpanType, (_$, from, to) => ({ from: from.subtractHours(12n), to: to.addHours(12n) })), []),
         week: East.compile(East.function([DateTimeType], SpanType, (_$, start) => ({ from: start, to: start.addDays(7n) })), []),
         before: East.compile(East.function([DateTimeType], DateTimeType, (_$, start) => start.subtractDays(7n)), []),
         moveTo: East.compile(East.function([DateTimeType, DateTimeType, DateTimeType], SpanType, (_$, from, to, at) => ({ from: at, to: at.addMilliseconds(from.durationMilliseconds(to)) })), []),
@@ -125,6 +256,14 @@ function rosterDays() {
  * @returns The window, half open
  */
 export function weekWindow(start: Date): { from: Date; to: Date } { return rosterDays().window(start); }
+/**
+ * The window the Roster reads a span's duties over (#1406, P26): the span's weeks, and the twelve hours either side a
+ * duty's start may stand from its shift's start on one of their days.
+ *
+ * @param span - The span
+ * @returns The window, half open
+ */
+export function spanWindow(span: Pick<RosterSpan, "from" | "to">): { from: Date; to: Date } { return rosterDays().spanWindow(span.from, span.to); }
 /**
  * The week itself: its seven days.
  *
@@ -531,6 +670,80 @@ export function activityOf(value: Pick<RosterPayload, "activities">, key: string
 /** A shift by its key. */
 export function shiftOf(value: Pick<RosterPayload, "shifts">, key: string): Shift | undefined {
     return value.shifts.find(shift => shift.key === key);
+}
+/** A pattern by its key (#1406). */
+export function patternOf(value: Pick<RosterPayload, "patterns">, key: string): Pattern | undefined {
+    return value.patterns.find(pattern => pattern.key === key);
+}
+/**
+ * Why a pattern cannot be applied (#1406, P23): other than seven days, or a day naming a shift the Roster has not
+ * configured; `undefined` for one that can.
+ *
+ * @param value - The payload: its shifts
+ * @param pattern - The pattern
+ * @returns The reason, as its card says it: `8 days`, `shift "twilight" isn't configured`
+ */
+export function patternProblem(value: Pick<RosterPayload, "shifts">, pattern: Pattern): string | undefined {
+    if (pattern.days.length !== 7) return `${pattern.days.length} days`;
+    for (const day of pattern.days) {
+        if (day.type === "some" && shiftOf(value, day.value) === undefined) return `shift "${day.value}" isn't configured`;
+    }
+    return undefined;
+}
+/**
+ * A pattern's meta (#1406, §8): how many days it works, and their hours — `5 shifts · 40 h`.
+ *
+ * @param value - The payload: its shifts
+ * @param pattern - The pattern
+ * @returns The days worked, and the hours they run
+ */
+export function patternSummary(value: Pick<RosterPayload, "shifts">, pattern: Pattern): { shifts: number; hours: number } {
+    let shifts = 0, hours = 0;
+    for (const day of pattern.days) {
+        if (day.type !== "some") continue;
+        shifts += 1;
+        hours += shiftOf(value, day.value)?.hours ?? 0;
+    }
+    return { shifts, hours };
+}
+/** A shift's colour, resolved (#1406, D6): the fill the theme's palette gives its token, and the ink the shade takes. */
+export interface ShiftColor {
+    /** The theme's palette colour, as a CSS value. */
+    readonly fill: string;
+    /** The ink on it: the dark ink up to the 400 shade, the light ink from 500 — the same in both colour modes. */
+    readonly ink: string;
+}
+/**
+ * A colour token as the theme draws it: `{colors.<hue>.<shade>}` through its CSS variable, the same in both colour
+ * modes, and the ink the shade takes.
+ *
+ * @param token - The token
+ * @returns Its fill and its ink
+ */
+export function colorTokenCss(token: ValueTypeOf<typeof ColorTokenType>): ShiftColor {
+    const hue = token.type, shade = token.value.type;
+    return { fill: `var(--chakra-colors-${hue}-${shade})`, ink: Number(shade) >= 500 ? "var(--chakra-colors-white)" : "var(--chakra-colors-gray-900)" };
+}
+/**
+ * A shift's colour, where the app gives one (#1406, D6): the People tiles' and marks' fill.
+ *
+ * @param shift - The shift
+ * @returns Its fill and ink; `undefined` for a neutral shift
+ */
+export function shiftColor(shift: Shift | undefined): ShiftColor | undefined {
+    return shift === undefined || shift.color.type !== "some" ? undefined : colorTokenCss(shift.color.value);
+}
+/** An instant's hour, as a tile prints it: `06`, or `06:30` where its minutes are not zero. */
+export function hourText(date: Date): string {
+    const hour = String(date.getUTCHours()).padStart(2, "0"), minute = date.getUTCMinutes();
+    return minute === 0 ? hour : `${hour}:${String(minute).padStart(2, "0")}`;
+}
+/** A shift's hours, as a tile prints them: `06–14`, the end past midnight on the clock. */
+export function shiftHoursText(shift: Shift): string {
+    const start = Number(shift.start.hour) * 60 + Number(shift.start.minute);
+    const end = (start + Math.round(shift.hours * 60)) % (24 * 60);
+    const text = (minutes: number) => { const h = String(Math.floor(minutes / 60)).padStart(2, "0"), m = minutes % 60; return m === 0 ? h : `${h}:${String(m).padStart(2, "0")}`; };
+    return `${text(start)}–${text(end)}`;
 }
 /** Checks bound configuration without rejecting ordinary staffing warnings. */
 export function configError(value: RosterPayload): string | undefined {
