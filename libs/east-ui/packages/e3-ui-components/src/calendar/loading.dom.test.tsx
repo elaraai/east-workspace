@@ -67,13 +67,20 @@ test("a period whose read fails once the window has shown says so in the footer'
 /** The toolbar's Next, a period on. */
 const next = (container: HTMLElement) => act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: /^Next (day|week|month)$/ })); });
 
-test("a step to a period not read yet draws that period's grid at once — never the old period's events under its labels — its counts placeholders, the toolbar's count and the Backlog's `…`, never `No backlog events`; past the reveal's delay each column washed; its read lands in place (#1398, CL2, CL5, CL13)", async () => {
+test("a step to a period not read yet draws that period's grid at once — never the old period's events under its labels — its counts placeholders and the toolbar's count `…`; a Backlog that follows no window keeps its cards and its count, read no more; past the reveal's delay each column washed; its read lands in place (#1398, CL2, CL5, CL13)", async () => {
     const { container } = await h.mount(ex.calendarWindowed);
     await settle();
     const main = () => slot(container, "main");
     const grid = () => main().querySelector<HTMLElement>("[data-calendar-time-grid]")!;
-    // The day it opens on holds its jobs.
+    // The day it opens on holds its jobs; its Backlog, read through the backlog index, the unscheduled jobs.
     expect(main().querySelectorAll("[data-calendar-event]").length).toBeGreaterThan(0);
+    const start = slot(container, "start");
+    const backlogTab = () => within(start).getByRole("tab", { name: /Backlog/ }).textContent;
+    const cards = () => [...start.querySelectorAll("[data-library-item]")].map(card => card.getAttribute("data-library-item"));
+    const before = { tab: backlogTab(), cards: cards() };
+    expect(before.cards.length).toBeGreaterThan(0);
+    const backlogReads = () => h.requests().filter(request => jobRead(request) && request.query.get("index") === ex.calendarJobsUnscheduled.name).length;
+    const backlog = backlogReads();
     const held = h.e3.hold(jobRead);
     // Past the day read ahead, to one not read: two days on.
     await next(container); await settle();
@@ -85,11 +92,9 @@ test("a step to a period not read yet draws that period's grid at once — never
     expect(main().querySelector("[data-calendar-day-heading]")!.textContent).toMatch(/3$/);
     expect(main().querySelector("[data-calendar-event]")).toBeNull();
     expect(slot(container, "toolbar").querySelector("[data-calendar-count]")!.textContent).toBe("… events");
-    // The Backlog counts "…" and draws pending cards: never empty before its read.
-    const start = slot(container, "start");
-    expect(start.querySelector("[data-library-pending]")).not.toBeNull();
-    expect(start.textContent).not.toContain("No backlog events");
-    expect(within(start).getByRole("tab", { name: /Backlog/ }).textContent).toContain("…");
+    // The Backlog follows no window — its index's rows, whatever the day: the step neither empties it nor reads it again.
+    expect(start.querySelector("[data-library-pending]")).toBeNull();
+    expect({ tab: backlogTab(), cards: cards() }).toEqual(before);
     // Past the reveal's delay, each column washed and the day's count a placeholder.
     await waitFor(() => expect(grid().querySelector("[data-calendar-cell] [data-loading-wash]")).not.toBeNull());
     expect(main().querySelector("[data-calendar-day-count] [data-shape]")).not.toBeNull();
@@ -99,7 +104,8 @@ test("a step to a period not read yet draws that period's grid at once — never
     await waitFor(() => expect(grid().hasAttribute("data-calendar-unread")).toBe(false));
     expect(main().querySelector("[data-loading-wash]")).toBeNull();
     expect(slot(container, "toolbar").querySelector("[data-calendar-count]")!.textContent).toMatch(/^\d+ events$/);
-    expect(start.querySelector("[data-library-pending]")).toBeNull();
+    expect({ tab: backlogTab(), cards: cards() }).toEqual(before);
+    expect(backlogReads()).toBe(backlog);
 });
 
 test("a period whose read fails once the window has shown keeps its grid, its cells blank, and says so once, in a box at the grid's top-left — never `Calendar unavailable`; Retry, the fault gone, lands the period (#1398, CL11)", async () => {

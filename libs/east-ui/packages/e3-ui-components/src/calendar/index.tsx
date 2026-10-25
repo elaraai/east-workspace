@@ -19,6 +19,21 @@
  * steps to its event's period, selects it and brings it into view. Each
  * layout's view keeps its place across a step and a remount — the time grid's
  * hour, the timeline's line — and Today brings the time grid to the now line.
+ *
+ * The timeline's re-centre is no step (#1398): its view nearing an end of its
+ * window, the window moves on along a fixed grid (`timeline.ts`) — read ahead
+ * the way the view travels, so it is normally read already — and until it
+ * lands the held read stands in, a continuation: its events, lanes, booked
+ * hours, overlaps and Backlog drawn where they were, stale and retained, only
+ * the days it does not cover washed. A step — Prev/Next, a date picked, a
+ * layout or a period, a pick of Search Records — ends it.
+ *
+ * Its Backlog is each kind's. A kind narrowed through its source reads its
+ * backlog with its window, so its rows follow the window: kept through a
+ * re-centre, placeholders on a step until the period's land. Every other kind's
+ * follows no window: read once, it is never emptied or read again by a date
+ * change. The Library stays mounted through both: its search box keeps its
+ * query and its focus.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
@@ -34,7 +49,7 @@ import { FollowSources, type FollowedSources } from "../shared/schedule/follow-s
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
-import { CalendarDataReader, initialCalendarData, resourceRows, type CalendarDataState } from "./data.js";
+import { CalendarDataReader, initialCalendarData, resourceRows, windowedBacklogKinds, type CalendarDataState } from "./data.js";
 import { useCalendarDrag } from "./drag.js";
 import { useCalendarFind, type FoundEvent } from "./find.js";
 import { CalendarFooter } from "./footer.js";
@@ -44,9 +59,13 @@ import { useBacklogNarrowing } from "../shared/schedule/backlog.js";
 import { calendarNouns, calendarSaid, followedSources } from "./sources.js";
 import { useCalendarToolbar } from "./toolbar.js";
 import { useCalendarWindow, type CalendarWindow } from "./window.js";
-import { createVisibleDays } from "./visible.js";
+import { createTravel, createVisibleDays, useOverlapsShown } from "./visible.js";
+import { timelineRange } from "./timeline.js";
 import { CalendarViews, calendarHour, type CalendarAnchor } from "./views.js";
-import { calendarAhead, calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, periodWords, type CalendarItem, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarValue, type CalendarView } from "./model.js";
+import {
+    calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, periodWords,
+    type CalendarItem, type CalendarKind, type CalendarRange, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarValue, type CalendarView,
+} from "./model.js";
 
 export type { CalendarValue } from "./model.js";
 /** Props of the Calendar extension renderer. */
@@ -64,6 +83,32 @@ const NO_ITEMS: CalendarItem[] = [];
 const NO_ANCHOR: CalendarAnchor = {};
 /** The row an event with no resource sits on. */
 const UNASSIGNED: CalendarRow = { key: "", label: "Unassigned", meta: "", group: "", resource: none };
+
+/** Whether two ranges are one window: the same bounds. */
+function sameRange(a: CalendarRange, b: CalendarRange): boolean {
+    return a.from.getTime() === b.from.getTime() && a.to.getTime() === b.to.getTime();
+}
+
+/**
+ * The Backlog's rows in the kinds' order (#1398): each kind's from the read that holds them — the window's, for a kind
+ * that reads its backlog with its window, else the read apart from it.
+ *
+ * @param kinds - The event kinds, in the Calendar's order
+ * @param windowed - The rows of the kinds that read their backlog with the window
+ * @param apart - The rows of every other kind
+ * @returns The rows; one list as it is when the other is empty
+ */
+function inKindOrder(kinds: readonly CalendarKind[], windowed: readonly CalendarItem[], apart: readonly CalendarItem[]): readonly CalendarItem[] {
+    if (apart.length === 0) return windowed;
+    if (windowed.length === 0) return apart;
+    const byKind = new Map<string, CalendarItem[]>();
+    for (const item of [...windowed, ...apart]) {
+        const theirs = byKind.get(item.kind);
+        if (theirs === undefined) byKind.set(item.kind, [item]);
+        else theirs.push(item);
+    }
+    return kinds.flatMap(kind => byKind.get(kind.key) ?? []);
+}
 
 /** The sole editable wrapper: read-only Calendar never creates a record session. */
 function EditableCalendar(props: Omit<HostProps, "editing">) {
@@ -93,9 +138,20 @@ function CalendarFrame(props: HostProps) {
     // of its own, read only by what says them — so its scroll draws nothing of the frame (#1398, CL9).
     const visible = useRef<ReturnType<typeof calendarRange> | undefined>(undefined);
     const [visibleDays] = useState(createVisibleDays);
+    // Which way the timeline's view travels along time (#1398): set as it scrolls, read by the window's read alone, which
+    // reads ahead the window a re-centre that way goes to. A step places the view, which has travelled nowhere since:
+    // told so before the window moves, the read of the window stepped to never reads ahead the way the view last went.
+    const [travel] = useState(createTravel);
+    // The window a re-centre moved the timeline on to (#1398): while it is the window shown and has not landed, the held
+    // read stands in — a continuation, never a step. Every step ends it.
+    const [continuation, setContinuation] = useState<CalendarRange>();
     const [navigationRevision, setNavigationRevision] = useState(0);
-    const onNavigate = (date: number) => { dates.setView({ ...view, date }); setNavigationRevision(before => before + 1); };
+    const onNavigate = (date: number) => {
+        travel.set(0); setContinuation(undefined);
+        dates.setView({ ...view, date }); setNavigationRevision(before => before + 1);
+    };
     const setView = (next: CalendarView) => {
+        travel.set(0); setContinuation(undefined);
         const middle = visible.current;
         dates.setView(view.layout === "timeline" && middle !== undefined && next.date === view.date && (next.layout !== view.layout || next.period !== view.period)
             ? { ...next, date: dayStart((middle.from.getTime() + middle.to.getTime()) / 2).getTime() } : next);
@@ -109,6 +165,8 @@ function CalendarFrame(props: HostProps) {
     const format = useFormatters(); const words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
     const main = useRef<HTMLDivElement>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
+    // The timeline's days, date and count are read from its store by what says them; every other layout's are its window's.
+    const timeline = !narrow && view.layout === "timeline";
     const [refs, setRefs] = useState<CalendarRef[]>([]);
     const [error, setError] = useState<string>();
     const [reveal, setReveal] = useState<CalendarRef>();
@@ -117,13 +175,20 @@ function CalendarFrame(props: HostProps) {
     }, [value.onSelect]);
     const selected = useMemo(() => new Set(refs.map(ref => eventKey(ref))), [refs]);
     // The window read reports from a component of its own, so a search landing re-renders it alone (#1343); once the
-    // window lands, it reads the periods either side ahead (#1398, CL7).
+    // window lands, it reads ahead what a step goes to (#1398, CL7): the periods either side, or on the timeline the
+    // window a re-centre the way its view travels goes to.
     const [data, setData] = useState<CalendarDataState>(() => initialCalendarData(range));
-    const ahead = useMemo(() => calendarAhead(view, value.settings), [view, value.settings]);
     // The period shown has landed when the held read is of the window read now (#1398): a step to a period not read yet
     // holds none of the old period's events, which never show under its labels (CL5); a newer read of the same period
     // keeps them meanwhile.
-    const current = data.ready && data.range.from.getTime() === range.from.getTime() && data.range.to.getTime() === range.to.getTime();
+    const current = data.ready && sameRange(data.range, range);
+    // A re-centre's window not landed yet (#1398): the view stayed where it was, over days the held read covers, its
+    // events the same events at the same instants — the held read stands in, retained, until the window lands.
+    const continuing = timeline && !current && data.ready && continuation !== undefined && sameRange(continuation, range);
+    const drawn = current || continuing;
+    // A re-centre continues what the timeline shows: from a window shown, the held read stands in; from a period not read
+    // yet — a step's — nothing does.
+    const onRecentre = (next: CalendarView) => { setContinuation(drawn ? timelineRange(next) : undefined); dates.setView(next); };
     // An event shown as asked: brought into view, the inspector opened on it. One drawn already is shown at once; one the
     // timeline has not drawn — a row out of its view, a time out of its span — tells the frame once it brings it in.
     const revealed = useCallback((element: HTMLElement) => {
@@ -149,10 +214,18 @@ function CalendarFrame(props: HostProps) {
         return keys === undefined || keys.type === "none" ? kind : { ...kind, rows: kind.rows.filter(row => keys.value.has(row.key)) };
     }), [value.resources, followed]);
     const resourcesBusy = value.resources.some(kind => followed.get(kind.key)?.shown.busy === true);
-    const items = current ? data.items : NO_ITEMS;
-    const backlog = current ? data.backlog : NO_ITEMS;
+    const items = drawn ? data.items : NO_ITEMS;
+    // What the drawn events were read over (#1398): the window once read; a re-centre's held read's, while the window is read.
+    const covered = current ? range : continuing ? data.range : undefined;
+    // The Backlog (#1398): a kind that reads its backlog with its window shows it with the window's read — kept through a
+    // re-centre, placeholders on a step until the period's land; every other kind's, read apart, whatever the dates.
+    const windowedBacklog = useMemo(() => windowedBacklogKinds(value), [value]);
+    const backlog = useMemo(() => inKindOrder(value.events, drawn ? data.backlog : NO_ITEMS, data.apart.items),
+        [value.events, drawn, data.backlog, data.apart.items]);
+    const backlogRead = data.apart.ready && (drawn || windowedBacklog.size === 0);
+    const reading = data.loading || data.apart.loading;
     const commands = useMemo(() => editing === undefined ? undefined : calendarCommands(value, editing, select, items, shown), [value, editing, select, items, shown]);
-    const available = current && !data.loading && data.error === undefined && !resourcesBusy;
+    const available = current && !reading && data.error === undefined && data.apart.error === undefined && !resourcesBusy;
     const gestures = available ? commands : undefined;
     // Every resource names an event's place; the ones the rail shows lay out the columns and rows.
     const rows = useMemo(() => [...resourceRows(value.resources), UNASSIGNED], [value.resources]);
@@ -161,20 +234,21 @@ function CalendarFrame(props: HostProps) {
     const [selection, setSelection] = useState<CalendarSelection>(NO_SELECTION);
     const selectedItems = useMemo(() => selection.ok ? selection.value.map(event => event.item) : NO_ITEMS, [selection]);
     const overlaps = useMemo(() => scheduleOverlaps([items.filter(item => value.events.find(kind => kind.key === item.kind)?.overlaps.type === "warn")]), [items, value.events]);
+    // Whether the overlaps chip shows (#1398): an overlap among what is drawn — on the timeline, one in the days it shows,
+    // which the frame hears only as it turns, never as a day is crossed.
+    const overlapsShown = useOverlapsShown(overlaps, timeline ? visibleDays : undefined, covered, range);
     // The templates the rail shows: the Templates tab's cards, and what a drop or a drawn event is made from.
     const templates = useMemo(() => templatesTab(value, followed, format), [value, followed, format]);
     const [pickedTemplate, setTemplate] = useState<string>();
     const activeTemplate = pickedTemplate !== undefined && templates.shown.has(pickedTemplate) ? pickedTemplate : templates.shown.keys().next().value;
     const backlogNarrowing = useBacklogNarrowing(dates.eventParts);
-    const start = useCalendarLibrary({ value, backlog, backlogRead: current, selection: selectedItems, key: storageKey, narrow, now, day: dayStart(view.date), styles, commands: gestures,
+    const start = useCalendarLibrary({ value, backlog, backlogRead, selection: selectedItems, key: storageKey, narrow, now, day: dayStart(view.date), styles, commands: gestures,
         activeTemplate, onTemplate: setTemplate, templates, backlogNarrowing, followed, shown });
-    const end = useCalendarInspector({ value, refs, range, commands: gestures, styles, storageKey, overlaps, select, selection, shown });
+    const end = useCalendarInspector({ value, refs, range, commands: gestures, styles, storageKey, overlaps, visible: timeline ? visibleDays : undefined, select, selection, shown });
     const onAction = useCallback((action: Parameters<ScheduleEditing["history"]["act"]>[0]) => {
         const active = document.activeElement; if (active instanceof HTMLElement) active.blur();
         editing?.history.act(action);
     }, [editing]);
-    // The timeline's days, date and count are read from its store by what says them; every other layout's are its window's.
-    const timeline = !narrow && view.layout === "timeline";
     const displayRange = narrow ? (dates.windowParts.length > 0 ? range : calendarRange(view, value.settings)) : range;
     const standardRange = calendarRange(view, value.settings);
     const rangeLabel = timeline || displayRange.from.getTime() !== standardRange.from.getTime() || displayRange.to.getTime() !== standardRange.to.getTime()
@@ -193,8 +267,8 @@ function CalendarFrame(props: HostProps) {
     // The window's own count: "…" while the period is read, never a count of another period's (#1398, CL13).
     const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
         count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, chrome: dates.chrome, affordances: dates.affordances, nouns, windowParts: dates.windowParts,
-        ...(timeline ? { visible: visibleDays, events: { items, ready: current } } : {}), onToday, search,
-        styles, words, commands, onAction, overlaps, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
+        ...(timeline ? { visible: visibleDays, events: { items, covered } } : {}), onToday, search,
+        styles, words, commands, onAction, overlaps, overlapsShown, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
     const drag = useCalendarDrag({ value, key: storageKey, commands: gestures, narrow, items, backlog, selection: selectedItems, templates: templates.shown, activeTemplate, onError: setError });
     const clear = useCallback(() => setRefs([]), []);
     const pick = useCallback((item: CalendarItem, additive = false) => {
@@ -210,26 +284,30 @@ function CalendarFrame(props: HostProps) {
         entries: kind.entries, part: dates.eventParts.find(event => event.kind.key === kind.key)?.part,
     }))), [value.events, dates.eventParts]);
     const periodName = periodWords(view, range, value.settings, format);
-    const line = useMemo(() => periodLoadingLine(periodLoading({ loading: data.loading, error: data.error, retry: retryWindow },
+    const failure = data.error ?? data.apart.error;
+    const line = useMemo(() => periodLoadingLine(periodLoading({ loading: reading, error: failure, retry: retryWindow },
         [...followed.values()].map(source => ({ noun: source.name, ready: source.shown.ready, loading: source.shown.busy && source.error === undefined,
-            error: source.error, retry: source.retry }))), periodName), [data.loading, data.error, retryWindow, followed, periodName]);
-    // What the views draw of the period (#1398): the period as read; one not read yet, its grid at once and its
-    // placeholders, unseen until the frame's one reveal clock says so (CL4: `LoadingReveal` below, which the footer's line
-    // and each placeholder read where they show, so its flip renders them and never this frame); or one whose read failed,
-    // its grid and the failure said once (CL11) — never "Calendar unavailable" over the grid.
-    const read = useMemo(() => periodRead({ current, error: data.error, name: periodName, retry: retryWindow }),
-        [current, data.error, periodName, retryWindow]);
-    // A newer read of the period shown — a narrowing, a revision — keeps its events, stale (#1398, CL5): their words in the
-    // third ink, the grid's rules dashed, and nothing dragged or dropped until it lands.
-    const stale = current && (data.loading || [...followed.values()].some(source => source.shown.busy));
+            error: source.error, retry: source.retry }))), periodName), [reading, failure, retryWindow, followed, periodName]);
+    // What the views draw of the period (#1398): the period as read — or a re-centre's window, the held read standing in;
+    // one not read yet, its grid at once and its placeholders, unseen until the frame's one reveal clock says so (CL4:
+    // `LoadingReveal` below, which the footer's line and each placeholder read where they show, so its flip renders them
+    // and never this frame); or one whose read failed, its grid and the failure said once (CL11) — never "Calendar
+    // unavailable" over the grid. A re-centre's window whose read failed says so as a period's does, the held read's
+    // events kept drawn.
+    const read = useMemo(() => periodRead({ current: current || (continuing && data.error === undefined), error: data.error, name: periodName, retry: retryWindow }),
+        [current, continuing, data.error, periodName, retryWindow]);
+    // A newer read of what is shown — a narrowing, a revision, a re-centre's window — keeps its events, stale (#1398, CL5):
+    // their words in the third ink, the grid's rules dashed, and nothing dragged or dropped until it lands.
+    const stale = drawn && (reading || [...followed.values()].some(source => source.shown.busy));
     // The cold load's cover at the board's own pitch: an hour of its time grid (CL1).
     const pitch = view.layout === "timeline" || (view.layout === "calendar" && view.period === "month") ? undefined : calendarHour(value.settings.density);
     return <Box css={styles.root} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined}>
-        <CalendarDataReader value={value} range={range} editing={editing} ahead={ahead} onData={setData} />
-        <CalendarSelectionReader value={value} refs={refs} range={range} commands={commands} onSelection={setSelection} />
+        <CalendarDataReader value={value} range={range} editing={editing} view={view} travel={timeline ? travel : undefined} onData={setData} />
+        {/* The selection is read where its events are drawn: a re-centre's held read, while the window is read. */}
+        <CalendarSelectionReader value={value} refs={refs} range={continuing ? data.range : range} commands={commands} onSelection={setSelection} />
         <LoadingReveal waiting={line?.kind === "loading"}>
         <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={(!data.ready && data.loading && data.error === undefined) || cold} loadingPitch={pitch}
-            busy={data.loading || resourcesBusy} liveFooter toolbar={toolbar} start={start} end={end}
+            busy={reading || resourcesBusy} liveFooter toolbar={toolbar} start={start} end={end}
             onKeyDown={event => {
                 if (event.defaultPrevented || typedInto(event.target)) return;
                 const action = historyShortcut(event);
@@ -253,7 +331,7 @@ function CalendarFrame(props: HostProps) {
             <Box ref={main} css={styles.main} data-calendar-main="" aria-disabled={!available && read.state !== "failed" ? true : undefined} data-calendar-stale={stale ? "" : undefined}
                 data-calendar-narrow={narrow ? "" : undefined}>
                 <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visible={visibleDays} onVisible={showRange} items={items}
-                    rows={rows} shownRows={shownRows} shown={shown} now={now} narrow={narrow} styles={styles} read={read}
+                    rows={rows} shownRows={shownRows} shown={shown} now={now} narrow={narrow} styles={styles} read={read} covered={covered} onRecentre={onRecentre} travel={travel}
                     selected={selected} select={pick} clear={clear} overlaps={overlaps} commands={gestures} drag={drag}
                     nowRevision={nowAsked} anchor={anchor} onAnchor={onAnchor} reveal={reveal === undefined ? undefined : eventKey(reveal)} onRevealed={revealed} />
             </Box>
