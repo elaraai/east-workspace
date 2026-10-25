@@ -5,7 +5,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import {
-    Avatar as ChakraAvatar, Box, Button, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject,
+    Avatar as ChakraAvatar, Box, Button, chakra, Menu as ChakraMenu, Portal, Skeleton, useRecipe, useSlotRecipe, type SystemStyleObject,
 } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -85,6 +85,31 @@ export interface EastChakraLibraryProps {
      * The Library still lists what its host feeds it.
      */
     narrowing?: LibraryNarrowing | undefined;
+    /**
+     * Whether cards it is to list are still being read (#1398, CL13) — a
+     * builder's Backlog while the period stepped to is read: it draws its
+     * pending rows, the paged Library's card-sized skeletons, after the cards
+     * it holds, and says no empty state, until they land. It stays mounted
+     * meanwhile — its toolbar, its cards and its search box, which keeps its
+     * text and the focus.
+     */
+    pending?: boolean | undefined;
+}
+
+/** How many pending rows a Library draws while its cards are read: as many as the paged Library draws before its count is known. */
+const PENDING_ROWS = 8;
+
+/**
+ * A Library's pending rows (#1398, CL13): where the cards being read go, at
+ * the paged Library's card size, in its recipe. `aria-hidden`: the pane the
+ * Library is in says it is busy.
+ */
+function LibraryPendingRows({ styles }: { styles: SlotStyles }) {
+    return (
+        <Box aria-hidden="true" data-library-pending="">
+            {Array.from({ length: PENDING_ROWS }, (_, i) => <Box key={i} css={styles.pagedRow}><Skeleton css={styles.pagedSkeleton} /></Box>)}
+        </Box>
+    );
 }
 
 /** What a Library says while its host's narrowing leaves it no item, and how that narrowing clears. */
@@ -885,7 +910,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, extras, groupMark, narrowing }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, extras, groupMark, narrowing, pending = false }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     // Counts, in the app's locale (#850).
     const words = useFormatters();
@@ -989,8 +1014,9 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
     );
     // Nothing to show: its host's narrowing left none of what it narrows, in the host's words — above any item the narrowing does not
     // touch; no item at all, in the host's words; or a search or a filter that hides every card, in its words or the Library's.
+    // While cards it is to list are read, nothing is said: its pending rows stand where they go (CL13).
     const narrowedOut = narrowing !== undefined && (value.items.length === 0 || narrowing.emptied === true) ? narrowing : undefined;
-    const nothing: LibraryEmpty | undefined = narrowedOut !== undefined ? narrowedOut.empty : value.items.length === 0 ? empty
+    const nothing: LibraryEmpty | undefined = pending ? undefined : narrowedOut !== undefined ? narrowedOut.empty : value.items.length === 0 ? empty
         : hiddenCount < value.items.length ? undefined
             : noMatch ?? { title: "No matches", description: lowerQuery !== "" ? `Nothing matches "${query.trim()}".` : "No item holds every value the filter checks." };
     const clearNarrowing = narrowedOut?.onClear;
@@ -1103,9 +1129,11 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
 
     // The search box at a width the toolbar folds it to — one element in
     // every form, so the field keeps its focus and its text as the row folds.
+    // While cards are read, how many it will hold is not known: it counts none.
     const searchBox = (size: LibrarySearchSize) => (
         <LibrarySearchBox size={size} inputRef={searchRef} query={query} onQuery={setQuery}
-            placeholder={search ?? `Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`}
+            placeholder={search ?? (pending ? `Search ${noun?.plural ?? "items"}…`
+                : `Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`)}
             label={search ?? "Search library"} />
     );
     const checkedFilters = filterOptions.reduce((n, o) => n + (activeFilters[o.key]?.length ?? 0), 0);
@@ -1297,6 +1325,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
             >
                 {nothing !== undefined && <LibraryEmptyState said={nothing} onClear={clearNarrowing} />}
                 {bodyContent}
+                {pending && <LibraryPendingRows styles={styles} />}
             </Box>
             {(hiddenCount > 0 || (!gallery && addLabel !== undefined)) && (
                 <Box css={styles.footer}>
@@ -1370,4 +1399,5 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
     && prev.search === next.search && prev.noMatch?.title === next.noMatch?.title && prev.noMatch?.description === next.noMatch?.description
     && prev.extras === next.extras && prev.groupMark === next.groupMark
     && prev.narrowing?.empty.title === next.narrowing?.empty.title && prev.narrowing?.empty.description === next.narrowing?.empty.description
-    && prev.narrowing?.onClear === next.narrowing?.onClear && prev.narrowing?.emptied === next.narrowing?.emptied);
+    && prev.narrowing?.onClear === next.narrowing?.onClear && prev.narrowing?.emptied === next.narrowing?.emptied
+    && prev.pending === next.pending);
