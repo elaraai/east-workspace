@@ -194,7 +194,7 @@ const NO_PARTS: readonly PlanEventPart[] = [];
 const NO_NOTICES: readonly PlanSaveNotice[] = [];
 
 /** What the event kinds read before their first read answers: no counts, and the rail hides nothing of the backlog. */
-const NOTHING_READ: PlanKindsRead = { counts: undefined, backlog: { narrowing: [], hidden: undefined, clear: undefined } };
+const NOTHING_READ: PlanKindsRead = { counts: undefined, backlog: { narrowing: [], hidden: undefined, counting: false, clear: undefined } };
 
 /** No unscheduled event: a Plan with no event kinds. */
 const NO_UNSCHEDULED: readonly PlanBacklogEntry[] = [];

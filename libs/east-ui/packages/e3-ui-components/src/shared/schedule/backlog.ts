@@ -42,6 +42,8 @@ export interface BacklogNarrowing<P extends BacklogPart = BacklogPart> {
     readonly narrowing: readonly P[];
     /** The stored unscheduled events those choices hide; `undefined` while a count is read, or none narrows. */
     readonly hidden: number | undefined;
+    /** Whether a count of what those choices hide is being read: `hidden` is `undefined` meanwhile. */
+    readonly counting: boolean;
     /** Clears those choices, each source keeping its window; `undefined` while none narrows. */
     readonly clear: (() => void) | undefined;
 }
@@ -86,5 +88,6 @@ export function useBacklogNarrowing<P extends BacklogPart>(eventParts: readonly 
         }
     }, [narrowing]);
     const hidden = narrowing.length > 0 && result.ok && result.value.type === "some" ? Number(result.value.value) : undefined;
-    return useMemo(() => ({ narrowing, hidden, clear }), [narrowing, hidden, clear]);
+    const counting = narrowing.length > 0 && result.ok && result.value.type === "none";
+    return useMemo(() => ({ narrowing, hidden, counting, clear }), [narrowing, hidden, counting, clear]);
 }

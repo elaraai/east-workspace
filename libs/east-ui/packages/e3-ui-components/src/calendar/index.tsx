@@ -28,12 +28,14 @@
  * the days it does not cover washed. A step — Prev/Next, a date picked, a
  * layout or a period, a pick of Search Records — ends it.
  *
- * Its Backlog is each kind's. A kind narrowed through its source reads its
- * backlog with its window, so its rows follow the window: kept through a
- * re-centre, placeholders on a step until the period's land. Every other kind's
- * follows no window: read once, it is never emptied or read again by a date
- * change. The Library stays mounted through both: its search box keeps its
- * query and its focus.
+ * Its Backlog is each kind's, and never blinks (ruled 25 Oct 2026). A kind
+ * narrowed through its source reads its backlog with its window, so its rows
+ * follow the window: the last complete read of them, and what the rail hides of
+ * them counted with it, stand in — retained — while a step's, a re-centre's, a
+ * layout's, a period's or a narrowing's is read, and are swapped whole once both
+ * land: never "…", never emptied. Every other kind's follows no window: read
+ * once, it is never emptied or read again by a date change. The Library stays
+ * mounted through both: its search box keeps its query and its focus.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
@@ -55,10 +57,10 @@ import { useCalendarFind, type FoundEvent } from "./find.js";
 import { CalendarFooter } from "./footer.js";
 import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type CalendarSelection } from "./inspector.js";
 import { templatesTab, useCalendarLibrary } from "./library.js";
-import { useBacklogNarrowing } from "../shared/schedule/backlog.js";
+import { useBacklogNarrowing, type BacklogNarrowing } from "../shared/schedule/backlog.js";
 import { calendarNouns, calendarSaid, followedSources } from "./sources.js";
 import { useCalendarToolbar } from "./toolbar.js";
-import { useCalendarWindow, type CalendarWindow } from "./window.js";
+import { useCalendarWindow, type CalendarEventPart, type CalendarWindow } from "./window.js";
 import { createTravel, createVisibleDays, useOverlapsShown } from "./visible.js";
 import { timelineRange } from "./timeline.js";
 import { CalendarViews, calendarHour, type CalendarAnchor } from "./views.js";
@@ -83,6 +85,15 @@ const NO_ITEMS: CalendarItem[] = [];
 const NO_ANCHOR: CalendarAnchor = {};
 /** The row an event with no resource sits on. */
 const UNASSIGNED: CalendarRow = { key: "", label: "Unassigned", meta: "", group: "", resource: none };
+
+/**
+ * What the Backlog shows of the kinds that read their backlog with their window (#1398): their last complete read, and
+ * what the rail hides of it, counted then — held as one, so the cards and the count are swapped together.
+ */
+interface HeldBacklog {
+    readonly items: readonly CalendarItem[];
+    readonly narrowing: BacklogNarrowing<CalendarEventPart>;
+}
 
 /** Whether two ranges are one window: the same bounds. */
 function sameRange(a: CalendarRange, b: CalendarRange): boolean {
@@ -217,12 +228,26 @@ function CalendarFrame(props: HostProps) {
     const items = drawn ? data.items : NO_ITEMS;
     // What the drawn events were read over (#1398): the window once read; a re-centre's held read's, while the window is read.
     const covered = current ? range : continuing ? data.range : undefined;
-    // The Backlog (#1398): a kind that reads its backlog with its window shows it with the window's read — kept through a
-    // re-centre, placeholders on a step until the period's land; every other kind's, read apart, whatever the dates.
+    // The Backlog never blinks (#1398, ruled 25 Oct 2026): a kind that reads its backlog with its window shows the last
+    // complete read of it, and what the rail hides of it, held as one — retained while a step's, a re-centre's, a layout's,
+    // a period's or a narrowing's window or count is read, and swapped whole once both have landed. Every other kind's is
+    // read apart, whatever the dates.
     const windowedBacklog = useMemo(() => windowedBacklogKinds(value), [value]);
-    const backlog = useMemo(() => inKindOrder(value.events, drawn ? data.backlog : NO_ITEMS, data.apart.items),
-        [value.events, drawn, data.backlog, data.apart.items]);
-    const backlogRead = data.apart.ready && (drawn || windowedBacklog.size === 0);
+    const backlogNarrowing = useBacklogNarrowing(dates.eventParts);
+    const landed = current && !data.loading;
+    const heldBacklog = useRef<HeldBacklog | undefined>(undefined);
+    const lastBacklog = heldBacklog.current;
+    // Taken as both land: the window read and what it is narrowed by counted — the first read's at once, its count to follow.
+    if (landed && (!backlogNarrowing.counting || lastBacklog === undefined)
+        && (lastBacklog === undefined || lastBacklog.items !== data.backlog || lastBacklog.narrowing !== backlogNarrowing)) {
+        heldBacklog.current = { items: data.backlog, narrowing: backlogNarrowing };
+    }
+    const shownBacklog = heldBacklog.current;
+    const backlog = useMemo(() => inKindOrder(value.events, shownBacklog?.items ?? NO_ITEMS, data.apart.items),
+        [value.events, shownBacklog?.items, data.apart.items]);
+    const backlogRead = data.apart.ready && (shownBacklog !== undefined || windowedBacklog.size === 0);
+    // What it shows stands in for a read in flight: retained (CL8), aria-disabled in a busy pane, until it lands.
+    const backlogRetained = data.apart.loading || (windowedBacklog.size > 0 && shownBacklog !== undefined && (!landed || backlogNarrowing.counting));
     const reading = data.loading || data.apart.loading;
     const commands = useMemo(() => editing === undefined ? undefined : calendarCommands(value, editing, select, items, shown), [value, editing, select, items, shown]);
     const available = current && !reading && data.error === undefined && data.apart.error === undefined && !resourcesBusy;
@@ -241,9 +266,8 @@ function CalendarFrame(props: HostProps) {
     const templates = useMemo(() => templatesTab(value, followed, format), [value, followed, format]);
     const [pickedTemplate, setTemplate] = useState<string>();
     const activeTemplate = pickedTemplate !== undefined && templates.shown.has(pickedTemplate) ? pickedTemplate : templates.shown.keys().next().value;
-    const backlogNarrowing = useBacklogNarrowing(dates.eventParts);
-    const start = useCalendarLibrary({ value, backlog, backlogRead, selection: selectedItems, key: storageKey, narrow, now, day: dayStart(view.date), styles, commands: gestures,
-        activeTemplate, onTemplate: setTemplate, templates, backlogNarrowing, followed, shown });
+    const start = useCalendarLibrary({ value, backlog, backlogRead, backlogRetained, selection: selectedItems, key: storageKey, narrow, now, day: dayStart(view.date),
+        styles, commands: gestures, activeTemplate, onTemplate: setTemplate, templates, backlogNarrowing: shownBacklog?.narrowing ?? backlogNarrowing, followed, shown });
     const end = useCalendarInspector({ value, refs, range, commands: gestures, styles, storageKey, overlaps, visible: timeline ? visibleDays : undefined, select, selection, shown });
     const onAction = useCallback((action: Parameters<ScheduleEditing["history"]["act"]>[0]) => {
         const active = document.activeElement; if (active instanceof HTMLElement) active.blur();
