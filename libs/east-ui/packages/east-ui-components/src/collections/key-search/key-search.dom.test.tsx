@@ -182,6 +182,44 @@ describe("DatasetKeySearch", () => {
         await waitFor(() => expect(onJump).toHaveBeenCalledWith(42));
     });
 
+    test("found, the count shows and Enter jumps while the lines are on their way; a listing that fails keeps both, and the popup says why — never No matches (#1398, CL10)", async () => {
+        // The lines of a far match: its rows' window, still on its way.
+        let release = () => {};
+        const lines = new Promise<string[]>((resolve) => { release = () => resolve(["r6000"]); });
+        const onFind = vi.fn(async () => ({ found: true, row: 6000, count: 1 }));
+        const onListRange = vi.fn(() => lines);
+        const onJump = vi.fn();
+        const view = renderSearch({ keyType: StringKey, onFind, onListRange, onJump });
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
+        await userEvent.type(input, "r");
+        await waitFor(() => expect(screen.getByRole("status").textContent).toBe("1 match"));
+        expect(onListRange).toHaveBeenCalledWith(6000, 1);
+        expect(screen.getByText("Searching…")).toBeTruthy();
+        expect(screen.queryByText("No matches. Keys are case-sensitive.")).toBeNull();
+        fireEvent.keyDown(input, { key: "Enter" });
+        await waitFor(() => expect(onJump).toHaveBeenCalledWith(6000));
+        // The lines land: the match the jump showed is in the box.
+        await act(async () => { release(); });
+        await waitFor(() => expect(input.value).toBe("r6000"));
+        view.unmount();
+
+        // Its lines cannot be read: the count stands, Enter still jumps, and the popup says why.
+        const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const jumped = vi.fn();
+            renderSearch({ keyType: StringKey, onFind, onListRange: vi.fn(async () => { throw new Error("gateway timeout"); }), onJump: jumped });
+            const box = screen.getByPlaceholderText("Search Records");
+            await userEvent.type(box, "r");
+            await waitFor(() => expect(screen.getByText("gateway timeout")).toBeTruthy());
+            expect(screen.getByRole("status").textContent).toBe("1 match");
+            expect(screen.queryByText("No matches. Keys are case-sensitive.")).toBeNull();
+            fireEvent.keyDown(box, { key: "Enter" });
+            await waitFor(() => expect(jumped).toHaveBeenCalledWith(6000));
+        } finally {
+            errors.mockRestore();
+        }
+    });
+
     test("scalar keys parse as .east literals; unparsable input hints and sends nothing", async () => {
         const onFind = vi.fn(async () => ({ found: true, row: 42, count: 1 }));
         const onListRange = vi.fn(async () => ["42"]);
