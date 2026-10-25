@@ -47,6 +47,16 @@ describe("a derived number (#810)", () => {
     });
 });
 
+describe("what the inspector does not count (#1039)", () => {
+    test("one line: the kinds it counts none of, and the kinds whose hours it does not count — never two lines", () => {
+        const line = (kinds: readonly string[], hours: readonly string[]) => PLAN_WORDS.m.inspectorNotCounted({ kinds, hours });
+        expect(line(["Print job"], [])).toBe("Print jobs not counted: too many to draw at this resolution");
+        expect(line([], ["Print job"])).toBe("Print job hours not counted: too many to draw at this resolution");
+        expect(line(["Print job"], ["Press check"])).toBe("Print jobs and Press check hours not counted: too many to draw at this resolution");
+        expect(line(["Print job", "Delivery"], ["Press check"])).toBe("Print jobs, Deliveries and Press check hours not counted: too many to draw at this resolution");
+    });
+});
+
 describe("dates (#820)", () => {
     test("are the instant's UTC date — the late evening of the 29th is the 29th", () => {
         const late = new Date("2026-06-29T23:30:00Z");

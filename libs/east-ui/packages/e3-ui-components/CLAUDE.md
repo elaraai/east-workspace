@@ -326,8 +326,19 @@ window only once its count over the range the canvas reads is within the cap
 (`scheduleWithinCap`), never by what the reader last decided, which a new
 narrowing outruns. A row's facts count none of a kind past the cap and say it
 is not counted, never 0, and the footer names a day index's kind past the cap
-as not counted (`13 events, print jobs not counted`); the selected events of a
-kind given cells are read again as its cells move. A
+as not counted (`13 events, print jobs not counted`); with nothing selected,
+the inspector counts the events of a kind past the cap whose count is exact,
+never its hours: the hours are those of the kinds read — none where no kind's
+are — and one line names what it does not count (`Print jobs and Press check
+hours not counted: too many to draw at this resolution`). A kind hidden in the
+Series tab is in none of these figures, read by its cells or counted, and
+nothing says so (`frame/hidden.ts`' `hides`); its backlog is the Backlog
+tab's still. A selected row of the paged kind whose cells the reader does not
+hold — scrolled out of the blocks read, or before the first read lands: not
+in the reader's `drawn` — draws its facts as the shared placeholders
+(`PlaceholderShape`), never 0, until they land, and the counts wait for a
+kind's cells to land once before they count its hours. The selected events of
+a kind given cells are read again as its cells move. A
 paged resource kind its source narrows (#1344) pages that source's
 narrowed rows themselves, in its index's order: the canvas's source over the
 payload's `paged` is a live one, so a choice is a new result, the last view

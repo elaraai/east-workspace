@@ -24,8 +24,15 @@
  *   (#1198) — its events in the window — how many, how long, how much of each
  *   unit — and its measures at the bucket a click on its plot named; an event
  *   kind's Unassigned row, the kind's events on no resource; any other row,
- *   what it draws at that bucket;
- * - **nothing** (PB41): the window's counts and three hints.
+ *   what it draws at that bucket. A kind past the cap is counted on no row,
+ *   and the row says so, never 0; a kind hidden in the Series tab is in no
+ *   figure, and nothing says so (#1039). While the cells a paged resource's
+ *   kinds are read by have not landed for it — scrolled out of the blocks
+ *   read, or before the first read — its figures are placeholders, never 0,
+ *   until they land (#1398, CL13);
+ * - **nothing** (PB41): the window's counts — the hours those of the kinds
+ *   read, the kinds whose events or hours are not counted named in one line
+ *   (#1039) — and three hints.
  *
  * Each event is read as the kinds' editing reads it (`read`, its kind's own
  * `planEvent`), its kind's drafts in place, tracked, so a commit to its record
@@ -70,10 +77,11 @@ import {
 } from "@elaraai/east";
 import { EventStateType } from "@elaraai/east-ui";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
-import { PlanEventItemType, ScheduleEventRefType, ScheduleResourceRefType, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
+import { PlanEventItemType, ScheduleEventRefType, ScheduleResourceRefType, planHideId, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, useTrackedEvaluation, type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
+import { PlaceholderShape } from "@elaraai/east-ui-components/internal";
 import { heldRowOf, removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
 import { usePlanResourceRows, type PlanResourceLookup, type PlanResourceRefValue } from "./resources.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
@@ -91,6 +99,7 @@ import { eventReadRange, type PlanEventShownValue } from "../root/events.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
 import type { PlanEventCounts } from "./counts.js";
+import { hides } from "./hidden.js";
 import type { PlanValue } from "./index.js";
 
 /** The names a Plan keeps its viewer's state under. */
@@ -232,6 +241,8 @@ export interface PlanInspectorProps {
     events: readonly PlanInspectedEvent[];
     /** The resources the rail shows, by resource kind (#1344): what the bulk edit offers of a kind its source narrows. */
     shownResources: PlanEventShownValue;
+    /** The ids the viewer hides in the Series tab: a kind hidden there is in no figure of a row's. */
+    hidden: readonly string[];
 }
 
 /**
@@ -331,11 +342,11 @@ export function PlanSelectionReader({ kinds, elements, drafts, editing, held, on
 /**
  * The inspector pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - Whether it is given, the kinds, the resources, the canvas's facts, the counts, the keys, the words, what is selected, the selected events and the resources the rail shows
+ * @param props - Whether it is given, the kinds, the resources, the canvas's facts, the counts, the keys, the words, what is selected, the selected events, the resources the rail shows and the ids the viewer hides
  * @returns The pane — 320px wide, its collapsed state kept per viewer, its rail saying what is selected — or `undefined`, no pane, when the Plan is given no inspector
  */
 export function usePlanInspector({
-    shown, kinds, resources, chrome, counts, keys, words, selection, events, shownResources,
+    shown, kinds, resources, chrome, counts, keys, words, selection, events, shownResources, hidden,
 }: PlanInspectorProps): BuilderFrameDock | undefined {
     const { m } = words;
     // No `inspector`: no pane (#1197).
@@ -353,7 +364,7 @@ export function usePlanInspector({
         detail,
         body: (
             <PlanInspectorBody selection={selection} events={events} kinds={kinds} resources={resources} chrome={chrome}
-                counts={counts} keys={keys} words={words} shownResources={shownResources} />
+                counts={counts} keys={keys} words={words} shownResources={shownResources} hidden={hidden} />
         ),
     };
 }
@@ -370,6 +381,8 @@ interface BodyProps {
     words: PlanWords;
     /** The resources the rail shows, by resource kind (#1344). */
     shownResources: PlanEventShownValue;
+    /** The ids the viewer hides in the Series tab. */
+    hidden: readonly string[];
 }
 
 /** The pane's body: one event, several, a row, or nothing. */
@@ -898,6 +911,9 @@ function targetOf(series: string, path: readonly string[], kinds: PlanValue["eve
     return lost !== undefined ? { kind: "unassigned", event: lost } : { kind: "row" };
 }
 
+/** No kind named. */
+const NO_NAMES: readonly string[] = [];
+
 /** A row's events in the window: how many, how long, and their quantities — and the kinds counted none of. */
 interface WindowFacts {
     /** Whether any kind on the row is counted: the figures below are theirs. */
@@ -914,31 +930,41 @@ function timeOf(t: PlanScale["window"]["min"]): Date | undefined {
     return t.type === "time" ? t.value : undefined;
 }
 
+/** A row's facts on their way (#1398, CL13): the cells its kinds are read by have not landed for its resource. */
+const ROW_LOADING = "loading";
+
 /**
  * The events in the window a row stands for — a resource's, or an event
  * kind's on no resource — read through the kinds, their drafts in place,
  * tracked. A kind the cells' reader gives cells (#1039) reads them from what
  * its cells hold — every event of a row on screen — never over the window,
- * and a kind past the cap, none of whose events is read, is counted on no row:
- * the row says it is not counted, never 0. Every other kind — each is counted
- * before it is read — is read over the window only once its count over the
- * range the canvas reads is within the cap.
+ * and while the reader holds none for the row's resource — scrolled out of the
+ * blocks read, or before the first read lands — the row's facts are on their
+ * way, never 0, until its cells land. A kind past the cap, none of whose
+ * events is read, is counted on no row: the row says it is not counted, never
+ * 0. A kind hidden in the Series tab is no part of what the canvas shows: in
+ * no figure, and nothing says so. Every other kind — each is counted before it
+ * is read — is read over the window only once its count over the range the
+ * canvas reads is within the cap.
  *
  * @param target - What the row stands for
  * @param kinds - The event kinds
  * @param scale - The shared scale: its window
  * @param drafts - Every kind's drafts (#1194) — the same object while they hold
  * @param cells - The kinds' cells and counts, when the reader decides a kind
- * @returns The facts; `undefined` for a row that stands for no events, and before the first read answers
+ * @param hidden - The ids the viewer hides in the Series tab
+ * @returns The facts, or {@link ROW_LOADING} while its cells are on their way; `undefined` for a row that stands for no events, and before the first read answers
  */
-function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: PlanScale, drafts: EventDrafts, cells: ScheduleCellsRead | undefined): WindowFacts | undefined {
+function useWindowFacts(
+    target: RowTarget, kinds: PlanValue["events"], scale: PlanScale, drafts: EventDrafts, cells: ScheduleCellsRead | undefined, hidden: readonly string[],
+): WindowFacts | typeof ROW_LOADING | undefined {
     const from = timeOf(scale.window.min);
     const to = timeOf(scale.window.max);
     // The range the canvas reads: what a kind is capped over.
     const range = eventReadRange(scale);
     const readFrom = range?.from.getTime();
     const readTo = range?.to.getTime();
-    const read = useCallback((): WindowFacts | typeof READING | undefined => {
+    const read = useCallback((): WindowFacts | typeof READING | typeof ROW_LOADING | undefined => {
         if (target.kind === "row" || from === undefined || to === undefined || readFrom === undefined || readTo === undefined) return undefined;
         const on = target.kind === "resource" ? some({ kind: target.resources.key, key: target.key }) : undefined;
         let counted = false;
@@ -948,12 +974,17 @@ function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: Pl
         const uncounted: PlanEventKindValue[] = [];
         for (const kind of kinds) {
             if (target.kind === "resource" ? !kind.takes.some((slot) => stringEqual(slot, target.resources.key)) : !stringEqual(kind.key, target.event.key)) continue;
+            // Hidden in the Series tab: no part of what the canvas shows — in no figure, and nothing says so.
+            if (hides(hidden, planHideId.events(kind.key))) continue;
             // Past the cap: none of its events is read, so the row counts none of them — not counted, never 0.
             if (cells?.capped.has(kind.key) === true) {
                 uncounted.push(kind);
                 continue;
             }
             const held = cells?.reads.get(kind.key);
+            // Read by its cells, which the reader holds none of for this resource — scrolled out of the blocks read, or
+            // not landed yet: its figures are on their way, never 0 (#1398, CL13).
+            if (held !== undefined && target.kind === "resource" && cells!.drawn !== undefined && !cells!.drawn.has(target.key)) return ROW_LOADING;
             // Every kind is counted before it is read: given no cells, it is read over the window once it is within the cap.
             if (held === undefined) {
                 const within = scheduleWithinCap(kind.planCount, new Date(readFrom), new Date(readTo));
@@ -972,9 +1003,10 @@ function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: Pl
             }
         }
         return { counted, events, minutes, quantities, uncounted };
-    }, [target, kinds, from, to, readFrom, readTo, drafts, cells]);
+    }, [target, kinds, from, to, readFrom, readTo, drafts, cells, hidden]);
     const { result } = useTrackedEvaluation(read);
-    const held = useRef<WindowFacts | undefined>(undefined);
+    // The last facts read — or that they are on their way — held while a read is in flight or failed.
+    const held = useRef<WindowFacts | typeof ROW_LOADING | undefined>(undefined);
     return useMemo(() => {
         if (!result.ok) {
             console.error("[Plan] the row's events could not be read:", result.error);
@@ -995,13 +1027,13 @@ interface RowProps extends BodyProps {
 }
 
 /** A row: a resource's name, lines and group, its overlaps, its events in the window and its measures at a bucket — or an Unassigned row's events, or what any other row draws at a bucket. */
-function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles }: RowProps) {
+function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles, hidden }: RowProps) {
     const { m } = words;
     const { inspect, scale } = chrome;
     const row = inspect.row(rowKey)!;
     const id = row.id.value;
     const target = useMemo(() => targetOf(id.series, id.path, kinds, resources), [id, kinds, resources]);
-    const facts = useWindowFacts(target, kinds, scale, chrome.events?.drafts ?? NONE_DRAFTED, chrome.cells);
+    const facts = useWindowFacts(target, kinds, scale, chrome.events?.drafts ?? NONE_DRAFTED, chrome.cells, hidden);
     // Its overlaps (#1198, PB40): the pairs on its resource in the window, a line each, which selects the pair.
     const on = target.kind === "resource" ? some({ kind: target.resources.key, key: target.key }) : undefined;
     const pairs = on === undefined ? [] : (counts?.overlaps.pairs ?? []).filter((pair) => resourceEqual(pair.first.resource, on));
@@ -1046,7 +1078,13 @@ function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles }
                     }))}
                     onSelect={chrome.selectEvents} />
             )}
-            {facts !== undefined && facts.counted && (
+            {facts === ROW_LOADING ? (
+                // Its cells on their way (#1398, CL13): each figure a placeholder in its place, never 0, until they land.
+                <Box as="dl" css={styles.facts} data-inspector-window="" aria-busy="true">
+                    <Fact styles={styles} fact="events" label={m.inspectorFact({ fact: "events" })} value={<PlaceholderShape kind="number" index={0} />} />
+                    <Fact styles={styles} fact="hours" label={m.inspectorFact({ fact: "hours" })} value={<PlaceholderShape kind="number" index={1} />} />
+                </Box>
+            ) : facts !== undefined && facts.counted && (
                 <Box as="dl" css={styles.facts} data-inspector-window="">
                     <Fact styles={styles} fact="events" label={m.inspectorFact({ fact: "events" })} value={words.number(facts.events)} />
                     <Fact styles={styles} fact="hours" label={m.inspectorFact({ fact: "hours" })} value={hoursText(facts.minutes, words)} />
@@ -1056,8 +1094,8 @@ function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles }
                 </Box>
             )}
             {/* The kinds the row counts none of (#1039): past the cap, none of their events read — said so, never 0. */}
-            {facts !== undefined && facts.uncounted.length > 0 && (
-                <Box css={styles.hint} data-inspector-not-counted="">{m.inspectorNotCounted({ kinds: facts.uncounted.map((kind) => kind.name) })}</Box>
+            {facts !== undefined && facts !== ROW_LOADING && facts.uncounted.length > 0 && (
+                <Box css={styles.hint} data-inspector-not-counted="">{m.inspectorNotCounted({ kinds: facts.uncounted.map((kind) => kind.name), hours: NO_NAMES })}</Box>
             )}
             {measures.length > 0 && (
                 <Box css={styles.measures} data-inspector-measures="">
@@ -1088,8 +1126,10 @@ function NothingSelected({ styles, counts, words }: { styles: Styles; counts: Pl
     const stats = counts === undefined ? [] : [
         // A kind whose events are not counted (#1039) is in no count: where no kind's are, there is none.
         ...(counts.events !== undefined ? [{ stat: "events" as const, n: counts.events, text: words.number(counts.events) }] : []),
-        // A kind read by its cells counts its hours over the rows drawn (#1039): the stat says so.
-        { stat: counts.drawn ? "hoursInView" as const : "hours" as const, n: counts.minutes, text: hoursText(counts.minutes, words) },
+        // The hours of the kinds read — where no kind's are, none; a kind read by its cells counts its hours over the rows
+        // drawn (#1039), and the stat says so.
+        ...(counts.minutes !== undefined
+            ? [{ stat: counts.drawn ? "hoursInView" as const : "hours" as const, n: counts.minutes, text: hoursText(counts.minutes, words) }] : []),
         ...(counts.backlog !== undefined ? [{ stat: "backlog" as const, n: counts.backlog, text: words.number(counts.backlog) }] : []),
     ];
     return (
@@ -1104,9 +1144,12 @@ function NothingSelected({ styles, counts, words }: { styles: Styles; counts: Pl
                     ))}
                 </Box>
             )}
-            {/* The kinds whose events in the window are not counted (#1039): said so, never 0. */}
-            {counts !== undefined && counts.uncounted.length > 0 && (
-                <Box css={styles.hint} data-inspector-not-counted="">{m.inspectorNotCounted({ kinds: counts.uncounted.map((kind) => kind.name) })}</Box>
+            {/* The kinds whose events in the window are not counted, and those whose hours are not (#1039): said so in one
+                line, never 0. */}
+            {counts !== undefined && (counts.uncounted.length > 0 || counts.hoursNotCounted.length > 0) && (
+                <Box css={styles.hint} data-inspector-not-counted="">
+                    {m.inspectorNotCounted({ kinds: counts.uncounted.map((kind) => kind.name), hours: counts.hoursNotCounted.map((kind) => kind.name) })}
+                </Box>
             )}
             <Box as="ul" css={styles.hints}>
                 {([1, 2, 3] as const).map((n) => <Box as="li" key={n} css={styles.hint}>{m.inspectorHint({ n })}</Box>)}

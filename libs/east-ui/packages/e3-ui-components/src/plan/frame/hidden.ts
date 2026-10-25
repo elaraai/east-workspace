@@ -9,12 +9,15 @@
  * leave the canvas here — a hand-built row and the rows under it by its key,
  * the one step of its id's path, and a `Plan.over` series' rows, its nested
  * series' with them, by the keys they carry. `data`'s series hide through
- * their pick, in the Reactive that lays them out.
+ * their pick, in the Reactive that lays them out. An event kind hidden there
+ * is no part of what the canvas shows, so it is in none of its figures — the
+ * footer's counts, the inspector's — and nothing says so (#1039): hiding it is
+ * the viewer's own choice.
  *
  * @packageDocumentation
  */
 
-import type { ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import type { PlanLibrarySeriesType } from "@elaraai/e3-ui/internal";
 import type { PlanRowId } from "../model.js";
 
@@ -31,6 +34,20 @@ export interface PlanRowsHidden {
 
 /** No id hidden. */
 export const NONE_HIDDEN: readonly string[] = [];
+
+const stringEqual = equalFor(StringType);
+
+/**
+ * Whether a viewer hides an id of the Series tab: an event kind's, a resource
+ * kind's or a measure's (`planHideId`), or one of the Plan's own rows.
+ *
+ * @param hidden - The ids the viewer hides
+ * @param id - The id
+ * @returns Whether it is hidden
+ */
+export function hides(hidden: readonly string[], id: string): boolean {
+    return hidden.some((hiddenId) => stringEqual(hiddenId, id));
+}
 
 /**
  * The ids a viewer hides, as storage holds them: a list of ids, or anything

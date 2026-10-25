@@ -21,12 +21,17 @@
  * otherwise render the whole frame. It hands the frame what it read only when
  * that moves.
  *
+ * A kind the viewer hides in the Series tab is no part of what the canvas
+ * shows: it is in none of the window's figures — its events, their hours,
+ * their overlaps — and nothing says so; its backlog is the Backlog tab's
+ * still, which lists it.
+ *
  * @packageDocumentation
  */
 
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { DateTimeType, SortedMap, StringType, compareFor, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
-import type { PlanEventDraftsType, PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { planHideId, type PlanEventDraftsType, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { useBacklogNarrowing, type BacklogNarrowing } from "../../shared/schedule/backlog.js";
 import { scheduleWithinCap, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
@@ -34,6 +39,7 @@ import { scheduleOverlaps, type ScheduleOverlaps } from "../../shared/schedule/o
 import { eventReadRange } from "../root/events.js";
 import type { PlanEventPart } from "../root/sources.js";
 import type { PlanScale } from "../scale.js";
+import { NONE_HIDDEN, hides } from "./hidden.js";
 
 /** One event kind, as the Plan's payload carries it (#1190). */
 export type PlanEventKindValue = ValueTypeOf<typeof PlanPayloadType>["events"][number];
@@ -53,18 +59,28 @@ export interface PlanBacklogEntry {
 /** What the footer counts of the event kinds. */
 export interface PlanEventCounts {
     /**
-     * The events in the window, every kind's but those not counted (`uncounted`) — a kind given cells counted exactly,
-     * from its source, as the rail counts it, or in memory, its record read whole (#1039); `undefined` where no kind's
-     * are counted, every kind among `uncounted`.
+     * The events in the window of every kind the viewer shows but those not counted (`uncounted`) — a kind given cells
+     * counted exactly, from its source, as the rail counts it, or in memory, its record read whole (#1039); `undefined`
+     * where no kind's are counted: every kind shown among `uncounted`, or none shown.
      */
     readonly events: number | undefined;
     /**
-     * The kinds whose events in the window are not counted (#1039): past the cap, and counted only by the days its
-     * events run on — a day index's — which is no number of them. None of their events is read, and none is in `events`.
+     * The kinds shown whose events in the window are not counted (#1039): past the cap, and counted only by the days
+     * its events run on — a day index's — which is no number of them. None of their events is read, and none is in
+     * `events` or `minutes`.
      */
     readonly uncounted: readonly PlanEventKindValue[];
-    /** How long they run, in minutes — a month counting 30 days, as a kind counts it. */
-    readonly minutes: number;
+    /**
+     * The kinds shown whose events in the window are counted, but not their hours (#1039): past the cap, counted
+     * exactly — through their source, or in memory — and none of their events read, so none of their hours is in
+     * `minutes`.
+     */
+    readonly hoursNotCounted: readonly PlanEventKindValue[];
+    /**
+     * How long the events read run, in minutes — a month counting 30 days, as a kind counts it; `undefined` where no
+     * kind's hours are read, every kind shown past the cap or none shown.
+     */
+    readonly minutes: number | undefined;
     /**
      * Whether a kind read by its cells counts its hours and its overlaps over the rows drawn (#1039): it reads only the
      * events of the resources around the rows in view, so the inspector says its hours are those in view.
@@ -107,25 +123,29 @@ function timeMs(t: PlanScale["window"]["min"]): number | undefined {
  * drafts in place (#1194). A kind read by its cells (#1039) never reads the
  * window: its events are counted exactly from its source, as the rail counts
  * them, its hours and its overlaps over the events its cells hold, and its
- * backlog read alone. So is a kind counted past the cap, which draws none — a
- * kind read whole counted in memory — but one counted through its day index,
- * whose count is the days its events run on, no number of them: it is not
- * counted (`uncounted`). Every other kind — each is counted before it is read —
- * is read over the window only once its count over the range the canvas reads
- * — the count the cells' reader decides by — is within the cap; past it the
- * last counts stand until the reader gives it no cells, so no event of a range
- * past the cap is read.
+ * backlog read alone. A kind past the cap draws none, and none of its events
+ * is read: it is counted exactly — through its source, or in memory, its record
+ * read whole — but not its hours (`hoursNotCounted`), and one counted through
+ * its day index, whose count is the days its events run on, no number of them,
+ * is not counted at all (`uncounted`). Every other kind — each is counted
+ * before it is read — is read over the window only once its count over the
+ * range the canvas reads — the count the cells' reader decides by — is within
+ * the cap; past it the last counts stand until the reader gives it no cells,
+ * so no event of a range past the cap is read. A kind the viewer hides is in
+ * no figure of the window, and its window is not read for them; its backlog
+ * and its last save are counted still.
  *
  * @param kinds - The Plan's event kinds; `undefined` or none for a Plan without them
  * @param scale - The shared scale: the window the events are counted over
  * @param drafts - Every kind's drafts, by kind then by entry id — the same object while they hold; none for a Plan whose kinds hold none
- * @param cells - The kinds' cells and counts, when the reader decides a kind: what it draws from, its drafts as the seams take them, and which counted kinds are read over the window
+ * @param cells - The kinds' cells and counts, when the reader decides a kind: what it draws from, its drafts as the seams take them, which counted kinds are read over the window, and which are past the cap
  * @param parts - Each event kind narrowed through its source of the slice: what a kind given cells is counted through
+ * @param hidden - The ids the viewer hides in the Series tab: a kind hidden there is in no figure of the window
  * @returns The counts — the last read's while a read is in flight or fails; `undefined` for a Plan without event kinds, or before the first read answers
  */
 export function usePlanEventCounts(
     kinds: readonly PlanEventKindValue[] | undefined, scale: PlanScale | undefined, drafts: EventDrafts = NONE_DRAFTED,
-    cells?: ScheduleCellsRead | undefined, parts: readonly PlanEventPart[] = NO_PARTS,
+    cells?: ScheduleCellsRead | undefined, parts: readonly PlanEventPart[] = NO_PARTS, hidden: readonly string[] = NONE_HIDDEN,
 ): PlanEventCounts | undefined {
     const from = scale !== undefined ? timeMs(scale.window.min) : undefined;
     const to = scale !== undefined ? timeMs(scale.window.max) : undefined;
@@ -139,47 +159,64 @@ export function usePlanEventCounts(
         let events = 0;
         let counted = false;
         let minutes = 0;
+        let hoursCounted = false;
         let backlog: number | undefined;
         let saved: Date | undefined;
         let drawn = false;
         const unscheduled: PlanBacklogEntry[] = [];
         const uncounted: PlanEventKindValue[] = [];
+        const hoursNotCounted: PlanEventKindValue[] = [];
         // Each kind that warns of its overlaps: two of its events are a pair (PB51).
         const warned: (readonly PlanEventItemValue[])[] = [];
         for (const kind of kinds) {
+            // Hidden in the Series tab: no part of what the canvas shows, so in no figure of the window.
+            const shown = !hides(hidden, planHideId.events(kind.key));
             // A kind given cells: from what they hold, its drafts as the seams take them (#1039).
             const held = cells?.reads.get(kind.key);
             // Every kind is counted before it is read: given no cells, it is read over the window once its count over the
             // range the canvas reads is within the cap — past it, or in flight, the last counts stand.
-            if (held === undefined) {
+            if (shown && held === undefined) {
                 const within = scheduleWithinCap(kind.planCount, new Date(readFrom), new Date(readTo));
                 if (within.type !== "some" || !within.value) return READING;
             }
             const read = held === undefined ? none : some(held);
             const drafted = (held === undefined ? drafts : cells!.drafts).get(kind.key) ?? NO_DRAFTS;
-            const items = kind.planItems(new Date(from), new Date(to), drafted, read);
-            if (items.type === "none") return READING;
-            if (kind.overlaps.type === "warn") warned.push(items.value);
-            if (held === undefined) {
-                events += items.value.length;
-                counted = true;
-            } else {
-                const part = parts.find((p) => stringEqual(p.kind.key, kind.key))?.part;
-                if (part === undefined && !kind.planCountExact) {
-                    // Counted through its day index, given no cells: the days its events run on are no number of them,
-                    // and none of them is read — not counted.
-                    uncounted.push(kind);
-                } else {
-                    // Its events in the window, exactly: its source's count, as the rail counts it — its record read
-                    // whole, counted in memory.
-                    const inWindow = part !== undefined ? part.count() : kind.planCount(new Date(from), new Date(to));
-                    if (inWindow.type !== "some") return READING;
-                    events += Number(inWindow.value);
+            if (shown) {
+                const items = kind.planItems(new Date(from), new Date(to), drafted, read);
+                if (items.type === "none") return READING;
+                if (kind.overlaps.type === "warn") warned.push(items.value);
+                if (held === undefined) {
+                    events += items.value.length;
                     counted = true;
+                    for (const item of items.value) minutes += Number(item.minutes);
+                    hoursCounted = true;
+                } else {
+                    const part = parts.find((p) => stringEqual(p.kind.key, kind.key))?.part;
+                    // Past the cap (#1039): none of its events is read, so none of its hours — said so, never counted as none.
+                    const capped = cells!.capped.has(kind.key);
+                    // Read by its cells, before they have landed once: its hours are not known yet, never 0 (#1398, CL13).
+                    if (!capped && !cells!.held.has(kind.key)) return READING;
+                    if (capped && part === undefined && !kind.planCountExact) {
+                        // Counted through its day index: the days its events run on are no number of them — not counted.
+                        uncounted.push(kind);
+                    } else {
+                        // Its events in the window, exactly: its source's count, as the rail counts it — its record read
+                        // whole, counted in memory.
+                        const inWindow = part !== undefined ? part.count() : kind.planCount(new Date(from), new Date(to));
+                        if (inWindow.type !== "some") return READING;
+                        events += Number(inWindow.value);
+                        counted = true;
+                        if (capped) {
+                            hoursNotCounted.push(kind);
+                        } else {
+                            // Read by its cells: its hours over the rows drawn.
+                            for (const item of items.value) minutes += Number(item.minutes);
+                            hoursCounted = true;
+                            drawn = true;
+                        }
+                    }
                 }
-                drawn = true;
             }
-            for (const item of items.value) minutes += Number(item.minutes);
             if (kind.backlog) {
                 const waiting = kind.planUnscheduled(new Date(from), new Date(to), drafted, read);
                 if (waiting.type === "none") return READING;
@@ -190,8 +227,11 @@ export function usePlanEventCounts(
             const newest = commits.type === "some" ? commits.value[0]?.at : undefined;
             if (newest !== undefined && (saved === undefined || compareDateTime(newest, saved) > 0)) saved = newest;
         }
-        return { events: counted ? events : undefined, uncounted, minutes, drawn, backlog, saved, overlaps: scheduleOverlaps(warned), unscheduled };
-    }, [kinds, from, to, readFrom, readTo, drafts, cells, parts]);
+        return {
+            events: counted ? events : undefined, uncounted, hoursNotCounted, minutes: hoursCounted ? minutes : undefined, drawn, backlog, saved,
+            overlaps: scheduleOverlaps(warned), unscheduled,
+        };
+    }, [kinds, from, to, readFrom, readTo, drafts, cells, parts, hidden]);
     const { result } = useTrackedEvaluation(read);
     // The last counts read, held while a read is in flight or failed.
     const held = useRef<PlanEventCounts | undefined>(undefined);
@@ -230,6 +270,8 @@ export interface PlanKindsReaderProps {
     parts: readonly PlanEventPart[];
     /** The kinds' cells and counts (#1039), when the reader decides a kind. */
     cells: ScheduleCellsRead | undefined;
+    /** The ids the viewer hides in the Series tab: a kind hidden there is in no figure of the window. */
+    hidden: readonly string[];
     /** Where what it read goes: called only when that moves. */
     onRead: (read: PlanKindsRead) => void;
 }
@@ -241,8 +283,8 @@ export interface PlanKindsReaderProps {
  * @param props - What is read, over what, and where it goes
  * @returns Nothing: it reads
  */
-export function PlanKindsReader({ kinds, scale, drafts, parts, cells, onRead }: PlanKindsReaderProps): null {
-    const counts = usePlanEventCounts(kinds, scale, drafts, cells, parts);
+export function PlanKindsReader({ kinds, scale, drafts, parts, cells, hidden, onRead }: PlanKindsReaderProps): null {
+    const counts = usePlanEventCounts(kinds, scale, drafts, cells, parts, hidden);
     const backlog = useBacklogNarrowing(parts);
     const reported = useRef<PlanKindsRead | undefined>(undefined);
     useLayoutEffect(() => {

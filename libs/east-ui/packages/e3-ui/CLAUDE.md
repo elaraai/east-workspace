@@ -148,7 +148,11 @@ memory, its record read whole — and past 10,000 in the range the canvas reads
 none is read or drawn: its rows shade from its source's summary, else they
 are hatched and the banner says how many events there are, or, for a day
 index's count, that they are not counted. A resource's row in the inspector
-counts none of a kind past the cap, and says so, never 0.
+counts none of a kind past the cap, and says so, never 0; with nothing
+selected the inspector counts such a kind's events where its count is exact,
+never its hours — the hours those of the kinds read — and names it, one line
+for all it does not count. A kind hidden in the Series tab is in none of the
+footer's or the inspector's figures, and nothing says so.
 
 The Schematic (#1386) takes `slice={{ slice: Slice.bindRecords(key, { … })
 }}`. Each of its kinds — `Schematic.items`, `zones`, `links` and `nets`, keyed
