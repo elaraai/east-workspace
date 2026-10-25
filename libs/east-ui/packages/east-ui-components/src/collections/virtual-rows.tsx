@@ -155,8 +155,11 @@ export const INTENT_SLOW_MS = 200;
 /**
  * A scroll's speed, from its offsets in time (#1398, CL6): whether it has
  * slowed below a viewport's height per {@link INTENT_SLOW_MS}, read over the
- * last {@link INTENT_SLOW_MS} of it. A gesture's first offset says nothing of
- * its speed: it is not slow until a second is in.
+ * last {@link INTENT_SLOW_MS} of it. Its speed is how far it travelled there,
+ * every step of it, never where it ended: a view sent far and straight back —
+ * a jump to a sought row, then a scroll back to the top — is on its way, not
+ * slow. A gesture's first offset says nothing of its speed: it is not slow
+ * until a second is in.
  *
  * @internal Exported for its test.
  */
@@ -175,8 +178,9 @@ export class ScrollIntent {
         this.samples.push({ t, y });
         while (this.samples.length > 2 && t - this.samples[0]!.t > INTENT_SLOW_MS) this.samples.shift();
         if (this.samples.length < 2) return false;
-        const first = this.samples[0]!;
-        return (Math.abs(y - first.y) / Math.max(1, t - first.t)) * INTENT_SLOW_MS < viewport;
+        let travelled = 0;
+        for (let i = 1; i < this.samples.length; i++) travelled += Math.abs(this.samples[i]!.y - this.samples[i - 1]!.y);
+        return (travelled / Math.max(1, t - this.samples[0]!.t)) * INTENT_SLOW_MS < viewport;
     }
 
     /** The scroll came to rest: the next gesture is read afresh. */
