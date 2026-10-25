@@ -9,14 +9,15 @@
  * coalescer (many requests → one frame), the shared world→screen projector
  * (card transform and canvas footprint resolve to the same screen point —
  * issue #57 P1), the viewport-cull geometry (a cross-viewport link / a shape
- * bowing outside its rect must NOT be culled — P6/1e), and `zoomAbout`.
+ * bowing outside its rect must NOT be culled — P6/1e), `zoomAbout`, and when a
+ * moving camera tells its reader where its view stands (#1398, CL6).
  */
 
 import { describe, it, expect } from "vitest";
 import {
-    FIT_MARGIN_PX, FLY_DURATION_MS, IDENTITY,
+    FIT_MARGIN_PX, FLY_DURATION_MS, IDENTITY, SLOW_READ_MS,
     bboxOverlaps, cancelsFly, cardTranslateCss, fitView, flyStep, makeRafCoalescer, nextMode,
-    pointsBbox, project, viewportWorldBbox, zoomAbout,
+    pointsBbox, project, tellsAsItMoves, viewportWorldBbox, zoomAbout,
 } from "./camera";
 
 describe("nextMode / cancelsFly (interaction-mode machine)", () => {
@@ -179,6 +180,37 @@ describe("fitView (#1393)", () => {
     it("a canvas too small for the margin keeps an eighth of itself each side; nothing to fit fits nothing", () => {
         expect(fitView(80, 80, 10, 10).fit).toBeCloseTo((80 - 2 * 10) / 10);
         expect(fitView(0, 300, 10, 10)).toEqual({ fit: 0, home: IDENTITY });
+    });
+});
+
+describe("tellsAsItMoves (#1398, CL6)", () => {
+    // Where the canvas last told its reader the view stood: 50, 30 in world units, at 20 px a unit, a 40-unit view.
+    const told = { at: 1000, x: 50, y: 30, ppu: 20 };
+    /** A wheel's notch, as the canvas zooms by it: e^(0.0015 × 100). */
+    const notch = Math.exp(0.15);
+
+    it("a slow pan tells it as it goes: less than the view's span since the last tell, 200 ms on", () => {
+        expect(tellsAsItMoves(told, { at: told.at + SLOW_READ_MS, x: 60, y: 30, ppu: 20, span: 40 })).toBe(true);
+    });
+
+    it("tells it nothing before 200 ms have passed, nor at a time stamped before the last tell", () => {
+        expect(tellsAsItMoves(told, { at: told.at + SLOW_READ_MS - 1, x: 50, y: 30, ppu: 20, span: 40 })).toBe(false);
+        expect(tellsAsItMoves(told, { at: told.at - 600, x: 50, y: 30, ppu: 20, span: 40 })).toBe(false);
+    });
+
+    it("a fast pan waits for its rest: a span or more since the last tell", () => {
+        expect(tellsAsItMoves(told, { at: told.at + 300, x: 90, y: 30, ppu: 20, span: 40 })).toBe(false);
+    });
+
+    it("a fast zoom about a point waits for its rest, out or in, though its centre stays put: three notches in 204 ms", () => {
+        const three = notch ** 3;
+        expect(tellsAsItMoves(told, { at: told.at + 204, x: 50, y: 30, ppu: 20 / three, span: 40 * three })).toBe(false);
+        expect(tellsAsItMoves(told, { at: told.at + 204, x: 50, y: 30, ppu: 20 * three, span: 40 / three })).toBe(false);
+    });
+
+    it("a slow zoom tells it as it goes: one notch in 255 ms, out or in", () => {
+        expect(tellsAsItMoves(told, { at: told.at + 255, x: 50, y: 30, ppu: 20 / notch, span: 40 * notch })).toBe(true);
+        expect(tellsAsItMoves(told, { at: told.at + 255, x: 50, y: 30, ppu: 20 * notch, span: 40 / notch })).toBe(true);
     });
 });
 
