@@ -218,45 +218,43 @@ function faults(at: RunAt, paged: Paged): string[] {
     return bad;
 }
 
+// A test a builder: each is an area of its own, whose workspace the page deploys the first time it shows (#1397).
 for (const theme of ["light", "dark"] as const) {
-    test(`scrolled into rows not read, the Sheet's and the Plan's run draws the builder's own rows in the view at their pitch, says nothing but the Sheet's numbers, and nothing moves as the rows land (#1398, CL2) (${theme}) @desktop`, async ({ page }) => {
-        test.setTimeout(240_000);
-        await installE3Faults(page);
-        for (const [i, paged] of PAGED.entries()) {
-            await test.step(paged.builder, async () => {
-                const entry = await visitBuilder(page, paged.route, paged.root, i === 0 ? theme : undefined);
-                if (paged.open !== undefined) {
-                    await paged.open(entry);
-                    await settled(page);
-                }
-                const pitch = await pitchOf(entry, paged);
-                const real = await realStylesOf(entry, paged);
-                // The rows' reads held; the view sent to the middle of what they page, past what they read as they opened.
-                const hold = await holdE3(page, { kinds: ["page"] });
-                await scrollerOf(entry).evaluate((el) => { el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) / 2); });
-                await expect.poll(async () => (await runAt(entry, paged, pitch, real))?.filled ?? false, { message: `${paged.builder}: a run in the view, revealed` }).toBe(true);
-                await settled(page, { holding: true });
-                const held = (await runAt(entry, paged, pitch, real))!;
-                expect(faults(held, paged), `${paged.builder} (${theme})`).toEqual([]);
-                // The first row whole under the view's top: where the row it stands for lands.
-                const anchor = held.rows.find((row) => row.top >= held.view.top - 0.5)!;
-                await releaseE3(page, hold);
+    for (const paged of PAGED) {
+        test(`scrolled into rows not read, the ${paged.builder}'s run draws its own rows in the view at their pitch, says nothing${paged.builder === "Sheet" ? " but their numbers" : ""}, and nothing moves as the rows land (#1398, CL2) (${theme}) @desktop`, async ({ page }) => {
+            await installE3Faults(page);
+            const entry = await visitBuilder(page, paged.route, paged.root, theme);
+            if (paged.open !== undefined) {
+                await paged.open(entry);
                 await settled(page);
-                const landed = await scrollerOf(entry).evaluate((el, { sel, top }) => {
-                    const box = el.getBoundingClientRect();
-                    const at = (y: number) => y - box.top + el.scrollTop;
-                    const row = [...el.querySelectorAll<HTMLElement>(sel.row)].find((r) => Math.abs(at(r.getBoundingClientRect().top) - top) <= 0.5);
-                    return {
-                        scrollTop: el.scrollTop,
-                        extent: el.querySelector("[data-virtual-extent]")?.getAttribute("data-virtual-extent") ?? null,
-                        row: row === undefined ? null : row.querySelector('[data-slot="gutterNumber"]')?.textContent ?? "",
-                        runs: el.querySelectorAll("[data-unloaded-run]").length,
-                    };
-                }, { sel: { row: paged.row }, top: anchor.top });
-                expect({ scrollTop: landed.scrollTop, extent: landed.extent, row: landed.row !== null }, `${paged.builder}: the view, the extent and the row at the anchor's place`)
-                    .toEqual({ scrollTop: held.scrollTop, extent: held.extent, row: true });
-                if (paged.builder === "Sheet") expect(landed.row, "the row landed where its placeholder stood, by its number").toBe(anchor.number);
-            });
-        }
-    });
+            }
+            const pitch = await pitchOf(entry, paged);
+            const real = await realStylesOf(entry, paged);
+            // The rows' reads held; the view sent to the middle of what they page, past what they read as they opened.
+            const hold = await holdE3(page, { kinds: ["page"] });
+            await scrollerOf(entry).evaluate((el) => { el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) / 2); });
+            await expect.poll(async () => (await runAt(entry, paged, pitch, real))?.filled ?? false, { message: `${paged.builder}: a run in the view, revealed` }).toBe(true);
+            await settled(page, { holding: true });
+            const held = (await runAt(entry, paged, pitch, real))!;
+            expect(faults(held, paged), `${paged.builder} (${theme})`).toEqual([]);
+            // The first row whole under the view's top: where the row it stands for lands.
+            const anchor = held.rows.find((row) => row.top >= held.view.top - 0.5)!;
+            await releaseE3(page, hold);
+            await settled(page);
+            const landed = await scrollerOf(entry).evaluate((el, { sel, top }) => {
+                const box = el.getBoundingClientRect();
+                const at = (y: number) => y - box.top + el.scrollTop;
+                const row = [...el.querySelectorAll<HTMLElement>(sel.row)].find((r) => Math.abs(at(r.getBoundingClientRect().top) - top) <= 0.5);
+                return {
+                    scrollTop: el.scrollTop,
+                    extent: el.querySelector("[data-virtual-extent]")?.getAttribute("data-virtual-extent") ?? null,
+                    row: row === undefined ? null : row.querySelector('[data-slot="gutterNumber"]')?.textContent ?? "",
+                    runs: el.querySelectorAll("[data-unloaded-run]").length,
+                };
+            }, { sel: { row: paged.row }, top: anchor.top });
+            expect({ scrollTop: landed.scrollTop, extent: landed.extent, row: landed.row !== null }, `${paged.builder}: the view, the extent and the row at the anchor's place`)
+                .toEqual({ scrollTop: held.scrollTop, extent: held.extent, row: true });
+            if (paged.builder === "Sheet") expect(landed.row, "the row landed where its placeholder stood, by its number").toBe(anchor.number);
+        });
+    }
 }

@@ -30,8 +30,11 @@
  *   middle, at the rail's foot, or 21px either side of it, lands on it — at
  *   each width the touch screen's preview box holds.
  *
- * Over the builders and the four widths, each form is seen: the full text,
- * the short form and the dot alone.
+ * Each builder is a test of its own, its area's workspace deployed as it
+ * first shows (#1397). At 1440px every builder's line says its full text;
+ * narrower, whichever form its rail takes — its short form or its dot
+ * alone — is held to that form's rules. Which form a width takes is the
+ * fit's, which east-ui-components' `loading-line.dom.test.tsx` holds.
  */
 
 import { expect, test, type Locator, type Page } from "playwright/test";
@@ -264,79 +267,72 @@ function missedTaps(retry: Locator): Promise<string[]> {
     });
 }
 
+// A test a builder: each is an area of its own, whose workspace the page deploys the first time it shows (#1397). The page
+// is wide enough that a 1440px frame keeps clear of its "On this page" column.
 for (const theme of ["light", "dark"] as const) {
-    test(`each builder's loading line, held in flight and then failed, says what it reads in one line that fits whole at every width — full, short or the dot alone — then "Couldn't read · Retry", Retry asking again (#1398, CL3, CL11) (${theme}) @desktop`, async ({ page }) => {
-        // Six builders, each held and failed at four widths, on the page's one e3, each area's workspace started as it is
-        // first shown. The page is wide enough that a 1440px frame keeps clear of its "On this page" column.
-        test.setTimeout(480_000);
-        await installE3Faults(page);
-        await page.setViewportSize(PAGE);
-        const seen = new Set<string>();
-        let inks: Inks | undefined;
-        for (const [i, reader] of READERS.entries()) {
-            await test.step(reader.builder, async () => {
-                const entry = await visitBuilder(page, reader.route, reader.root, i === 0 ? theme : undefined);
-                inks ??= await inksOf(page);
-                const rail = entry.locator(reader.rail).first();
-                const line = rail.locator(":scope > [data-footer-line]");
-                const rest = await railHeight(rail);
-                for (const failed of [false, true]) {
-                    await sizeBuilder(page, entry, reader.root, WIDTHS[0]);
-                    const rule = failed ? await failE3(page, { kinds: [...RECORD_READS] }, FAILURE) : await holdE3(page, { kinds: [...RECORD_READS] });
-                    await reader.read(page, entry, failed ? 1 : 0);
-                    await expect(line).toHaveAttribute("data-loading-line", failed ? "failed" : "loading");
-                    let wider: number | undefined;
-                    for (const width of WIDTHS) {
-                        await sizeBuilder(page, entry, reader.root, width, { holding: true });
-                        const at = await lineAt(rail);
-                        const where = `${reader.builder} ${failed ? "failed" : "in flight"} at ${width}px`;
-                        expect(faults(at, rest, inks!, failed), where).toEqual([]);
-                        // Never a fuller form at a narrower frame — but where even the dot leaves the legend no room, the
-                        // legend ends at a whole item and the line takes its short form (the fit's last rule).
-                        const fullness = FULLNESS[at.form ?? ""] ?? -1;
-                        if (wider !== undefined && fullness > wider) {
-                            expect({ form: at.form, legendCut: at.kept < at.units }, `${where}: a fuller form than the wider frame's`).toEqual({ form: "short", legendCut: true });
-                        }
-                        wider = fullness;
-                        seen.add(at.form ?? "");
-                    }
-                    await releaseE3(page, rule);
-                    // Released, the held read lands; the fault gone, Retry asks again. Either way the line goes idle.
-                    if (failed) await line.locator("[data-line-retry]").click();
-                    await expect(line).toHaveAttribute("data-idle", "", { timeout: 30_000 });
-                }
-            });
-        }
-        expect([...seen].sort(), "the forms seen over the builders and widths").toEqual(["dot", "full", "short"]);
-    });
-
-    test(`on a touch screen, a failed read's Retry in each builder's footer is a 44px tap target by its halo, the rail as tall as at rest (#1398, CL11) (${theme}) @mobile`, async ({ page }) => {
-        test.setTimeout(480_000);
-        await installE3Faults(page);
-        await page.setViewportSize(PAGE);
-        for (const [i, reader] of READERS.entries()) {
-            await test.step(reader.builder, async () => {
-                const entry = await visitBuilder(page, reader.route, reader.root, i === 0 ? theme : undefined);
-                const rail = entry.locator(reader.rail).first();
-                const line = rail.locator(":scope > [data-footer-line]");
-                const rest = await railHeight(rail);
-                await sizeBuilder(page, entry, reader.root, TOUCH_WIDTHS[0]);
-                const fault = await failE3(page, { kinds: [...RECORD_READS] }, FAILURE);
-                await reader.read(page, entry, 1);
-                await expect(line).toHaveAttribute("data-failed", "");
-                for (const width of TOUCH_WIDTHS) {
+    for (const reader of READERS) {
+        test(`the ${reader.builder}'s loading line, held in flight and then failed, says what it reads in one line that fits whole at every width — full, short or the dot alone — then "Couldn't read · Retry", Retry asking again (#1398, CL3, CL11) (${theme}) @desktop`, async ({ page }) => {
+            await installE3Faults(page);
+            await page.setViewportSize(PAGE);
+            const entry = await visitBuilder(page, reader.route, reader.root, theme);
+            const inks = await inksOf(page);
+            const rail = entry.locator(reader.rail).first();
+            const line = rail.locator(":scope > [data-footer-line]");
+            const rest = await railHeight(rail);
+            for (const failed of [false, true]) {
+                await sizeBuilder(page, entry, reader.root, WIDTHS[0]);
+                const rule = failed ? await failE3(page, { kinds: [...RECORD_READS] }, FAILURE) : await holdE3(page, { kinds: [...RECORD_READS] });
+                await reader.read(page, entry, failed ? 1 : 0);
+                await expect(line).toHaveAttribute("data-loading-line", failed ? "failed" : "loading");
+                let wider: number | undefined;
+                const forms: (string | null)[] = [];
+                for (const width of WIDTHS) {
                     await sizeBuilder(page, entry, reader.root, width, { holding: true });
-                    const where = `${reader.builder} at ${width}px`;
-                    expect(await railHeight(rail), `${where}: the rail's height`).toBeCloseTo(rest, 0);
-                    // A tall builder's footer sits below the page's fold: brought into view, as a finger would scroll to it.
-                    const retry = line.locator("[data-line-retry]");
-                    await retry.scrollIntoViewIfNeeded();
-                    expect(await missedTaps(retry), where).toEqual([]);
+                    const at = await lineAt(rail);
+                    const where = `${reader.builder} ${failed ? "failed" : "in flight"} at ${width}px`;
+                    expect(faults(at, rest, inks, failed), where).toEqual([]);
+                    // Never a fuller form at a narrower frame — but where even the dot leaves the legend no room, the
+                    // legend ends at a whole item and the line takes its short form (the fit's last rule).
+                    const fullness = FULLNESS[at.form ?? ""] ?? -1;
+                    if (wider !== undefined && fullness > wider) {
+                        expect({ form: at.form, legendCut: at.kept < at.units }, `${where}: a fuller form than the wider frame's`).toEqual({ form: "short", legendCut: true });
+                    }
+                    wider = fullness;
+                    forms.push(at.form);
                 }
-                await releaseE3(page, fault);
-                await line.locator("[data-line-retry]").tap();
+                // The widest frame has room for the full text in every builder: a fit that fell to a shorter form there would
+                // be a fit gone wrong.
+                expect(forms[0], `${reader.builder} ${failed ? "failed" : "in flight"} at ${WIDTHS[0]}px: its form`).toBe("full");
+                await releaseE3(page, rule);
+                // Released, the held read lands; the fault gone, Retry asks again. Either way the line goes idle.
+                if (failed) await line.locator("[data-line-retry]").click();
                 await expect(line).toHaveAttribute("data-idle", "", { timeout: 30_000 });
-            });
-        }
-    });
+            }
+        });
+
+        test(`on a touch screen, a failed read's Retry in the ${reader.builder}'s footer is a 44px tap target by its halo, the rail as tall as at rest (#1398, CL11) (${theme}) @mobile`, async ({ page }) => {
+            await installE3Faults(page);
+            await page.setViewportSize(PAGE);
+            const entry = await visitBuilder(page, reader.route, reader.root, theme);
+            const rail = entry.locator(reader.rail).first();
+            const line = rail.locator(":scope > [data-footer-line]");
+            const rest = await railHeight(rail);
+            await sizeBuilder(page, entry, reader.root, TOUCH_WIDTHS[0]);
+            const fault = await failE3(page, { kinds: [...RECORD_READS] }, FAILURE);
+            await reader.read(page, entry, 1);
+            await expect(line).toHaveAttribute("data-failed", "");
+            for (const width of TOUCH_WIDTHS) {
+                await sizeBuilder(page, entry, reader.root, width, { holding: true });
+                const where = `${reader.builder} at ${width}px`;
+                expect(await railHeight(rail), `${where}: the rail's height`).toBeCloseTo(rest, 0);
+                // A tall builder's footer sits below the page's fold: brought into view, as a finger would scroll to it.
+                const retry = line.locator("[data-line-retry]");
+                await retry.scrollIntoViewIfNeeded();
+                expect(await missedTaps(retry), where).toEqual([]);
+            }
+            await releaseE3(page, fault);
+            await line.locator("[data-line-retry]").tap();
+            await expect(line).toHaveAttribute("data-idle", "", { timeout: 30_000 });
+        });
+    }
 }

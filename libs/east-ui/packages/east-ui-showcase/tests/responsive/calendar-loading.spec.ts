@@ -64,7 +64,6 @@ function unreadGrid(frame: Locator) {
 
 for (const theme of ["light", "dark"] as const) {
     test(`a period not read yet draws its own grid at once, washed, its counts placeholders and its Backlog pending; a period whose read failed says so once at its grid's top-left (#1398, CL2, CL5, CL11, CL13) (${theme}) @desktop`, async ({ page }) => {
-        test.setTimeout(240_000);
         await installE3Faults(page);
         await page.setViewportSize({ width: 2560, height: 1200 });
         const entry = await visitBuilder(page, ROUTE, ROOT, theme);

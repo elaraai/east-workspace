@@ -118,7 +118,6 @@ function readLens(entry: Locator) {
 
 for (const theme of ["light", "dark"] as const) {
     test(`at every width the lens draws each match at its row number, marked in the brand's ink, the rows between in a gap of their size — its band flush, its rule dashed, its pill in the band's type, its controls on hover or at rest where nothing hovers — and the count line in its type (${theme})`, async ({ page, isMobile }) => {
-        test.setTimeout(180_000);
         // Wide, the row has room for the count line beside the rail's every field.
         await page.setViewportSize({ width: 2160, height: 900 });
         const entry = await open(page, theme);
