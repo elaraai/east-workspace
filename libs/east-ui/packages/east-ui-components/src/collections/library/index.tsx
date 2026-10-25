@@ -147,6 +147,8 @@ export interface LibraryCardExtras {
     figure?: string | undefined;
     /** A line under its meta — when it is due, what it holds today — in a tone when it warns. */
     note?: { text: string; tone?: "warning" | "danger" | undefined } | undefined;
+    /** A strip under its lines, drawn by the host — a week pattern's seven marks (the Roster's, #1406) — in the host's own recipe. */
+    strip?: ReactNode;
     /** How it is drawn besides its states: `dashed`, taken off the target and kept to put back; `sunken`, already on it. */
     look?: "dashed" | "sunken" | undefined;
     /** An × at its end that takes it back: its words, and what it does. */
@@ -351,7 +353,7 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
     const draggable = item.draggable && !filtered;
     const visibleDims = dimOrder.filter(k => activeDims.includes(k) && item.dims.get(k) !== undefined);
     const tall = visibleDims.length > 0;
-    const figure = extras?.figure, note = extras?.note, remove = extras?.remove;
+    const figure = extras?.figure, note = extras?.note, remove = extras?.remove, strip = extras?.strip;
     // A figure rides the name's line, as a tall card's status does.
     const headed = figure !== undefined || (tall && status !== undefined);
 
@@ -417,6 +419,7 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
                 {sublabel && <Box as="span" css={styles.cardSublabel}>{sublabel}</Box>}
                 {note !== undefined && <Box as="span" css={styles.cardNote} data-library-note="" {...(note.tone !== undefined ? { "data-tone": note.tone } : {})}>{note.text}</Box>}
                 <LibraryDims item={item} keys={visibleDims} styles={styles} />
+                {strip}
             </Box>
             {((!tall && status) || glyph) && (
                 <Box css={styles.trailing}>

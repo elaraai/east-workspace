@@ -9,6 +9,9 @@ import {
     StyleVariant, StyleVariantType,
 } from "./scheme.js";
 import {
+    ColorToken, ColorTokenType, ColorShadeType,
+} from "./color.js";
+import {
     FontWeight, FontWeightType,
     FontStyle, FontStyleType,
     TextAlign, TextAlignType,
@@ -65,8 +68,9 @@ import {
  * This namespace groups all style variant creation functions for easy access.
  * Each function creates a typed variant expression for use in component styling.
  *
- * Tokens are grouped into six category files under `src/style/`:
+ * Tokens are grouped into seven category files under `src/style/`:
  * - **scheme** — the per-component triple (Size, ColorScheme, StyleVariant).
+ * - **color** — the typed colour an app gives for a data fill: `ColorToken`, a theme hue at a shade (#1406).
  * - **typography** — font weight / style / family / variant-numeric / text align / transform / decoration / overflow / white-space / vertical-align, plus the semantic `TextStyleType`.
  * - **layout** — flex / grid / display / overflow / position / cursor.
  * - **visual** — border / radius / shadow / z-index / elevation.
@@ -81,6 +85,7 @@ import {
  * Style.Size("md");
  * Style.ColorScheme("success");       // semantic palette
  * Style.StyleVariant("solid");
+ * Style.ColorToken("teal", "500");    // a theme hue at a shade — a shift's colour, a series'
  *
  * // Typography
  * Style.FontWeight("bold");
@@ -103,6 +108,8 @@ export const Style = {
     Size,
     ColorScheme,
     StyleVariant,
+    // Color
+    ColorToken,
     // Typography
     FontWeight,
     FontStyle,
@@ -150,6 +157,9 @@ export const Style = {
         Size: SizeType,
         ColorScheme: ColorSchemeType,
         StyleVariant: StyleVariantType,
+        // Color
+        ColorToken: ColorTokenType,
+        ColorShade: ColorShadeType,
         // Typography
         FontWeight: FontWeightType,
         FontStyle: FontStyleType,

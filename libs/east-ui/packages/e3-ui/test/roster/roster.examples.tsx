@@ -11,9 +11,9 @@ import e3 from "@elaraai/e3";
 import { Box, Field, Reactive, Slice, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui";
 import {
-    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePerson, WarehousePosition, WarehouseShift, WarehouseSuggestion,
-    WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePayRates, warehousePeople,
-    warehousePositions, warehouseShifts, warehouseSuggestions, warehouseTeams, warehouseWeeks,
+    WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,
+    WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,
+    warehousePayRates, warehousePeople, warehousePositions, warehouseShifts, warehouseSuggestions, warehouseTeams, warehouseWeeks,
 } from "./warehouse.js";
 
 // The warehouse's row types, and its seeded weeks as the Roster reads them, for the renderer's specs on e3 (#1368).
@@ -47,6 +47,10 @@ export const rosterTeams = e3.record("roster_teams", DictType(StringType, Wareho
 export const rosterPositions = e3.record("roster_positions", DictType(StringType, WarehousePosition), warehousePositions);
 /** Every activity by its key: each group's skills, and the duty of none (#1342). */
 export const rosterActivities = e3.record("roster_activities", DictType(StringType, WarehouseActivity), warehouseActivities);
+/** The week patterns (#1406): the thirteen a planner drops on a person's week, the warehouse's own record. */
+export const rosterPatterns = e3.record("roster_week_patterns", DictType(StringType, WarehousePattern), warehousePatterns);
+/** The week patterns' patch door: another session's edit of them. */
+export const rosterPatternsPatch = e3.mutation.patch(rosterPatterns);
 
 // The rail's fields, each on an index of its own: the staff by group then name, position, trainer, agency, skill and name, the activities by group.
 export const rosterStaffByTeamName = e3.recordIndex("roster_staff_by_team_name", rosterStaff, { on: ["team", "name"] });
@@ -295,8 +299,8 @@ export const rosterMobile = example({
 });
 
 export const rosterPeople = example({
-    inputs: [], description: "Weekly people layout over the same records: each person keeps their original key, contract hours and daily duties, with a separate agency-requests row.",
-    keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "people", "Save", "Publish", "FieldForm"],
+    inputs: [], description: "The People layout by week over the same records (#1406): a row per person under their group's band, a tile per duty in each day cell in the shift's colour token — its hours only where a duty's own times differ (tileTimes=\"different\") — the week's hours and a meter in the name cell, `+ Assign` on an off day opening a menu of the home group's shifts, and the warehouse's week patterns in a Patterns tab, each dropped on a person's week as one undo step; the agency's requests their own row.",
+    keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "color", "ColorToken", "Roster.patterns", "Roster.library.patterns", "tileTimes", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "people", "week", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
         const entries = $.let(Data.bindPaged(rosterDuties));
@@ -320,8 +324,11 @@ export const rosterPeople = example({
         const teams = $.let(Data.bind(rosterTeams));
         const roles = $.let(Data.bind(rosterPositions));
         const ideas = $.let(Data.bind(rosterSuggestions));
+        // The warehouse's week patterns: the cards of the Patterns tab, each dropped on a person's week.
+        const weekPatterns = $.let(Data.bind(rosterPatterns));
         return <Box width="100%" height="760px"><Roster id="rosterPeople" week={{ start: "sunday" }} slice={{ slice }} inspector
             view={{ layout: "people", period: "week", date: new Date("2028-03-09T00:00:00Z") }}
+            tileTimes="different"
             events={{ duty: Schedule.events(rota, {
                 name: "Duty", icon: "user-clock", entries,
                 start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
@@ -336,16 +343,73 @@ export const rosterPeople = example({
             }}
             periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" })}
             targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
-            shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order })}
+            // Each shift's colour token, the warehouse's own: the tiles' and the marks' fill.
+            shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order, color: s => s.colour })}
             groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
             positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
             activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })}
             proposals={Roster.proposals(ideas.read(), { person: s => s.person, day: s => s.day, group: s => s.team, shift: s => s.shift, reason: s => s.why })}
+            patterns={Roster.patterns(weekPatterns.read(), { name: "Patterns", icon: "calendar-week", label: w => w.label, days: w => w.days, order: w => w.order })}
             rules={{ rest: 10.0 }}
-            library={[Roster.library.people(), Roster.library.activities(), Roster.library.tab(roles.read(), {
+            library={[Roster.library.people(), Roster.library.patterns(), Roster.library.activities(), Roster.library.tab(roles.read(), {
                 name: "Positions", icon: "id-badge", label: p => p.label, meta: p => some(p.code),
                 drop: (_p, key) => Schedule.patch(WarehouseDuty, { role: key }),
             })]} />
+        </Box>;
+    }}</Reactive>),
+});
+
+export const rosterPeopleMonth = example({
+    inputs: [], description: "The People layout by month (#1406): a column per week touching the month, four to six, each cell seven marks in the shifts' colours lettered where a day is wide enough; a column's header opens its week, a cell's click selects the person-week the inspector's Details then read, and a pattern dropped on a cell replaces that week as one undo step. Week · Month in the Period segment; ‹ › step a month.",
+    keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.shifts", "color", "ColorToken", "Roster.patterns", "Roster.library.patterns", "letters", "month", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "people", "Save", "Publish"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+        const entries = $.let(Data.bindPaged(rosterDuties));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));
+        const weeks = $.let(Record.bind(rosterWeeks, [rosterWeeksPatch]));
+        const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+        const people = $.let(Data.bind(rosterStaff));
+        const acts = $.let(Data.bind(rosterActivities));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: [rosterStaffByTeamName, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill, rosterStaffByName] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterPeopleMonth", {
+            duty: { source: byTime, range: "start" },
+            people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
+                fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: ["inbound", "picking", "dispatch", null] } } },
+        }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
+        const firms = $.let(Data.bind(rosterAgencies));
+        const times = $.let(Data.bind(rosterShiftTimes));
+        const teams = $.let(Data.bind(rosterTeams));
+        const roles = $.let(Data.bind(rosterPositions));
+        const ideas = $.let(Data.bind(rosterSuggestions));
+        const weekPatterns = $.let(Data.bind(rosterPatterns));
+        return <Box width="100%" height="760px"><Roster id="rosterPeopleMonth" week={{ start: "sunday" }} slice={{ slice }} inspector
+            view={{ layout: "people", period: "month", date: new Date("2028-03-09T00:00:00Z") }}
+            letters
+            events={{ duty: Schedule.events(rota, {
+                name: "Duty", icon: "user-clock", entries,
+                start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+                shift: "shift", group: "team", position: "role", activity: "task",
+                hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+            }) }}
+            resources={{
+                people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,
+                    position: p => p.position, skills: p => p.skills, contract: p => p.contract, agency: p => p.agency,
+                    trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
+                agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
+            }}
+            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" })}
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+            shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order, color: s => s.colour })}
+            groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
+            positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
+            activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })}
+            proposals={Roster.proposals(ideas.read(), { person: s => s.person, day: s => s.day, group: s => s.team, shift: s => s.shift, reason: s => s.why })}
+            patterns={Roster.patterns(weekPatterns.read(), { name: "Patterns", icon: "calendar-week", label: w => w.label, days: w => w.days, order: w => w.order })}
+            rules={{ rest: 10.0 }}
+            library={[Roster.library.people(), Roster.library.patterns(), Roster.library.activities()]} />
         </Box>;
     }}</Reactive>),
 });

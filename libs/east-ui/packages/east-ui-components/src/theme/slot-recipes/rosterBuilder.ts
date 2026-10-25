@@ -8,6 +8,12 @@
  * yet draws its slots with placeholders (`readLine`, `heldSlot`, `unreadValue`), and while a narrowing is read the week
  * stands in, retained (`data-roster-stale` on main, CL5): its people's rows and its slots' rules dashed, its duties' and
  * cards' words in the third ink — the shared retained parts.
+ *
+ * The People layout (#1406, `Roster People Spec.md` §8): a row a person at the density's pitch (36px, 32px compact),
+ * a 232px name cell holding the name, the Agency badge and the week's hours over a 56 × 3px meter; a tile a duty in
+ * each day cell, its fill the shift's colour token (`--roster-fill`) and its words in the ink the shade takes
+ * (`--roster-ink`), neutral without one; `+ Assign` on an off day; the month's columns a week each, a cell seven marks;
+ * the Patterns tab's strip of marks on each card.
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
@@ -28,7 +34,10 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         "cell", "cellHead", "chips", "assignment", "assignmentName", "badge", "flag", "activity", "fit", "grip", "chipAction", "dropStrip", "landing", "openPosition", "proposal", "proposalMark", "proposalName", "proposalReason", "proposalAction",
         "weekCell", "weekValue", "weekFill", "weekFillValue", "issueDot", "delta", "peopleHead", "peopleCell", "agenda", "agendaGroup", "card", "cardHead", "cardTitle", "actions", ...schedulePaneSlots, "section", "status",
         "footer", "footerItem", "legendItem", "legendSwatch", "toolbarRange", "rangeTitle", "toolbarText", "error", "empty", "pickerDot", "summary", "stat", "statValue", "statLabel", "issue", "issueTitle", "issueDetail", "issueActions",
-        "readLine", "heldSlot", "unreadValue"],
+        "readLine", "heldSlot", "unreadValue",
+        "peopleRow", "peopleName", "nameLine", "personName", "agencyBadge", "hoursCell", "hoursText", "meter", "meterFill", "dayCell", "tile", "tileLabel", "tileMeta", "tileWarn", "tileMore",
+        "assign", "assignMenuHead", "assignItem", "swatch", "monthRow", "monthHead", "monthGutter", "weekHead", "weekNumber", "weekRange", "dayTicks", "dayTick", "monthCell",
+        "markStrip", "mark", "patternDays", "patternStrip", "patternMark"],
     base: {
         ...moveGhostBase,
         ...scheduleGroupBase,
@@ -45,7 +54,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "&[data-week]": { minHeight: "28px", padding: "0 12px", flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: "8px" } },
         head: { position: "sticky", top: 0, zIndex: 5, background: "bg.surface" },
         shiftHead: { height: "44px", minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "flex-start", textAlign: "left", gap: "2px", padding: "4px 12px", borderLeftWidth: "1px", borderColor: "border.subtle", ...planRowFocus,
-            "&[data-week]": { height: "28px", padding: "0 4px", alignItems: "center", textAlign: "center" }, "&[data-selected]": { background: "brand.subtle" } },
+            "&[data-week]": { height: "28px", padding: "0 4px", alignItems: "center", textAlign: "center" }, "&[data-people]": { height: "36px" }, "&[data-selected]": { background: "brand.subtle" } },
         shiftHeading: { ...timeHeaderText, display: "flex", alignItems: "center", gap: "8px", maxWidth: "100%", minWidth: 0, whiteSpace: "nowrap" },
         shiftMeta: { textStyle: "mono.xs", color: "fg.muted", maxWidth: "100%", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
         shiftLabel: { ...timeHeaderText, color: "fg.muted" },
@@ -131,5 +140,93 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         // A figure the week's read has not given yet beside what is known without it — a person's worked hours beside
         // their contract's: the placeholder, then the known words, on one line (#1398).
         unreadValue: { display: "inline-flex", alignItems: "center", gap: "4px", minWidth: 0, textStyle: "mono.xs", color: "fg.muted", whiteSpace: "nowrap" },
+
+        // ── The People layout (#1406) ──────────────────────────────────────────────────────────────────────────────
+        // A person's row by week: the 232px name cell, then seven day cells, one line at the density's pitch.
+        peopleRow: { display: "grid", gridTemplateColumns: "232px repeat(7, minmax(0, 1fr))", minHeight: "36px", borderBottomWidth: "1px", borderColor: "border.subtle",
+            "&[data-density=compact]": { minHeight: "32px" }, "&[data-roster-person-row]": { "[data-roster-stale] &": retainedRow } },
+        // The name cell: the name and the badge at the start, the hours and their meter at the end.
+        peopleName: { position: "sticky", left: 0, zIndex: 3, background: "bg.surface", borderRightWidth: "1px", borderColor: "border.subtle", display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: "8px", padding: "0 12px 0 20px", minWidth: 0, textAlign: "left",
+            "&[data-selected]": { background: "bg.panel" }, "&[data-head]": { display: "flex", justifyContent: "space-between", alignItems: "center" } },
+        nameLine: { display: "flex", alignItems: "center", gap: "6px", minWidth: 0 },
+        personName: { display: "inline-flex", alignItems: "center", minWidth: 0, textStyle: "body.sm", fontWeight: "semibold", textAlign: "left",
+            "& > span": { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, ...planRowFocus },
+        agencyBadge: { textStyle: "mono.xs", fontSize: "label.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.08em", height: "16px", padding: "0 4px",
+            display: "inline-flex", alignItems: "center", borderWidth: "1px", borderColor: "border.emphasized", borderRadius: "2px", color: "fg.muted", flexShrink: 0 },
+        hoursCell: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "3px", minWidth: 0, "&[data-tone=warning]": { color: "fg.warning" } },
+        hoursText: { textStyle: "mono.xs", fontWeight: "medium", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" },
+        meter: { width: "56px", height: "3px", background: "bg.subtle", borderRadius: "1px", overflow: "hidden" },
+        meterFill: { height: "100%", background: "brand.solid", "[data-tone=warning] &": { background: "fg.warning" } },
+        // A day cell: its tiles across it, an off day's `+ Assign`; tinted while drafted, the panel while selected, outlined in the
+        // ink while its person-week is selected, dashed in the brand while a pattern hovers its row.
+        dayCell: { position: "relative", display: "flex", alignItems: "center", gap: "2px", padding: "0 4px", minWidth: 0, borderLeftWidth: "1px", borderColor: "border.subtle",
+            "&[data-drafted]": { background: "{colors.brandTint}" }, "&[data-selected]": { background: "bg.panel" },
+            "&[data-week-selected]": { boxShadow: "inset 0 0 0 1px {colors.fg}" }, "&[data-week-selected] + &[data-week-selected]": { boxShadow: "inset 0 -1px 0 {colors.fg}, inset 0 1px 0 {colors.fg}" },
+            "&[data-drop-active]": { background: "brand.subtle" }, "&[data-pattern-hover]": { boxShadow: "inset 0 0 0 1px {colors.brand.solid}" },
+            "&[data-pattern-hover][data-pattern-changes]": { background: "{colors.brandTint}" },
+            "[data-roster-stale] &": retainedColumn },
+        // A tile a duty: its fill the shift's token, its words in the ink the shade takes; neutral on the panel without one.
+        tile: { display: "flex", alignItems: "center", gap: "6px", flex: "1 1 0", minWidth: 0, height: "24px", padding: "0 6px", borderRadius: "3px", cursor: "pointer",
+            borderWidth: "1px", borderStyle: "solid", borderColor: "border.subtle", background: "var(--roster-fill, {colors.bg.panel})", color: "var(--roster-ink, {colors.fg})",
+            "[data-density=compact] &": { height: "20px", padding: "0 4px", gap: "4px" },
+            "&[data-added], &[data-moved]": { borderStyle: "dashed", borderColor: "brand.solid" },
+            "&[data-drafted]:not([data-added]):not([data-moved])": { boxShadow: "inset 0 0 0 1.5px {colors.brand.solid}" },
+            "&[data-request]": { borderStyle: "dashed", background: "transparent", color: "fg" },
+            "&[data-tone=warning]": { borderColor: "fg.warning" }, "&[data-tone=danger]": { borderColor: "fg.danger" },
+            "&[data-removed]": { textDecoration: "line-through", background: "bg.warning.subtle", color: "fg.subtle" },
+            "&[data-preview]": { borderStyle: "dashed", borderColor: "brand.solid", background: "transparent", color: "brand.fg" },
+            "&[data-preview][data-off]": { borderColor: "fg.subtle", color: "fg.subtle", textDecoration: "line-through" },
+            "&[data-selected]": { outline: "1px solid", outlineColor: "fg", outlineOffset: "0" }, ...planElementFocus, "&[data-dragging]": { opacity: 0.4 },
+            "&:hover [data-roster-chip-action], &:focus-within [data-roster-chip-action]": { opacity: 1 },
+            "[data-roster-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
+        tileLabel: { textStyle: "body.sm", fontWeight: "medium", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+        tileMeta: { textStyle: "mono.xs", whiteSpace: "nowrap", flexShrink: 0, opacity: 0.85, "&[data-own]": { fontWeight: "semibold", opacity: 1 },
+            "&[data-group]": { fontSize: "label.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.06em" } },
+        tileWarn: { display: "inline-flex", flexShrink: 0, color: "fg.warning", ...fontAwesomeSize("10px"), "&[data-tone=danger]": { color: "fg.danger" } },
+        tileMore: { textStyle: "mono.xs", fontWeight: "semibold", color: "fg.danger", flexShrink: 0, whiteSpace: "nowrap" },
+        // An off day's `+ Assign`: a wash across the cell, its words shown on hover, focus or selection.
+        assign: { flex: "1 1 0", minWidth: 0, height: "24px", borderRadius: "3px", background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent",
+            textStyle: "mono.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            "[data-density=compact] &": { height: "20px" }, "&:hover, &:focus-visible, &[data-state=open], [data-selected] > &": { color: "fg.muted" }, ...planElementFocus },
+        assignMenuHead: { textStyle: "mono.xs", fontSize: "label.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.08em", color: "fg.muted", padding: "4px 8px" },
+        assignItem: { display: "flex", alignItems: "center", gap: "8px", minHeight: "28px", "& [data-roster-shift-times]": { textStyle: "mono.xs", color: "fg.subtle", marginLeft: "auto" } },
+        swatch: { width: "12px", height: "12px", borderRadius: "2px", flexShrink: 0, background: "var(--roster-fill, {colors.bg.panel})", borderWidth: "1px", borderColor: "border.subtle" },
+        // The month: the 168px name cell, then a column a week touching the month.
+        monthRow: { display: "grid", gridTemplateColumns: "168px repeat(var(--roster-weeks, 5), minmax(0, 1fr))", minHeight: "36px", borderBottomWidth: "1px", borderColor: "border.subtle",
+            "&[data-density=compact]": { minHeight: "32px" }, "&[data-roster-person-row]": { "[data-roster-stale] &": retainedRow } },
+        monthHead: { position: "sticky", top: 0, zIndex: 5, background: "bg.surface" },
+        monthGutter: { position: "sticky", left: 0, zIndex: 3, background: "bg.surface", borderRightWidth: "1px", borderColor: "border.subtle", display: "flex", alignItems: "center",
+            padding: "0 12px 0 20px", ...timeHeaderText, color: "fg.muted" },
+        // A week's column header: its number and range over its seven days' ticks; a press opens the week.
+        weekHead: { display: "flex", flexDirection: "column", minWidth: 0, borderLeftWidth: "1px", borderColor: "border.subtle", textAlign: "left", ...planRowFocus,
+            "&[data-selected]": { background: "brand.subtle" } },
+        weekNumber: { display: "flex", alignItems: "baseline", gap: "8px", height: "24px", padding: "0 8px", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textStyle: "body.sm", fontWeight: "semibold" },
+        weekRange: { ...timeHeaderText, color: "fg.muted", overflow: "hidden", textOverflow: "ellipsis" },
+        dayTicks: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", height: "32px", padding: "0 2px", gap: "2px" },
+        dayTick: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden", textStyle: "mono.xs", color: "fg.subtle",
+            "& > span:last-of-type": { color: "fg.muted" } },
+        // A person's week cell: seven marks; tinted while a day of it is drafted, the panel while selected, outlined as its row's cells are.
+        monthCell: { position: "relative", display: "flex", alignItems: "center", padding: "0 2px", minWidth: 0, borderLeftWidth: "1px", borderColor: "border.subtle", textAlign: "left", ...planRowFocus,
+            "&[data-drafted]": { background: "{colors.brandTint}" }, "&[data-selected]": { background: "bg.panel", boxShadow: "inset 0 0 0 1px {colors.fg}" },
+            "&[data-drop-active]": { background: "brand.subtle" }, "&[data-pattern-hover]": { boxShadow: "inset 0 0 0 1px {colors.brand.solid}" },
+            "[data-roster-stale] &": retainedColumn },
+        markStrip: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "2px", flex: "1 1 0", minWidth: 0, height: "24px", "[data-density=compact] &": { height: "20px" } },
+        // A mark: a day's shift in its colour, its letter where the day is wide enough; an off day faint; a placeholder while unread.
+        mark: { display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden", borderRadius: "3px", textStyle: "mono.xs", fontWeight: "semibold",
+            background: "var(--roster-fill, {colors.bg.panel})", color: "var(--roster-ink, {colors.fg})", borderWidth: "1px", borderColor: "transparent",
+            "&[data-off]": { background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent" },
+            "&[data-removed]": { textDecoration: "line-through", background: "bg.warning.subtle", color: "fg.subtle" },
+            "&[data-drafted]": { borderColor: "brand.solid" },
+            "&[data-preview]": { borderStyle: "dashed", borderColor: "brand.solid", background: "transparent", color: "brand.fg" },
+            "&[data-preview][data-off]": { borderColor: "fg.subtle", color: "transparent" },
+            "&[data-pending]": { background: "bg.subtle", color: "transparent" } },
+        // The Patterns tab: the seven day initials over the cards, and each card's strip of marks.
+        patternDays: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "2px", padding: "4px 12px 4px 56px", textStyle: "mono.xs", fontWeight: "semibold", color: "fg.subtle",
+            textAlign: "center", borderBottomWidth: "1px", borderColor: "border.subtle" },
+        patternStrip: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "2px", height: "18px", marginTop: "4px", width: "100%" },
+        patternMark: { display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden", borderRadius: "2px", textStyle: "mono.xs", fontWeight: "semibold",
+            background: "var(--roster-fill, {colors.bg.panel})", color: "var(--roster-ink, {colors.fg})",
+            "&[data-off]": { background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent" } },
     },
 });

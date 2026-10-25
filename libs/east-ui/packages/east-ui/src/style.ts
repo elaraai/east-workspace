@@ -13,6 +13,8 @@
  *
  * - `src/style/scheme.ts` — per-component scheme triple: `Size`,
  *   `ColorScheme` (hue + semantic), `StyleVariant`.
+ * - `src/style/color.ts` — `ColorToken`, a theme hue at a shade: the typed
+ *   colour an app gives for a data fill (#1406).
  * - `src/style/typography.ts` — `FontWeight`, `FontStyle`, `TextAlign`,
  *   `TextTransform`, `VerticalAlign`, `TextOverflow`, `WhiteSpace`,
  *   `TextDecoration`, `FontFamily`, `FontVariantNumeric`, and the semantic
@@ -33,6 +35,7 @@
  */
 
 export * from "./style/scheme.js";
+export * from "./style/color.js";
 export * from "./style/typography.js";
 export * from "./style/layout.js";
 export * from "./style/visual.js";

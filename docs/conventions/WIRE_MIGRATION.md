@@ -454,3 +454,26 @@ Each wire changed under this rule, with the kind it is.
   lens's first form above: a deploy resets an input that holds them to its
   package's value, and refuses a record that holds them until the record
   declares the migration that carries them across.
+- **e3-ui's `Roster` gains the People layout's month, the app's week patterns
+  and the shifts' colours (#1406)** — package-borne. The `Roster` extension's
+  payload gains `patterns`, the app's week patterns (`Roster.Types.Pattern`:
+  its `key`, its `label` and seven `Option<String>` `days` from the week's
+  first day), and its `narrowed` keys a `patterns` source; its library's tabs
+  on the wire (`RosterLibraryTabType`) gain `patterns`, holding the tab's
+  `name` and `icon`; its settings gain `tileTimes` (`always` or `different`)
+  and `letters`, and their `period` gains `month`, which sorts between `day`
+  and `week`, so `week` moves down one; and each shift (`Roster.Types.Shift`)
+  gains `color`, an `Option<ColorToken>`. east-ui gains `ColorTokenType` and
+  `ColorShadeType`, public beside `ColorSchemeType`: a variant of the theme's
+  hues, each holding a variant of its shades, `Style.ColorToken("teal",
+  "500")` building one, for every component that takes a colour from here
+  on. A UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A UI task's output is not stored state, so no
+  repository upgrade step ships with it. An application's record of shift
+  times gains a colour field of its own, which `Roster.shifts`' `color`
+  accessor reads the token from, and one of week patterns is a record of its
+  own; adding either is that record's own migration, as with any record whose
+  type an application changes. The Roster's persisted view — viewer state, a
+  browser's own — gains a period per layout; a view kept under the old shape
+  reads as the defaults.
