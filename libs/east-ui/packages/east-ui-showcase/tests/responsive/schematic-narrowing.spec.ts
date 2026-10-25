@@ -19,7 +19,11 @@
  * marked, as a faceted search counts (#1393); a rack templates group the Templates tab,
  * `Templates 3 of 5`. A field's editor opens inside the frame, its first
  * chip's at the frame's side included, never hanging past it, and inside the
- * page on a phone, whose frame it is wider than (#1393).
+ * page on a phone, whose frame it is wider than (#1393). While a new choice is
+ * read, what the canvas drew stands in, kept (#1398, the loading design's
+ * retained card): its grid's rules dashed, the cards' words in the third ink and
+ * their edges as they were, and the canvas retained, `aria-disabled` — all of
+ * it lifted in the commit that lands the choice.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test schematic-narrowing`.
@@ -27,9 +31,10 @@
 
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { toolbarFaults } from "./builder-frame";
+import { RECORD_READS, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { expectSourceCounts, type SourceCount } from "./record-counts";
 import { recordField } from "./record-slice";
-import { DATA_CENTRE, card, collapseInspector, openSchematic, pane, sizeTo } from "./schematic-page";
+import { DATA_CENTRE, card, collapseInspector, openSchematic, pane, printedRef, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
 
 /** The rail, in the toolbar's row. */
@@ -88,6 +93,27 @@ const lookOf = (el: Locator) => el.evaluate((node) => {
     return { opacity: Number(style.opacity), filter: style.filter, pointer: style.pointerEvents };
 });
 
+/**
+ * The canvas as the page computes it while what it draws is kept or not (#1398): whether it is retained, the ink a card's
+ * words and its edge are in — by the token the canvas's probe resolves to the same colour — and its grid's rules, solid
+ * on the grid itself or dashed on a layer each way.
+ */
+const keptLook = (root: Locator, cardKey: string) => root.evaluate((el, key) => {
+    const canvas = el.querySelector<HTMLElement>("[data-schematic-canvas]")!;
+    const tokens: Record<string, string> = { fg: "fg", fgMuted: "fg.muted", borderStrong: "border.strong" };
+    const tokenOf = (colour: string) => Object.entries(tokens).find(([role]) =>
+        getComputedStyle(canvas.querySelector(`[data-schematic-probe] [data-role="${role}"]`)!).color === colour)?.[1] ?? colour;
+    const item = canvas.querySelector<HTMLElement>(`[data-card-key=${JSON.stringify(key)}]`)!;
+    const grid = canvas.querySelector<HTMLElement>("[data-schematic-grid]")!;
+    const dashed = ["::before", "::after"].every((part) => getComputedStyle(grid, part).maskImage.includes("linear-gradient"));
+    return {
+        retained: canvas.getAttribute("aria-disabled"),
+        words: tokenOf(getComputedStyle(item.querySelector("[data-card-label]")!).color),
+        edge: tokenOf(getComputedStyle(item).borderTopColor),
+        rules: getComputedStyle(grid).backgroundImage === "none" ? (dashed ? "dashed" : "none") : "solid",
+    };
+}, cardKey);
+
 for (const theme of ["light", "dark"] as const) {
     test(`the one rail stands at every width, nothing leaving the toolbar, every source's field in it (${theme})`, async ({ page }) => {
         const root = await open(page, theme);
@@ -126,6 +152,27 @@ for (const theme of ["light", "dark"] as const) {
         await expectCounts([counted("racks", 2, 7, true), counted("rackTemplates", 1, 3, true), counted("fibreTemplates", 2, 2, false)]);
         await expect(pane(root).getByRole("tab", { name: /^Templates/ })).toHaveText("Templates 3 of 5");
         expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    });
+
+    test(`while a new choice is read, what the canvas drew stands in, kept — its grid's rules dashed, the cards' words in the third ink, their edges as they were — and retained; all of it lifted as the choice lands (#1398, ${theme}) @desktop`, async ({ page }) => {
+        await installE3Faults(page);
+        const root = await open(page, theme);
+        const a01 = printedRef("racks", "A01");
+        expect(await keptLook(root, a01)).toEqual({ retained: null, words: "fg", edge: "border.strong", rules: "solid" });
+        // The racks' owner chosen, the choice's read of the racks held on its way to e3.
+        const editor = await recordField(page, root, "owner", "racks");
+        const held = await holdE3(page, { kinds: [...RECORD_READS], dataset: "records.schematic_racks" });
+        await editor.getByRole("button", { name: /^Harbour Labs/ }).first().click();
+        await page.keyboard.press("Escape");
+        await expect(page.getByRole("dialog")).toHaveCount(0);
+        await settled(page, { holding: true });
+        await expect.poll(() => keptLook(root, a01)).toEqual({ retained: "true", words: "fg.muted", edge: "border.strong", rules: "dashed" });
+        // No rack drawn as context yet: every one stands in as the last choice drew it.
+        await expect(card(root, "racks", "A03")).not.toHaveAttribute("data-context", "");
+        await releaseE3(page, held);
+        await settled(page);
+        await expect(card(root, "racks", "A03")).toHaveAttribute("data-context", "");
+        expect(await keptLook(root, a01)).toEqual({ retained: null, words: "fg", edge: "border.strong", rules: "solid" });
     });
 }
 

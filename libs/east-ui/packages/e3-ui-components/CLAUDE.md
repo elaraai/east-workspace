@@ -228,7 +228,9 @@ decodes carries the whole slice — every source's methods (#1356).
 A builder bound to `Slice.bindRecords` reads each source's shown keys through
 `shared/schedule/visibility.ts`'s `useSourceVisibility`, and every place the
 source's rows appear — main, its Choosers and its Library's tabs — narrows by
-those keys. A tab over a source is `shared/schedule/source-tab.ts`' `sourceTab`,
+those keys. While a new narrowing resolves, the last complete membership stands
+in as it showed — every row, while nothing narrowed — never the keys read of
+no row, so a first choice empties nothing before its own rows land (#1398). A tab over a source is `shared/schedule/source-tab.ts`' `sourceTab`,
 its source read through `useSourceShown`: the cards it shows, its count (`10 of
 33`), its narrowed empty state with that source's Clear filters, and its busy
 pane; it has no filter of its own (#1339, #1341). A source may name itself and carry an icon: folded,
@@ -1039,7 +1041,17 @@ render of the canvas — and the inspector the fields of a row it has not read
 `LoadingFailedBox` with Retry at the top-left of the area it could not read
 in view, or the canvas's for a kind read whole — and on the line, never in a
 banner; a followed source's failure and a session's keep their banners, as
-every builder's do.
+every builder's do. While a new narrowing is read — a kind's rows, or the keys
+a source the frame follows shows — what the canvas drew under the last stands
+in (CL8, the loading design's retained card): kept (`data-schematic-stale`),
+its grid's rules dashed in the strong rule and its words, the cards' and the
+painter's, in the third ink, every item's edge, dot and bar as it was; and
+retained, as long as a followed source's new narrowing could not be read too:
+`aria-disabled` but while a failure is said on the canvas, panning and
+selecting, and taking no edit by any route — no Move, Connect or re-target
+starts, no drop lands, and the editing's `available` and `record` refuse Del,
+a card's ⏎ and Details — until it lands, the look lifting in the commit that
+lands it.
 
 Never stretch a few thin text bars
 through a tall host with `flex: 1` on each row. Spare body height stays empty;

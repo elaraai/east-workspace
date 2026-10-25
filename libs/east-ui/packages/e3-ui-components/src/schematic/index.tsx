@@ -89,7 +89,10 @@
  *   yet, and a card whose details are read holding their places (CL2); the
  *   footer's line saying what is read (CL3); each placeholder and the line on
  *   the frame's one reveal clock (CL4), the inspector's reads among what it
- *   waits on.
+ *   waits on. While a new narrowing is read, what the canvas draws under the
+ *   last stands in, kept — its grid's rules dashed and its words in the third
+ *   ink — and retained (CL8): readable, focusable and selectable, taking no
+ *   edit by any route — a gesture, a drop, the inspector — until it lands.
  *
  * Every gesture is one step of one history over a session per record the
  * Schematic writes (`editing.ts`, #1388): the canvas records each gesture's
@@ -333,7 +336,19 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // `rowsOf` makes them: what a gesture on one rewrites, asked as the gesture reads it.
     const [kindRows] = useState(() => new KindRows<ItemRoles>());
     const pagedRow = useCallback((slot: string, key: string) => kindRows.rowOf(slot, key), [kindRows]);
-    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held, areas, data.windows, pagedRow);
+    // ── What stands in while a new narrowing is read (#1398, CL5, CL8; the loading design's retained card) ──
+    // Each kind read through its source of the rail.
+    const sourced = useMemo(() => new Set([...value.items, ...value.zones, ...value.links, ...value.nets]
+        .flatMap((kind) => (sourcePart(chrome, kind.key) === undefined ? [] : [kind.key]))), [value.items, value.zones, value.links, value.nets, chrome]);
+    // A kind's narrowing resolving: the frame is busy, its last membership drawn meanwhile.
+    const narrowingBusy = [...sourced].some((slot) => { const one = followed.get(slot); return one !== undefined && one.shown.busy && one.error === undefined; });
+    // What the canvas draws under the last narrowing stands in while a new one is read — a kind's rows, or the matches a
+    // source the frame follows says — kept: its grid's rules dashed and its words in the third ink. While it stands in, or
+    // a narrowing the frame follows could not be read, it is retained: readable, focusable and selectable, its selection
+    // kept, and no record takes an edit by any route until the new one lands; the history stays live.
+    const stale = data.ready && (data.filtering || narrowingBusy);
+    const retained = stale || [...sourced].some((slot) => followed.get(slot)?.error !== undefined);
+    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held, areas, data.windows, pagedRow, retained);
     const editingWords = useMemo((): EditingWords => ({ ...formatters, m: editingMessages }), [formatters]);
     // What the canvas draws: the stored rows, the drafts in place, each drafted row drawn once.
     const draftedCache = useRef<DraftedCache>(new WeakMap());
@@ -343,10 +358,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         [editing.edits, editing.record, editing.mint]);
 
     // ── The narrowing (#1392, §10.2, §10.3): what each kind's source of the rail leaves out, hidden or dimmed ──
-    // Each kind read through its source; its shown keys once they have resolved — a pending one is not empty — `none`
+    // Each kind read through its source: its shown keys once they have resolved — a pending one is not empty — `none`
     // while it narrows nothing, read while the narrowing dims or looks at its matches.
-    const sourced = useMemo(() => new Set([...value.items, ...value.zones, ...value.links, ...value.nets]
-        .flatMap((kind) => (sourcePart(chrome, kind.key) === undefined ? [] : [kind.key]))), [value.items, value.zones, value.links, value.nets, chrome]);
     const kindKeys = useCallback((slot: string): option<ReadonlySet<string>> | undefined => {
         // A kind read by area: which of its window's rows its narrowing holds, as `within` answered (D28).
         if (areas.has(slot)) {
@@ -362,8 +375,6 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const listed = useMemo(() => narrowedDrawing(drawing, narrowing.out), [drawing, narrowing.out]);
     const canvasNarrowing = useMemo((): SchematicCanvasNarrowing => ({ context: narrowing.context, out: narrowing.out, matches: narrowing.matches, look }),
         [narrowing, look]);
-    // A kind's narrowing resolving: the frame is busy, its last membership drawn meanwhile.
-    const narrowingBusy = [...sourced].some((slot) => { const one = followed.get(slot); return one !== undefined && one.shown.busy && one.error === undefined; });
     // Why the last gesture was refused, until one is recorded or Esc.
     const [refusal, setRefusal] = useState<string | undefined>(undefined);
 
@@ -616,14 +627,15 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     }, [drawing, words]);
     // The zones a point lands in, smallest first, as the Index files an item: what a drop's words name.
     const hosts = useMemo(() => hostZones(shownZones), [shownZones]);
-    const editingNow = editing.schedule;
+    // A kind takes a drop while its session takes an edit and nothing the canvas draws is retained (#1398, CL8).
+    const takesEdit = editing.available;
     const dropContext = useCallback((): SchematicDropContext => ({
         extent: value.extent,
         kinds: dropKinds,
-        available: (slot) => editingNow.available(slot),
+        available: (slot) => takesEdit(slot),
         nameOf: (ref) => names.get(entityId(ref)),
         zoneAt: (point) => zoneHolding(hosts, point.x, point.y)?.label,
-    }), [value.extent, dropKinds, editingNow, names, hosts]);
+    }), [value.extent, dropKinds, takesEdit, names, hosts]);
     const recordEdits = editing.record;
     const recordDrop = useCallback((edits: readonly SchematicEdit[], label: string) => recordEdits(edits, "drop", label), [recordEdits]);
     // What the canvas has selected, each entity by its reference: what a card's ⏎ drops on.
@@ -834,7 +846,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                         words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
                         onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}
                         viewport={areas.size > 0 ? viewport : undefined} density={data.density} overview={data.overview} reading={areas.size > 0 && data.loading}
-                        unread={data.unread} failure={canvasFailure} onZoomRange={setZoomRange} narrow={narrow} onElement={onCanvasElement} />
+                        unread={data.unread} failure={canvasFailure} stale={stale} retained={retained} onZoomRange={setZoomRange} narrow={narrow}
+                        onElement={onCanvasElement} />
                 </BuilderFrame>
             </LoadingReveal>
         </Box>

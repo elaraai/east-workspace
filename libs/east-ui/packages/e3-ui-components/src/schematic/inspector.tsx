@@ -52,7 +52,8 @@
  * drafts changed is tinted against its record. Read only — a kind bound read
  * only, or the Schematic `readOnly` — Details shows every field and edits
  * none, an own Details giving way to the form; while a record takes no edit
- * (a Save in flight) its controls are off.
+ * — a Save in flight, or what the canvas draws standing in while a new
+ * narrowing is read (#1398, CL8) — its controls are off.
  *
  * While a row of what is selected is read — its own, or its details' — its
  * section shows its form's fields, each its real label over a placeholder in
@@ -507,7 +508,7 @@ function useSide(props: ViewProps, ref: SchematicRef, name: string, side: Record
     const m = words.m;
     const record = details ? detailsKey(ref.kind) : ref.kind;
     const writes = side !== undefined && side.editable && !value.readOnly;
-    const available = writes && editing.schedule.available(record);
+    const available = writes && editing.available(record);
     const its = rowsOf(rows, ref);
     const state = useRowState(editing, record, side, ref.key, details ? its.details : its.row);
     const { commit } = useCommit(props);
@@ -689,7 +690,7 @@ function ConnectTo(props: ViewProps & { readonly item: DrawnItem }) {
     }, [kind, kinds, listed.items, item, words, veto, say, editing, connectValues, commit, m, onLinkKind, clear]);
     if (kind === undefined) return null;
     return (
-        <Edits styles={styles} available={editing.schedule.available(kind.key)} actions={undefined}>
+        <Edits styles={styles} available={editing.available(kind.key)} actions={undefined}>
             <Form styles={styles} head={m.inspectorSection({ section: "connect", name: kind.name })} section="connect" specs={specs}
                 value={{ kind: kind.key, to: undefined }} baseline={undefined} options={options} onChange={onChange} readOnly={false} refused={chosen} />
         </Edits>
@@ -710,7 +711,7 @@ function UnplacedView(props: ViewProps & { readonly item: SchematicUnplaced; rea
         <Box css={styles.root} data-schematic-inspector="unplaced">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: item.icon ?? (kind.icon === "" ? "cube" : kind.icon) }} title={item.label}
                 when={m.inspectorUnplaced()} />
-            <Edits styles={styles} available={writes && editing.schedule.available(kind.key)} actions={actions}>{null}</Edits>
+            <Edits styles={styles} available={writes && editing.available(kind.key)} actions={actions}>{null}</Edits>
         </Box>
     );
 }
@@ -883,7 +884,7 @@ function LegView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
     const member = nameOf(leg.item, drawn, words);
     const { remove } = useCommit(props);
     const writes = kind.editable && !value.readOnly;
-    const available = writes && props.editing.schedule.available(kind.key);
+    const available = writes && props.editing.available(kind.key);
     const actions = !writes ? undefined : (
         <Action action="remove" words={words} onClick={() => {
             if (remove({ items: new Set(), link: { key: net.key, leg } }, m.inspectorStep({ edit: "remove", name: member, from: name }))) reveal(net.key);

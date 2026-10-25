@@ -60,7 +60,10 @@
  * each, and a marker whose status is unread draws in the placeholders' fill —
  * each on its builder's reveal clock (CL4), which the painter hears with no
  * render; and a read that failed is said once, at the top-left in view of the
- * area it failed reading, with Retry (CL11).
+ * area it failed reading, with Retry (CL11). While what it draws stands in for
+ * a new narrowing (CL8) it is kept — its grid's rules dashed, its words in the
+ * third ink, its items' edges and marks as they were — and retained:
+ * `aria-disabled`, panning and selecting, and taking no gesture that edits.
  *
  * Its gestures, its selection funnels, its camera and its paint path are the
  * ones `CLAUDE.md` holds to its invariants: no render-phase ref write, one
@@ -395,6 +398,18 @@ export interface SchematicCanvasProps {
     readonly unread?: readonly WorldBox[] | undefined;
     /** A read that failed, said once where it happened (CL11), with Retry; `undefined` while none has. */
     readonly failure?: SchematicCanvasFailure | undefined;
+    /**
+     * Whether what it draws stands in for a new narrowing while that is read (#1398, the loading design's retained card):
+     * kept — its grid's rules dashed and its words, a card's, a pin's and a caption's, in the third ink — its items' edges
+     * and marks as they were.
+     */
+    readonly stale?: boolean | undefined;
+    /**
+     * Whether what it draws is retained (#1398, CL8): readable, focusable and selectable — a press pans and a tap selects
+     * — and taking no gesture that edits: no Move, Connect, re-target or Del, a selected link's handles gone, and no drop
+     * on its cell. It is `aria-disabled` but while a read's failure is said on it, its Retry in it.
+     */
+    readonly retained?: boolean | undefined;
     /** Told whether the zoom stands at Fit and at its limit, as either changes (#1393): the toolbar's Zoom out and Zoom in take no press there. */
     readonly onZoomRange?: ((range: SchematicZoomRange) => void) | undefined;
     /**
@@ -439,7 +454,8 @@ export interface SchematicZoomRange {
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
     value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onSelection, onOpen, onZoneInView, drop, connectValues,
-    viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, unread = NO_UNREAD, failure, onZoomRange, narrow = false, onElement, ref,
+    viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, unread = NO_UNREAD, failure, stale = false, retained = false, onZoomRange,
+    narrow = false, onElement, ref,
 }: SchematicCanvasProps) {
     // The recipe's styles, resolved once a recipe: the canvas renders at every frame its camera moves.
     const recipe = useSlotRecipe({ key: "schematic" });
@@ -488,8 +504,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         return refs;
     }, [data.items, data.zones, data.links, data.nets]);
     // Whether the selected link writes: its connector handles show, and a re-target writes it — never below 480px of main,
-    // where the inspector's ends re-target it (#1394, D15).
-    const selectedLinkEditable = !narrow && selectedLink !== null && kinds.links.get(refById.get(selectedLink.key)?.kind ?? "")?.editable === true;
+    // where the inspector's ends re-target it (#1394, D15), nor while what the canvas draws is retained (#1398, CL8).
+    const selectedLinkEditable = !narrow && !retained && selectedLink !== null && kinds.links.get(refById.get(selectedLink.key)?.kind ?? "")?.editable === true;
     // Each item's label by its id: what a refusal's words name it by.
     const labelById = useMemo(() => new Map(data.items.map((item) => [item.key, item.label] as const)), [data.items]);
     // Connection veto (#176, #1401 D34): gates the connect GESTURE itself — the
@@ -1231,6 +1247,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         paintEffect, fitBox,
         lit: litShown, wasLink,
         density,
+        // What stands in for a new narrowing (#1398): kept, its words painted in the third ink; retained, no gesture edits.
+        stale, retained,
         extent: value.extent,
         minimap: showMinimap && minimapBox !== undefined ? { box: minimapBox, zones: shownZones, densities: minimapDensities, items: minimapItems } : undefined,
         palette: null as SchematicPalette | null,
@@ -1250,7 +1268,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         sel: ReadonlySet<string>; zsel: ReadonlySet<string>; pal: SchematicPalette | null; tints: unknown; w: number; h: number; dpr: number; val: unknown;
         lay: unknown; alp: unknown;
         dl: unknown; cf: number; slk: unknown; sle: boolean; dm: unknown; eff: unknown; phase: number;
-        lit: string | undefined; was: string | undefined; cs: unknown; den: unknown; ph: boolean;
+        lit: string | undefined; was: string | undefined; cs: unknown; den: unknown; ph: boolean; st: boolean;
     } | null>(null);
 
     // Apply the LIVE camera to ALL surfaces in one step: card-layer CSS vars +
@@ -1266,21 +1284,23 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         const dprLive = snap.dpr;
 
         // DOM card layer: move every card with three custom-property writes on
-        // the parent (compositor only — no per-card layout) — invariant 6.
-        for (const layer of [cardLayerRef.current, washLayerRef.current]) {
+        // the parent (compositor only — no per-card layout) — invariant 6. The
+        // grid's rules follow the same camera, by the same properties.
+        const grid = gridRef.current;
+        for (const layer of [cardLayerRef.current, washLayerRef.current, grid]) {
             if (layer === null) continue;
             layer.style.setProperty("--cam-ppu", String(ppuLive));
             layer.style.setProperty("--cam-tx", `${cam.tx}px`);
             layer.style.setProperty("--cam-ty", `${cam.ty}px`);
         }
-        // Background grid: position locked to the same camera as the canvas.
-        const grid = gridRef.current;
+        // Background grid: its cells, the scale bar's length a major one, five minor ones to it — the recipe drawing its
+        // rules from them, solid, or dashed while what the canvas draws is kept (#1398).
         if (grid !== null) {
             const len = ppuLive > 0 ? niceScaleLength(ppuLive, 100) : 0;
             if (len > 0) {
-                const major = len * ppuLive, minor = major / 5;
-                grid.style.backgroundSize = `${major}px ${major}px, ${major}px ${major}px, ${minor}px ${minor}px, ${minor}px ${minor}px`;
-                grid.style.backgroundPosition = `${cam.tx}px 0, 0 ${cam.ty}px, ${cam.tx}px 0, 0 ${cam.ty}px`;
+                const major = len * ppuLive;
+                grid.style.setProperty("--schematic-grid-major", `${major}px`);
+                grid.style.setProperty("--schematic-grid-minor", `${major / 5}px`);
             }
         }
 
@@ -1301,7 +1321,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             && last.slk === snap.selectedLink && last.sle === snap.selectedLinkEditable && last.dm === snap.dropMark
             && last.eff === snap.paintEffect && last.phase === pulsePhaseRef.current
             && last.lit === snap.lit && last.was === snap.wasLink && last.cs === cardSizes && last.den === snap.density
-            && last.ph === placeholdersRef.current) return;
+            && last.ph === placeholdersRef.current && last.st === snap.stale) return;
         lastPaintRef.current = {
             zoom: cam.zoom, tx: cam.tx, ty: cam.ty, vis: snap.visibleItems, tiers: snap.tiers,
             sel: snap.renderSelected, zsel: snap.zoneSelection, pal, tints: snap.tints, w: sz.w, h: sz.h, dpr: dprLive, val: snap.value,
@@ -1309,7 +1329,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             dl: snap.connectDraftWorld, cf: cfPhase,
             slk: snap.selectedLink, sle: snap.selectedLinkEditable, dm: snap.dropMark,
             eff: snap.paintEffect, phase: pulsePhaseRef.current,
-            lit: snap.lit, was: snap.wasLink, cs: cardSizes, den: snap.density, ph: placeholdersRef.current,
+            lit: snap.lit, was: snap.wasLink, cs: cardSizes, den: snap.density, ph: placeholdersRef.current, st: snap.stale,
         };
         const bw = Math.round(sz.w * dprLive), bh = Math.round(sz.h * dprLive);
         if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
@@ -1348,6 +1368,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                 ...(snap.density.size > 0 ? { density: snap.density } : {}),
                 // A marker whose status is unread draws in the placeholders' fill once the reveal says so (#1398, CL4).
                 placeholders: placeholdersRef.current,
+                // What stands in for a new narrowing (#1398): its words in the third ink.
+                stale: snap.stale,
             });
         } catch (err) {
             console.error("[Schematic] paint failed (frame skipped):", err);
@@ -1986,8 +2008,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         // Move tool (#179): a press ON AN ITEM of a kind bound with its patch door
         // starts a reposition drag; when the pressed item is part of the selection
         // the WHOLE selection's movable items move rigidly. An empty press falls
-        // through to a pan.
-        if (renderSnapRef.current.effectiveTool === "move") {
+        // through to a pan — as every press does while what is drawn is retained
+        // (#1398, CL8): no gesture edits it.
+        if (renderSnapRef.current.effectiveTool === "move" && !renderSnapRef.current.retained) {
             const k = itemKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
             const movable = (key: string) => { const ref = refById.get(key); return ref !== undefined && movableKinds.has(ref.kind); };
             if (k !== undefined && movable(k)) {
@@ -2035,8 +2058,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             }
         }
         // Connect tool (#176): a press ON AN ITEM starts a connect drag (draft
-        // edge to the cursor); an empty press falls through to a pan.
-        if (renderSnapRef.current.effectiveTool === "connect") {
+        // edge to the cursor); an empty press falls through to a pan, as every
+        // press does while what is drawn is retained (#1398, CL8).
+        if (renderSnapRef.current.effectiveTool === "connect" && !renderSnapRef.current.retained) {
             const from = itemKeyAt(e.currentTarget as HTMLElement, e.clientX, e.clientY);
             if (from !== undefined) {
                 // A non-Shift press starts a NEW proposal — the open session
@@ -2540,6 +2564,10 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             data-schematic-canvas=""
             data-tool={effectiveTool}
             data-lod={lod}
+            // What stands in for a new narrowing (#1398): kept, as the recipe draws it, and retained — readable, focusable
+            // and selectable, taking no edit — but while a failure is said on it, its Retry in it.
+            {...(stale ? { "data-schematic-stale": "" } : {})}
+            {...(retained && failure === undefined ? { "aria-disabled": true } : {})}
             {...(litShown !== undefined ? { "data-lit-link": litShown } : {})}
             {...(selectedLinkEditable && selectedLink !== null ? { "data-link-handles": selectedLink.key } : {})}
             {...(connectDraft?.forbidden !== undefined ? { "data-forbidden": "" } : {})}
@@ -2569,7 +2597,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             )}
             {/* Grid size/position are driven imperatively by applyCamera so
                 they stay locked to the same camera frame as the canvas. */}
-            {showGrid && size !== null && <Box ref={gridRef} css={styles.grid} />}
+            {showGrid && size !== null && <Box ref={gridRef} css={styles.grid} data-schematic-grid="" />}
             {size !== null && (
                 <>
                     <chakra.canvas ref={drawRef} css={styles.paint} />

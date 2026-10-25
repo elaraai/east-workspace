@@ -21,7 +21,11 @@
  * itself and its items their words where it is narrow, beside the shared
  * loading line (#1398). The canvas holds no control of its own: what was its control column
  * is the frame's toolbar, and its navigator and layer panel are the library's
- * Index and Layers tabs.
+ * Index and Layers tabs. While what the canvas draws stands in for a new
+ * narrowing (`data-schematic-stale`, #1398), it is kept, as the loading design's
+ * retained card draws a grid and a canvas: the grid's rules dashed in the strong
+ * rule, each its share kept, and the cards' words in the third ink — their
+ * edges, dots and bars as they were.
  *
  * Every colour is a design-system token. An entity's colour — a card's status
  * dot here, and the same entity's marks on the canvas, which the theme bridge
@@ -32,7 +36,7 @@
  * renderer sets data attributes and geometry; this recipe owns every style.
  */
 
-import { defineSlotRecipe } from "@chakra-ui/react";
+import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { fontAwesomeSize } from "../icon-size.js";
 import { semanticTokens } from "../semantic-tokens.js";
@@ -115,6 +119,61 @@ const TINT_PROPERTIES = {
 
 /** An entity's colour: its colour token, else its tone, else its status's, else its pattern's, else its surface's ground. */
 const TINT = "var(--schematic-color, var(--schematic-tone, var(--schematic-status, var(--schematic-pattern, var(--schematic-ground)))))";
+
+/** The grid's major rule: the strong rule's ink at 30%, under everything the canvas draws. */
+const GRID_MAJOR = "color-mix(in oklch, {colors.border.strong} 30%, transparent)";
+/** Its minor rule: the subtle rule's ink at 22%. */
+const GRID_MINOR = "color-mix(in oklch, {colors.border.subtle} 22%, transparent)";
+/** Its minor rule while what the canvas draws is kept (#1398): the strong rule's ink, as a kept row's rule is, its share kept. */
+const GRID_MINOR_KEPT = "color-mix(in oklch, {colors.border.strong} 22%, transparent)";
+
+/** A column's rule, 1px down the left of its cell. */
+const columnRule = (ink: string): string => `linear-gradient(to right, ${ink} 1px, transparent 1px)`;
+
+/** A row's rule, 1px along the top of its cell. */
+const rowRule = (ink: string): string => `linear-gradient(to bottom, ${ink} 1px, transparent 1px)`;
+
+/**
+ * One dash of a kept rule and the gap after it, 3px each, as a 1px dashed rule draws them: the mask's tile, repeated
+ * along the rules it cuts. Its ink is the mask's alpha alone.
+ */
+const dash = (along: "bottom" | "right"): string => `linear-gradient(to ${along}, {colors.fg} 3px, transparent 3px)`;
+
+/**
+ * The canvas's metric grid, its cells the canvas's custom properties' (`--schematic-grid-major`, `--schematic-grid-minor`)
+ * and placed by the camera's (`--cam-tx`, `--cam-ty`), as the cards are (#1398): its minor rules with a heavier major
+ * one, the major cell the scale legend. Kept, its rules are dashed: each direction's on a layer of its own, its dashes
+ * cut by a mask that follows the camera along them, so they move with the rules as the canvas pans.
+ */
+const metricGrid = {
+    position: "absolute",
+    inset: "0",
+    pointerEvents: "none",
+    backgroundImage: `${columnRule(GRID_MAJOR)}, ${rowRule(GRID_MAJOR)}, ${columnRule(GRID_MINOR)}, ${rowRule(GRID_MINOR)}`,
+    backgroundSize: "var(--schematic-grid-major) var(--schematic-grid-major), var(--schematic-grid-major) var(--schematic-grid-major), "
+        + "var(--schematic-grid-minor) var(--schematic-grid-minor), var(--schematic-grid-minor) var(--schematic-grid-minor)",
+    backgroundPosition: "var(--cam-tx) 0, 0 var(--cam-ty), var(--cam-tx) 0, 0 var(--cam-ty)",
+    "[data-schematic-stale] &": {
+        backgroundImage: "none",
+        "&::before, &::after": { content: '""', position: "absolute", inset: "0" },
+        "&::before": {
+            backgroundImage: `${columnRule(GRID_MAJOR)}, ${columnRule(GRID_MINOR_KEPT)}`,
+            backgroundSize: "var(--schematic-grid-major) 100%, var(--schematic-grid-minor) 100%",
+            backgroundPosition: "var(--cam-tx) 0, var(--cam-tx) 0",
+            maskImage: dash("bottom"), WebkitMaskImage: dash("bottom"),
+            maskSize: "100% 6px", WebkitMaskSize: "100% 6px",
+            maskPosition: "0 var(--cam-ty)", WebkitMaskPosition: "0 var(--cam-ty)",
+        },
+        "&::after": {
+            backgroundImage: `${rowRule(GRID_MAJOR)}, ${rowRule(GRID_MINOR_KEPT)}`,
+            backgroundSize: "100% var(--schematic-grid-major), 100% var(--schematic-grid-minor)",
+            backgroundPosition: "0 var(--cam-ty), 0 var(--cam-ty)",
+            maskImage: dash("right"), WebkitMaskImage: dash("right"),
+            maskSize: "6px 100%", WebkitMaskSize: "6px 100%",
+            maskPosition: "var(--cam-tx) 0", WebkitMaskPosition: "var(--cam-tx) 0",
+        },
+    },
+} satisfies SystemStyleObject;
 
 /** The design-system tokens the canvas's own marks draw in, by the role the theme bridge reads each as. */
 const PALETTE_ROLES: Readonly<Record<string, string>> = {
@@ -200,17 +259,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
         /* Metric grid per the spec's floor canvas — minor lines with a
          * heavier major rule; the major cell equals the scale legend. The
          * grid is the ground layer of the canvas contrast hierarchy
-         * (ground ⇢ annotation ⇢ content): felt, never read. */
-        grid: {
-            position: "absolute",
-            inset: "0",
-            pointerEvents: "none",
-            backgroundImage: `
-                linear-gradient(to right, color-mix(in oklch, {colors.border.strong} 30%, transparent) 1px, transparent 1px),
-                linear-gradient(to bottom, color-mix(in oklch, {colors.border.strong} 30%, transparent) 1px, transparent 1px),
-                linear-gradient(to right, color-mix(in oklch, {colors.border.subtle} 22%, transparent) 1px, transparent 1px),
-                linear-gradient(to bottom, color-mix(in oklch, {colors.border.subtle} 22%, transparent) 1px, transparent 1px)`,
-        },
+         * (ground ⇢ annotation ⇢ content): felt, never read — kept, its rules
+         * dashed (#1398). */
+        grid: metricGrid,
         /* Holds the live `--cam-ppu` / `--cam-tx` / `--cam-ty` custom
          * properties (written by applyCamera each frame). Transparent and
          * click-through; each card re-enables its own pointer events so the
@@ -285,6 +336,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
                 boxShadow: "0 0 0 1px {colors.brand.solid}",
                 outlineColor: "{colors.brand.solid}",
             },
+            /* Kept while what the canvas draws stands in for a new narrowing (#1398): its words in the third ink, as a
+             * kept row's are — its edge, its dot and its bar its own. */
+            "[data-schematic-stale] &": { color: "fg.muted", "& *": { color: "inherit" } },
         },
         itemHead: {
             display: "flex",

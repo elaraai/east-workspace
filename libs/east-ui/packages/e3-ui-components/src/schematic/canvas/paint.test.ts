@@ -9,7 +9,8 @@
  * renders from: centre, radius, endpoints-on-circle, and — the bit a data test
  * can't catch — that the arc bulges to the side the bulge sign dictates. A
  * drop's marks (#1390), the narrowing's context, emphasis and frame (#1392),
- * a marker whose status is unread (#1398), and the links' look (#1403) are
+ * a marker whose status is unread and the words of what stands in while a new
+ * narrowing is read (#1398), and the links' look (#1403) are
  * asserted over a 2D context that records what
  * each stroke and fill draws — its style, width, dash and alpha, and its path's
  * arcs — and each text; the links' routes, each end on an item's edge where it
@@ -273,6 +274,38 @@ describe("a labelled pin (#1393)", () => {
         // Its dot about the rack's point (20, 20); its words after the pad, the dot and the gap, from 9.5 before the point.
         expect(drawn.filter((d) => d.op === "fill" && d.arcs.length > 0).map((d) => d.arcs)).toEqual([[{ x: 20, y: 20, r: 3.5 }]]);
         expect(texts.map((text) => text.x)).toEqual([20 - PIN_LEAD_PX + 6 + 7 + 4]);
+    });
+});
+
+describe("what stands in while a new narrowing is read (#1398)", () => {
+    const T = Schematic.Types;
+    const at = (key: string, x: number) => drawnItem({ kind: "racks", key }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y: 2 }), label: key,
+    }, undefined)!;
+    const a = at("A", 2), b = at("B", 12);
+    const uplink = drawnLink({ kind: "fibre", key: "u1" }, {
+        ...defaultValue<typeof T.Link>(T.Link), from: { kind: "racks", key: "A" }, to: { kind: "racks", key: "B" },
+        route: variant("direct", null), style: variant("solid", { tone: none, weight: none }), label: some("uplink"),
+    });
+    /** The palette's ink (`fg`), and its third (`fgMuted`). */
+    const INK = "rgb(3,3,3)", MUTED = "rgb(5,5,5)";
+
+    /** What a frame paints at 20 px a unit, the racks as labelled pins, kept or not: each text in its style, and each stroke. */
+    function paint(stale: boolean) {
+        const { ctx, drawn, texts } = recorder();
+        paintSchematic({
+            ctx, value: { items: [a, b], zones: [], links: [uplink], nets: [] }, cam: { ppu: 20, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: [a, b], tiers: new Map([[a.key, "label"], [b.key, "label"]]), selected: new Set(), selectedZones: new Set(),
+            centers: new Map([[a.key, { x: 2, y: 2 }], [b.key, { x: 12, y: 2 }]]), palette: PALETTE, tints: new Map(), stale,
+        });
+        return { texts: texts.map((text) => [text.text, text.style]), strokes: drawn.filter((d) => d.op === "stroke").map((d) => [d.style, d.width]) };
+    }
+
+    it("draws its words — the caption's and each pin's — in the third ink, every line and edge as it was", () => {
+        const itself = paint(false), kept = paint(true);
+        expect(itself.texts).toEqual([["uplink", LINKS.caption], ["A", INK], ["B", INK]]);
+        expect(kept.texts).toEqual([["uplink", MUTED], ["A", MUTED], ["B", MUTED]]);
+        expect(kept.strokes).toEqual(itself.strokes);
     });
 });
 

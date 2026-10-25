@@ -20,7 +20,10 @@
  * recipe: the design system's mono face. A marker whose colour is its status's
  * while its status is unread — its details row read — draws in the
  * placeholders' fill once the builder's reveal says so, and is unseen before
- * (#1398): never a status it has not read.
+ * (#1398): never a status it has not read. While what it draws stands in for a
+ * new narrowing, its words — a labelled pin's and a link's caption — draw in
+ * the third ink, as a zone's eyebrow always does; every mark and edge is as it
+ * was (the loading design's retained card).
  *
  * Its links and nets draw in the shared links look (#1403), through the shared
  * Canvas2D painter (`shared/links/canvas.ts`) the Plan's and the Allocation's
@@ -251,6 +254,12 @@ export interface PaintInput {
      * Absent, they show.
      */
     placeholders?: boolean;
+    /**
+     * Whether what it draws stands in for a new narrowing while that is read (#1398, the loading design's retained card):
+     * its words — a labelled pin's and a link's caption — in the third ink (`fg.muted`), every mark and edge as it is.
+     * Absent, it draws as itself.
+     */
+    stale?: boolean;
 }
 
 /**
@@ -1092,6 +1101,8 @@ export function paintSchematic(input: PaintInput): void {
     const tintOf = (key: string, ground: RGB): string => css(tints.get(key) ?? ground);
     // Whether a status unread draws its placeholder now: once the builder's reveal says so (#1398, CL4).
     const placeholders = input.placeholders ?? true;
+    // The ink its words draw in: the third while what it draws stands in for a new narrowing (#1398), else the ink.
+    const wordsInk = css(input.stale === true ? p.fgMuted : p.fg);
     // The entity a library card's drop lands on, by its id (#1390).
     const dropOn = dropMark?.kind === "entity" ? dropMark.id : undefined;
     const wx = (x: number) => x * cam.ppu + cam.tx;
@@ -1397,8 +1408,9 @@ export function paintSchematic(input: PaintInput): void {
     }
     // The links as the shared painter draws them: the muted ink — or its style's tone, drained as context — cased in
     // the paper; the selected one, then the lit one, in the strong ink, their ends ringed; a net's selected leg in the
-    // strong ink; a retarget's link its `was` line while its end is dragged.
-    const look = p.links;
+    // strong ink; a retarget's link its `was` line while its end is dragged. Standing in for a new narrowing, each
+    // caption's words draw in the third ink, its line as it is (#1398).
+    const look = input.stale === true ? { ...p.links, caption: css(p.fgMuted) } : p.links;
     const selectedLeg = selectedLink?.leg;
     paintLinks(ctx, edges.map(({ drawn, geometry }): CanvasLink => {
         const key = drawn.key;
@@ -1751,7 +1763,7 @@ export function paintSchematic(input: PaintInput): void {
                         ctx.fill();
                     }
                 }
-                ctx.fillStyle = css(p.fg);
+                ctx.fillStyle = wordsInk;
                 ctx.textBaseline = "middle";
                 ctx.fillText(text, left + PIN_PAD_X + PIN_DOT_W + PIN_GAP, y);
             }
