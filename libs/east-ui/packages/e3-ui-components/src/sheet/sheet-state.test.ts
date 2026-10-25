@@ -102,6 +102,13 @@ describe("the key map (#860)", () => {
         ["↑ on the first resident row asks for the window above", { r: 0, c: 1 }, "ArrowUp", {}, midRun, { r: 0, c: 1 }, null, [{ t: "seek.step", dir: -1, c: 1 }]],
         ["⌘End toward an end not resident jumps there, landing on its last column", { r: 1, c: 0 }, "End", { meta: true }, midRun, { r: 1, c: 0 }, null, [{ t: "seek.edge", edge: "last", c: 2 }]],
         ["⌘Home toward an end not resident jumps there, landing on its first column", { r: 1, c: 2 }, "Home", { meta: true }, midRun, { r: 1, c: 2 }, null, [{ t: "seek.edge", edge: "first", c: 0 }]],
+        // A page past the resident rows (#1398, CL10): the window a page on is asked for — fetch, then move — never the loaded edge.
+        ["PageDown past the last resident row asks for the window a page on", { r: 3, c: 1 }, "PageDown", {}, midRun, { r: 3, c: 1 }, null, [{ t: "seek.step", dir: 1, c: 1, page: { from: 3, rows: 2 } }]],
+        ["PageDown that would end past it asks too, from where the ring is", { r: 2, c: 1 }, "PageDown", {}, midRun, { r: 2, c: 1 }, null, [{ t: "seek.step", dir: 1, c: 1, page: { from: 2, rows: 2 } }]],
+        ["PageDown inside the resident rows moves a page", { r: 0, c: 1 }, "PageDown", {}, midRun, { r: 2, c: 1 }, null, moved(2, 1)],
+        ["PageUp above the first resident row asks for the window a page back", { r: 1, c: 1 }, "PageUp", {}, midRun, { r: 1, c: 1 }, null, [{ t: "seek.step", dir: -1, c: 1, page: { from: 1, rows: 2 } }]],
+        ["⇧PageDown stretches over the resident rows only", { r: 2, c: 1 }, "PageDown", { shift: true }, midRun, { r: 2, c: 1 }, { r: 3, c: 1 }, []],
+        ["PageDown on a source wholly resident stops at its last row", { r: 2, c: 1 }, "PageDown", {}, wholeRun, { r: 3, c: 1 }, null, moved(3, 1)],
         ["⇧⌘End stretches over the resident rows only", { r: 1, c: 0 }, "End", { meta: true, shift: true }, midRun, { r: 1, c: 0 }, { r: 3, c: 2 }, []],
         ["⇧↓ on the last resident row stretches, and asks for nothing", { r: 3, c: 1 }, "ArrowDown", { shift: true }, midRun, { r: 3, c: 1 }, { r: 3, c: 1 }, []],
         ["↓ on the last row of a source wholly resident stays", { r: 3, c: 1 }, "ArrowDown", {}, wholeRun, { r: 3, c: 1 }, null, []],

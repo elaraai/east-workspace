@@ -88,7 +88,7 @@ import {
     focusKeySearch, getSomeorUndefined, useCoarsePointer, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional, useDragTarget, useTrackedEvaluation,
     type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, type ToolbarItem,
 } from "@elaraai/east-ui-components";
-import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, recordSliceNoun, toSeekQuery, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, recordSliceNoun, recordSliceWithinAt, toSeekQuery, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import {
@@ -1787,10 +1787,20 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     // Across an unloaded run (#860): the window beyond is fetched the
                     // way a key search jumps, and the ring lands once it is in (below).
                     const step = eff.t === "seek.step";
-                    const element = step
+                    const edge = step
                         ? (eff.dir > 0 ? paging.tail?.from : paging.head?.to)
                         : eff.edge === "first" ? 0 : paging.total !== undefined && paging.total > 0 ? paging.total - 1 : undefined;
-                    if (element === undefined) break;
+                    if (edge === undefined) break;
+                    // A page (#1398, CL10): a page's rows on from the row it pages from — on a flat sheet each row an
+                    // element, so the element a page on — into the run, and never past the source's ends; a grouped sheet's
+                    // rows are not its elements, and its page crosses into the run at its edge.
+                    const page = step ? eff.page : undefined;
+                    const from = page === undefined || group !== undefined ? undefined : rowAt(page.from);
+                    const paged = page === undefined || from === undefined || (from.kind !== "real" && from.kind !== "blank") ? undefined
+                        : from.position + (eff.t === "seek.step" && eff.dir > 0 ? page.rows : -page.rows);
+                    const last = paging.total !== undefined && paging.total > 0 ? paging.total - 1 : paging.tail?.to;
+                    const element = paged === undefined ? edge
+                        : step && eff.dir > 0 ? Math.min(last ?? paged, Math.max(edge, paged)) : Math.max(0, Math.min(edge, paged));
                     const land = step ? (eff.dir > 0 ? "first" : "last") : eff.edge === "first" ? "first" : "end";
                     seekIntent.current = { element, window: Math.floor(element / SHEET_PAGE_SIZE), land, c: eff.c, moves: ringMoves.current };
                     jumpBy.current = "key";
@@ -2242,24 +2252,18 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // rows, as it did while they were the narrowing's alone (#1345): its source's id names the narrowing too.
     const seekSource = useMemo(() => (recordRows && recordSeek !== undefined && pagedSource !== undefined && pagedSource.seek.type === "none"
         ? { ...pagedSource, id: rowsQuery, seek: some(recordSeek) } : pagedSource), [recordRows, recordSeek, pagedSource, rowsQuery]);
-    const seek = useSheetSeek(seekSource, lensDrawn ? lens.rows : paging.rows, lensDrawn ? lens.positions : paging.positions, searchJump, searchClearJump);
+    // The box lists the rows its key finds wherever they are, each read by its place in the record, and says which the
+    // `rows` source's narrowing hides (#1398, CL10): under the lens, which of them the narrowing holds.
+    const seekHeld = useMemo(() => (lensWanted && rowsPart !== undefined && rowsWhere !== undefined
+        ? (from: number, count: number) => recordSliceWithinAt(rowsPart, rowsWhere, BigInt(from), BigInt(count)) : undefined), [lensWanted, rowsPart, rowsWhere]);
+    const seekHidden = useCallback((key: string) => words.m.keySearchHidden({ key }), [words.m]);
+    const seek = useSheetSeek(seekSource, searchJump, searchClearJump, seekHeld, seekHidden);
     // A jump's target is shown once its window settles (#854): the ring goes
     // to the sought row (no echo — the host hears the move through onSelect),
     // or the view to the band of the window that could not be read (#853).
     // The jump hands the viewport back only after the scroll to it is asked
     // for — the reports taken before, from the old place, would undo it.
     const [scrollNonce, setScrollNonce] = useState(0);
-    // A new narrowing of the rows starts at the top (#1345, #1349): a narrowed source's rows, or the lens's
-    // layout of the record's, read from its first row — the view's top at the first item's, however tall it is.
-    const seenRowsQuery = useRef(rowsQuery);
-    useEffect(() => {
-        if (standingIn) return;
-        const previous = seenRowsQuery.current;
-        seenRowsQuery.current = rowsQuery;
-        if (rowsPart === undefined || previous === rowsQuery) return;
-        setScrollTarget({ index: 0, align: "start" });
-        setScrollNonce(n => n + 1);
-    }, [rowsQuery, rowsPart, standingIn]);
     const handBack = useRef(false);
     const activeJump = lensDrawn ? lens.jump : paging.jump;
     const jumpInFlight = activeJump !== undefined && !activeJump.settled;
@@ -2377,6 +2381,70 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         anchorHandBack.current = false;
         clearJump();
     }, [restoreAnchor, clearJump]);
+
+    // ── A narrowing keeps the row in view (#1398, CL8) ────────────────────
+    // A new narrowing of the rows keeps the row at the top of the view where it was — by its key, and the px into it —
+    // when the narrowing holds it, and else starts at the top, the view's top at the first item's however tall it is
+    // (#1345, #1349). Drawn already, the row is put back there at once. Over the record's rows, one the narrowing holds
+    // but has not drawn — far from where the lens reads first, or in a window the pages have not read — is read where it
+    // is, as a key search's jump reads it, and put back once drawn: under the lens the narrowing says whether it holds
+    // the row; the record's own rows hold every one. A narrowed source's own rows have no place to keep but their
+    // order: a new narrowing of them starts at the top.
+    const [keeping, setKeeping] = useState<{ anchor: SheetAnchor; element: number; phase: "asking" | "seeking"; query: string } | undefined>(undefined);
+    const toTop = useCallback(() => { setScrollTarget({ index: 0, align: "start" }); setScrollNonce((n) => n + 1); }, []);
+    const seenRowsQuery = useRef(rowsQuery);
+    useEffect(() => {
+        if (standingIn) return;
+        const previous = seenRowsQuery.current;
+        seenRowsQuery.current = rowsQuery;
+        if (rowsPart === undefined || previous === rowsQuery) return;
+        const anchor = persistedRef.current.anchor;
+        const at = anchor === null ? -1 : body.findIndex((it, i) => (it.kind === "real" || it.kind === "group") && keyOfItem(it, i) === anchor.key);
+        if (anchor !== null && at >= 0) {
+            setKeeping(undefined);
+            setRestoreAnchor({ index: at, offset: anchor.offset });
+            return;
+        }
+        if (anchor !== null && recordRows && anchor.element !== null && (anchor.key.startsWith("row:") || anchor.key.startsWith("group:"))) {
+            setKeeping({ anchor, element: anchor.element, phase: "asking", query: rowsQuery });
+            return;
+        }
+        setKeeping(undefined);
+        toTop();
+    }, [rowsQuery, rowsPart, standingIn, body, recordRows, toTop]);
+    // Whether the new narrowing holds the row: every row where nothing narrows the record's rows; under the lens, as the
+    // narrowing says — a tracked read, none while it is asked.
+    const askKept = useCallback(() => {
+        if (keeping === undefined || keeping.phase !== "asking") return none;
+        if (!lensWanted || rowsPart === undefined || rowsWhere === undefined) return some(true);
+        const held = recordSliceWithinAt(rowsPart, rowsWhere, BigInt(keeping.element), 1n);
+        return held.type === "some" ? some(held.value[0] === true) : none;
+    }, [keeping, lensWanted, rowsPart, rowsWhere]);
+    const keptHeld = useTrackedEvaluation(askKept).result;
+    const keptJump = lensDrawn ? lens.jump : paging.jump;
+    useEffect(() => {
+        if (keeping === undefined) return;
+        // Another narrowing since: it decides for itself.
+        if (keeping.query !== rowsQuery) { setKeeping(undefined); return; }
+        if (keeping.phase === "asking") {
+            if (!keptHeld.ok) { setKeeping(undefined); toTop(); return; }
+            if (keptHeld.value.type === "none") return;
+            if (!keptHeld.value.value) { setKeeping(undefined); toTop(); return; }
+            setKeeping({ ...keeping, phase: "seeking" });
+            jumpBy.current = "anchor";
+            if (lensDrawn) lensJumpTo(keeping.element);
+            else jumpToElement(keeping.element);
+            return;
+        }
+        if (keptJump === undefined || !keptJump.settled) return;
+        setKeeping(undefined);
+        const at = body.findIndex((it, i) => (it.kind === "real" || it.kind === "group") && keyOfItem(it, i) === keeping.anchor.key);
+        if (at < 0) { clearJump(); toTop(); return; }
+        // Put back, the view is the viewer's again once the frame has scrolled there.
+        anchorHandBack.current = true;
+        setRestoreAnchor({ index: at, offset: keeping.anchor.offset });
+    }, [keeping, keptHeld, rowsQuery, lensDrawn, lensJumpTo, jumpToElement, keptJump, body, clearJump, toTop]);
+
     const onAnchorChange = useCallback((at: { index: number; offset: number }) => {
         const item = body[at.index];
         if (item === undefined) return;

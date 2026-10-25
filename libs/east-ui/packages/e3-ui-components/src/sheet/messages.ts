@@ -129,6 +129,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     keySearch: () => string;
     /** The key search's icon and popover head once the views fold into it, over the search box — the row's last rung (#1345). */
     keySearchViews: () => string;
+    /** A row the key search lists that the rail's narrowing hides — `JOB-10001 · hidden by the filters` (#1398, CL10): a pick opens it. */
+    keySearchHidden: (p: { key: string }) => string;
 
     // ── The view tabs (B§8) ────────────────────────────────────────────────
     /** The tablist's accessible name. */
@@ -619,6 +621,7 @@ export const sheetMessages: SheetMessages = {
     scopeBadge: () => "loaded rows only",
     keySearch: () => "Search Records",
     keySearchViews: () => "Views and search",
+    keySearchHidden: ({ key }) => `${key} · hidden by the filters`,
 
     tabList: () => "Views",
     tabAll: () => "All",

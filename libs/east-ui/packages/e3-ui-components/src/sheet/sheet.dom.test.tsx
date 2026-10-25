@@ -1473,6 +1473,30 @@ describe("the accessible grid (#860)", () => {
         await waitFor(() => expect(footerLine(container).idle).toBe(true));
     }, HELD_TEST_MS);
 
+    test("PageDown past the resident rows asks for the window a page on, and the ring lands a page down once it arrives — never at the loaded edge (#1398, CL10)", async () => {
+        const held = heldSheet(410);
+        held.state.inFlight.add(1);
+        const { container, card, key, flush, scrollFrame } = mount(held.value);
+        await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
+        // Down to the first window's last rows, the band below them still on the wire.
+        const rowPx = parseFloat((container.querySelector('[data-row-id="r000"]') as HTMLElement).style.minHeight);
+        scrollFrame(200 * rowPx - FRAME_PX);
+        await waitFor(() => expect(container.querySelector('[data-row-id="r199"]')).toBeTruthy());
+        const task = (id: string) => container.querySelector(`[data-row-id="${id}"] [data-key="task"]`) as HTMLElement | null;
+        fireEvent.mouseDown(task("r195")!, { button: 0 });
+        key("PageDown");
+        await flush();
+        // The window a page on is on the wire: the ring waits where it was, not on the last row loaded.
+        expect(task("r195")!.hasAttribute("data-selected")).toBe(true);
+        expect(task("r199")!.hasAttribute("data-selected")).toBe(false);
+        held.state.inFlight.delete(1);
+        held.touch();
+        // A page is the rows the frame shows, less one: from r195, that many rows on.
+        const landed = `r${195 + Math.floor(FRAME_PX / rowPx) - 1}`;
+        await waitFor(() => expect(task(landed)?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+        expect(active(card)).toBe(task(landed));
+    }, HELD_TEST_MS);
+
     test("a press elsewhere while that window is on its way keeps the ring where the viewer put it", async () => {
         frameAt(FIRST_WINDOW_PX);
         const held = heldSheet(410);

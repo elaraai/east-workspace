@@ -38,9 +38,9 @@
  *   and ⌘Home / ⌘End to the sheet's first or last cell (the last row that is
  *   not blank padding); PageUp / PageDown move a page of rows; ⇧ stretches a
  *   range instead. On a paged sheet ↓ past the last resident row, ↑ above the
- *   first and ⌘Home / ⌘End toward an end not yet resident ask the component
- *   for the window there (`seek.step`, `seek.edge`) — the ring lands once it
- *   arrives.
+ *   first, a page past either (#1398, CL10) and ⌘Home / ⌘End toward an end
+ *   not yet resident ask the component for the window there (`seek.step`,
+ *   `seek.edge`) — the ring lands once it arrives.
  * - **An unchanged buffer writes nothing** (#852): an editor closed on the
  *   text it opened with commits no write — nor takes a ghost when it was
  *   never touched — so opening a cell and pressing ⏎ never changes it.
@@ -368,7 +368,14 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
             // A page of rows — the rows the frame shows — however they draw.
             const n = Math.max(1, Math.floor(ctx.pageRows?.() ?? 10));
             const base = e.shift && s.selEnd !== null ? s.selEnd : s.sel;
-            return moveOrExtend({ r: base.r + (e.key === "PageDown" ? n : -n), c: base.c });
+            const down = e.key === "PageDown";
+            // A page past the resident rows of a paged sheet whose source goes on that way (#1398, CL10): the window a
+            // page on is asked for, and the ring lands there once it is in — fetch, then move — never at the loaded edge.
+            if (!e.shift && (down ? base.r + n >= ctx.rowCount && ctx.edges?.atEnd === false : base.r - n < 0 && ctx.edges?.atStart === false)) {
+                effects.push({ t: "seek.step", dir: down ? 1 : -1, c: base.c, page: { from: base.r, rows: n } });
+                return dropPick({ state: s.selEnd === null ? s : { ...s, selEnd: null }, effects });
+            }
+            return moveOrExtend({ r: base.r + (down ? n : -n), c: base.c });
         }
         case "Tab": {
             const taken = suggestKey(s, e, ctx);
