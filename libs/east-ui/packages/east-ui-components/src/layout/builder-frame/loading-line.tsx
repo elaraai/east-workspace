@@ -25,6 +25,11 @@
  * - **Assistive technology**: the line is a polite live region (`role
  *   status`) whose words change once a load, never a page; its dot, its short
  *   form and the copies the fit measures are `aria-hidden`.
+ * - **A run of the app's optimiser** (#1409) takes the same slot: `busy` —
+ *   `Optimising W11 · 7 s`, the Elara dot with the live pulse, the seconds
+ *   beside the words `aria-hidden` and ticking, so the line is announced once
+ *   — and, after Stop, `note` — `Stopped · nothing changed`, its dot still.
+ *   Both show at once, whatever the reveal says: a run is not a read.
  *
  * A builder's footer marks its legend's items `data-footer-unit` — its hints
  * also `data-footer-hints` on the rail — and the fit cuts them whole
@@ -50,13 +55,29 @@ type Styles = Record<string, SystemStyleObject>;
  */
 export type LoadingLineText = string | readonly (string | { readonly strong: string })[];
 
-/** What the footer's line says: a read in flight, or one that failed. */
+/** What the footer's line says: a read in flight, or one that failed; a run of the app's optimiser out, or stopped (#1409). */
 export type LoadingLineValue =
     | {
         readonly kind: "loading";
         /** Its full text: `Loading work orders 8,301–8,500`, the range strong. */
         readonly text: LoadingLineText;
         /** Its short form: the shared `Loading…`, or `Filtering…` for a narrowing. */
+        readonly short: string;
+    }
+    | {
+        readonly kind: "busy";
+        /** Its full text: `Optimising W11`, the period strong — announced once. */
+        readonly text: LoadingLineText;
+        /** Its short form: `Optimising…`. */
+        readonly short: string;
+        /** What ticks beside the words in the full form, unheard: the seconds, `7 s`, padded so the line never shifts. */
+        readonly aside?: string | undefined;
+    }
+    | {
+        readonly kind: "note";
+        /** Its full text: `Stopped · nothing changed`. */
+        readonly text: LoadingLineText;
+        /** Its short form: `Stopped`. */
         readonly short: string;
     }
     | {
@@ -94,13 +115,20 @@ function Words({ text, styles }: { text: LoadingLineText; styles: Styles }) {
     return <>{text.map((part, i) => (typeof part === "string" ? part : <Box key={i} as="b" css={styles.strong}>{part.strong}</Box>))}</>;
 }
 
+/** What ticks beside a busy line's words — the seconds — in its full form alone. */
+function asideOf(value: LoadingLineValue): string | undefined {
+    return value.kind === "busy" ? value.aside : undefined;
+}
+
 /** The parts of one form of the line, as the measure lays them out unseen. */
 function Form({ form, value, styles, retry }: { form: LoadingLineForm; value: LoadingLineValue; styles: Styles; retry: string }) {
     const failed = value.kind === "failed";
+    const aside = asideOf(value);
     return (
         <Box as="span" css={styles.form} data-form={form}>
             <Box as="span" css={styles.dot} />
             {form === "full" && <Box as="span"><Words text={value.text} styles={styles} /></Box>}
+            {form === "full" && aside !== undefined && <Box as="span" css={styles.aside}><Box as="span" css={styles.sep}>·</Box>{aside}</Box>}
             {form === "short" && <Box as="span">{value.short}</Box>}
             {failed && form !== "dot" && <Box as="span" css={styles.sep}>·</Box>}
             {failed && <Box as="span" css={styles.retry}>{retry}</Box>}
@@ -117,10 +145,12 @@ function Form({ form, value, styles, retry }: { form: LoadingLineForm; value: Lo
 export function LoadingLine({ value, shown, form }: LoadingLineProps) {
     const recipe = useSlotRecipe({ key: "builderFooterLine" });
     const styles = useMemo(() => recipe() as Styles, [recipe]);
-    // What it said last: kept through the hold once its read has landed (CL4) — state the render adjusts as what it
-    // says moves, never a ref written as it renders, so a render React throws away keeps no words of its own.
+    // What it said last: a read in flight, kept through the hold once it has landed (CL4) — state the render adjusts
+    // as what it says moves, never a ref written as it renders, so a render React throws away keeps no words of its
+    // own. A failure, a run out and a note show at once, and are kept through no hold.
     const [kept, setKept] = useState<LoadingLineValue | undefined>(undefined);
-    const now = value?.kind === "failed" ? value : shown ? value ?? kept : undefined;
+    const held = kept?.kind === "loading" ? kept : undefined;
+    const now = value !== undefined && value.kind !== "loading" ? value : shown ? value ?? held : undefined;
     if (now !== kept) setKept(now);
     const retry = now?.kind === "failed" ? now.retry ?? loadingMessages.retry() : loadingMessages.retry();
     if (now === undefined) {
@@ -128,12 +158,16 @@ export function LoadingLine({ value, shown, form }: LoadingLineProps) {
     }
     const failed = now.kind === "failed";
     const reason = failed ? now.reason : undefined;
+    const aside = asideOf(now);
     return (
         <Box as="span" css={styles.root} data-footer-line="" data-form={form} data-failed={failed ? "" : undefined} role="status" aria-live="polite"
             data-loading-line={now.kind} title={reason}>
             <Box as="span" css={styles.dot} aria-hidden="true" data-line-dot="" />
             <Box as="span" css={styles.text} data-line-text=""><Words text={now.text} styles={styles} /></Box>
             {reason !== undefined && <Box as="span" css={styles.reason} data-line-reason="">{`: ${reason}`}</Box>}
+            {aside !== undefined && (
+                <Box as="span" css={styles.aside} aria-hidden="true" data-line-aside=""><Box as="span" css={styles.sep}>·</Box>{aside}</Box>
+            )}
             <Box as="span" css={styles.short} aria-hidden="true" data-line-short="">{now.short}</Box>
             {failed && <Box as="span" css={styles.sep} aria-hidden="true">·</Box>}
             {failed && (

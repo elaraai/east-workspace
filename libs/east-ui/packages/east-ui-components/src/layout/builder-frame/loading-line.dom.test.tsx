@@ -61,6 +61,31 @@ describe("the loading line", () => {
         fireEvent.click(screen.getByRole("button", { name: "Retry" }));
         expect(onRetry).toHaveBeenCalledTimes(1);
     });
+
+    test("a run of the optimiser out (#1409) shows at once, whatever the reveal says: its words heard once, the seconds beside them unheard", () => {
+        const busy = (seconds: string): LoadingLineValue => ({ kind: "busy", text: ["Optimising ", { strong: "W11" }], short: "Optimising…", aside: `${seconds} s` });
+        const view = render(<ChakraProvider value={system}><LoadingLine value={busy(" 7")} shown={false} form="full" /></ChakraProvider>);
+        expect([line().getAttribute("data-loading-line"), line().getAttribute("role"), line().querySelector("[data-line-text]")!.textContent]).toEqual(["busy", "status", "Optimising W11"]);
+        const aside = line().querySelector("[data-line-aside]")!;
+        expect([aside.getAttribute("aria-hidden"), aside.textContent]).toEqual(["true", "· 7 s"]);
+        // The seconds tick in place: the words the live region reads do not change.
+        view.rerender(<ChakraProvider value={system}><LoadingLine value={busy(" 8")} shown={false} form="full" /></ChakraProvider>);
+        expect([line().querySelector("[data-line-text]")!.textContent, line().querySelector("[data-line-aside]")!.textContent]).toEqual(["Optimising W11", "· 8 s"]);
+        // The measure's full form carries the seconds, its short form not; and the line's end clears it at once, with no hold.
+        expect(line().querySelector('[data-line-measure] > [data-form="full"]')!.textContent).toBe("Optimising W11· 8 s");
+        expect(line().querySelector('[data-line-measure] > [data-form="short"]')!.textContent).toBe("Optimising…");
+        view.rerender(<ChakraProvider value={system}><LoadingLine value={undefined} shown form="full" /></ChakraProvider>);
+        expect(line().hasAttribute("data-idle")).toBe(true);
+    });
+
+    test("after Stop a note shows at once, its dot still, and clears with no hold", () => {
+        const note: LoadingLineValue = { kind: "note", text: "Stopped · nothing changed", short: "Stopped" };
+        const view = render(<ChakraProvider value={system}><LoadingLine value={note} shown={false} form="short" /></ChakraProvider>);
+        expect([line().getAttribute("data-loading-line"), line().querySelector("[data-line-text]")!.textContent, line().querySelector("[data-line-short]")!.textContent, line().querySelector("[data-line-aside]")])
+            .toEqual(["note", "Stopped · nothing changed", "Stopped", null]);
+        view.rerender(<ChakraProvider value={system}><LoadingLine value={undefined} shown={false} form="full" /></ChakraProvider>);
+        expect(line().hasAttribute("data-idle")).toBe(true);
+    });
 });
 
 /** Each rail item's laid-out width, by what it is. */

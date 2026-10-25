@@ -84,7 +84,7 @@ import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Plan, ScheduleEventRefType, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
-    getSomeorUndefined, useContainerBelow, useDataStable, usePersistedState, historyShortcut, takeKey,
+    getSomeorUndefined, optimiseMessages, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState, historyShortcut, takeKey,
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
@@ -156,7 +156,11 @@ import { originOf, unmoved, usePlanCarry, type PlanMoveRequest } from "./edit/us
 import { PlanCarryAnnouncer } from "./edit/announce.js";
 import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from "./rows/element-select.js";
 import { PlanDraftedContext } from "./rows/element-draft.js";
+import { PlanOptimisedContext, type PlanOptimisedMarks } from "./rows/element-optimise.js";
 import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
+import { useOptimise } from "../shared/func/use-optimise.js";
+import { useOptimiseParts } from "../shared/func/optimise-parts.js";
+import { landPlanOptimise, planOptimiseRequest, planOptimiseTypes, type PlanOptimiseRequest, type PlanOptimiseResult, type PlanOptimiseWindow, type PlanOptimised } from "./optimise.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -195,6 +199,8 @@ const NO_KINDS_DRAWN: ReadonlySet<string> = new Set();
 const NOTHING_AWAITED: { readonly run: boolean; readonly cells: boolean } = { run: false, cells: false };
 /** No row in view yet. */
 const NO_ROWS_IN_VIEW: readonly PlanRowValue[] = [];
+/** No run of the optimiser has left anything on the canvas. */
+const NO_OPTIMISED_MARKS: PlanOptimisedMarks = { ops: new Map(), ghosts: new Map(), lit: false };
 
 /** Default gutter width (px, desktop — the §8 sheet). */
 const GUTTER_W = 168;
@@ -274,6 +280,8 @@ export interface PlanCanvasArgs {
      * rows it shows, busy, and takes no gesture until the narrowing lands.
      */
     busy?: boolean | undefined;
+    /** The app's optimiser (#1409): its binding, which the Elara eye calls by name; none, no eye. */
+    optimise?: { readonly name: string } | undefined;
 }
 
 /** No panel tab whose cards land on the rows. */
@@ -290,7 +298,7 @@ const NO_PANEL: readonly string[] = [];
  */
 export function usePlanCanvas({
     value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS, applyMode = "batch",
-    resources = NO_RESOURCES, tabs = NO_TABS, canDrop, shown: shownResources = ALL_SHOWN, busy = false,
+    resources = NO_RESOURCES, tabs = NO_TABS, canDrop, shown: shownResources = ALL_SHOWN, busy = false, optimise,
 }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
@@ -392,6 +400,42 @@ export function usePlanCanvas({
     });
     const history = eventEditing.history;
     historyRef.current = history;
+
+    // ── The app's optimiser (#1409, #1419) ────────────────────────────────
+    // One run over the plan window in view, its result landed on the event kinds' events as one step of the history,
+    // and what the runs left on them until Apply: each element's operation, and the ghosts of where events stood.
+    // While the call is out the canvas holds its lock: no drag, no drop, no carry, no history action.
+    const landingRoot = useRef<HTMLDivElement | null>(null);
+    const landing = useLanding(landingRoot);
+    const landingStyles = useLandingStyles();
+    const format = useFormatters();
+    const optimiseTypes = useMemo(() => planOptimiseTypes(kinds, resources), [kinds, resources]);
+    const [optimised, setOptimised] = useState<PlanOptimised | undefined>(undefined);
+    const planWindow = useMemo((): PlanOptimiseWindow | undefined => {
+        if (scale === undefined || scale.window.min.type !== "time" || scale.window.max.type !== "time") return undefined;
+        return { from: scale.window.min.value, to: scale.window.max.value };
+    }, [scale]);
+    const latestOptimise = useRef({ lead, optimised, eventEditing, kinds, resources, format });
+    latestOptimise.current = { lead, optimised, eventEditing, kinds, resources, format };
+    const landAfter = useRef<(run: number) => void>(() => undefined);
+    const run = useOptimise<PlanOptimiseRequest, PlanOptimiseResult>({
+        name: optimise?.name ?? null, requestType: optimiseTypes.request, resultType: optimiseTypes.result,
+        scope: planWindow === undefined ? "" : `${planWindow.from.getTime()}:${planWindow.to.getTime()}`, storageKey,
+        onLanded: (result, request, n) => {
+            const now = latestOptimise.current;
+            const runText = words.number(n);
+            const landed = landPlanOptimise({
+                kinds: now.kinds, resources: now.resources, editing: now.eventEditing, request, result, label: optimiseMessages.step({ run: runText }), runText,
+                blocks: now.lead.blocks, format: now.format, before: now.optimised,
+            });
+            if (landed === undefined) return undefined;
+            // A run that changed nothing leaves what earlier runs left (R10).
+            if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
+            return landed.counts;
+        },
+    });
+    // The lock (R2): while a call is out, nothing is dragged, dropped, carried or undone.
+    const locked = run.running;
 
     // ── The event kinds' rows (#1192) ─────────────────────────────────────
     // Read over the range the scale draws, what the viewer hides left out
@@ -574,6 +618,27 @@ export function usePlanCanvas({
     // What stands in while a narrowing is read is retained (#1398, CL8): a resource kind's narrowing resolving, or the
     // view the last narrowing of the paged rows drew while the new one's first window is read (#1344, #1354).
     const retained = busy || paging.replacing;
+    // The eye and its parts (#1409): the window's label is the period. The eye is listed only where the window can be
+    // optimised (ruled 25 Oct 2026) — event kinds on a time axis; it waits, disabled, while the kinds' rows are read.
+    const periodName = planWindow === undefined ? "" : format.range(planWindow.from, new Date(planWindow.to.getTime() - 1));
+    const optimiseParts = useOptimiseParts<PlanOptimiseRequest>({
+        run, landing, period: periodName,
+        readOnly: kinds.length === 0 || planWindow === undefined,
+        busy: readLead === undefined || lead.error !== undefined || frameBusy,
+        request: (n) => planOptimiseRequest(latestOptimise.current.kinds, latestOptimise.current.resources, latestOptimise.current.eventEditing, planWindow!, n),
+        landKey: lead,
+    });
+    landAfter.current = optimiseParts.landAfter;
+    const { acted } = optimiseParts;
+    // What the runs left on the events goes with the drafts (R17): once nothing is pending — Save, Discard — nothing
+    // is marked. An Undo leaves nothing pending too, but its Redo brings the run's step back (R9): what the runs left
+    // is kept while that step is the next to redo.
+    const historyVersion = eventEditing.version;
+    useEffect(() => {
+        if (history.pending === 0 && history.redoOrigin !== "optimise") setOptimised(undefined);
+    }, [history, historyVersion]);
+    const optimisedMarks = useMemo((): PlanOptimisedMarks => (optimised === undefined ? NO_OPTIMISED_MARKS
+        : { ops: optimised.ops, ghosts: optimised.ghosts, lit: landing.lit }), [optimised, landing.lit]);
     // Key search is a capability of the SOURCE (`search` becomes seek — #567
     // D9): a jump rebases residency on the matched ELEMENT, and the canvas
     // positions on the first row that element placed, since a row's id starts
@@ -726,6 +791,8 @@ export function usePlanCanvas({
         },
     });
     const onDrag = useCallback((event: DragEventValue, meta?: DragMeta): boolean => {
+        // Nothing lands while a run of the optimiser is out (R2).
+        if (locked) return false;
         if (event.type === "add") {
             // A card on an event kind's row is the event kinds'; on `data`'s, its session's.
             const row = indexRef.current?.byKey.get(event.value.into.row);
@@ -745,8 +812,9 @@ export function usePlanCanvas({
             label: grab.movable.label, element: grab.movable, units: proposal.units, fine: proposal.fine,
         };
         return eventDrag !== undefined && eventDrag.isEvent(grab.movable) ? eventDrag.moveElement(request) : draftMove(request);
-    }, [draftDrop, draftMove, editStore, eventDrag]);
-    const rowDrop = usePlanDropTarget(value, data.sources, panel ?? NO_PANEL, onDrag, editing.available, eventDrag);
+    }, [draftDrop, draftMove, editStore, eventDrag, locked]);
+    // No drop target, no grip and no event drag while a run's call is out (R2).
+    const rowDrop = usePlanDropTarget(value, data.sources, panel ?? NO_PANEL, onDrag, editing.available && !locked, locked ? undefined : eventDrag);
 
     // ── The body ──────────────────────────────────────────────────────────
     const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded);
@@ -979,9 +1047,15 @@ export function usePlanCanvas({
         const row = rowOfIssue(issue);
         if (row !== undefined) controller.focusItem(rowItemKey(row.key), "auto");
     }, [history, kindSessions, selectEvents, rowOfIssue, controller]);
-    const onHistory = useCallback((action: HistoryAction) => history.act(action), [history]);
+    // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16) — and no
+    // history action runs while a run's call is out (R2).
+    const onHistory = useCallback((action: HistoryAction) => {
+        if (locked) return;
+        acted(action, history.redoOrigin);
+        history.act(action);
+    }, [history, locked, acted]);
     const edits = editing.enabled || kinds.length > 0;
-    const historyProps = edits ? { session: history, words, editing: false, onAction: onHistory, onIssue } : undefined;
+    const historyProps = edits ? { session: history, words, editing: false, onAction: onHistory, onIssue, locked } : undefined;
     // Each session's banners: `data`'s naming no source, each kind's naming its kind, its issues by its events' titles —
     // each event read as a gesture reads it, where the canvas reads its rows, else by its key (#1199).
     const readEvent = eventEditing.read;
@@ -1323,11 +1397,13 @@ export function usePlanCanvas({
             <PlanResolversContext.Provider value={resolvers}>
             <PlanSelectableContext.Provider value={selectable}>
             <PlanDraftedContext.Provider value={drafted}>
+            <PlanOptimisedContext.Provider value={optimisedMarks}>
             <PlanGridContext.Provider value={gridCtx}>
             <PlanEditContext.Provider value={editCtx}>
                 {children}
             </PlanEditContext.Provider>
             </PlanGridContext.Provider>
+            </PlanOptimisedContext.Provider>
             </PlanDraftedContext.Provider>
             </PlanSelectableContext.Provider>
             </PlanResolversContext.Provider>
@@ -1477,9 +1553,10 @@ export function usePlanCanvas({
                 // A button's own key activates it; an element is the canvas's to.
                 if (!isElement) return false;
                 e.preventDefault();
-                // Space picks up an element that moves (#825) — never while the rows are retained (#1398, CL8);
-                // Enter keeps doing what its click does — Shift adding an event to the selection.
-                if (e.key === " " && !retained && carry.start(widget)) return true;
+                // Space picks up an element that moves (#825) — never while the rows are retained (#1398, CL8), nor
+                // while a run of the optimiser is out (R2); Enter keeps doing what its click does — Shift adding an
+                // event to the selection.
+                if (e.key === " " && !retained && !locked && carry.start(widget)) return true;
                 activateElement(widget, e.shiftKey);
                 return true;
             default:
@@ -1491,11 +1568,12 @@ export function usePlanCanvas({
     const canvasKey = (e: KeyboardEvent<HTMLDivElement>, bodyEl: HTMLElement, t: HTMLElement): boolean => {
         // An element carried by the keyboard takes the keys while it lasts (#825).
         if (editStore.carry !== null && carry.keys(e)) return true;
-        // The history keys every collection shares (#988): the Plan's one history's (#1194).
+        // The history keys every collection shares (#988): the Plan's one history's (#1194) — none while a run of the
+        // optimiser is out (R2), and a run's highlight ends or replays with the action (`onHistory`).
         const historyKey = edits ? historyShortcut(e) : undefined;
         if (historyKey !== undefined) {
             e.preventDefault();
-            history.act(historyKey);
+            onHistory(historyKey);
             return true;
         }
         // An open popover is the ladder's top rung.
@@ -1722,6 +1800,11 @@ export function usePlanCanvas({
             cold, busy: frameBusy, pitch: geometry.row,
             history: historyProps, sessions, where,
             events: kinds.length > 0 ? eventEditing : undefined,
+            optimise: kinds.length > 0 ? {
+                toolbarItem: optimiseParts.toolbarItem, banner: optimiseParts.banner, line: optimiseParts.line, legend: optimiseParts.legend,
+                flash: landing.lit && optimised !== undefined, backlogFlash: landing.lit && optimised?.backlogChanged === true,
+                landing: { ref: landingRoot, attributes: landing.attributes, css: landingStyles.main },
+            } : undefined,
             cells: lead.cells,
             footer: data.footer,
             id: getSomeorUndefined(data.id),

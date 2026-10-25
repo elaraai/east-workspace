@@ -44,6 +44,8 @@ export type FuncCallError = ValueTypeOf<FuncErrorType>;
 export interface FuncCall<R> {
     /** Launch the call, fire-and-forget (latest-wins). No-op when not ready. */
     call: (...args: unknown[]) => void;
+    /** Cancel the call in flight, client-side: its response is ignored, and the channel reads `cancelled`. No-op when not ready. */
+    cancel: () => void;
     /** Last successful result, or `null` until the first success. */
     result: R | null;
     /** Lifecycle of the most recent call. */
@@ -75,14 +77,16 @@ function sameSignature(a: Signature, b: Signature): boolean {
         : ai.length === bi.length && ai.every((t, i) => sameType(t, bi[i]!)));
 }
 
-const IDLE: FuncCall<never> = { call: () => {}, result: null, status: 'idle', pending: false, error: null };
+const IDLE: FuncCall<never> = { call: () => {}, cancel: () => {}, result: null, status: 'idle', pending: false, error: null };
 
 /**
  * Build + observe a reactive call handle for a named workspace function.
  *
  * @typeParam R - The function's return type (decoded JS shape).
  * @param name - The bound function name, or `null` when the binding is absent
- *   (the hook degrades to an inert idle handle — safe for the rules of hooks).
+ *   (the hook degrades to an inert idle handle — safe for the rules of hooks —
+ *   and asks nothing of the page: a surface with no function bound renders
+ *   without a reactive provider, as a plain test or a static host mounts it).
  * @param inputs - The positional parameter East types (e.g. `[Array(Row), Spec]`).
  *   `null` until the row type is known.
  * @param output - The return East type.
@@ -94,7 +98,8 @@ export function useFuncCall<R>(
     inputs: EastType[] | null,
     output: EastType,
 ): FuncCall<R> {
-    const workspace = getReactiveDatasetCache().getConfig().workspace ?? '';
+    // Without a binding the page's cache is never asked for: a builder with no optimiser, no fit, mounts without a provider.
+    const workspace = name === null ? '' : getReactiveDatasetCache().getConfig().workspace ?? '';
     const ready = !!name && !!inputs && workspace !== '';
 
     // The signature, held while it names the same East types — the inputs and
@@ -135,7 +140,11 @@ export function useFuncCall<R>(
         } catch {
             // Workspace not yet resolvable — treat as idle.
         }
-        return { call: (...args: unknown[]) => { try { handle.call(...args); } catch { /* not ready */ } }, result, status, pending, error };
+        return {
+            call: (...args: unknown[]) => { try { handle.call(...args); } catch { /* not ready */ } },
+            cancel: () => { try { handle.cancel(); } catch { /* not ready */ } },
+            result, status, pending, error,
+        };
         // `version` drives recompute as the channel advances.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [handle, version]);

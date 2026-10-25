@@ -11,10 +11,12 @@
  * @packageDocumentation
  */
 
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
+import type { SystemStyleObject } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { Plan } from "@elaraai/e3-ui/internal";
-import type { EditIssue, EditSession, HistoryAction, HistoryBarProps } from "@elaraai/east-ui-components";
+import type { EditIssue, EditSession, HistoryAction, HistoryBarProps, LandingAttributes, ToolbarItem } from "@elaraai/east-ui-components";
+import type { LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { PlanScale } from "../scale.js";
 import type { PlanGrain, RowKey } from "../plan-state.js";
 import type { PlanEventEditing } from "../edit/events.js";
@@ -44,6 +46,31 @@ export interface PlanSessionBanner {
     readonly where: (issue: EditIssue) => string;
     /** Its banners' actions, on this session alone: Retry sends its request or reads its result again, Discard drops its drafts. */
     readonly onAction: (action: HistoryAction) => void;
+}
+
+/**
+ * What the frame draws of a run of the app's optimiser (#1409, #1419): the
+ * eye's toolbar item before the history item, the banner for the banners
+ * slot, the footer's line and legend, what flashes as a run lands, and the
+ * landing — the frame's own element takes its ref, attributes and styles,
+ * under which the cascade is measured and from which the bars' flares, the
+ * glow and the counts' flash are drawn.
+ */
+export interface PlanOptimiseChrome {
+    /** The eye's toolbar item; `undefined` with no optimiser. */
+    toolbarItem: ToolbarItem | undefined;
+    /** The banner the result lands with. */
+    banner: ReactNode;
+    /** The footer line while the call is out or just stopped. */
+    line: LoadingLineValue | undefined;
+    /** Whether the legend's `Elara change` shows. */
+    legend: boolean;
+    /** Whether a run has just landed: the footer's backlog count flashes. */
+    flash: boolean;
+    /** Whether the latest run moved an event into or out of the backlog: the Backlog tab's count flashes. */
+    backlogFlash: boolean;
+    /** The landing: the frame's ref, attributes and styles. */
+    landing: { ref: RefObject<HTMLDivElement | null>; attributes: LandingAttributes; css: SystemStyleObject };
 }
 
 /** The facts the frame's chrome is drawn from, in the canvas's words. */
@@ -111,6 +138,8 @@ export interface PlanChrome {
     sessions: readonly PlanSessionBanner[];
     /** The event kinds' editing (#1194): their drafts, and their gestures; `undefined` for a Plan without event kinds. */
     events: PlanEventEditing | undefined;
+    /** A run of the app's optimiser (#1409): what the frame draws of it; `undefined` for a Plan without event kinds. */
+    optimise?: PlanOptimiseChrome | undefined;
     /**
      * The kinds' cells and counts (#1039): what a kind given cells draws from — a kind read by them, or past the cap,
      * none — which the footer counts over the rows drawn and the inspector's row reads, every kind's drafts as the

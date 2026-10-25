@@ -91,12 +91,14 @@
  */
 
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent, type KeyboardEvent, type ClipboardEvent, type ReactNode, type RefObject } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { Box, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { StringType, StructType, equalFor, fromEastTypeValue, none, parseFor, printFor, some, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType, SheetDraftFieldType } from "@elaraai/e3-ui/internal";
 import {
-    focusKeySearch, getSomeorUndefined, useCoarsePointer, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional, useDragTarget, useTrackedEvaluation,
-    type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, takeKey, type ToolbarItem,
+    focusKeySearch, getSomeorUndefined, optimiseMessages, useCoarsePointer, useLanding, useLandingStyles, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional,
+    useDragTarget, useTrackedEvaluation,
+    type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, type LandingAttributes, historyToolbarItem, historyShortcut, takeKey,
+    type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type RowsViewport, usePickHandOff, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
@@ -116,6 +118,12 @@ import { NOT_PERSISTED, persistedOf, sameAnchor, sameFolds, type SheetAnchor, ty
 import { useSheetSeek, type SheetSeekNarrowing } from "./use-seek.js";
 import { hidingWords, useHiddenRows, type HiddenAnswer, type HidingWords } from "../shared/schedule/hidden.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
+import { useOptimise, type OptimiseCounts } from "../shared/func/use-optimise.js";
+import { useOptimiseParts } from "../shared/func/optimise-parts.js";
+import {
+    landSheetOptimise, sheetOptimisePeriod, sheetOptimiseRequest, sheetOptimiseTypes,
+    type SheetOptimiseRequest, type SheetOptimiseResult, type SheetOptimised, type SheetRowMarks,
+} from "./optimise.js";
 import { lensCount } from "./lens.js";
 import { lensBodyItems, type LensGeometry, type LensWords } from "./lens-layout.js";
 import { seekRecord, useRecordLens } from "./use-lens.js";
@@ -448,6 +456,19 @@ interface SheetRootFacts {
 }
 
 /**
+ * What the frame places of a run of the app's optimiser (#1409, #1418): the
+ * banner the result lands with, for its banners slot, and the landing — on
+ * the frame's own root, whose attributes and styles draw the flares, the glow
+ * and the totals' flash on the cells and the counts.
+ */
+export interface SheetOptimiseParts {
+    /** The banner, for the frame's banners slot before the session's; nothing with no optimiser. */
+    banner: ReactNode;
+    /** The landing, for the frame's root: its ref, which the cascade is measured under, its attributes and its styles. */
+    landing: { ref: RefObject<HTMLDivElement | null>; attributes: LandingAttributes; css: SystemStyleObject };
+}
+
+/**
  * What the sheet's parts place (SB4): everything the root builds before it
  * lays out, from one shared state — the store, the editing session, the
  * lens and the selection.
@@ -476,6 +497,8 @@ export interface SheetParts {
     inspect: SheetInspect;
     /** A library card's ⏎ (#1187, SB45): the card, by its library and its key, taken as a drop below the ring's row. Stable. */
     enter: (library: string, key: string) => void;
+    /** What the frame places of a run of the app's optimiser (#1409). */
+    optimise: SheetOptimiseParts;
 }
 
 /**
@@ -523,6 +546,12 @@ export interface SheetHost {
      * tab's, its cards. A source with a label of its own is counted in that.
      */
     nouns?: ReadonlyMap<string, string> | undefined;
+    /**
+     * The app's optimiser (#1409): the binding of its `e3.function`, as the
+     * payload holds it — what the Elara eye calls over the tab's rows. Absent,
+     * the sheet has no eye.
+     */
+    optimise?: { readonly name: string } | undefined;
 }
 
 /** Where a gesture's new entry comes from when it is not the sheet's own: a dropped template's seeds, and its origin (#1187). */
@@ -802,6 +831,27 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const mintLineId = useCallback(() => newRowIdFn?.() ?? mintId((id) => sourceRows.some((row) => row.id === id)), [newRowIdFn, sourceRows]);
     const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn);
     const session = editingState.session;
+    // ── The app's optimiser (#1409, #1418) ────────────────────────────────
+    // One run over the current tab's rows, its result landed on them as one edit (below, once the rows and their
+    // versions are read); while the call is out the sheet holds its lock: no cell, row or field edit, no drop, no
+    // history action. The landing and the highlight are measured over the frame the sheet is laid in.
+    const landingRoot = useRef<HTMLDivElement | null>(null);
+    const landing = useLanding(landingRoot);
+    const landingStyles = useLandingStyles();
+    const optimiseTypes = useMemo(() => sheetOptimiseTypes(value.editing), [value.editing]);
+    // The rows as a narrowing of them names them (#1345, #1349): the source and the narrowing of its rows, together —
+    // the key search's scope, and the run's: a change of tab or narrowing stops a run out (O4).
+    const rowsQuery = printNarrowedSource({ source: pagedSource?.id ?? "", narrowing: rowsWhere === undefined ? "" : printRowsWhere(rowsWhere) });
+    const [optimised, setOptimised] = useState<SheetOptimised | undefined>(undefined);
+    const landRef = useRef<(result: SheetOptimiseResult, request: SheetOptimiseRequest, run: number) => OptimiseCounts | undefined>(() => undefined);
+    const run = useOptimise<SheetOptimiseRequest, SheetOptimiseResult>({
+        name: host.optimise?.name ?? null, requestType: optimiseTypes.request, resultType: optimiseTypes.result,
+        scope: `${rowsQuery}|${ui.tabs.active ?? ""}`, storageKey,
+        onLanded: (result, request, n) => landRef.current(result, request, n),
+    });
+    // The lock (R2): while a call is out, nothing is edited — what every write below checks beside `readOnly`.
+    const locked = run.running;
+    const canEdit = !readOnly && !locked;
     // The session's readiness, held by value: what keys on it — the rows'
     // draft presentations — moves only when it does (#858).
     const readiness = useDataStable(session.readiness, readinessEqual);
@@ -1039,7 +1089,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         edges: pagedSource === undefined ? undefined : { atStart: pagedHead === undefined, atEnd: pagedTail === undefined },
         pageRows,
         editableAt: (r, c) => {
-            if (readOnly || !editingState.available) return false;
+            if (!canEdit || !editingState.available) return false;
             const it = rowAt(r);
             if (it === undefined || !isRowSpace(it)) return false;
             const meta = metaAt(r, c);
@@ -1140,7 +1190,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 group: g.lines.filter((l) => l.subRows.length > 0).map((l) => lineId(g.id, l.key)),
             };
         },
-    }), [rowCount, colCount, lensDrawn, exhausted, readOnly, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, pageRows]);
+    }), [rowCount, colCount, lensDrawn, exhausted, canEdit, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, pageRows]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
@@ -1216,7 +1266,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
      * the rows written, in order.
      */
     const writeCells = useCallback((writes: readonly CellWrite[], source: EditSource): { firstInserted: number | undefined; ids: string[] } => {
-        if (readOnly || !editingState.available) return { firstInserted: undefined, ids: [] };
+        if (!canEdit || !editingState.available) return { firstInserted: undefined, ids: [] };
         // Writes group by row, and by the extra new line they land on past a group's blank line.
         const byRow = new Map<string, { r: number; extra: number; list: CellWrite[] }>();
         for (const w of writes) {
@@ -1374,7 +1424,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         setLayer(() => next);
         for (const e of events) emitEdit(e);
         return { firstInserted, ids };
-    }, [sourceRows, rowAt, columns, allColumns, group, metaAt, newRowIdFn, setLayer, emitEdit, readOnly, canInsertRows, keyOrder, editingState.available]);
+    }, [sourceRows, rowAt, columns, allColumns, group, metaAt, newRowIdFn, setLayer, emitEdit, canEdit, canInsertRows, keyOrder, editingState.available]);
     /**
      * Delete whole rows. On a grouped sheet (#740, G7) lines in the range
      * leave their groups (`lineRemove`) and loose rows in it leave the sheet
@@ -1383,7 +1433,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
      * rows, then the group.
      */
     const deleteRows = useCallback((r0: number, r1: number): { n: number; what: "rows" | "lines" | "groups"; emptiedBandR: number | undefined } => {
-        if (readOnly || !editingState.available) return { n: 0, what: "rows", emptiedBandR: undefined };
+        if (!canEdit || !editingState.available) return { n: 0, what: "rows", emptiedBandR: undefined };
         const base = layerRef.current;
         if (group !== undefined) {
             const currentGroup = (g: SheetRowValue): SheetRowValue => base.edits.get(g.id) ?? base.appended.find((x) => x.id === g.id) ?? g;
@@ -1459,7 +1509,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         setLayer(() => next);
         emitEdit(variant("remove", { rowIds: ids }));
         return { n: ids.length, what: "rows", emptiedBandR: undefined };
-    }, [group, rowAt, body, rowSpace, setLayer, emitEdit, readOnly, capabilities, editingState.available]);
+    }, [group, rowAt, body, rowSpace, setLayer, emitEdit, canEdit, capabilities, editingState.available]);
     /** What a proposed row writes: its set cells under the editable columns — every declared one, the grid's hidden ones too (#1186). */
     const proposalWrites = useCallback((cells: ReadonlyMap<string, SheetCellValue>): { key: string; cell: SheetCellValue }[] => {
         const writes: { key: string; cell: SheetCellValue }[] = [];
@@ -1660,7 +1710,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     for (let r = eff.r0; r <= eff.r1; r++) {
                         for (let c = eff.c0; c <= eff.c1; c++) {
                             const meta = metaAt(r, c);
-                            if (meta === undefined || meta.kind === "stamped" || !meta.editable || readOnly) continue;
+                            if (meta === undefined || meta.kind === "stamped" || !meta.editable || !canEdit) continue;
                             if (cellIsBlank(cellAt(r, c))) continue;
                             writes.push({ r, c, cell: NULL_CELL });
                         }
@@ -1669,7 +1719,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     break;
                 }
                 case "delete.rows": {
-                    if (readOnly) break;
+                    if (!canEdit) break;
                     const out = deleteRows(eff.r0, eff.r1);
                     if (out.n === 0) break;
                     const msg: SheetNotice = {
@@ -1696,7 +1746,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     break;
                 }
                 case "paste": {
-                    if (readOnly) break;
+                    if (!canEdit) break;
                     const matrix = parseMatrix(eff.text);
                     if (matrix.length === 0) break;
                     const laid = layoutPaste(matrix, columns.list, eff.c);
@@ -1834,7 +1884,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         try { recordGesture(gestureEvents.current); }
         catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
         finally { gestureEvents.current = []; }
-    }, [recordGesture, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, readOnly, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement]);
+    }, [recordGesture, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
@@ -1843,17 +1893,23 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [store.fxSeq, store.fx, runEffects]);
 
     const pendingHistoryAction = useRef<HistoryAction | undefined>(undefined);
+    // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16) — heard
+    // first, by the parts of the run (below), through a ref: they are built once the rows and their words are.
+    const actedRef = useRef<(action: HistoryAction, redoOrigin: string | undefined) => void>(() => undefined);
     const executeHistory = useCallback((action: HistoryAction) => {
+        actedRef.current(action, session.nextRedo?.origin);
         if (action === "apply") void session.apply();
         else if (action === "refresh") session.refresh();
         else session[action]();
     }, [session]);
     const onHistoryAction = useCallback((action: HistoryAction) => {
+        // The lock (R2): no history action while a run's call is out — its item says so, and the keys are ignored.
+        if (locked) return;
         if (uiRef.current.edit !== null && action !== "refresh") {
             pendingHistoryAction.current = action;
             dispatch({ t: "editor.blur" });
         } else executeHistory(action);
-    }, [dispatch, executeHistory]);
+    }, [dispatch, executeHistory, locked]);
     useLayoutEffect(() => {
         const action = pendingHistoryAction.current;
         if (action === undefined) return;
@@ -1863,11 +1919,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
 
     const pendingDiscard = useRef<{ id: string; child: string | undefined } | undefined>(undefined);
     const executeDiscard = useCallback((id: string, child?: string) => {
+        if (!canEdit) return;
         if (discardDraft(session, draftType, childField, id, child)) {
             dispatchStore({ t: "patch", patch: { sugg: null, msg: { id: "discarded" } } });
             cardRef.current?.focus({ preventScroll: true });
         }
-    }, [session, draftType, childField]);
+    }, [session, draftType, childField, canEdit]);
     const onDiscardDraft = useCallback((id: string, child?: string) => {
         const open = uiRef.current.edit;
         if (open !== null) {
@@ -1915,7 +1972,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
      * @returns Whether the session recorded it
      */
     const executeInsertion = useCallback((request: InsertRequest, from?: SheetInsertFrom): boolean => {
-        if (!editingState.available || (request.kind === "row" ? !canInsertRows : !canInsertGroups)) return false;
+        if (!canEdit || !editingState.available || (request.kind === "row" ? !canInsertRows : !canInsertGroups)) return false;
         const gesture = insertionGesture(request, rows, (i) => runLayout.positions[i] ?? endPosition, group !== undefined, keyed,
             () => newRowIdFn?.() ?? mintId(id => rows.some(row => row.id === id)), mintLineKey, loose);
         if (gesture === undefined) return false;
@@ -1925,7 +1982,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         // A drop is announced by the drag layer: the footer says nothing more.
         dispatchStore({ t: "patch", patch: { sugg: null, selEnd: null, ...(from !== undefined ? {} : { msg: request.kind === "group" ? { id: "newGroup", noun: declaredNoun?.singular } : { id: "newRow" } }) } });
         return true;
-    }, [editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, loose, declaredNoun, keyed, newRowIdFn, recordGesture]);
+    }, [canEdit, editingState.available, canInsertRows, canInsertGroups, rows, runLayout, endPosition, group, loose, declaredNoun, keyed, newRowIdFn, recordGesture]);
     /** An insertion — once an open editor has committed. */
     const insertWhenClosed = useCallback((request: InsertRequest, from?: SheetInsertFrom): boolean => {
         if (uiRef.current.edit === null) return executeInsertion(request, from);
@@ -2229,8 +2286,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const searchJump = useCallback((element: number) => { jumpBy.current = "search"; jumpTo(element); }, [jumpTo]);
     const searchClearJump = useCallback(() => { if (jumpBy.current === "search") clearJump(); }, [clearJump]);
     const recordSeek = useMemo(() => (rowsPart === undefined ? undefined : (query: SeekQuery) => seekRecord(rowsPart, query)), [rowsPart]);
-    // The rows as a narrowing of them names them (#1345, #1349): the source and the narrowing of its rows, together.
-    const rowsQuery = printNarrowedSource({ source: pagedSource?.id ?? "", narrowing: rowsWhere === undefined ? "" : printRowsWhere(rowsWhere) });
     // Over a `rows` source the key search seeks the record's own order, and starts afresh with each narrowing of the
     // rows, as it did while they were the narrowing's alone (#1345): its source's id names the narrowing too.
     const seekSource = useMemo(() => (recordRows && recordSeek !== undefined && pagedSource !== undefined && pagedSource.seek.type === "none"
@@ -3086,7 +3141,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // Apply's request and its answer — takes no drop either.
     const dropHost = host.drop;
     const dragActive = useDragLayerOptional()?.active === true;
-    const dropOn = dropHost !== undefined && !readOnly && editingState.available;
+    // No drop target and no grip while a run's call is out (R2).
+    const dropOn = dropHost !== undefined && canEdit && editingState.available;
     const dropApi = useRef<SheetDropApi | undefined>(undefined);
     const rowDrop = useMemo<SheetRowDrop | undefined>(() => (dropHost === undefined ? undefined : {
         surface: dropHost.surface,
@@ -3104,7 +3160,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const movesLines = moveRowsOn;
     const movesGroups = dropOn && capabilities.moveGroups;
     const [insertPreview, setInsertPreview] = useState<{ r: number; kind: "row" | "group"; side: "gutter" | "body" } | undefined>(undefined);
-    const canInsert = editingState.available && (canInsertRows || canInsertGroups);
+    const canInsert = canEdit && editingState.available && (canInsertRows || canInsertGroups);
     // A drag in flight owns the gutter: no seam offers its chips under it — nor
     // does a folded gutter, whose rows' menus hold the inserts (#1215).
     const seamsOn = canInsert && !dragActive && !folded;
@@ -3197,7 +3253,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
      * key order, one to add), and a new group where the sheet takes one.
      */
     const insertsAt = (r: number): SheetRowAction[] => {
-        if (!editingState.available) return [];
+        if (!canEdit || !editingState.available) return [];
         const ordered = !keyed || anchorFor(r, "before").child !== undefined;
         const out: SheetRowAction[] = [];
         if (canInsertRows && ordered) out.push({ value: "insertAbove", label: words.m.insertAbove(), run: () => onInsert("row", r, "before") });
@@ -3233,6 +3289,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const pendingWindows = paging.pending;
     const runLoading = useCallback((band: { at: string; from: number; to: number }): boolean => band.at === "reading"
         || pendingWindows.some((w) => w * SHEET_PAGE_SIZE <= band.to && (w + 1) * SHEET_PAGE_SIZE - 1 >= band.from), [pendingWindows]);
+    // What the runs of the optimiser left on each row (#1409, R25), by the row's id — a line's by its line id — while the
+    // drafts hold it: each row is handed its own marks, held still until a run touches it again.
+    const marks: ReadonlyMap<string, SheetRowMarks> | undefined = optimised?.rows;
     const renderRow = useCallback((i: number): ReactNode => {
         const item = body[i];
         if (item === undefined) return null;
@@ -3332,6 +3391,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     movable={movesGroups}
                     foldedGutter={folded}
                     inserts={foldedInserts}
+                    marks={marks?.get(item.row.id)}
                 />
                 </SheetRowBoundary>
             );
@@ -3390,10 +3450,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 movable={item.kind === "real" && (lg !== undefined ? movesLines : movesRows)}
                 foldedGutter={folded}
                 inserts={foldedInserts}
+                marks={item.kind === "real" ? marks?.get(lg !== undefined ? lineId(lg.row.id, lg.key) : item.row.id) : undefined}
             />
             </SheetRowBoundary>
         );
-    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows]);
+    }, [folded, foldedInserts, draftOf, memberships, seamsOn, seamSide, onRowSeamEnter, onSeamLeave, insertPreview, onRowDiscard, body, styles, runLoading, retryRead, rowsNoun, size, rowSpace, ui.selEnd, ui.sel, ui.sugg, ui.gsel, ui.hover, rect, rangeCols, columns, registers, driverColumn, gridTemplate, rowPx, bandPx, subRowPx, gutterPx, viewPx, group, noun, wr, bandMixed, edit, editorAt, anchorR, nextTarget, onCellDown, onCellDouble, onCellEnter, onRowPick, onTake, onFillRow, onProposalPick, onProposalAccept, onProposalReject, onFold, onSubRows, linkCellCtx, arriving, gridId, colCount, dropOn, rowDrop, movesGroups, movesLines, movesRows, marks]);
 
     // ── The inspector's reads and gestures (#1188) ────────────────────────
     // Nothing here reads the source until the inspector pane asks for a
@@ -3489,7 +3550,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         return { kind: "several", rs, r0: rect.r0, r1: rect.r1 };
     }, [selSel, selEnd, rowAt, placeAt]);
     const inspectWrite = useCallback((writes: readonly SheetInspectWrite[]) => {
-        if (readOnly || !editingState.available) return;
+        if (!canEdit || !editingState.available) return;
         gestureEvents.current = [];
         const cellWrites: CellWrite[] = [];
         const draftEdits = new Map<string, DraftEdit>();
@@ -3542,7 +3603,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 if (id !== undefined) requestRun(id, 0);
             }
         }
-    }, [readOnly, editingState.available, rowAt, group, allColumns, parseCtxFor, structOf, draftType, childField, writeCells, recordGesture, copilotOn, triggers, idAt, requestRun]);
+    }, [canEdit, editingState.available, rowAt, group, allColumns, parseCtxFor, structOf, draftType, childField, writeCells, recordGesture, copilotOn, triggers, idAt, requestRun]);
     const editInSheet = useCallback((r: number, key: string): boolean => {
         const c = columns.list.findIndex((col) => stringEqual(col.key, key));
         if (c < 0 || rowAt(r) === undefined) return false;
@@ -3552,7 +3613,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [columns, rowAt, dispatch]);
     const removeRows = useCallback((r0: number, r1: number) => { runEffects([{ t: "delete.rows", r0, r1 }]); }, [runEffects]);
     const duplicate = useCallback((rs: readonly number[]) => {
-        if (readOnly || !editingState.available) return;
+        if (!canEdit || !editingState.available) return;
         const idField = getSomeorUndefined(value.editing.idField);
         const events: SheetEditValue[] = [];
         const draftEdits = new Map<string, DraftEdit>();
@@ -3617,7 +3678,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         if (events.length === 0) return;
         try { recordGesture(events, undefined, "insert", draftEdits); }
         catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
-    }, [readOnly, editingState.available, value.editing.idField, rows, newRowIdFn, rowAt, canInsertRows, canInsertGroups, structOf, versionOf, loose, mintLineId, draftType, childField, recordGesture]);
+    }, [canEdit, editingState.available, value.editing.idField, rows, newRowIdFn, rowAt, canInsertRows, canInsertGroups, structOf, versionOf, loose, mintLineId, draftType, childField, recordGesture]);
     const addLine = useCallback((bandR: number) => {
         const it = rowAt(bandR);
         if (it === undefined || it.kind !== "group") return;
@@ -3625,7 +3686,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [rowAt, insertWhenClosed]);
     const removeGroup = useCallback((bandR: number) => {
         const it = rowAt(bandR);
-        if (it === undefined || it.kind !== "group" || readOnly || !editingState.available || !capabilities.removeGroups) return;
+        if (it === undefined || it.kind !== "group" || !canEdit || !editingState.available || !capabilities.removeGroups) return;
         gestureEvents.current = [];
         const base = layerRef.current;
         const next: LocalLayer = { ...base, removed: new Set([...base.removed, it.row.id]) };
@@ -3636,7 +3697,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
         finally { gestureEvents.current = []; }
         dispatchStore({ t: "patch", patch: { selEnd: null, msg: { id: "deleted", n: 1, what: "groups", noun: declaredNoun?.singular, nouns: declaredNoun?.plural, again: false } } });
-    }, [rowAt, readOnly, editingState.available, capabilities, setLayer, emitEdit, recordGesture, declaredNoun]);
+    }, [rowAt, canEdit, editingState.available, capabilities, setLayer, emitEdit, recordGesture, declaredNoun]);
     // A column, or a band's cell, by its key at a row.
     const columnAt = useCallback((r: number, key: string): SheetColumnMeta | undefined => {
         const it = rowAt(r);
@@ -3726,12 +3787,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [session, readiness, draftVersion]);
     const inspect = useMemo((): SheetInspect => ({
         selected, targetAt,
-        writable: !readOnly && editingState.available,
+        writable: canEdit && editingState.available,
         can: {
-            insertRows: canInsertRows && editingState.available,
-            insertGroups: canInsertGroups && editingState.available,
-            removeRows: !readOnly && capabilities.removeRows && editingState.available,
-            removeGroups: !readOnly && capabilities.removeGroups && editingState.available,
+            insertRows: canEdit && canInsertRows && editingState.available,
+            insertGroups: canEdit && canInsertGroups && editingState.available,
+            removeRows: canEdit && capabilities.removeRows && editingState.available,
+            removeGroups: canEdit && capabilities.removeGroups && editingState.available,
         },
         counts: { rows: wholeCount, pending: session.pending, issues: issueList.length },
         issues: issueList,
@@ -3739,7 +3800,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         write: inspectWrite, editInSheet, remove: removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden,
         columnAt, cellAt: inspectCellAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks the session's pending count.
-    }), [selected, targetAt, readOnly, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, draftVersion]);
+    }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, columnAt, inspectCellAt, unitAt, inspectLevelAt, allowedAt, drawCell, draftVersion]);
 
     // ── Drag and drop: the plans (#1187) ──────────────────────────────────
     // Every drop is planned (`drop.ts`) from the rows as they stand — the
@@ -3754,11 +3815,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const dropCtx = useMemo((): SheetDropContext => ({
         rows, rowAt, rowOf, blankLineRowOf, tailRow, rowCount,
         grouped: group !== undefined, loose, keyed,
-        writable: !readOnly && editingState.available,
+        writable: canEdit && editingState.available,
         can: { insertRows: canInsertRows, insertGroups: canInsertGroups, moveRows: capabilities.moveRows.type, moveGroups: capabilities.moveGroups },
         columnAt: (band, key) => (band ? group?.cells.get(key) : allColumns.byKey.get(key)),
         anchorFor,
-    }), [rows, rowAt, rowOf, blankLineRowOf, tailRow, rowCount, group, loose, keyed, readOnly, editingState.available, canInsertRows, canInsertGroups, capabilities, allColumns, anchorFor]);
+    }), [rows, rowAt, rowOf, blankLineRowOf, tailRow, rowCount, group, loose, keyed, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, allColumns, anchorFor]);
     // A drop row's text, read once: the rows print their own, so the same few come back.
     const dropRows = useRef(new Map<string, SheetDropRow | undefined>()).current;
     const readRow = useCallback((text: string): SheetDropRow | undefined => {
@@ -3964,6 +4025,42 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     enterRef.current = enterCard;
     const enter = useCallback((library: string, key: string) => enterRef.current(library, key), []);
 
+    // ── The app's optimiser's parts (#1409, #1418) ─────────────────────────
+    // The eye before the history item, the banner, the footer line and the legend, over the run above; the request
+    // is the tab's rows as the session holds them, and the result lands as one step once the rows have moved.
+    const period = sheetOptimisePeriod(wholeCount, group !== undefined ? noun : undefined, rowsNoun, words);
+    const optimiseKeyType = optimiseTypes.keyType;
+    // The eye is listed only where the rows can be optimised (ruled 25 Oct 2026): never read only; while a narrowing's
+    // rows are read it waits, disabled, in its place.
+    const optimiseParts = useOptimiseParts<SheetOptimiseRequest>({
+        run, landing, period, readOnly, busy: !editingState.available,
+        request: (n) => sheetOptimiseRequest(rows, versionOf, draftType, optimiseKeyType, n), landKey: rows,
+    });
+    actedRef.current = optimiseParts.acted;
+    const originalVersion = editingState.original;
+    const recordVersions = editingState.recordVersions;
+    const landAfter = optimiseParts.landAfter;
+    landRef.current = (result, request, n) => {
+        const runText = words.number(n);
+        const landed = landSheetOptimise({
+            editing: value.editing, types: optimiseTypes, draftType, keyed, request, result, label: optimiseMessages.step({ run: runText }), runText,
+            versionOf: (id) => versionOf(id) ?? originalVersion(id), record: recordVersions, before: optimised,
+        });
+        if (landed === undefined) return undefined;
+        // A run that changed nothing leaves what earlier runs left (R10).
+        if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter(n); }
+        return landed.counts;
+    };
+    // What a run left on the rows goes with the drafts (R17): once nothing is pending — Save, Discard — nothing is
+    // marked. An Undo leaves nothing pending too, but its Redo brings the run's step back (R9): what the run left is
+    // kept while that step is the next to redo.
+    const sessionPending = session.pending;
+    // `draftVersion` tracks the session's pending count and its redo stack, which the session object itself does not move with.
+    useEffect(() => {
+        if (sessionPending === 0 && session.nextRedo?.origin !== "optimise") setOptimised(undefined);
+    }, [sessionPending, draftVersion, session]);
+    const flash = optimised !== undefined && landing.lit;
+
     // ── The parts' facts: the toolbar's items (§7), the root, the footer ──
     const toolbarItems = useSheetToolbarItemsFor({
         styles,
@@ -3976,7 +4073,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         search: pickSearch,
         // The session's error is the frame's banner (#1184), never a line under the item. Its issues button goes to the
         // first issue as the Issues tab's lines do: sought where its row is not drawn, its filters cleared where they hide it.
-        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue: goToIssue, showError: false }) : undefined,
+        history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue: goToIssue, showError: false, locked }) : undefined,
+        optimise: optimiseParts.toolbarItem,
+        flash,
     });
     const toolbar = { items: toolbarItems, ref: toolbarRef };
     const root: SheetRootFacts = {
@@ -3992,8 +4091,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const retrySource = useCallback(() => { if (lensWanted) lensRetry(); else pagesRetry(); }, [lensWanted, lensRetry, pagesRetry]);
     const footer: SheetFooterProps = {
         styles, items: value.footer, summary, hint, message: ui.msg === null ? "" : noticeText(ui.msg, words), loading: line, noun: rowsNoun, onRetry: retrySource,
+        optimise: { line: optimiseParts.line, legend: optimiseParts.legend },
     };
     const history: SheetHistory = { session, onAction: onHistoryAction };
+    const optimise: SheetOptimiseParts = { banner: optimiseParts.banner, landing: { ref: landingRoot, attributes: landing.attributes, css: landingStyles.main } };
 
     if (sourceFailure !== undefined) {
         const failure = (
@@ -4002,7 +4103,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 <SheetRetry styles={styles} onRetry={retrySource} />
             </Box>
         );
-        return { styles, root, toolbar, grid: null, footer, loading: loadingFacts, history, failure, inspect, enter };
+        return { styles, root, toolbar, grid: null, footer, loading: loadingFacts, history, failure, inspect, enter, optimise };
     }
 
     const stickyItem = stickyAt !== undefined ? body[stickyAt] : undefined;
@@ -4157,7 +4258,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 </Box>
             </Box>
             {/* With rows picked; or, with none, only once a completed read says there are none (#1398, CL13) — never while a paged source is still read. */}
-            {(wr !== null && edit === null || (rows.length === 0 && exhausted)) && editingState.available && <SheetInsertStrip styles={styles}
+            {(wr !== null && edit === null || (rows.length === 0 && exhausted)) && canEdit && editingState.available && <SheetInsertStrip styles={styles}
                 ordered={!keyed || anchorFor(ui.sel.r, "before").child !== undefined}
                 above={canInsertRows ? () => onInsert("row", wr?.r0 ?? ui.sel.r, "before") : undefined}
                 below={canInsertRows && (group === undefined || loose || rows.length > 0) ? () => onInsert("row", wr?.r1 ?? ui.sel.r, "after") : undefined}
@@ -4166,7 +4267,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             <SheetStrip styles={styles} model={strip} onAction={onStripAction} />
         </>
     );
-    return { styles, root, toolbar, grid, footer, loading: loadingFacts, history, failure: undefined, inspect, enter };
+    return { styles, root, toolbar, grid, footer, loading: loadingFacts, history, failure: undefined, inspect, enter, optimise };
 }
 
 const SheetContext = createContext<SheetParts | undefined>(undefined);
@@ -4403,6 +4504,19 @@ export function useSheetHistory(): SheetHistory {
  */
 export function useSheetInspect(): SheetInspect {
     return useSheetParts().inspect;
+}
+
+/**
+ * Reads what the frame places of a run of the app's optimiser (#1409, #1418):
+ * the banner the result lands with, for the banners slot before the
+ * session's, and the landing — the ref, the attributes and the styles for
+ * the frame's own root, under which the cascade is measured and from which
+ * the cells' flares, the glow and the counts' flash are drawn.
+ *
+ * @returns The run's parts for the frame
+ */
+export function useSheetOptimise(): SheetOptimiseParts {
+    return useSheetParts().optimise;
 }
 
 /**

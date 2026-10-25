@@ -13,7 +13,9 @@
  * into the resource pane; an end out of its pane's view meets the view's edge
  * in Plan's stub. A link drag's new line runs from its card to the pointer, and
  * an arrival's drag over the lane grid draws thin lines from the pointer into
- * its three best fits' rows.
+ * its three best fits' rows. For a run of the optimiser's highlight (#1409)
+ * the links the runs added or changed draw over the focus's family in the
+ * Elara look.
  *
  * @packageDocumentation
  */
@@ -24,8 +26,11 @@ import type { LinkLine, LinkRibbon } from "../shared/links/layer.js";
 import { CARD_H, CARD_INSET, CARD_W, HOUR_W, LANE_W, ROW_H, type LaneCard } from "./timeline-layout.js";
 import { compareDate, compareFloat, compareString, partsOf, type Day } from "./model.js";
 
-/** How a drag draws a link of its families (A65, A69): the link it moves, faded to its `was` line, or the target's verdict on it. */
-export type LinkLook = "was" | "fits" | "refused";
+/**
+ * How a drag draws a link of its families (A65, A69): the link it moves, faded to its `was` line, or the target's verdict
+ * on it; or how the highlight draws a link a run of the optimiser added or changed (#1409): outlined in the Elara tone.
+ */
+export type LinkLook = "was" | "fits" | "refused" | "elara";
 
 /** One link of the family: a bin's part on a resource. */
 export interface FamilyLink {
@@ -86,6 +91,33 @@ export function familyOf(plan: Day, held: Day | undefined, focus: string, ids: L
                 id: ids.get(id)?.get(part.key) ?? -1, bin: id, resource: part.key,
                 quantity: bin.arrival.type === "none" ? undefined : part.quantity,
                 draft: was === undefined || compareFloat(was, part.quantity) !== 0, family: focus,
+            });
+        }
+    }
+    return links;
+}
+
+/**
+ * The links the runs of the optimiser added or changed (#1409), for the
+ * highlight: each bin's touched parts, the bins by time and each bin's parts
+ * largest first, every one a draft in the Elara look, weighed in its
+ * resource's family.
+ *
+ * @param plan - The day as drafted
+ * @param touched - The parts the runs added or changed, by bin: the kilns
+ * @param ids - Every link's identity
+ * @returns The links, in drawing order; none of a bin the day no longer holds
+ */
+export function runLinks(plan: Day, touched: ReadonlyMap<string, ReadonlySet<string>>, ids: LinkIds): FamilyLink[] {
+    const bins = [...plan.bins].filter(([id]) => touched.has(id)).sort(([a, x], [b, y]) => compareDate(x.at, y.at) || compareString(a, b));
+    const links: FamilyLink[] = [];
+    for (const [id, bin] of bins) {
+        const kilns = touched.get(id)!;
+        for (const part of partsOf(bin)) {
+            if (!kilns.has(part.key)) continue;
+            links.push({
+                id: ids.get(id)?.get(part.key) ?? -1, bin: id, resource: part.key,
+                quantity: bin.arrival.type === "none" ? undefined : part.quantity, draft: true, look: "elara", family: part.key,
             });
         }
     }
@@ -166,7 +198,8 @@ function rowEnd(row: number, view: LinkView): RibbonEnd {
  * Routes the links (A66): each from its card to its row, weighted by its
  * share of its family's largest quantity, its caption its quantity; in a
  * drag's families (A65) the link it moves carries no tone of its own, a draft
- * keeps the brand's, and a link into the target takes the verdict's.
+ * keeps the brand's, and a link into the target takes the verdict's; a run's
+ * link takes the Elara tone over its draft's (#1409).
  *
  * @param family - The links
  * @param cards - Each bin's card, by bin
@@ -194,7 +227,7 @@ export function layoutLinks(
         if (from.off !== undefined && from.off === to.off) continue;
         const width = ribbonWeight(link.quantity, largest.get(link.family) ?? 0) + (link.id === selected ? 1 : 0);
         out.push({ ...routeRibbon(from, to, width, bounds), id: link.id, from, to, label: link.quantity === undefined ? undefined : label(link), link,
-            tone: link.look === "was" ? undefined : link.draft ? "draft" : link.look });
+            tone: link.look === "was" ? undefined : link.look === "elara" ? "elara" : link.draft ? "draft" : link.look });
     }
     placeCaptions(out, bounds.left, bounds.right);
     return out;

@@ -58,6 +58,21 @@
  * picked up, and no cell or sink in it is a destination, by the pointer or the
  * keyboard; a drag over it rests over nothing.
  *
+ * Cells and sinks are the layer's own registry, never dnd-kit droppables: the
+ * layer hit-tests the point a drag rests at itself ({@link hit}), so dnd-kit
+ * has one droppable, the layer's sentinel, reported whenever the drag rests
+ * over a destination. Every `useDroppable` and `useDraggable` re-renders on
+ * each change of dnd-kit's `over`, so a grid of a hundred cells drew every one
+ * of them again at each cell crossed, and measured them all again at each
+ * drag's start; with the sentinel, `over` moves only as the drag first finds
+ * a destination or leaves every one, which is what the move handler needs of
+ * it (a render after the move, once the ghost is measured). dnd-kit's move
+ * step is keyed on the translate and its over step on the id, so a
+ * destination that changed under a point that did not move — content laid
+ * out under a still pointer — would be told to neither: the layer has a
+ * second sentinel for that case alone, reported in the first one's place, so
+ * the over step says it and nothing re-renders at any other time.
+ *
  * @packageDocumentation
  */
 
@@ -95,7 +110,6 @@ import {
     type KeyboardCoordinateGetter,
     type MeasuringConfiguration,
     type Modifier,
-    type UniqueIdentifier,
 } from "@dnd-kit/core";
 import { restrictToWindowEdges } from "@dnd-kit/modifiers";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -291,8 +305,8 @@ export interface DragHandle {
 
 interface DragLayerContextValue {
     registerTarget(config: DragTargetConfig): () => void;
-    registerCell(el: HTMLElement, cell: LiveCell, id: UniqueIdentifier): () => void;
-    registerSink(el: HTMLElement, reg: SinkRegistration, id: UniqueIdentifier): () => void;
+    registerCell(el: HTMLElement, cell: LiveCell): () => void;
+    registerSink(el: HTMLElement, reg: SinkRegistration): () => void;
 }
 
 /** The layer's registries — stable for the provider's lifetime, so neither a
@@ -462,6 +476,20 @@ export function ghostRect(node: HTMLElement): ClientRect {
 /** The layer measures the ghost by what it shows ({@link ghostRect}). */
 const MEASURING: MeasuringConfiguration = { dragOverlay: { measure: ghostRect } };
 
+/**
+ * dnd-kit's droppables: what the layer reports as `over` while a drag rests over any destination of its own — the one,
+ * or the other where what is under a still point changed (see the module docs).
+ */
+const OVER = "east-drag-over";
+const OVER_AGAIN = "east-drag-over-again";
+
+/** The sentinel droppables, registered with dnd-kit for the provider's lifetime; never seen, and never measured to any size. */
+function OverSentinel() {
+    const first = useDroppable({ id: OVER });
+    const again = useDroppable({ id: OVER_AGAIN });
+    return <><span ref={first.setNodeRef} hidden data-drag-over="" /><span ref={again.setNodeRef} hidden data-drag-over="" /></>;
+}
+
 /** The coordinate a cell names at a point, for a payload — its own, when it has no resolver or there is no point. */
 function coordAt(reg: CellRegistration, point: Point | undefined, payload: DragPayload): CellCoord {
     return point !== undefined && reg.resolveCoord !== undefined ? reg.resolveCoord(point.x, point.y, payload) : reg.coord;
@@ -554,17 +582,16 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
     const targets = useRef(new Map<string, DragTargetConfig>());
     const cells = useRef(new Map<HTMLElement, LiveCell>());
     const sinks = useRef(new Map<HTMLElement, SinkRegistration>());
-    const ids = useRef(new Map<HTMLElement, UniqueIdentifier>());
     const drag = useRef<InFlight | null>(null);
     const [dragged, setDragged] = useState<DragPayload | null>(null);
     const track = useRef<DragTrack>({ altKey: false, point: undefined, abort: undefined }).current;
     /** The point the drag rests at — the pointer, or a keyboard drag's centre. */
     const restPoint = useRef<Point | undefined>(undefined);
+    /** The last collision step: its point, the destination under it, and the sentinel it reported. */
+    const lastCollision = useRef<{ point: Point; el: HTMLElement | null; id: string } | undefined>(undefined);
     // A keyboard destination belongs to the source's centre and the chosen
     // stops. A compact ghost must not shift it when its measured size changes.
     const keyboardPoint = useRef<Point | undefined>(undefined);
-    /** The last hit test — a point, and the destination element under it. */
-    const lastHit = useRef<{ point: Point; el: HTMLElement | null } | undefined>(undefined);
     const outcome = useRef<Outcome | undefined>(undefined);
     /** What the live region last said the drag rests over — `null` when over nothing — so it speaks again only on a change. */
     const spoken = useRef<string | null>(null);
@@ -647,7 +674,6 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
     }, []);
 
     const forget = useCallback((el: HTMLElement): void => {
-        ids.current.delete(el);
         clearStages(el);
         const d = drag.current;
         if (d !== null && d.hovered === el) {
@@ -657,12 +683,10 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
             d.hovered = null;
             d.lostTarget = true;
         }
-        if (lastHit.current?.el === el) lastHit.current = undefined;
     }, []);
 
-    const registerCell = useCallback((el: HTMLElement, cell: LiveCell, id: UniqueIdentifier) => {
+    const registerCell = useCallback((el: HTMLElement, cell: LiveCell) => {
         cells.current.set(el, cell);
-        ids.current.set(el, id);
         el.setAttribute("data-drag-cell", "");
         // A cell can register DURING a drag — a virtualizer scrolls its row
         // into view. The drag-start sweep has already run, so mark it here.
@@ -681,9 +705,8 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         };
     }, [connected, allows, forget]);
 
-    const registerSink = useCallback((el: HTMLElement, reg: SinkRegistration, id: UniqueIdentifier) => {
+    const registerSink = useCallback((el: HTMLElement, reg: SinkRegistration) => {
         sinks.current.set(el, reg);
-        ids.current.set(el, id);
         el.setAttribute("data-drag-sink", "");
         const d = drag.current;
         if (d !== null && sinkValid(reg, d.payload) && !inRetained(el)) el.setAttribute("data-drop-valid", "");
@@ -768,7 +791,15 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
     /**
      * dnd-kit's collision step: the destination under the pointer, or under a
      * keyboard drag's centre — hit afresh each time, since the content under a
-     * still point moves when something scrolls. The move handler reuses it.
+     * still point moves when something scrolls, and the move handler hits
+     * afresh too, never reusing it: what stands under a still point changes
+     * as content moves under it, a virtualizer's rows as a test's layout.
+     * dnd-kit is told a sentinel whenever something is there, never which
+     * cell: its `over` then moves only as the drag first finds a destination
+     * or leaves every one — see the module docs. Its move step is keyed on
+     * the translate and its over step on the id, so a destination that
+     * changed under a point that did not move would be told to neither: the
+     * other sentinel is reported then, and the over step says it.
      */
     const collide = useCallback<CollisionDetection>(({ collisionRect, pointerCoordinates }) => {
         const point = (drag.current?.keyboard ? keyboardPoint.current : pointerCoordinates) ?? {
@@ -777,9 +808,11 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         };
         restPoint.current = point;
         const el = hit(point);
-        lastHit.current = { point, el };
-        const id = el !== null ? ids.current.get(el) : undefined;
-        return id !== undefined ? [{ id }] : [];
+        const last = lastCollision.current;
+        const still = last !== undefined && last.point.x === point.x && last.point.y === point.y && last.el !== el;
+        const id = still ? (last.id === OVER ? OVER_AGAIN : OVER) : last?.id ?? OVER;
+        lastCollision.current = { point, el, id };
+        return el !== null ? [{ id }] : [];
     }, [hit]);
 
     // ── Keyboard ──────────────────────────────────────────────────────────
@@ -883,9 +916,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         const restAgain = () => {
             const point = restPoint.current;
             if (point === undefined) return;
-            const el = hit(point);
-            lastHit.current = { point, el };
-            rest(el, point);
+            rest(hit(point), point);
         };
         document.addEventListener("scroll", restAgain, { capture: true, passive: true });
         const releases: (() => void)[] = [() => document.removeEventListener("scroll", restAgain, { capture: true })];
@@ -899,8 +930,8 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
         };
         outcome.current = undefined;
         spoken.current = null;
-        lastHit.current = undefined;
         restPoint.current = undefined;
+        lastCollision.current = undefined;
         caption.set(undefined);
         // Candidates precede the drop — mark every valid destination now, none in retained content.
         for (const [el, cell] of cells.current) {
@@ -915,16 +946,15 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
     /**
      * The drag moved, or what it rests over changed: mark where it rests now.
      * dnd-kit reports a move when the drag's translation changes, and an
-     * over when the destination does — which can be a render later than the
-     * move, since collisions wait for the ghost to be measured — so both land
-     * here.
+     * over when the drag first finds a destination or leaves every one (the
+     * sentinel, `collide`) — which can be a render later than the move, since
+     * collisions wait for the ghost to be measured — so both land here.
      */
     const onDragMove = useCallback((_event: DragMoveEvent) => {
         const d = drag.current;
         const point = restPoint.current;
         if (d === null || point === undefined) return;
-        const el = lastHit.current !== undefined && lastHit.current.point === point ? lastHit.current.el : hit(point);
-        rest(el, point);
+        rest(hit(point), point);
         if (!d.keyboard) scroller.current?.update(point);
     }, [hit, rest]);
 
@@ -1112,6 +1142,7 @@ export function DragLayerProvider({ children, messages }: DragLayerProviderProps
                     <DragActiveContext.Provider value={dragged !== null}>
                         {children}
                         {trashEligible && <TrashZone label={words.trash()} />}
+                        <OverSentinel />
                     </DragActiveContext.Provider>
                 </DragMessagesContext.Provider>
             </DragLayerContext.Provider>
@@ -1173,23 +1204,22 @@ export function useDropCell(
     options?: DropCellOptions,
 ): (el: HTMLElement | null) => void {
     const layer = useContext(DragLayerContext);
-    const id = useId();
-    const { setNodeRef } = useDroppable({ id, disabled: layer === null || coord === null || disabled });
     // The cell registers once per element; the layer reads these settings
-    // live (`LiveCell`), kept to the committed render's.
+    // live (`LiveCell`), kept to the committed render's. It is the layer's
+    // alone, never a dnd-kit droppable (see the module docs): nothing here
+    // subscribes to dnd-kit, so a drag crossing a hundred cells draws none.
     const settings: CellRegistration | null = coord === null ? null : { ...options, coord, disabled, canDrop, resolveCoord };
     const live = useRef<CellRegistration | null>(settings);
     useLayoutEffect(() => { live.current = settings; });
     const present = settings !== null;
     const cleanup = useRef<(() => void) | null>(null);
     return useCallback((el: HTMLElement | null) => {
-        setNodeRef(el);
         cleanup.current?.();
         cleanup.current = null;
         if (layer && el && present) {
-            cleanup.current = layer.registerCell(el, live as LiveCell, id);
+            cleanup.current = layer.registerCell(el, live as LiveCell);
         }
-    }, [layer, id, setNodeRef, present]);
+    }, [layer, present]);
 }
 
 /**
@@ -1198,21 +1228,14 @@ export function useDropCell(
  */
 export function useDropSink(kind: "trash" | "library", library?: string): (el: HTMLElement | null) => void {
     const layer = useContext(DragLayerContext);
-    const id = useId();
-    const { setNodeRef } = useDroppable({ id, disabled: layer === null });
     const cleanup = useRef<(() => void) | null>(null);
     return useCallback((el: HTMLElement | null) => {
-        setNodeRef(el);
         cleanup.current?.();
         cleanup.current = null;
         if (layer && el) {
-            cleanup.current = layer.registerSink(
-                el,
-                kind === "library" && library !== undefined ? { kind, library } : { kind },
-                id,
-            );
+            cleanup.current = layer.registerSink(el, kind === "library" && library !== undefined ? { kind, library } : { kind });
         }
-    }, [layer, id, setNodeRef, kind, library]);
+    }, [layer, kind, library]);
 }
 
 /** A draggable, for any payload — what the three source hooks share. */

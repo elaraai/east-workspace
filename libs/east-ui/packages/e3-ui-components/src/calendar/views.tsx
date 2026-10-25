@@ -36,7 +36,7 @@ import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { none } from "@elaraai/east";
 import { tileNext } from "@elaraai/east-ui/internal";
-import { useDragEventChip, useDragEventEdge, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
+import { optimiseMessages, useDragEventChip, useDragEventEdge, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import { LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, VirtualRows, devicePixels, loadingLineText, useRowsTop } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PeriodRead } from "../shared/loading.js";
 import type { ScheduleCellShade, ScheduleCellShading } from "../shared/schedule/cells.js";
@@ -56,6 +56,8 @@ import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { EventActions, type CalendarShownResources } from "./controls.js";
 import { calendarCoord, type CalendarDrag } from "./drag.js";
+import { calendarOpOf, type CalendarOptimised } from "./optimise.js";
+import { opKey } from "../shared/func/optimise-diff.js";
 import type { CalendarCommands, CalendarPlacement } from "./actions.js";
 import { CALENDAR_PAGE_SIZE, pagedFailureAt, pagedPlaces, pagedRowAt, type CalendarPagedDemand, type CalendarPages } from "./pages.js";
 import { DAY, NOTHING_UNCOUNTED, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, onResource, resourceKey,
@@ -129,6 +131,86 @@ export interface CalendarViewsProps {
      * what it holds, and its booked hours a placeholder, until they land; `undefined` where no kind is read by its cells.
      */
     drawnRows?: ReadonlySet<string> | undefined;
+    /**
+     * What a run of the app's optimiser left on the events (#1409, R7, R17): each event's operation, which its block
+     * carries (`data-op`) and its hover says, and where a removed or a moved event stood, where its ghost goes.
+     */
+    optimised?: CalendarOptimised | undefined;
+    /** Whether the run's highlight is on (R15, R16): the ghosts show for it alone. */
+    lit?: boolean | undefined;
+}
+
+/** A ghost a run left (R15): an event removed, struck through where it stood, or moved, dashed where it was — and the run that did it. */
+interface CalendarGhost {
+    readonly item: CalendarItem;
+    readonly op: "del" | "from";
+    readonly run: string;
+}
+
+/**
+ * The ghosts a run's highlight shows (R15): where an event the run removed stood, struck through; where one it moved
+ * stood, dashed — among the events as they stand now, while each is still the run's draft.
+ *
+ * @param props - The views' props: the run's operations, the events now, and the drafts
+ * @returns The ghosts
+ */
+function ghostsOf(props: Pick<CalendarViewsProps, "optimised" | "lit" | "items" | "commands">): CalendarGhost[] {
+    const { optimised, lit, items, commands } = props;
+    if (optimised === undefined || lit !== true) return [];
+    const ghosts: CalendarGhost[] = [];
+    for (const [key, was] of optimised.previous) {
+        const op = optimised.ops.get(key);
+        if (op === undefined || was.start.type !== "some" || commands?.editing.draftsOf(was.kind).has(was.key) !== true) continue;
+        const now = items.find(item => item.kind === was.kind && item.key === was.key);
+        if (op.op === "del" || now === undefined) { ghosts.push({ item: was, op: "del", run: op.run }); continue; }
+        const moved = now.start.type !== "some" || now.start.value.getTime() !== was.start.value.getTime()
+            || (now.end.type === "some" && was.end.type === "some" && now.end.value.getTime() !== was.end.value.getTime()) || !sameResourceOf(now, was);
+        if (moved) ghosts.push({ item: was, op: "from", run: op.run });
+    }
+    return ghosts;
+}
+
+/** Whether two events are on one resource. */
+function sameResourceOf(a: CalendarItem, b: CalendarItem): boolean {
+    return a.resource.type === "none" ? b.resource.type === "none" : b.resource.type === "some" && a.resource.value.kind === b.resource.value.kind && a.resource.value.key === b.resource.value.key;
+}
+
+/**
+ * The days a run changed (§9.5): the day of every event it added or changed, now and before — whose heads' counts flash.
+ *
+ * @param props - The views' props
+ * @returns Each day's date text
+ */
+function changedDaysOf(props: Pick<CalendarViewsProps, "optimised" | "items">): ReadonlySet<string> {
+    const days = new Set<string>();
+    const { optimised, items } = props;
+    if (optimised === undefined) return days;
+    for (const [key] of optimised.ops) {
+        const was = optimised.previous.get(key);
+        if (was?.start.type === "some") days.add(dateText(was.start.value));
+        const now = items.find(item => opKey(item.kind, item.key) === key);
+        if (now?.start.type === "some") days.add(dateText(now.start.value));
+    }
+    return days;
+}
+
+/** How an event stood before a run, as its provenance says it: its day and time, and its resource, or the backlog. */
+function previousWords(was: CalendarItem, props: Pick<CalendarViewsProps, "format" | "rows">): string {
+    if (was.start.type !== "some") return "backlog";
+    return `${props.format.weekdayDate(was.start.value)} ${props.format.time(was.start.value)}${was.end.type === "some" ? `–${props.format.time(was.end.value)}` : ""} · ${resourceLabel(was, props.rows)}`;
+}
+
+/** A ghost's block (R15, R17): decorative, named for what the run did to the event. */
+function GhostBlock({ ghost, props, geometry, along = "y", chip = false }: { ghost: CalendarGhost; props: EventView; geometry?: CSSProperties; along?: "x" | "y"; chip?: boolean }) {
+    const { styles, format } = props;
+    const { item, run } = ghost;
+    const start = item.start.type === "some" ? item.start.value : props.range.from;
+    const title = ghost.op === "del" ? optimiseMessages.ghostRemoved({ run }) : optimiseMessages.ghostMoved({ run });
+    return <Box css={styles.event} style={geometry} data-along={along} data-chip={chip ? "" : undefined} data-compact={chip || along === "x" ? "" : undefined}
+        data-op={ghost.op} data-calendar-ghost={eventKey(item)} aria-hidden="true" title={title}>
+        <Box css={styles.eventDetail} data-calendar-event-detail="">{format.time(start)}{item.end.type === "some" ? `–${format.time(item.end.value)}` : ""}</Box>
+        <Box css={styles.eventTitle} data-calendar-event-title="">{item.title}</Box>
+    </Box>;
 }
 
 /**
@@ -295,7 +377,7 @@ function ShadeMarks({ shades, bucket, from, to, along, styles, format }: {
  * CL9) — so a scroll, or a day crossed, draws none of them again.
  */
 type EventView = Pick<CalendarViewsProps, "styles" | "drag" | "selected" | "overlaps" | "commands" | "range" | "view" | "value" | "format" | "rows" | "select" | "clear"
-    | "reveal" | "onRevealed">;
+    | "reveal" | "onRevealed" | "optimised" | "lit">;
 /** The same full event facts, in a card, a block, a month chip or a timeline bar. */
 function EventBlock({ item, props, geometry, along = "y", chip = false, window }: { item: CalendarItem; props: EventView; geometry?: CSSProperties; along?: "x" | "y"; chip?: boolean; window?: { from: Date; to: Date } }) {
     const { styles, drag, selected, overlaps, commands } = props;
@@ -335,11 +417,18 @@ function EventBlock({ item, props, geometry, along = "y", chip = false, window }
     const timeText = `${continued ? "↳ " : ""}${props.format.time(start)}${item.end.type === "some" ? `–${props.format.time(item.end.value)}` : ""}`;
     const resourceText = props.view.layout === "resources" ? kind?.name ?? item.kind : resourceLabel(item, props.rows);
     const label = `${item.title}, ${props.format.weekdayDate(start)} ${timeText}, ${resourceLabel(item, props.rows)}${item.status.type === "some" ? `, ${item.status.value.label}` : ""}`;
+    const drafted = commands?.editing.draftsOf(item.kind).has(item.key) === true;
+    // What a run of the optimiser did to the event (#1409, R7, R17), while it is still the run's draft: its mark, and its provenance on hover.
+    const op = drafted ? calendarOpOf(props.optimised, item) : undefined;
+    const marked = op?.op === "add" || op?.op === "chg" ? op.op : undefined;
+    const was = marked === "chg" ? props.optimised?.previous.get(opKey(item.kind, item.key)) : undefined;
+    const run = op?.run ?? "";
+    const provenance = marked === "add" ? optimiseMessages.entryAdded({ run }) : marked === "chg" && was !== undefined ? optimiseMessages.entryChanged({ previous: previousWords(was, props), run }) : undefined;
     const choose = (event: MouseEvent) => { event.stopPropagation(); props.select(item, event.shiftKey || event.metaKey || event.ctrlKey); };
     return <Box {...handle} ref={attachEvent} css={styles.event} style={geometry} data-along={along} data-chip={chip ? "" : undefined} data-compact={fits.compact ? "" : undefined}
-        tabIndex={0} role="button" aria-label={label} title={label} aria-pressed={selected.has(id)}
-        data-calendar-event={id} data-selected={selected.has(id) ? "" : undefined} data-overlap={overlaps.peers.has(id) ? "" : undefined}
-        data-draft={commands?.editing.draftsOf(item.kind).has(item.key) ? "" : undefined} data-drafted={commands?.editing.draftsOf(item.kind).has(item.key) ? "" : undefined} data-draggable={enabled ? "" : undefined}
+        tabIndex={0} role="button" aria-label={provenance === undefined ? label : `${label}. ${provenance}`} title={provenance === undefined ? label : `${provenance} · ${label}`} aria-pressed={selected.has(id)}
+        data-calendar-event={id} data-selected={selected.has(id) ? "" : undefined} data-overlap={overlaps.peers.has(id) ? "" : undefined} data-op={marked}
+        data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-draggable={enabled ? "" : undefined}
         onPointerDown={event => {
             const cell = event.currentTarget.closest<HTMLElement>("[data-calendar-cell]");
             if (cell !== null) {
@@ -593,6 +682,9 @@ function TimeGrid(props: CalendarViewsProps) {
     const pagedCorner = useFailureCorner(scroll, pagedFailure !== undefined);
     const place = (i: number): CSSProperties | undefined => paged === undefined ? undefined : { gridColumn: i + 2 };
     const failure = useFailureCorner(scroll, props.read.state === "failed");
+    // A run's ghosts and the days it changed (#1409): drawn in their columns, the changed days' counts flashing.
+    const ghosts = ghostsOf(props);
+    const changedDays = changedDaysOf(props);
     return <><Box ref={scroll} css={props.styles.scroll} data-calendar-time-grid="" data-calendar-unread={props.read.state === "held" ? undefined : props.read.state}
         onScroll={event => { keep(event.currentTarget); follow(event.currentTarget, false); }}>
         <Box css={props.styles.timeGridContent} data-resources={resources ? "" : undefined} data-single={!resources && columns.length === 1 ? "" : undefined} style={{ "--calendar-columns": columns.length } as CSSProperties}>
@@ -605,7 +697,7 @@ function TimeGrid(props: CalendarViewsProps) {
                 data-today={dateText(column.day) === dateText(props.now) ? "" : undefined} onClick={() => !resources && props.setView({ ...props.view, period: "day", date: column.day.getTime() })}>
                 {column.row === undefined ? <>
                     <Box css={props.styles.dayHeading} data-calendar-day-heading=""><Box as="span" css={props.styles.weekday}>{props.format.weekday(column.day)}</Box><Box as="span" css={props.styles.dayDate}>{column.day.getUTCDate()}</Box></Box>
-                    <Box css={props.styles.columnMeta} data-calendar-day-count="">
+                    <Box css={props.styles.columnMeta} data-calendar-day-count="" data-opn={changedDays.has(dateText(column.day)) ? "" : undefined}>
                         <Counted props={props} index={i}>{dayCountWords(props, props.items.filter(item => inWindow(item, column.day, new Date(column.day.getTime() + DAY))).length)}</Counted>
                     </Box>
                 </> : <>
@@ -640,6 +732,11 @@ function TimeGrid(props: CalendarViewsProps) {
                         {HOURS.map(h => <Fragment key={h}><Box css={props.styles.hour} style={{ top: h * hour }} />{hour >= 48 && <Box css={props.styles.hour} data-half="" style={{ top: (h + 0.5) * hour }} />}</Fragment>)}
                         {items.map((item, i) => <EventBlock key={eventKey(item)} item={item} props={props} window={{ from, to }} geometry={{ top: (spans[i]!.start - from.getTime()) / DAY * height, height: (spans[i]!.end - spans[i]!.start) / DAY * height,
                             left: `calc(${lanes[i]!.lane / lanes[i]!.lanes * 100}% + 2px)`, width: `calc(${lanes[i]!.span / lanes[i]!.lanes * 100}% - 4px)` }} />)}
+                        {ghosts.filter(ghost => inWindow(ghost.item, from, to) && (column.row === undefined || onResource(ghost.item, column.row))).map(ghost => {
+                            const gs = Math.max(from.getTime(), ghost.item.start.type === "some" ? ghost.item.start.value.getTime() : 0);
+                            const ge = Math.min(to.getTime(), ghost.item.end.type === "some" ? ghost.item.end.value.getTime() : gs);
+                            return <GhostBlock key={`ghost:${eventKey(ghost.item)}`} ghost={ghost} props={props} geometry={{ top: (gs - from.getTime()) / DAY * height, height: Math.max(16, (ge - gs) / DAY * height), left: "2px", width: "calc(100% - 4px)" }} />;
+                        })}
                         {dateText(from) === dateText(props.now) && <NowLine styles={props.styles} at={(props.now.getTime() - from.getTime()) / DAY} along="y" dot data-calendar-now="" />}
                     </DropLane>;
                 })}
@@ -654,6 +751,7 @@ function MonthDay({ props, day }: { props: CalendarViewsProps; day: Date }) {
     const [limit, setLimit] = useState(3);
     const next = new Date(day.getTime() + DAY);
     const items = chronological(props.items.filter(item => item.start.type === "some" && item.start.value.getTime() >= day.getTime() && item.start.value.getTime() < next.getTime()));
+    const ghosts = ghostsOf(props).filter(ghost => ghost.item.start.type === "some" && ghost.item.start.value.getTime() >= day.getTime() && ghost.item.start.value.getTime() < next.getTime());
     useLayoutEffect(() => {
         const element = ref.current; if (element === null) return;
         const measure = () => {
@@ -668,6 +766,7 @@ function MonthDay({ props, day }: { props: CalendarViewsProps; day: Date }) {
         {/* A period not read yet: the cell washed below its date, and no "+N more" (#1398). */}
         {pendingOf(props.read) && <Box css={props.styles.monthWash}><LoadingWash /></Box>}
         {items.slice(0, limit).map(item => <EventBlock key={eventKey(item)} item={item} props={props} chip />)}
+        {ghosts.map(ghost => <GhostBlock key={`ghost:${eventKey(ghost.item)}`} ghost={ghost} props={props} chip />)}
         {items.length > limit && <chakra.button type="button" css={props.styles.more} onClick={() => props.setView({ ...props.view, period: "day", date: day.getTime() })}>+{items.length - limit} more</chakra.button>}
     </DropLane>;
 }
@@ -805,6 +904,12 @@ const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, span, index 
             return <EventBlock key={eventKey(item)} item={item} props={view} window={range} along="x" geometry={{ top: 4 + layout.lanes[i]!.lane * laneHeight, height: laneHeight - 4,
                 left: `${Math.max(0, at.start - range.from.getTime()) / duration * 100}%`, width: `${(Math.min(range.to.getTime(), at.end) - Math.max(range.from.getTime(), at.start)) / duration * 100}%` }} />;
         })}
+        {ghostsOf({ ...view, items: layout.items }).filter(ghost => onResource(ghost.item, row)).map(ghost => {
+            const gs = ghost.item.start.type === "some" ? ghost.item.start.value.getTime() : range.from.getTime();
+            const ge = ghost.item.end.type === "some" ? ghost.item.end.value.getTime() : gs;
+            return <GhostBlock key={`ghost:${eventKey(ghost.item)}`} ghost={ghost} props={view} along="x" geometry={{ top: 4, height: laneHeight - 4,
+                left: `${Math.max(0, gs - range.from.getTime()) / duration * 100}%`, width: `${Math.max(0, Math.min(range.to.getTime(), ge) - Math.max(range.from.getTime(), gs)) / duration * 100}%` }} />;
+        })}
         {now >= range.from && now < range.to && <NowLine styles={styles} at={(now.getTime() - range.from.getTime()) / duration} data-calendar-now="" />}
     </DropLane>;
 });
@@ -918,9 +1023,9 @@ function Timeline(props: CalendarViewsProps) {
     const shades = useMemo(() => shadeBands({ min: range.from, max: range.to }, { hours: view.period === "day" ? { from: Number(props.value.settings.hours.from), to: Number(props.value.settings.hours.to) } : undefined }),
         [range.from, range.to, view.period, props.value.settings.hours]);
     // What an event and a cell read, held while it holds.
-    const { drag, selected, overlaps, commands, value, format, rows, select, clear, reveal, onRevealed } = props;
-    const eventView = useMemo((): EventView => ({ styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed }),
-        [styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed]);
+    const { drag, selected, overlaps, commands, value, format, rows, select, clear, reveal, onRevealed, optimised, lit } = props;
+    const eventView = useMemo((): EventView => ({ styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed, optimised, lit }),
+        [styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed, optimised, lit]);
     // A continuation's window, read while the held read stands in: the days of it that read leaves out (#1398).
     const unread = useMemo(() => props.covered === undefined || (props.covered.from.getTime() === range.from.getTime() && props.covered.to.getTime() === range.to.getTime())
         ? NO_SPANS : unreadSpans(range, props.covered), [props.covered, range]);
@@ -1112,13 +1217,21 @@ function Agenda(props: CalendarViewsProps) {
                     </Box>}
                 </Box>
             </Box>;
+            // The run's ghosts of the day (#1409, R15): each a card, decorative, named for what the run did.
+            const ghosts = ghostsOf(props).filter(ghost => inWindow(ghost.item, day, next));
             return <Box key={day.getTime()} css={props.styles.agendaGroup} data-calendar-day={dateText(day)}>
                 <Box css={props.styles.agendaHead} data-calendar-agenda-heading="">{props.format.weekdayDate(day)}</Box>
-                {items.length === 0 && <Box css={props.styles.empty}>Nothing scheduled</Box>}
+                {items.length === 0 && ghosts.length === 0 && <Box css={props.styles.empty}>Nothing scheduled</Box>}
                 {items.map(item => {
                     const id = eventKey(item);
-                    return <Box key={id} css={props.styles.card} data-calendar-card={id} data-selected={props.selected.has(id) ? "" : undefined}
-                        data-draft={props.commands?.editing.draftsOf(item.kind).has(item.key) ? "" : undefined} data-drafted={props.commands?.editing.draftsOf(item.kind).has(item.key) ? "" : undefined} data-overlap={props.overlaps.peers.has(id) ? "" : undefined}>
+                    const drafted = props.commands?.editing.draftsOf(item.kind).has(item.key) === true;
+                    const op = drafted ? calendarOpOf(props.optimised, item) : undefined;
+                    const marked = op?.op === "add" || op?.op === "chg" ? op.op : undefined;
+                    const was = marked === "chg" ? props.optimised?.previous.get(opKey(item.kind, item.key)) : undefined;
+                    const run = op?.run ?? "";
+                    const provenance = marked === "add" ? optimiseMessages.entryAdded({ run }) : marked === "chg" && was !== undefined ? optimiseMessages.entryChanged({ previous: previousWords(was, props), run }) : undefined;
+                    return <Box key={id} css={props.styles.card} data-calendar-card={id} data-selected={props.selected.has(id) ? "" : undefined} data-op={marked} title={provenance}
+                        data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-overlap={props.overlaps.peers.has(id) ? "" : undefined}>
                         <chakra.button type="button" css={props.styles.cardHead} onClick={event => props.select(item, event.shiftKey || event.metaKey || event.ctrlKey)} aria-pressed={props.selected.has(id)}>
                             <Box css={props.styles.cardTitle}>{item.title}</Box>
                             <Box css={props.styles.detail}>{item.start.type === "some" && props.format.time(item.start.value)}–{item.end.type === "some" && props.format.time(item.end.value)} · {resourceLabel(item, props.rows)}</Box>
@@ -1128,6 +1241,13 @@ function Agenda(props: CalendarViewsProps) {
                         {props.commands !== undefined && <EventActions item={item} value={props.value} shown={props.shown} commands={props.commands} day={day} styles={props.styles} />}
                     </Box>;
                 })}
+                {ghosts.map(ghost => <Box key={`ghost:${eventKey(ghost.item)}`} css={props.styles.card} data-calendar-ghost={eventKey(ghost.item)} data-op={ghost.op} aria-hidden="true"
+                    title={ghost.op === "del" ? optimiseMessages.ghostRemoved({ run: ghost.run }) : optimiseMessages.ghostMoved({ run: ghost.run })}>
+                    <Box css={props.styles.cardHead}>
+                        <Box css={props.styles.cardTitle}>{ghost.item.title}</Box>
+                        <Box css={props.styles.detail}>{ghost.item.start.type === "some" && props.format.time(ghost.item.start.value)}–{ghost.item.end.type === "some" && props.format.time(ghost.item.end.value)} · {resourceLabel(ghost.item, props.rows)}</Box>
+                    </Box>
+                </Box>)}
             </Box>;
         })}
     </Box></Box>;

@@ -15,11 +15,11 @@ import { listTests } from "./responsive-shards.js";
 // Only these reviewed suites belong exclusively to one component. New or
 // cross-component specs remain shared and run with every component change.
 const componentSpecs = {
-    calendar: ["calendar.spec.ts", "calendar-narrowing.spec.ts", "calendar-records.spec.ts"],
+    calendar: ["calendar.spec.ts", "calendar-narrowing.spec.ts", "calendar-records.spec.ts", "optimise-calendar.spec.ts"],
     flowchart: ["flowchart-builder.spec.ts", "flowchart-drop.spec.ts", "flowchart-flows.spec.ts", "flowchart-frame.spec.ts", "flowchart-records.spec.ts"],
-    plan: ["plan-builder-dnd.spec.ts", "plan-builder.spec.ts", "plan-delete.spec.ts", "plan-frame.spec.ts", "plan-geometry.spec.ts", "plan-narrowing.spec.ts", "plan-run-focus.spec.ts", "plan-time-ruler.spec.ts", "plan-windows.spec.ts"],
+    plan: ["optimise-plan.spec.ts", "plan-builder-dnd.spec.ts", "plan-builder.spec.ts", "plan-delete.spec.ts", "plan-frame.spec.ts", "plan-geometry.spec.ts", "plan-narrowing.spec.ts", "plan-run-focus.spec.ts", "plan-time-ruler.spec.ts", "plan-windows.spec.ts"],
     query: ["query-builder.spec.ts", "query-library.spec.ts", "query-runs.spec.ts"],
-    roster: ["roster.spec.ts", "roster-inspector.spec.ts", "roster-load.spec.ts"],
+    roster: ["optimise-roster.spec.ts", "roster.spec.ts", "roster-inspector.spec.ts", "roster-load.spec.ts", "roster-people.spec.ts"],
     // The Schematic's frame (#1387), editing (#1388), library (#1389), drops
     // (#1390), narrowing (#1392), windows and their budget (#1393), phone
     // (#1394) and edits saved through its windows (#1395); its hosts in the
@@ -30,7 +30,7 @@ const componentSpecs = {
         "schematic-drop.spec.ts", "schematic-editing.spec.ts", "schematic-frame.spec.ts", "schematic-library.spec.ts", "schematic-narrowing.spec.ts",
         "schematic-perf.spec.ts", "schematic-phone.spec.ts", "schematic-records.spec.ts", "schematic-window.spec.ts",
     ],
-    sheet: ["sheet-bound.spec.ts", "sheet-chrome.spec.ts", "sheet-far-moves.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-lens.spec.ts", "sheet-narrowing.spec.ts"],
+    sheet: ["optimise-sheet.spec.ts", "sheet-bound.spec.ts", "sheet-chrome.spec.ts", "sheet-far-moves.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-lens.spec.ts", "sheet-narrowing.spec.ts"],
     studio: ["studio-builder.spec.ts", "studio-page-library.spec.ts", "studio-page.spec.ts"],
 } as const;
 

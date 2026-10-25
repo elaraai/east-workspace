@@ -409,18 +409,34 @@ export const ScheduleResourceRowType = StructType({ key: StringType, label: Stri
 export type ScheduleResourceRowType = typeof ScheduleResourceRowType;
 
 /**
+ * A resource kind's records read whole, for the app's optimiser (#1409): its
+ * rows as bytes at `DictType(keyType, rowType)`, read as a run starts — what
+ * the run's request carries of the kind beside the events, as context.
+ */
+export const ScheduleResourceRecordsType = FunctionType([], BlobType);
+
+/** Type representing {@link ScheduleResourceRecordsType}. */
+export type ScheduleResourceRecordsType = typeof ScheduleResourceRecordsType;
+
+/**
  * One resource kind, its rows resolved.
  *
  * @property key - The kind's slot name
  * @property name - Its name
  * @property icon - Its Font Awesome icon
  * @property rows - Its resources, in key order
+ * @property keyType - The kind's key type: what the app's optimiser is asked its rows by (#1409)
+ * @property rowType - Its row type
+ * @property records - Its records read whole, as a run's request carries them (#1409); `none` for a kind paged a window at a time, whose rows are never read whole — a run carries none of it
  */
 export const ScheduleResourcesType = StructType({
     key: StringType,
     name: StringType,
     icon: StringType,
     rows: ArrayType(ScheduleResourceRowType),
+    keyType: EastTypeType,
+    rowType: EastTypeType,
+    records: OptionType(ScheduleResourceRecordsType),
 });
 
 /** Type representing {@link ScheduleResourcesType}. */
@@ -541,6 +557,9 @@ export type PlanResourceRowType = typeof PlanResourceRowType;
  * @property measures - Its measures' keys, in order: the rows under each of its resources, each at its resource's path (#1197)
  * @property rows - Its resources, in key order — none for a kind paged a window at a time (#1199)
  * @property byKey - A paged kind's resource by its key's text (#1199): its window's key search for the key, then a one-row page, as Plan's builder takes it — `none` while either is in flight, `some(none)` for a key the kind does not have; `none` for a kind whose rows are listed
+ * @property keyType - The kind's key type: what the app's optimiser is asked its rows by (#1409)
+ * @property rowType - Its row type
+ * @property records - Its records read whole, as a run's request carries them (#1409); `none` for a kind paged a window at a time — a run carries none of it
  */
 export const PlanResourcesType = StructType({
     key: StringType,
@@ -550,6 +569,9 @@ export const PlanResourcesType = StructType({
     measures: ArrayType(StringType),
     rows: ArrayType(PlanResourceRowType),
     byKey: OptionType(FunctionType([StringType], OptionType(OptionType(PlanResourceRowType)))),
+    keyType: EastTypeType,
+    rowType: EastTypeType,
+    records: OptionType(ScheduleResourceRecordsType),
 });
 
 /** Type representing {@link PlanResourcesType}. */

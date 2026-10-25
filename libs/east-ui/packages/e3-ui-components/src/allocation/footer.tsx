@@ -4,6 +4,7 @@
  */
 import { useRef } from "react";
 import { Box } from "@chakra-ui/react";
+import { OptimiseLegendItem } from "@elaraai/east-ui-components";
 import { FooterMore, LoadingLine, footerCut, useFooterFit, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { AllocationStyles } from "./model.js";
 import { one, useNouns, type Nouns } from "./nouns.js";
@@ -34,23 +35,32 @@ export const legends = (nouns: Nouns) => ({
  * Retry. The rail never wraps and never cuts a word: the legend stays whole
  * and in place, ending at a whole item, then "…", only where it cannot fit.
  * The line shows on the frame's one reveal clock (CL4, its `LoadingReveal`),
- * which the day's placeholders keep too.
+ * which the day's placeholders keep too — or says what a run of the app's
+ * optimiser does (#1409), at once. During a run's highlight the legend ends
+ * with `Elara change`.
  */
-export function AllocationFooter({ styles, layout, line }: {
+export function AllocationFooter({ styles, layout, line, optimise }: {
     styles: AllocationStyles; layout: "timeline" | "table";
     /** What the day's read says: the day being read, or why it could not be; `undefined` while it has landed. */
     line: LoadingLineValue | undefined;
+    /** A run of the app's optimiser (#1409): what its line says while the call is out or just stopped, and whether its highlight is on. */
+    optimise?: { readonly line: LoadingLineValue | undefined; readonly legend: boolean } | undefined;
 }) {
     const ref = useRef<HTMLDivElement>(null);
     const fit = useFooterFit(ref);
     const shown = useRevealed() === true;
     const items = legends(useNouns())[layout];
+    const elara = optimise?.legend === true;
+    const runLine = optimise?.line;
+    const units = items.length + (elara ? 1 : 0);
     return <Box ref={ref} css={styles.footer} data-allocation-footer={layout}>
         {items.map((item, i) => <Box as="span" key={item.kind} css={[styles.footerItem, styles.legendItem]} data-allocation-legend={item.kind}
             data-footer-unit="" data-footer-cut={footerCut(i, fit)}>
             <Box as="span" aria-hidden="true" css={styles.legendSwatch} data-kind={item.kind} />{item.label}
         </Box>)}
-        <FooterMore shown={fit.kept < items.length} />
-        <LoadingLine value={line} shown={shown} form={fit.form} />
+        {elara && <OptimiseLegendItem css={[styles.footerItem ?? {}, styles.legendItem ?? {}]} cut={footerCut(items.length, fit)} />}
+        <FooterMore shown={fit.kept < units} />
+        {/* A run's line shows at once, whatever the reveal says: a run is not a read (#1409). */}
+        <LoadingLine value={runLine ?? line} shown={shown || runLine !== undefined} form={fit.form} />
     </Box>;
 }

@@ -435,3 +435,36 @@ export type RosterTargetsKindType = typeof RosterTargetsKindType;
  */
 export const RosterFitResultType = StructType({ need: RosterNeedType, slot: RosterSlotType, people: DictType(StringType, RosterFitType) });
 export type RosterFitResultType = typeof RosterFitResultType;
+/**
+ * One request to the app's optimiser (#1409, `Optimise Spec.md` §5.1): the
+ * week in view and its duties, as drafted, for the optimiser to fill or
+ * improve — the Elara eye's one call.
+ *
+ * @typeParam R - The app's duty row type
+ * @param row - The app's duty row type
+ * @returns The request type over it
+ * @remarks `from` and `to` the week, half open; `run` the run's number, from 1 per Roster per browser; `duties` the week's duties by key, the app's own rows as the session holds them — the base with every unapplied draft in place, every row whatever the rail shows; `requirements` the week's targets by slot; `context` the complete staff and configuration — every person, shift, group, position and agency, and the rules.
+ */
+export function RosterOptimiseRequestTypeFor<R extends EastType>(row: R) {
+    return StructType({
+        from: DateTimeType, to: DateTimeType, run: IntegerType, duties: DictType(StringType, row), requirements: RosterRequirementsType, context: RosterContextType,
+    });
+}
+/** Type representing {@link RosterOptimiseRequestTypeFor}. */
+export type RosterOptimiseRequestTypeFor<R extends EastType> = ReturnType<typeof RosterOptimiseRequestTypeFor<R>>;
+/**
+ * The app's optimiser's answer (#1409): the week's duties, complete, by key.
+ * The Roster diffs it against the request by key — a key the request did not
+ * hold is a duty added, one it held with another row a duty changed, one
+ * missing a duty removed — and records the diff as one step of its history.
+ *
+ * @typeParam R - The app's duty row type
+ * @param row - The app's duty row type
+ * @returns The result type over it
+ * @remarks A new duty's key is the optimiser's own; a result equal to the request records nothing.
+ */
+export function RosterOptimiseResultTypeFor<R extends EastType>(row: R) {
+    return StructType({ duties: DictType(StringType, row) });
+}
+/** Type representing {@link RosterOptimiseResultTypeFor}. */
+export type RosterOptimiseResultTypeFor<R extends EastType> = ReturnType<typeof RosterOptimiseResultTypeFor<R>>;

@@ -45,9 +45,10 @@ import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { remainderOf } from "./actions.js";
 import { useBinFocusTarget } from "./bin-focus.js";
 import { currentOf, dropTarget, gripCoord, laneCoord, movedLinkOf, rowCoord, type AllocationDrag, type BoardGrip, type Target } from "./drag.js";
-import { cardEnd, dragFamilies, dragLine, familyOf, guideLines, layoutLinks, linkIds, type DragTarget, type FamilyLink, type LinkIds, type LinkView } from "./links.js";
+import { cardEnd, dragFamilies, dragLine, familyOf, guideLines, layoutLinks, linkIds, runLinks, type DragTarget, type FamilyLink, type LinkIds, type LinkView } from "./links.js";
 import { NarrowedEmpty } from "./narrowed.js";
 import { a, one, useNouns } from "./nouns.js";
+import type { AllocationBinOp, AllocationGhost, AllocationOptimised } from "./optimise.js";
 import {
     CARD_H, HOUR_W, LABEL_W, MIN_DAY, ROW_H, SHORT_DAY, axisFraction, axisSpan, laneGrid, resourceAxis, type LaneBand, type LaneCard, type ResourceAxis,
 } from "./timeline-layout.js";
@@ -59,6 +60,8 @@ import {
 /** The panes' head, the recipe's: the rows sit under it. */
 const HEAD = 48;
 const NO_ISSUES: readonly Issue[] = [];
+const NO_GHOSTS: readonly AllocationGhost[] = [];
+const NO_LINKS: readonly FamilyLink[] = [];
 
 /** How a selection asks to be followed (A12): `soft` leaves the resource pane where it is when the row is in view. */
 export interface TimelineFollow { nonce: number; soft: boolean }
@@ -125,6 +128,17 @@ export interface TimelineProps {
     read: PeriodRead;
     /** A started day with no bins, once read (CL13): what the first row in view says — `No bins on Wed 12 May` — and how to book one. */
     empty: { message: string; hint: string | undefined } | undefined;
+    /**
+     * What the runs of the app's optimiser left on the day's bins (#1409): each bin's operation, drawn on its card with
+     * its provenance on hover; the ghosts where the bins a run moved or removed stood; the lanes the latest run changed;
+     * and the links the runs added or changed, with the kilns they land on.
+     */
+    optimised?: AllocationOptimised | undefined;
+    /**
+     * Whether a run's highlight is on (#1409): the ghosts show, the lane heads the run changed flash, the runs' links
+     * draw outlined in the Elara tone over the focus's family, and the loads they land on glow with the cards.
+     */
+    lit?: boolean | undefined;
 }
 
 /** A refusing run's label (A27): `✕ Over max · 3 resources · by 4–13 m³`, over the rows it gathers. */
@@ -265,8 +279,12 @@ export function AllocationTimeline(props: TimelineProps) {
     const lanes = useMemo(() => value.lanes.filter(lane => props.visibleLanes.type === "none" || props.visibleLanes.value.has(lane.key)), [value.lanes, props.visibleLanes]);
     // A bin of an arrival the narrowing hides has no card; a reservation, which has no arrival, stays (#1339).
     const { visibleArrivals } = props;
+    // The ghosts of the bins the runs of the optimiser moved or removed, where they stood, for the highlight (#1409, R15):
+    // each a row of its slot's band after the slot's cards, and none once the highlight ends.
+    const optimised = props.optimised, lit = props.lit === true;
+    const ghosts = lit && optimised !== undefined ? optimised.ghosts : NO_GHOSTS;
     const grid = useMemo(() => laneGrid(lanes.map(lane => lane.key), slots, plan,
-        bin => visibleArrivals.type === "none" || bin.arrival.type === "none" || visibleArrivals.value.has(bin.arrival.value)), [lanes, slots, plan, visibleArrivals]);
+        bin => visibleArrivals.type === "none" || bin.arrival.type === "none" || visibleArrivals.value.has(bin.arrival.value), ghosts), [lanes, slots, plan, visibleArrivals, ghosts]);
     const axis = useMemo(() => resourceAxis(day, Number(words.ms(value.settings.horizon.before)), Number(words.ms(value.settings.horizon.after))),
         [day, value.settings.horizon, words]);
     const lines = useMemo(() => new Map(value.resources.map(r => [r.key, words.line(day, r, loads.get(r.key)!, unit)] as const)), [value.resources, loads, day, unit, words]);
@@ -325,7 +343,16 @@ export function AllocationTimeline(props: TimelineProps) {
     // families in its place. Every link of the day is numbered once, so a drag that starts on a focus's link draws it still.
     const ids = useMemo(() => linkIds(plan), [plan]);
     const family = useMemo(() => props.focus === undefined ? [] : familyOf(plan, held, props.focus, ids), [plan, held, props.focus, ids]);
-    const linking = family.length > 0 || grip !== undefined;
+    // The links the runs of the optimiser added or changed, for the highlight (#1409): outlined in the Elara tone, over the
+    // focus's family, which keeps its other links; none once the highlight ends.
+    const touched = lit && optimised !== undefined && optimised.links.size > 0 ? optimised.links : undefined;
+    const marked = useMemo(() => touched === undefined ? NO_LINKS : runLinks(plan, touched, ids), [touched, plan, ids]);
+    const shown = useMemo(() => {
+        if (marked.length === 0) return family;
+        const run = new Set(marked.map(link => link.id));
+        return [...marked, ...family.filter(link => !run.has(link.id))];
+    }, [marked, family]);
+    const linking = shown.length > 0 || grip !== undefined;
     const laneTop = useScrollTop(lanePane, linking || saying), rowsTop = useScrollTop(rscPane, linking || marking);
     // The fits out of view, marked at the pane's edge over the rows; a drop on it goes to the #1 (A31).
     const [rowsView, setRowsView] = useState(0);
@@ -384,7 +411,7 @@ export function AllocationTimeline(props: TimelineProps) {
     }, [plan, context.arrivals, words, unit]);
     const wordsOf = useCallback((link: FamilyLink): LinkWords => linkWords.get(link.bin)?.get(link.resource) ?? linkWordsOf("", undefined), [linkWords]);
     // The link under the pointer (A67): its bin's card and its resource's load bar ring.
-    const [lit, setLit] = useState<FamilyLink>();
+    const [linkLit, setLinkLit] = useState<FamilyLink>();
     // Under 36px a day, its tick shows its number only.
     const short = useContainerBelow(ruler, axis.days.length * SHORT_DAY);
     const time = useMemo(() => timeWords(props.format.locale), [props.format.locale]);
@@ -460,9 +487,9 @@ export function AllocationTimeline(props: TimelineProps) {
                             <Box as="span" css={styles.laneName} title={`${lane.label} takes one bin at :${minute} past each ${value.every.type === "hours" ? "hour" : "slot"}`}>
                                 {lane.label}<Box as="span" css={styles.laneOffset}>at :{minute}</Box>
                             </Box>
-                            {/* A day not read yet: its figures a placeholder; failed, blank (#1398). */}
+                            {/* A day not read yet: its figures a placeholder; failed, blank (#1398). A run of the optimiser that changed the lane's bins flashes them (#1409). */}
                             <Box as="span" css={styles.laneMeta} title={`Bins booked in this ${one(nouns.lane)} today${unit === "" ? "" : ` · ${unit}`}`}
-                                data-pending={unread ? "" : undefined}>
+                                data-pending={unread ? "" : undefined} data-opn={lit && optimised?.lanes.has(lane.key) === true ? "" : undefined}>
                                 {unread ? pending && <PlaceholderShape kind="aggregate" index={i} /> : <>{plural(head.bins, "bin")} · {words.quantity(head.quantity, unit)}</>}
                             </Box>
                         </Box>;
@@ -475,8 +502,17 @@ export function AllocationTimeline(props: TimelineProps) {
                     {grid.bands.map(band => <Box key={band.slot} css={styles.laneBand} style={{ "--band-row": band.row, "--band-span": band.span } as CSSProperties} data-allocation-band={band.slot}>
                         <Box as="span" css={styles.laneHour}>{formatDatePattern(value.every.type === "hours" ? "HH" : "HH:mm", band.at)}</Box>
                     </Box>)}
-                    {grid.cards.map(card => <Card key={card.id} card={card} props={props} lines={lines} flags={flags} lit={lit?.bin === card.id}
-                        refuses={taking !== undefined && !card.bin.parts.has(taking) && takes?.bins.get(card.id)?.type === "refused"} />)}
+                    {grid.cards.map(card => <Card key={card.id} card={card} props={props} lines={lines} flags={flags} lit={linkLit?.bin === card.id}
+                        refuses={taking !== undefined && !card.bin.parts.has(taking) && takes?.bins.get(card.id)?.type === "refused"} op={optimised?.ops.get(card.id)} />)}
+                    {/* The ghosts (#1409, R15): where a bin a run moved or removed stood, a dashed card of its words for the highlight, which nothing drags or selects. */}
+                    {grid.ghosts.map(place => {
+                        const ghost = ghosts[place.ghost]!;
+                        return <Box key={`ghost:${ghost.id}`} css={styles.card} data-allocation-ghost={ghost.id} data-op={ghost.op} aria-hidden="true" title={`${ghost.title} · ${ghost.where}`}
+                            style={{ "--card-lane": place.lane, "--card-row": place.row } as CSSProperties}>
+                            <Box as="span" css={styles.cardTop}><Box as="span" css={styles.cardCode}>{ghost.label}</Box></Box>
+                            <Box as="span" css={styles.cardLine}><Box as="span" css={styles.cardTo}>{ghost.where}</Box></Box>
+                        </Box>;
+                    })}
                     {/* Said once, across the lane cells of the first row in view (#1398): why the day could not be read, with
                         Retry (CL11), or that a started day has no bins, and how to book one (CL13). */}
                     {lineBand !== undefined && <Box css={styles.readLine} style={{ "--band-row": lineBand.row } as CSSProperties} data-allocation-read-line={read.state === "failed" ? "failed" : "empty"}>
@@ -510,12 +546,12 @@ export function AllocationTimeline(props: TimelineProps) {
                 const resource = rows[index]!;
                 const rank = drag.ranks.indexOf(resource.key);
                 return <ResourceRowView resource={resource} line={lines.get(resource.key)!} load={loads.get(resource.key)!} axis={axis} props={props}
-                    focusHold={focusHold} draft={drafted.has(resource.key)} lit={lit?.resource === resource.key}
+                    focusHold={focusHold} draft={drafted.has(resource.key)} lit={linkLit?.resource === resource.key} op={lit && optimised?.resources.has(resource.key) === true}
                     verdict={verdicts?.get(resource.key)} rank={ranking && rank >= 0 ? rank + 1 : undefined} preview={previews.get(resource.key)}
                     quantity={dragged?.quantity} today={pending} />;
             }} />
-        {view !== undefined && linking && <TimelineLinks props={props} family={family} ids={ids} cards={cardOf} rows={rowIndex}
-            view={{ ...view, laneTop, rowsTop }} words={wordsOf} onLit={setLit} />}
+        {view !== undefined && linking && <TimelineLinks props={props} family={shown} ids={ids} cards={cardOf} rows={rowIndex} under={marked.length > 0 && grip === undefined}
+            view={{ ...view, laneTop, rowsTop }} words={wordsOf} onLit={setLinkLit} />}
         {view !== undefined && grip !== undefined && <PointerLines props={props} root={root} cards={cardOf} rows={rowIndex} view={{ ...view, laneTop, rowsTop }} />}
     </Box>;
 }
@@ -535,8 +571,10 @@ const linkOf = (ribbon: LinkRibbon): FamilyLink => (ribbon as TimelineRibbon).li
 /** What the links read of the Timeline (A65–A69). */
 interface TimelineLinksProps {
     props: TimelineProps;
-    /** The focus's family: what draws with no drag under way. */
+    /** What draws with no drag under way: the focus's family, and the runs' links for the highlight (#1409). */
     family: readonly FamilyLink[];
+    /** Whether the layer runs behind the cards (#1409): while a run's links show, so its many links pass under the cards they cross, never over their words. */
+    under: boolean;
     ids: LinkIds;
     cards: ReadonlyMap<string, LaneCard>;
     rows: ReadonlyMap<string, number>;
@@ -554,7 +592,7 @@ interface TimelineLinksProps {
  * verdict. It reads where the drag rests itself, so nothing else of the board
  * renders as the drag moves (A35). Each link's line and caption is a grip.
  */
-function TimelineLinks({ props, family, ids, cards, rows, view, words, onLit }: TimelineLinksProps) {
+function TimelineLinks({ props, family, ids, cards, rows, view, words, onLit, under }: TimelineLinksProps) {
     const { drag, styles, plan, held } = props;
     const { grip } = drag;
     const nouns = useNouns();
@@ -577,7 +615,7 @@ function TimelineLinks({ props, family, ids, cards, rows, view, words, onLit }: 
     if (ribbons.length === 0) return null;
     const isSelected = (ribbon: LinkRibbon) => selected === ribbon.id;
     return <GripContext.Provider value={scope}>
-        <Box css={styles.links} data-allocation-links="" style={{ height: view.height }}>
+        <Box css={styles.links} data-allocation-links="" data-under={under ? "" : undefined} style={{ height: view.height }}>
             <LinksLayer ribbons={ribbons} width={view.channelRight} height={view.height} halo={false} lights={atRest}
                 onLit={id => onLit(id === null ? undefined : links.find(link => link.id === id))}
                 clip={{ left: view.gridLeft + HOUR_W, width: Math.max(0, view.channelRight - view.gridLeft - HOUR_W) }}
@@ -699,6 +737,8 @@ interface CardProps {
     card: LaneCard; props: TimelineProps; lines: ReadonlyMap<string, ResourceLine>; flags: readonly Issue[]; lit: boolean;
     /** During a resource card's drag, whether the fit refuses this bin on it (A32). */
     refuses: boolean;
+    /** What a run of the optimiser did to the bin (#1409, R7, R17), while it is still the run's draft: its mark, and its provenance on hover. */
+    op: AllocationBinOp | undefined;
 }
 type DragHandle = ReturnType<typeof useDragEventChip>;
 
@@ -731,7 +771,7 @@ function Card(args: CardProps) {
 }
 
 /** A card's body: what it says, from the drafts and the issues. */
-const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuses, body, port, attach }: CardProps & { body: DragHandle; port: DragHandle; attach: (el: HTMLElement | null) => void }) {
+const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuses, op: marked, body, port, attach }: CardProps & { body: DragHandle; port: DragHandle; attach: (el: HTMLElement | null) => void }) {
     const { styles, context, value, drag } = props;
     const { id, bin } = card;
     const words = allocationWords();
@@ -745,6 +785,8 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuse
     const committed = props.held?.bins.get(id);
     const draft = committed === undefined || !props.sameBin(committed, bin);
     const linkDraft = draft && (committed === undefined || !sameParts(committed.parts, bin.parts));
+    // A run's mark holds while the bin is still the run's draft (R17): an Undo that takes the run back leaves none.
+    const op = draft ? marked : undefined;
     // Selected, or one of the bins the Library's Allocated card highlights (A10).
     const selected = (props.selection?.type === "bin" && props.selection.id === id) || (props.highlight !== undefined && bin.arrival.type === "some" && bin.arrival.value === props.highlight);
     // Outside the focus, a card dims (A13): any but the selected one and the focus's own.
@@ -777,10 +819,10 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuse
     const connector = resource === undefined
         ? `Drag the connector onto ${a(nouns.resource)} to allocate ${reserved ? "this reservation" : code} · click to choose one`
         : `Allocated to ${to} · drag the connector onto ${a(nouns.resource)} to move it · click to choose another`;
-    return <Box {...body} ref={attach} css={styles.card} role="button" tabIndex={0} title={tip} aria-label={tip} aria-pressed={selected}
+    return <Box {...body} ref={attach} css={styles.card} role="button" tabIndex={0} title={op === undefined ? tip : `${op.provenance} · ${tip}`} aria-label={tip} aria-pressed={selected}
         data-scope="allocation" data-allocation-card={id} data-resources={parts.map(p => p.key).join(" ")} data-reserved={reserved ? "" : undefined}
         data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined} data-dim={dim ? "" : undefined} data-link-lit={lit ? "" : undefined}
-        data-refuses={refuses ? "" : undefined}
+        data-refuses={refuses ? "" : undefined} data-op={op?.op} data-fill={op === undefined ? undefined : "own"}
         data-draggable={body !== undefined ? "" : undefined} style={{ "--card-lane": card.lane, "--card-row": card.row } as CSSProperties}
         onPointerDown={event => { drag.arm({ kind: "body", bin: id }); body?.onPointerDown?.(event); }}
         onClick={() => props.select({ type: "bin", id })}
@@ -808,6 +850,8 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuse
 
 interface ResourceRowProps {
     resource: ResourceRow; line: ResourceLine; load: Load; axis: ResourceAxis; props: TimelineProps; focusHold: { from: Date; to: Date } | undefined; draft: boolean; lit: boolean;
+    /** Whether a run of the optimiser added or changed a link into it, for the highlight (#1409): its load takes the landing and the glow with the cards. */
+    op: boolean;
     /** During a connector's or a link's drag: the fit's verdict here, its rank among the three best, the load it would leave for the hold, and the quantity it carries. */
     verdict: Fit | undefined; rank: number | undefined; preview: { after: number; to: Date } | undefined; quantity: number | undefined;
     /**
@@ -836,7 +880,7 @@ function ResourceRowView(args: ResourceRowProps) {
 }
 
 /** A resource's row: its label cell and its plot. */
-const ResourceRowBody = memo(function ResourceRowBody({ resource, line, load, axis, props, focusHold, draft, lit, verdict, rank, preview, quantity, today, drop }: ResourceRowProps & { drop: (el: HTMLElement | null) => void }) {
+const ResourceRowBody = memo(function ResourceRowBody({ resource, line, load, axis, props, focusHold, draft, lit, op, verdict, rank, preview, quantity, today, drop }: ResourceRowProps & { drop: (el: HTMLElement | null) => void }) {
     const { styles, context, day } = props;
     const words = allocationWords();
     const focus = props.focus === resource.key;
@@ -873,9 +917,10 @@ const ResourceRowBody = memo(function ResourceRowBody({ resource, line, load, ax
             {mondays.map(monday => <Box key={monday.getTime()} css={styles.weekRule} style={{ left: `${axisFraction(axis, monday) * 100}%` }} />)}
             {resource.jobs.map((job, i) => bar(`job:${i}`, job.start, job.end,
                 { "data-kind": job.start.getTime() <= day.getTime() ? "prior" : "next", "data-refusal": about(job) ? "" : undefined }, job.label))}
+            {/* A run's link into it, for the highlight (#1409): its load takes the landing's flare and the steady glow, its own fill kept. */}
             {loadSpan !== undefined && hold !== undefined && <Box css={styles.bar} style={loadSpan} data-kind="load" data-allocation-load=""
                 data-draft={draft ? "" : undefined} data-over={line.over ? "" : undefined} data-focus={focus ? "" : undefined} data-link-lit={lit ? "" : undefined}
-                data-refusal={measure?.type === "amount" ? "" : undefined}>
+                data-refusal={measure?.type === "amount" ? "" : undefined} data-op={op ? "chg" : undefined} data-fill={op ? "own" : undefined}>
                 <Box as="span" css={styles.barLabel}>{load.fill > 0 ? words.quantity(load.fill, context.unit) : "reserved"}</Box>
             </Box>}
             {/* Today's load, a day not read yet: a placeholder rect where it starts (#1398). */}

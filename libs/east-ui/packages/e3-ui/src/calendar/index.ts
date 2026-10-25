@@ -9,9 +9,12 @@ import {
 } from "@elaraai/east";
 import { EastUI, type UIElement } from "@elaraai/east-ui";
 import { RecordSliceConfigType, RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
+import { FuncBindingType } from "../bind/func.js";
+import type { OptimiseHandle } from "../utils/optimise.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { Schedule, scheduleCheck, scheduleTitled, type ScheduleNamespace } from "../schedule/index.js";
 import { checkSchedulePagedEventKinds, checkSchedulePagedKinds, checkedScheduleTilings } from "../schedule/cell-checks.js";
+import { ScheduleOptimiseRequestTypeFor, ScheduleOptimiseResultTypeFor, scheduleOptimiseBinding } from "../schedule/optimise.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleAuthorTabType, buildScheduleTab, type ScheduleTabDeclaration, type ScheduleLibraryTabConfig } from "../schedule/library.js";
@@ -44,12 +47,15 @@ export const CalendarSettingsType = StructType({
  * @property narrowed - Each source's narrowed keys, paged through its own data, by the source's name — a resource
  *   kind's read whole narrow its columns, rows and Choosers, a templates list's and a tab's their cards; an event kind
  *   reads its own narrowing through its part, and a paged resource kind its windows
+ * @property optimise - The app's optimiser, by its `e3.function`'s name (#1409): what the Elara eye calls over the window in
+ *   view, its result one edit of the session; `none`, no eye
  */
 export const CalendarPayloadType = StructType({
     events: ArrayType(ScheduleKindType), resources: ArrayType(ScheduleResourcesType), paged: OptionType(CalendarPagedType), settings: CalendarSettingsType,
     library: ArrayType(CalendarLibraryTabType), inspector: BooleanType, slice: OptionType(RecordSlicesChromeType),
     narrowed: DictType(StringType, RowSourceType(ArrayType(StringType))),
     canDrop: OptionType(FunctionType([ScheduleCandidateType], OptionType(StringType))),
+    optimise: OptionType(FuncBindingType),
     onSelect: OptionType(FunctionType([ScheduleEventRefType], NullType)), id: OptionType(StringType),
 });
 /** The extension carrier registered by e3-ui-components. */
@@ -114,6 +120,16 @@ export interface CalendarProps {
     now?: SubtypeExprOrValue<DateTimeType>;
     /** Refuses a candidate placement with a message; none permits it. */
     canDrop?: SubtypeExprOrValue<FunctionType<[typeof ScheduleCandidateType], OptionType<StringType>>>;
+    /**
+     * The app's optimiser (#1409): `Func.bind` of its `e3.function` from `Calendar.Types.OptimiseRequest(E, S)` — the window in
+     * view, the run number, every event kind's rows in the window and its backlog by slot and by key, and the resource kinds'
+     * rows as context — to `Calendar.Types.OptimiseResult(E)`, the events complete. `E` and `S` are the kinds' row types by slot
+     * (`Calendar.Types.OptimiseRequest({ job: Job }, { machines: Machine })`); a kind keyed otherwise than by String gives its
+     * record type, `DictType(K, R)`. The Elara eye in the toolbar calls it once per run; the result lands in the session as one
+     * edit, which one Undo reverts and Save commits with everything else. Omitted, no eye. The tag cannot see its kinds' row
+     * types in TypeScript, so it checks the handle at build, and refuses one over other rows naming both.
+     */
+    optimise?: OptimiseHandle;
     /** Observes each selected event's kind and record key. */
     onSelect?: SubtypeExprOrValue<FunctionType<[typeof ScheduleEventRefType], NullType>>;
     /** Keeps this calendar's view, library, panes and editing history distinct. */
@@ -128,14 +144,15 @@ export interface CalendarProps {
  * @throws {Error} When kinds or library tabs are invalid, a kind has no `title` (#1367), working hours are outside the
  *   day, `slice` is not `Slice.bindRecords` or names a source no kind, templates list or tab names, a templates list is
  *   written in the code or names no source of the slice (templates are records, #1340), or a tab names a source the
- *   slice lacks; more than one resource kind is paged, or an event kind is placed on the paged kind and on another, or
- *   with no source of the slice — its record read whole, or the days in view read through its day index — each naming
- *   the series and summary indexes to declare over the kind's own fields (#1424). The series and summary indexes an
- *   event kind's source lists are refused in the same words as the Calendar is evaluated, the source's indexes read
- *   only then: one filed by another field than the kind's resource, or over other times than its events'; a series
- *   index for a kind not placed on the paged kind alone; two series, or two summaries, by one tile over the same
- *   fields; a series index with no summary beside it; and, for a kind on the paged kind, a source listing no series
- *   index
+ *   slice lacks, or `optimise` is not `Func.bind` of a function from `OptimiseRequest(E, S)` to `OptimiseResult(E)` over
+ *   the kinds' rows (#1409); more than one resource kind is paged, or an event kind is placed on the paged kind and on
+ *   another, or with no source of the slice — its record read whole, or the days in view read through its day index —
+ *   each naming the series and summary indexes to declare over the kind's own fields (#1424). The series and summary
+ *   indexes an event kind's source lists are refused in the same words as the Calendar is evaluated, the source's
+ *   indexes read only then: one filed by another field than the kind's resource, or over other times than its events';
+ *   a series index for a kind not placed on the paged kind alone; two series, or two summaries, by one tile over the
+ *   same fields; a series index with no summary beside it; and, for a kind on the paged kind, a source listing no
+ *   series index
  * @internal
  */
 export function createCalendarPayload(props: CalendarProps): ExprType<typeof CalendarPayloadType> {
@@ -150,6 +167,8 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
     const hours = props.hours ?? { from: 6n, to: 22n };
     if (hours.from < 0n || hours.to > 24n || hours.from >= hours.to) throw new Error("Calendar: hours must satisfy 0 <= from < to <= 24");
     const events = Object.entries(props.events);
+    // The app's optimiser (#1409), held to the kinds' rows by slot.
+    const optimise = props.optimise === undefined ? undefined : scheduleOptimiseBinding("Calendar", props.optimise, events, Object.entries(resources));
     // Every templates list is a record of its own, naming its source of the slice (#1340): one written in the code,
     // or naming none the slice holds, is refused before a source no list names is, so the refusal says the change. A
     // slice of another kind is refused below, as such.
@@ -201,6 +220,7 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
             slice: narrowing.chrome,
             narrowed: new Map(narrowing.names.map(source => [source, bound.keys[source] as never])),
             canDrop: props.canDrop === undefined ? none : some(props.canDrop),
+            optimise: optimise === undefined ? none : some(optimise),
             onSelect: props.onSelect === undefined ? none : some(props.onSelect), id: props.id === undefined ? none : some(props.id),
         }, CalendarPayloadType);
     }) as ExprType<typeof CalendarPayloadType>;
@@ -212,8 +232,14 @@ export interface CalendarNamespace extends Omit<ScheduleNamespace, "Types"> {
     (props: CalendarProps): UIElement;
     /** Declares the library's tabs. */
     library: { templates: typeof templatesTab; backlog: typeof backlogTab; tab: typeof authorTab };
-    /** Shared schedule types and Calendar's view state. */
-    Types: ScheduleNamespace["Types"] & { Layout: typeof CalendarLayoutType; Period: typeof CalendarPeriodType; View: typeof CalendarViewType };
+    /** Shared schedule types, Calendar's view state, and the optimiser's request and answer over its kinds (#1409). */
+    Types: ScheduleNamespace["Types"] & {
+        Layout: typeof CalendarLayoutType; Period: typeof CalendarPeriodType; View: typeof CalendarViewType;
+        /** `OptimiseRequest(E, S)` — what the app's optimiser is asked: the window, the run, every event kind's rows and the resource kinds' by slot. */
+        OptimiseRequest: typeof ScheduleOptimiseRequestTypeFor;
+        /** `OptimiseResult(E)` — what it answers: the events, complete. */
+        OptimiseResult: typeof ScheduleOptimiseResultTypeFor;
+    };
 }
 
 /**
@@ -253,5 +279,6 @@ export interface CalendarNamespace extends Omit<ScheduleNamespace, "Types"> {
 export const Calendar: CalendarNamespace = Object.assign(
     (props: CalendarProps): UIElement => CalendarComponent.Root(createCalendarPayload(props)),
     { ...Schedule, library: { templates: templatesTab, backlog: backlogTab, tab: authorTab },
-        Types: { ...Schedule.Types, Layout: CalendarLayoutType, Period: CalendarPeriodType, View: CalendarViewType } },
+        Types: { ...Schedule.Types, Layout: CalendarLayoutType, Period: CalendarPeriodType, View: CalendarViewType,
+            OptimiseRequest: ScheduleOptimiseRequestTypeFor, OptimiseResult: ScheduleOptimiseResultTypeFor } },
 );

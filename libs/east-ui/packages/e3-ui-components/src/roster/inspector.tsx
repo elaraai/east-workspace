@@ -53,7 +53,8 @@ export function RosterIssues({ props, issues }: { props: Args; issues: readonly 
             else if (issue.slot.type === "some") props.select({ type: "slot", slot: issue.slot.value });
         }}>{issue.title}</chakra.button><Box css={props.styles.issueDetail}>{issue.detail}</Box>
         {/* A find edits nothing, so it is offered on a week that can't be edited — but only with the app's fit, which decides who fits. */}
-        {issue.fix.type === "some" && (issue.fix.value.type === "find" ? props.find.offered : props.commands.available) && <Box css={props.styles.issueActions}><Button size="xs" variant="outline" onClick={() => props.onError(props.commands.fix(issue))}>{fixLabel(issue, props)}</Button></Box>}
+        {issue.fix.type === "some" && (issue.fix.value.type === "find" ? props.find.offered : props.commands.available || props.commands.locked !== undefined) && <Box css={props.styles.issueActions}>
+            <Button size="xs" variant="outline" disabled={props.commands.locked !== undefined} title={props.commands.locked} onClick={() => props.onError(props.commands.fix(issue))}>{fixLabel(issue, props)}</Button></Box>}
     </Box>)}</>;
 }
 function PersonFacts({ props, person, slot }: { props: Args; person: Person; slot?: Slot }) {
@@ -196,7 +197,7 @@ function Details({ props }: { props: Args }) {
         if (p !== undefined) return <><ScheduleInspectorHead styles={props.styles} kind={{ name: "Model proposal", icon: "wand-magic-sparkles" }} title={props.value.people.find(person => person.key === p.person)?.name ?? p.person}
             when={`${props.value.groups.find(g => g.key === p.slot.group)?.label} · ${props.value.shifts.find(s => s.key === p.slot.shift)?.label} · ${props.format.weekdayDate(dayOfSlot(props.start, p.slot))}`} />
             <Box css={props.styles.section}><Box css={props.styles.title}>Why this duty</Box><Box css={props.styles.detail}>{p.reason}</Box>
-                {props.commands.available && <Box css={props.styles.actions}><Button size="xs" variant="outline" onClick={() => props.onError(props.commands.accept(p.key))}>Accept proposal</Button>{dismissible(props.value) && <Button size="xs" variant="ghost" onClick={() => props.commands.reject(p.key)}>Reject proposal</Button>}</Box>}
+                {(props.commands.available || props.commands.locked !== undefined) && <Box css={props.styles.actions}><Button size="xs" variant="outline" disabled={props.commands.locked !== undefined} title={props.commands.locked} onClick={() => props.onError(props.commands.accept(p.key))}>Accept proposal</Button>{dismissible(props.value) && <Button size="xs" variant="ghost" disabled={props.commands.locked !== undefined} title={props.commands.locked} onClick={() => props.commands.reject(p.key)}>Reject proposal</Button>}</Box>}
             </Box></>;
     }
     if (selection?.type === "person" || selection?.type === "personWeek") {

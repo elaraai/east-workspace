@@ -31,7 +31,7 @@ const WORDS: EditingWords = { ...formatters("en-US"), m: MARKED };
 const start = some(variant("ordered", variant("start", null)));
 const version = (end: bigint): EntryVersion<string> => ({ draft: liftDraft(Draft, { id: "a", end }), wire: `a to ${end}`, place: start });
 
-function setup() {
+function setup(locked = false) {
     const session = new EditSession<string>({
         sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
@@ -39,7 +39,7 @@ function setup() {
     session.observeBase(variant("snapshot", [{ id: "a", end: 1n }]));
     const onAction = vi.fn<(action: HistoryAction) => void>();
     const onIssue = vi.fn<(issue: EditIssue) => void>();
-    const bar = () => <ChakraProvider value={system}><HistoryBar session={session} words={WORDS} editing={false} onAction={onAction} onIssue={onIssue} /></ChakraProvider>;
+    const bar = () => <ChakraProvider value={system}><HistoryBar session={session} words={WORDS} editing={false} onAction={onAction} onIssue={onIssue} locked={locked} /></ChakraProvider>;
     const utils = render(bar());
     return { ...utils, session, onAction, onIssue, refresh: () => utils.rerender(bar()) };
 }
@@ -55,6 +55,21 @@ test("the bar speaks the words its collection hands it, and each action is the c
     fireEvent.click(ui.getByRole("button", { name: "⟦Undo" }));
     fireEvent.click(ui.getByRole("button", { name: "⟦Save" }));
     expect(ui.onAction.mock.calls.map(([action]) => action)).toEqual(["undo", "apply"]);
+});
+
+test("locked while a run of the optimiser is out (#1409, R2): each action aria-disabled and refused, none disabled, the issues still reachable", () => {
+    const ui = setup(true);
+    ui.session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
+    ui.refresh();
+    expect(ui.container.querySelector('[data-slot="history"]')!.hasAttribute("data-history-locked")).toBe(true);
+    for (const name of ["⟦Undo", "⟦Redo", "⟦Discard", "⟦Save"]) {
+        const button = ui.getByRole("button", { name }) as HTMLButtonElement;
+        expect([name, button.getAttribute("aria-disabled")]).toEqual([name, "true"]);
+        fireEvent.click(button);
+    }
+    // Undo and Save could run, were the bar not locked: they keep their size and their focus, and run nothing.
+    expect((ui.getByRole("button", { name: "⟦Undo" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(ui.onAction).not.toHaveBeenCalled();
 });
 
 test("an incomplete draft counts as an issue the bar goes to; the status and the session's own error are worded, a host's error shown as written", () => {
