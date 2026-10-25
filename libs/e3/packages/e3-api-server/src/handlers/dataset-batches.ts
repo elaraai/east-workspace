@@ -173,6 +173,11 @@ export interface DatasetBatchLimits {
   /** The byte budget an answer's rows are clamped to (default
    *  {@link PAGE_BYTE_BUDGET_DEFAULT}). */
   byteBudget?: number;
+  /** The stored bytes of the record segments one read of nearby rows reads at
+   *  most, the first entry's segment always (default the byte budget, else
+   *  {@link PAGE_BYTE_BUDGET_DEFAULT}): what one request of it decodes,
+   *  however thinly the narrowing's rows lie over its record. */
+  segmentBudget?: number;
 }
 
 /**
@@ -364,9 +369,21 @@ async function rowsOfRuns(
   });
 }
 
-/** Each key's row, or its absence, and its position, from the segments that
- *  can hold the keys, each read once. */
-async function rowsAt(
+/**
+ * Each key's row, or its absence, and its position — its row's place in the
+ * Dict's canonical order, or the place it would take — from the segments that
+ * can hold the keys, each read once, several at a time, through the decoded
+ * segments the API process keeps.
+ *
+ * @param storage - The backend the Dict is read through
+ * @param repoPath - The repository it is in
+ * @param segments - The opened Dict
+ * @param keys - The keys, East values of its key type, in any order
+ * @param keyType - Its key type
+ * @returns Each key's row, or none, and its position, in the keys' order
+ * @throws {SegmentCorruptError} When a segment does not hold what its manifest says of it
+ */
+export async function rowsAt(
   storage: StorageBackend, repoPath: string, segments: DatasetSegments, keys: readonly unknown[], keyType: EastTypeValue,
 ): Promise<{ key: unknown; row: option<unknown>; position: bigint }[]> {
   if (segments.segmentCount === 0) return keys.map((key) => ({ key, row: none, position: 0n }));

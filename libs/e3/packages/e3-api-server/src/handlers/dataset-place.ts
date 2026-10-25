@@ -14,11 +14,16 @@
  * - `within`: which of some index entries the runs hold — each run a stretch
  *   of the index's rows, so an entry is in it when it falls between the run's
  *   first and last entries in the index's order, and only those boundary
- *   entries are read, at most two index segments a run.
+ *   entries are read, at most two index segments a run;
+ * - `near`: the record's rows within a distance of the runs' rows, in the
+ *   record's order — each entry's row found in its record segment, which is
+ *   read — as spans a window of the runs at a time: what the Sheet's lens
+ *   counts its context rows by.
  *
- * Neither evaluates anything over a row: the index holds what its maintained
- * key functions emitted, and both reads use only that. Each reads every segment
- * it touches once, through the decoded segments the API process keeps.
+ * None evaluates anything over a row: the index holds what its maintained key
+ * functions emitted, and every read uses only that and the record's own order.
+ * Each reads every segment it touches once, through the decoded segments the
+ * API process keeps.
  *
  * @packageDocumentation
  */
@@ -27,11 +32,11 @@ import { parseFor, segmentKeyTypeOf, type EastTypeValue } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
 import type { DatasetSegments, StorageBackend } from '@elaraai/e3-core/portable';
 import { sendJsonError } from '../errors.js';
-import { DATASET_BATCH_MAX, runsRefusal, type DatasetBatchLimits } from './dataset-batches.js';
+import { DATASET_BATCH_MAX, rowsAt, runsRefusal, type DatasetBatchLimits } from './dataset-batches.js';
 import {
   PAGE_BYTE_BUDGET_DEFAULT, PAGE_MAX_LIMIT, cachedSegments, corruptRefusal, elementsOf, indexOf, pageError, readDataset, type RowSpan,
 } from './dataset-reads.js';
-import { comparators } from './segments.js';
+import { SegmentCorruptError, comparators } from './segments.js';
 
 /** What a placement places, for {@link placeDatasetRuns}. */
 export interface DatasetPlaceRequest {
@@ -110,13 +115,7 @@ export async function placeDatasetRuns(
     const refused = runsRefusal(request.runs, index.elementCount);
     if (refused !== undefined) return pageError('bad_request', refused);
     const entries = request.runs.reduce((sum, [, count]) => sum + count, 0);
-
-    // A covering index page's bounds: the hard cap, and the byte budget by the
-    // index's average entry.
-    const byteBudget = limits.byteBudget ?? PAGE_BYTE_BUDGET_DEFAULT;
-    const perEntry = index.elementCount > 0 ? index.bytes / index.elementCount : 1;
-    const bound = Math.max(1, Math.min(PAGE_MAX_LIMIT, Math.floor(byteBudget / Math.max(1, perEntry))));
-    const placed = Math.max(0, Math.min(limit, bound, entries - offset));
+    const placed = Math.max(0, Math.min(limit, windowBound(index, limits), entries - offset));
 
     let segments: DatasetPlacedSegment[];
     try {
@@ -260,6 +259,117 @@ export async function withinDatasetRuns(
   }
 }
 
+/** What a read of the rows near a narrowing's rows asks, for {@link nearDatasetRuns}. */
+export interface DatasetNearRequest {
+  /** The index the runs are rows of. */
+  index: string;
+  /** The narrowing's runs of the index's rows, `[row, count]`: ascending,
+   *  disjoint, each inside the index — at most {@link DATASET_BATCH_MAX}. */
+  runs: readonly (readonly [number, number])[];
+  /** How many of the record's rows either side of a row, in its order, are
+   *  near it: a whole number at least 1. */
+  distance: number;
+  /** The runs' first entry the read reads, counting through them as one
+   *  sequence (0 when absent). */
+  offset?: number;
+  /** How many of the runs' entries it reads at most; its bounds clamp it. */
+  limit?: number;
+  /** The record's content hash the runs are positions at: a stale one is
+   *  refused with 409. */
+  hash: string;
+}
+
+/**
+ * The record's rows near a window of a narrowing's rows: each of the window's
+ * entries' rows, and the `distance` rows either side of it in the record's
+ * order, as half-open spans of the record's rows.
+ *
+ * @remarks
+ * The window's entries are read from the index's own segments, as a placement
+ * reads them, and each entry's row — its primary key, `k` — is found in the
+ * record: placed in the record segment that holds it by the record's fences,
+ * and found among that segment's keys, each such segment read once through
+ * the decoded segments the API process keeps. Each row reaches `distance`
+ * rows either side, clipped to the record, and the reaches are merged, so the
+ * answer's spans are ascending, disjoint and never touching. Nothing is
+ * evaluated over a row.
+ *
+ * The window is a page's at most, as a placement's is, and it stops before an
+ * entry whose record segment would take the record segments it reads past the
+ * segment budget, by their stored bytes — the page byte budget unless the
+ * limits name their own, and the first entry's segment always read — so a
+ * narrowing whose rows are spread thin over a large record is read a bounded
+ * number of segments a request. Responds with JSON `{ spans: [[from,
+ * to], …], placed }`, `placed` how many of the runs' entries the window read:
+ * the caller asks again from `offset + placed`. A record Slice's runs name
+ * each row once, so the union of every window's spans holds the narrowing's
+ * own rows and those near them: its size less the runs' entries is how many
+ * rows lie near the narrowing's and are none of them — the Sheet's lens's
+ * context rows.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param workspace - Workspace name
+ * @param treePath - The record's path
+ * @param request - The index, its runs, the distance, the window and the pin
+ * @param limits - The byte budget, and the segment budget
+ * @returns The spans, or a JSON refusal
+ */
+export async function nearDatasetRuns(
+  storage: StorageBackend,
+  repoPath: string,
+  workspace: string,
+  treePath: TreePath,
+  request: DatasetNearRequest,
+  limits: DatasetBatchLimits = {},
+): Promise<Response> {
+  try {
+    if (request.runs.length > DATASET_BATCH_MAX) {
+      return pageError('bad_request', `A read of nearby rows takes at most ${DATASET_BATCH_MAX} runs; this one has ${request.runs.length}`);
+    }
+    if (!Number.isSafeInteger(request.distance) || request.distance < 1) {
+      return pageError('bad_request', `distance ${request.distance} is not a whole number of rows at least 1`);
+    }
+    const offset = request.offset ?? 0;
+    const limit = request.limit ?? PAGE_MAX_LIMIT;
+    if (!Number.isSafeInteger(offset) || offset < 0) return pageError('bad_request', `offset ${offset} is not a row at least 0`);
+    if (!Number.isSafeInteger(limit) || limit < 0) return pageError('bad_request', `limit ${limit} is not a count at least 0`);
+    const opened = await openIndexed(storage, repoPath, workspace, treePath, request.index, request.hash, 'a read of nearby rows');
+    if (opened instanceof Response) return opened;
+    const { hash, index, primary } = opened;
+    const refused = runsRefusal(request.runs, index.elementCount);
+    if (refused !== undefined) return pageError('bad_request', refused);
+    const entries = request.runs.reduce((sum, [, count]) => sum + count, 0);
+    const read = Math.max(0, Math.min(limit, windowBound(index, limits), entries - offset));
+
+    let spans: [number, number][];
+    let placed: number;
+    try {
+      const window = windowSpans(request.runs, offset, read);
+      const pairs = await elementsOf(storage, repoPath, index, window) as [{ k: unknown }, unknown][];
+      const segmentBudget = limits.segmentBudget ?? limits.byteBudget ?? PAGE_BYTE_BUDGET_DEFAULT;
+      const rows = await rowsOfEntries(storage, repoPath, primary, pairs.map(([entry]) => entry.k), segmentBudget,
+        (i) => `row ${entryRow(window, i)} of index '${request.index}'`);
+      spans = reach(rows, request.distance, primary.elementCount);
+      placed = rows.length;
+    } catch (err) {
+      return corruptRefusal(err, 'dataset_not_canonical');
+    }
+    return new Response(JSON.stringify({ spans, placed }), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store',
+        'X-Content-SHA256': hash,
+        'X-Total-Elements': String(primary.elementCount),
+        'X-Run-Entries': String(entries),
+      },
+    });
+  } catch (err) {
+    return sendJsonError(err);
+  }
+}
+
 /** A record's index opened for a read of where its rows sit. */
 interface Indexed {
   /** The record's content hash. */
@@ -287,6 +397,79 @@ async function openIndexed(
 }
 
 /**
+ * The most entries a window of a narrowing's runs holds: a covering index
+ * page's bounds — the hard cap, and the byte budget by the index's average
+ * entry.
+ */
+function windowBound(index: DatasetSegments, limits: DatasetBatchLimits): number {
+  const byteBudget = limits.byteBudget ?? PAGE_BYTE_BUDGET_DEFAULT;
+  const perEntry = index.elementCount > 0 ? index.bytes / index.elementCount : 1;
+  return Math.max(1, Math.min(PAGE_MAX_LIMIT, Math.floor(byteBudget / Math.max(1, perEntry))));
+}
+
+/**
+ * Each index entry's row in its record — its place in the record's order — for
+ * the entries' keys in order, as far as the record segments they fall in stay
+ * within a byte budget by their stored bytes: the keys are taken until the
+ * next would bring in a segment past it, the first key's segment always.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param primary - The record's own collection
+ * @param keys - The entries' primary keys, in the index's order
+ * @param byteBudget - The stored bytes of the record segments read, at most
+ * @param entryAt - Names the `i`th entry, as a refusal names it
+ * @returns The rows of the keys taken: as many as the budget reaches, in order
+ * @throws {SegmentCorruptError} When a key is none of the record's: the index names a row its record does not hold
+ */
+async function rowsOfEntries(
+  storage: StorageBackend, repo: string, primary: DatasetSegments, keys: readonly unknown[], byteBudget: number, entryAt: (i: number) => string,
+): Promise<number[]> {
+  const segments = new Set<number>();
+  let bytes = 0;
+  let taken = 0;
+  for (const key of keys) {
+    const owner = await primary.segmentFor(key);
+    if (!segments.has(owner)) {
+      const more = primary.segmentBytes(owner);
+      if (segments.size > 0 && bytes + more > byteBudget) break;
+      segments.add(owner);
+      bytes += more;
+    }
+    taken++;
+  }
+  const found = await rowsAt(storage, repo, primary, keys.slice(0, taken), segmentKeyTypeOf(primary.typeValue)!);
+  return found.map((answer, i) => {
+    if (answer.row.type !== 'some') {
+      throw new SegmentCorruptError(`${entryAt(i)} names a row its record does not hold — the index and its record disagree`);
+    }
+    return Number(answer.position);
+  });
+}
+
+/**
+ * What some rows reach: each row and the `distance` rows either side of it,
+ * clipped to the record's `[0, records)`, merged — half-open spans, ascending,
+ * disjoint and never touching.
+ *
+ * @param rows - The rows, in any order
+ * @param distance - How far each reaches either side
+ * @param records - The record's row count
+ * @returns The spans, `[from, to)`
+ */
+function reach(rows: readonly number[], distance: number, records: number): [number, number][] {
+  const spans: [number, number][] = [];
+  for (const row of Float64Array.from(rows).sort()) {
+    const from = Math.max(0, row - distance);
+    const to = Math.min(records, row + distance + 1);
+    const last = spans[spans.length - 1];
+    if (last !== undefined && from <= last[1]) last[1] = Math.max(last[1], to);
+    else spans.push([from, to]);
+  }
+  return spans;
+}
+
+/**
  * A window of runs as spans of their rows: the runs' entries `[offset,
  * offset + count)`, counting through them as one sequence.
  */
@@ -303,6 +486,16 @@ function windowSpans(runs: readonly (readonly [number, number])[], offset: numbe
     skip = 0;
   }
   return spans;
+}
+
+/** The index's row of a window's `i`th entry, the window's spans as {@link windowSpans} gives them. */
+function entryRow(window: readonly RowSpan[], i: number): number {
+  let skip = i;
+  for (const { from, to } of window) {
+    if (skip < to - from) return from + skip;
+    skip -= to - from;
+  }
+  throw new Error(`entry ${i} lies past a window of ${i - skip} entries`);
 }
 
 /**

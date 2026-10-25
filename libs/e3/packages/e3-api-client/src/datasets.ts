@@ -1208,6 +1208,101 @@ export async function datasetWithin(
   return { within: body.within, hash: response.headers.get('X-Content-SHA256') ?? '' };
 }
 
+/** A window of a narrowing's runs whose rows' neighbours a read asks for, for {@link datasetNear}. */
+export interface DatasetNearQuery {
+  /** The index the runs are rows of. */
+  index: string;
+  /** The narrowing's runs of the index's rows, `[row, count]`: ascending,
+   *  disjoint, each inside the index — at most {@link DATASET_BATCH_MAX}. */
+  runs: readonly (readonly [number, number])[];
+  /** How many of the record's rows either side of a row, in its order, are
+   *  near it: a whole number at least 1. */
+  distance: number;
+  /** The runs' first entry it reads, counting through them as one sequence
+   *  (0 when absent). */
+  offset?: number;
+  /** How many of the runs' entries it reads at most; its bounds clamp it. */
+  limit?: number;
+  /** The record's content hash the runs are positions at. */
+  hash: string;
+}
+
+/** The record's rows near a window of a narrowing's rows. */
+export interface DatasetNear {
+  /** Each of the window's entries' rows and the rows within the distance of
+   *  it, as half-open spans `[from, to)` of the record's rows: ascending,
+   *  disjoint and never touching. */
+  spans: [number, number][];
+  /** How many of the runs' entries it read, from the offset asked: the caller
+   *  asks again from `offset + placed` for the rest. */
+  placed: number;
+  /** How many entries the runs hold. */
+  runEntries: number;
+  /** The record's row count. */
+  totalElements: number;
+  /** The content hash the answer is of. */
+  hash: string;
+}
+
+/**
+ * Read the record's rows near a window of a narrowing's runs of one of its
+ * indexes: each entry's row, and the rows within a distance of it in the
+ * record's order, as spans — the context a view draws beside each of a
+ * narrowing's rows, counted without reading the record into the client.
+ *
+ * @remarks
+ * The server reads the window's entries from the index's own segments, finds
+ * each entry's row in the record segment that holds it, and merges what each
+ * row reaches. The window is held to a page's bounds, and stops before the
+ * record segments it reads would pass the page byte budget: it reads the first
+ * {@link DatasetNear.placed} entries from the offset, and the caller asks
+ * again for the rest. A narrowing's runs name each row once, so the union of
+ * every window's spans holds the narrowing's rows and those near them, and its
+ * size less {@link DatasetNear.runEntries} is how many rows lie near the
+ * narrowing's and are none of them.
+ *
+ * @param url - Base URL of the e3 API server
+ * @param repo - Repository name
+ * @param workspace - Workspace name
+ * @param path - Path to the record
+ * @param query - The index, its runs, the distance, the window and the pin
+ * @param options - Request options including auth token
+ * @returns The spans the window's rows reach, and how many entries it read
+ * @throws {DatasetHashMismatchError} When the runs are pinned to a hash the
+ *   record no longer holds; its `currentHash` names the one it does
+ * @throws {ApiError} On application-level errors: a distance that is no whole
+ *   number at least 1, runs that are not ascending, disjoint and inside the
+ *   index, more than {@link DATASET_BATCH_MAX} of them, an index the record
+ *   does not hold
+ * @throws {AuthError} On 401 Unauthorized
+ */
+export async function datasetNear(
+  url: string,
+  repo: string,
+  workspace: string,
+  path: TreePath,
+  query: DatasetNearQuery,
+  options: RequestOptions,
+): Promise<DatasetNear> {
+  const params = new URLSearchParams({ near: 'true', hash: query.hash });
+  const response = await postRead(batchUrl(url, repo, workspace, path, params), {
+    index: query.index,
+    runs: query.runs,
+    distance: query.distance,
+    ...(query.offset !== undefined && { offset: query.offset }),
+    ...(query.limit !== undefined && { limit: query.limit }),
+  }, 'application/json', options);
+  const body = await response.json() as { spans: [number, number][]; placed: number };
+  const intHeader = (name: string): number => Number(response.headers.get(name) ?? '0');
+  return {
+    spans: body.spans,
+    placed: body.placed,
+    runEntries: intHeader('X-Run-Entries'),
+    totalElements: intHeader('X-Total-Elements'),
+    hash: response.headers.get('X-Content-SHA256') ?? '',
+  };
+}
+
 const SIZE_THRESHOLD = 1 * 1024 * 1024; // 1 MB
 
 /** How many parts of one upload are sent at a time. */

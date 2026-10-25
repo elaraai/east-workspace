@@ -159,6 +159,7 @@ export {
   datasetGetRuns,
   datasetPlace,
   datasetWithin,
+  datasetNear,
   DATASET_BATCH_MAX,
   datasetSet,
   datasetSetStream,
@@ -186,6 +187,8 @@ export {
   type DatasetPlacement,
   type DatasetWithinQuery,
   type DatasetWithin,
+  type DatasetNearQuery,
+  type DatasetNear,
 } from './datasets.js';
 
 // Tasks
