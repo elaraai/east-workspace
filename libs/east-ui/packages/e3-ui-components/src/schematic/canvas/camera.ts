@@ -204,6 +204,40 @@ export function zoomAbout(prev: Viewport, factor: number, px: number, py: number
     return { zoom, tx: px - k * (px - prev.tx), ty: py - k * (py - prev.ty) };
 }
 
+/** Moving slower than a viewport each this many ms, the canvas tells its reader where its view stands as it moves (#1398, CL6). */
+export const SLOW_READ_MS = 200;
+
+/**
+ * Zooming by less than this factor each {@link SLOW_READ_MS}, the canvas tells its reader as it zooms (#1398, CL6). A
+ * faster zoom asks for a new view at every notch, which the next notch leaves before its read lands.
+ */
+export const SLOW_ZOOM = 1.25;
+
+/** Where the canvas last told its reader its view stood: when, the view's centre in world units, and its zoom in px a unit. */
+export interface ViewTold {
+    readonly at: number;
+    readonly x: number;
+    readonly y: number;
+    readonly ppu: number;
+}
+
+/**
+ * Whether the camera, still moving, tells its reader where its view stands now, rather than once it rests (#1398, CL6).
+ * It does once {@link SLOW_READ_MS} have passed since it last told it, its centre has moved less than the view's span,
+ * and its zoom has moved by less than {@link SLOW_ZOOM}, in or out. So a slow pan or a slow zoom reads as it goes, and
+ * a fast one reads where it rests: a zoom about a point moves the view's centre little, but each notch of a fast one is
+ * a view the next leaves before it lands. A time stamped before the last tell is no time since it.
+ *
+ * @param told - Where it last told its reader the view stood
+ * @param now - Where the view stands now: when, its centre and its zoom, and its span in world units
+ * @returns Whether it tells its reader now
+ */
+export function tellsAsItMoves(told: ViewTold, now: ViewTold & { readonly span: number }): boolean {
+    if (now.at - told.at < SLOW_READ_MS) return false;
+    const zoomed = Math.max(now.ppu, told.ppu) / Math.min(now.ppu, told.ppu);
+    return Math.hypot(now.x - told.x, now.y - told.y) < now.span && zoomed < SLOW_ZOOM;
+}
+
 /** How long a fly takes, in ms. */
 export const FLY_DURATION_MS = 350;
 

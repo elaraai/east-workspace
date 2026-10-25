@@ -90,8 +90,8 @@ import {
 } from "./model";
 import { entityId, refOfId, type DrawnItem, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
 import {
-    type CameraEvent, type CameraMode, type RafCoalescer, type Viewport,
-    FLY_DURATION_MS, IDENTITY, boxCss, cancelsFly, cardTranslateCss, fitView, flyStep, makeRafCoalescer, nextMode, zoomAbout,
+    type CameraEvent, type CameraMode, type RafCoalescer, type ViewTold, type Viewport,
+    FLY_DURATION_MS, IDENTITY, boxCss, cancelsFly, cardTranslateCss, fitView, flyStep, makeRafCoalescer, nextMode, tellsAsItMoves, zoomAbout,
 } from "./camera";
 import { SchematicCard } from "./card";
 import { SchematicProbe, readPalette, useThemeVersion } from "./theme";
@@ -216,8 +216,6 @@ const NO_DENSITY: ReadonlyMap<string, SchematicDensity> = new Map();
 const NO_CENTERS = buildCenterTree([]);
 /** How long the camera rests before the canvas tells the reader where its viewport is (#1393, CL6), in ms. */
 const REST_READ_MS = 100;
-/** Moving slower than a viewport each this many ms, the canvas tells the reader as it moves (CL6). */
-const SLOW_READ_MS = 200;
 /** Where a drag rests over the canvas before it says otherwise: on nothing of its card's kind (#1390). */
 const NOWHERE_AT = printDropAt(NOWHERE);
 /** The card layer's widest card (#1393): what the recipe holds a card to, but one at its item's own width — the figure `tierSize` and the area read reckon with. */
@@ -1140,9 +1138,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
 
     // --- Where the viewport rests (#1393): what a kind read by area reads its window around. ---
     // Told to the reader's store as the camera comes to rest — 100 ms without a move, or while it moves slower than a
-    // viewport each 200 ms, a fly never, as it lands where it flies (CL6) — rendering nothing for it; the first at once,
-    // so the first window is read as the canvas opens.
-    const toldRef = useRef<{ at: number; x: number; y: number } | undefined>(undefined);
+    // viewport and zooms by less than a quarter each 200 ms, a fly never, as it lands where it flies (CL6) — rendering
+    // nothing for it; the first at once, so the first window is read as the canvas opens.
+    const toldRef = useRef<ViewTold | undefined>(undefined);
     useEffect(() => {
         if (viewport === undefined || size === null || ppu === 0) return undefined;
         const box = {
@@ -1152,12 +1150,12 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         const centre = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 };
         const tell = () => {
             viewport.set({ box, ppu, lod });
-            toldRef.current = { at: performance.now(), ...centre };
+            toldRef.current = { at: performance.now(), ...centre, ppu };
         };
         const told = toldRef.current;
         if (told === undefined || viewport.get() === undefined) { tell(); return undefined; }
         const span = Math.max(box.maxX - box.minX, box.maxY - box.minY);
-        if (modeRef.current !== "flying" && performance.now() - told.at >= SLOW_READ_MS && Math.hypot(centre.x - told.x, centre.y - told.y) < span) {
+        if (modeRef.current !== "flying" && tellsAsItMoves(told, { at: performance.now(), ...centre, ppu, span })) {
             tell();
             return undefined;
         }
