@@ -6,13 +6,13 @@
  * once, within the group the caller gives, per resource — its kind and its key
  * together — over half-open spans. An instant, an event with no time and one on
  * no resource overlap nothing. The pairs come earliest first, and each event's
- * peers too.
+ * peers too. The overlaps in a span are the pairs whose overlap meets it.
  */
 
 import { describe, expect, test } from "vitest";
 import { none, printFor, some } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
-import { scheduleEventKey, scheduleOverlaps, type ScheduleItemValue } from "./overlaps.js";
+import { scheduleEventKey, scheduleOverlaps, scheduleOverlapsIn, type ScheduleItemValue } from "./overlaps.js";
 
 /** An hour of Monday 5 October 2026, UTC. */
 const hour = (h: number) => new Date(Date.UTC(2026, 9, 5, h));
@@ -138,5 +138,30 @@ describe("the order of the pairs", () => {
 
     test("an event's key is East's print of its event ref, as its elements carry it", () => {
         expect(scheduleEventKey(event("job", "J-1", 6, 8, "a1"))).toBe(key("job", "J-1"));
+    });
+});
+
+describe("the overlaps in a span (#1398)", () => {
+    // J-1 runs all morning on a1; J-2 and J-3 meet it early and late, J-4 meets J-5 at midday on a2.
+    const items = [event("job", "J-1", 6, 14, "a1"), event("job", "J-2", 7, 8, "a1"), event("job", "J-3", 12, 13, "a1"),
+        event("job", "J-4", 10, 12, "a2"), event("job", "J-5", 11, 13, "a2")];
+    const all = scheduleOverlaps([items]);
+
+    test("are the pairs whose overlap meets it, earliest first, and each event's peers among them in the pairs' order", () => {
+        const late = scheduleOverlapsIn(all, hour(11), hour(14));
+        expect(late.pairs.map((p) => [p.first.key, p.second.key])).toEqual([["J-1", "J-3"], ["J-4", "J-5"]]);
+        expect([...late.peers].map(([ref, peers]) => [ref, peers.map((p) => p.key)])).toEqual([
+            [key("job", "J-1"), ["J-3"]], [key("job", "J-3"), ["J-1"]], [key("job", "J-4"), ["J-5"]], [key("job", "J-5"), ["J-4"]],
+        ]);
+    });
+
+    test("an overlap that only meets the span's edge is not in it: spans are half-open", () => {
+        expect(scheduleOverlapsIn(all, hour(8), hour(10)).pairs).toEqual([]);
+        expect(scheduleOverlapsIn(all, hour(13), hour(20)).pairs).toEqual([]);
+    });
+
+    test("a span every pair meets gives the overlaps as they are, and one none meets the one empty result", () => {
+        expect(scheduleOverlapsIn(all, hour(0), hour(24))).toBe(all);
+        expect(scheduleOverlapsIn(all, hour(18), hour(20))).toBe(scheduleOverlaps([]));
     });
 });

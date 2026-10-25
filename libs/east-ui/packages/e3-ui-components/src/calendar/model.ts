@@ -87,12 +87,13 @@ const NO_RANGES: readonly CalendarRange[] = [];
 /**
  * The periods either side of the view, read ahead once its window lands
  * (#1398, CL7): the ranges a step to the next and the previous period reads.
- * The timeline's window follows its scroll, and a step there moves from where
- * the viewer scrolled, which nothing read ahead can know: it reads none ahead.
+ * The timeline's step moves from where the viewer scrolled, which nothing read
+ * ahead can know: it reads none ahead of a step, only the window a re-centre
+ * goes to the way its view travels (`timeline.ts`' `timelineAhead`).
  *
  * @param view - The view
  * @param settings - The Calendar's settings: its week's first day and its weekends
- * @returns The next period's range, then the previous one's
+ * @returns The next period's range, then the previous one's; none on the timeline
  */
 export function calendarAhead(view: CalendarView, settings: CalendarValue["settings"]): readonly CalendarRange[] {
     return view.layout === "timeline" ? NO_RANGES : [calendarRange(navigate(view, 1), settings), calendarRange(navigate(view, -1), settings)];

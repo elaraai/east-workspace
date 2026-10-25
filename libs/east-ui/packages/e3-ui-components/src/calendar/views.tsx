@@ -11,6 +11,13 @@
  * its grid, its cells blank, and says so once: the time and month grids in a
  * box at their top-left in view, the timeline and the agenda in a line in their
  * first row (CL11).
+ *
+ * The timeline's re-centre is no step (#1398): its view nearing an end of its
+ * window moves on to the next window of its grid (`timeline.ts`), and while
+ * that window is read the held read's events stay drawn — their lanes, so
+ * every row keeps its height and the view its place, and their booked hours —
+ * only the days the held read does not cover washed, its counts over the days
+ * shown placeholders only where the view has passed beyond it (`covered`).
  */
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { Box, Button, chakra } from "@chakra-ui/react";
@@ -28,8 +35,8 @@ import { TimeRulerRow, timeRulerUnits } from "../shared/time/ruler.js";
 import { packLanes } from "../shared/time/lanes.js";
 import { shadeBands } from "../shared/time/shading.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
-import { TIMELINE_GUTTER, shiftedScroll, timelinePixels, timelineRange, timelineVisible } from "./timeline.js";
-import { useVisibleDays, type VisibleDaysStore } from "./visible.js";
+import { TIMELINE_GUTTER, recentredView, shiftedScroll, timelinePixels, timelineRange, timelineVisible } from "./timeline.js";
+import { coversShown, useVisibleDays, type TravelStore, type VisibleDaysStore } from "./visible.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
@@ -60,6 +67,16 @@ export interface CalendarViewsProps {
      * failure said once, its cells blank.
      */
     read: PeriodRead;
+    /**
+     * The span `items` were read over (#1398): the window itself once read; while a re-centre's window is read, the
+     * held read's — the timeline washes what of its window that leaves out, and says a figure over the days shown only
+     * where it covers them; `undefined` while nothing is drawn.
+     */
+    covered?: CalendarRange | undefined;
+    /** Told where the timeline re-centres (#1398): a continuation of the window, never a step. */
+    onRecentre?: ((next: CalendarView) => void) | undefined;
+    /** Which way the timeline's view travels along time, set as it scrolls: what the window's read reads ahead. */
+    travel?: TravelStore | undefined;
     /** Moves each time Today is pressed: the time grid brings the now line into view (#1398). */
     nowRevision?: number | undefined;
     /** Where each layout's view last rested (#1398): what it comes back to as it mounts. */
@@ -438,12 +455,32 @@ interface TimelineLayout {
 interface TimelineContext {
     readonly view: EventView;
     readonly read: PeriodRead;
+    /** The span the events drawn were read over: the window, or while a re-centre's is read, the held read's. */
+    readonly covered: CalendarRange | undefined;
+    /** What of the window the events drawn leave out while it is read: a re-centre's days the held read does not cover. */
+    readonly unread: readonly { readonly left: string; readonly width: string }[];
     readonly visible: VisibleDaysStore | undefined;
     readonly laneHeight: number;
     readonly duration: number;
     readonly now: Date;
     readonly shades: ReturnType<typeof shadeBands>;
     readonly lines: readonly TimelineLine[];
+}
+/**
+ * What of a window the events drawn leave out (#1398): while a re-centre's window is read, the held read stands in,
+ * and the days of the window it was not read over — at one end, or both — are washed, each a share of the plot.
+ *
+ * @param range - The window shown
+ * @param covered - The span the events drawn were read over
+ * @returns Each such span, as its left and its width in the plot
+ */
+function unreadSpans(range: CalendarRange, covered: CalendarRange | undefined): { left: string; width: string }[] {
+    if (covered === undefined) return [];
+    const from = range.from.getTime(), to = range.to.getTime(), duration = to - from;
+    const held = { from: Math.min(to, Math.max(from, covered.from.getTime())), to: Math.max(from, Math.min(to, covered.to.getTime())) };
+    const spans = held.from >= held.to ? [{ from, to }] : [{ from, to: held.from }, { from: held.to, to }];
+    return spans.filter(span => span.to > span.from)
+        .map(span => ({ left: `${(span.from - from) / duration * 100}%`, width: `${(span.to - span.from) / duration * 100}%` }));
 }
 /** The elements of the timeline mounted either side of what it shows, in views: a scroll of up to half a view mounts nothing. */
 const TIMELINE_AHEAD = 1;
@@ -463,36 +500,44 @@ function firstRowInView(lines: readonly TimelineLine[], top: number | undefined)
     for (let i = Math.min(from, lines.length) - 1; i >= 0; i--) if (lines[i]!.kind === "row") return i;
     return undefined;
 }
-/** A resource's booked hours over the days the timeline shows, read as they move (CL9); while the period is read, its meta and a placeholder. */
+/**
+ * A resource's booked hours over the days the timeline shows, read as they move (CL9); while the days shown are read —
+ * a period not read yet, or a re-centre's days the held read does not cover — its meta and a placeholder.
+ */
 function TimelineRowMeta({ ctx, row, layout, r }: { ctx: TimelineContext; row: CalendarRow; layout: TimelineLayout; r: number }) {
     const shown = useVisibleDays(ctx.visible);
     const { styles, format, range } = ctx.view;
-    if (ctx.read.state !== "held") {
-        return <Box css={styles.columnMeta} data-calendar-booked=""><Box as="span" css={styles.unreadMeta}>{row.meta}{ctx.read.state === "pending" && <PlaceholderShape kind="aggregate" index={r} />}</Box></Box>;
+    if (ctx.read.state !== "held" || !coversShown(ctx.covered, range, shown)) {
+        return <Box css={styles.columnMeta} data-calendar-booked=""><Box as="span" css={styles.unreadMeta}>{row.meta}{ctx.read.state !== "failed" && <PlaceholderShape kind="aggregate" index={r} />}</Box></Box>;
     }
     const from = shown?.from ?? range.from, to = shown?.to ?? range.to;
     return <Box css={styles.columnMeta} data-calendar-booked="">{`${row.meta} · ${format.number(booked(layout.items, row, from, to))} h booked`}</Box>;
 }
 /**
  * A resource row's plot: its events in the timeline's mounted span — every one while the timeline has not laid out — its
- * wash while the period is read, its shading and its now line; and, the first row in view of a failed period, the
- * failure, which it reads itself (#1398, CL9, CL11). Drawn again only as its events or that span move.
+ * wash while the period is read, or over the days a re-centre's held read does not cover, its shading and its now line;
+ * and, the first row in view of a failed period, the failure, which it reads itself (#1398, CL9, CL11). Drawn again only
+ * as its events or that span move.
  */
 const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, span, index }: {
     ctx: TimelineContext; row: CalendarRow; layout: TimelineLayout; span: { readonly from: number; readonly to: number } | undefined; index: number;
 }) {
-    const { view, read, laneHeight, duration, now, shades, lines } = ctx;
+    const { view, read, unread, laneHeight, duration, now, shades, lines } = ctx;
     const { styles, range } = view;
     const says = useRowsTop(top => read.state === "failed" && index === firstRowInView(lines, top));
     return <DropLane props={view} from={range.from} to={range.to} resource={row.resource} unassigned={row.resource.type === "none"} along="x" css={styles.rowPlot} style={{ height: layout.height }} draw={view.view.period !== "month"}>
-        {/* A period not read yet: the row's plot washed, under its shading and its now line (#1398). */}
+        {/* A period not read yet: the row's plot washed, under its shading and its now line (#1398); a re-centre's window
+            read, the days its held read does not cover. */}
         {read.state === "pending" && <LoadingWash />}
+        {read.state === "held" && unread.map((at, i) => <LoadingWash key={i} geometry={at} />)}
         {read.state === "failed" && says && <Box css={styles.readLine} data-calendar-read-line="">
             <LoadingFailedLine message={read.message} retry={{ onRetry: read.retry }} /></Box>}
         {shades.map((band, i) => <Box key={i} css={styles.shade} data-along="x" style={{ left: `${band.start * 100}%`, width: `${band.width * 100}%` }} />)}
         {layout.items.map((item, i) => {
             const at = layout.spans[i]!;
+            // Out of the mounted span, or — a re-centre's held read — out of the window shown, by the window's own rule.
             if (span !== undefined && (at.end <= span.from || at.start >= span.to)) return null;
+            if (!(at.start < range.to.getTime() && (at.end > range.from.getTime() || at.start >= range.from.getTime()))) return null;
             return <EventBlock key={eventKey(item)} item={item} props={view} window={range} along="x" geometry={{ top: 4 + layout.lanes[i]!.lane * laneHeight, height: laneHeight - 4,
                 left: `${Math.max(0, at.start - range.from.getTime()) / duration * 100}%`, width: `${(Math.min(range.to.getTime(), at.end) - Math.max(range.from.getTime(), at.start)) / duration * 100}%` }} />;
         })}
@@ -514,11 +559,14 @@ const TimelineRow = memo(function TimelineRow({ ctx, row, layout, span, index, r
 const BAND_FLOOR = 38;
 /** Every timeline line may anchor the view: none is a placeholder whose edge moves as rows land beside it. */
 const ANCHOR_EVERY_LINE = () => true;
+/** No span of the window left out: all of it read, or none of it drawn. */
+const NO_SPANS: readonly { readonly left: string; readonly width: string }[] = [];
 
 /**
  * The timeline (#1398, CL9): its resources' rows virtualised in their groups — only those in view mounted, each drawn
  * again only as what it shows moves — and their events by what the view shows of the period, one view either side; a
- * scroll publishes only the days it shows, to what says them.
+ * scroll publishes only the days it shows, to what says them, and which way it travels, to what reads ahead. Nearing an
+ * end of its window it re-centres on the next window of its grid (`timeline.ts`), every instant where it was on screen.
  */
 function Timeline(props: CalendarViewsProps) {
     const { collapsed, toggle } = useGroupCollapse(props.drag.surface);
@@ -568,17 +616,26 @@ function Timeline(props: CalendarViewsProps) {
     const { drag, selected, overlaps, commands, value, format, rows, select, clear, reveal, onRevealed } = props;
     const eventView = useMemo((): EventView => ({ styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed }),
         [styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed]);
-    const ctx = useMemo((): TimelineContext => ({ view: eventView, read: props.read, visible: props.visible, laneHeight, duration, now: props.now, shades, lines }),
-        [eventView, props.read, props.visible, laneHeight, duration, props.now, shades, lines]);
+    // A re-centre's window, read while the held read stands in: the days of it that read leaves out (#1398).
+    const unread = useMemo(() => props.covered === undefined || (props.covered.from.getTime() === range.from.getTime() && props.covered.to.getTime() === range.to.getTime())
+        ? NO_SPANS : unreadSpans(range, props.covered), [props.covered, range]);
+    const ctx = useMemo((): TimelineContext => ({ view: eventView, read: props.read, covered: props.covered, unread, visible: props.visible, laneHeight, duration, now: props.now, shades, lines }),
+        [eventView, props.read, props.covered, unread, props.visible, laneHeight, duration, props.now, shades, lines]);
     // The span of the period whose events are mounted (CL9): what the view shows, one view either side, moved as the view
     // nears its edge; every event while the timeline has not laid out.
     const [span, setSpan] = useState<{ from: number; to: number } | undefined>(undefined);
     const spanRef = useRef(span);
     spanRef.current = span;
-    const publish = () => {
+    // Where the view's middle was, exactly, as it was last published: which way a scroll moves it is the way it travels.
+    const middle = useRef<number | undefined>(undefined);
+    const publish = (scrolled: boolean) => {
         const element = scroll.current;
         if (element === null || element.clientWidth <= 0) return;
         const visible = timelineVisible(range, element.scrollLeft, element.clientWidth, view.period);
+        const at = (visible.from.getTime() + visible.to.getTime()) / 2;
+        // A scroll of a pixel or more travels; a step, a re-centre or a resize places the view, and moves the mark alone.
+        if (scrolled && middle.current !== undefined && Math.abs(at - middle.current) >= DAY / pixelsPerDay) props.travel?.set(at > middle.current ? 1 : -1);
+        middle.current = at;
         props.onVisible(visible);
         const shows = visible.to.getTime() - visible.from.getTime();
         const held = spanRef.current;
@@ -589,27 +646,32 @@ function Timeline(props: CalendarViewsProps) {
     };
     useLayoutEffect(() => {
         const element = scroll.current; if (element === null) return;
+        // A re-centre keeps every instant where it was; a step, a period or a mount places the view on its date, and
+        // the view has travelled nowhere since.
+        if (shifted.current === undefined) props.travel?.set(0);
         element.scrollLeft = shifted.current ?? Math.max(0, (view.date + DAY / 2 - range.from.getTime()) / DAY * pixelsPerDay - Math.max(0, element.clientWidth - TIMELINE_GUTTER) / 2);
-        shifted.current = undefined; publish();
+        shifted.current = undefined; publish(false);
         // View changes and edge replacement are the only recentering operations.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [range.from.getTime(), view.period, view.date, props.navigationRevision]);
     useLayoutEffect(() => {
         const element = scroll.current; if (element === null) return;
-        const observer = new ResizeObserver(publish); observer.observe(element); return () => observer.disconnect();
+        const observer = new ResizeObserver(() => publish(false)); observer.observe(element); return () => observer.disconnect();
         // Rebind to the current window when it moves.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [range.from.getTime(), view.period]);
+    // Gone — a narrow frame, another layout — the view travels no more: mounted again, it is placed on its date.
+    const { travel } = props;
+    useEffect(() => () => travel?.set(0), [travel]);
+    // Nearing an end of its window, the timeline re-centres on the next window of its grid that way: its scroll moved by
+    // what the window moved, so every instant stays where it was — a continuation of what it shows, never a step.
     const onScroll = () => {
         const element = scroll.current; if (element === null || element.clientWidth <= 0) return;
-        publish();
-        if (element.scrollLeft > 240 && element.scrollWidth - element.clientWidth - element.scrollLeft > 240) return;
-        const visible = timelineVisible(range, element.scrollLeft, element.clientWidth, view.period);
-        const next = { ...view, date: dayStart((visible.from.getTime() + visible.to.getTime()) / 2).getTime() };
-        const nextRange = timelineRange(next);
-        if (nextRange.from.getTime() === range.from.getTime()) return;
-        shifted.current = shiftedScroll(element.scrollLeft, range, nextRange, view.period);
-        props.setView(next);
+        publish(true);
+        const next = recentredView(view, range, element.scrollLeft, element.clientWidth, element.scrollWidth);
+        if (next === undefined) return;
+        shifted.current = shiftedScroll(element.scrollLeft, range, timelineRange(next), view.period);
+        (props.onRecentre ?? props.setView)(next);
     };
     // Each kind of line's estimate, from the first of it to mount: a band's own height, a row's its plot's or its head's.
     const [rowFloor, setRowFloor] = useState(0);
@@ -665,7 +727,7 @@ function Timeline(props: CalendarViewsProps) {
         if (element !== null && element.clientWidth > 0) {
             const x = (item.start.value.getTime() - range.from.getTime()) / DAY * pixelsPerDay;
             element.scrollLeft = Math.max(0, x - Math.max(0, element.clientWidth - TIMELINE_GUTTER) / 2);
-            publish();
+            publish(false);
         }
         setScrollTo(was => ({ index: at, nonce: (was?.nonce ?? 0) + 1 }));
         // A reveal asked, or the events and the lines it is found among landing, is the trigger.

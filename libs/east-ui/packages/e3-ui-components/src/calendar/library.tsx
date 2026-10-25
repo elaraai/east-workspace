@@ -8,9 +8,12 @@
  * follows its source of the slice (#1343): the Templates tab each templates
  * list's, by template key; the Backlog its kinds' own narrowing; an app's tab
  * the source it names, by its rows' keys — each counting what it shows and
- * saying so, with Clear filters, when the rail leaves it none. While its
- * period is read, the Backlog counts "…" and draws pending cards, never "No
- * backlog events" before its read (#1398, CL13).
+ * saying so, with Clear filters, when the rail leaves it none. While what it
+ * lists is read — a step's period, for a kind whose backlog follows its window
+ * — the Backlog counts "…" and draws the Library's pending rows after the cards
+ * it holds, never "No backlog events" before its read (#1398, CL13); its
+ * Library stays mounted throughout, so its search box keeps its query and its
+ * focus.
  */
 import { useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
@@ -20,7 +23,6 @@ import { narrowedCount, type CountWords } from "@elaraai/east-ui-components/inte
 import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
 import { dueGroupOf, durationMinutes } from "../shared/schedule/due.js";
 import type { FollowedSources } from "../shared/schedule/follow-sources.js";
-import { PendingCards } from "../shared/schedule/pending-cards.js";
 import { sourceTab, sourcesTab, type SourceShown, type SourceTab } from "../shared/schedule/source-tab.js";
 import { PlacementAction, type CalendarShownResources } from "./controls.js";
 import type { CalendarCommands, CalendarSource } from "./actions.js";
@@ -61,8 +63,10 @@ export function templatesTab(value: CalendarValue, followed: FollowedSources, wo
 }
 
 interface LibraryArgs {
-    value: CalendarValue; backlog: readonly CalendarItem[]; selection: readonly CalendarItem[]; key: string;
-    /** Whether the backlog is read for the period shown: until it is, the tab counts "…" and draws pending cards. */
+    value: CalendarValue; selection: readonly CalendarItem[]; key: string;
+    /** The backlog events read for what is shown: every kind's, or — while the rest are read — the kinds' read already. */
+    backlog: readonly CalendarItem[];
+    /** Whether all of the backlog is read for what is shown: until it is, the tab counts "…" and draws pending rows after `backlog`'s cards. */
     backlogRead: boolean;
     narrow: boolean; now: Date; day: Date; styles: CalendarStyles; commands: CalendarCommands | undefined;
     activeTemplate: string | undefined; onTemplate: (key: string) => void;
@@ -122,7 +126,7 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
             const { narrowing, hidden, clear } = backlogNarrowing;
             const narrows = narrowing.length > 0;
             const held = backlog.filter(item => narrowing.some(({ kind }) => kind.key === item.kind)).length;
-            facts = !backlogRead ? { cards: [], count: "…", empty: undefined, narrowing: undefined, pane: { "aria-busy": true }, pending: true }
+            facts = !backlogRead ? { cards, count: "…", empty: undefined, narrowing: undefined, pane: { "aria-busy": true }, pending: true }
                 : { cards, empty: { title: "No backlog events" }, pane: {},
                     count: !narrows ? cards.length : hidden === undefined ? undefined : narrowedCount(format, cards.length, cards.length + hidden, true),
                     narrowing: !narrows || clear === undefined ? undefined : { empty: { title: "No backlog events match the filters", description: "Change or clear the filters to see more backlog events." },
@@ -145,8 +149,10 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
         const targetKind = author?.drop.type === "some" ? author.drop.value : undefined;
         const targets = selection.filter(item => item.kind === targetKind);
         const held = facts.pane["aria-disabled"] === true;
+        // One Library whatever is read (#1398): its pending rows follow the cards it holds while the rest are read, and
+        // it is never swapped out, so its search box keeps its query and its focus.
         return { key: tabKey, label, ...(facts.count === undefined ? {} : { count: facts.count }), shownCount: facts.cards.length, body: <Box css={styles.pane} {...facts.pane}>
-            {facts.pending === true ? <PendingCards /> : <EastChakraLibrary value={library} storageKey={calendarLibraryId(key, tabKey)} empty={facts.empty} narrowing={facts.narrowing} />}
+            <EastChakraLibrary value={library} storageKey={calendarLibraryId(key, tabKey)} empty={facts.empty} narrowing={facts.narrowing} pending={facts.pending === true} />
             {commands !== undefined && (source !== undefined || patch !== undefined) && <Box css={styles.paneFoot}>
                 {source !== undefined && <PlacementAction label={"template" in source ? "Create" : "Schedule"} source={source} value={value} shown={shown} day={day} commands={commands} styles={styles} held={held} />}
                 {patch !== undefined && <Button size="xs" variant="outline" disabled={held || targets.length === 0 || targets.some(item => !commands.editing.available(item.kind))} onClick={() => commands.patch(targets, patch.sets)}>Apply to selected events</Button>}

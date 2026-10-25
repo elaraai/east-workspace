@@ -3,7 +3,10 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** Optional Calendar inspector: shared fields over the same Schedule drafts. */
+/**
+ * Optional Calendar inspector: shared fields over the same Schedule drafts. An event's overlaps are the ones the toolbar
+ * counts: on the timeline, those in the days it shows (#1398).
+ */
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { BlobType, decodeBeast2For, equalFor, fromEastTypeValue, isValueOf, none, some, OptionType, StringType, StructType, type ValueTypeOf } from "@elaraai/east";
@@ -15,6 +18,7 @@ import { EMPTY_SCHEDULE_DRAFTS } from "../shared/schedule/editing.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { EventActions, PlacementFields, type CalendarShownResources } from "./controls.js";
 import { type CalendarCommands } from "./actions.js";
+import { useShownOverlaps, type VisibleDaysStore } from "./visible.js";
 import { eventKey, parseResourceKey, resourceChoices, resourceKey, type CalendarItem, type CalendarKind, type CalendarRange, type CalendarRef, type CalendarResource, type CalendarStyles, type CalendarValue } from "./model.js";
 
 export type Inspected = { kind: CalendarKind; item: CalendarItem; row: Uint8Array };
@@ -23,6 +27,8 @@ interface InspectorArgs {
     styles: CalendarStyles; storageKey: string; overlaps: ScheduleOverlaps<CalendarItem>; select: (refs: CalendarRef[]) => void;
     /** Each resource kind's rows the rail shows: what the inspector's Choosers offer, with the event's own (#1343). */
     shown: CalendarShownResources;
+    /** The days the timeline shows; `undefined` outside it: an event's overlaps are those in them (#1398). */
+    visible?: VisibleDaysStore | undefined;
 }
 
 /** The resources an event's reference fields name (`technician`): what their Choosers keep whatever the rail hides. */
@@ -104,9 +110,11 @@ export function useCalendarInspector(args: InspectorArgs & { selection: Calendar
         </Box>,
     };
 }
-function OneEvent({ event, value, shown, styles, commands, storageKey, range, overlaps, select }: InspectorArgs & { event: Inspected }) {
+function OneEvent({ event, value, shown, styles, commands, storageKey, range, overlaps: all, visible, select }: InspectorArgs & { event: Inspected }) {
     const { kind, item } = event;
     const format = useFormatters();
+    // Its overlaps as the toolbar counts them: on the timeline, those in the days it shows, read as they move.
+    const overlaps = useShownOverlaps(all, visible);
     const [error, setError] = useState<string>();
     const rowType = useMemo(() => fromEastTypeValue(kind.editing.entryType) as StructType, [kind.editing.entryType]);
     const row = useMemo(() => decodeBeast2For(rowType)(event.row), [rowType, event.row]);

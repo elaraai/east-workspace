@@ -264,7 +264,14 @@ leads nothing: the view decides the window, the viewer's own when a reload
 restores it, so a reload keeps the period the viewer left rather than the
 slice's start. A narrowed kind reads its window
 and its backlog as one, so a draft moves an event between them by its times
-alone. Its Backlog tab counts `N of M`, what its kinds' narrowing shows beside
+alone: its backlog follows the window — kept through the timeline's re-centre,
+the Library's pending rows after the cards it holds on a step until the
+period's land. Every other kind's backlog, read whole or through its backlog
+index, follows no window: the Calendar reads it apart from the window, once,
+and no date change empties it or reads it again (`calendar/data.ts`, #1398).
+The Backlog's Library stays mounted throughout, so its search box keeps its
+query and its focus (east-ui-components' `EastChakraLibrary`'s `pending`).
+Its Backlog tab counts `N of M`, what its kinds' narrowing shows beside
 the stored events their choices hide, and its Clear filters keeps each window
 (`shared/schedule/backlog.ts`, the Calendar's and the Plan's). The Plan's
 window is its sources' one range too (#1344, `src/plan/root/window.ts`): every
@@ -379,8 +386,11 @@ subscriber, a microtask after the last one leaves, so a read the next render
 asks again keeps its request. A period builder's reader reads its period's
 neighbours ahead once its period has landed (`shared/schedule/read-ahead.ts`,
 CL7) — the Roster's weeks, the Allocation's days, the Calendar's days, weeks
-and months (`calendarAhead`; its timeline reads none ahead): a step to one
-shows it at once, and the reads of the periods moved away from are aborted.
+and months (`calendarAhead`) — and the Calendar's timeline the window a
+re-centre goes to the way its view travels (`timeline.ts`' `timelineAhead`,
+#1398), none before the view travels and none for a Prev/Next step: a step
+or a re-centre to one shows it at once, and the reads of the periods moved
+away from are aborted.
 It reads them in a tracked read of their own beside the period's
 (`useReadAhead`, called after the period's read in the same reader): a page
 of theirs landing re-runs that read alone, never the period's, which would
@@ -1038,6 +1048,24 @@ history as the last period read had it, and Publish in its slot, off,
 wherever it cannot publish; the rail's summary keeps a narrowed source's place
 while its count is read.
 
+The Calendar's timeline re-centre is no step (#1398): the timeline draws a
+bounded window of days on a fixed grid — 15 on Day, 56 on Week, 154 on
+Month, each starting a whole number of half windows (7, 28 and 77 days) from
+the epoch (`calendar/timeline.ts`) — and as the view comes within 240px of an
+end of it, the window moves on to the grid's next one that way, the scroll by
+as much, every instant where it was on screen; the view's date becomes the
+day under its middle, so a reload opens that window again where the view was.
+The user navigated nowhere and no label changes, so until the new window lands
+the held read stands in (the frame's `continuation`): its events, their lanes —
+every row its height, so the scroll keeps its offset — its booked hours, its
+overlaps and its Backlog, stale and retained (CL5, CL8), nothing unread. Only
+the days of the window the held read does not cover are washed, which start
+off screen (the views' `covered`), and a figure over the days shown says `…`
+only where the view has passed beyond it. Landed, the rows take the new lanes
+with the row in view anchored. A step — Prev/Next from the view's middle, a
+date picked, a layout or a period, a pick of Search Records — ends it: a step
+to a window not read yet holds none of the old window's events.
+
 The Schematic (#1398) keeps what it drew while a read is in flight: its last
 complete drawing, and once it has settled once, a kind's rows as they land,
 before their details — each a row drawn before keeping the details it had,
@@ -1088,7 +1116,11 @@ outside the frame (`CalendarDataReader`, #1343). Keep the displayed window
 stable while partial results arrive: the reader must keep advancing without
 rebuilding the toolbar, library and canvas for every page, and it hands the
 frame its read only when what the frame shows moves. Loading, errors and the
-next complete window still update the frame immediately.
+next complete window still update the frame immediately. It reads in two
+tracked reads (#1398): the window — every kind's events, and the backlog of
+each kind that reads it with its window — and the backlog of every other
+kind, apart, asked over no window; its first read lands whole, the frame
+hearing of neither until both have.
 
 Bound the work, not only the CSS scroll box. Use Library's existing virtualizer
 for populated bounded panes; do not disable it in an adapter. People rows and
@@ -1140,7 +1172,14 @@ The Calendar's timeline virtualises its resources' rows in their groups, and
 their events by what the view shows of the period, one view either side; its
 scroll publishes the days it shows to a store only what says them reads
 (`calendar/visible.ts`: the navigator's date and label, the count, each row's
-hours), so a scroll draws nothing else, and a day crossed only those.
+hours, the overlaps chip and the inspector's overlaps), so a scroll draws
+nothing else, and a day crossed only those. The overlaps chip counts the
+overlaps in the days shown (`shared/schedule/overlaps.ts`'
+`scheduleOverlapsIn`, #1398), so it moves as days come into view and never as
+the window re-centres; the frame hears only whether there is one to show. Its
+scroll publishes which way it travels to a store of its own, which the
+window's read alone reads, to read ahead the window a re-centre that way goes
+to.
 
 A kind read by its cells (#1039) over a paged kind says which resources' rows
 draw what is known of them (`usePlanCells`' `drawn`): a row whose cells never

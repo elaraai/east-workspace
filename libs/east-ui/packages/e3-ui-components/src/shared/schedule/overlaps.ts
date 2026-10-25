@@ -23,6 +23,10 @@
  * events' keys. Every time is compared as East compares a DateTime, a resource
  * as East compares its ref, and a key as East compares a String.
  *
+ * The overlaps in a span are the pairs whose overlap meets it
+ * (`scheduleOverlapsIn`, #1398): what the Calendar's timeline counts and lists
+ * over the days it shows, its peers in the pairs' order.
+ *
  * @packageDocumentation
  */
 
@@ -138,4 +142,45 @@ export function scheduleOverlaps<I extends ScheduleItemValue>(groups: Iterable<r
         pairs: pairs.map(({ first, second, to }) => ({ first: first.item, second: second.item, from: second.start, to })),
         peers,
     };
+}
+
+/**
+ * Whether a pair's overlap — from the later start to the earlier end — meets a half-open span.
+ *
+ * @param pair - The pair
+ * @param from - The span's start
+ * @param to - Its end
+ * @returns Whether they overlap within it
+ */
+export function scheduleOverlapMeets(pair: ScheduleOverlapPair<ScheduleItemValue>, from: Date, to: Date): boolean {
+    return compareDateTime(pair.from, to) < 0 && compareDateTime(pair.to, from) > 0;
+}
+
+/**
+ * The overlaps that fall in a span (#1398): each pair whose overlap meets
+ * `[from, to)`, earliest first as before, and each event's peers among them,
+ * in the pairs' order — the order the sweep found them in.
+ *
+ * @typeParam I - The events' type
+ * @param overlaps - The overlaps
+ * @param from - The span's start
+ * @param to - Its end
+ * @returns Those overlaps: the same result when every pair meets it, the one empty result when none does
+ */
+export function scheduleOverlapsIn<I extends ScheduleItemValue>(overlaps: ScheduleOverlaps<I>, from: Date, to: Date): ScheduleOverlaps<I> {
+    const pairs = overlaps.pairs.filter((pair) => scheduleOverlapMeets(pair, from, to));
+    if (pairs.length === overlaps.pairs.length) return overlaps;
+    if (pairs.length === 0) return NONE;
+    const peers = new Map<string, I[]>();
+    const meet = (a: I, b: I) => {
+        const ref = scheduleEventKey(a);
+        const at = peers.get(ref);
+        if (at !== undefined) at.push(b);
+        else peers.set(ref, [b]);
+    };
+    for (const { first, second } of pairs) {
+        meet(first, second);
+        meet(second, first);
+    }
+    return { pairs, peers };
 }

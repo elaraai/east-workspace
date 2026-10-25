@@ -3,7 +3,11 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-/** One folding Toolbar: the rail, Calendar navigation, overlaps, Search Records and shared history. */
+/**
+ * One folding Toolbar: the rail, Calendar navigation, overlaps, Search Records and shared history. On the timeline the
+ * navigator, the count and the overlaps chip follow the days it shows (#1398, CL9): each reads them itself, so a scroll
+ * draws nothing else of the toolbar, and a figure over them is said once what the timeline draws covers them.
+ */
 import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import type { ReactNode } from "react";
@@ -17,10 +21,10 @@ import { HOST_RANK, RecordSliceFieldEditor, coarseHitArea, useRecordSlicesToolba
 import { TimeNavigator } from "../shared/time/navigation.js";
 import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
 import { Seg } from "../shared/schedule/segments.js";
-import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
+import { scheduleOverlapsIn, type ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import type { CalendarCommands } from "./actions.js";
 import type { CalendarEventPart } from "./window.js";
-import { useVisibleDays, type VisibleDaysStore } from "./visible.js";
+import { coversShown, useShownOverlaps, useVisibleDays, type VisibleDaysStore } from "./visible.js";
 import { dayStart, inWindow, navigate, type CalendarItem, type CalendarRange, type CalendarRef, type CalendarStyles, type CalendarView } from "./model.js";
 
 const LAYOUTS = [{ key: "calendar", label: "Calendar" }, { key: "resources", label: "Resources" }, { key: "timeline", label: "Timeline" }] as const;
@@ -31,6 +35,8 @@ interface ToolbarArgs {
     count: number | undefined;
     styles: CalendarStyles; commands: CalendarCommands | undefined;
     words: EditingWords; overlaps: ScheduleOverlaps<CalendarItem>; select: (refs: CalendarRef[]) => void;
+    /** Whether an overlap shows: among what is drawn — on the timeline, in the days it shows (`useOverlapsShown`). */
+    overlapsShown: boolean;
     onAction: (action: HistoryAction) => void; paged: boolean;
     /** The rail; `undefined` with no slice. */
     chrome: ValueTypeOf<RecordSlicesChromeType> | undefined;
@@ -46,8 +52,11 @@ interface ToolbarArgs {
      * from it by the items that say them, so its scroll draws nothing else of the toolbar.
      */
     visible?: VisibleDaysStore | undefined;
-    /** The window's events and whether its period has landed: what the count counts over the days the timeline shows. */
-    events?: { readonly items: readonly CalendarItem[]; readonly ready: boolean } | undefined;
+    /**
+     * The events the timeline draws and the span they were read over (#1398): what the count counts over the days it
+     * shows, once that span covers them; `covered` undefined while none are drawn.
+     */
+    events?: { readonly items: readonly CalendarItem[]; readonly covered: CalendarRange | undefined } | undefined;
     /** Told when the date picker's Today is pressed: the time grid brings the now line into view (#1398). */
     onToday?: (() => void) | undefined;
     /** Search Records over the event kinds' keys (#1398); `undefined` with no kind to seek. */
@@ -63,18 +72,31 @@ function VisibleNavigator({ visible, fallback, words, navigator }: {
     return <>{shown === undefined ? navigator(fallback.date, fallback.label) : navigator(shown.center, words.range(shown.from, new Date(shown.to.getTime() - 1)))}</>;
 }
 
-/** The timeline's count: its window's events over the days it shows, read as they move; "…" while the period is read (CL13). */
+/**
+ * The timeline's count: its window's events over the days it shows, read as they move; "…" while those days are read —
+ * a period not read yet, or a re-centre's days the held read does not cover (CL13).
+ */
 function VisibleCount({ visible, events, styles, words, range }: {
-    visible: VisibleDaysStore; events: { readonly items: readonly CalendarItem[]; readonly ready: boolean }; styles: CalendarStyles; words: EditingWords; range: CalendarRange;
+    visible: VisibleDaysStore; events: { readonly items: readonly CalendarItem[]; readonly covered: CalendarRange | undefined }; styles: CalendarStyles; words: EditingWords; range: CalendarRange;
 }) {
     const shown = useVisibleDays(visible);
     const from = shown?.from ?? range.from, to = shown?.to ?? range.to;
-    const count = events.ready ? events.items.filter(item => inWindow(item, from, to)).length : undefined;
+    const count = coversShown(events.covered, range, shown) ? events.items.filter(item => inWindow(item, from, to)).length : undefined;
     return <Box css={styles.toolbarText} data-calendar-count="">{count === undefined ? "…" : words.number(count)} events</Box>;
+}
+
+/**
+ * How many overlaps show, as the overlaps chip and the View's words count them: every one among what is drawn, or on the
+ * timeline those in the days it shows, read as they move (#1398) — never the window's, which jumps as it re-centres.
+ */
+function OverlapsCount({ overlaps, visible, children }: {
+    overlaps: ScheduleOverlaps<CalendarItem>; visible: VisibleDaysStore | undefined; children: (count: number) => ReactNode;
+}) {
+    return <>{children(useShownOverlaps(overlaps, visible).pairs.length)}</>;
 }
 /** The control row uses shared folding ranks, popovers and coarse-pointer targets. */
 export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem | false | undefined> {
-    const { view, setView, now, count, styles, words, commands, onAction, overlaps, select, paged, chrome, windowParts } = args;
+    const { view, setView, now, count, styles, words, commands, onAction, overlaps, overlapsShown, select, paged, chrome, windowParts } = args;
     // One date window (#1343): each event source's range is the window the navigation writes, so it leaves the rail,
     // and the leading source's range editor is the navigator's Range panel, as the Plan's is.
     const rail = useRecordSlicesToolbarItems(chrome?.slice, {
@@ -94,14 +116,20 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
     const period = view.layout === "resources" ? "day" : view.period;
     // A step from where the view is: the timeline's, the day under its centre as it is when the step is asked.
     const move = (step: number) => args.onNavigate(navigate({ ...view, date: args.visible?.get()?.center ?? args.navigationDate }, step).date);
-    const firstPair = overlaps.pairs[0];
+    // The overlaps shown: on the timeline, those in the days it shows (#1398), read by what counts them.
+    const visible = args.visible;
     const showOverlaps = () => {
+        const shownDays = visible?.get();
+        const firstPair = (shownDays === undefined ? overlaps : scheduleOverlapsIn(overlaps, shownDays.from, shownDays.to)).pairs[0];
         if (firstPair === undefined) return;
         select([firstPair.first, firstPair.second].map(item => ({ kind: item.kind, key: item.key })));
         if (firstPair.first.start.type === "some") setView({ ...view, layout: "resources", date: dayStart(firstPair.first.start.value).getTime() });
     };
-    const warning = (short: boolean) => <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]}
-        aria-label={`${overlaps.pairs.length} overlaps`} data-calendar-overlaps="" onClick={showOverlaps}><span data-chip-icon=""><FontAwesomeIcon icon={faTriangleExclamation} /></span><span data-chip-label="">{overlaps.pairs.length}{!short && " overlaps"}</span></chakra.button>;
+    const warning = (short: boolean) => <OverlapsCount overlaps={overlaps} visible={visible}>{n =>
+        <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]}
+            aria-label={`${n} overlaps`} data-calendar-overlaps="" onClick={showOverlaps}><span data-chip-icon=""><FontAwesomeIcon icon={faTriangleExclamation} /></span><span data-chip-label="">{n}{!short && " overlaps"}</span></chakra.button>}
+    </OverlapsCount>;
+    const overlapsWords = <OverlapsCount overlaps={overlaps} visible={visible}>{n => `${n} overlaps`}</OverlapsCount>;
     const viewMenu = <ChipMenu label="View" icon={faCalendarWeek} data="data-calendar-view-menu" onSelect={key => {
         const layout = LAYOUTS.find(layout => layout.key === key); const picked = PERIODS.find(period => period.key === key);
         if (layout !== undefined) setView({ ...view, layout: layout.key });
@@ -113,18 +141,17 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         {view.layout !== "resources" && <><ChakraMenu.Separator />{PERIODS.map(p => <ChakraMenu.Item value={p.key} key={p.key}>{p.label}</ChakraMenu.Item>)}</>}
         <ChakraMenu.Separator />
         <ChakraMenu.Item value="previous">Previous {period}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {period}</ChakraMenu.Item>
-        {firstPair !== undefined && <ChakraMenu.Item value="overlaps">{overlaps.pairs.length} overlaps</ChakraMenu.Item>}
+        {overlapsShown && <ChakraMenu.Item value="overlaps">{overlapsWords}</ChakraMenu.Item>}
     </ChipMenu>;
     const controls = <>
         {seek?.forms[0]}
         <Seg label="Layout" scope="calendar" name="compact-layout" items={LAYOUTS} active={view.layout} onPick={layout => setView({ ...view, layout })} />
         {view.layout !== "resources" && <Seg label="Period" scope="calendar" name="compact-period" items={PERIODS} active={period} onPick={period => setView({ ...view, period })} />}
-        {firstPair !== undefined && <Button size="xs" variant="ghost" onClick={showOverlaps}>{overlaps.pairs.length} overlaps</Button>}
+        {overlapsShown && <Button size="xs" variant="ghost" onClick={showOverlaps}>{overlapsWords}</Button>}
     </>;
     const navigator = (compact: boolean, combined: boolean) => (date: number, label: string | undefined) => <TimeNavigator scope="calendar" date={date} period={period}
         sunday={args.sunday} now={now} onChange={args.onNavigate} compact={compact} rangeLabel={label}
         label={combined ? "View" : "Choose date"} controls={combined ? controls : undefined} rangeEditor={rangeEditor} onToday={args.onToday} />;
-    const visible = args.visible;
     const navigation = (compact = false, combined = false) => visible === undefined ? navigator(compact, combined)(args.navigationDate, args.rangeLabel)
         : <VisibleNavigator visible={visible} words={words} fallback={{ date: args.navigationDate, label: args.rangeLabel }} navigator={navigator(compact, combined)} />;
     return [
@@ -138,7 +165,7 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
             ? <VisibleCount visible={visible} events={args.events} styles={styles} words={words} range={args.range} />
             : <Box css={styles.toolbarText} data-calendar-count="">{count === undefined ? "…" : words.number(count)} events</Box>, null] },
         paged && chrome === undefined && { key: "calendar.scope", side: "start", forms: [<Box css={styles.toolbarText}>Loaded window</Box>, null], rank: HOST_RANK + 4 },
-        firstPair !== undefined && { key: "calendar.overlaps", side: "end", rank: [HOST_RANK, HOST_RANK + 6], forms: [warning(false), warning(true), null] },
+        overlapsShown && { key: "calendar.overlaps", side: "end", rank: [HOST_RANK, HOST_RANK + 6], forms: [warning(false), warning(true), null] },
         seek !== undefined && { ...seek, forms: [...seek.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "calendar.controls"] },
         commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, showError: false, onAction,
             onIssue: issue => { const kind = commands.editing.sessions.find(held => held.key === commands.editing.history.sourceOf(issue))?.kind; if (kind !== undefined) select([{ kind, key: issue.entry }]); } }),
