@@ -52,6 +52,9 @@
  * While a kind's window is read, the area its drawing does not cover yet is
  * said, for the canvas to wash (`unread`, CL2); and where its read fails, the
  * area it failed reading, for the canvas to say so at (`failedAreas`, CL11).
+ * While what it hands the frame was read under a narrowing its kind's source
+ * no longer holds — the new one in flight — it says so (`filtering`), for the
+ * frame to draw it as kept and take no edit on it until the new one lands (CL8).
  *
  * @packageDocumentation
  */
@@ -114,6 +117,11 @@ export interface SchematicData {
     readonly loading: boolean;
     /** What is read now, the first kind in flight in the Schematic's order; `undefined` while nothing is. */
     readonly reading: SchematicReading | undefined;
+    /**
+     * Whether what the canvas draws of a kind was read under a narrowing its source no longer holds, the new one's read
+     * in flight (#1398, CL8): it stands in, kept, until the new one lands — never a kind whose read of it failed.
+     */
+    readonly filtering: boolean;
     /** Whether a read has settled: every kind read, or its read failed. */
     readonly ready: boolean;
     /** Why the read as a whole failed — outside any one kind's. */
@@ -211,7 +219,7 @@ const NO_FAILED_AREAS: ReadonlyMap<string, readonly WorldBox[]> = new Map();
 
 /** The frame's data before its reader first reports: nothing drawn, a read in flight. */
 export const INITIAL_SCHEMATIC_DATA: SchematicData = {
-    drawn: EMPTY_DRAWN, loading: true, reading: undefined, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS, held: NO_HELD,
+    drawn: EMPTY_DRAWN, loading: true, reading: undefined, filtering: false, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS, held: NO_HELD,
     unplaced: NO_UNPLACED, windows: NO_WINDOWS, density: NO_DENSITY, overview: NO_DENSITY, matched: NO_MATCHED, unread: NO_BOXES,
     failedAreas: NO_FAILED_AREAS,
 };
@@ -297,6 +305,16 @@ function signatureOf(map: ReadonlyMap<string, string | number>): string {
 function sameEntries<V>(a: ReadonlyMap<string, V>, b: ReadonlyMap<string, V>): boolean {
     if (a.size !== b.size) return false;
     for (const [key, value] of a) if (!Object.is(b.get(key), value)) return false;
+    return true;
+}
+
+/** Whether each kind's drawing was read under the same narrowing in both: East deciding which narrowings are the same. */
+function sameWheres(a: ReadonlyMap<string, Where>, b: ReadonlyMap<string, Where>): boolean {
+    if (a.size !== b.size) return false;
+    for (const [slot, where] of a) {
+        const other = b.get(slot);
+        if (other === undefined || !sameWhere(where, other)) return false;
+    }
     return true;
 }
 
@@ -640,9 +658,15 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         }));
         // Whether what is drawn may be handed on: nothing in flight but details, whose rows draw meanwhile (#1398).
         const drawable = [...inFlight].every((slot) => what.get(slot) === "details");
+        // The narrowing each kind's source holds now: what the drawing handed on was read under, or stands in for (CL8).
+        const narrowings = new Map<string, Where>();
+        for (const kind of [...value.items, ...value.zones, ...value.links, ...value.nets]) {
+            const where = whereOf(kind.key);
+            if (where !== undefined) narrowings.set(kind.key, where);
+        }
         return {
-            held: { value, kinds, inputs, wheres, reaches, drawn } satisfies Held, loading, reading, failures, windows, density, overview, matched,
-            unmade: areaReader.unmade, unread, failedAreas, drawable,
+            held: { value, kinds, inputs, wheres, reaches, drawn } satisfies Held, loading, reading, narrowings, failures, windows, density, overview,
+            matched, unmade: areaReader.unmade, unread, failedAreas, drawable,
         };
     }, [value, attempt, viewport, areaReader, makes]);
     const { result } = useTrackedEvaluation(read);
@@ -660,12 +684,12 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
     // The last settled read: a newer one in flight keeps it, so a scan landing redraws nothing until the read is whole — but
     // for details, whose rows draw meanwhile, each card holding their places (#1398), once a first read has settled whole:
     // the frame opens on what its first read drew, details and all. What it holds moves with what it draws: a row added,
-    // removed, or its roles or details changed, draws anew.
+    // removed, or its roles or details changed, draws anew — and the narrowing each kind's drawing was read under.
     const settled = useRef<{
         drawn: SchematicDrawn; failures: ReadonlyMap<string, string>; rows: ReadonlyMap<string, number>; held: SchematicHeldRows;
         unplaced: SchematicUnplacedRows; windows: SchematicWindowRows; density: ReadonlyMap<string, SchematicDensity>;
         overview: ReadonlyMap<string, SchematicDensity>; matched: ReadonlyMap<string, ReadonlySet<string>>;
-        failedAreas: ReadonlyMap<string, readonly WorldBox[]>;
+        failedAreas: ReadonlyMap<string, readonly WorldBox[]>; wheres: ReadonlyMap<string, Where>;
     } | undefined>(undefined);
     if (result.ok) {
         const got = result.value;
@@ -676,7 +700,8 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
             const overview = got.overview;
             if (was === undefined || !Object.is(was.drawn, got.held.drawn) || signatureOf(was.failures) !== signatureOf(got.failures)
                 || signatureOf(was.rows) !== signatureOf(rows) || !sameEntries(was.windows, got.windows) || !sameEntries(was.density, got.density)
-                || !sameEntries(was.overview, overview) || !sameEntries(was.matched, got.matched) || !sameAreas(was.failedAreas, got.failedAreas)) {
+                || !sameEntries(was.overview, overview) || !sameEntries(was.matched, got.matched) || !sameAreas(was.failedAreas, got.failedAreas)
+                || !sameWheres(was.wheres, got.held.wheres)) {
                 settled.current = {
                     drawn: got.held.drawn,
                     failures: was !== undefined && signatureOf(was.failures) === signatureOf(got.failures) ? was.failures : got.failures,
@@ -688,6 +713,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
                     overview: was !== undefined && sameEntries(was.overview, overview) ? was.overview : overview,
                     matched: was !== undefined && sameEntries(was.matched, got.matched) ? was.matched : got.matched,
                     failedAreas: was !== undefined && sameAreas(was.failedAreas, got.failedAreas) ? was.failedAreas : got.failedAreas,
+                    wheres: got.held.wheres,
                 };
             }
         }
@@ -695,6 +721,12 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
     const last = settled.current;
     const loading = result.ok ? result.value.loading : false;
     const error = result.ok ? undefined : messageOf(result.error);
+    // What the canvas draws stands in (#1398, CL8): a kind's drawing read under a narrowing its source no longer holds —
+    // but one whose read of the new one failed, which says so instead.
+    const filtering = result.ok && last !== undefined && [...result.value.narrowings].some(([slot, now]) => {
+        const was = last.wheres.get(slot);
+        return was !== undefined && !sameWhere(was, now) && !result.value.failures.has(slot);
+    });
     // What is read now: the same object while it names the same kind the same way, so a landing that leaves it moves nothing.
     const readingNow = result.ok ? result.value.reading : undefined;
     const readingWas = readingRef.current;
@@ -708,11 +740,11 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
     return useMemo((): SchematicData => (last === undefined
         ? { ...INITIAL_SCHEMATIC_DATA, loading, reading, error, unread }
         : {
-            drawn: last.drawn, loading, reading, ready: true, error, failures: last.failures, rows: last.rows, held: last.held,
+            drawn: last.drawn, loading, reading, filtering, ready: true, error, failures: last.failures, rows: last.rows, held: last.held,
             unplaced: last.unplaced, windows: last.windows, density: last.density, overview: last.overview, matched: last.matched,
             unread, failedAreas: last.failedAreas,
         }),
-    [last, loading, reading, error, unread]);
+    [last, loading, reading, filtering, error, unread]);
 }
 
 /**

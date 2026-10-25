@@ -39,6 +39,11 @@
  * - **Its drafts.** Each draft is decoded once: its roles read through its
  *   kind's `read`, kept while its session keeps the entry's version — what the
  *   frame draws over the stored rows (`drafted.ts`).
+ * - **What stands in.** While what the canvas draws stands in for a new
+ *   narrowing, or a narrowing the frame follows could not be read, it is
+ *   retained (#1398, CL8): no record takes an edit — every route asks
+ *   `available`, and `record` records nothing — until it lands. The history's
+ *   Undo, Redo, Discard and Save stay live.
  *
  * A Schematic read only (`readOnly`) has no session, nor has a kind bound read
  * only (SC14).
@@ -84,12 +89,20 @@ export interface SchematicEditing {
     /** The history's version: it moves with every change of it or of its sessions. */
     readonly version: number;
     /**
+     * Whether a record takes an edit now: its session takes one, and nothing the canvas draws is retained (#1398, CL8).
+     *
+     * @param record - The record's key in the history: a kind's slot, or its details' (`detailsKey`)
+     * @returns Whether it takes one
+     */
+    available(record: string): boolean;
+    /**
      * Records one gesture's edits as one step of the history.
      *
      * @param edits - The rows it changes, and how
      * @param origin - The gesture
      * @param label - Its label in the history
-     * @returns Whether anything was recorded: nothing is when a kind refuses a row, or a row's read is in flight
+     * @returns Whether anything was recorded: nothing is when a kind refuses a row, a row's read is in flight, or what the
+     *   canvas draws is retained
      */
     record(edits: readonly SchematicEdit[], origin: Origin, label: string): boolean;
     /**
@@ -127,11 +140,12 @@ function kindsOf(value: Pick<SchematicValue, "items" | "zones" | "links" | "nets
  * @param windows - The rows each kind read by area holds in its window, at the revision they were read at
  * @param paged - A row of a kind read by area the paged Backlog's pages read, by the kind's slot and the row's key, and the
  *   revision they read it at (#1393): asked as a gesture reads it, for a row the window does not hold
+ * @param retained - Whether what the canvas draws is retained (#1398, CL8): no record takes an edit while it is
  * @returns The editing
  */
 export function useSchematicEditing(value: SchematicValue, storageKey: string, recordSlices: readonly ValueTypeOf<RecordSliceBindType>[],
     held: SchematicHeldRows, areas: ReadonlySet<string>, windows: SchematicWindowRows,
-    paged?: (slot: string, key: string) => { readonly revision: string; readonly row: Uint8Array } | undefined): SchematicEditing {
+    paged?: (slot: string, key: string) => { readonly revision: string; readonly row: Uint8Array } | undefined, retained = false): SchematicEditing {
     const kinds = useMemo((): readonly AnyKind[] => kindsOf({ items: value.items, zones: value.zones, links: value.links, nets: value.nets }),
         [value.items, value.zones, value.links, value.nets]);
     // Each kind bound with its patch door, and each one's details so bound, in the Schematic's order of its sorts — none
@@ -217,10 +231,14 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
     }, [draftsNow, value.items, value.zones, value.links, value.nets]);
 
     // Stable to the canvas: each runs the latest render's.
-    const latest = useRef({ value, schedule, held });
-    latest.current = { value, schedule, held };
+    const latest = useRef({ value, schedule, held, retained });
+    latest.current = { value, schedule, held, retained };
+    // Retained, no record takes an edit: every route asks it, and `record` refuses one (#1398, CL8).
+    const scheduleAvailable = schedule.available;
+    const available = useCallback((slot: string): boolean => !retained && scheduleAvailable(slot), [retained, scheduleAvailable]);
     const record = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string): boolean => {
-        const { value: payload, schedule: editing } = latest.current;
+        const { value: payload, schedule: editing, retained: standingIn } = latest.current;
+        if (standingIn) return false;
         const of = <K extends { readonly key: string }>(sorted: readonly K[], slot: string): K | undefined => sorted.find((kind) => stringEqual(kind.key, slot));
         const changes: ScheduleChange[] = [];
         for (const edit of edits) {
@@ -309,6 +327,6 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
     }, []);
 
     return useMemo(() => ({
-        schedule, history: schedule.history, edits: records.length > 0, drafts, version: schedule.version, record, mint,
-    }), [schedule, records.length, drafts, record, mint]);
+        schedule, history: schedule.history, edits: records.length > 0, drafts, version: schedule.version, available, record, mint,
+    }), [schedule, records.length, drafts, available, record, mint]);
 }

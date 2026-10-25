@@ -92,11 +92,16 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
     });
 }))) };
 
-/** Mounts the floor, and waits until its racks are drawn. */
+/**
+ * Mounts the floor, and waits until it is at rest: its racks drawn, and its reads done — the footer's line idle. Its
+ * racks' loads land after their cards draw (#1398, CL2), and the reader hands the frame what it read in a task of its
+ * own, after the last request is answered.
+ */
 async function open() {
     const ui = await h.mount(floor);
     await settle();
     await waitFor(() => expect(card(ui.container, "racks", "A01")).not.toBeNull());
+    await waitFor(() => expect(lineOf(ui.container).hasAttribute("data-idle")).toBe(true));
     await settle();
     return ui;
 }

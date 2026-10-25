@@ -532,12 +532,12 @@ test("an item's colour token draws its card's dot and its marks alike; one that 
 });
 
 /**
- * What the canvas may set inline: geometry — positions, sizes, the grid's pattern, its position as one property or its
- * two longhands — and the camera's, a layer's and the widest card's custom properties.
+ * What the canvas may set inline: geometry — positions and sizes — and the camera's, the grid's cells', a layer's and the
+ * widest card's custom properties: the grid's rules are the recipe's, drawn from its cells and the camera (#1398).
  */
 const GEOMETRY = new Set([
-    "left", "top", "width", "height", "transform", "background-size", "background-position", "background-position-x", "background-position-y",
-    "--cam-ppu", "--cam-tx", "--cam-ty", "--schematic-layer-opacity", "--schematic-card-max",
+    "left", "top", "width", "height", "transform",
+    "--cam-ppu", "--cam-tx", "--cam-ty", "--schematic-grid-major", "--schematic-grid-minor", "--schematic-layer-opacity", "--schematic-card-max",
 ]);
 
 /** The floor's racks, drawn at a card's own width, beside the network frames at their items' widths. */

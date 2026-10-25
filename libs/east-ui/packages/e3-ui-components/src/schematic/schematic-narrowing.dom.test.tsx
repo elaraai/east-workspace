@@ -14,7 +14,10 @@
  * count, a draft among them drawn where its draft has it; every rack is read
  * once, whatever the choice. A match's emphasis rings its card, and `fit` flies
  * the camera to the matches as they change. A choice builds the Schematic no
- * more (#1354): its body runs no more, and no payload is decoded.
+ * more (#1354): its body runs no more, and no payload is decoded. While a new
+ * choice is read, what was drawn under the last stands in (#1398, CL8): kept,
+ * and retained — `aria-disabled`, its selection kept, taking no Del, no Move
+ * and no edit in Details — until the new one lands, in the commit that lands it.
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin, and each card the tests press answers at
@@ -338,6 +341,91 @@ test("dimmed, a draft the narrowing leaves out draws where its draft has it, as 
     await settle();
     const saved = (await h.read(ex.schematicRacks)).get("A03")!;
     expect(saved.y.type === "some" ? saved.y.value : undefined).toBeCloseTo(5.0, 9);
+});
+
+// ── What stands in while a new choice is read (#1398, CL8) ──────────────────
+
+/** Whether a request reads the racks through their owner index: a choice's read of them. */
+const throughOwner = (request: { readonly dataset: string | undefined; readonly query: URLSearchParams }) =>
+    request.dataset === RACKS_DATASET && request.query.get("index") === ex.schematicRacksByOwner.name;
+
+/** Whether each of Details' fieldsets of edits is off, as it is while its record takes no edit. */
+const editsOff = (c: HTMLElement) => [...inspector(c).querySelectorAll<HTMLFieldSetElement>("[data-inspector-edits]")].map((edits) => edits.disabled);
+
+/** Whether the canvas draws what stands in, kept, and whether it is retained. */
+const keptAndRetained = (c: HTMLElement) => [canvasOf(c).hasAttribute("data-schematic-stale"), canvasOf(c).getAttribute("aria-disabled")];
+
+test("hidden, while a new choice is read, the racks drawn under the last stand in, kept and retained — aria-disabled, the selection kept — taking no Del, no Move and no edit in Details until it lands (#1398, CL8)", async () => {
+    const { container } = await open(hiddenFloor);
+    const canvas = canvasOf(container);
+    // A01, Harbour Labs', selected: Details shows it, its edits on.
+    await tap(canvas, CAM, 2.4, 2.9);
+    await waitFor(() => expect(showing(container)).toBe("item"));
+    expect(editsOff(container)).toEqual([false]);
+    expect(keptAndRetained(container)).toEqual([false, null]);
+    // Harbour Labs' racks chosen, the choice's read of them held on its way.
+    const held = h.e3.hold(throughOwner);
+    await narrow(`${HIDDEN}.racks`, choose("owner", "Harbour Labs"));
+    await held.holding;
+    // The racks drawn under no choice stand in, kept and retained, A03 among them and A01 still selected; main is busy.
+    await waitFor(() => expect(keptAndRetained(container)).toEqual([true, "true"]));
+    expect(slot(container, "main").getAttribute("aria-busy")).toBe("true");
+    expect(card(container, "racks", "A03")).not.toBeNull();
+    expect(card(container, "racks", "A01")!.hasAttribute("data-selected")).toBe(true);
+    // Details' edits are off, and Del deletes nothing.
+    expect(editsOff(container)).toEqual([true]);
+    await act(async () => { fireEvent.keyDown(window, { key: "Delete" }); });
+    await settle();
+    expect(card(container, "racks", "A01")).not.toBeNull();
+    // A press on A01 starts no gesture that edits — it pans the canvas. Move held, A01 stays where it is as the pointer
+    // drags it, by a pixel, so the camera stays near enough to press A01 again; Connect held, a drag to PDU-A, which no
+    // run may end at, draws no refused draft. Nothing waits on Save.
+    const press = async (tool: string, to: { clientX: number; clientY: number }) => {
+        await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("radio", { name: tool })); });
+        await act(async () => {
+            fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, 2.4, 2.9) });
+            fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...to });
+        });
+        const during = { transform: card(container, "racks", "A01")!.style.transform, forbidden: canvas.hasAttribute("data-forbidden") };
+        await act(async () => { fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, ...to }); });
+        await settle();
+        return during;
+    };
+    const resting = card(container, "racks", "A01")!.style.transform;
+    const nudge = at(CAM, 2.4, 2.9);
+    expect(await press("Move", { clientX: nudge.clientX + 1, clientY: nudge.clientY })).toEqual({ transform: resting, forbidden: false });
+    expect((await press("Connect", at(CAM, 1.6, 4.2))).forbidden).toBe(false);
+    expect(unsaved(container)).toBe(false);
+    // The choice's read lands: what it leaves out goes, the look lifts with it, and every edit is back — Del deletes A01.
+    await act(async () => { held.release(); });
+    await settle();
+    await waitFor(() => expect(card(container, "racks", "A03")).toBeNull());
+    expect(keptAndRetained(container)).toEqual([false, null]);
+    expect(editsOff(container)).toEqual([false]);
+    await act(async () => { fireEvent.keyDown(window, { key: "Delete" }); });
+    await settle();
+    expect(card(container, "racks", "A01")).toBeNull();
+    expect(unsaved(container)).toBe(true);
+});
+
+test("dimmed, while a new choice's keys are read, the drawing stands in, kept and retained — every rack read, yet Del deletes nothing — until they land (#1398, CL8)", async () => {
+    const { container } = await open(ex.schematicDataCentre);
+    await tap(canvasOf(container), CAM, 2.4, 2.9);
+    await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "racks", key: "A01" }])));
+    const held = h.e3.hold(throughOwner);
+    await narrow(RACKS, choose("owner", "Harbour Labs"));
+    await held.holding;
+    await waitFor(() => expect(keptAndRetained(container)).toEqual([true, "true"]));
+    // What no choice drew stands in: no rack drawn as context yet — every one shows until the choice's own keys land.
+    expect(["A01", "A03"].map((key) => card(container, "racks", key)!.hasAttribute("data-context"))).toEqual([false, false]);
+    // The racks are read whole, whatever the choice: nothing but what stands in refuses A01's Del.
+    await act(async () => { fireEvent.keyDown(window, { key: "Delete" }); });
+    await settle();
+    expect([card(container, "racks", "A01") !== null, unsaved(container)]).toEqual([true, false]);
+    await act(async () => { held.release(); });
+    await settle();
+    await waitFor(() => expect(card(container, "racks", "A03")?.hasAttribute("data-context")).toBe(true));
+    expect(keptAndRetained(container)).toEqual([false, null]);
 });
 
 // ── The matches: emphasis and fit (§10.3) ───────────────────────────────────
