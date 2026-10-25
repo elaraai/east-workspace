@@ -20,6 +20,10 @@
  * The strip clips nothing, which would clip the halos: its end buttons round
  * their own outer corners inside its border.
  *
+ * The rules either side of the value take their tone's colour on each side's
+ * own property: the theme resolves a colour token there, never on the
+ * `borderInlineColor` shorthand, which left them in the value's ink (#1398).
+ *
  * @packageDocumentation
  */
 
@@ -71,7 +75,7 @@ export const stepperSlotRecipe = defineSlotRecipe({
             neutral: {
                 root: { borderColor: "border.strong" },
                 button: { color: "fg.muted", _hover: { color: "fg" }, _disabled: { color: "fg.subtle" } },
-                value: { borderInlineColor: "border.subtle", color: "fg" },
+                value: { borderInlineStartColor: "border.subtle", borderInlineEndColor: "border.subtle", color: "fg" },
             },
             brand: {
                 root: { borderColor: "brand.solid", background: "bg.brand.subtle" },
@@ -80,7 +84,7 @@ export const stepperSlotRecipe = defineSlotRecipe({
                     _hover: { background: "bg.surface" },
                     _disabled: { opacity: 0.4, _hover: { background: "transparent" } },
                 },
-                value: { borderInlineColor: "brand.solid", color: "brand.fg" },
+                value: { borderInlineStartColor: "brand.solid", borderInlineEndColor: "brand.solid", color: "brand.fg" },
             },
         },
         size: {
