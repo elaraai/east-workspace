@@ -124,7 +124,8 @@ them. The canvas's rows never follow the dates on screen: the `rows` source
 and a resource kind's take no `range` — the tag refuses one as the Plan is
 evaluated, naming the change — and a date field there is a field of the rail
 the viewer sets. A slice with no source holding the window leaves the canvas
-its own, which the same controls move, reading no row. Each templates list is `Schedule.templates(templates.read(), { …,
+its own, which the same controls move, reading no row; a reload opens on it,
+kept for the viewer as the canvas's folds are. Each templates list is `Schedule.templates(templates.read(), { …,
 source })` over a record bound with `Data.bind`, an instant kind's giving no
 `duration`, and each tab that names a `source` follows it. A source named
 after an event kind's slot may list a series index and a summary index beside

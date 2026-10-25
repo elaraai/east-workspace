@@ -284,7 +284,10 @@ takes it unless that would replace a choice of its own
 pan reads no row and the rows in view stay where they are; a canvas whose
 slice has no source holding the window holds its own (`PlanWindowHold`), which
 the same controls move, the brush's horizon the axis's stated window and the
-window shown. A record's resolution
+window shown. It is kept under the canvas's storage key as its folds are
+(`persisted.ts`, #813), and a remount draws it from its first frame while the
+axis still allows it (`restoredWindow`), else the axis's stated window. A
+record's resolution
 only re-buckets, and the brush commits once a gesture, with no histogram. The
 Plan reads its event kinds' rows, counts and backlog and the selected events in
 components of their own (`PlanEventsReader`, `PlanKindsReader`,

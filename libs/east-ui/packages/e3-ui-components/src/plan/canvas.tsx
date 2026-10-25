@@ -123,7 +123,7 @@ import {
 import { PlanControllerContext, useControllerSelector } from "./controller/react.js";
 import { NOT_PERSISTED, persistedOf, type PlanPersisted } from "./persisted.js";
 import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root/view.js";
-import { createPlanWindowHold, statedWindow, usePlanWindow } from "./root/window.js";
+import { createPlanWindowHold, restoredWindow, statedWindow, usePlanWindow } from "./root/window.js";
 import { writePlanWindow } from "./controller/effects.js";
 import { planEventParts, planNouns, planPart, planRowSources, ROWS_SOURCE } from "./root/sources.js";
 import {
@@ -285,22 +285,25 @@ export function usePlanCanvas({
 
     // ── What survives a remount (#813) ────────────────────────────────────
     // Under the canvas's `storageKey`: the user's collapse toggles, the charts
-    // they expanded, and where a bounded frame's scroll rests. Never the
+    // they expanded, where a bounded frame's scroll rests, and the canvas's own
+    // window while no source of its slice holds one (#1344). Never the
     // selection — a transient act, and restoring it would re-fire `onSelect`.
     // Nor the resolution: only a bound slice can change it (the segment has
     // nowhere to write without one — #615), and the slice keeps its own. The
     // controller restores from it once and writes through the latest setter.
     const { state: stored, setState: setStored } = usePersistedState<PlanPersisted>(storageKey, NOT_PERSISTED);
+    const [restored] = useState(() => persistedOf(stored));
     const persistTo = useRef(setStored);
     useLayoutEffect(() => { persistTo.current = setStored; });
-    // The window last shown while no source of the slice holds one (#1344): the render's and the effects'.
-    const [windowHold] = useState(createPlanWindowHold);
+    // The window last shown while no source of the slice holds one (#1344): the render's and the effects'. It opens on
+    // the canvas's own window the last session kept while the axis allows it, so the first paint draws it there.
+    const [windowHold] = useState(() => createPlanWindowHold(restoredWindow(restored.window, hostValue, planRowSources(resources))));
 
     // ── The controller — once per mount (#815) ────────────────────────────
     const [controller] = useState(() => createPlanController({
         grain: declaredGrainOf(hostValue),
         collapsed: hostValue.rows.type === "inline" ? declaredCollapsedOf(canvasRowsOf(hostValue.rows.value)) : [],
-        restored: persistedOf(stored),
+        restored,
         persist: (next) => persistTo.current(next),
         // A bound interaction state (#824) — the host's from the first frame,
         // and written from outside through the state store.

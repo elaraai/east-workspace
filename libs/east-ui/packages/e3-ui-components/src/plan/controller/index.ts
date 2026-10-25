@@ -72,8 +72,8 @@ import { type ResidencyOptions, windowedSourceOf } from "@elaraai/east-ui-compon
 import { PLAN_PAGE_SIZE, type PlanViewport } from "../use-plan-paging.js";
 import type { PlanSearch } from "../use-seek.js";
 import {
-    NOT_PERSISTED, sameAnchor, sameKey, sameList, sameToggle,
-    type PlanAnchor, type PlanPersisted,
+    NOT_PERSISTED, sameAnchor, sameKey, sameList, sameOwnWindow, sameToggle,
+    type PlanAnchor, type PlanOwnWindow, type PlanPersisted,
 } from "../persisted.js";
 import { createPagingDriver, type PlanPagingSnapshot, type PlanRowPlace } from "./paging.js";
 import { CANVAS_KEY_TYPE, createSeekDriver, firstAtOrAfter, type PlanSeekSnapshot } from "./seek.js";
@@ -208,7 +208,8 @@ export interface PlanControllerOptions {
      *  canvas's state does nothing. */
     subscribeUi?: ((listener: () => void) => () => void) | undefined;
     /** The canvas's window hold (#1344): the window last shown while no source of its slice holds one — what a
-     *  pan or the now rung moves, as the reader sees it. */
+     *  pan or the now rung moves, as the reader sees it, and what the controller keeps under the canvas's
+     *  storage key as each gesture moves it (#813). */
     windowHold?: PlanWindowHold | undefined;
 }
 
@@ -640,6 +641,20 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         const charts = [...store.ui.chartsExpanded];
         if (sameList(persisted.collapse, collapse, sameToggle) && sameList(persisted.charts, charts, sameKey)) return;
         persisted = { ...persisted, collapse, charts };
+        options.persist?.(persisted);
+    }
+
+    /** Keep the canvas's own window under its storage key as a gesture moves it (#813, #1344): what a remount opens
+     *  on. The hold moves only while no source of the slice holds the window — a source's window is its own state —
+     *  and nothing is written that storage already holds. Bound or not: the window is the reader's place, as the
+     *  scroll anchor is, never a toggle the host holds. */
+    function persistWindow(): void {
+        const shown = options.windowHold?.last;
+        const kind = value?.axis.type;
+        if (shown === undefined || (kind !== "time" && kind !== "number")) return;
+        const next: PlanOwnWindow = { kind, min: shown[0], max: shown[1] };
+        if (sameOwnWindow(persisted.window, next)) return;
+        persisted = { ...persisted, window: next };
         options.persist?.(persisted);
     }
 
@@ -1171,10 +1186,13 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             // A bound state is written from outside while the canvas listens
             // (#824) — and may have been while it did not.
             const stopUi = options.subscribeUi?.(() => batch(() => syncBound()));
+            // Each move of the canvas's own window — a key, the brush, the date navigator — kept as it lands (#813).
+            const stopWindow = options.windowHold?.subscribe(persistWindow);
             batch(() => syncBound());
             return () => {
                 connected = false;
                 stopUi?.();
+                stopWindow?.();
                 paging.disconnect();
                 seek.disconnect();
             };
