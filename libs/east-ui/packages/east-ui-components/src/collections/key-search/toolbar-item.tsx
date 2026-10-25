@@ -42,6 +42,10 @@ export interface KeySearchSource {
      *  a query then (#1199): the box asks the query it holds again, its text
      *  kept. */
     requery?: number | undefined;
+    /** Moves when what the host says of the rows the box lists moves — the
+     *  filters that hide a row, once the Sheet knows which: the box lists them
+     *  again, its query, its count and its place kept. */
+    relist?: number | undefined;
     /** Query used to list suggestions when opening an empty box; absent for sources that require typed input. */
     browseQuery?: DatasetKeyQuery | undefined;
     /** A source-specific explanation when a completed query finds nothing. */
@@ -99,7 +103,7 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
     const box = (
         <DatasetKeySearch key={search.resetKey} label={options.label} keyType={search.keyType} onFind={search.find}
             browseQuery={search.browseQuery} noMatchesText={search.noMatchesText}
-            onListRange={search.listRange} onJump={search.jump} onClear={search.clear} requery={search.requery}
+            onListRange={search.listRange} onJump={search.jump} onClear={search.clear} requery={search.requery} relist={search.relist}
             onInputChange={onInputChange} />
     );
     const popup = (heading: string, controls?: ReactNode | ((close: () => void) => ReactNode)) => (

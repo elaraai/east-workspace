@@ -374,6 +374,32 @@ describe("DatasetKeySearch", () => {
         expect(onFind).toHaveBeenLastCalledWith({ prefix: "a" }, true);
     });
 
+    test("a host whose lines say more of a row once listed moves `relist`: the rows are listed again, the query and its count kept — and nothing is listed again while it stands", async () => {
+        // The Sheet's way: a row its filters hide, said first as hidden, then — once e3 has said — by which.
+        let said = "a1 · hidden by the filters";
+        const onFind = vi.fn(async () => ({ found: true, row: 0, count: 3 }));
+        const onListRange = vi.fn(async (row: number, limit: number) => ["a0", said, "a2"].slice(row, row + limit));
+        const props = { keyType: StringKey, onFind, onListRange, onJump: vi.fn() };
+        const view = render(<ChakraProvider value={system}><DatasetKeySearch {...props} relist={0} /></ChakraProvider>);
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
+        await userEvent.type(input, "a");
+        await waitFor(() => expect(screen.getByRole("option", { name: "a1 · hidden by the filters" })).toBeTruthy());
+        const listed = onListRange.mock.calls.length;
+        // The same lines: nothing listed again — a listing asks its host as its effect runs, inside the rerender.
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} relist={0} /></ChakraProvider>);
+        expect(onListRange.mock.calls.length).toBe(listed);
+        // What the host says of a1 moved: the head of the range listed again, its new line shown in its place — the query
+        // asked no more, the count standing, what was typed kept.
+        said = "a1 · hidden by Status: Ready — picking it clears that filter";
+        view.rerender(<ChakraProvider value={system}><DatasetKeySearch {...props} relist={1} /></ChakraProvider>);
+        await waitFor(() => expect(screen.getAllByRole("option").map((option) => option.textContent))
+            .toEqual(["a0", "a1 · hidden by Status: Ready — picking it clears that filter", "a2"]));
+        expect(onListRange.mock.calls.slice(listed)).toEqual([[0, 3]]);
+        expect(onFind).toHaveBeenCalledTimes(1);
+        expect(screen.getByRole("status").textContent).toBe("3 matches");
+        expect(input.value).toBe("a");
+    });
+
     test("misses report No matches; the control is the shared combobox recipe", async () => {
         const onFind = vi.fn(async () => ({ found: false, row: 7, count: 0 }));
         const onListRange = vi.fn(async () => [] as string[]);

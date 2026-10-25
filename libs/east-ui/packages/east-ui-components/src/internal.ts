@@ -68,6 +68,9 @@ export { SliceRangeContent } from "./slice/range/index.js";
 // choice chips and quiet reset, for choices a host offers as the rail does: a Sheet's views, folded with its key search (#1345).
 export { SliceChoiceGroup, SliceClearButton, SliceFieldChip, type SliceChoice } from "./slice/choice.js";
 export { RecordSliceFieldEditor, RecordSliceSummary, RecordSlicesSummary, recordSliceNoun, useRecordSliceToolbarItems, useRecordSlicesToolbarItems } from "./slice/record/index.js";
+// How the rail words a source's choice — `Status: Ready` — for a host that names choices as the rail's `Replaces …` does:
+// the Sheet's line for a row its narrowing hides, naming the filters that hide it.
+export { recordChoiceLabel } from "./slice/record/value.js";
 // A record source's count, handed to its builder as soon as it lands, before its pages (#1398, problem 23).
 export { useRecordSliceCount, type RecordSliceCount } from "./slice/record/count.js";
 export { prepareRecordSliceSave, RecordSliceSaveNotice } from "./slice/record/save.js";

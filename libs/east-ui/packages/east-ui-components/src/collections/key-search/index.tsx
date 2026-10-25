@@ -38,7 +38,10 @@
  * jumping + stepping subsumes filtering without a second row space. A host
  * whose source moves to another snapshot moves `requery`, and the box asks the
  * query it holds again there, showing what was typed again: a match it showed
- * was placed at the old snapshot's rows (#1199).
+ * was placed at the old snapshot's rows (#1199). A host whose lines say more of
+ * a row once it has listed it moves `relist`, and the box lists the rows it
+ * shows again, its query, its count and its place kept: the Sheet's line for a
+ * row its filters hide names them once e3 has said which.
  *
  * The host owns the data: `onFind` locates a query (server fences or a
  * client-side scan), `onListRange` labels a row window for the popup,
@@ -134,6 +137,14 @@ export interface DatasetKeySearchProps {
      * query keys the box afresh instead.
      */
     requery?: number | undefined;
+    /**
+     * Moves when what the host says of the rows it lists moves — a host that
+     * learns more of a row after listing it, as the Sheet learns which of its
+     * filters hide a row: the box lists the rows it shows again
+     * (`onListRange`), its query, its count and its place kept, and its lines
+     * stand until the new ones land.
+     */
+    relist?: number | undefined;
 }
 
 /**
@@ -143,7 +154,7 @@ export interface DatasetKeySearchProps {
  * @returns the search combobox with its match count, range navigation and
  *   clear affordance
  */
-export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind, onListRange, onJump, onClear, onInputChange, requery, label, browseQuery, noMatchesText }: DatasetKeySearchProps) {
+export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind, onListRange, onJump, onClear, onInputChange, requery, relist, label, browseQuery, noMatchesText }: DatasetKeySearchProps) {
     // The combobox's recipe made once for the theme (#1398, CL9): the box is drawn again with its builder's toolbar.
     const styles = useSlotStyles('combobox', { size: 'xs' });
     /** Whether the box holds text: typed, or the match a pick or a step shows. */
@@ -171,6 +182,8 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     const [resetSeq, setResetSeq] = useState(0);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const findSeqRef = useRef(0);
+    /** Moves with each listing of a range's rows: a listing a later one overtook is not shown. */
+    const listSeqRef = useRef(0);
     /** The query the box holds — the last one sent — until it is cleared (#1199). */
     const queryRef = useRef<DatasetKeyQuery | undefined>(undefined);
     useEffect(() => () => { clearTimeout(debounceRef.current); findSeqRef.current++; }, []);
@@ -195,6 +208,27 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         } catch {
             // Not read, it is not known to stand: the box shows what was typed.
             return false;
+        }
+    }, [onListRange]);
+
+    /**
+     * Lists the head of a found range through the host: its lines the popup's once they land, or why they could not be
+     * read (#1398, CL10) — a listing a newer find or a newer listing overtook never shown.
+     */
+    const listRows = useCallback(async (seq: number, found: DatasetKeyMatchRange) => {
+        const listed = ++listSeqRef.current;
+        const current = () => seq === findSeqRef.current && listed === listSeqRef.current;
+        setListing(true);
+        try {
+            const labels = await onListRange(found.row, Math.min(POPUP_LIMIT, found.count));
+            if (!current()) return;
+            setItems(labels.map((label, i) => listedRow(label, found.row + i)));
+            setListFailure(null);
+        } catch (error) {
+            if (!current()) return;
+            setListFailure(error instanceof Error ? error.message : 'The matches could not be listed');
+        } finally {
+            if (current()) setListing(false);
         }
     }, [onListRange]);
 
@@ -232,19 +266,9 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
             // rows' window — and a listing still on its way, or one that failed, never holds either (#1398, CL10).
             setLoading(false);
             if (!result.found) return;
-            setListing(true);
-            try {
-                const labels = await onListRange(result.row, Math.min(POPUP_LIMIT, result.count));
-                if (seq !== findSeqRef.current) return;
-                setItems(labels.map((label, i) => listedRow(label, result.row + i)));
-            } catch (error) {
-                if (seq !== findSeqRef.current) return;
-                setListFailure(error instanceof Error ? error.message : 'The matches could not be listed');
-            } finally {
-                if (seq === findSeqRef.current) setListing(false);
-            }
+            await listRows(seq, result);
         })();
-    }, [onFind, onListRange, holdsAt, showTyped]);
+    }, [onFind, holdsAt, showTyped, listRows]);
 
     const resetQueryState = useCallback(() => {
         clearTimeout(debounceRef.current);
@@ -272,6 +296,17 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         const standing = showingRef.current && shown !== undefined && activeIdx >= 0 ? { index: activeIdx, text: shown.value, seq: shown.seq } : undefined;
         runFind(query, true, standing);
     }, [requery, runFind, shown, activeIdx]);
+
+    // What the host says of the rows listed moved: they are listed again — never on the first render, nor while a query
+    // is on its way, whose lines are read as it lands — the query, its count and its place kept, the lines standing until
+    // the new ones land.
+    const listedAt = useRef(relist);
+    useEffect(() => {
+        if (listedAt.current === relist) return;
+        listedAt.current = relist;
+        if (loading || range === null || !range.found) return;
+        void listRows(findSeqRef.current, range);
+    }, [relist, loading, range, listRows]);
 
     const handleInput = useCallback((text: string) => {
         clearTimeout(debounceRef.current);

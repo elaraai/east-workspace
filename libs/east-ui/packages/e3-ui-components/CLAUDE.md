@@ -330,9 +330,19 @@ Sheet's and the Plan's over their sources' keys, the Roster's over its staff,
 the Calendar's over each event kind's record and the Allocation's over its
 bins' (each one's `find.ts`, #1398, CL10). It lists the rows a query finds
 wherever they are — read through the source by their place, never only what is
-drawn — and the Sheet's and the Roster's mark a row the rail's narrowing hides
-`· hidden by the filters`; its count shows and Enter jumps once the query is
-found, the lines following. In the Roster's, the Calendar's and the
+drawn — and the Roster's marks a row the rail's narrowing hides `· hidden by
+the filters`. The Sheet's names the choices of its `rows` source that hide it,
+as the rail words them — `· hidden by Status: Ready — picking it clears that
+filter` — asked of e3 through the record's indexes (`sheet/hidden.ts`): each
+choice alone where an index serves it, else with the choices before it on the
+narrowing's index, as the rail plans them, one request a choice for the hidden
+rows the box lists and no others, kept by the revision and the narrowing, the
+box listing its rows again as the answer lands (the shared box's `relist`).
+Until it lands the line says `· hidden by the filters`. A pick of such a row —
+and Go to issue on an issue of one — clears just those choices, every choice
+while e3 has not said, a write of the rail like a chip's, and goes to the row
+once the narrowing they leave draws it. Its count shows and Enter jumps once
+the query is found, the lines following. In the Roster's, the Calendar's and the
 Allocation's rows its box is the first thing the row folds, to its icon,
 before every step of the rail and of the builder's own items, so a row short
 of room keeps the rail's chips and the period's steps live; its icon goes into

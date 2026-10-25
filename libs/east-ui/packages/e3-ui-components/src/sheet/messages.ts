@@ -123,8 +123,18 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     keySearch: () => string;
     /** The key search's icon and popover head once the views fold into it, over the search box — the row's last rung (#1345). */
     keySearchViews: () => string;
-    /** A row the key search lists that the rail's narrowing hides — `JOB-10001 · hidden by the filters` (#1398, CL10): a pick of it moves nothing, for the sheet shows only the rows the narrowing keeps. */
+    /**
+     * A row the key search lists that the rail's narrowing hides — `JOB-10001 · hidden by the filters` (#1398, CL10) —
+     * until e3 has said which of the `rows` source's choices hide it: a pick of it then clears every one, and goes to the row.
+     */
     keySearchHidden: (p: { key: string }) => string;
+    /**
+     * The same row once e3 has said which choices hide it — `JOB-10001 · hidden by Status: Ready — picking it clears that
+     * filter`: a pick of it clears them and goes to the row, every other choice kept. `filters` are those choices and
+     * `also` any the pick clears with them, a choice that cannot stand without one of them — each as the rail words it
+     * (`Status: Ready`).
+     */
+    keySearchHiddenBy: (p: { key: string; filters: readonly string[]; also: readonly string[] }) => string;
 
     // ── The view tabs (B§8) ────────────────────────────────────────────────
     /** The tablist's accessible name. */
@@ -554,6 +564,10 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     inspectorNoIssues: (p: { part: "title" | "hint" }) => string;
     /** An issue's place and field — `row 4 · Qty`. */
     inspectorIssueAt: (p: { where: string; field: string | undefined }) => string;
+    /** An issue whose row the rail's narrowing hides, in its line — `hidden by the filters` — until e3 has said which choices: a click then clears every one. */
+    inspectorIssueHidden: () => string;
+    /** …and once it has, as the key search's line says it — `hidden by Status: Ready — picking it clears that filter` (`keySearchHiddenBy`). */
+    inspectorIssueHiddenBy: (p: { filters: readonly string[]; also: readonly string[] }) => string;
     /** The footer's last save, from the record's commits — `saved 14:02` (SB22). */
     savedAt: (p: { when: string }) => string;
     /** The banner over an entry the record does not hold (SB15). */
@@ -582,6 +596,13 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 
+/** A row the rail's narrowing hides, by the choices that do — joined as the rail's `Replaces …` joins them — and what a pick of it clears. */
+const hiddenBy = (filters: readonly string[], also: readonly string[]): string => {
+    const one = filters.length === 1;
+    const extra = also.length === 0 ? "" : `, and ${also.join("; ")} with ${one ? "it" : "them"}`;
+    return `hidden by ${filters.join("; ")} — picking it clears ${one ? "that filter" : "those filters"}${extra}`;
+};
+
 /** The English table — the default: the editing session's words, then the sheet's own. */
 export const sheetMessages: SheetMessages = {
     ...editingMessages,
@@ -595,6 +616,7 @@ export const sheetMessages: SheetMessages = {
     keySearch: () => "Search Records",
     keySearchViews: () => "Views and search",
     keySearchHidden: ({ key }) => `${key} · hidden by the filters`,
+    keySearchHiddenBy: ({ key, filters, also }) => `${key} · ${hiddenBy(filters, also)}`,
 
     tabList: () => "Views",
     tabAll: () => "All",
@@ -852,6 +874,8 @@ export const sheetMessages: SheetMessages = {
     inspectorReading: () => "Reading the row…",
     inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every draft is complete — nothing stands in the way of Save."),
     inspectorIssueAt: ({ where, field }) => (field === undefined ? where : `${where} · ${field}`),
+    inspectorIssueHidden: () => "hidden by the filters",
+    inspectorIssueHiddenBy: ({ filters, also }) => hiddenBy(filters, also),
     savedAt: ({ when }) => `saved ${when}`,
     entryMissing: ({ key }) => `The record holds no entry "${key}" — the sheet is empty and read only until it does`,
     railRows: () => "rows",
