@@ -136,7 +136,6 @@ function lineIn(line: Locator, slot: string) {
 
 for (const theme of ["light", "dark"] as const) {
     test(`a day not read yet draws at once with its placeholders, the toolbar's slots held; a day whose read failed says so once, in the first row in view; a started day with no bins says so once its read lands (#1398, CL1, CL2, CL5, CL11, CL13) (${theme}) @desktop`, async ({ page }) => {
-        test.setTimeout(300_000);
         await installE3Faults(page);
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationKilnYard", theme);
@@ -226,9 +225,9 @@ for (const theme of ["light", "dark"] as const) {
         });
 
         await test.step("a started day with no bins", async () => {
-            // Back to Tue 11, its row a draft, and every bin of it taken off.
+            // Back to Wed 12, its row a draft, and each of its three bins taken off.
             const previous = toolbar.getByRole("button", { name: "Previous day", exact: true });
-            for (let i = 0; i < 4; i++) await previous.click();
+            for (let i = 0; i < 3; i++) await previous.click();
             await settled(page);
             const cards = frame.locator("[data-allocation-timeline] [data-allocation-card]");
             await expect(cards.first()).toBeVisible();

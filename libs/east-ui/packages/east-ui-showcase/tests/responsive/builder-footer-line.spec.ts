@@ -163,56 +163,52 @@ function railAt(rail: Locator): Promise<RailAt> {
     });
 }
 
+// A test a builder: each is an area of its own, whose workspace the page deploys the first time it shows (#1397).
 for (const theme of ["light", "dark"] as const) {
-    test(`each builder's footer stays one line at every width, its fit cutting units whole, and its loading line says nothing at rest, in the footer's voice (#1398, CL3) (${theme}) @desktop`, async ({ page }) => {
-        // Six builders at four widths, on the page's one e3, each area's workspace started as it is first shown.
-        test.setTimeout(180_000);
-        await page.setViewportSize({ width: 1920, height: 1200 });
-        let voice: Voice | undefined;
-        for (const [i, { builder, route, root, rail: railSelector }] of BUILDERS.entries()) {
-            await test.step(builder, async () => {
-                const entry = await visitBuilder(page, route, root, i === 0 ? theme : undefined);
-                voice ??= await voiceOf(page);
-                const rail = entry.locator(railSelector).first();
-                let widest: RailAt | undefined;
-                let wider: RailAt | undefined;
-                for (const width of WIDTHS) {
-                    await sizeBuilder(page, entry, root, width);
-                    const at = await railAt(rail);
-                    const where = `${builder} at ${width}px`;
-                    widest ??= at;
-                    // One line: never wrapped, as tall as at its widest, nothing past its edge.
-                    expect(at.wrap, where).toBe("nowrap");
-                    expect(at.height, `${where}: one line`).toBeCloseTo(widest.height, 0);
-                    expect(at.overflow, where).toBeLessThanOrEqual(1);
-                    expect(at.outside, `${where}: past the rail's content box`).toEqual([]);
-                    expect(at.offCentre, `${where}: off the rail's centre line`).toEqual([]);
-                    expect(at.clipped, `${where}: cut inside its words`).toEqual([]);
-                    // What the fit weighs never moves with the fit: no item it measures can shrink, but one taking the slack.
-                    expect(at.shrinking, `${where}: weighed by the fit, yet shrunk by the layout`).toEqual([]);
-                    // The units its fit cut are the last ones, each hidden whole, and the "…" ends them.
-                    const kept = at.units.filter((unit) => !unit.cut).length;
-                    expect(at.units.map((unit) => unit.cut), `${where}: the units cut`).toEqual(at.units.map((_, n) => n >= kept));
-                    expect(at.seen, `${where}: cut, yet seen`).toEqual([]);
-                    expect(at.more, `${where}: the "…"`).toBe(kept < at.units.length);
-                    if (at.more) expect(at.moreVoice, `${where}: the "…" in the footer's voice`).toEqual(voice);
-                    if (at.units.length > 0) expect(kept, `${where}: a unit kept`).toBeGreaterThan(0);
-                    // Never more units at a narrower frame holding the same ones.
-                    if (wider !== undefined && wider.units.map((unit) => unit.text).join("\n") === at.units.map((unit) => unit.text).join("\n")) {
-                        expect(kept, `${where}: more units than the wider frame's`).toBeLessThanOrEqual(wider.units.filter((unit) => !unit.cut).length);
-                    }
-                    // The one loading line: a polite live region, saying nothing and taking no room, in the footer's voice.
-                    expect(at.lines, where).toBe(1);
-                    expect(at.line, where).toEqual({
-                        idle: true, role: "status", live: "polite", words: "",
-                        width: expect.any(Number), height: expect.any(Number),
-                        family: voice!.family, size: voice!.size, numeric: expect.stringContaining("tabular-nums"), color: voice!.color,
-                    });
-                    expect(at.line!.width, `${where}: the idle line's width`).toBeLessThanOrEqual(1);
-                    expect(at.line!.height, `${where}: the idle line's height`).toBeLessThanOrEqual(1);
-                    wider = at;
+    for (const { builder, route, root, rail: railSelector } of BUILDERS) {
+        test(`the ${builder}'s footer stays one line at every width, its fit cutting units whole, and its loading line says nothing at rest, in the footer's voice (#1398, CL3) (${theme}) @desktop`, async ({ page }) => {
+            await page.setViewportSize({ width: 1920, height: 1200 });
+            const entry = await visitBuilder(page, route, root, theme);
+            const voice = await voiceOf(page);
+            const rail = entry.locator(railSelector).first();
+            let widest: RailAt | undefined;
+            let wider: RailAt | undefined;
+            for (const width of WIDTHS) {
+                await sizeBuilder(page, entry, root, width);
+                const at = await railAt(rail);
+                const where = `${builder} at ${width}px`;
+                widest ??= at;
+                // One line: never wrapped, as tall as at its widest, nothing past its edge.
+                expect(at.wrap, where).toBe("nowrap");
+                expect(at.height, `${where}: one line`).toBeCloseTo(widest.height, 0);
+                expect(at.overflow, where).toBeLessThanOrEqual(1);
+                expect(at.outside, `${where}: past the rail's content box`).toEqual([]);
+                expect(at.offCentre, `${where}: off the rail's centre line`).toEqual([]);
+                expect(at.clipped, `${where}: cut inside its words`).toEqual([]);
+                // What the fit weighs never moves with the fit: no item it measures can shrink, but one taking the slack.
+                expect(at.shrinking, `${where}: weighed by the fit, yet shrunk by the layout`).toEqual([]);
+                // The units its fit cut are the last ones, each hidden whole, and the "…" ends them.
+                const kept = at.units.filter((unit) => !unit.cut).length;
+                expect(at.units.map((unit) => unit.cut), `${where}: the units cut`).toEqual(at.units.map((_, n) => n >= kept));
+                expect(at.seen, `${where}: cut, yet seen`).toEqual([]);
+                expect(at.more, `${where}: the "…"`).toBe(kept < at.units.length);
+                if (at.more) expect(at.moreVoice, `${where}: the "…" in the footer's voice`).toEqual(voice);
+                if (at.units.length > 0) expect(kept, `${where}: a unit kept`).toBeGreaterThan(0);
+                // Never more units at a narrower frame holding the same ones.
+                if (wider !== undefined && wider.units.map((unit) => unit.text).join("\n") === at.units.map((unit) => unit.text).join("\n")) {
+                    expect(kept, `${where}: more units than the wider frame's`).toBeLessThanOrEqual(wider.units.filter((unit) => !unit.cut).length);
                 }
-            });
-        }
-    });
+                // The one loading line: a polite live region, saying nothing and taking no room, in the footer's voice.
+                expect(at.lines, where).toBe(1);
+                expect(at.line, where).toEqual({
+                    idle: true, role: "status", live: "polite", words: "",
+                    width: expect.any(Number), height: expect.any(Number),
+                    family: voice.family, size: voice.size, numeric: expect.stringContaining("tabular-nums"), color: voice.color,
+                });
+                expect(at.line!.width, `${where}: the idle line's width`).toBeLessThanOrEqual(1);
+                expect(at.line!.height, `${where}: the idle line's height`).toBeLessThanOrEqual(1);
+                wider = at;
+            }
+        });
+    }
 }
