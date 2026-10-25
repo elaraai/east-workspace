@@ -13,9 +13,14 @@
  * says fit among what the rail shows, best first in its order, each card with
  * its reason, under a chip that clears it — the Roster decides no one itself.
  * The People tab's agency requests are actions, not people: they always show,
- * and what the tab says of its people shows above them.
+ * and what the tab says of its people shows above them. The Patterns tab
+ * (#1406, P20) lists the app's week patterns under the name and icon
+ * `Roster.patterns` gives, each card its name, `5 shifts · 40 h` and a strip of
+ * seven marks in the shifts' colours; a card drags onto a person's week; one
+ * that cannot be applied is greyed with its reason (P23); the tab follows the
+ * slice's `patterns` source where there is one.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { Box, Button } from "@chakra-ui/react";
 import { FloatType, compareFor, none, some, variant } from "@elaraai/east";
 import { EastChakraLibrary, useFormatters, type BuilderFrameDock, type LibraryCardExtras, type LibraryItemValue, type LibraryNarrowing } from "@elaraai/east-ui-components";
@@ -26,7 +31,28 @@ import { readRosterSource, rosterSourceKey } from "./identity.js";
 import { PlaceAction } from "./controls.js";
 import type { RosterCommands, RosterSource } from "./actions.js";
 import type { FitResult, Need } from "./fit.js";
-import { DAY, activityOf, type Assignment, type Coverage, type Person, type RosterStyles, type RosterValue, type Selection, type Slot, type Week } from "./model.js";
+import {
+    DAY, activityOf, patternProblem, patternSummary, shiftColor, shiftOf, type Assignment, type Coverage, type Pattern, type Person, type RosterStyles, type RosterValue,
+    type Selection, type Slot, type Week,
+} from "./model.js";
+
+/**
+ * A pattern's seven marks (#1406, §8): each day's shift in its colour token, its code on it; a day off faint.
+ *
+ * @param props - The payload's shifts, the pattern and the Roster's styles
+ * @returns The strip
+ */
+export function PatternStrip({ value, pattern, styles }: { value: Pick<RosterValue, "shifts">; pattern: Pattern; styles: RosterStyles }) {
+    return <Box css={styles.patternStrip} data-roster-pattern-strip={pattern.key} aria-hidden="true">
+        {Array.from({ length: 7 }, (_, i) => {
+            const day = pattern.days[i];
+            const shift = day?.type === "some" ? shiftOf(value, day.value) : undefined;
+            const color = shiftColor(shift);
+            return <Box key={i} as="span" css={styles.patternMark} data-off={day === undefined || day.type === "none" ? "" : undefined} data-shift={day?.type === "some" ? day.value : undefined}
+                style={color === undefined ? undefined : { "--roster-fill": color.fill, "--roster-ink": color.ink } as CSSProperties}>{shift?.code ?? ""}</Box>;
+        })}
+    </Box>;
+}
 
 export function rosterLibraryId(key: string, tab: string): string { return `${key}.library.${tab}`; }
 /** A Find fix's result in the People tab (#1334): what it looks for, the fit's answer, and whether that answer is still to land. */
@@ -46,7 +72,7 @@ interface LibraryArgs {
     find: PeopleFind | undefined; onClearFind: () => void;
     tab: string | undefined; onTab: (tab: string) => void;
     /** What the rail shows of each source a tab follows, and how that source alone clears. */
-    shown: { people: SourceShown; activities: SourceShown };
+    shown: { people: SourceShown; activities: SourceShown; patterns: SourceShown };
 }
 /** A tab that names no source lists its rows whole. */
 const WHOLE: SourceShown = { keys: none, busy: false, ready: true, clear: undefined };
@@ -98,7 +124,16 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
     // Each found card's reason, the same function while the answer stands: the Library's memo compares it.
     const answer = find?.shown;
     const reasons = useMemo(() => answer === undefined ? undefined : (item: LibraryItemValue) => reasonOf(answer, item), [answer]);
-    const draggable = !narrow && commands.available;
+    // A card drags while a week in view takes a gesture: the week, or any of the month's (#1406, P32).
+    const draggable = !narrow && commands.editable;
+    // The patterns, each with why it cannot be applied and what it works (#1406): the Patterns tab's cards, and each card's strip.
+    const patternEntries = useMemo(() => value.patterns.map(pattern => ({ pattern, problem: patternProblem(value, pattern), summary: patternSummary(value, pattern) })), [value]);
+    const patternExtras = useMemo(() => (item: LibraryItemValue): LibraryCardExtras | undefined => {
+        const entry = patternEntries.find(e => e.pattern.key === item.key);
+        if (entry === undefined) return undefined;
+        return { strip: <PatternStrip value={value} pattern={entry.pattern} styles={styles} />, title: entry.problem ?? `${entry.pattern.label} · drag onto a person's week`,
+            note: entry.problem === undefined ? undefined : { text: entry.problem, tone: "warning" } };
+    }, [patternEntries, value, styles]);
     // Each person's duties on the day, the week's duties read once (#1398, CL9).
     const today = useMemo(() => {
         const by = new Map<string, Assignment[]>();
@@ -140,7 +175,7 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
     const off = value.people.filter(p => (shownPeople.type === "none" || shownPeople.value.has(p.key)) && !today.has(p.key)).length;
     const tabs = value.library.map(tab => {
         const name = tab.type === "tab" ? `tab:${tab.value.name}` : tab.type;
-        const label = tab.type === "tab" ? tab.value.name : tab.type === "people" ? "People" : "Activities";
+        const label = tab.type === "tab" || tab.type === "patterns" ? tab.value.name : tab.type === "people" ? "People" : "Activities";
         let cards: LibraryItemValue[];
         let follows: ReturnType<typeof sourceTab<unknown>>;
         let count: string | number;
@@ -182,9 +217,22 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
                 return { ...make(skill.key, skill.label, `${skill.code} · ${format.number(assigned)} / ${format.number(needed)} h assigned`, group, "list-check"), placed: chosen[name] === skill.key,
                     dims: new Map([["hours", variant("meter", { value: assigned, max: needed, text: none })]]) };
             });
+        } else if (tab.type === "patterns") {
+            // The app's week patterns (#1406, P20), in their order, under the slice's `patterns` source where there is one; a
+            // pattern that cannot be applied listed greyed with its reason, dragged by no one (P23).
+            const entries = patternEntries;
+            follows = sourceTab({ cards: entries, keyOf: entry => entry.pattern.key, shown: shown.patterns, noun: tab.value.name.toLocaleLowerCase(format.locale), words: format });
+            count = follows.count;
+            narrowing = follows.narrowing;
+            pane = follows.pane;
+            cards = (follows.cards as typeof entries).map(({ pattern, problem, summary }) => ({
+                ...make(pattern.key, pattern.label, `${format.number(summary.shifts)} shifts · ${format.number(summary.hours)} h`, "", tab.value.icon),
+                draggable: draggable && problem === undefined, filtered: problem !== undefined, placed: chosen[name] === pattern.key,
+                search: some(`${pattern.label} ${format.number(summary.shifts)} shifts ${format.number(summary.hours)} h`),
+            }));
         } else {
             const source = tab.value.source;
-            const followed = source.type === "none" ? WHOLE : source.value === "people" ? shown.people : source.value === "activities" ? shown.activities : WHOLE;
+            const followed = source.type === "none" ? WHOLE : source.value === "people" ? shown.people : source.value === "activities" ? shown.activities : source.value === "patterns" ? shown.patterns : WHOLE;
             follows = sourceTab({ cards: tab.value.cards, keyOf: card => card.key, shown: followed, noun: tab.value.name.toLowerCase(), words: format });
             count = follows.count;
             narrowing = follows.narrowing;
@@ -205,8 +253,9 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
             }
             return null;
         };
-        const baseLibrary = scheduleLibrary({ id: rosterLibraryId(storageKey, name), items: cards, groupOptions: [{ key: "group", label: "Group" }], noun: some({ singular: tab.type === "people" ? "person" : "activity", plural: tab.type === "people" ? "people" : "activities" }), onCardClick: some(choose) }, true);
-        const library = { ...baseLibrary, ...(tab.type === "tab" ? {} : { dimOptions: [{ key: "hours", label: "Hours" }], defaultDimensions: ["hours"] }) };
+        const noun = tab.type === "people" ? { singular: "person", plural: "people" } : tab.type === "patterns" ? { singular: "pattern", plural: "patterns" } : { singular: "activity", plural: "activities" };
+        const baseLibrary = scheduleLibrary({ id: rosterLibraryId(storageKey, name), items: cards, groupOptions: tab.type === "patterns" ? [] : [{ key: "group", label: "Group" }], noun: some(noun), onCardClick: some(choose) }, true);
+        const library = { ...baseLibrary, ...(tab.type === "tab" || tab.type === "patterns" ? {} : { dimOptions: [{ key: "hours", label: "Hours" }], defaultDimensions: ["hours"] }) };
         const chosenKey = chosen[name];
         const parsed = tab.type === "people" && chosenKey !== undefined ? readRosterSource(chosenKey) : undefined;
         const source: RosterSource | undefined = parsed?.success ? { type: parsed.value.type, key: parsed.value.value } : undefined;
@@ -215,17 +264,26 @@ export function useRosterLibrary(args: LibraryArgs): BuilderFrameDock | undefine
         const finding = tab.type === "people" && findWhat !== undefined;
         // A pane its source reads again holds its cards retained (#1398, CL8): what they place waits until it lands.
         const held = pane["aria-disabled"] === true;
+        // A chosen pattern applies to the selected person's week — the selected person-week's, else the week in view (#1406).
+        const patternTarget = tab.type === "patterns" && chosenKey !== undefined && (selection?.type === "personWeek" || selection?.type === "person")
+            ? { person: value.people.find(p => p.key === selection.key), start: selection.type === "personWeek" ? new Date(selection.start) : start } : undefined;
+        const hint = tab.type === "patterns" ? (narrow ? "Select a pattern, then Apply pattern… on a person's card" : "Drag one onto a person's week. It replaces all seven days.")
+            : narrow ? tab.type === "people" ? "Select a person to assign" : "Select a card, then an assignment"
+                : tab.type === "people" ? `Drag onto a shift · ${format.weekdayDate(new Date(start.getTime() + day * DAY))}` : "Drag onto a person · one per shift";
         return { key: name, label, count, body: <Box css={styles.pane} data-roster-library={name} {...pane}>
             {finding && <Box css={styles.paneFoot} data-roster-find="">
                 {/* Pressed, the chip clears the find: its name says so, its face what the find looks for. */}
                 <SliceFieldChip label={`Find · ${findWhat}`} aria-label={`Clear find · ${findWhat}`} active removeLabel="Clear find" onRemove={args.onClearFind} onClick={args.onClearFind} />
             </Box>}
+            {tab.type === "patterns" && <Box css={styles.patternDays} data-roster-pattern-days="" aria-hidden="true">
+                {Array.from({ length: 7 }, (_, d) => <span key={d}>{format.weekday(new Date(start.getTime() + d * DAY)).slice(0, 1).toLocaleUpperCase(format.locale)}</span>)}
+            </Box>}
             <EastChakraLibrary value={library} storageKey={rosterLibraryId(storageKey, name)} empty={follows.empty} narrowing={narrowing}
-                extras={tab.type === "people" ? reasons : undefined} />
-            <Box css={[styles.paneFoot, styles.paneHint]}>{narrow ? tab.type === "people" ? "Select a person to assign" : "Select a card, then an assignment"
-                : tab.type === "people" ? `Drag onto a shift · ${format.weekdayDate(new Date(start.getTime() + day * DAY))}` : "Drag onto a person · one per shift"}</Box>
+                extras={tab.type === "people" ? reasons : tab.type === "patterns" ? patternExtras : undefined} />
+            <Box css={[styles.paneFoot, styles.paneHint]}>{hint}</Box>
             {commands.available && !held && chosenKey !== undefined && <Box css={styles.paneFoot}>
                 {source !== undefined && <PlaceAction label={source.type === "agency" ? "Request staff" : "Assign person"} source={source} slot={defaultSlot} value={value} start={start} commands={commands} styles={styles} />}
+                {patternTarget?.person !== undefined && <Button size="xs" variant="outline" onClick={() => setError(commands.applyPattern(patternTarget.person!.key, patternTarget.start, chosenKey))}>Apply to {patternTarget.person.name}</Button>}
                 {tab.type === "activities" && <Button size="xs" variant="outline" disabled={target === undefined} onClick={() => { if (target !== undefined) setError(commands.activity(target, some(chosenKey))); }}>Set activity on selected duty</Button>}
                 {custom !== undefined && custom.sets.length > 0 && <Button size="xs" variant="outline" disabled={target === undefined} onClick={() => { if (target !== undefined) setError(commands.sets(target, custom.sets)); }}>Apply to selected duty</Button>}
                 {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}

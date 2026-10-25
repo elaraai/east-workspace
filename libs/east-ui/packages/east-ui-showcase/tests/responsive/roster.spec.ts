@@ -144,18 +144,21 @@ for (const theme of ['light', 'dark'] as const) {
         await page.keyboard.press('Enter');
         await expect(page.getByRole('dialog')).toHaveCount(0);
     });
-    test(`People omits period controls in every toolbar form (${theme}) @narrow`, async ({ page }) => {
+    test(`People offers Week · Month in every toolbar form, Week alone on a phone, and Shifts keeps its own period (#1406, P1, P31) (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
         for (const width of [1440, 768, 294]) {
             await size(page, entry, width);
             await view(page, frame, 'People');
-            await expect(frame.getByRole('radiogroup', { name: 'Period', exact: true })).toHaveCount(0);
-            const folded = frame.getByRole('button', { name: 'View', exact: true });
-            if (await folded.isVisible()) {
-                await folded.click();
-                await expect(page.getByRole('menuitem', { name: /^(Day|Week)$/ })).toHaveCount(0);
-                await expect(page.getByRole('dialog').getByRole('radiogroup', { name: 'Period', exact: true })).toHaveCount(0);
+            // Below 480px of main the People layout is the phone's cards, by week only (P31); above it, Week · Month.
+            const offered = width < 480 ? ['Week'] : ['Week', 'Month'];
+            const row = frame.getByRole('radiogroup', { name: 'Period', exact: true });
+            if (await row.isVisible()) await expect(row.getByRole('radio')).toHaveText(offered);
+            else {
+                await frame.getByRole('button', { name: 'View', exact: true }).click();
+                const items = page.getByRole('menuitem', { name: /^(Day|Week|Month)$/ });
+                if (await items.count() > 0) await expect(items).toHaveText(offered);
+                else await expect(page.getByRole('dialog').getByRole('radiogroup', { name: 'Period', exact: true }).getByRole('radio')).toHaveText(offered);
                 await page.keyboard.press('Escape');
             }
             expect(await toolbarFaults(frame)).toEqual([]);
@@ -164,6 +167,14 @@ for (const theme of ['light', 'dark'] as const) {
         // Back on Shifts, its chosen period is kept: on the row from a 1920px frame, where the rail's summary and the view both fit.
         await size(page, entry, 1920);
         await expect(frame.getByRole('radio', { name: 'Day', exact: true })).toHaveAttribute('aria-checked', 'true');
+        // People's own period is kept as well: Month chosen there stands across a visit to Shifts.
+        await view(page, frame, 'People'); await view(page, frame, 'Month');
+        await expect(frame.locator('[data-roster-grid="people-month"]')).toBeVisible();
+        await view(page, frame, 'Shifts');
+        await expect(frame.getByRole('radio', { name: 'Day', exact: true })).toHaveAttribute('aria-checked', 'true');
+        await view(page, frame, 'People');
+        await expect(frame.locator('[data-roster-grid="people-month"]')).toBeVisible();
+        await view(page, frame, 'Week');
     });
     test(`phone edits a named assignment and saves through e3 (${theme}) @narrow`, async ({ page }) => {
         const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
@@ -358,12 +369,12 @@ for (const theme of ['light', 'dark'] as const) {
         const initial = await rows.evaluateAll(nodes => nodes.map(el => el.getAttribute('data-roster-person-row')));
         await scroll.evaluate(el => el.scrollTo({ top: el.scrollHeight })); await settled(page);
         const row = rows.filter({ has: page.locator('[data-roster-assignment]') })
-            .filter({ has: page.getByRole('button', { name: 'Off · assign', exact: true }) }).last();
+            .filter({ has: page.locator('[data-roster-assign]') }).last();
         const person = await row.getAttribute('data-roster-person-row');
         expect(initial).not.toContain(person);
         const source = row.locator('[data-roster-assignment]').first();
         const id = await source.getAttribute('data-roster-assignment');
-        const target = row.locator('[data-roster-person-day]').filter({ has: page.getByRole('button', { name: 'Off · assign', exact: true }) }).first();
+        const target = row.locator('[data-roster-person-day]').filter({ has: page.locator('[data-roster-assign]') }).first();
         const destination = await target.getAttribute('data-roster-person-day');
         await source.scrollIntoViewIfNeeded();
         const from = (await source.boundingBox())!;
@@ -520,9 +531,10 @@ for (const theme of ['light', 'dark'] as const) {
         expect(await headings.evaluateAll(nodes => nodes.length > 0 && nodes.every(el => getComputedStyle(el).textAlign === 'center'))).toBe(true);
         expect(await groupBands()).toEqual(Array.from({ length: 3 }, () => ({ left: true, width: true, align: 'left' })));
         await view(page, frame, 'People');
+        // The People week's header is the mock's 36px (#1406, §8), its rule under it.
         expect(await headerTypography()).toEqual(Array.from({ length: 7 }, () => shiftType));
-        expect(await headings.evaluateAll(nodes => nodes.map(el => el.getBoundingClientRect().height))).toEqual(Array(7).fill(28));
-        expect(await headings.first().evaluate(el => el.parentElement!.getBoundingClientRect().height)).toBe(29);
+        expect(await headings.evaluateAll(nodes => nodes.map(el => el.getBoundingClientRect().height))).toEqual(Array(7).fill(36));
+        expect(await headings.first().evaluate(el => el.parentElement!.getBoundingClientRect().height)).toBe(37);
         expect(await headings.evaluateAll(nodes => nodes.length === 7 && nodes.every(el => getComputedStyle(el).textAlign === 'center'))).toBe(true);
         const peopleBands = await groupBands();
         expect(peopleBands.length).toBeGreaterThan(0);

@@ -14,8 +14,8 @@ import { CoverageView, ProposalCard, assignmentName, costed, dismissible, money,
 import type { RolesChange } from "./actions.js";
 import type { RosterFind } from "./fit.js";
 import {
-    DAY, costsOf, dayOfSlot, groupSkills, requirementOf, sameSlot, viewTotals, type Assignment, type Issue, type Person, type PlacedDuties, type PlacedTargets,
-    type RosterStyles, type Slot,
+    DAY, costsOf, dayOfSlot, dayStart, groupSkills, requirementOf, sameSlot, viewTotals, weekNumber, type Assignment, type Issue, type Person, type PlacedDuties,
+    type PlacedTargets, type RosterStyles, type Slot,
 } from "./model.js";
 
 /** The Find fixes, as the inspector offers them (#1334): only with the app's fit, and reading `Finding…` while their find is asked. */
@@ -66,7 +66,8 @@ function PersonFacts({ props, person, slot }: { props: Args; person: Person; slo
         {person.agency && person.skills.size === 0 && <Box css={props.styles.detail}>No skills recorded for agency staff.</Box>}
         {skills?.map(skill => <Box key={skill.key} css={props.styles.skillLine}><Box as="span" css={props.styles.flag} aria-label={person.skills.has(skill.key) ? "Skill held" : "Skill not held"}><FontAwesomeIcon icon={person.skills.has(skill.key) ? faCheck : faMinus} /></Box><span>{skill.label}</span><span /><span>{props.format.number(coverage?.lines.find(line => line.skill === skill.key)?.needed ?? 0)} h needed</span></Box>)}
     </Box><Box css={props.styles.section}><Box css={props.styles.sectionHead}>Week</Box><Box css={props.styles.detail}>{props.format.number(props.hours.get(person.key) ?? 0)} h / {props.format.number(person.contract)} h{cost !== undefined && ` · ${money(props.format, props.value, cost, false)}`}</Box>
-        {Array.from({ length: 7 }, (_, day) => { const rows = theirs.filter(([, a]) => a.slot.day === BigInt(day)); return <Button key={day} size="xs" variant={props.day === day ? "outline" : "ghost"} onClick={() => { props.setView({ ...props.view, date: props.start.getTime() + day * DAY }); props.select(rows.length === 0 ? { type: "person", key: person.key } : { type: "assignment", key: rows[0]![0] }); }}>
+        {/* A day pressed opens that week — in Week, from Month (#1406, P24) — with the duty selected, or the person where the day is off. */}
+        {Array.from({ length: 7 }, (_, day) => { const rows = theirs.filter(([, a]) => a.slot.day === BigInt(day)); return <Button key={day} size="xs" variant={props.day === day ? "outline" : "ghost"} onClick={() => { props.setView({ ...props.view, period: props.view.period === "month" ? "week" : props.view.period, date: props.start.getTime() + day * DAY }); props.select(rows.length === 0 ? { type: "person", key: person.key } : { type: "assignment", key: rows[0]![0] }); }}>
             {props.format.weekday(new Date(props.start.getTime() + day * DAY))} · {rows.map(([, a]) => `${props.value.shifts.find(s => s.key === a.slot.shift)?.code} ${props.format.number(a.hours)} h`).join(" · ") || "Off"}
         </Button>; })}
     </Box></>;
@@ -177,7 +178,9 @@ function Summary({ props }: { props: Args }) {
         { label: "Hours", value: `${props.format.number(totals.hours)} h`, sub: `of ${props.format.number(totals.needed)} h needed` },
         { label: "Issues", value: String(breaches + gaps), sub: `${breaches} breaches · ${gaps} gaps` },
     ];
-    return <><ScheduleInspectorHead styles={props.styles} kind={{ name: days === 1 ? `Day · ${props.format.weekdayDate(new Date(props.view.date))}` : `Week · ${props.format.range(props.start, new Date(props.start.getTime() + 6 * DAY))}`, icon: "calendar-week" }} title="Roster" when={`${props.value.groups.length} groups · ${props.value.shifts.length} shifts`} />
+    const period = days === 1 ? `Day · ${props.format.weekdayDate(new Date(props.view.date))}`
+        : props.view.period === "month" ? `Month · ${props.format.monthYear(dayStart(props.view.date))}` : `Week · ${props.format.range(props.start, new Date(props.start.getTime() + 6 * DAY))}`;
+    return <><ScheduleInspectorHead styles={props.styles} kind={{ name: period, icon: "calendar-week" }} title="Roster" when={`${props.value.groups.length} groups · ${props.value.shifts.length} shifts`} />
         <Box css={props.styles.summary}>{stats.filter(s => s.label !== "Cost" || costed(props.value)).map(stat => <Box key={stat.label} css={props.styles.stat}><Box css={props.styles.statLabel}>{stat.label}</Box><Box css={props.styles.statValue}>{stat.value}</Box><Box css={props.styles.detail}>{stat.sub}</Box></Box>)}</Box>
         {filtered && visible.type === "some" && <Box css={props.styles.section}><Box css={props.styles.detail}>{props.format.number(visible.value.size)} of {props.format.number(props.value.people.length)} people visible · Coverage includes all staff</Box></Box>}
         {props.proposals.length > 0 && <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Proposals</Box>{props.proposals.map(proposal => <ProposalCard key={proposal.key} props={props} proposal={proposal} />)}</Box>}
@@ -196,9 +199,13 @@ function Details({ props }: { props: Args }) {
                 {props.commands.available && <Box css={props.styles.actions}><Button size="xs" variant="outline" onClick={() => props.onError(props.commands.accept(p.key))}>Accept proposal</Button>{dismissible(props.value) && <Button size="xs" variant="ghost" onClick={() => props.commands.reject(p.key)}>Reject proposal</Button>}</Box>}
             </Box></>;
     }
-    if (selection?.type === "person") {
+    if (selection?.type === "person" || selection?.type === "personWeek") {
         const person = props.value.people.find(p => p.key === selection.key);
-        if (person !== undefined) return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Person · ${props.value.groups.find(g => g.key === person.group)?.label}`, icon: "user" }} title={person.name} when={props.value.positions.find(p => p.key === person.position)?.label} />
+        // A person-week (#1406, D11): the person's Details as they are, over the selected week — the week the frame shows the facts of.
+        const when = props.value.positions.find(p => p.key === person?.position)?.label;
+        const week = selection.type === "personWeek" ? `W${props.format.number(weekNumber(props.start))} · ${props.format.range(props.start, new Date(props.start.getTime() + 6 * DAY))}` : undefined;
+        if (person !== undefined) return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Person · ${props.value.groups.find(g => g.key === person.group)?.label}`, icon: "user" }} title={person.name}
+            when={[when, week].filter(part => part !== undefined).join(" · ")} />
             <PersonFacts props={props} person={person} /><Box css={props.styles.section}><PlaceAction label="Assign person" source={{ type: "person", key: person.key }} slot={{ day: BigInt(props.day), group: person.group, shift: person.usual.type === "some" ? person.usual.value : props.value.shifts[0]!.key }} value={props.value} start={props.start} commands={props.commands} styles={props.styles} /></Box></>;
     }
     if (selection?.type === "group" || selection?.type === "shift") {

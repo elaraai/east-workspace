@@ -3,13 +3,17 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
 import { DateTimeType, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, none, parseFor, printFor, some, type ValueTypeOf, type option } from "@elaraai/east";
 import { RosterRequirementType } from "@elaraai/e3-ui/internal";
 import { Fields } from "@elaraai/east-ui";
 import { FieldForm, SliceEditPopover, useFormatters } from "@elaraai/east-ui-components";
-import { activityChoices, compareString, DAY, duties, groupSkills, requirementOf, type Assignment, type RosterStyles, type RosterValue, type Slot, type Week } from "./model.js";
+import { Chooser, type ChooserSection } from "@elaraai/east-ui-components/internal";
+import {
+    activityChoices, compareString, DAY, duties, groupSkills, patternProblem, patternSummary, requirementOf, type Assignment, type Person, type RosterStyles, type RosterValue,
+    type Slot, type Week,
+} from "./model.js";
 import type { RolesChange, RosterCommands, RosterSource } from "./actions.js";
 
 const parseDay = parseFor(IntegerType);
@@ -42,8 +46,8 @@ export function SlotFields({ value, start, slot, onChange }: { value: RosterValu
         else if (key === "shift" && typeof next === "string") onChange({ ...slot, shift: next });
     }} />;
 }
-/** What a place action places, and where. */
-interface PlaceActionProps { label: string; source?: RosterSource; slot: Slot; value: RosterValue; start: Date; commands: RosterCommands; styles: RosterStyles }
+/** What a place action places, and where; `onClose` is told as its popover closes, for a host that mounts it in place (#1406, D9: `Elsewhere…`). */
+interface PlaceActionProps { label: string; source?: RosterSource; slot: Slot; value: RosterValue; start: Date; commands: RosterCommands; styles: RosterStyles; onClose?: (() => void) | undefined }
 /**
  * One anchored place action; absent source offers a staff picker. Until it is first pressed it is its trigger alone
  * (#1398, CL9): every day off in the People grid holds one, and a popover mounted for each made each row coming into
@@ -55,8 +59,11 @@ export function PlaceAction(props: PlaceActionProps) {
     if (!armed) return <Button size="xs" variant="outline" data-roster-action={props.label.toLowerCase()} onClick={() => setArmed(true)}>{props.label}</Button>;
     return <PlacePopover {...props} />;
 }
-/** A place action's popover, mounted by its first press: it opens as it mounts, as a press of its own trigger opens it. */
-function PlacePopover({ label, source, slot: initial, value, start, commands, styles }: PlaceActionProps) {
+/**
+ * A place action's popover, mounted by its first press: it opens as it mounts, as a press of its own trigger opens it.
+ * The off day's `Elsewhere…` mounts it in place (#1406, D9), and is told as it closes.
+ */
+export function PlacePopover({ label, source, slot: initial, value, start, commands, styles, onClose }: PlaceActionProps) {
     const [open, setOpen] = useState(false);
     const [slot, setSlot] = useState(initial);
     const [person, setPerson] = useState<ValueTypeOf<typeof PersonForm>>({ person: none });
@@ -64,7 +71,7 @@ function PlacePopover({ label, source, slot: initial, value, start, commands, st
     // Opened once its trigger is in place, so the popover hangs from it and takes the focus as any opening does.
     useLayoutEffect(() => { setOpen(true); }, []);
     if (!commands.available) return null;
-    return <SliceEditPopover open={open} onOpenChange={next => { setOpen(next); if (next) { setSlot(initial); setError(undefined); } }} label={label}
+    return <SliceEditPopover open={open} onOpenChange={next => { setOpen(next); if (next) { setSlot(initial); setError(undefined); } else onClose?.(); }} label={label}
         trigger={<Button size="xs" variant="outline" data-roster-action={label.toLowerCase()}>{label}</Button>}
         footActions={<><Button size="xs" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button size="xs" variant="outline" disabled={source === undefined && person.person.type === "none"} onClick={() => {
             const from = source ?? (person.person.type === "some" ? { type: "person" as const, key: person.person.value } : undefined);
@@ -74,6 +81,28 @@ function PlacePopover({ label, source, slot: initial, value, start, commands, st
         {source === undefined && <FieldForm specs={PERSON_FIELDS} value={person} options={{ people: value.people.filter(p => value.visiblePeople.type === "none" || value.visiblePeople.value.has(p.key)).map(p => ({ key: p.key, label: p.name })) }} onChange={(_path, next) => setPerson({ person: next as typeof person.person })} />}
         <SlotFields value={value} start={start} slot={slot} onChange={setSlot} />
         {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
+    </SliceEditPopover>;
+}
+/**
+ * A phone's `Apply pattern…` (#1406, P22): a Chooser over the app's week patterns — each its name and `5 shifts · 40 h`,
+ * one that cannot be applied refused with its reason — whose choice applies the pattern to the person's week as one
+ * step, as a drop does on a wide main.
+ */
+export function ApplyPatternAction({ person, start, value, commands, onError }: {
+    person: Person; start: Date; value: RosterValue; commands: RosterCommands; onError: (error: string | undefined) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const format = useFormatters();
+    const sections = useMemo((): ChooserSection[] => [{ label: "Patterns", options: value.patterns.map(pattern => {
+        const problem = patternProblem(value, pattern), summary = patternSummary(value, pattern);
+        return { key: pattern.key, label: pattern.label, line: problem ?? `${format.number(summary.shifts)} shifts · ${format.number(summary.hours)} h`,
+            state: problem === undefined ? "enabled" as const : "refused" as const };
+    }) }], [value, format]);
+    if (!commands.available || value.patterns.length === 0) return null;
+    return <SliceEditPopover open={open} onOpenChange={setOpen} label={`Apply pattern · ${person.name}`}
+        trigger={<Button size="xs" variant="outline" data-roster-action="apply pattern…">Apply pattern…</Button>}
+        footActions={<Button size="xs" variant="outline" onClick={() => setOpen(false)}>Cancel</Button>}>
+        <Chooser sections={sections} placeholder="Find a pattern" onChoose={key => { onError(commands.applyPattern(person.key, start, key)); setOpen(false); }} />
     </SliceEditPopover>;
 }
 /** What a duty's form starts from: its position, its activity and its times, as the draft holds them. */

@@ -5,41 +5,47 @@
 
 /**
  * The lists the Roster reads over the app's own rows (#1368, `Builder
- * Interfaces Spec.md` §5.2): its shifts, groups, positions, activities and
- * proposals, each from a keyed record of the app's — usually its `read()` —
- * through accessors, none of which writes the record. Each accessor is
+ * Interfaces Spec.md` §5.2): its shifts, groups, positions, activities,
+ * proposals and week patterns (#1406), each from a keyed record of the app's —
+ * usually its `read()` — through accessors, none of which writes the record.
+ * Each accessor is
  * reified once and called per row (`shared/reify.ts`' rule), held to the type
  * it returns; one returning another type is refused, naming the accessor and
  * what it returns. The rows come in their `order`, lowest first, then in key
  * order; with no `order`, in key order. Each row's key is its record's key.
  *
- * `Roster.shifts`, `groups`, `positions` and `proposals` are declarations the
- * Roster's props take, which say what they are; `Roster.activities` is the
- * activities themselves, which the app's own tasks may read too.
+ * `Roster.shifts`, `groups`, `positions`, `proposals` and `patterns` are
+ * declarations the Roster's props take, which say what they are;
+ * `Roster.activities` is the activities themselves, which the app's own tasks
+ * may read too.
  *
  * @packageDocumentation
  */
 
 import {
-    BooleanType, DateTimeType, East, FloatType, IntegerType, OptionType, StringType, none,
-    type ArrayType, type DictType, type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
+    ArrayType, BooleanType, DateTimeType, East, FloatType, IntegerType, OptionType, StringType, none,
+    type DictType, type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
 } from "@elaraai/east";
+import { ColorTokenType } from "@elaraai/east-ui";
 import { scheduleAccessor } from "../schedule/accessor.js";
 import { ScheduleClockType } from "../schedule/types.js";
 import { keyedRows, orderedRows as ordered } from "../utils/keyed-rows.js";
-import { RosterGroupType, RosterPositionType, RosterProposalType, RosterShiftType, RosterSkillType } from "./types.js";
+import { RosterGroupType, RosterPatternType, RosterPositionType, RosterProposalType, RosterShiftType, RosterSkillType } from "./types.js";
 
 /** The key a Roster list's declaration carries what it is under. */
 export const ROSTER_LIST: unique symbol = Symbol("Roster.list");
 
+/** What a Roster list is: which prop takes it. */
+export type RosterListKind = "shifts" | "groups" | "positions" | "proposals" | "patterns";
+
 /**
- * A list, declared: what the Roster's `shifts`, `groups`, `positions` or
- * `proposals` takes.
+ * A list, declared: what the Roster's `shifts`, `groups`, `positions`,
+ * `proposals` or `patterns` takes.
  *
  * @typeParam K - What it is
  * @typeParam T - Its rows' type
  */
-export interface RosterList<K extends "shifts" | "groups" | "positions" | "proposals", T extends EastType> {
+export interface RosterList<K extends RosterListKind, T extends EastType> {
     /** What it is. */
     readonly [ROSTER_LIST]: K;
     /** Its rows, resolved, in their order. */
@@ -54,6 +60,13 @@ export type RosterGroups = RosterList<"groups", RosterGroupType>;
 export type RosterPositions = RosterList<"positions", RosterPositionType>;
 /** The proposals, declared: `Roster.proposals(rows, …)`. */
 export type RosterProposals = RosterList<"proposals", RosterProposalType>;
+/** The week patterns, declared: `Roster.patterns(rows, { name, icon?, … })` (#1406) — the rows, and their tab's name and icon. */
+export interface RosterPatterns extends RosterList<"patterns", RosterPatternType> {
+    /** The tab's title. */
+    readonly name: string;
+    /** The cards' Font Awesome solid icon. */
+    readonly icon: string;
+}
 
 /** One of a list's accessors, over a row of the app's and its key. */
 type Accessor<R extends EastType, T extends EastType> = (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<T>;
@@ -72,6 +85,29 @@ export interface RosterShiftsConfig<R extends EastType> {
     /** Its hours: what a new duty runs, and a skill holder's capacity. */
     hours: Accessor<R, FloatType>;
     /** Where it shows among the shifts, lowest first; shifts of one order show in key order. */
+    order?: Accessor<R, IntegerType>;
+    /**
+     * Its colour (#1406): an `Option` of a `ColorTokenType` — `Style.ColorToken("teal", "500")` in the row — the People
+     * layout's tiles' and marks' fill, resolved through the theme; `none`, neutral. Omitted, every shift is neutral.
+     */
+    color?: Accessor<R, OptionType<ColorTokenType>>;
+}
+
+/**
+ * Accessors adapting the app's week pattern rows to the Roster's patterns
+ * (#1406), with their tab's name and icon, the declaration's own words.
+ * @typeParam R - The app's week pattern row type
+ */
+export interface RosterPatternsConfig<R extends EastType> {
+    /** The tab's title (`Patterns`, `Weeks`): required, as `Schedule.events`' `name` is. */
+    name: string;
+    /** The cards' Font Awesome solid icon name; `calendar-week` by default. */
+    icon?: string;
+    /** The card's name, and the drop's words. */
+    label: Accessor<R, StringType>;
+    /** Seven entries from the week's first day (`week.start`): a shift's key, or `none` for a day off. */
+    days: Accessor<R, ArrayType<OptionType<StringType>>>;
+    /** Where it shows among the patterns, lowest first; patterns of one order show in key order. */
     order?: Accessor<R, IntegerType>;
 }
 
@@ -154,7 +190,7 @@ function accessorOf<T extends EastType>(where: string, rowType: EastType, prop: 
  *
  * @typeParam R - The app's shift row type
  * @param rows - The shifts by String key, usually `Data.bind(record).read()`
- * @param config - The label, code, start and hours accessors, and an optional order
+ * @param config - The label, code, start and hours accessors, and an optional order and colour
  * @returns The shifts, declared, for the Roster's `shifts`
  * @throws {Error} When the rows are not a Dict keyed by String, or an accessor returns another type than it takes, naming what it returns
  */
@@ -167,14 +203,54 @@ export function rosterShifts<R extends EastType>(rows: ExprType<DictType<StringT
     const start = accessorOf(where, rowType, "start", ScheduleClockType, "a Schedule.Types.Clock, when a shift starts in UTC", c.start)!;
     const hours = accessorOf(where, rowType, "hours", FloatType, "a Float, a shift's hours", c.hours)!;
     const order = accessorOf(where, rowType, "order", IntegerType, "an Integer, where a shift shows", c.order);
+    const color = accessorOf(where, rowType, "color", OptionType(ColorTokenType),
+        "an Option of a ColorTokenType, a shift's colour (Style.ColorToken(\"teal\", \"500\"))", c.color);
     const item = East.function([rowType, StringType], RosterShiftType, ($, row, key) => {
         const labelOf = $.const(label);
         const codeOf = $.const(code);
         const startOf = $.const(start);
         const hoursOf = $.const(hours);
-        return { key, label: labelOf(row as never, key), code: codeOf(row as never, key), start: startOf(row as never, key), hours: hoursOf(row as never, key) };
+        const colorOf = color === undefined ? undefined : $.const(color);
+        return {
+            key, label: labelOf(row as never, key), code: codeOf(row as never, key), start: startOf(row as never, key), hours: hoursOf(row as never, key),
+            color: colorOf === undefined ? East.value(none, OptionType(ColorTokenType)) : colorOf(row as never, key),
+        };
     }) as unknown as ExprType<FunctionType<[EastType, StringType], RosterShiftType>>;
     return { [ROSTER_LIST]: "shifts", rows: ordered(held, rowType, RosterShiftType, item, order) };
+}
+
+/**
+ * Reads the app's week pattern rows as the Roster's patterns (#1406, see the
+ * module docs): the cards of the tab `name` titles, each seven days from the
+ * week's first day, which a drop on a person's week applies.
+ *
+ * @typeParam R - The app's week pattern row type
+ * @param rows - The patterns by String key, usually `Data.bind(record).read()`
+ * @param config - The tab's `name` and optional `icon`, the label and days accessors, and an optional order
+ * @returns The patterns, declared, for the Roster's `patterns`
+ * @remarks A pattern with other than seven days, or naming a shift the Roster has not configured, is listed greyed with the reason and cannot be dragged or applied.
+ * @throws {Error} When `name` is missing, the rows are not a Dict keyed by String, or an accessor returns another type than it takes, naming what it returns
+ */
+export function rosterPatterns<R extends EastType>(rows: ExprType<DictType<StringType, R>>, config: RosterPatternsConfig<R>): RosterPatterns {
+    const where = "Roster.patterns";
+    const c = (config ?? {}) as unknown as RosterPatternsConfig<EastType>;
+    if (typeof c.name !== "string" || c.name === "") {
+        throw new Error(`${where}: \`name\` titles the tab ("Patterns", "Weeks") — a String, as Schedule.events' \`name\` is`);
+    }
+    if (c.icon !== undefined && (typeof c.icon !== "string" || c.icon === "")) {
+        throw new Error(`${where}: \`icon\` is the cards' Font Awesome solid icon name ("calendar-week"), a String`);
+    }
+    const { rows: held, rowType } = keyedRows(where, "patterns", rows);
+    const label = accessorOf(where, rowType, "label", StringType, "a String, a pattern's name", c.label)!;
+    const days = accessorOf(where, rowType, "days", ArrayType(OptionType(StringType)),
+        "an Array of seven Option<String> shift keys from the week's first day", c.days)!;
+    const order = accessorOf(where, rowType, "order", IntegerType, "an Integer, where a pattern shows", c.order);
+    const item = East.function([rowType, StringType], RosterPatternType, ($, row, key) => {
+        const labelOf = $.const(label);
+        const daysOf = $.const(days);
+        return { key, label: labelOf(row as never, key), days: daysOf(row as never, key) };
+    }) as unknown as ExprType<FunctionType<[EastType, StringType], RosterPatternType>>;
+    return { [ROSTER_LIST]: "patterns", rows: ordered(held, rowType, RosterPatternType, item, order), name: c.name, icon: c.icon ?? "calendar-week" };
 }
 
 /**
@@ -303,6 +379,6 @@ export function rosterProposals<R extends EastType>(rows: ExprType<DictType<Stri
  * @returns Whether it is that list, declared
  * @internal
  */
-export function isRosterList<K extends "shifts" | "groups" | "positions" | "proposals">(value: unknown, kind: K): value is RosterList<K, EastType> {
+export function isRosterList<K extends RosterListKind>(value: unknown, kind: K): value is RosterList<K, EastType> {
     return typeof value === "object" && value !== null && (value as { [ROSTER_LIST]?: string })[ROSTER_LIST] === kind;
 }

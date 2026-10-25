@@ -23,8 +23,8 @@ import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import type { EditHistory, EditSession, EntryVersion } from "@elaraai/east-ui-components";
 import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead } from "../shared/schedule/editing.js";
-import { draftedRow, heldInWindow, keptAtRevision, periodRowRead, rowCodec } from "../shared/schedule/records.js";
-import { rosterDomain, weekKey, weekSpan, weekWindow, type DraftedDuty, type RosterValue, type StoredTarget } from "./model.js";
+import { draftedRow, heldInWindow, keptAtRevision, periodRowsRead, rowCodec } from "../shared/schedule/records.js";
+import { rosterDomain, spanWindow, type DraftedDuty, type RosterSpan, type RosterValue, type StoredTarget } from "./model.js";
 
 /** What a change names the weeks' record by in the history: no duty kind's slot. */
 export const PERIODS = "roster.periods";
@@ -54,11 +54,11 @@ const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
  *
  * @param value - The payload
  * @param storageKey - The Roster's key: its sessions and their history are kept under it
- * @param start - The week shown: the windows the Roster reads its records over
+ * @param span - The span shown — a week, or a month's weeks (#1406): the windows the Roster reads its records over
  * @param recordSlices - The slice's parts over the records it writes: each Save notice counts what leaves its own
  * @returns The editing
  */
-export function useRosterEditing(value: RosterValue, storageKey: string, start: Date, recordSlices: readonly ValueTypeOf<RecordSliceBindType>[]): RosterEditing {
+export function useRosterEditing(value: RosterValue, storageKey: string, span: RosterSpan, recordSlices: readonly ValueTypeOf<RecordSliceBindType>[]): RosterEditing {
     const domain = rosterDomain(value.duty.rowType);
     const kinds = useMemo(() => [value.duty.kind], [value.duty.kind]);
     const records = useMemo((): ScheduleEditingRecord[] => [
@@ -66,25 +66,25 @@ export function useRosterEditing(value: RosterValue, storageKey: string, start: 
             editing: value.periods.value.editing, entries: value.periods.value.entries }] : []),
         ...(value.targets.type === "some" ? [{ key: TARGETS, name: "Targets", editing: value.targets.value.editing, entries: value.targets.value.entries }] : []),
     ], [value.periods, value.targets]);
-    const epoch = start.getTime();
+    const epoch = span.from.getTime(), until = span.to.getTime();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    const range = useMemo(() => weekWindow(start), [epoch]);
-    // Each record's rows where the week's own reads hold them — the duties' window, the week's own row and its targets:
+    const range = useMemo(() => spanWindow(span), [epoch, until]);
+    // Each record's rows where the span's own reads hold them — the duties' window, each week's own row and the targets:
     // a gesture's original, and what a Save confirms its entries by at the revision it committed.
     const reads = useMemo((): Record<string, ScheduleRowRead> => {
-        const window = weekWindow(start), week = weekSpan(start), id = weekKey(start);
+        const window = spanWindow(span);
         const duties = keptAtRevision(value.duty.kind.entries, () => value.duty.rows(window.from, window.to));
         const out: Record<string, ScheduleRowRead> = { [value.duty.kind.key]: key => heldInWindow(duties(), key) };
-        // The week's own row, by its start: the week's read holds none of another week's.
-        if (value.periods.type === "some") out[PERIODS] = periodRowRead(value.periods.value, week.from, week.to, id);
+        // Each week's own row, by its start: the span's read holds none of another week's.
+        if (value.periods.type === "some") out[PERIODS] = periodRowsRead(value.periods.value, span.from, span.to);
         if (value.targets.type === "some") {
             const targets = value.targets.value;
-            const read = keptAtRevision(targets.entries, () => targets.rows(week.from, week.to));
+            const read = keptAtRevision(targets.entries, () => targets.rows(span.from, span.to));
             out[TARGETS] = key => heldInWindow(read(), key);
         }
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [value.duty, value.periods, value.targets, epoch]);
+    }, [value.duty, value.periods, value.targets, epoch, until]);
     const schedule = useScheduleEditing({ kinds, records, reads, applyMode: "batch", storageKey, joined: NO_JOINED, range, recordSlices });
     const duty = value.duty.kind.key;
     const sessionOf = (key: string): EditSession<ScheduleEntryRef> | undefined => schedule.sessions.find(held => held.kind === key)?.session;

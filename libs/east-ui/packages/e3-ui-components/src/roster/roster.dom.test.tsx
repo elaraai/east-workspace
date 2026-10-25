@@ -79,18 +79,30 @@ describe("Roster in the shared record-backed frame", () => {
         expect(container.querySelectorAll("[data-roster-legend]")).toHaveLength(5);
         expect(weekDuties(await h.read(ex.rosterDuties), START).size).toBe(316);
     });
-    test("People hides the fixed period and returning to Shifts restores its chosen period", async () => {
+    test("People offers Week · Month in the Period segment and each layout keeps its own period: Shifts → People → Shifts restores the Shifts period, and People comes back to its month (#1406, P1)", async () => {
         const { container } = await h.mount(ex.rosterWarehouse);
         const toolbar = within(slot(container, "toolbar"));
+        const periods = () => within(toolbar.getByRole("radiogroup", { name: "Period" })).getAllByRole("radio").map(r => r.textContent);
+        expect(periods()).toEqual(["Day", "Week"]);
         for (const name of ["Day", "Week"]) {
             await press(toolbar.getByRole("radio", { name }));
             await press(toolbar.getByRole("radio", { name: "People" }));
-            expect(toolbar.queryByRole("radiogroup", { name: "Period" })).toBeNull();
+            expect(periods()).toEqual(["Week", "Month"]);
             expect(container.querySelector('[data-roster-grid="people"]')).not.toBeNull();
             await press(toolbar.getByRole("radio", { name: "Shifts" }));
             expect(toolbar.getByRole("radio", { name }).getAttribute("aria-checked")).toBe("true");
             expect(container.querySelectorAll("[data-roster-slot]")).toHaveLength(name === "Day" ? 9 : 63);
         }
+        // People's month is People's alone: chosen there, kept across a visit to Shifts, whose Week stands.
+        await press(toolbar.getByRole("radio", { name: "People" }));
+        await press(toolbar.getByRole("radio", { name: "Month" }));
+        expect(container.querySelector('[data-roster-grid="people-month"]')).not.toBeNull();
+        await press(toolbar.getByRole("radio", { name: "Shifts" }));
+        expect(toolbar.getByRole("radio", { name: "Week" }).getAttribute("aria-checked")).toBe("true");
+        expect(container.querySelectorAll("[data-roster-slot]")).toHaveLength(63);
+        await press(toolbar.getByRole("radio", { name: "People" }));
+        expect(toolbar.getByRole("radio", { name: "Month" }).getAttribute("aria-checked")).toBe("true");
+        expect(container.querySelector('[data-roster-grid="people-month"]')).not.toBeNull();
     });
     test("published weeks retain navigation and inspection with no editing or drag sources", async () => {
         const { container } = await h.mount(ex.rosterPublished);

@@ -18,13 +18,20 @@ import { shiftCalendar } from "../shared/time/scale.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import type { RosterCommands } from "./actions.js";
 import type { RosterEditing } from "./editing.js";
-import { DAY, type Issue, type RosterStyles, type RosterValue, type Status } from "./model.js";
+import { DAY, monthWords, weekNumber, type Issue, type RosterPeriod, type RosterStyles, type RosterValue, type Status } from "./model.js";
 import type { RosterWindow } from "./window.js";
 
 const LAYOUTS = [{ key: "shifts", label: "Shifts" }, { key: "people", label: "People" }] as const;
-const PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }] as const;
+/** Each layout's periods, in the Period segment's order (#1406, P1): Shifts a day or a week, People a week or a month — a week alone on a phone (P31). */
+const SHIFT_PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }] as const;
+const PEOPLE_PERIODS = [{ key: "week", label: "Week" }, { key: "month", label: "Month" }] as const;
+const PEOPLE_NARROW_PERIODS = [{ key: "week", label: "Week" }] as const;
 interface ToolbarArgs extends RosterWindow {
     value: RosterValue; styles: RosterStyles; commands: RosterCommands; editing: RosterEditing | undefined; words: EditingWords;
+    /** Whether main is narrower than a phone: People offers Week alone (#1406, P31). */
+    narrow: boolean;
+    /** The selected person-week's week, which Month → Week opens (#1406, P3). */
+    selectedWeek: Date | undefined;
     /** The week's status chip's words; `undefined` without periods. */
     status: string | undefined;
     /**
@@ -44,13 +51,13 @@ interface ToolbarArgs extends RosterWindow {
 }
 /** One shared Toolbar, including the narrowing's rail and the shared editing history. */
 export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem | false | undefined> {
-    const { value, view, setView, start, styles, commands, words, issues, editing } = args;
+    const { value, view, setView, start, span, styles, commands, words, issues, editing } = args;
     // The narrowing: one rail over the week's duties, the people and the activities, each source counted in its own noun
     // (#1342); the duties' range is the Roster's own navigation, never a chip of the rail (#1369).
     const chrome = value.slice.type === "some" ? value.slice.value : undefined;
     const duty = value.duty.kind;
     const dutyRange = chrome?.slice.parts.find(part => part.source === duty.key)?.slice.config.range;
-    const rail = useRecordSlicesToolbarItems(chrome?.slice, { nouns: { [duty.key]: `${duty.name.toLocaleLowerCase(words.locale)} events`, people: "people", activities: "activities" },
+    const rail = useRecordSlicesToolbarItems(chrome?.slice, { nouns: { [duty.key]: `${duty.name.toLocaleLowerCase(words.locale)} events`, people: "people", activities: "activities", patterns: "patterns" },
         ...(dutyRange?.type === "some" ? { excludeFields: [`${duty.key}.${dutyRange.value}`] } : {}),
         ...(chrome === undefined ? {} : { affordances: chrome.affordances.map(a => a.type) }),
         ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
@@ -61,8 +68,11 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     // View, beside the week and the view controls.
     const search = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK });
     const count = issues.filter(issue => issue.kind.type === "breach" || issue.kind.type === "gap").length;
-    const period = (key: "day" | "week") => setView({ ...view, period: key });
-    const unit = view.layout === "people" ? "week" : view.period;
+    // The layout's own periods (P1), each layout keeping its own as the window does; Month → Week opens the selected
+    // person-week's week (P3).
+    const periods = view.layout === "people" ? (args.narrow ? PEOPLE_NARROW_PERIODS : PEOPLE_PERIODS) : SHIFT_PERIODS;
+    const period = (key: RosterPeriod) => args.setPeriod(key, args.selectedWeek);
+    const unit = view.period;
     const navigate = (step: number) => setView({ ...view, date: shiftCalendar(new Date(view.date), unit, step).getTime() });
     const status = args.publishing ? "Publishing" : args.status;
     const unread = args.unread;
@@ -84,14 +94,14 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     const displayItems = <><ChakraMenu.Item value="compact">Compact spacing</ChakraMenu.Item><ChakraMenu.Item value="comfortable">Comfortable spacing</ChakraMenu.Item>
         <ChakraMenu.Item value="skills">{value.settings.chipSkills ? "Hide" : "Show"} chip skills</ChakraMenu.Item><ChakraMenu.Item value="targets">{value.settings.requirements ? "Hide" : "Show"} requirements</ChakraMenu.Item></>;
     const menu = <ChipMenu label="View" icon={faCalendarWeek} onSelect={key => {
-        if (key === "people" || key === "shifts") setView({ ...view, layout: key });
-        else if (key === "day" || key === "week") period(key);
+        if (key === "people" || key === "shifts") args.setLayout(key);
+        else if (key === "day" || key === "week" || key === "month") period(key);
         else if (key === "publish" && publishable) commands.publish();
         else if (key === "previous") navigate(-1); else if (key === "next") navigate(1);
         else if (key === "issues") args.onIssues(); else displayChoice(key);
     }}>
         {LAYOUTS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
-        {view.layout === "shifts" && <><ChakraMenu.Separator />{PERIODS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}</>}
+        <ChakraMenu.Separator />{periods.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
         <ChakraMenu.Separator /><ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item>{value.inspector && <ChakraMenu.Item value="issues">{count} issues</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
         {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!publishable}>Publish week</ChakraMenu.Item></>}
     </ChipMenu>;
@@ -99,13 +109,17 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     // holds both week and view controls. It folds before the shared history.
     const controls = <Box css={styles.agendaGroup}>
         {search?.forms[0]}
-        <Seg label="Layout" scope="roster" name="compact-layout" items={LAYOUTS} active={view.layout} onPick={layout => setView({ ...view, layout })} />
-        {view.layout === "shifts" && <Seg label="Period" scope="roster" name="compact-period" items={PERIODS} active={view.period} onPick={period} />}
+        <Seg label="Layout" scope="roster" name="compact-layout" items={LAYOUTS} active={view.layout} onPick={args.setLayout} />
+        <Seg label="Period" scope="roster" name="compact-period" items={periods} active={view.period} onPick={period} />
         <ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>
         {value.inspector && <Button size="xs" variant="ghost" onClick={args.onIssues}>{count} issues</Button>}
         {heldPublish && <Button size="xs" variant="solid" disabled={!publishable} onClick={() => commands.publish()}>Publish week</Button>}
     </Box>;
-    const navigation = (compact = false, combined = false) => <TimeNavigator scope="roster" date={view.date} period={unit}
+    // The People layout's labels (#1406, P2): the week and its number — `Mar 12 – 18, 2028 · W11` — or the month, its weeks
+    // and its range — `March 2028 · W10–W14 · Mar 5 – Apr 1`. Shifts keeps the shared navigator's own words.
+    const rangeLabel = view.period === "month" ? monthWords(words, span)
+        : view.layout === "people" ? `${words.range(span.start, new Date(span.start.getTime() + 6 * DAY))} · W${words.number(weekNumber(span.start))}` : undefined;
+    const navigation = (compact = false, combined = false) => <TimeNavigator scope="roster" date={view.date} period={unit} rangeLabel={rangeLabel}
         sunday={value.settings.weekStart.type === "sunday"} onChange={date => setView({ ...view, date })}
         compact={compact} label={combined ? "View" : "Choose roster week"} initialPanel="week" onWeeks={args.onPickerDates}
         weekMarker={date => { const held = args.picker.get(date); return <Box as="span" css={styles.pickerDot} data-state={held === undefined ? "empty" : held.type === "other" ? "draft" : held.type} />; }}
@@ -114,8 +128,9 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         items={Array.from({ length: 7 }, (_, day) => ({ key: String(day), label: words.weekday(new Date(start.getTime() + day * DAY)) }))} />;
     return [
         ...rail,
-        { key: "roster.layout", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Layout" scope="roster" name="layout" items={LAYOUTS} active={view.layout} onPick={layout => setView({ ...view, layout })} />, null] },
-        view.layout === "shifts" && { key: "roster.period", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Period" scope="roster" name="period" items={PERIODS} active={view.period} onPick={period} />, null] },
+        { key: "roster.layout", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Layout" scope="roster" name="layout" items={LAYOUTS} active={view.layout} onPick={args.setLayout} />, null] },
+        // The layout's own periods, in every form of the row (#1406, P1).
+        { key: "roster.period", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Period" scope="roster" name="period" items={periods} active={view.period} onPick={period} />, null] },
         { key: "roster.display", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>, null] },
         { key: "roster.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["roster.view", "roster.controls"], forms: [null, menu, null] },
         { key: "roster.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "roster.controls"], forms: [navigation(), navigation(true), navigation(true, true)] },

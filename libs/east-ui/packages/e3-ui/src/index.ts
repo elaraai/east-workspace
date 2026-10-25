@@ -308,8 +308,8 @@ export { Calendar, type CalendarProps, type CalendarLibraryTab } from "./calenda
 // Record-backed staffing roster.
 export { Roster, type RosterProps, type RosterNamespace } from "./roster/index.js";
 export type {
-    RosterActivitiesConfig, RosterGroups, RosterGroupsConfig, RosterPositions, RosterPositionsConfig, RosterProposals, RosterProposalsConfig,
-    RosterShifts, RosterShiftsConfig,
+    RosterActivitiesConfig, RosterGroups, RosterGroupsConfig, RosterPatterns, RosterPatternsConfig, RosterPositions, RosterPositionsConfig,
+    RosterProposals, RosterProposalsConfig, RosterShifts, RosterShiftsConfig,
 } from "./roster/lists.js";
 export type { RosterTargets, RosterTargetsConfig } from "./roster/targets.js";
 export type { RosterLibraryTab } from "./roster/library.js";

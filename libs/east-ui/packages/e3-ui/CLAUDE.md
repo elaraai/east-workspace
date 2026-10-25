@@ -425,7 +425,13 @@ roles `start`, `end`, `resource`, `shift`, `group`, `position`, `activity` and
 `hours`), `Schedule.resources` for the people and the agencies,
 `Schedule.periods` for the weeks, `Roster.targets` for the cover, and
 `Roster.shifts`, `groups`, `positions`, `activities` and `proposals` for the
-lists. Keep these declarations visible alongside the examples so reference
+lists. Its week patterns are the app's rows too (#1406): `Roster.patterns(rows,
+{ name, icon?, label, days, order? })` reads a keyed record of them — `days`
+seven `Option<String>` shift keys from the week's first day — and names the
+tab `Roster.library.patterns()` lists them under; a shift's colour is the
+app's, `color` on `Roster.shifts` an accessor to `Option<ColorToken>`
+(east-ui's `ColorTokenType`, `Style.ColorToken("teal", "500")`), never a
+string. Keep these declarations visible alongside the examples so reference
 data is clearly record-backed. The Allocation is the same over its bins, its
 days, its lanes and resources and its arrivals.
 
@@ -478,10 +484,12 @@ The week is the Roster's own navigation and its picker, never a Slice chip
 (ruled 18 Oct, #1342): it writes the week's window into the duty kind's source
 of the slice — an interval index from `start` to `end`, `range: "start"` — so
 the rail's counts and a Save's notice read the window the Roster reads, and
-the weeks are read by key through the periods' `entries`. Read the week, with
-the twelve hours either side a duty's start may stand from its shift's; the
-week before only while the week holds no duty of its own, Copy's source; and
-the open picker's month. Do not read a whole record to build the picker. Test
+the weeks are read by key through the periods' `entries`. Read the span in
+view — a week, or in People's Month the four to six weeks touching the month
+(#1406) — with the twelve hours either side a duty's start may stand from its
+shift's; the week before only while the week holds no duty of its own, Copy's
+source; and the open picker's month. The months either side are read ahead
+as the weeks are (#1398). Do not read a whole record to build the picker. Test
 reverse navigation.
 
 The People tab has no filter of its own: leads, trainers, agency and skill are
@@ -539,11 +547,13 @@ explains whole-staff scope when Slice narrows visible people. A collapsed
 Library badge reports availability for the day, while tab counts report the
 library's item count.
 
-Only show controls that change the active layout. People has a fixed weekly
-window, so omit Day/Week; Calendar Resources has a fixed daily window, so omit
-Day/Week/Month. Omit them from every Toolbar form, including menus and the
-narrow combined picker. Keep the inactive period preference so switching back
-restores it. Test expanded, folded and phone forms and switching back.
+Only show controls that change the active layout. The Roster's Period segment
+shows the layout's own periods — Day · Week for Shifts, Week · Month for
+People (#1406, P1); below 480px of main People offers Week alone — and
+Calendar Resources has a fixed daily window, so omit Day/Week/Month there.
+Omit a period a layout does not take from every Toolbar form, including menus
+and the narrow combined picker. Each layout keeps its own period, so switching
+back restores it. Test expanded, folded and phone forms and switching back.
 
 Mobile day strips use the shared `Seg` component's `fullWidth` recipe
 variant: all seven buttons fill the available content width equally, with no
@@ -567,7 +577,10 @@ weight, line height, tracking, case and numeral settings across every view,
 including all seven week dates and selected/current dates, in both themes.
 
 Header geometry is a separate requirement from typography. Roster's one-line
-Week date/shift and People column cells are 28px tall (plus the row rule).
+Week date/shift cells are 28px tall (plus the row rule); the People week's
+header is the mock's 36px (#1406, §8), and its rows the density's pitch — 36px
+comfortable, 32px compact, one line each, a tile 24px — so nothing moves as a
+week lands; the month's header is two bands of 24px and 32px.
 Day uses a 44px header: shift name and time on one line, summary on the next.
 Do not let three stacked text blocks determine its height.
 Use `headerGutter` for their captions, never the padded body-row `rowHead` or
@@ -643,8 +656,9 @@ of the public authoring API.
 The full toolbar is previous / clickable current date or range / next.
 Today belongs only in the date/week picker, including compact and combined
 View forms; omit its duplicate from the toolbar and View menu. Arrows
-step the effective view unit: Calendar Resources uses days, Roster People uses
-weeks, and other layouts use their active period. Keep invalid period controls
+step the effective view unit: Calendar Resources uses days, Roster People its
+period — a week, or a month, whose label reads `March 2028 · W9–W13` (#1406)
+— and other layouts their active period. Keep invalid period controls
 absent. The picker's Days/Weeks choices select a date; they do not change the
 main view's period. Month/year browsing changes only the open picker until a
 period is selected. Week jumps preserve the selected weekday; month jumps

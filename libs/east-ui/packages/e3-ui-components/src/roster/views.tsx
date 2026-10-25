@@ -4,10 +4,11 @@
  */
 
 /**
- * The Roster's views: the Shifts grid, the People grid and their phones'
- * cards, over the week as drafted.
+ * The Roster's views: the Shifts grid, the People grids — by week, a tile a
+ * duty in each day cell; by month, a column a week and a cell seven marks
+ * (#1406) — and their phones' cards, over the week as drafted.
  *
- * The People grid draws a row a person, through the shared virtual rows
+ * The People grids draw a row a person, through the shared virtual rows
  * (#1398, CL9): the week's duties are indexed once by person and day
  * ({@link peopleIndex}), a duty's person is found by its key, and a row and
  * each of its days draw again only as what they show changes — a scroll draws
@@ -23,29 +24,34 @@
  *
  * @packageDocumentation
  */
-import { Fragment, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
-import { Box, Button, chakra } from "@chakra-ui/react";
+import { Fragment, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Box, Button, Menu as ChakraMenu, Portal, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheck, faGripVertical, faRotateLeft, faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faGripVertical, faRotateLeft, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none, variant } from "@elaraai/east";
-import { LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRowsTop } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop } from "@elaraai/east-ui-components/internal";
 import { takeKey, tickFormatOf, useDragEventChip, useDropCell, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import type { PeriodRead } from "../shared/loading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { Seg } from "../shared/schedule/segments.js";
-import { AssignmentActions, PlaceAction, RequirementAction } from "./controls.js";
+import { ApplyPatternAction, AssignmentActions, PlaceAction, PlacePopover, RequirementAction } from "./controls.js";
 import { readRosterSource } from "./identity.js";
-import { rosterCoord, type RosterDrag } from "./drag.js";
-import type { RosterCommands } from "./actions.js";
+import { isPatternCard, rosterCoord, rosterPersonWeekCoord, type RosterDrag } from "./drag.js";
+import type { PatternDay, RosterCommands } from "./actions.js";
 import {
-    DAY, activityOf, costsOf, groupSkills, ownTimes, sameSlot, slotKey, type Assignment, type Coverage, type Issue, type Pay, type Person, type PlacedProposal,
-    type RosterDomain, type RosterStyles, type RosterValue, type RosterView, type Selection, type Slot, type Week,
+    DAY, activityOf, costsOf, groupSkills, hourText, ownTimes, sameSlot, shiftColor, shiftHoursText, shiftOf, slotKey, weekKey, weekNumber,
+    type Assignment, type Coverage, type Issue, type Pay, type Person, type PlacedProposal, type RosterDomain, type RosterSpan, type RosterStyles, type RosterValue,
+    type RosterView, type Selection, type Shift, type Slot, type Week, type WeekState,
 } from "./model.js";
 
 export interface RosterViewsProps {
     value: RosterValue; week: Week; held: Week; start: Date; day: number; view: RosterView; setView: (view: RosterView) => void;
+    /** The span in view (#1406, D2), and each of its weeks drafts in place: what the month draws, and what a pattern dropped on one applies to. */
+    span: RosterSpan; weeks: readonly WeekState[];
+    /** Opens a week in the Week period (P12, P24). */
+    openWeek: (week: Date) => void;
     styles: RosterStyles; format: Formatters; narrow: boolean; coverage: ReadonlyMap<Slot, Coverage>; hours: ReadonlyMap<string, number>;
     /** Each duty's cost by the app's codes: none without `pay`. */
     pay: Pay;
@@ -117,6 +123,10 @@ interface ViewContext {
     readonly styles: RosterStyles; readonly format: Formatters; readonly hours: ReadonlyMap<string, number>; readonly pay: Pay;
     readonly domain: RosterDomain; readonly issues: readonly Issue[]; readonly commands: RosterCommands; readonly drag: RosterDrag;
     readonly select: (next: Selection | undefined) => void; readonly onError: (error: string | undefined) => void; readonly read: PeriodRead;
+    /** The month's weeks (#1406), and what opens one of them in Week. */
+    readonly weeks: readonly WeekState[]; readonly openWeek: (week: Date) => void;
+    /** The People layout's display settings (D7): whether a tile shows the shift's hours always, and whether a month's marks carry letters. */
+    readonly tileTimes: "always" | "different"; readonly letters: boolean;
 }
 /** The views' selection, read by what it marks. */
 const SelectionContext = createContext<Selection | undefined>(undefined);
@@ -135,9 +145,10 @@ export function setPeopleDrawProbe(fn: ((part: "row" | "day", key: string) => vo
 
 /** The views' props a chip and a People row read, the same object while each of them holds. */
 function useViewContext(props: RosterViewsProps): ViewContext {
-    const { value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read } = props;
-    return useMemo(() => ({ value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read }),
-        [value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read]);
+    const { value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek } = props;
+    const tileTimes = value.settings.tileTimes.type, letters = value.settings.letters;
+    return useMemo(() => ({ value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, tileTimes, letters }),
+        [value, week, held, start, day, styles, format, hours, pay, domain, issues, commands, drag, select, onError, read, weeks, openWeek, tileTimes, letters]);
 }
 
 /**
@@ -476,38 +487,6 @@ function Shifts({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
         })}
     </Box></Box>;
 }
-/**
- * A person's day in the People grid, its duties and its "Off · assign": drawn again only as the day's duties, its person
- * or what the views show changes (#1398, CL9). A drop on it resolves to the dragged person's same or usual shift.
- */
-const PersonDay = memo(function PersonDay({ ctx, person, group, day, duties, current }: {
-    ctx: ViewContext; person: Person | undefined; group: string; day: number; duties: readonly DayDuty[];
-    /** Whether the day is the one the views show: the day a Shifts view steps to. */
-    current: boolean;
-}) {
-    const { drag, value, week, styles, commands, start } = ctx;
-    peopleDrawProbe?.("day", `${person?.key ?? `requests:${group}`}.${day}`);
-    const initial = useMemo(() => ({ day: BigInt(day), group, shift: person?.usual.type === "some" ? person.usual.value : value.shifts[0]!.key }), [day, group, person, value.shifts]);
-    const resolve = useCallback((_x: number, _y: number, payload: DragPayload): CellCoord => {
-        const a = payload.kind === "event" ? week.assignments.get(payload.from.event) : undefined;
-        return rosterCoord(drag.surface, a === undefined ? initial : { ...a.slot, day: BigInt(day) });
-    }, [week, drag.surface, initial, day]);
-    const accepts = useCallback((payload: DragPayload) => {
-        if (payload.kind === "event") { const a = week.assignments.get(payload.from.event); return person === undefined ? a?.who.type === "request" : a?.who.type === "person" && a.who.value === person.key; }
-        if (payload.kind !== "item") return false;
-        const from = readRosterSource(payload.from.key);
-        return from.success && (person === undefined ? from.value.type === "agency" : from.value.type === "person" && from.value.value === person.key);
-    }, [week, person]);
-    const canDrop = useCallback((event: DragEventValue) => drag.run(event, true) === undefined, [drag]);
-    const coord = useMemo(() => drag.enabled ? rosterCoord(drag.surface, initial) : null, [drag.enabled, drag.surface, initial]);
-    const ref = useDropCell(coord, !drag.enabled, canDrop, resolve, { accepts, caption: drag.caption });
-    return <Box ref={ref} css={styles.peopleCell} data-roster-person-day={`${person?.key ?? `requests:${group}`}.${day}`} data-selected={current ? "" : undefined}>
-        {duties.map(({ id, a, removed }) => <AssignmentChip key={id} ctx={ctx} id={id} assignment={a} removed={removed} short />)}
-        {person !== undefined && !duties.some(duty => !duty.removed) && (commands.available
-            ? <PlaceAction label="Off · assign" source={{ type: "person", key: person.key }} slot={initial} value={value} start={start} commands={commands} styles={styles} />
-            : <Box css={styles.detail}>Off</Box>)}
-    </Box>;
-});
 type PeopleRow = { key: string; group: RosterValue["groups"][number] } & (
     { kind: "group" } | { kind: "person"; person: RosterValue["people"][number] | undefined }
 );
@@ -545,7 +524,7 @@ function firstPersonInView(rows: readonly PeopleRow[], top: number | undefined):
 function selectedPeopleRow(props: RosterViewsProps, rows: readonly PeopleRow[]): number | undefined {
     const selected = props.selection;
     const assignment = selected?.type === "assignment" ? props.week.assignments.get(selected.key) ?? props.held.assignments.get(selected.key) : undefined;
-    const person = selected?.type === "person" ? selected.key : assignment?.who.type === "person" ? assignment.who.value : undefined;
+    const person = selected?.type === "person" || selected?.type === "personWeek" ? selected.key : assignment?.who.type === "person" ? assignment.who.value : undefined;
     const index = rows.findIndex(row => row.kind === "person" && (person !== undefined ? row.person?.key === person : assignment?.who.type === "request" && row.person === undefined && row.group.key === assignment.slot.group));
     return index < 0 ? undefined : index;
 }
@@ -587,14 +566,220 @@ function useRowFloors(initial: Readonly<Record<RowKind, number>>): {
     return { floors, measured, measure };
 }
 
-/** The People grid's estimate of each kind before one has mounted: the rows' floors in the theme as it ships. */
-const PEOPLE_FLOORS: Readonly<Record<RowKind, number>> = { group: 38, person: 51, requests: 51 };
-/** A person's row, or a group's requests', in the People grid: its head, its seven days and its week's hours. */
+/** The People grids' estimate of each kind before one has mounted: a row one line at the density's pitch (#1406, P30), the theme's band. */
+const PEOPLE_FLOORS: Readonly<Record<RowKind, number>> = { group: 38, person: 36, requests: 36 };
+const SEVEN_DAYS: readonly number[] = Array.from({ length: 7 }, (_, d) => d);
+/** The selected person-week, read by the rows it marks (#1406, D11): its own context, so a duty picked draws no row again. */
+const PersonWeekContext = createContext<{ readonly key: string; readonly start: number } | undefined>(undefined);
+
+/** A day's duties as a cell draws them (D5): the tombstones a draft removed, the first live duty, and how many more live ones there are. */
+function dayTiles(duties: readonly DayDuty[]): { tiles: readonly DayDuty[]; more: number } {
+    const live = duties.filter(duty => !duty.removed);
+    return { tiles: [...duties.filter(duty => duty.removed), ...live.slice(0, 1)], more: Math.max(0, live.length - 1) };
+}
+/** Whether a day's duties hold a draft against the week as held: one added, moved, edited or removed (P9). */
+function dayDrafted(domain: RosterDomain, held: Week, duties: readonly DayDuty[]): boolean {
+    return duties.some(({ id, a, removed }) => { if (removed) return true; const baseline = held.assignments.get(id); return baseline === undefined || !domain.sameAssignment(baseline, a); });
+}
+/** A shift's fill and ink, as a tile's or a mark's style (D6): the theme's palette through its CSS variables, the one data binding the theme leaves to the renderer. */
+function fillOf(shift: Shift | undefined): CSSProperties | undefined {
+    const color = shiftColor(shift);
+    return color === undefined ? undefined : { "--roster-fill": color.fill, "--roster-ink": color.ink } as CSSProperties;
+}
+
+interface TileProps { ctx: ViewContext; id: string; assignment: Assignment; removed: boolean; person: Person | undefined }
+/** Keep the shared drag hooks outside the tile body: pointer motion does not repaint its contents. */
+function Tile(args: TileProps) {
+    const { ctx, id, assignment: a, removed } = args;
+    const { styles, value, drag } = ctx;
+    const selection = useContext(SelectionContext);
+    const selected = selection?.type === "assignment" && selection.key === id;
+    const name = assignmentName(value, a);
+    const coord = useMemo(() => ({ ...rosterCoord(drag.surface, a.slot, id), event: id }), [drag.surface, a.slot, id]);
+    const ghost = useMemo(() => <MoveGhost styles={styles} label={name} />, [styles, name]);
+    const enabled = drag.enabled && !removed;
+    const handle = useDragEventChip(enabled ? coord : null, ghost, !enabled, name);
+    const canDrop = useCallback((event: DragEventValue) => drag.run(event, true) === undefined, [drag]);
+    const drop = useDropCell(enabled ? coord : null, !enabled, canDrop, undefined, { caption: drag.caption });
+    const dragRef = handle?.ref;
+    const attach = useCallback((element: HTMLDivElement | null) => { dragRef?.(element); drop(element); }, [dragRef, drop]);
+    return <TileBody {...args} selected={selected} handle={handle} attach={attach} />;
+}
+/**
+ * A tile a duty (#1406, D5, P7): the shift's label, then its own times where they differ from the shift's, else the
+ * group where it is not the person's, else the shift's hours where `tileTimes` is always; a warning mark where an issue
+ * names it; its fill the shift's colour token, its words in the ink the shade takes. Tile state comes from the held
+ * week and the domain issues, never from a second draft store.
+ */
+const TileBody = memo(function TileBody({ ctx, id, assignment: a, removed, person, selected, handle, attach }: TileProps & {
+    selected: boolean; handle: ReturnType<typeof useDragEventChip>; attach: (element: HTMLDivElement | null) => void;
+}) {
+    const { styles, value, commands, drag, format } = ctx;
+    const name = assignmentName(value, a);
+    const enabled = drag.enabled && !removed;
+    const shift = shiftOf(value, a.slot.shift);
+    const issues = removed ? NO_ISSUES : dutyIssues(ctx.issues, id);
+    const baseline = ctx.held.assignments.get(id);
+    const drafted = removed || baseline === undefined || !ctx.domain.sameAssignment(baseline, a);
+    const group = person !== undefined && person.group !== a.slot.group ? value.groups.find(g => g.key === a.slot.group)?.label ?? a.slot.group : undefined;
+    const meta = ownTimes(value, a, ctx.start) ? { kind: "own" as const, text: `${hourText(a.start)}–${hourText(a.end)}` }
+        : group !== undefined ? { kind: "group" as const, text: group.toLocaleUpperCase(format.locale) }
+            : ctx.tileTimes === "always" && shift !== undefined ? { kind: "hours" as const, text: shiftHoursText(shift) } : undefined;
+    const danger = issues.some(i => i.tone.type === "danger");
+    const label = `${name} · ${shift?.label ?? a.slot.shift}${meta === undefined ? "" : ` · ${meta.text}`}${removed ? " · removed" : ""}`;
+    return <Box {...handle} ref={attach} css={styles.tile} style={removed ? undefined : fillOf(shift)} tabIndex={0} role="button" aria-label={label} aria-pressed={selected}
+        title={issues.length > 0 ? `${label} · ${issues.map(i => i.title).join(" · ")}` : label}
+        data-roster-assignment={id} data-roster-tile="" data-layout="people" data-added={baseline === undefined ? "" : undefined} data-moved={baseline !== undefined && !sameSlot(baseline.slot, a.slot) ? "" : undefined}
+        data-density={value.settings.density.type} data-selected={selected ? "" : undefined} data-drafted={drafted ? "" : undefined} data-removed={removed ? "" : undefined}
+        data-request={a.who.type === "request" ? "" : undefined} data-agency={person?.agency ? "" : undefined}
+        data-tone={danger ? "danger" : issues.some(i => i.kind.type === "breach") ? "warning" : undefined} data-draggable={enabled ? "" : undefined}
+        onClick={event => { event.stopPropagation(); ctx.select({ type: "assignment", key: id }); }}
+        onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); ctx.select({ type: "assignment", key: id }); } else handle?.onKeyDown?.(event); }}>
+        <Box as="span" css={styles.tileLabel} data-roster-assignment-name="">{a.who.type === "request" ? `AG · ${shift?.label ?? a.slot.shift}` : shift?.label ?? a.slot.shift}</Box>
+        {meta !== undefined && <Box as="span" css={styles.tileMeta} data-own={meta.kind === "own" ? "" : undefined} data-group={meta.kind === "group" ? "" : undefined} data-roster-times={meta.kind === "own" ? "" : undefined}>{meta.text}</Box>}
+        {issues.length > 0 && <Box as="span" css={styles.tileWarn} data-tone={danger ? "danger" : undefined} data-roster-tile-warn="" role="img" aria-label={issues[0]!.title}><FontAwesomeIcon icon={faTriangleExclamation} /></Box>}
+        {commands.available && <chakra.button type="button" css={styles.chipAction} data-roster-chip-action="" aria-label={removed ? `Restore ${name}` : `Remove ${name}`}
+            onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); if (removed) commands.restore(id); else commands.remove(id); }}><FontAwesomeIcon icon={removed ? faRotateLeft : faXmark} /></chakra.button>}
+    </Box>;
+});
+/** A day's tile as a pattern hovering the row would leave it (P19): the pattern's shift dashed in the brand tone, or the day off. */
+function PreviewTile({ ctx, day }: { ctx: ViewContext; day: PatternDay }) {
+    const shift = day.shift === undefined ? undefined : shiftOf(ctx.value, day.shift);
+    return <Box css={ctx.styles.tile} data-preview="" data-off={day.kind === "off" ? "" : undefined} data-roster-preview={day.kind} aria-hidden="true">
+        <Box as="span" css={ctx.styles.tileLabel}>{day.kind === "off" ? "Off" : shift?.label ?? day.shift}</Box>
+        {shift !== undefined && <Box as="span" css={ctx.styles.tileMeta}>{shiftHoursText(shift)}</Box>}
+    </Box>;
+}
+/**
+ * An off day's `+ Assign` (#1406, D9, P8): a menu of the shifts, each its label, its swatch and its times, whose choice
+ * places the person on it in their home group that day, one gesture; `Elsewhere…` opens the place form for another
+ * group or day.
+ */
+function AssignMenu({ ctx, person, group, day }: { ctx: ViewContext; person: Person; group: string; day: number }) {
+    const { value, styles, commands, start, format } = ctx;
+    const [elsewhere, setElsewhere] = useState(false);
+    const date = new Date(start.getTime() + day * DAY);
+    const slotFor = (shift: string): Slot => ({ day: BigInt(day), group, shift });
+    const usual = person.usual.type === "some" ? person.usual.value : value.shifts[0]!.key;
+    if (elsewhere) return <PlacePopover label="Elsewhere…" source={{ type: "person", key: person.key }} slot={slotFor(usual)} value={value} start={start} commands={commands} styles={styles} onClose={() => setElsewhere(false)} />;
+    return <ChakraMenu.Root positioning={{ placement: "bottom-start" }} onSelect={d => {
+        if (d.value === "elsewhere") { setElsewhere(true); return; }
+        ctx.onError(commands.place({ type: "person", key: person.key }, slotFor(d.value)));
+    }}>
+        <ChakraMenu.Trigger asChild>
+            <chakra.button type="button" css={styles.assign} data-roster-assign={`${person.key}.${day}`} data-roster-off="" aria-label={`Assign ${person.name} · ${format.weekday(date)}`}>+ Assign</chakra.button>
+        </ChakraMenu.Trigger>
+        <Portal>
+            <ChakraMenu.Positioner>
+                <ChakraMenu.Content data-roster-assign-menu="">
+                    <Box css={styles.assignMenuHead}>Assign · {format.weekday(date)} {format.number(date.getUTCDate())}</Box>
+                    {value.shifts.map(shift => <ChakraMenu.Item key={shift.key} value={shift.key} css={styles.assignItem} data-roster-assign-shift={shift.key}>
+                        <Box as="span" css={styles.swatch} style={fillOf(shift)} aria-hidden="true" /><span>{shift.label}</span><Box as="span" data-roster-shift-times="">{shiftHoursText(shift)}</Box>
+                    </ChakraMenu.Item>)}
+                    <ChakraMenu.Separator />
+                    <ChakraMenu.Item value="elsewhere">Elsewhere…</ChakraMenu.Item>
+                </ChakraMenu.Content>
+            </ChakraMenu.Positioner>
+        </Portal>
+    </ChakraMenu.Root>;
+}
+/**
+ * A person's day in the People grid (#1406, P6–P11): a tile per duty and `+1` for a second, or `+ Assign` on a day off,
+ * drawn again only as the day's duties, its person or what the views show changes (#1398, CL9). A drop on it resolves to
+ * the dragged person's same or usual shift; a pattern dropped on it lands on the person's week (§11), and while one
+ * hovers the row the day previews what the pattern leaves it (P19); another person's duty is refused (P11).
+ */
+const PersonDay = memo(function PersonDay({ ctx, person, group, day, duties, current, weekSelected, preview, hovering, onPatternHover, onPatternLeave }: {
+    ctx: ViewContext; person: Person | undefined; group: string; day: number; duties: readonly DayDuty[];
+    /** Whether the day is the one the views show: the day a Shifts view steps to. */
+    current: boolean;
+    /** Whether the person-week is selected: the row's cells outlined (D11). */
+    weekSelected: boolean;
+    /** What a pattern hovering the row leaves the day, while one does. */
+    preview: PatternDay | undefined; hovering: boolean;
+    onPatternHover: (key: string) => void; onPatternLeave: () => void;
+}) {
+    const { drag, value, week, styles, commands, start } = ctx;
+    const key = person?.key ?? `requests:${group}`;
+    peopleDrawProbe?.("day", `${key}.${day}`);
+    const initial = useMemo(() => ({ day: BigInt(day), group, shift: person?.usual.type === "some" ? person.usual.value : value.shifts[0]!.key }), [day, group, person, value.shifts]);
+    // A pattern lands on the person's week, whatever day of it the drag rests over; the requests row refuses it in its words.
+    const personWeek = useMemo(() => rosterPersonWeekCoord(drag.surface, key, start), [drag.surface, key, start]);
+    const resolve = useCallback((_x: number, _y: number, payload: DragPayload): CellCoord => {
+        if (isPatternCard(payload, drag.surface)) return personWeek;
+        const a = payload.kind === "event" ? week.assignments.get(payload.from.event) : undefined;
+        return rosterCoord(drag.surface, a === undefined ? initial : { ...a.slot, day: BigInt(day) });
+    }, [week, drag.surface, initial, day, personWeek]);
+    /** Whether a dragged duty is another row's: refused, `A duty moves along its own row.` (P11). */
+    const crossRow = useCallback((id: string) => {
+        const a = week.assignments.get(id);
+        return a !== undefined && (person === undefined ? a.who.type !== "request" : !(a.who.type === "person" && a.who.value === person.key));
+    }, [week, person]);
+    const accepts = useCallback((payload: DragPayload) => {
+        if (payload.kind === "event") return week.assignments.has(payload.from.event);
+        if (payload.kind !== "item") return false;
+        if (isPatternCard(payload, drag.surface)) return true;
+        const from = readRosterSource(payload.from.key);
+        return from.success && (person === undefined ? from.value.type === "agency" : from.value.type === "person" && from.value.value === person.key);
+    }, [week, person, drag.surface]);
+    const canDrop = useCallback((event: DragEventValue) => {
+        if (event.type === "move" && event.value.from.event.type === "some" && crossRow(event.value.from.event.value)) return false;
+        return drag.run(event, true) === undefined;
+    }, [drag, crossRow]);
+    const caption = useCallback((coord: CellCoord, payload: DragPayload, allowed: boolean) =>
+        payload.kind === "event" && crossRow(payload.from.event) ? "A duty moves along its own row." : drag.caption(coord, payload, allowed), [crossRow, drag]);
+    const coord = useMemo(() => drag.enabled ? rosterCoord(drag.surface, initial) : null, [drag.enabled, drag.surface, initial]);
+    const onHover = useCallback((_x: number, _y: number, payload: DragPayload) => { if (payload.kind === "item" && isPatternCard(payload, drag.surface)) onPatternHover(payload.from.key); }, [drag.surface, onPatternHover]);
+    const ref = useDropCell(coord, !drag.enabled, canDrop, resolve, { accepts, caption, onHover, onLeave: onPatternLeave });
+    const { tiles, more } = dayTiles(duties);
+    const off = person !== undefined && !duties.some(duty => !duty.removed);
+    // While a pattern hovers the row every day shows the pattern's day dashed, and the days it changes are tinted (P19).
+    const changes = preview !== undefined && preview.kind !== "keep";
+    return <Box ref={ref} css={styles.dayCell} data-roster-person-day={`${key}.${day}`} data-selected={current ? "" : undefined} data-week-selected={weekSelected ? "" : undefined}
+        data-drafted={dayDrafted(ctx.domain, ctx.held, duties) ? "" : undefined} data-pattern-hover={hovering ? "" : undefined} data-pattern-changes={changes ? "" : undefined}>
+        {preview !== undefined ? <PreviewTile ctx={ctx} day={preview} /> : <>
+            {tiles.map(({ id, a, removed }) => <Tile key={id} ctx={ctx} id={id} assignment={a} removed={removed} person={person} />)}
+            {more > 0 && <Box as="span" css={styles.tileMore} data-roster-more={more} title={`${more} more`}>+{more}</Box>}
+            {off && (commands.available ? <AssignMenu ctx={ctx} person={person} group={group} day={day} /> : <Box css={styles.detail}>Off</Box>)}
+        </>}
+    </Box>;
+});
+/** A person's name cell (#1406, D8): the name, the Agency badge, and — by week — the week's hours against the contract over the meter. */
+function NameCell({ ctx, person, rowKey, weekSelected, hours, nameRef }: {
+    ctx: ViewContext; person: Person | undefined; rowKey: string; weekSelected: boolean;
+    /** The hours cell; nothing in the month (P16). */
+    hours: ReactNode; nameRef?: RefObject<HTMLButtonElement | null> | undefined;
+}) {
+    const { styles, start } = ctx;
+    return <Box css={styles.peopleName} data-selected={weekSelected ? "" : undefined} data-roster-person-name="">
+        <Box css={styles.nameLine}>
+            <chakra.button ref={nameRef} type="button" css={styles.personName} data-roster-person-head={person?.key} aria-pressed={weekSelected}
+                onClick={() => person !== undefined && ctx.select({ type: "personWeek", key: rowKey, start: start.getTime() })}><span>{person?.name ?? "Agency requests"}</span></chakra.button>
+            {person?.agency && <Box as="span" css={styles.agencyBadge} data-roster-agency-badge="">Agency</Box>}
+        </Box>
+        {hours}
+    </Box>;
+}
+/** A person's week's hours against their contract, over the meter, with the cost where the app gives pay (D8, P5). */
+function WeekHours({ ctx, person, total, cost }: { ctx: ViewContext; person: Person; total: number; cost: number | undefined }) {
+    const { styles, format, value } = ctx;
+    const over = total > person.contract;
+    return <Box css={styles.hoursCell} data-roster-week-hours="" data-tone={over ? "warning" : undefined}>
+        <Box css={styles.hoursText}>{format.number(total)} / {format.number(person.contract)} h{cost !== undefined && ` · ${money(format, value, cost)}`}</Box>
+        <Box css={styles.meter} data-roster-meter="" role="img" aria-label={`${format.number(total)} of ${format.number(person.contract)} hours`}><Box css={styles.meterFill} style={{ width: `${Math.min(total / Math.max(person.contract, 1), 1) * 100}%` }} /></Box>
+    </Box>;
+}
+/** A person's week's hours while the week is not read: a placeholder where they go, beside the contract known without it. */
+function UnreadHours({ ctx, person, index }: { ctx: ViewContext; person: Person | undefined; index: number }) {
+    return person === undefined ? null : <Box css={ctx.styles.hoursCell}><Box css={ctx.styles.unreadValue} data-roster-week-hours="">
+        <Unread read={ctx.read} kind="number" index={index} />{`/ ${ctx.format.number(person.contract)} h`}</Box></Box>;
+}
+/** A person's row, or a group's requests', in the People grid: its name cell and its seven days, one line (#1406, §8). */
 const PersonRow = memo(function PersonRow({ ctx, row, index, rows, days, duties, measure }: {
     ctx: ViewContext; row: PersonRowValue; index: number; rows: readonly PeopleRow[]; days: WeekDays; duties: readonly string[] | undefined;
     measure: (el: HTMLElement | null) => void;
 }) {
-    const { styles, format, value } = ctx;
+    const { styles, value, start, commands } = ctx;
     const person = row.person, key = person?.key ?? row.key;
     peopleDrawProbe?.("row", key);
     // The name the keyboard stepped to takes the focus as its row mounts — at once, or once the frame brings it into view.
@@ -602,46 +787,73 @@ const PersonRow = memo(function PersonRow({ ctx, row, index, rows, days, duties,
     const name = useRef<HTMLButtonElement>(null);
     const stepped = person !== undefined && focus.key === person.key;
     useLayoutEffect(() => { if (stepped && name.current !== null) { name.current.focus({ preventScroll: true }); focus.done(); } }, [stepped, focus]);
-    const head = <chakra.button ref={name} type="button" css={[styles.gutter, styles.peopleHead]} data-roster-person-head={person?.key}
-        onClick={() => person !== undefined && ctx.select({ type: "person", key })}><Box css={styles.title}>{person?.name ?? "Agency requests"}</Box></chakra.button>;
+    const picked = useContext(PersonWeekContext);
+    const weekSelected = person !== undefined && picked !== undefined && picked.key === person.key && picked.start === start.getTime();
+    // A pattern hovering the row: what it would leave each day (P19), from the same plan a drop applies.
+    const [previewKey, setPreviewKey] = useState<string>();
+    const onPatternHover = useCallback((next: string) => setPreviewKey(next), []);
+    const onPatternLeave = useCallback(() => setPreviewKey(undefined), []);
+    const plan = useMemo(() => previewKey === undefined || person === undefined ? undefined : commands.pattern(person.key, start, previewKey), [previewKey, person, commands, start]);
+    const previewDays = typeof plan === "object" ? plan.days : undefined;
+    const density = value.settings.density.type;
     // A week not read, or whose read failed (#1398): the people and their contracts, known without it, at once; a
-    // placeholder where each day's duties go, never "Off · assign"; the failure said once, in the first person's row in
+    // placeholder where each day's duties go, never `+ Assign`; the failure said once, in the first person's row in
     // view, across their days.
-    if (ctx.read.state === "failed") return <FailedPersonRow ctx={ctx} read={ctx.read} rowKey={key} person={person} head={head} index={index} rows={rows} measure={measure} />;
-    if (ctx.read.state !== "held") return <Box ref={measure} css={styles.row} data-roster-person-row={key} data-roster-unread="">{head}
-        {SEVEN_DAYS.map(day => <Box key={day} css={styles.peopleCell} data-roster-person-day={`${key}.${day}`}><Unread read={ctx.read} kind="chip" index={index + day} /></Box>)}
-        <UnreadHours ctx={ctx} person={person} index={index} />
+    if (ctx.read.state === "failed") return <FailedPersonRow ctx={ctx} read={ctx.read} rowKey={key} person={person} index={index} rows={rows} measure={measure} />;
+    if (ctx.read.state !== "held") return <Box ref={measure} css={styles.peopleRow} data-roster-person-row={key} data-density={density} data-roster-unread="">
+        <NameCell ctx={ctx} person={person} rowKey={key} weekSelected={false} hours={<UnreadHours ctx={ctx} person={person} index={index} />} />
+        {SEVEN_DAYS.map(day => <Box key={day} css={styles.dayCell} data-roster-person-day={`${key}.${day}`}><Unread read={ctx.read} kind="chip" index={index + day} /></Box>)}
     </Box>;
     const total = ctx.hours.get(key) ?? 0;
     // A person's week's cost, every code summed: theirs alone, from the app's pay.
     const cost = person === undefined || !costed(value) ? undefined : costsOf(ctx.pay, duties ?? []).total;
-    return <Box ref={measure} css={styles.row} data-roster-person-row={key}>{head}
-        {SEVEN_DAYS.map(day => <PersonDay key={day} ctx={ctx} person={person} group={row.group.key} day={day} duties={days[day] ?? NO_DUTIES} current={ctx.day === day} />)}
-        <Box css={styles.peopleHead} data-tone={person !== undefined && total > person.contract ? "warning" : undefined}>{person !== undefined && <><Box css={styles.weekValue}>{format.number(total)} / {format.number(person.contract)} h{cost !== undefined && ` · ${money(format, value, cost)}`}</Box><Box css={styles.weekFill}><Box css={styles.weekFillValue} style={{ width: `${Math.min(total / Math.max(person.contract, 1), 1) * 100}%` }} /></Box></>}</Box>
+    return <Box ref={measure} css={styles.peopleRow} data-roster-person-row={key} data-density={density}>
+        <NameCell ctx={ctx} person={person} rowKey={key} weekSelected={weekSelected} nameRef={name} hours={person === undefined ? null : <WeekHours ctx={ctx} person={person} total={total} cost={cost} />} />
+        {SEVEN_DAYS.map(day => <PersonDay key={day} ctx={ctx} person={person} group={row.group.key} day={day} duties={days[day] ?? NO_DUTIES} current={ctx.day === day}
+            weekSelected={weekSelected} preview={previewDays?.[day]} hovering={previewKey !== undefined} onPatternHover={onPatternHover} onPatternLeave={onPatternLeave} />)}
     </Box>;
 });
-const SEVEN_DAYS: readonly number[] = Array.from({ length: 7 }, (_, d) => d);
-/** A person's week's hours while the week is not read: a placeholder where they go, beside the contract known without it. */
-function UnreadHours({ ctx, person, index }: { ctx: ViewContext; person: Person | undefined; index: number }) {
-    return <Box css={ctx.styles.peopleHead}>{person !== undefined && <Box css={ctx.styles.unreadValue} data-roster-week-hours="">
-        <Unread read={ctx.read} kind="number" index={index} />{`/ ${ctx.format.number(person.contract)} h`}</Box>}</Box>;
-}
 /**
  * A person's row of a week whose read failed (#1398, CL11): blank, or — the first person's row in view — the failure said
  * across their days. It reads which row is at the top of the view itself, drawn again only as it becomes or stops being
  * that row (CL9).
  */
-function FailedPersonRow({ ctx, read, rowKey, person, head, index, rows, measure }: {
-    ctx: ViewContext; read: Extract<PeriodRead, { state: "failed" }>; rowKey: string; person: Person | undefined; head: ReactNode; index: number;
+function FailedPersonRow({ ctx, read, rowKey, person, index, rows, measure }: {
+    ctx: ViewContext; read: Extract<PeriodRead, { state: "failed" }>; rowKey: string; person: Person | undefined; index: number;
     rows: readonly PeopleRow[]; measure: (el: HTMLElement | null) => void;
 }) {
     const says = useRowsTop(top => firstPersonInView(rows, top) === index);
-    return <Box ref={measure} css={ctx.styles.row} data-roster-person-row={rowKey} data-roster-unread="">{head}
+    return <Box ref={measure} css={ctx.styles.peopleRow} data-roster-person-row={rowKey} data-density={ctx.value.settings.density.type} data-roster-unread="">
+        <NameCell ctx={ctx} person={person} rowKey={rowKey} weekSelected={false} hours={<UnreadHours ctx={ctx} person={person} index={index} />} />
         {says ? <Box css={ctx.styles.readLine} data-days="" data-roster-read-line=""><ReadFailure read={read} /></Box>
-            : SEVEN_DAYS.map(day => <Box key={day} css={ctx.styles.peopleCell} data-roster-person-day={`${rowKey}.${day}`} />)}
-        <UnreadHours ctx={ctx} person={person} index={index} />
+            : SEVEN_DAYS.map(day => <Box key={day} css={ctx.styles.dayCell} data-roster-person-day={`${rowKey}.${day}`} />)}
     </Box>;
 }
+/**
+ * ↑ / ↓ on a person's name: the next person, or the one before — the groups' bands and their agency requests passed
+ * over, a folded group's people not among them — selected for the week in view, their row brought into view and their
+ * name focused (#1398), as a pick in Search Records focuses its person's ({@link usePeopleFocus}).
+ */
+function usePeopleArrows(rows: readonly PeopleRow[], select: (next: Selection) => void, start: Date, picked: PeoplePick | undefined) {
+    const { focus, stepTo } = usePeopleFocus(rows, picked);
+    const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+        const from = (event.target as Element).closest?.("[data-roster-person-head]")?.getAttribute("data-roster-person-head");
+        if (from === null || from === undefined) return;
+        // The arrow is the People grid's: it goes no further than the Roster (#1398).
+        takeKey(event);
+        const by = event.key === "ArrowDown" ? 1 : -1;
+        for (let i = rows.findIndex(row => row.kind === "person" && row.person?.key === from) + by; i >= 0 && i < rows.length; i += by) {
+            const row = rows[i]!;
+            if (row.kind !== "person" || row.person === undefined) continue;
+            stepTo(row.person.key);
+            select({ type: "personWeek", key: row.person.key, start: start.getTime() });
+            return;
+        }
+    }, [rows, select, stepTo, start]);
+    return { focus, onKeyDown };
+}
+/** The People grid by week (#1406, §8): a sticky header, a group band a group, a row a person. */
 function People({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
     const { collapsed, toggle } = useGroupCollapse(props.drag.surface);
     const rows = usePeopleRows(props.value, collapsed);
@@ -659,32 +871,160 @@ function People({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
         return <PersonRow ctx={ctx} row={row} index={i} rows={rows} days={days ?? NO_DAYS} duties={row.person === undefined ? undefined : index.duties.get(row.person.key)}
             measure={measure(row.person === undefined ? "requests" : "person")} />;
     }, [rows, ctx, collapsed, toggle, index, measure]);
-    const header = <Box css={props.styles.row}><Box css={[props.styles.gutter, props.styles.headerGutter, props.styles.shiftLabel]} data-week="">People · week</Box>{SEVEN_DAYS.map(day => <Box key={day} css={props.styles.shiftHead} data-roster-column-header="" data-week="" data-selected={props.day === day ? "" : undefined}><Box css={props.styles.shiftLabel}>{props.format.weekday(new Date(props.start.getTime() + day * DAY))} {new Date(props.start.getTime() + day * DAY).getUTCDate()}</Box></Box>)}<Box css={[props.styles.headerGutter, props.styles.shiftLabel]} data-week="">Week hours</Box></Box>;
+    const density = props.value.settings.density.type;
+    const header = <Box css={props.styles.peopleRow} data-roster-people-head="" data-density={density}>
+        <Box css={props.styles.peopleName} data-head=""><Box css={props.styles.shiftLabel}>People · Week</Box><Box css={props.styles.shiftLabel}>Hours</Box></Box>
+        {SEVEN_DAYS.map(day => { const date = new Date(props.start.getTime() + day * DAY); return <Box key={day} css={props.styles.shiftHead} data-roster-column-header="" data-week="" data-people="" data-selected={props.day === day ? "" : undefined}>
+            <Box css={props.styles.shiftLabel}>{props.format.weekday(date)} {date.getUTCDate() === 1 ? `${props.format.number(1)} ${props.format.month(date)}` : props.format.number(date.getUTCDate())}</Box></Box>; })}
+    </Box>;
     // Where the rows' view rests, by its top row's key (#1398): saved as a scroll settles, brought back as they mount.
     const { onAnchor } = props;
     const save = useCallback((at: RowAnchor) => onAnchor?.({ people: at }), [onAnchor]);
     const { restore, onAnchorChange } = useRowAnchor(rows, props.anchor?.people, save, measured);
-    // ↑ / ↓ on a person's name: the next person, or the one before — the groups' bands and their agency requests passed
-    // over, a folded group's people not among them — selected, their row brought into view and their name focused, as a
-    // pick in Search Records focuses its person's.
-    const { focus, stepTo } = usePeopleFocus(rows, props.picked);
-    const { select } = props;
-    const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
-        if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-        const from = (event.target as Element).closest?.("[data-roster-person-head]")?.getAttribute("data-roster-person-head");
-        if (from === null || from === undefined) return;
-        // The arrow is the People grid's: it goes no further than the Roster (#1398).
-        takeKey(event);
-        const by = event.key === "ArrowDown" ? 1 : -1;
-        for (let i = rows.findIndex(row => row.kind === "person" && row.person?.key === from) + by; i >= 0 && i < rows.length; i += by) {
-            const row = rows[i]!;
-            if (row.kind !== "person" || row.person === undefined) continue;
-            stepTo(row.person.key);
-            select({ type: "person", key: row.person.key });
-            return;
-        }
-    }, [rows, select, stepTo]);
+    // ↑ / ↓ on a person's name step to the next person, selected for the week in view; a pick in Search Records focuses its person's name (#1398).
+    const { focus, onKeyDown } = usePeopleArrows(rows, props.select, props.start, props.picked);
     return <Box css={props.styles.main} data-roster-grid="people" onKeyDown={onKeyDown}>
+        <PeopleFocusContext.Provider value={focus}>
+            <VirtualRows fillParent height={undefined} maxHeight={undefined} minWidth="var(--roster-people-width)" rootCss={props.styles.scroll}
+                header={header} count={rows.length} getItemKey={getItemKey} estimateSize={estimateSize} anchorable={ANCHOR_EVERY_ROW}
+                scrollToIndex={selectedPeopleRow(props, rows)} scrollAlign="auto" renderRow={renderRow}
+                onAnchorChange={onAnchorChange} restoreAnchor={restore} />
+        </PeopleFocusContext.Provider>
+    </Box>;
+}
+
+// ── The month (#1406, §8, P12–P16) ─────────────────────────────────────────────────────────────────────────────────
+
+/** A week column's header: `W10` and `Mar 5 – 11` over its seven days' ticks; a press opens the week in Week (P12). */
+function WeekColumnHead({ ctx, week, current }: { ctx: ViewContext; week: Date; current: boolean }) {
+    const { styles, format } = ctx;
+    const number = weekNumber(week), range = format.range(week, new Date(week.getTime() + 6 * DAY));
+    return <chakra.button type="button" css={styles.weekHead} data-roster-week-column={weekKey(week)} data-roster-column-header="" data-selected={current ? "" : undefined}
+        aria-label={`Open W${format.number(number)} · ${range}`} onClick={() => ctx.openWeek(week)}>
+        <Box css={styles.weekNumber}><span>W{format.number(number)}</span><Box as="span" css={styles.weekRange}>{range}</Box></Box>
+        <Box css={styles.dayTicks}>{SEVEN_DAYS.map(day => { const date = new Date(week.getTime() + day * DAY); return <Box key={day} css={styles.dayTick}>
+            <span>{format.weekday(date).slice(0, 1).toLocaleUpperCase(format.locale)}</span><span>{format.number(date.getUTCDate())}</span></Box>; })}</Box>
+    </chakra.button>;
+}
+/** A day's mark in a week cell (P13): the shift's letter in its colour, an off day faint; dashed where a pattern previews it; drafted against its own week as held. */
+function Mark({ ctx, held, day, duties, preview, letters }: { ctx: ViewContext; held: Week; day: number; duties: readonly DayDuty[]; preview: PatternDay | undefined; letters: boolean }) {
+    const { value, styles } = ctx;
+    // While a pattern hovers the cell its seven marks are the pattern's days, dashed (P15).
+    if (preview !== undefined) {
+        const shift = preview.shift === undefined ? undefined : shiftOf(value, preview.shift);
+        return <Box as="span" css={styles.mark} data-roster-mark={day} data-preview={preview.kind} data-off={shift === undefined ? "" : undefined} style={fillOf(shift)}>{letters ? shift?.code ?? "" : ""}</Box>;
+    }
+    const live = duties.filter(duty => !duty.removed);
+    const first = live[0] ?? duties[0];
+    if (first === undefined) return <Box as="span" css={styles.mark} data-roster-mark={day} data-off="" />;
+    const shift = shiftOf(value, first.a.slot.shift);
+    const drafted = first.removed || (() => { const baseline = held.assignments.get(first.id); return baseline === undefined || !ctx.domain.sameAssignment(baseline, first.a); })();
+    return <Box as="span" css={styles.mark} data-roster-mark={day} data-shift={first.a.slot.shift} data-removed={live.length === 0 ? "" : undefined} data-drafted={drafted ? "" : undefined}
+        style={live.length === 0 ? undefined : fillOf(shift)} title={`${shift?.label ?? first.a.slot.shift}${live.length > 1 ? ` +${live.length - 1}` : ""}`}>{letters ? shift?.code ?? "" : ""}</Box>;
+}
+/**
+ * A person's week in the month (P13–P15): seven marks, a drop target for a pattern, a click selecting the person-week;
+ * tinted while a day of it is drafted; a placeholder strip while the month is not read (P26).
+ */
+const MonthCell = memo(function MonthCell({ ctx, person, group, held, days, letters, selected }: {
+    ctx: ViewContext; person: Person | undefined; group: string; held: WeekState; days: WeekDays; letters: boolean; selected: boolean;
+}) {
+    const { drag, styles, commands, value } = ctx;
+    const key = person?.key ?? `requests:${group}`;
+    const start = held.start;
+    const coord = useMemo(() => drag.enabled ? rosterPersonWeekCoord(drag.surface, key, start) : null, [drag.enabled, drag.surface, key, start]);
+    const accepts = useCallback((payload: DragPayload) => isPatternCard(payload, drag.surface), [drag.surface]);
+    const canDrop = useCallback((event: DragEventValue) => drag.run(event, true) === undefined, [drag]);
+    const [previewKey, setPreviewKey] = useState<string>();
+    const onHover = useCallback((_x: number, _y: number, payload: DragPayload) => { if (payload.kind === "item" && isPatternCard(payload, drag.surface)) setPreviewKey(payload.from.key); }, [drag.surface]);
+    const onLeave = useCallback(() => setPreviewKey(undefined), []);
+    const ref = useDropCell(coord, !drag.enabled, canDrop, undefined, { accepts, caption: drag.caption, onHover, onLeave });
+    const plan = useMemo(() => previewKey === undefined || person === undefined ? undefined : commands.pattern(person.key, start, previewKey), [previewKey, person, commands, start]);
+    const previewDays = typeof plan === "object" ? plan.days : undefined;
+    const revealed = useRevealed() === true;
+    const unread = ctx.read.state !== "held";
+    const drafted = !unread && SEVEN_DAYS.some(day => dayDrafted(ctx.domain, held.held, days[day] ?? NO_DUTIES));
+    return <chakra.button ref={ref as (el: HTMLButtonElement | null) => void} type="button" css={styles.monthCell} data-roster-person-week={`${key}.${weekKey(start)}`} data-selected={selected ? "" : undefined}
+        data-drafted={drafted ? "" : undefined} data-pattern-hover={previewKey !== undefined ? "" : undefined} data-density={value.settings.density.type}
+        aria-label={`${person?.name ?? "Agency requests"} · W${ctx.format.number(weekNumber(start))}`} aria-pressed={selected}
+        onClick={() => person !== undefined && ctx.select({ type: "personWeek", key, start: start.getTime() })}>
+        {ctx.read.state === "failed" ? null : <Box css={styles.markStrip} data-roster-mark-strip="">
+            {SEVEN_DAYS.map(day => unread ? (revealed ? <Box key={day} as="span" css={styles.mark} data-roster-mark={day} data-pending="" /> : null)
+                : <Mark key={day} ctx={ctx} held={held.held} day={day} duties={days[day] ?? NO_DUTIES} preview={previewDays?.[day]} letters={letters} />)}
+        </Box>}
+    </chakra.button>;
+});
+/** A person's row in the month: the name cell — the name and the badge alone (P16) — then a cell a week. */
+const MonthRow = memo(function MonthRow({ ctx, row, index, rows, weeks, indexes, letters, measure }: {
+    ctx: ViewContext; row: PersonRowValue; index: number; rows: readonly PeopleRow[]; weeks: readonly WeekState[]; indexes: readonly PeopleIndex[]; letters: boolean;
+    measure: (el: HTMLElement | null) => void;
+}) {
+    const { styles, value } = ctx;
+    const person = row.person, key = person?.key ?? row.key;
+    peopleDrawProbe?.("row", key);
+    const focus = useContext(PeopleFocusContext);
+    const name = useRef<HTMLButtonElement>(null);
+    const stepped = person !== undefined && focus.key === person.key;
+    useLayoutEffect(() => { if (stepped && name.current !== null) { name.current.focus({ preventScroll: true }); focus.done(); } }, [stepped, focus]);
+    const picked = useContext(PersonWeekContext);
+    const style = { "--roster-weeks": weeks.length } as CSSProperties;
+    const nameSelected = person !== undefined && picked !== undefined && picked.key === person.key && weeks.some(held => held.start.getTime() === picked.start);
+    // The failure said once, across the first person's cells in view (CL11).
+    const says = useRowsTop(top => ctx.read.state === "failed" && firstPersonInView(rows, top) === index);
+    return <Box ref={measure} css={styles.monthRow} style={style} data-roster-person-row={key} data-density={value.settings.density.type} data-roster-unread={ctx.read.state !== "held" ? "" : undefined}>
+        <NameCell ctx={ctx} person={person} rowKey={key} weekSelected={nameSelected} nameRef={name} hours={null} />
+        {says && ctx.read.state === "failed" ? <Box css={styles.readLine} data-roster-read-line=""><ReadFailure read={ctx.read} /></Box>
+            : weeks.map((held, i) => <MonthCell key={held.start.getTime()} ctx={ctx} person={person} group={row.group.key} held={held} letters={letters}
+                days={(person === undefined ? indexes[i]!.requests.get(row.group.key) : indexes[i]!.person.get(person.key)) ?? NO_DAYS}
+                selected={person !== undefined && picked !== undefined && picked.key === person.key && picked.start === held.start.getTime()} />)}
+    </Box>;
+});
+/** An element's width, measured as it mounts and as it resizes: what the month's 13px letter rule reads (P13). */
+function useWidth(): [RefObject<HTMLDivElement | null>, number] {
+    const ref = useRef<HTMLDivElement>(null);
+    const [width, setWidth] = useState(0);
+    useLayoutEffect(() => {
+        const el = ref.current;
+        if (el === null) return;
+        const measure = () => setWidth(el.getBoundingClientRect().width);
+        measure();
+        if (typeof ResizeObserver === "undefined") return;
+        const observer = new ResizeObserver(measure);
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
+    return [ref, width];
+}
+/** The People grid by month (#1406, §8): a column a week touching the month, a row a person, a cell seven marks. */
+function MonthGrid({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
+    const { collapsed, toggle } = useGroupCollapse(props.drag.surface);
+    const rows = usePeopleRows(props.value, collapsed);
+    const weeks = props.weeks;
+    const indexes = useMemo(() => weeks.map(held => peopleIndex(held.week, held.held)), [weeks]);
+    const { floors, measured, measure } = useRowFloors(PEOPLE_FLOORS);
+    const getItemKey = useCallback((i: number) => rows[i]!.key, [rows, floors]); // eslint-disable-line react-hooks/exhaustive-deps -- the floors re-key the places
+    const estimateSize = useCallback((i: number) => { const row = rows[i]!; return row.kind === "group" ? floors.group : row.person === undefined ? floors.requests : floors.person; }, [rows, floors]);
+    // The letters show where a day is 13px or wider (P13): the grid's width less the name column, over the weeks, over seven days.
+    const [root, width] = useWidth();
+    const dayWidth = width === 0 ? Infinity : ((width - 168) / Math.max(weeks.length, 1) - 4) / 7 - 2;
+    const letters = ctx.letters && dayWidth >= 13;
+    const renderRow = useCallback((i: number) => {
+        const row = rows[i]!;
+        if (row.kind === "group") return <GroupHeading scope="roster" group={row.group} styles={ctx.styles} collapsed={collapsed.includes(row.group.key)} toggle={toggle} measure={measure("group")} />;
+        return <MonthRow ctx={ctx} row={row} index={i} rows={rows} weeks={weeks} indexes={indexes} letters={letters} measure={measure(row.person === undefined ? "requests" : "person")} />;
+    }, [rows, ctx, collapsed, toggle, weeks, indexes, letters, measure]);
+    const style = { "--roster-weeks": weeks.length } as CSSProperties;
+    // The selected person-week's column is marked (D11); none without a selection.
+    const picked = props.selection?.type === "personWeek" ? props.selection.start : undefined;
+    const header = <Box css={props.styles.monthRow} style={style} data-roster-month-head="" data-density={props.value.settings.density.type}>
+        <Box css={props.styles.monthGutter}>People · Month</Box>
+        {weeks.map(held => <WeekColumnHead key={held.start.getTime()} ctx={ctx} week={held.start} current={held.start.getTime() === picked} />)}
+    </Box>;
+    const { onAnchor } = props;
+    const save = useCallback((at: RowAnchor) => onAnchor?.({ people: at }), [onAnchor]);
+    const { restore, onAnchorChange } = useRowAnchor(rows, props.anchor?.people, save, measured);
+    const { focus, onKeyDown } = usePeopleArrows(rows, props.select, props.start, props.picked);
+    return <Box ref={root} css={props.styles.main} data-roster-grid="people-month" style={style} onKeyDown={onKeyDown}>
         <PeopleFocusContext.Provider value={focus}>
             <VirtualRows fillParent height={undefined} maxHeight={undefined} minWidth="var(--roster-people-width)" rootCss={props.styles.scroll}
                 header={header} count={rows.length} getItemKey={getItemKey} estimateSize={estimateSize} anchorable={ANCHOR_EVERY_ROW}
@@ -732,7 +1072,9 @@ const PersonCard = memo(function PersonCard({ ctx, row, index, rows, days, reque
     </Box>;
     return <Box ref={measure} css={styles.card} data-roster-person-card={person?.key ?? row.key}>
         {person === undefined ? <><Box css={styles.cardHead}><Box css={styles.cardTitle}>Agency requests</Box></Box>{requests.map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}</> : <>
-            <chakra.button ref={head} type="button" css={styles.cardHead} data-roster-person-head={person.key} onClick={() => ctx.select({ type: "person", key: person.key })}><Box css={styles.cardTitle}>{person.name} · {format.number(ctx.hours.get(person.key) ?? 0)} / {format.number(person.contract)} h</Box></chakra.button>
+            <chakra.button ref={head} type="button" css={styles.cardHead} data-roster-person-head={person.key} onClick={() => ctx.select({ type: "personWeek", key: person.key, start: start.getTime() })}><Box css={styles.cardTitle}>{person.name} · {format.number(ctx.hours.get(person.key) ?? 0)} / {format.number(person.contract)} h</Box></chakra.button>
+            {/* A phone's `Apply pattern…` (#1406, P22): the Chooser over the patterns, its choice applied as a drop is. */}
+            {value.patterns.length > 0 && <Box css={styles.actions}><ApplyPatternAction person={person} start={start} value={value} commands={commands} onError={ctx.onError} /></Box>}
             {SEVEN_DAYS.map(day => {
                 const duties = days[day] ?? NO_DUTIES;
                 return <Box key={day} css={styles.agendaGroup}><Box css={styles.detail}>{format.weekday(new Date(start.getTime() + day * DAY))}</Box>
@@ -817,7 +1159,10 @@ function Agenda({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
 }
 export function RosterViews(props: RosterViewsProps) {
     const ctx = useViewContext(props);
+    // A phone keeps People to the week (#1406, P31): a persisted month shows its first week, as the frame hands it.
     const view = props.narrow ? props.view.layout === "people" ? <PeopleAgenda props={props} ctx={ctx} /> : <Agenda props={props} ctx={ctx} />
-        : props.view.layout === "people" ? <People props={props} ctx={ctx} /> : <Shifts props={props} ctx={ctx} />;
-    return <SelectionContext.Provider value={props.selection}>{view}</SelectionContext.Provider>;
+        : props.view.layout === "people" ? props.view.period === "month" ? <MonthGrid props={props} ctx={ctx} /> : <People props={props} ctx={ctx} /> : <Shifts props={props} ctx={ctx} />;
+    const picked = props.selection?.type === "personWeek" ? props.selection : undefined;
+    const personWeek = useMemo(() => picked === undefined ? undefined : { key: picked.key, start: picked.start }, [picked]);
+    return <SelectionContext.Provider value={props.selection}><PersonWeekContext.Provider value={personWeek}>{view}</PersonWeekContext.Provider></SelectionContext.Provider>;
 }

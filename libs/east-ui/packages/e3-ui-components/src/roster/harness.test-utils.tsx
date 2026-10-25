@@ -250,14 +250,14 @@ export async function open(example: Example, options: MountOptions = {}) {
  * @param source - The source (`people`)
  * @param where - Each field's choice
  */
-export async function narrow(store: UIStore, example: string, source: "people" | "activities", where: Where) {
+export async function narrow(store: UIStore, example: string, source: "people" | "activities" | "patterns", where: Where) {
     const key = `ex.${example}.${source}`;
     const state = decodeBeast2For(RecordSliceStateType)(store.read(key)!);
     await act(async () => { store.write(key, encodeBeast2For(RecordSliceStateType)({ ...state, preset: none, where })); });
     await settle();
 }
 /** A source's narrowing as the store keeps it. */
-export const narrowing = (store: UIStore, example: string, source: "people" | "activities"): Where =>
+export const narrowing = (store: UIStore, example: string, source: "people" | "activities" | "patterns"): Where =>
     decodeBeast2For(RecordSliceStateType)(store.read(`ex.${example}.${source}`)!).where;
 
 /**

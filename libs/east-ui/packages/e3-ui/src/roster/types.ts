@@ -19,7 +19,7 @@ import {
     OptionType, SetType, StringType, StructType, VariantType, type EastType,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
-import { StatusTokenType } from "@elaraai/east-ui";
+import { ColorTokenType, StatusTokenType } from "@elaraai/east-ui";
 import { EditingType } from "@elaraai/east-ui/internal";
 import { RowInspectorType } from "../utils/row-inspector.js";
 import { ScheduleClockType, ScheduleEntriesType, ScheduleFitType, SchedulePeriodStatusType, ScheduleRefusalType } from "../schedule/types.js";
@@ -130,18 +130,30 @@ export type RosterSkillType = typeof RosterSkillType;
 export const RosterGroupType = StructType({ key: StringType, label: StringType });
 export type RosterGroupType = typeof RosterGroupType;
 /**
- * A recurring shift's start and nominal hours.
+ * A recurring shift's start and nominal hours, and its colour.
  * @remarks An end past midnight belongs to the following day; a duty still belongs to its shift's start day.
  * @property key - Stable identifier
  * @property label - Display name
  * @property code - Short code in the week layout
  * @property start - Start time in UTC, shared with Schedule
  * @property hours - Nominal shift duration: what a new duty runs, and a skill holder's capacity
+ * @property color - The app's colour token for it (#1406): the People layout's tiles' and marks' fill; `none`, neutral
  */
 export const RosterShiftType = StructType({
-    key: StringType, label: StringType, code: StringType, start: ScheduleClockType, hours: FloatType,
+    key: StringType, label: StringType, code: StringType, start: ScheduleClockType, hours: FloatType, color: OptionType(ColorTokenType),
 });
 export type RosterShiftType = typeof RosterShiftType;
+/**
+ * A week pattern, as the Roster reads it from the app's row (`Roster.patterns`,
+ * #1406): seven days from the week's first day, each a shift's key or `none`
+ * for a day off, which a drop on a person's week applies.
+ * @remarks The Roster reads patterns and writes nothing to them; a drop writes the person's duties.
+ * @property key - Its row's key
+ * @property label - Display name: the card's, and the drop's words
+ * @property days - Seven entries from the week's first day: a shift's key, or `none` for a day off
+ */
+export const RosterPatternType = StructType({ key: StringType, label: StringType, days: ArrayType(OptionType(StringType)) });
+export type RosterPatternType = typeof RosterPatternType;
 /**
  * A position someone may hold on a shift.
  * @remarks Position order determines lead ordering in the grid.

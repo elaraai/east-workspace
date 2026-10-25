@@ -99,6 +99,7 @@ export { Chart, type AxisOptions, type ChartLayer, type RefLineOptions, type Ref
 export { ChartXType, ChartDomainType, ChartTickValuesType } from "./charts/spec/index.js";
 export { MatrixFillType, type MatrixFillLiteral } from "./collections/matrix/types.js";
 export { ColorSchemeType, type ColorSchemeLiteral } from "./style/scheme.js";
+export { ColorTokenType, ColorShadeType, COLOR_HUES, COLOR_SHADES, type ColorHueLiteral, type ColorShadeLiteral } from "./style/color.js";
 export { ValueFormatType } from "./contracts/format.js";
 export { Sparkline } from "./charts/index.js";
 export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Story, Tabs } from "./disclosure/index.js";

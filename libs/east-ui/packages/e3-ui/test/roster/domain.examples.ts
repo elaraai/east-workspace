@@ -25,9 +25,9 @@ export const context: ValueTypeOf<typeof Roster.Types.Context> = {
     // Goods' one skill, and the duty every group shares.
     activities: [{ key: "reach", label: "Reach truck", code: "RT", group: some("goods") }, { key: "general", label: "General duties", code: "GD", group: none }],
     shifts: [
-        { key: "early", label: "Early", code: "E", start: { hour: 6n, minute: 0n }, hours: 8 },
-        { key: "late", label: "Late", code: "L", start: { hour: 14n, minute: 0n }, hours: 8 },
-        { key: "night", label: "Night", code: "N", start: { hour: 22n, minute: 0n }, hours: 8 },
+        { key: "early", label: "Early", code: "E", start: { hour: 6n, minute: 0n }, hours: 8, color: none },
+        { key: "late", label: "Late", code: "L", start: { hour: 14n, minute: 0n }, hours: 8, color: none },
+        { key: "night", label: "Night", code: "N", start: { hour: 22n, minute: 0n }, hours: 8, color: none },
     ],
     positions: [{ key: "crew", label: "Crew", code: "", lead: false }, { key: "lead", label: "Lead", code: "SV", lead: true }],
     agencies: [{ key: "agency", name: "Staffing agency" }],

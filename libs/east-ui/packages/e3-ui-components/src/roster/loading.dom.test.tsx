@@ -78,7 +78,7 @@ test("once its week has landed, the Roster reads the weeks either side ahead: a 
     await settle();
 });
 
-test("a step to a week not read yet never covers the frame (#1398, CL5): the toolbar stays live, its status a placeholder — never `Not started` — and Publish in its slot; the week draws at once, a placeholder where each figure and duty goes, never `Off · assign`; its read lands in place", async () => {
+test("a step to a week not read yet never covers the frame (#1398, CL5): the toolbar stays live, its status a placeholder — never `Not started` — and Publish in its slot; the week draws at once, a placeholder where each figure and duty goes, never `+ Assign` or `Off · assign`; its read lands in place", async () => {
     const { container } = await h.mount(ex.rosterWindowed);
     await settle();
     const main = () => slot(container, "main");
@@ -102,16 +102,17 @@ test("a step to a week not read yet never covers the frame (#1398, CL5): the too
     // The week's slots draw at once, unread: no duty, no figure of another week's, and no false empty.
     expect(main().querySelector("[data-roster-unread]")).not.toBeNull();
     expect(main().querySelector("[data-roster-assignment]")).toBeNull();
-    expect(main().textContent).not.toMatch(/positions|Off · assign|Not started/);
+    expect(main().textContent).not.toMatch(/positions|\+ Assign|Off · assign|Not started/);
     // Past the reveal's delay, the placeholders fill.
     await waitFor(() => expect(main().querySelector("[data-roster-unread] [data-shape]")).not.toBeNull());
-    // In People, the people stay, each of their days a placeholder; on a phone, each person's card.
+    // In People, the people stay, each of their days a placeholder — never `+ Assign` or `Off` (#1406, P27); on a phone, each person's card.
     await press(within(toolbar()).getByRole("radio", { name: "People" }));
     expect(main().querySelector("[data-roster-person-row][data-roster-unread]")).not.toBeNull();
-    expect(main().textContent).not.toMatch(/Off · assign|Not started/);
+    expect(main().querySelector("[data-roster-off], [data-roster-tile]")).toBeNull();
+    expect(main().textContent).not.toMatch(/\+ Assign|Off · assign|Not started/);
     await width(390);
     expect(main().querySelector("[data-roster-person-card][data-roster-unread]")).not.toBeNull();
-    expect(main().textContent).not.toMatch(/Off · assign|Not started/);
+    expect(main().textContent).not.toMatch(/\+ Assign|Off · assign|Not started/);
     await width(900);
     // Released, the week lands in place, and its status with it.
     await act(async () => { held.release(); });
