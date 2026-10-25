@@ -168,6 +168,23 @@ describe("sheet paging — moving", () => {
         await waitFor(() => expect(latest!.rowsOffset).toBe(0));
     });
 
+    test("a report draws the driver again only for what it moves (#1398, CL9): the rows the view passes inside a window draw nothing, the next window draws it", async () => {
+        const { value } = source(2_000);
+        render(<Harness src={value} />);
+        await waitFor(() => expect(text("rows")).toBe("0+600"));
+        report({ kind: "row", offset: 10, shows: { from: 0, to: 20 } });
+        // What the landing and that report started has run.
+        await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
+        const drawn = frames.length;
+        // Down the first window a few rows at a time, the view showing twenty rows: nothing it decides by moves.
+        for (let at = 17; at < 180; at += 7) report({ kind: "row", offset: at, shows: { from: at - 10, to: at + 10 } });
+        expect(frames.length).toBe(drawn);
+        // Into the second: its window, and the windows the view shows, move — and the demand reads ahead from there.
+        report({ kind: "row", offset: 230, shows: { from: 220, to: 240 } });
+        expect(frames.length).toBeGreaterThan(drawn);
+        await waitFor(() => expect(text("rows")).toBe("0+800"));
+    });
+
 });
 
 describe("sheet paging — a window loading beside the run never hides it (#876)", () => {

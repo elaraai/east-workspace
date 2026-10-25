@@ -187,6 +187,37 @@ function readFailure(err: unknown): string {
 }
 
 /**
+ * Whether two stretches of elements meet the same windows: all a view's stretch decides — which of the windows in flight
+ * it waits for (#1398, CL9).
+ */
+function sameWindows(a: ElementSpan, b: ElementSpan): boolean {
+    return Math.floor(a.from / SHEET_PAGE_SIZE) === Math.floor(b.from / SHEET_PAGE_SIZE) && Math.floor(a.to / SHEET_PAGE_SIZE) === Math.floor(b.to / SHEET_PAGE_SIZE);
+}
+
+/**
+ * The window the run is anchored on (#876): the resident window that is in — landed, or failed (#853) — nearest the
+ * element the viewport is centred on. While the viewport's own window is still loading, that is the nearer of the first
+ * window in after it and the last one before it, so a window loading next to the rows on screen never takes them off
+ * it, whichever way the viewport came and whatever lands beyond it first.
+ *
+ * @param isIn - Whether a window is in
+ * @param residency - The resident windows
+ * @param element - The element the viewport is centred on
+ * @returns The window; `undefined` with none in
+ */
+function anchorWindow(isIn: (w: number) => boolean, residency: Residency, element: number): number | undefined {
+    const at = Math.min((residency.hi + 1) * SHEET_PAGE_SIZE - 1, Math.max(residency.lo * SHEET_PAGE_SIZE, element));
+    const own = Math.floor(at / SHEET_PAGE_SIZE);
+    if (isIn(own)) return own;
+    let after: number | undefined;
+    for (let w = own + 1; w <= residency.hi && after === undefined; w++) if (isIn(w)) after = w;
+    let before: number | undefined;
+    for (let w = own - 1; w >= residency.lo && before === undefined; w--) if (isIn(w)) before = w;
+    if (after === undefined || before === undefined) return after ?? before;
+    return after * SHEET_PAGE_SIZE - at <= at - ((before + 1) * SHEET_PAGE_SIZE - 1) ? after : before;
+}
+
+/**
  * The elements being read (#1398, CL3): of the windows in flight, the
  * stretch of adjacent ones nearest the viewport's window — what the footer's
  * loading line names.
@@ -267,9 +298,14 @@ export function useSheetPaging(
     // The element the viewport is centred on — its window is the demand's,
     // and the run is the stretch nearest it (#876).
     const [storedViewportAt, setViewportAt] = useState(0);
+    // The element the viewport was last reported centred on, exactly: the state above holds it only as what it decides
+    // moves (#1398, CL9).
+    const centredOn = useRef(0);
     const [isScrolling, setIsScrolling] = useState(false);
     // The source elements the view shows, as the caller last said (#1398): what the line and busy follow.
     const [storedShows, setShows] = useState<ElementSpan | undefined>(undefined);
+    // What was last asked of each of the three, rendered yet or not: a report asks again only for what moves (CL9).
+    const asked = useRef<{ viewportAt: number; isScrolling: boolean; shows: ElementSpan | undefined }>({ viewportAt: 0, isScrolling: false, shows: undefined });
     // Which way the viewport travels through the windows (CL6): the demand reads ahead that way.
     const travel = useRef<{ at: number; way: Travel }>({ at: 0, way: 1 });
     const [sizeVersion, setSizeVersion] = useState(0);
@@ -434,6 +470,8 @@ export function useSheetPaging(
         }
         if (sourceChanged) {
             setResidency(FIRST_WINDOW);
+            centredOn.current = 0;
+            asked.current = { viewportAt: 0, isScrolling: false, shows: undefined };
             setViewportAt(0);
             setShows(undefined);
             setIsScrolling(false);
@@ -474,26 +512,17 @@ export function useSheetPaging(
         setSizeVersion((v) => v + 1);
     }, [source, ledger, residency, viewportWindow, isScrolling, policy]);
 
-    // The window the run is anchored on (#876): the resident window that is
-    // in — landed, or failed (#853) — nearest the element the viewport is
-    // centred on. While the viewport's own window is still loading, that is
-    // the nearer of the first window in after it and the last one before
-    // it, so a window loading next to the rows on screen never takes them
-    // off it, whichever way the viewport came and whatever lands beyond it
-    // first.
-    const anchor = useMemo(() => {
-        if (value === undefined || isEmpty(residency)) return undefined;
-        const isIn = new Set([...value.landed.map((l) => l.w), ...value.failed.map((f) => f.w)]);
-        const at = Math.min((residency.hi + 1) * SHEET_PAGE_SIZE - 1, Math.max(residency.lo * SHEET_PAGE_SIZE, viewportAt));
-        const own = Math.floor(at / SHEET_PAGE_SIZE);
-        if (isIn.has(own)) return own;
-        let after: number | undefined;
-        for (let w = own + 1; w <= residency.hi && after === undefined; w++) if (isIn.has(w)) after = w;
-        let before: number | undefined;
-        for (let w = own - 1; w >= residency.lo && before === undefined; w--) if (isIn.has(w)) before = w;
-        if (after === undefined || before === undefined) return after ?? before;
-        return after * SHEET_PAGE_SIZE - at <= at - ((before + 1) * SHEET_PAGE_SIZE - 1) ? after : before;
-    }, [value, residency, viewportAt]);
+    // The windows that are in — landed, or failed (#853) — as the read last gave them.
+    const isIn = useMemo(() => {
+        const ins = new Set(value === undefined ? [] : [...value.landed.map((l) => l.w), ...value.failed.map((f) => f.w)]);
+        return (w: number) => ins.has(w);
+    }, [value]);
+    // The window the run is anchored on (#876, `anchorWindow`), from the element the viewport was last reported centred
+    // on: the state holds it only as the anchor it gives moves (#1398, CL9, `reportViewport`), and a read landing takes
+    // the element as it is now.
+    const anchor = useMemo(() => (value === undefined || isEmpty(residency) ? undefined : anchorWindow(isIn, residency, sourceChanged ? 0 : centredOn.current)),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- `viewportAt` moves whenever the anchor the element gives does; the element itself is read as it is
+        [value, isIn, residency, viewportAt, sourceChanged]);
 
     // The run: the stretch of windows that are in around the anchor — the
     // landed windows, and a failed window's band where its rows would be: its
@@ -548,33 +577,54 @@ export function useSheetPaging(
     // Read by the viewport report, so a jump's pin changes nothing it closes over.
     const jumpingRef = useRef(false);
     jumpingRef.current = residency.pins.size > 0;
+    // What the anchor is decided by, as this render has it: the windows in, and the residency.
+    const decided = useRef({ isIn, residency });
+    decided.current = { isIn, residency };
+    // A report draws the sheet again only for what it moves (#1398, CL9): the window the viewport is centred in, the run's
+    // anchor, the windows the view shows, whether the scroll is at rest — never each row the view passes. What holds is
+    // never asked again, so nothing is asked of React for it.
     const reportViewport = useCallback((at: SheetViewport, scrolling: boolean) => {
-        setIsScrolling(scrolling);
-        // What the view shows is the view's, a jump pending or not: the line follows it.
+        const was = asked.current;
+        if (was.isScrolling !== scrolling) {
+            was.isScrolling = scrolling;
+            setIsScrolling(scrolling);
+        }
+        // What the view shows is the view's, a jump pending or not: the line follows the windows it meets.
         const span = at.shows;
-        setShows((was) => (span === undefined ? undefined
-            : was !== undefined && was.from === span.from && was.to === span.to ? was : { from: span.from, to: span.to }));
+        if (span === undefined ? was.shows !== undefined : was.shows === undefined || !sameWindows(was.shows, span)) {
+            const next = span === undefined ? undefined : { from: span.from, to: span.to };
+            was.shows = next;
+            setShows(next);
+        }
         // A pending jump owns the viewport (#854): until the sheet has shown its
         // target, a report is taken from where the sheet still IS, and moving
         // the demand there would move the run back and undo the jump.
         if (jumpingRef.current || replacingRef.current) return;
-        setViewportAt((current) => {
-            if (at.kind === "band") {
-                // A band's own geometry: the head starts at the top, the tail
-                // right after the run — not after the residency, whose last
-                // windows may still be loading inside the tail (#876).
-                if (at.px !== undefined && ledger.windows > 0) {
-                    const bandTop = at.at === "head" ? 0 : offsetOfWindow(ledger, run.to + 1);
-                    return elementAtOffset(ledger, bandTop + Math.max(0, at.px));
-                }
-                return at.at === "head" ? Math.max(0, run.from * SHEET_PAGE_SIZE - 1) : (run.to + 1) * SHEET_PAGE_SIZE;
-            }
-            return at.offset >= 0 ? at.offset : current;
-        });
+        let next: number;
+        if (at.kind === "band") {
+            // A band's own geometry: the head starts at the top, the tail
+            // right after the run — not after the residency, whose last
+            // windows may still be loading inside the tail (#876).
+            if (at.px !== undefined && ledger.windows > 0) {
+                const bandTop = at.at === "head" ? 0 : offsetOfWindow(ledger, run.to + 1);
+                next = elementAtOffset(ledger, bandTop + Math.max(0, at.px));
+            } else next = at.at === "head" ? Math.max(0, run.from * SHEET_PAGE_SIZE - 1) : (run.to + 1) * SHEET_PAGE_SIZE;
+        } else next = at.offset >= 0 ? at.offset : centredOn.current;
+        centredOn.current = next;
+        // The element held moves only with its window or the anchor it gives.
+        const { isIn: ins, residency: resident } = decided.current;
+        const moves = Math.floor(was.viewportAt / SHEET_PAGE_SIZE) !== Math.floor(next / SHEET_PAGE_SIZE)
+            || (!isEmpty(resident) && anchorWindow(ins, resident, was.viewportAt) !== anchorWindow(ins, resident, next));
+        if (!moves) return;
+        was.viewportAt = next;
+        setViewportAt(next);
     }, [run.from, run.to, ledger]);
 
     const jumpToElement = useCallback((element: number) => {
         const at = Math.max(0, element);
+        centredOn.current = at;
+        asked.current.viewportAt = at;
+        asked.current.isScrolling = false;
         setViewportAt(at);
         setIsScrolling(false);
         setResidency((r) => pin(unpinAll(r), Math.floor(at / SHEET_PAGE_SIZE)));

@@ -43,6 +43,7 @@ import {
     EXAMPLES_PIECE_MIN, patchRecord, readDataset, recordHistory, runDataflow, settleE3, startTestE3, workspaceRequests, writeDataset,
     type E3Dataset, type E3Record, type E3Request, type TestE3,
 } from "./e3-web.test-utils.js";
+import { setPagedLandingFrame } from "./platform/paged-runtime.js";
 import { QueryPlanOptionsProvider } from "./query/hooks.js";
 import { act, isolateRuns } from "./test-runs.test-utils.js";
 
@@ -51,6 +52,16 @@ export { act };
 // e3's repositories are in memory, so the edits staged against it are kept in
 // memory too, as the showcase keeps them; IndexedDB would outlive the test's e3.
 initializeStagedStore(new StagedStore(new MemoryStagedAdapter()));
+
+// jsdom draws no frame a test waits on: the windows a paged read lands are
+// applied to their readers as the turn they land in ends, as a page applies
+// them at its next frame (#1398, CL9), so an `act` sees what it read land
+// before it returns, whatever the test's clock.
+setPagedLandingFrame((apply) => {
+    let asked = true;
+    queueMicrotask(() => { if (asked) apply(); });
+    return () => { asked = false; };
+});
 
 /** How often what a mounted example reads is polled while it shows: as often as the showcase and a UI task's preview poll theirs. */
 const EXAMPLE_POLL_MS = 1000;

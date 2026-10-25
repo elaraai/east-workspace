@@ -34,7 +34,10 @@
  * (#1360): each answer is applied to its channel as it lands, and the last
  * re-fires every channel the burst answered at once, so a reader of a window
  * over an interval index — some fifty-five searches — runs again once, not
- * once a search. Windows re-fire as each lands.
+ * once a search. Windows are applied to their readers once a frame (#1398,
+ * CL9): each lands in its channel at once, and the windows that land before
+ * the next frame — a fling coming to rest, the windows read ahead either side
+ * — re-fire together, so a reader draws once for them, never once a window.
  *
  * A window a landed one covers is never fetched (#1217): its rows are that
  * window's, at the same revision, so the read is answered from it and keeps
@@ -730,6 +733,22 @@ function joinWindows(sourceType: EastTypeValue, parts: readonly unknown[]): unkn
 const RETRY_AFTER_MS = 2000;
 
 /**
+ * How long the windows landed wait for a frame to apply them before a timer
+ * does (#1398, CL9): a page that draws no frames — hidden, say — still hears
+ * them, a few frames late.
+ */
+const LANDING_WAIT_MS = 100;
+
+/**
+ * What asks for the frame that applies the windows a runtime landed, in place
+ * of the page's next frame (#1398, CL9).
+ *
+ * @param apply - Applies the windows landed, as the frame comes
+ * @returns What cancels the frame
+ */
+export type PagedLandingFrame = (apply: () => void) => () => void;
+
+/**
  * Decoded windows retained across ALL paged sources (#567 D6).
  *
  * A decoded window is the heavy object here — a window of wide rows runs to
@@ -982,6 +1001,13 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     /** Each fetch in flight, by its channel: its launch, what aborts it, and what an abort lets go besides (#1398, CL6). */
     private readonly fetching = new Map<string, { readonly seq: number; readonly controller: AbortController; readonly onAbort: (() => void) | undefined }>();
 
+    /** The channels of the windows landed since the frame began, and their totals', whose readers are still to hear (#1398, CL9). */
+    private readonly landed = new Set<string>();
+    /** What cancels the frame — or the timer standing in for one — that applies them, while one waits ({@link scheduleLanding}). */
+    private landing: (() => void) | undefined;
+    /** What asks for the frame that applies them in place of the page's, once one is set ({@link setLandingFrame}). */
+    private landingFrame: PagedLandingFrame | undefined;
+
     /** Each key type's printer and parser, and each landed Dict window's keys
      *  in order — what reads by key look keys up by (#1351). */
     private readonly printers = new WeakMap<EastTypeValue, (key: unknown) => string>();
@@ -1032,6 +1058,72 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         this.clearChannels();
         this.loadedWindows.clear();
         this.bursts.clear();
+        this.cancelLanding();
+        this.landed.clear();
+    }
+
+    /**
+     * A window has landed: its readers hear with every other window landing before the next frame (#1398, CL9), so a
+     * burst of windows — a fling coming to rest, the windows either side read ahead — is applied to each reader once a
+     * frame, never once a window.
+     *
+     * @param keys - The window's channel, and its total's when it moved
+     */
+    private notifyLanded(keys: readonly string[]): void {
+        for (const key of keys) this.landed.add(key);
+        if (this.landing !== undefined) return;
+        const cancel = this.scheduleLanding(() => this.flushLanded());
+        if (cancel === undefined) this.flushLanded();
+        else this.landing = cancel;
+    }
+
+    /**
+     * Apply the windows landed in frames of this, in place of the page's next frame (#1398, CL9): a DOM test's, whose
+     * page draws no frame its test waits on. `undefined` gives the page's frames back.
+     *
+     * @param frame - What asks for the frame, or `undefined`
+     */
+    setLandingFrame(frame: PagedLandingFrame | undefined): void {
+        this.landingFrame = frame;
+    }
+
+    /**
+     * What applies the windows landed (#1398, CL9): the next animation frame — or, where the page draws none, hidden
+     * say, a timer standing in for it, a few frames late — or the frame set in its place ({@link setLandingFrame}). A
+     * runtime with no frames to draw at all applies them at once. A spec drives frames of its own.
+     *
+     * @param apply - Applies the windows landed
+     * @returns What cancels it; `undefined` to apply them at once
+     */
+    protected scheduleLanding(apply: () => void): (() => void) | undefined {
+        if (this.landingFrame !== undefined) return this.landingFrame(apply);
+        if (typeof requestAnimationFrame !== "function") return undefined;
+        const frame = requestAnimationFrame(apply);
+        const timer = setTimeout(apply, LANDING_WAIT_MS);
+        return () => {
+            if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+            clearTimeout(timer);
+        };
+    }
+
+    /** No frame or timer waits to apply the windows landed. */
+    private cancelLanding(): void {
+        const cancel = this.landing;
+        if (cancel === undefined) return;
+        this.landing = undefined;
+        cancel();
+    }
+
+    /**
+     * Apply the windows landed since the frame began to their readers now (#1398, CL9): every channel's version moves,
+     * then each reader hears once, however many of the windows it reads — what the frame does as it comes.
+     */
+    private flushLanded(): void {
+        this.cancelLanding();
+        if (this.landed.size === 0) return;
+        const keys = [...this.landed];
+        this.landed.clear();
+        this.notifyAll(keys);
     }
 
     private resolveWorkspace(): string {
@@ -1485,7 +1577,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 return;
             }
             const count = elementCount(sourceType, decoded);
-            const landed = this.settle(key, seq, (e) => {
+            const landed = this.apply(key, seq, (e) => {
                 e.status = "loaded";
                 e.window = decoded;
                 e.total = page.totalElements;
@@ -1499,11 +1591,13 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             // the total's channel so a reader watching `total()` re-fires.
             const totalKey = pagedTotalKey(workspace, path, revision, selector);
             const totalEntry = this.channel(snapshot, totalKey);
-            if (totalEntry.total !== page.totalElements) {
+            const totalMoved = totalEntry.total !== page.totalElements;
+            if (totalMoved) {
                 totalEntry.total = page.totalElements;
                 totalEntry.status = "loaded";
-                this.notify(totalKey);
             }
+            // Its readers hear with the burst it lands in, once a frame (CL9).
+            this.notifyLanded(totalMoved ? [key, totalKey] : [key]);
         })();
         return entry;
     }
@@ -2597,6 +2691,17 @@ export const defaultPagedRuntime = new PagedRuntime();
  */
 export function pagedSourceOf(id: string): PagedSource | undefined {
     return defaultPagedRuntime.sourceOf(id);
+}
+
+/**
+ * Apply the windows the default runtime lands in frames of this, in place of
+ * the page's next frame (#1398, CL9): a DOM test's, whose page draws no frame
+ * its test waits on. `undefined` gives the page's frames back.
+ *
+ * @param frame - What asks for the frame, or `undefined`
+ */
+export function setPagedLandingFrame(frame: PagedLandingFrame | undefined): void {
+    defaultPagedRuntime.setLandingFrame(frame);
 }
 
 /** Install the paging API adapter + workspace — called by the React provider
