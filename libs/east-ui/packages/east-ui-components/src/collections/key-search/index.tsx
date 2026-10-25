@@ -23,7 +23,10 @@
  * exact jump; the placeholder and the parse hint spell out the field names
  * and types. Other key types parse the input as an `.east` literal (an
  * unparsable input shows the expected type inline and sends nothing).
- * The popup lists the head of the match range; committing an item — or
+ * The popup lists the head of the match range, read once its count stands:
+ * the count shows and Enter jumps as soon as the query is found, while the
+ * popup says `Searching…` until its lines land, or why they could not be
+ * read (#1398, CL10) — never `No matches` over a range found. Committing an item — or
  * pressing Enter when the popup has no highlighted option — jumps the
  * host tree and shows the match in the box, next/prev step through the
  * remembered range ("k of n"), each showing the match it lands on, and
@@ -50,7 +53,7 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Box, chakra, useSlotRecipe } from '@chakra-ui/react';
+import { Box, chakra } from '@chakra-ui/react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faChevronDown, faChevronUp, faXmark } from '@fortawesome/free-solid-svg-icons';
 import { StringType, equalFor, none, some, variant, type EastTypeValue } from '@elaraai/east';
@@ -64,6 +67,7 @@ import {
 } from '@elaraai/east-ui/internal';
 import { EastChakraCombobox } from '../../forms/combobox/index.js';
 import { useFormatters } from '../../format/index.js';
+import { useSlotStyles } from '../../theme/slot-styles.js';
 
 export { parseKeyInput, keyRangePredicates };
 export type { DatasetKeyMatchRange, DatasetKeyQuery, ParsedKeyInput };
@@ -140,14 +144,18 @@ export interface DatasetKeySearchProps {
  *   clear affordance
  */
 export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind, onListRange, onJump, onClear, onInputChange, requery, label, browseQuery, noMatchesText }: DatasetKeySearchProps) {
-    const recipe = useSlotRecipe({ key: 'combobox' });
-    const styles = recipe({ size: 'xs' });
+    // The combobox's recipe made once for the theme (#1398, CL9): the box is drawn again with its builder's toolbar.
+    const styles = useSlotStyles('combobox', { size: 'xs' });
     /** Whether the box holds text: typed, or the match a pick or a step shows. */
     const [typed, setTyped] = useState(false);
     const [open, setOpen] = useState(false);
+    /** The query is on its way: its count is not known. */
     const [loading, setLoading] = useState(false);
     const [range, setRange] = useState<DatasetKeyMatchRange | null>(null);
     const [items, setItems] = useState<ListedRow[]>([]);
+    /** The lines of a found range are on their way, or why they could not be read: the count stands meanwhile. */
+    const [listing, setListing] = useState(false);
+    const [listFailure, setListFailure] = useState<string | null>(null);
     /** What was typed: what the box shows again when a match it showed no longer stands (#1199). */
     const typedRef = useRef('');
     /** The match the box shows, as its combobox takes it; `undefined` while it shows what was typed. */
@@ -195,10 +203,13 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         queryRef.current = query;
         setLoading(true);
         setItems([]);
+        setListing(false);
+        setListFailure(null);
         void (async () => {
+            let result: DatasetKeyMatchRange;
             try {
                 // A query asked again says so; a new one is asked as it always was.
-                const result = await (again ? onFind(query, true) : onFind(query));
+                result = await (again ? onFind(query, true) : onFind(query));
                 if (seq !== findSeqRef.current) return; // superseded by newer input
                 setRange(result);
                 // A match the box shows stands while the new snapshot holds it at its place in the range; a pick, a
@@ -209,20 +220,28 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
                 const moved = standing !== undefined && standing.seq !== shownSeqRef.current;
                 setActiveIdx(stands && !moved ? standing.index : -1);
                 if (standing !== undefined && !stands && !moved) showTyped();
-                if (result.found) {
-                    const labels = await onListRange(result.row, Math.min(POPUP_LIMIT, result.count));
-                    if (seq !== findSeqRef.current) return;
-                    setItems(labels.map((label, i) => listedRow(label, result.row + i)));
-                } else {
-                    setItems([]);
-                }
             } catch (error) {
                 if (seq !== findSeqRef.current) return;
                 setRange(null);
                 setItems([]);
                 setHint(error instanceof Error ? error.message : 'Search failed');
+                setLoading(false);
+                return;
+            }
+            // Found, the count stands and Enter jumps; the lines follow, read through the host — a far match's from its
+            // rows' window — and a listing still on its way, or one that failed, never holds either (#1398, CL10).
+            setLoading(false);
+            if (!result.found) return;
+            setListing(true);
+            try {
+                const labels = await onListRange(result.row, Math.min(POPUP_LIMIT, result.count));
+                if (seq !== findSeqRef.current) return;
+                setItems(labels.map((label, i) => listedRow(label, result.row + i)));
+            } catch (error) {
+                if (seq !== findSeqRef.current) return;
+                setListFailure(error instanceof Error ? error.message : 'The matches could not be listed');
             } finally {
-                if (seq === findSeqRef.current) setLoading(false);
+                if (seq === findSeqRef.current) setListing(false);
             }
         })();
     }, [onFind, onListRange, holdsAt, showTyped]);
@@ -236,6 +255,8 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         setActiveIdx(-1);
         setHint(null);
         setLoading(false);
+        setListing(false);
+        setListFailure(null);
     }, []);
 
     // The source moved to another snapshot (#1199): the query the box holds is
@@ -266,6 +287,8 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         setItems([]);
         setActiveIdx(-1);
         setLoading(false);
+        setListing(false);
+        setListFailure(null);
         if (text === '') {
             resetQueryState();
             onClear?.();
@@ -409,7 +432,8 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         <Box css={[styles.search, { '--key-search-width': `${placeholder.length + (status === null ? 10 : 26)}ch` }]}
             onKeyDownCapture={onKeyDownCapture} data-part="dataset-key-search">
             <EastChakraCombobox key={resetSeq} value={payload} selectionBehavior="preserve" filterItems={false} openOnClick={browseQuery !== undefined} text={shown}
-                indicators={indicators} emptyText={loading ? 'Searching…' : hint ?? (range === null ? 'Type to search' : noMatchesText ?? (keyType.type === 'String'
+                // Its lines on their way, the popup says so — never `No matches` over a range found (#1398, CL13).
+                indicators={indicators} emptyText={loading || listing ? 'Searching…' : listFailure ?? hint ?? (range === null ? 'Type to search' : noMatchesText ?? (keyType.type === 'String'
                     ? 'No matches. Keys are case-sensitive.' : 'No matches'))} />
         </Box>
     );
