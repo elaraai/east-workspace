@@ -2,6 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
+import { useMemo } from "react";
 import { SortedMap, none, some, variant } from "@elaraai/east";
 import { dropEvent, useDragTarget, type CellCoord, type DragEventValue, type DragPayload } from "@elaraai/east-ui-components";
 import { rosterLibraryId } from "./library.js";
@@ -15,12 +16,29 @@ import type { RosterCommands, RosterSource } from "./actions.js";
 export function rosterCoord(surface: string, slot: Slot, event?: string): CellCoord {
     return { surface, row: slot.group, slot: slotKey(slot), ...(event === undefined ? {} : { event }) };
 }
-/** One adapter from the shared drag grammar to the same commands as explicit actions. */
+/**
+ * One adapter from the shared drag grammar to the same commands as explicit actions. It is the same object while the
+ * week, its commands and the configuration hold (#1398, CL9): what the grid draws with it draws again only as they
+ * change.
+ */
 export function useRosterDrag({ value, commands, week, duties, context, storageKey, narrow, start, onError }: {
     value: RosterValue; commands: RosterCommands; week: Week; duties: PlacedDuties; context: Context; storageKey: string; narrow: boolean; start: Date;
     onError: (error: string | undefined) => void;
 }) {
     const enabled = !narrow && commands.available;
+    const drag = useMemo(() => rosterDrag({ value, commands, week, duties, context, storageKey, start, enabled }), [value, commands, week, duties, context, storageKey, start, enabled]);
+    const { run } = drag;
+    const target = useMemo(() => enabled ? { id: storageKey, sources: value.library.map(tab => rosterLibraryId(storageKey, tab.type === "tab" ? `tab:${tab.value.name}` : tab.type)),
+        kinds: { add: true, move: true, resize: false, remove: false, trash: false },
+        onDrag: (event: DragEventValue) => { const error = run(event, false); onError(error); return error === undefined; },
+    } : null, [enabled, storageKey, value.library, run, onError]);
+    useDragTarget(target);
+    return drag;
+}
+/** The drag's verdicts over one week as it stands: what a drop runs, and what a hover over a destination previews. */
+function rosterDrag({ value, commands, week, duties, context, storageKey, start, enabled }: {
+    value: RosterValue; commands: RosterCommands; week: Week; duties: PlacedDuties; context: Context; storageKey: string; start: Date; enabled: boolean;
+}) {
     const run = (event: DragEventValue, checkOnly: boolean): string | undefined => {
         if (!enabled) return "This week is not available to edit.";
         if (event.type === "resize" || event.type === "remove") return "Move a duty onto a shift.";
@@ -39,14 +57,10 @@ export function useRosterDrag({ value, commands, week, duties, context, storageK
         const card = tab?.type === "tab" && tab.value.drop.type === "some" ? tab.value.cards.find(card => card.key === from.key) : undefined;
         return card !== undefined && card.sets.length > 0 ? commands.sets(into.event.value, card.sets, checkOnly) : "This card has no duty action.";
     };
-    useDragTarget(enabled ? { id: storageKey, sources: value.library.map(tab => rosterLibraryId(storageKey, tab.type === "tab" ? `tab:${tab.value.name}` : tab.type)),
-        kinds: { add: true, move: true, resize: false, remove: false, trash: false },
-        onDrag: event => { const error = run(event, false); onError(error); return error === undefined; },
-    } : null);
     type Preview = { label: string; tone: "info" | "warning" | "danger" };
-    // This render's week/configuration is immutable. Cache discrete destinations
+    // This week/configuration is immutable. Cache discrete destinations
     // for this drag; caption and landing share the result, including its identity.
-    // Any new data/commands render starts a fresh cache. Ended payloads can be GC'd.
+    // New data or commands start a fresh cache. Ended payloads can be GC'd.
     const previews = new WeakMap<DragPayload, Map<string, Map<string | undefined, { allowed: boolean; result: Preview }>>>();
     const domain = rosterDomain(value.duty.rowType);
     const times = rosterTimes();

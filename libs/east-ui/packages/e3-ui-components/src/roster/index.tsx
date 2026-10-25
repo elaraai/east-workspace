@@ -10,8 +10,10 @@
  * grid, the cards, the library, the inspector and the toolbar draw, drafts in
  * place; the app's pay asked a person at a time; Publish saving the week, then
  * writing its status. The duties' source of the slice holds the week's window,
- * which the Roster's own navigation writes. BuilderFrame stays an internal
- * React detail.
+ * which the Roster's own navigation writes. Search Records seeks the people by
+ * their keys (`find.ts`, #1398): a pick selects the person, their People row
+ * brought into view; where the People views rest is saved, and comes back as
+ * they mount. BuilderFrame stays an internal React detail.
  *
  * @packageDocumentation
  */
@@ -32,6 +34,7 @@ import { publishChange, rosterCommands } from "./actions.js";
 import { RosterDataReader, initialRosterData, type RosterData } from "./data.js";
 import { useRosterDrag } from "./drag.js";
 import { PERIODS, TARGETS, useRosterEditing, type RosterEditing } from "./editing.js";
+import { useRosterFind, type FoundPerson } from "./find.js";
 import { sameFind, useRosterFit, type RosterFind } from "./fit.js";
 import { RosterFooter } from "./footer.js";
 import { useRosterInspector } from "./inspector.js";
@@ -42,7 +45,7 @@ import {
     type RosterPayload, type RosterStyles, type RosterValue, type Selection, type StoredDuty, type StoredTarget,
 } from "./model.js";
 import { useRosterToolbar } from "./toolbar.js";
-import { RosterViews, assignmentName } from "./views.js";
+import { RosterViews, assignmentName, personOf, type RosterAnchor } from "./views.js";
 import { useRosterWindow, type RosterWindow } from "./window.js";
 import { rosterPart, useRosterVisibility } from "./visibility.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
@@ -58,6 +61,8 @@ const NO_TARGET_DRAFTS: ReadonlyMap<string, StoredTarget | undefined> = new Map(
 const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 const NO_ISSUES: readonly Issue[] = [];
 const sameContext = equalFor(RosterContextType);
+/** No People view has rested anywhere yet. */
+const NO_ANCHOR: RosterAnchor = {};
 
 /** What the frame takes from the Roster around it: the payload as read, the week, the narrowing, and the editing. */
 interface FrameProps {
@@ -146,10 +151,16 @@ function RosterFrame(props: FrameProps) {
     const readCheck = useCallback(() => source.check.type === "some"
         ? source.check.value(domain.encodeCheckContext({ start, week, context, coverage, pay: weekPay.pay })) : [], [source.check, domain, start, week, context, coverage, weekPay]);
     const custom = useTrackedEvaluation(readCheck);
-    const allIssues: Issue[] = [...builtIn, ...draftedDuties.unplaced, ...(custom.result.ok ? custom.result.value : []), ...proposals.map(p => ({ kind: variant("proposal", null), tone: variant("info", null),
-        title: `${value.people.find(person => person.key === p.person)?.name ?? p.person} · proposed`, detail: p.reason, slot: some(p.slot), assignment: none, flag: none, fix: some(variant("accept", p.key)) }))];
+    // The week's issues, the same array while what they say holds: what the grid draws from them draws again only as
+    // they change (#1398, CL9).
+    const customIssues = custom.result.ok ? custom.result.value : NO_ISSUES;
+    const allIssues: readonly Issue[] = useMemo(() => [...builtIn, ...draftedDuties.unplaced, ...customIssues, ...proposals.map(p => ({ kind: variant("proposal", null), tone: variant("info", null),
+        title: `${personOf(value, p.person)?.name ?? p.person} · proposed`, detail: p.reason, slot: some(p.slot), assignment: none, flag: none, fix: some(variant("accept", p.key)) }))],
+        [builtIn, draftedDuties.unplaced, customIssues, proposals, value]);
     // A week not read gives no issue: a gap of a week whose duties are not read yet is no gap (#1398, CL13).
-    const issues = current ? allIssues.filter(i => window.view.layout === "people" || window.view.period === "week" || i.slot.type === "none" || Number(i.slot.value.day) === window.day) : NO_ISSUES;
+    const { layout, period: viewPeriod } = window.view;
+    const issues = useMemo(() => current ? allIssues.filter(i => layout === "people" || viewPeriod === "week" || i.slot.type === "none" || Number(i.slot.value.day) === window.day) : NO_ISSUES,
+        [current, allIssues, layout, viewPeriod, window.day]);
     // The app's fit (#1334): a Find fix asks it who fits over the complete staff, and the People tab shows its answer.
     const fit = useRosterFit(value, start, week, context, coverage, find);
     const { error: fitError, retry: retryFit, pending: finding } = fit;
@@ -170,13 +181,21 @@ function RosterFrame(props: FrameProps) {
         void publishPeriod(editing.history, () => latest.current.change(), changes => editing.schedule.record(changes, "typed", "Publish week"))
             .finally(() => { publishingNow.current = false; setPublishing(false); });
     }, [editing]);
+    // A narrowing read while the week it filters stands in keeps the week's rows, stale (#1398, CL5): their words in the
+    // third ink, their rules dashed. While the people's narrowing is read or failed, or the week stands in, its rows are
+    // retained (CL8): readable, focusable and selectable, aria-disabled, and every editing gesture — a drag, a drop, an
+    // action — off until it lands.
+    const stale = current && (visibility.loading || activities.loading);
+    const retained = stale || visibility.loading || visibility.error !== undefined;
     // Commands update the selected item without changing the user's pane/tab.
-    // Only an explicit inspection click uses `select` to reveal Details.
-    const commands = rosterCommands({
+    // Only an explicit inspection click uses `select` to reveal Details. The same commands while the week, its reads and
+    // its editing hold (#1398, CL9); while main is retained they refuse every gesture, its controls kept in place.
+    const ready = current && !publishing && !visibility.loading && visibility.error === undefined;
+    const commands = useMemo(() => rosterCommands({
         value, start, context, week, held, duties: draftedDuties, heldDuties: storedDuties, previous, targets, period, heldPeriod,
-        read: [data.duties, ...(data.previous === undefined ? [] : [data.previous])], readTargets: data.targets, editing,
-        ready: current && !publishing && !visibility.loading && visibility.error === undefined,
-    }, setSelection, findFix, publish);
+        read: [data.duties, ...(data.previous === undefined ? [] : [data.previous])], readTargets: data.targets, editing, ready, retained,
+    }, setSelection, findFix, publish), [value, start, context, week, held, draftedDuties, storedDuties, previous, targets, period, heldPeriod, data.duties, data.previous,
+        data.targets, editing, ready, retained, findFix, publish]);
     const drag = useRosterDrag({ value, commands, week, duties: draftedDuties, context, storageKey: key, narrow, start, onError: setError });
     const dutyPart = sourcePart(source.slice.type === "some" ? source.slice.value : undefined, source.duty.kind.key);
     // What the footer's loading line says (#1398, CL3): the week being read, the people's or the activities' new
@@ -196,8 +215,14 @@ function RosterFrame(props: FrameProps) {
     // whose read failed, its geometry and the failure said once in its first row in view (CL11) — never "Roster
     // unavailable" over the grid.
     const read = useMemo(() => periodRead({ current, error: data.error, name: weekWords, retry: retryWeek }), [current, data.error, weekWords, retryWeek]);
+    // Where the People views rest (#1398): saved under the Roster's key, so each comes back to it as it mounts.
+    const { state: anchor, setState: setAnchor } = usePersistedState<RosterAnchor>(`${key}.anchor`, NO_ANCHOR);
+    const onAnchor = useCallback((next: Partial<RosterAnchor>) => setAnchor(was => ({ ...was, ...next })), [setAnchor]);
     const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView,
         styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read };
+    // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view.
+    const search = useRosterFind({ people: value.people, visible: value.visiblePeople, groups: value.groups,
+        onPick: (found: FoundPerson) => select({ type: "person", key: found.person.key }) });
     const library = useRosterLibrary({ ...viewProps, storageKey: key, tab: libraryTab, onTab: setLibraryTab,
         find: find === undefined ? undefined : { need: find.need, shown: fit.shown, busy: finding }, onClearFind: () => setFind(undefined), shown: props.shown });
     const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },
@@ -207,7 +232,7 @@ function RosterFrame(props: FrameProps) {
     const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); history?.act(action); }, [history]);
     const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onAction, onPickerDates: setPickerDates,
         status: source.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,
-        onDisplay: next => props.setDisplay({ ...props.display, ...next }) });
+        onDisplay: next => props.setDisplay({ ...props.display, ...next }), search });
     const readOnly = value.settings.readOnly || (current && !editableStatus(heldPeriod.status));
     const notStarted = current && week.assignments.size === 0 && (source.periods.type === "none" || !started(period));
     const dutyName = source.duty.kind.name.toLocaleLowerCase(format.locale);
@@ -224,9 +249,6 @@ function RosterFrame(props: FrameProps) {
     const cold = (!data.landed && data.error === undefined) || (!visibility.ready && visibility.loading) || (!activities.ready && activities.loading);
     // After cold load a read in flight — the week, the people's or the activities' narrowing — leaves the frame live, main busy.
     const busy = data.loading || visibility.loading || activities.loading;
-    // A narrowing read while the week it filters stands in keeps the week's rows, stale (#1398, CL5): their words in the
-    // third ink, their rules dashed, and nothing dragged or dropped until it lands.
-    const stale = current && (visibility.loading || activities.loading);
     return <Box ref={root} css={styles.root} data-roster-frame="" data-roster-readonly={readOnly ? "" : undefined}>
         <RosterDataReader value={source} start={start} pickerDates={pickerDates} holds={holds} onData={setData} />
         <LoadingReveal waiting={line?.kind === "loading"}>
@@ -256,9 +278,10 @@ function RosterFrame(props: FrameProps) {
             {/* A gesture's error; a read's is said once, in the grid and on the footer's line (#1398, CL11). */}
             {error !== undefined && <Box css={styles.error} role="alert">{error}</Box>}
         </>} footer={<RosterFooter styles={styles} duties={dutyPart} noun={{ singular: `${dutyName} event`, plural: `${dutyName} events` }} line={line} />}>
-            <Box ref={main} css={styles.main} data-roster-main="" inert={stale || visibility.loading || visibility.error !== undefined ? true : undefined}
+            {/* A failed week's main is not retained: its Retry is in it. */}
+            <Box ref={main} css={styles.main} data-roster-main="" aria-disabled={retained && read.state !== "failed" ? true : undefined}
                 data-roster-stale={stale ? "" : undefined} data-roster-narrow={narrow ? "" : undefined}>
-                <RosterViews {...viewProps} />
+                <RosterViews {...viewProps} anchor={anchor} onAnchor={onAnchor} />
             </Box>
         </BuilderFrame>
         </LoadingReveal>

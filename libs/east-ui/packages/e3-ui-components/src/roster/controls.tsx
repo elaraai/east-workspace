@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
 import { DateTimeType, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, none, parseFor, printFor, some, type ValueTypeOf, type option } from "@elaraai/east";
 import { RosterRequirementType } from "@elaraai/e3-ui/internal";
@@ -42,14 +42,27 @@ export function SlotFields({ value, start, slot, onChange }: { value: RosterValu
         else if (key === "shift" && typeof next === "string") onChange({ ...slot, shift: next });
     }} />;
 }
-/** One anchored place action; absent source offers a staff picker. */
-export function PlaceAction({ label, source, slot: initial, value, start, commands, styles }: {
-    label: string; source?: RosterSource; slot: Slot; value: RosterValue; start: Date; commands: RosterCommands; styles: RosterStyles;
-}) {
+/** What a place action places, and where. */
+interface PlaceActionProps { label: string; source?: RosterSource; slot: Slot; value: RosterValue; start: Date; commands: RosterCommands; styles: RosterStyles }
+/**
+ * One anchored place action; absent source offers a staff picker. Until it is first pressed it is its trigger alone
+ * (#1398, CL9): every day off in the People grid holds one, and a popover mounted for each made each row coming into
+ * view slow to draw. Pressed, its popover mounts and opens.
+ */
+export function PlaceAction(props: PlaceActionProps) {
+    const [armed, setArmed] = useState(false);
+    if (!props.commands.available) return null;
+    if (!armed) return <Button size="xs" variant="outline" data-roster-action={props.label.toLowerCase()} onClick={() => setArmed(true)}>{props.label}</Button>;
+    return <PlacePopover {...props} />;
+}
+/** A place action's popover, mounted by its first press: it opens as it mounts, as a press of its own trigger opens it. */
+function PlacePopover({ label, source, slot: initial, value, start, commands, styles }: PlaceActionProps) {
     const [open, setOpen] = useState(false);
     const [slot, setSlot] = useState(initial);
     const [person, setPerson] = useState<ValueTypeOf<typeof PersonForm>>({ person: none });
     const [error, setError] = useState<string>();
+    // Opened once its trigger is in place, so the popover hangs from it and takes the focus as any opening does.
+    useLayoutEffect(() => { setOpen(true); }, []);
     if (!commands.available) return null;
     return <SliceEditPopover open={open} onOpenChange={next => { setOpen(next); if (next) { setSlot(initial); setError(undefined); } }} label={label}
         trigger={<Button size="xs" variant="outline" data-roster-action={label.toLowerCase()}>{label}</Button>}

@@ -69,6 +69,11 @@ export interface RosterState {
     readonly editing: RosterEditing | undefined;
     /** Whether the week's reads have landed and the rail is not mid-read: a gesture waits for them. */
     readonly ready: boolean;
+    /**
+     * Whether what main shows is retained while a narrowing of it is read (#1398, CL8): readable, focusable and
+     * selectable, its controls in place, and every gesture refused until it lands.
+     */
+    readonly retained?: boolean | undefined;
 }
 
 /** All mutation paths use these guarded commands, each one step of the history. */
@@ -113,7 +118,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
     const weekId = weekKey(start);
     const available = editing !== undefined && schedule !== undefined && state.ready && !value.settings.readOnly && editableStatus(state.heldPeriod.status)
         && editableStatus(week.status) && schedule.available(duty);
-    const blocked = () => available ? undefined : "This week is not available to edit.";
+    const blocked = () => !available ? "This week is not available to edit." : state.retained === true ? "This week is still being read." : undefined;
     const validSlot = (slot: Slot) => slot.day >= 0n && slot.day < 7n && value.groups.some(g => g.key === slot.group) && value.shifts.some(s => s.key === slot.shift);
     // Every duty's key the Roster holds: read, drafted, minted by this gesture, or the record's own when it is read whole.
     const takenDuty = (minted: ReadonlySet<string>) => (key: string) => minted.has(key) || state.read.some(read => read.has(key))
