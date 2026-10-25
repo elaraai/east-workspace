@@ -110,6 +110,8 @@ export interface PlanBodyRowProps {
     draft: PlanDraftMark | undefined;
     /** The row is the last visible member of an open group (#949). */
     groupEnd: boolean;
+    /** Its events are unread (#1398, CL2): its cells have not landed, or are read again — its plot washed under what it holds. */
+    unread: boolean;
     /** Focal-row extras (only ever passed to the focal row). */
     expandBody?: ReactNode;
     expandGutter?: ReactNode;
@@ -169,7 +171,7 @@ function sameBodyRow(a: PlanBodyRowProps, b: PlanBodyRowProps): boolean {
 export const PlanBodyRow = memo(function PlanBodyRow({
     v, h, styles, gridTemplate, hasChildren, derived,
     dispatch, focusRole, focusTag, axisMode,
-    showLinksControl, showExpandControl, partial, rowDrop, draft, groupEnd,
+    showLinksControl, showExpandControl, partial, rowDrop, draft, groupEnd, unread,
     expandBody, expandGutter, bandHeight,
 }: PlanBodyRowProps) {
     bodyRowRenderProbe?.(v.row.key);
@@ -264,6 +266,7 @@ export const PlanBodyRow = memo(function PlanBodyRow({
         draft,
         grid,
         groupEnd,
+        unread,
     } as const;
     // The per-kind SHELL differences — caret, toggle, emphasis, the chart's
     // gutter ticks. The plot content itself is one switch shared with the

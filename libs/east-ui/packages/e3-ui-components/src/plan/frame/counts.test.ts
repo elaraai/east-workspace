@@ -140,7 +140,7 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
             reads: new SortedMap([["job", cellsOfJobs]], compareFor(StringType)),
             shading: new SortedMap([], compareFor(StringType)),
             drafts: new SortedMap([], compareFor(StringType)),
-            held: new Map(), notices: [], reading: false,
+            held: new Map(), notices: [], reading: false, drawn: undefined,
         } as PlanCellsRead;
         // Its source counts 42 events in the window: the cells around the rows in view hold two of them.
         let counted: ReturnType<PlanEventPart["part"]["count"]> = some(42n);

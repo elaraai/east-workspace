@@ -29,6 +29,11 @@ export interface PlanTransport {
     partial: boolean;
     /** What the footer's loading line says (#1398, CL3); `undefined` while nothing is in flight or failed. */
     loading: PagedLoading | undefined;
+    /**
+     * What the line names what it reads by, when not the rows': an event kind's events, while the cells of the rows in
+     * view are read (#1398, CL2) — `print job events`; `undefined`, what the rail counts the rows in.
+     */
+    noun?: string | undefined;
     /** Asks again what failed: each failed window, or the source when it is the source that failed. */
     retry: () => void;
 }
