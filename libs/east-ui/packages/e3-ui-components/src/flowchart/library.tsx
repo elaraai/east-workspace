@@ -30,8 +30,10 @@
  *   flowchart's `Slice.bindRecords` it names, and an author's tab the source
  *   it names, by its cards' keys — the shared `sourceTab`: the tab shows the
  *   cards its source shows, counts them (`2 of 5`), says so when the rail
- *   leaves it none, with Clear filters for that source alone, and takes no
- *   gesture while its source resolves. A tab that names none lists its rows
+ *   leaves it none, with Clear filters for that source alone, and while its
+ *   source resolves holds its cards retained (#1398, CL8): readable and
+ *   selectable, aria-disabled, taking no drag, ⏎ or tap that drops. A tab
+ *   that names none lists its rows
  *   whole. The Flows tab's count is the frame's: what the rail narrows the
  *   record to (`flows.tsx`).
  *
@@ -248,9 +250,11 @@ export function useFlowchartLibrary({ library, flows, keys, words, enter, follow
         if (tab.type === "flows") return [];
         const tabKey = flowchartTabKey(tab);
         const { drags, icon } = cardsOf(tab);
-        const cards = follows.get(tabKey)?.cards ?? cardsOf(tab).cards;
+        const follow = follows.get(tabKey);
+        const cards = follow?.cards ?? cardsOf(tab).cards;
         const chosen = picked.get(tabKey);
-        const onEnter = enters.get(tabKey);
+        // A tab its source reads again holds its cards retained (#1398, CL8): a tap selects, and drops nothing.
+        const onEnter = follow?.pane["aria-disabled"] === true ? undefined : enters.get(tabKey);
         return [[tabKey, {
             id: flowchartLibraryId(keys, tabKey),
             hint: none,

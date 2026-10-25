@@ -8,10 +8,11 @@
  * real in-page e3, in both themes: the Roster, the Calendar and the
  * Allocation each keep the period they show while a rail choice's read is
  * held through the showcase's e3 fault hook (`e3-faults.ts`). Main is marked
- * retained and takes no gesture while the toolbar stays live; the retained
- * cells' rules are dashed in the strong rule and the retained items' words
- * are in the third ink (the shared `retainedRow` and `retainedColumn`); and
- * once the read lands every rule is drawn solid again.
+ * retained (CL8) — `aria-disabled`, never inert, its items readable and
+ * focusable — while the toolbar stays live; the retained cells' rules are
+ * dashed in the strong rule and the retained items' words are in the third
+ * ink (the shared `retainedRow` and `retainedColumn`); and once the read lands
+ * every rule is drawn solid again.
  */
 
 import { expect, test, type Locator, type Page } from "playwright/test";
@@ -63,7 +64,10 @@ const BUILDERS: readonly Retaining[] = [
     },
 ];
 
-/** How the retained parts draw: each rule's style and colour, the items' words' colour, and whether main and the toolbar take gestures. */
+/**
+ * How the retained parts draw: each rule's style and colour, the items' words' colour, whether main is aria-disabled or
+ * inert, and whether the toolbar takes gestures.
+ */
 function drawn(frame: Locator, builder: Retaining) {
     return frame.evaluate((root, { main: own, rules, words }) => {
         const main = root.querySelector<HTMLElement>(own)!;
@@ -73,8 +77,20 @@ function drawn(frame: Locator, builder: Retaining) {
             return { style: s.getPropertyValue(`border-${side.toLowerCase()}-style`), color: s.getPropertyValue(`border-${side.toLowerCase()}-color`) };
         }));
         const items = [...root.querySelectorAll<HTMLElement>(words)].slice(0, 6).map((item) => getComputedStyle(item).color);
-        return { sides, items, inert: main.closest("[inert]") !== null, toolbar: toolbar.closest("[inert]") === null };
+        return {
+            sides, items, disabled: main.getAttribute("aria-disabled") === "true", inert: main.closest("[inert]") !== null,
+            toolbar: toolbar.closest("[inert]") === null,
+        };
     }, { main: builder.main, rules: builder.rules, words: builder.words });
+}
+
+/** Whether the first retained item takes the focus: retained content stays focusable (CL8), as inert content never is. */
+function focusable(frame: Locator, builder: Retaining) {
+    return frame.evaluate((root, words) => {
+        const item = root.querySelector<HTMLElement>(words);
+        item?.focus({ preventScroll: true });
+        return item !== null && item.ownerDocument.activeElement === item;
+    }, builder.words);
 }
 
 /** Chooses the builder's narrowing through its rail, the read already held. */
@@ -91,7 +107,7 @@ async function narrow(page: Page, frame: Locator, builder: Retaining): Promise<n
 
 for (const theme of ["light", "dark"] as const) {
     for (const builder of BUILDERS) {
-        test(`${builder.name}: while a narrowing is read the period stands in, retained — its rules dashed in the strong rule, its items' words in the third ink, main taking no gesture and the toolbar live — then drawn as before (#1398, CL5) (${theme}) @desktop`, async ({ page }) => {
+        test(`${builder.name}: while a narrowing is read the period stands in, retained — its rules dashed in the strong rule, its items' words in the third ink, main aria-disabled and never inert, its items focusable, the toolbar live — then drawn as before (#1398, CL5, CL8) (${theme}) @desktop`, async ({ page }) => {
             test.setTimeout(240_000);
             await installE3Faults(page);
             await page.setViewportSize({ width: 2560, height: 1200 });
@@ -117,7 +133,8 @@ for (const theme of ["light", "dark"] as const) {
             expect(kept.sides.every((side) => side.style === "dashed" && side.color === strong), JSON.stringify(kept.sides)).toBe(true);
             expect(kept.items.length).toBe(before.items.length);
             expect(kept.items.every((color) => color === muted), JSON.stringify(kept.items)).toBe(true);
-            expect([kept.inert, kept.toolbar]).toEqual([true, true]);
+            expect([kept.disabled, kept.inert, kept.toolbar]).toEqual([true, false, true]);
+            expect(await focusable(frame, builder), "a retained item takes the focus").toBe(true);
 
             await releaseE3(page, held);
             await expect(frame.locator(`[${builder.stale}]`)).toHaveCount(0, { timeout: 30_000 });
@@ -125,7 +142,7 @@ for (const theme of ["light", "dark"] as const) {
             const after = await drawn(frame, builder);
             expect(after.sides.length).toBeGreaterThan(0);
             expect(after.sides.every((side) => side.style === "solid" && side.color === subtle), JSON.stringify(after.sides)).toBe(true);
-            expect([after.inert, after.toolbar]).toEqual([false, true]);
+            expect([after.disabled, after.inert, after.toolbar]).toEqual([false, false, true]);
         });
     }
 }

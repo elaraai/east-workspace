@@ -51,8 +51,8 @@ describe("a source's tab (#1341)", () => {
         expect([t.count, t.narrowing, t.empty]).toEqual(["1 of 3", undefined, { title: "No trees" }]);
     });
 
-    test("a source resolving, or whose read failed: its pane busy and taking no gesture", () => {
-        expect(tab(shown({ keys: keys("a"), busy: true })).pane).toEqual({ "aria-busy": true, inert: true });
+    test("a source resolving, or whose read failed: its pane busy and its cards retained (#1398, CL8) — aria-disabled, never inert", () => {
+        expect(tab(shown({ keys: keys("a"), busy: true })).pane).toEqual({ "aria-busy": true, "aria-disabled": true });
     });
 });
 
@@ -93,7 +93,7 @@ describe("a tab over several sources (#1345)", () => {
     test("until every narrowing source resolves an empty tab says nothing of its own; a source resolving makes the pane busy", () => {
         const t = several(shown({ keys: keys("a"), ready: false, clear: () => {} }), shown({ keys: keys("x"), clear: () => {} }));
         expect([t.empty, t.narrowing?.emptied]).toEqual([undefined, false]);
-        expect(several(shown({ busy: true }), shown({})).pane).toEqual({ "aria-busy": true, inert: true });
+        expect(several(shown({ busy: true }), shown({})).pane).toEqual({ "aria-busy": true, "aria-disabled": true });
         expect(several(shown({}), shown({})).pane).toEqual({});
     });
 });
