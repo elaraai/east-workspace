@@ -185,6 +185,16 @@ export class EditHistory<W> {
         const step = this.steps[this.cursor];
         return step !== undefined && step.every((key) => this.sessions.get(key)?.canRedo === true);
     }
+    /**
+     * The origin of the step Redo would replay next (#1409): one gesture's,
+     * the same in each of its sessions — what a host that lands a step again
+     * by its origin reads. `undefined` with nothing to replay.
+     */
+    get redoOrigin(): Origin | undefined {
+        const step = this.steps[this.cursor];
+        const first = step?.[0];
+        return first === undefined ? undefined : this.sessions.get(first)?.nextRedo?.origin;
+    }
     /** Discard is available: no session's request is unresolved. */
     get canDiscard(): boolean { return this.all.every((session) => session.canDiscard); }
     /** Save is available: every session's drafts pass their checks, and one has a change it can send. */

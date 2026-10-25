@@ -20,11 +20,14 @@ export const SheetSeedType = StructType({ draft: BlobType, row: BlobType });
 /**
  * One sheet's editing declaration: the shared session's fields
  * (`EditingSessionFields`, #879) and the sheet's own — its structural edits,
- * its row and group constructors, its readiness checks, its driver column and
- * the draft decoder. Blobs transport values at the exact schemas named; no
- * hidden domain field is discarded. `readyRow` takes one readiness batch
- * (`SheetReadyBatchType`, #882) and returns each check's result in the
- * batch's order.
+ * its row and group constructors, its readiness checks, its driver column,
+ * the draft decoder and the row projection. Blobs transport values at the
+ * exact schemas named; no hidden domain field is discarded. `readyRow` takes
+ * one readiness batch (`SheetReadyBatchType`, #882) and returns each check's
+ * result in the batch's order. `project` (#1409) takes an entry as
+ * `entryType` bytes and its id, and answers the wire row the source would
+ * show for it (`Sheet.Types.Row` bytes): what a row the optimiser answers
+ * lands in the session as.
  *
  * @internal
  */
@@ -37,4 +40,5 @@ export const SheetEditingType = StructType({
     readyGroup: OptionType(FunctionType([BlobType], SheetReadinessType)),
     driverColumn: OptionType(StringType),
     decode: FunctionType([BlobType, OptionType(BlobType), OptionType(BlobType)], BlobType),
+    project: FunctionType([BlobType, StringType], BlobType),
 });

@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -91,6 +92,26 @@ export default defineConfig(({ command }) => {
                 find: /^@elaraai\/east-ui$/,
                 replacement: path.resolve(__dirname, '../east-ui/src/index.ts'),
               },
+              /* The IR's internal entry must resolve to source with the bare
+               * one: e3-ui reads `Fields`' hints through the bare entry and
+               * checks them through `fieldSpecs` of `/internal`, and a split
+               * — source for one, `dist/` for the other — brands a hint with
+               * one copy's symbol and checks it with the other's ("its hint
+               * is one of Fields' hints"). */
+              {
+                find: /^@elaraai\/east-ui\/internal$/,
+                replacement: path.resolve(__dirname, '../east-ui/src/internal.ts'),
+              },
+              /* The JSX runtimes the examples' pragmas import, to source with
+               * the rest: `dist/`'s would be a third copy of the IR. */
+              {
+                find: /^@elaraai\/east-ui\/jsx(-dev)?-runtime$/,
+                replacement: path.resolve(__dirname, '../east-ui/src/runtime/runtime.ts'),
+              },
+              {
+                find: /^@elaraai\/e3-ui\/jsx(-dev)?-runtime$/,
+                replacement: path.resolve(__dirname, '../e3-ui/src/runtime/runtime.ts'),
+              },
               {
                 find: /^@elaraai\/e3-ui-components$/,
                 replacement: path.resolve(__dirname, '../e3-ui-components/src/index.ts'),
@@ -158,6 +179,14 @@ export default defineConfig(({ command }) => {
     server: {
       port: 3000,
       host: true,
+      /* Served over TLS when a certificate is given (`SHOWCASE_HTTPS_CERT` and
+       * `SHOWCASE_HTTPS_KEY`, PEM files): a browser on another machine treats
+       * only `localhost` as a secure context, and the e3 the page runs needs
+       * one — its workers, its storage and `crypto.subtle`. A self-signed
+       * certificate the browser is told to accept is enough. */
+      ...(process.env.SHOWCASE_HTTPS_CERT !== undefined && process.env.SHOWCASE_HTTPS_KEY !== undefined
+        ? { https: { cert: fs.readFileSync(process.env.SHOWCASE_HTTPS_CERT), key: fs.readFileSync(process.env.SHOWCASE_HTTPS_KEY) } }
+        : {}),
       /* pnpm hoists fontsource woff2 payloads to the workspace-root
        * `node_modules/.pnpm/...` tree, which sits above the package root.
        * Vite's fs.allow check rejects that path by default — extend to the

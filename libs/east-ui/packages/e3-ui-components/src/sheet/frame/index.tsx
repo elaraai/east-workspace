@@ -75,7 +75,9 @@ import { FollowSources, type FollowedSources } from "../../shared/schedule/follo
 import { sourcePart, type KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import type { SheetDropCard, SheetDropHost, SheetDropTemplate } from "../drop.js";
 import { SheetFooter } from "../Footer.js";
-import { SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetHistory, useSheetLoading, useSheetToolbarItems, useSheetToolbarRef, type SheetHost } from "../index.js";
+import {
+    SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetHistory, useSheetLoading, useSheetOptimise, useSheetToolbarItems, useSheetToolbarRef, type SheetHost,
+} from "../index.js";
 import { todayUtc } from "../parse/date.js";
 import { issueText, useSheetWords, type SheetWords } from "../words.js";
 import { useSheetInspector, type SheetLastCommit } from "./inspector.js";
@@ -191,8 +193,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // What the rail counts each source the library follows in (#1345).
     const words = useSheetWords();
     const nouns = useMemo(() => followedNouns(value, words), [value, words]);
-    // What the frame hands the parts: the columns the viewer hid, the drops the sheet takes, and the sources' nouns.
-    const host = useMemo((): SheetHost => ({ hidden, drop, nouns }), [hidden, drop, nouns]);
+    // The app's optimiser (#1409): its binding, which the Elara eye calls by name.
+    const optimise = value.optimise.type === "some" ? value.optimise.value.name : undefined;
+    // What the frame hands the parts: the columns the viewer hid, the drops the sheet takes, the sources' nouns, and the optimiser.
+    const host = useMemo((): SheetHost => ({ hidden, drop, nouns, optimise: optimise === undefined ? undefined : { name: optimise } }), [hidden, drop, nouns, optimise]);
     return (
         <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
             <SheetFrame value={value} keys={keys} hidden={hidden} onToggleColumn={onToggleColumn} nouns={nouns} />
@@ -242,6 +246,7 @@ function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: Sheet
     const footer = useSheetFooter();
     const loading = useSheetLoading();
     const { session, onAction } = useSheetHistory();
+    const optimise = useSheetOptimise();
     const lastCommit = useLastCommit(value.history, words);
     const saved = lastCommit === undefined ? undefined : m.savedAt({ when: lastCommit.when });
     const library = useSheetLibrary({ value, keys, hidden, onToggleColumn, words, followed });
@@ -267,6 +272,7 @@ function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: Sheet
     const failed = [...followed.values()].filter((source) => source.error !== undefined);
     const banners = (
         <>
+            {optimise.banner}
             <SessionBanners session={session} words={words} onAction={onAction} where={where} issueText={readIssue} />
             {failed.map((source) => (
                 <Box key={source.name} data-sheet-banner="source">
@@ -284,9 +290,15 @@ function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: Sheet
     // The sheet's one reveal clock (#1398, CL4): the footer's line and the runs' placeholders show once a read the view
     // waits for has passed the delay, and are held once shown — a flip renders them, never the frame.
     const waiting = footer.loading !== undefined && footer.loading.kind !== "failed";
+    // The run's landing (#1409) is measured and drawn over the whole frame — the cells and the counts alike — on the
+    // frame's own root: the sheet has no root of its own around its frame, and a wrapper there would be the box a host
+    // sizes and measures the sheet through.
     return (
         <LoadingReveal waiting={waiting}>
             <BuilderFrame
+                ref={optimise.landing.ref}
+                rootCss={optimise.landing.css}
+                rootProps={optimise.landing.attributes}
                 storageKey={keys.frame}
                 toolbar={toolbar}
                 toolbarRef={toolbarRef}

@@ -167,7 +167,7 @@ export {
 // `Sheet.field`, `Sheet.apply`, `Sheet.Types`), and its props.
 export {
     Sheet, type SheetNamespace, type SheetOptions, type SheetCommon, type SheetTemplates, type SheetTemplatesConfig, type SheetTemplatesProp,
-    type SheetLibraryTab, type SheetLibraryTabConfig,
+    type SheetLibraryTab, type SheetLibraryTabConfig, type SheetOptimiseRequestType, type SheetOptimiseResultType,
 } from './sheet/index.js';
 
 // The Flowchart (#1243–#1250): the state-transition flowchart a solution
@@ -222,6 +222,13 @@ export {
     type SchedulePeriods, type SchedulePeriodsConfig, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceKind,
     type ScheduleResourcesConfig, type ScheduleTemplate,
 } from './schedule/index.js';
+// The optimiser's request and answer over a Calendar's or a Plan's event kinds (#1409): the types `Calendar.Types` and
+// `Plan.Types` build them with, for an app that names them in its own code.
+export {
+    type ScheduleOptimiseRecordsOf, type ScheduleOptimiseRequestType, type ScheduleOptimiseResultType, type ScheduleOptimiseRows,
+} from './schedule/optimise.js';
+// The handle a Calendar's, a Plan's or a Sheet's `optimise` takes (#1409): any `Func.bind` handle, checked at build.
+export { type OptimiseHandle } from './utils/optimise.js';
 
 // e3 `<Diff>` tag + its types
 export { Diff } from './runtime/diff.js';

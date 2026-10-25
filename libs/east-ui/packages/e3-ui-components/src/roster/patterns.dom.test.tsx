@@ -65,7 +65,8 @@ describe("the Patterns tab (#1406, D3, P20, P23)", () => {
         expect(first.textContent).toContain("5 shifts · 40 h");
         expect(first.querySelector("[data-roster-pattern-strip]")!.children).toHaveLength(7);
         expect([...first.querySelector("[data-roster-pattern-strip]")!.children].map(mark => mark.textContent)).toEqual(["E", "E", "E", "E", "E", "", ""]);
-        expect(pane.querySelector("[data-roster-pattern-days]")!.textContent).toBe("SMTWTFS");
+        // No row of day initials over the cards (ruled 26 Oct 2026): a strip reads Sunday to Saturday as the card's name does.
+        expect(pane.querySelector("[data-roster-pattern-days]")).toBeNull();
         expect(cards().at(-1)!.textContent).toContain("Off");
         expect(cards().at(-1)!.textContent).toContain("0 shifts · 0 h");
         expect(pane.textContent).toContain("Drag one onto a person's week. It replaces all seven days.");
@@ -187,6 +188,20 @@ describe("the People month (#1406, D2, D10, P12–P16, P2)", () => {
         expect(columns()[0]!.getAttribute("data-roster-week-column")).toBe(weekKey(MARCH.weeks[4]!));
         await step(c, "[");
         expect(columns()).toHaveLength(5);
+    });
+    test("Month → Week returns to the week Month was opened from while the month holds it; a month stepped to opens on its first week (P3)", async () => {
+        const { container: c } = await h.mount(ex.rosterPeople);
+        const header = () => slot(c, "main").querySelector("[data-roster-column-header]")!.textContent;
+        expect(header()).toMatch(/^Sun\s*5$/);
+        await press(toolbar(c).getByRole("radio", { name: "Month" }));
+        expect(slot(c, "main").querySelector('[data-roster-grid="people-month"]')).not.toBeNull();
+        await press(toolbar(c).getByRole("radio", { name: "Week" }));
+        expect(header()).toMatch(/^Sun\s*5$/);
+        // Stepped to April, Week opens April's first week: the month's first whose fourth day falls in it.
+        await press(toolbar(c).getByRole("radio", { name: "Month" }));
+        await step(c, "]");
+        await press(toolbar(c).getByRole("radio", { name: "Week" }));
+        expect(header()).toMatch(/^Sun\s*2$/);
     });
     test("a cell's click selects the person-week — the inspector's Details over that week, a day pressed opening it in Week with its duty selected (P14, P24)", async () => {
         const { container: c } = await h.mount(ex.rosterPeopleMonth);

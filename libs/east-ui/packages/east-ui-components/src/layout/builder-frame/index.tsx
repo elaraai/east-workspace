@@ -145,8 +145,16 @@ export interface BuilderFrameProps {
     minMain?: number | undefined;
     /** The frame's accessible name. */
     label?: string | undefined;
-    /** The root element: the bounds of popovers inside the frame, say. */
+    /** The root element: the bounds of popovers inside the frame, say — or what a host's own slot is measured over, the optimiser's landing (#1409). */
     ref?: Ref<HTMLDivElement> | undefined;
+    /**
+     * A host's styles on the root, beside the recipe's own: a slot of the host's drawn from attributes the frame's
+     * content carries — the optimiser's landing over the entries a run marked (#1409). The root is the frame's box,
+     * so a host that has no root of its own around the frame still draws on nothing but the frame.
+     */
+    rootCss?: SystemStyleObject | undefined;
+    /** A host's attributes on the root, read by its `rootCss`: the run's `data-optimise-landing` and `data-optimise-lit` (#1409). The frame's own come after them. */
+    rootProps?: Readonly<Record<string, string | undefined>> | undefined;
     /** The toolbar's element: where a host finds its own items' controls — the search box a key puts the focus on, say. */
     toolbarRef?: Ref<HTMLDivElement> | undefined;
     /** Keys pressed anywhere in the frame, its panes included: the host's shortcuts. */
@@ -162,8 +170,8 @@ export interface BuilderFrameDock {
     label: string;
     /** What it holds, when it has no tabs: one body. */
     body?: ReactNode;
-    /** What it holds: tabs, each with its own body and, after its label, any count of what it holds. */
-    tabs?: ReadonlyArray<{ key: string; label: string; count?: string | number | undefined; body: ReactNode }> | undefined;
+    /** What it holds: tabs, each with its own body and, after its label, any count of what it holds — one that `flash`es as a run of the app's optimiser lands (#1409). */
+    tabs?: ReadonlyArray<{ key: string; label: string; count?: string | number | undefined; flash?: boolean | undefined; body: ReactNode }> | undefined;
     /** The open tab: the host's; omitted, the pane's own, kept under the frame's storage key. */
     tab?: string | undefined;
     /** Told each time a tab is opened from the pane, with its key. */
@@ -348,7 +356,7 @@ function unmeasured(start: BuilderFramePane | undefined, end: BuilderFramePane |
  * @returns The frame
  */
 export function BuilderFrame(props: BuilderFrameProps) {
-    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, toolbarRef, onKeyDown, loading, busy, liveFooter } = props;
+    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, onKeyDown, loading, busy, liveFooter } = props;
     const minMain = props.minMain ?? MIN_MAIN;
     const loadingPitch = props.loadingPitch ?? DEFAULT_LOADING_PITCH;
     const styles = useSlotRecipe({ key: "builderFrame" })() as Styles;
@@ -600,7 +608,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
     };
 
     return (
-        <Box ref={setRoot} css={styles.root} data-builder-frame="" data-loading={covered ? "" : undefined} aria-busy={loading === undefined ? undefined : covered}
+        <Box ref={setRoot} css={rootCss === undefined ? styles.root : [styles.root, rootCss]} {...rootProps}
+            data-builder-frame="" data-loading={covered ? "" : undefined} aria-busy={loading === undefined ? undefined : covered}
             {...(label !== undefined ? { role: "group", "aria-label": label } : {})}
             onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown}>
             {toolbar !== undefined && (

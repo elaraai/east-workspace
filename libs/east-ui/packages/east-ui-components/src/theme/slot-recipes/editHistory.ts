@@ -43,6 +43,8 @@ export const editHistorySlotRecipe = defineSlotRecipe({
         },
         button: {
             flexShrink: "0",
+            // Locked while a run of the app's optimiser is out (#1409, R2): the disabled look, the control kept.
+            "&[aria-disabled=true]": { color: "fg.muted", cursor: "not-allowed", opacity: 0.5 },
         },
         issues: {
             display: "flex",

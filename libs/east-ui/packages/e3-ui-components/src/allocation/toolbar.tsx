@@ -112,6 +112,12 @@ interface ToolbarArgs extends AllocationWindow {
     nouns: Nouns;
     /** Search Records over the bins' keys (#1398); `undefined` without a source of the bins to seek. */
     search?: KeySearchSource | undefined;
+    /** The Elara eye (#1409): the run's toolbar item, listed immediately before the history item; `undefined` with no optimiser. */
+    optimise?: ToolbarItem | undefined;
+    /** Whether a run of the optimiser is out (#1409, R2): the history item stays, its actions locked. */
+    locked?: boolean | undefined;
+    /** Whether the issues chip flashes (#1409): a run's result landed, and its highlight is on. */
+    issuesFlash?: boolean | undefined;
 }
 
 /** The board's toolbar items: the shared Toolbar's, ranked around `HOST_RANK`. */
@@ -144,7 +150,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     // The history: wherever the day takes edits, and wherever a draft of another day waits to be saved. A day not read yet
     // keeps it as the last day read had it, so a read landing never shifts the toolbar nor folds it again (#1398, CL1).
     const history = editing?.history;
-    const historyNow = history !== undefined && !value.settings.readOnly && (commands.canEdit() || history.pending > 0 || history.status !== "idle");
+    const historyNow = history !== undefined && !value.settings.readOnly && (commands.canEdit() || args.locked === true || history.pending > 0 || history.status !== "idle");
     const [historyHeld, setHistoryHeld] = useState(historyNow);
     if (!unread && historyHeld !== historyNow) setHistoryHeld(historyNow);
     const showHistory = history !== undefined && (historyNow || (unread && historyHeld));
@@ -205,12 +211,14 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         value.inspector && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
             ? <Box css={styles.heldSlot} data-allocation-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
             : summary.count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} onClick={args.onIssues}
-                aria-label={summary.aria} title={summary.tip} data-allocation-issues="">
+                aria-label={summary.aria} title={summary.tip} data-allocation-issues="" data-opn={args.issuesFlash === true ? "" : undefined}>
                 <FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{summary.label}</span>
             </chakra.button>
                 : <Box css={styles.heldSlot} data-allocation-issues="" aria-hidden="true" />, null] },
         search !== undefined && { ...search, forms: [...search.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "allocation.controls"] },
-        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction }),
+        // The Elara eye (#1409), immediately before the history item, whose actions a run out locks (R2).
+        args.optimise,
+        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction, locked: args.locked === true }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the day can't publish.
         heldPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!canPublish} onClick={() => commands.publish()}>Publish</Button>, null] },
     ];

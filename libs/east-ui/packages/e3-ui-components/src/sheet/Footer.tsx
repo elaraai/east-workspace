@@ -12,13 +12,15 @@
  * 8,301–8,500 · Retry` — never a count of the rows read. The rail never wraps
  * and never cuts a word: the key hint's hints end at a whole hint, then "…",
  * and the line shows its full text, its short form or its dot alone. A
- * builder adds the record's last save after the counts (SB22).
+ * builder adds the record's last save after the counts (SB22). A run of the
+ * app's optimiser (#1409) takes the line's slot while it is out and just
+ * after Stop, and during its highlight the hints end with `Elara change`.
  */
 
 import { memo, useMemo, useRef } from "react";
 import { Box } from "@chakra-ui/react";
-import { getSomeorUndefined } from "@elaraai/east-ui-components";
-import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed } from "@elaraai/east-ui-components/internal";
+import { OptimiseLegendItem, getSomeorUndefined } from "@elaraai/east-ui-components";
+import { FooterMore, LoadingLine, RecordSliceSaveNotice, footerCut, useFooterFit, useLoadingReveal, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { pagedLoadingLine, type PagedLoading } from "../shared/loading.js";
 import { useSheetWords } from "./words.js";
@@ -55,6 +57,8 @@ export interface SheetFooterProps {
     saved?: string | undefined;
     /** Exact, confirmed feedback when saved rows leave the indexed query. */
     recordSlice?: ValueTypeOf<RecordSliceBindType> | undefined;
+    /** A run of the app's optimiser (#1409): what its line says while the call is out or just stopped, and whether the legend's `Elara change` shows. */
+    optimise?: { readonly line: LoadingLineValue | undefined; readonly legend: boolean } | undefined;
 }
 
 /** The separator the key hint's words run its hints on with — each of them a hint the fit keeps or cuts whole. */
@@ -64,7 +68,7 @@ const HINT_SEPARATOR = " · ";
 const NO_RETRY = () => undefined;
 
 /** Renders the footer. */
-export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, loading, noun, onRetry, saved, recordSlice }: SheetFooterProps) {
+export const SheetFooter = memo(function SheetFooter({ styles, items, summary, hint, message, loading, noun, onRetry, saved, recordSlice, optimise }: SheetFooterProps) {
     // The loading line, in the sheet's words and the app's locale (#850, #861), on the sheet's one reveal clock (CL4):
     // its frame's `LoadingReveal`, which the runs' placeholders read too — else, alone, a clock of its own.
     const words = useSheetWords();
@@ -75,6 +79,10 @@ export const SheetFooter = memo(function SheetFooter({ styles, items, summary, h
     const rail = useRef<HTMLDivElement>(null);
     const fit = useFooterFit(rail);
     const hints = hint === "" ? [] : hint.split(HINT_SEPARATOR);
+    const legend = optimise?.legend === true;
+    const units = hints.length + (legend ? 1 : 0);
+    // A run's line takes the slot, at once: a run is not a read.
+    const runLine = optimise?.line;
     return (
         <Box ref={rail} css={styles.footer} data-slot="footer" data-footer-hints="">
             {(items.length > 0 || summary !== undefined || saved !== undefined) && (
@@ -98,11 +106,17 @@ export const SheetFooter = memo(function SheetFooter({ styles, items, summary, h
                         {i > 0 && <Box as="span" css={styles.footerHintSep}>{HINT_SEPARATOR}</Box>}{part}
                     </Box>
                 ))}
+                {/* During a run's highlight the hints end with `Elara change` (#1409), one more unit the fit keeps or cuts whole. */}
+                {legend && (
+                    <Box as="span" data-footer-unit="" data-footer-cut={footerCut(hints.length, fit)}>
+                        {hints.length > 0 && <Box as="span" css={styles.footerHintSep}>{HINT_SEPARATOR}</Box>}<OptimiseLegendItem />
+                    </Box>
+                )}
             </Box>
-            <FooterMore shown={fit.kept < hints.length} />
+            <FooterMore shown={fit.kept < units} />
             {/* The message takes the rail's slack: the fit leaves it what the hints and the line leave, its words cut there. */}
             <Box as="span" css={styles.footerMessage} data-slot="footerMessage" data-footer-slack="" aria-live="polite">{message}</Box>
-            <LoadingLine value={line} shown={shown} form={fit.form} />
+            <LoadingLine value={runLine ?? line} shown={shown || runLine !== undefined} form={fit.form} />
         </Box>
     );
 });

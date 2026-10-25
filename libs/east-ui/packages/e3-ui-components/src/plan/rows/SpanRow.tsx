@@ -40,6 +40,7 @@ import type { DerivedBand, PlanRowId } from "../model.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
 import { usePlanElementDrafted } from "./element-draft.js";
+import { usePlanElementOp } from "./element-optimise.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type SpanKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "span" }>["value"];
@@ -105,6 +106,10 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, 
     const overlap = usePlanElementOverlap(run.key);
     // An event its drafts changed wears the brand tint in a brand border (#1196).
     const drafted = usePlanElementDrafted(run.key);
+    // What a run of the optimiser did to its event (#1409, R17), while it is still the run's draft: the bar keeps
+    // its own fill and takes the ring and glow, and says so on hover.
+    const op = usePlanElementOp(run.key);
+    const optimised = drafted ? op : undefined;
     return (
         <Box
             css={styles.bar}
@@ -113,6 +118,9 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, 
             data-stuck={stuck ? "" : undefined}
             data-overlap={overlap ? "" : undefined}
             data-draft={drafted ? "" : undefined}
+            data-op={optimised?.op}
+            data-fill={optimised !== undefined ? "own" : undefined}
+            title={optimised?.provenance}
             data-runoff={runoff ? "" : undefined}
             // A collapsed parent's bars are the geometry's rollup height —
             // the recipe's, as every bar height is (#817, #1258).

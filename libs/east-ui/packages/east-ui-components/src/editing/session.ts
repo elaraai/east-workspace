@@ -72,6 +72,8 @@ export interface EntryUpdate<W> {
 
 interface History<W> {
     label: string;
+    /** The gesture that made the transaction (#1409): what a host that replays a step by its origin reads. */
+    origin: Origin;
     before: Map<string, EntryVersion<W>>;
     after: Map<string, EntryVersion<W>>;
 }
@@ -372,6 +374,15 @@ export class EditSession<W> {
      */
     get depth(): { readonly undo: number; readonly redo: number } { return { undo: this.cursor, redo: this.history.length - this.cursor }; }
     /**
+     * The transaction Redo would replay next (#1409): its origin and its
+     * label — what a host that lands a step again by its origin reads, as a
+     * run of the app's optimiser is replayed without its banner.
+     */
+    get nextRedo(): { readonly origin: Origin; readonly label: string } | undefined {
+        const step = this.history[this.cursor];
+        return step === undefined ? undefined : { origin: step.origin, label: step.label };
+    }
+    /**
      * Forget the transactions Redo would replay (#1194): in a history over
      * several sessions, a gesture recorded in another took their place.
      */
@@ -532,7 +543,7 @@ export class EditSession<W> {
         for (const [id, entry] of before) if (!this.baseline.has(id)) this.baseline.set(id, entry);
         for (const [id, entry] of after) this.current.set(id, entry);
         this.draftsChanged();
-        this.history.splice(this.cursor); this.history.push({ label, before, after }); this.cursor++;
+        this.history.splice(this.cursor); this.history.push({ label, origin, before, after }); this.cursor++;
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.emit(before, after, origin, label);
         this.changed(); this.maybeAutoApply(origin !== "discard");

@@ -39,6 +39,7 @@ export {
     EastChakraBanner,
     BannerView,
     type BannerValue,
+    type BannerTone,
     type EastChakraBannerProps,
     type BannerViewProps,
 } from "./banner/index.js";

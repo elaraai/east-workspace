@@ -69,10 +69,12 @@ import { SortedMap, StringType, compareFor, equalFor, none, some } from "@elaraa
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
 import type { RecordTile } from "@elaraai/east-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters, usePersistedState,
-    useTrackedEvaluation, type Formatters,
+    BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, optimiseMessages, typedInto, useContainerBelow, useFormatters, usePersistedState,
+    useLanding, useLandingStyles, useTrackedEvaluation, type Formatters,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, PAGED_LIBRARY_PAGE } from "@elaraai/east-ui-components/internal";
+import { useOptimise } from "../shared/func/use-optimise.js";
+import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedule/cells.js";
 import { useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
@@ -90,6 +92,10 @@ import { CalendarFooter } from "./footer.js";
 import { CalendarPagesReader, createPagedDemand, type CalendarPages } from "./pages.js";
 import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type CalendarSelection } from "./inspector.js";
 import { calendarLibraryId, templatesTab, useCalendarLibrary } from "./library.js";
+import {
+    calendarOptimiseRequest, calendarOptimiseTypes, landCalendarOptimise, lockCalendarCommands,
+    type CalendarOptimiseRequest, type CalendarOptimiseResult, type CalendarOptimised,
+} from "./optimise.js";
 import { useBacklogNarrowing } from "../shared/schedule/backlog.js";
 import { calendarNouns, calendarSaid, followedSources } from "./sources.js";
 import { useCalendarToolbar } from "./toolbar.js";
@@ -284,10 +290,13 @@ function CalendarFrame(props: HostProps) {
     const recipe = useSlotRecipe({ key: "calendar" });
     const styles = useMemo(() => recipe({}) as unknown as CalendarStyles, [recipe]);
     const format = useFormatters(); const words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
+    const root = useRef<HTMLDivElement>(null);
     const main = useRef<HTMLDivElement>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
     // The timeline's days, date and count are read from its store by what says them; every other layout's are its window's.
     const timeline = !narrow && view.layout === "timeline";
+    // The period, as the footer's line, the eye and the banner name it (#1398, CL3; #1409).
+    const periodName = periodWords(view, range, value.settings, format);
     const [refs, setRefs] = useState<CalendarRef[]>([]);
     const [error, setError] = useState<string>();
     const [reveal, setReveal] = useState<CalendarRef>();
@@ -396,7 +405,47 @@ function CalendarFrame(props: HostProps) {
     const commands = useMemo(() => editing === undefined ? undefined : calendarCommands(value, editing, select, items, shown), [value, editing, select, items, shown]);
     // A paged kind's last view standing in for a new narrowing's is retained (CL8): no gesture until its windows land.
     const available = current && !reading && data.error === undefined && data.apart.error === undefined && !resourcesBusy && pages?.stale !== true;
-    const gestures = available ? commands : undefined;
+    // The app's optimiser (#1409, #1417): one run over the window in view, its result landed on the events as one
+    // edit, and what it left on them until Apply — the landing and the highlight over the whole frame.
+    const landing = useLanding(root);
+    const landingStyles = useLandingStyles();
+    const optimiseTypes = useMemo(() => calendarOptimiseTypes(value), [value]);
+    const [optimised, setOptimised] = useState<CalendarOptimised | undefined>(undefined);
+    const landAfter = useRef<(run: number) => void>(() => undefined);
+    const latest = useRef({ items, backlog, editing, optimised });
+    latest.current = { items, backlog, editing, optimised };
+    const run = useOptimise<CalendarOptimiseRequest, CalendarOptimiseResult>({
+        name: value.optimise.type === "some" ? value.optimise.value.name : null,
+        requestType: optimiseTypes.request, resultType: optimiseTypes.result,
+        scope: `${range.from.getTime()}:${range.to.getTime()}`, storageKey,
+        onLanded: (result, request, n) => {
+            const now = latest.current;
+            if (now.editing === undefined) return undefined;
+            const runText = format.number(n);
+            const landed = landCalendarOptimise(value, now.editing, request, result, optimiseMessages.step({ run: runText }), now.items, now.backlog, runText, now.optimised);
+            if (landed === undefined) return undefined;
+            // A run that changed nothing leaves what earlier runs left (R10).
+            if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
+            return landed.counts;
+        },
+    });
+    // The eye is listed only where the window can be optimised (ruled 25 Oct 2026): never read only; while its reads
+    // are in flight it waits, disabled, in its place.
+    const parts = useOptimiseParts<CalendarOptimiseRequest>({
+        run, landing, period: periodName, readOnly: value.settings.readOnly || editing === undefined, busy: !available,
+        request: n => calendarOptimiseRequest(value, editing!, range, latest.current.items, latest.current.backlog, n), landKey: data.items,
+    });
+    landAfter.current = parts.landAfter;
+    const locked = parts.locked;
+    // What a run left on the events goes with the drafts (R17): once nothing is pending — Save, Discard — nothing is
+    // marked. An Undo leaves nothing pending too, but its Redo brings the run's step back (R9): what the run left is
+    // kept while that step is the next to redo.
+    const pending = editing?.history.pending ?? 0;
+    useEffect(() => {
+        if (pending === 0 && editing?.history.redoOrigin !== "optimise") setOptimised(undefined);
+    }, [pending, editing?.version, editing]);
+    // While a run is out (R2) every gesture is refused, the session the views read kept.
+    const gestures = !available ? undefined : locked && commands !== undefined ? lockCalendarCommands(commands, optimiseMessages.locked({ period: periodName })) : commands;
     // Every resource names an event's place — a paged kind's, those of its windows held; the ones the rail shows lay out
     // the columns and rows, a paged kind's a window at a time beside them (`pages`).
     const pagedWindows = pages?.windows;
@@ -420,12 +469,16 @@ function CalendarFrame(props: HostProps) {
     const [pickedTemplate, setTemplate] = useState<string>();
     const activeTemplate = pickedTemplate !== undefined && templates.shown.has(pickedTemplate) ? pickedTemplate : templates.shown.keys().next().value;
     const start = useCalendarLibrary({ value, backlog, backlogRead, backlogRetained, backlogPages, backlogCount, selection: selectedItems, key: storageKey, narrow, now,
-        day: dayStart(view.date), styles, commands: gestures, activeTemplate, onTemplate: setTemplate, templates, backlogNarrowing, followed, shown });
+        day: dayStart(view.date), styles, commands: gestures, activeTemplate, onTemplate: setTemplate, templates, backlogNarrowing, followed, shown,
+        backlogFlash: optimised?.backlogChanged === true && landing.lit, locked });
     const end = useCalendarInspector({ value, refs, range, commands: gestures, styles, storageKey, overlaps, visible: timeline ? visibleDays : undefined, select, selection, shown });
+    const { acted } = parts;
     const onAction = useCallback((action: Parameters<ScheduleEditing["history"]["act"]>[0]) => {
         const active = document.activeElement; if (active instanceof HTMLElement) active.blur();
+        // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16).
+        acted(action, editing?.history.redoOrigin);
         editing?.history.act(action);
-    }, [editing]);
+    }, [editing, acted]);
     const displayRange = narrow ? (dates.windowParts.length > 0 ? range : calendarRange(view, value.settings)) : range;
     const standardRange = calendarRange(view, value.settings);
     const rangeLabel = timeline || displayRange.from.getTime() !== standardRange.from.getTime() || displayRange.to.getTime() !== standardRange.to.getTime()
@@ -445,9 +498,10 @@ function CalendarFrame(props: HostProps) {
     const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
         count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, uncounted,
         chrome: dates.chrome, affordances: dates.affordances, nouns, windowParts: dates.windowParts,
-        ...(timeline ? { visible: visibleDays, events: { items, covered } } : {}), onToday, search,
+        ...(timeline ? { visible: visibleDays, events: { items, covered } } : {}), onToday, search, optimise: parts.toolbarItem, locked,
         styles, words, commands, onAction, overlaps, overlapsShown, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
-    const drag = useCalendarDrag({ value, key: storageKey, commands: gestures, narrow, items, backlog, served: backlogPages, selection: selectedItems, templates: templates.shown,
+    // No drag source or target while a run is out (R2).
+    const drag = useCalendarDrag({ value, key: storageKey, commands: locked ? undefined : gestures, narrow, items, backlog, served: backlogPages, selection: selectedItems, templates: templates.shown,
         activeTemplate, onError: setError });
     const clear = useCallback(() => setRefs([]), []);
     const pick = useCallback((item: CalendarItem, additive = false) => {
@@ -464,7 +518,6 @@ function CalendarFrame(props: HostProps) {
     const retryWindow = useCallback(() => retryPeriod(value.events.map(kind => ({
         entries: kind.entries, part: dates.eventParts.find(event => event.kind.key === kind.key)?.part,
     }))), [value.events, dates.eventParts]);
-    const periodName = periodWords(view, range, value.settings, format);
     const failure = data.error ?? data.apart.error;
     // The period's reads first; else a paged kind's windows the view shows, in its own noun (`Loading presses 401–600`).
     const pagedNoun = pagedKind?.name.toLocaleLowerCase(format.locale);
@@ -489,7 +542,7 @@ function CalendarFrame(props: HostProps) {
     const stale = drawn && (reading || [...followed.values()].some(source => source.shown.busy) || pages?.stale === true);
     // The cold load's cover at the board's own pitch: an hour of its time grid (CL1).
     const pitch = view.layout === "timeline" || (view.layout === "calendar" && view.period === "month") ? undefined : calendarHour(value.settings.density);
-    return <Box css={styles.root} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined}>
+    return <Box ref={root} css={[styles.root, landingStyles.main]} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined} {...landing.attributes}>
         {pagedValue !== undefined && pagedKind !== undefined
             && <CalendarPagesReader paged={pagedValue} name={pagedKind.name} icon={pagedKind.icon} demand={demand} onPages={setPages} />}
         {backlogPages !== undefined && <CalendarBacklogCountReader pages={backlogPages} onCount={setBacklogCount} />}
@@ -504,10 +557,11 @@ function CalendarFrame(props: HostProps) {
             onKeyDown={event => {
                 if (event.defaultPrevented || typedInto(event.target)) return;
                 const action = historyShortcut(event);
-                if (action !== undefined && commands !== undefined) { event.preventDefault(); onAction(action); }
+                if (action !== undefined && commands !== undefined && !locked) { event.preventDefault(); onAction(action); }
                 else if (event.key === "Escape") { setRefs([]); setError(undefined); }
                 else if ((event.key === "Delete" || event.key === "Backspace") && gestures !== undefined && selectedItems.length > 0) { event.preventDefault(); gestures.remove(selectedItems); }
             }} banners={<>
+                {parts.banner}
                 {editing?.sessions.map(held => <SessionBanners key={held.key} session={held.session} words={words} name={value.events.find(kind => kind.key === held.kind)?.name}
                     onAction={action => editing.history.actOn(held.key, action)} />)}
                 {[...followed].flatMap(([source, followedSource]) => followedSource.error === undefined ? [] : [
@@ -524,7 +578,7 @@ function CalendarFrame(props: HostProps) {
                 {/* A gesture's error; a read's is said once, in the grid and on the footer's line (#1398, CL11). */}
                 {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
             </>}
-            footer={<CalendarFooter styles={styles} kinds={value.events} parts={dates.eventParts} locale={format.locale} line={line} />}>
+            footer={<CalendarFooter styles={styles} kinds={value.events} parts={dates.eventParts} locale={format.locale} line={parts.line ?? line} elara={parts.legend} />}>
             {/* The period read now's grid, whatever the read: what it holds of the period is `items` and `read` (#1398, CL5). While
                 it is read, what it shows is retained (CL8): readable, focusable and selectable, aria-disabled, every editing
                 gesture off (`gestures`). A failed period's main is not: its Retry is in it. */}
@@ -534,7 +588,8 @@ function CalendarFrame(props: HostProps) {
                     rows={rows} shownRows={shownRows} shown={shown} now={now} narrow={narrow} styles={styles} read={read} covered={covered} lanesPeriod={lanesPeriod} onRecentre={onRecentre} travel={travel}
                     uncounted={uncounted} shading={data.cells?.shading} bucket={bucket} pages={pages} demand={demand} drawnRows={data.cells?.drawn}
                     selected={selected} select={pick} clear={clear} overlaps={overlaps} commands={gestures} drag={drag}
-                    nowRevision={nowAsked} anchor={anchor} onAnchor={onAnchor} reveal={reveal === undefined ? undefined : eventKey(reveal)} onRevealed={revealed} />
+                    nowRevision={nowAsked} anchor={anchor} onAnchor={onAnchor} reveal={reveal === undefined ? undefined : eventKey(reveal)} onRevealed={revealed}
+                    optimised={optimised} lit={landing.lit} />
             </Box>
         </BuilderFrame>
         </CalendarChooserContext.Provider>

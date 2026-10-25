@@ -107,6 +107,20 @@ test("Undo and Redo step through the gestures in the order they were made, whate
     expect(history.pending).toBe(3);
 });
 
+test("the step Redo would replay is known by its origin (#1409): a run of the optimiser's, once undone, is replayed as one", () => {
+    const { history, sessions } = setup();
+    expect(history.record([rename("jobs", "Spring catalogue", "Spring catalogue, A4")], "typed", "Edit job")).toBe(true);
+    expect(history.record([rename("jobs", "Spring catalogue, A4", "Spring catalogue, A5"), rename("stops", "Plate change", "Plate change, press A1")], "optimise", "Elara run #1")).toBe(true);
+    expect(history.redoOrigin).toBeUndefined();
+    history.undo();
+    expect([history.redoOrigin, sessions.jobs.nextRedo, sessions.stops.nextRedo]).toEqual(["optimise", { origin: "optimise", label: "Elara run #1" }, { origin: "optimise", label: "Elara run #1" }]);
+    history.undo();
+    expect([history.redoOrigin, sessions.jobs.nextRedo?.label]).toEqual(["typed", "Edit job"]);
+    history.redo();
+    history.redo();
+    expect([history.redoOrigin, titles(sessions)]).toEqual([undefined, ["Spring catalogue, A5", "Plate change, press A1", "Early"]]);
+});
+
 test("a gesture across sessions is one step: one Undo takes it back in each, one Redo replays it in each", () => {
     const { history, sessions } = setup();
     expect(history.record([rename("jobs", "Spring catalogue", "Moved"), rename("shifts", "Early", "Moved")], "move", "Shift 2 events")).toBe(true);

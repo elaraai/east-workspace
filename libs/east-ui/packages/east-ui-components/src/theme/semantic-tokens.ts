@@ -14,7 +14,9 @@
  * the heat ramp `--heat-1` … `--heat-5`, and `--bg-inverse` / `--fg-inverse`.
  * Each has exactly ONE token here holding its value in both colour modes (the
  * first block below); `design-system.test.ts` reads the download and fails,
- * naming the token, the moment a value here drifts from it.
+ * naming the token, the moment a value here drifts from it. The `elara`
+ * tokens (#1409) are the one group the design system does not declare yet:
+ * the Optimise design holds their values, and the same test holds them.
  *
  * Every other colour name is an ALIAS of one of those roles — Chakra's own
  * built-in roles (`bg`, `bg.panel`, `fg.error`, …) included, so its default
@@ -193,6 +195,25 @@ export const semanticTokens = defineSemanticTokens({
             "3": heatMix(56),                                    // --heat-3
             "4": alias("{colors.brand.solid}"),                  // --heat-4
             "5": alias("{colors.brandPressed}"),                 // --heat-5
+        },
+
+        /* Elara — the optimiser's own colour (#1409, O6): aliases of the brand
+         * scale's cyan end, per colour mode, as the heat ramp is drawn from the
+         * scale. `elara` marks — the eye's pulse and iris, a landing's ring; on
+         * light paper it reads at about 1.5:1, so in light it is never the only
+         * sign: edges, rings and the footer dot's ring take `elara.ink`, which
+         * reads at 3:1 or better. The rest are the landing's: `glow` the flare's
+         * and the eye's halo, `wash` the flare's fill and the totals' flash,
+         * `edge` the steady ring and the ghosts' dash, `soft` the steady glow.
+         * The design system declares no `--elara` yet: `Optimise Spec.md` §8
+         * holds these values, and `design-system.test.ts` holds the theme to it. */
+        elara: {
+            DEFAULT: modes("{colors.brand.400}", "{colors.brand.300}"),
+            ink:     modes("{colors.brand.solid}", "{colors.brand.300}"),
+            glow:    modes("color-mix(in oklch, {colors.brand.400} 75%, transparent)", "color-mix(in oklch, {colors.brand.300} 60%, transparent)"),
+            wash:    modes("color-mix(in oklch, {colors.brand.400} 32%, {colors.bg.surface})", "color-mix(in oklch, {colors.brand.300} 24%, {colors.bg.surface})"),
+            edge:    modes("color-mix(in oklch, {colors.brand.400} 60%, {colors.brand.solid})", "{colors.brand.300}"),
+            soft:    modes("color-mix(in oklch, {colors.brand.400} 55%, transparent)", "color-mix(in oklch, {colors.brand.300} 40%, transparent)"),
         },
 
         /* ─── Aliases with a design-system role ──────────────────────────── */

@@ -48,6 +48,12 @@ interface ToolbarArgs extends RosterWindow {
     issues: readonly Issue[]; onIssues: () => void; onAction: (action: HistoryAction) => void; onPickerDates: (dates: readonly Date[]) => void;
     /** Search Records over the people's keys (#1398); `undefined` with no one to seek. */
     search?: KeySearchSource | undefined;
+    /** The Elara eye (#1409): the run's toolbar item, listed between the issues item and the history item; `undefined` with no optimiser. */
+    optimise?: ToolbarItem | undefined;
+    /** Whether a run of the optimiser is out (#1409, R2): the history item stays, its actions locked. */
+    locked?: boolean | undefined;
+    /** Whether the issues chip flashes (#1409): a run's result landed, and its highlight is on. */
+    issuesFlash?: boolean | undefined;
 }
 /** One shared Toolbar, including the narrowing's rail and the shared editing history. */
 export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem | false | undefined> {
@@ -82,7 +88,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     // The history: wherever the week takes edits, and wherever a draft of another week waits to be saved. A week not read
     // yet keeps it as the last week read had it, so a read landing never shifts the toolbar nor folds it again (#1398, CL1).
     const history = editing?.history;
-    const historyNow = history !== undefined && !value.settings.readOnly && (commands.available || history.pending > 0 || history.status !== "idle");
+    const historyNow = history !== undefined && !value.settings.readOnly && (commands.available || args.locked === true || history.pending > 0 || history.status !== "idle");
     const [historyHeld, setHistoryHeld] = useState(historyNow);
     if (!unread && historyHeld !== historyNow) setHistoryHeld(historyNow);
     const showHistory = history !== undefined && (historyNow || (unread && historyHeld));
@@ -142,10 +148,12 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
             : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-roster-status="">{status}</Box>, null] },
         value.inspector && { key: "roster.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
             ? <Box css={styles.heldSlot} data-roster-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
-            : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} data-roster-issues="" onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>
+            : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} data-roster-issues="" data-opn={args.issuesFlash === true ? "" : undefined} onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>
                 : <Box css={styles.heldSlot} data-roster-issues="" aria-hidden="true" />, null] },
         search !== undefined && { ...search, forms: [...search.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "roster.controls"] },
-        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction }),
+        // The Elara eye (#1409), between the issues item and the history item, whose actions a run out locks (R2).
+        args.optimise,
+        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction, locked: args.locked === true }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the week can't publish.
         heldPublish && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!publishable} onClick={() => commands.publish()}>Publish</Button>, null] },
     ];

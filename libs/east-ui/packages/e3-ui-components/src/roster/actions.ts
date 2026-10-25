@@ -90,6 +90,12 @@ export interface RosterCommands {
     readonly availableIn: (held: WeekState) => boolean;
     /** Whether any week in view takes a gesture: the week, or one of the month's — what registers drag sources and targets (P32). */
     readonly editable: boolean;
+    /**
+     * Why every gesture is refused while a run of the optimiser holds the week (#1409, R2) — `Elara is optimising W11`
+     * — and `undefined` while none does: the week's controls stay in place, inert, never swapped for a read-only
+     * week's `Off`.
+     */
+    readonly locked: string | undefined;
     place(source: RosterSource, slot: Slot, checkOnly?: boolean): string | undefined;
     update(id: string, change: RolesChange, origin?: Origin, checkOnly?: boolean): string | undefined;
     activity(id: string, activity: option<string>, checkOnly?: boolean): string | undefined;
@@ -224,6 +230,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         available,
         availableIn,
         editable: available || (state.weeks ?? []).some(held => availableIn(held)),
+        locked: undefined,
         place(source, slot, checkOnly = false) {
             const refused = blocked(); if (refused !== undefined) return refused;
             if (!validSlot(slot)) return "Choose a configured shift in this week.";
@@ -484,6 +491,18 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             if (record(plan.changes, "drop", "Apply pattern")) select({ type: "personWeek", key: person, start: at.getTime() });
             return undefined;
         },
+    };
+    // A pattern over a person's week is planned once per week state (#1406, P19): the drag layer asks the cell's veto
+    // of every move the pointer makes over the row, the ghost's caption and the row's preview ask too, and the plan is
+    // pure over the state — so each reads the one plan, and a drop takes it with the keys it minted. A new state is a
+    // new `rosterCommands`, and so a new table.
+    const plans = new Map<string, PatternPlan | string>();
+    const planned = api.pattern;
+    api.pattern = (person, at, key) => {
+        const id = `${person}\u0000${weekKey(at)}\u0000${key}`;
+        let plan = plans.get(id);
+        if (plan === undefined) { plan = planned(person, at, key); plans.set(id, plan); }
+        return plan;
     };
     return api;
 }

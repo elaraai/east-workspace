@@ -53,16 +53,19 @@ export interface SheetCellContentProps {
     link: LinkCellContext | undefined;
     /** A date cell's level for its row, and the actual instant once the work has happened (#844). */
     when?: { level: WhenLevel; actual?: Date | undefined } | undefined;
+    /** A run of the optimiser changed the cell (#1409, R25): its value carries `data-op-value`, and fades in as the cell lands. */
+    marked?: boolean | undefined;
 }
 
 /** Renders a cell's content. */
-export const SheetCellContent = memo(function SheetCellContent({ styles, meta, cell, rowBlank, unit, member, ghost, link, when }: SheetCellContentProps) {
+export const SheetCellContent = memo(function SheetCellContent({ styles, meta, cell, rowBlank, unit, member, ghost, link, when, marked }: SheetCellContentProps) {
     // Numbers in the viewer's language — the one its edit box reads back (#852) — and the sheet's words (#861).
     const words = useSheetWords();
+    const mark = marked === true ? "" : undefined;
     const blank = cellIsBlank(cell);
     const shown = blank && ghost !== undefined ? ghost : cell;
     const isGhost = blank && ghost !== undefined;
-    if (shown?.type === "Invalid") return <Box as="span" css={styles.cellText} data-slot="cellText">{shown.value}</Box>;
+    if (shown?.type === "Invalid") return <Box as="span" css={styles.cellText} data-op-value={mark} data-slot="cellText">{shown.value}</Box>;
     switch (meta.kind) {
         case "date":
         case "stamped": {
@@ -73,55 +76,55 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
                     : { tag: words.m.actualTag({ tone: "on", n: 0, count: words.number(0), unit: "d" }), tone: "on" as const };
                 return (
                     <>
-                        <Box as="span" css={styles.cellMono} data-mono="" data-actual="">{a.text}</Box>
-                        <Box as="span" css={styles.cellRes} data-slot="whenRes" data-actual={vs.tone}>{vs.tag}</Box>
+                        <Box as="span" css={styles.cellMono} data-op-value={mark} data-mono="" data-actual="">{a.text}</Box>
+                        <Box as="span" css={styles.cellRes} data-op-value={mark} data-slot="whenRes" data-actual={vs.tone}>{vs.tag}</Box>
                     </>
                 );
             }
             if (cellIsBlank(shown)) {
-                return meta.kind === "stamped" && !rowBlank ? <Box as="span" css={styles.cellGhost}>—</Box> : null;
+                return meta.kind === "stamped" && !rowBlank ? <Box as="span" css={styles.cellGhost} data-op-value={mark}>—</Box> : null;
             }
             // At a level the date prints `dd/mm/yy` (its time at the time level) and the resolution as a tag at the cell's right edge.
             if (meta.kind === "date" && when !== undefined && shown?.type === "DateTime") {
                 const w = formatWhen(shown.value, when.level, words);
                 return (
                     <>
-                        <Box as="span" css={isGhost ? styles.cellGhost : styles.cellMono} data-mono="" data-level={when.level}>{w.text}</Box>
-                        <Box as="span" css={styles.cellRes} data-slot="whenRes" data-level={when.level}>{w.suffix}</Box>
+                        <Box as="span" css={isGhost ? styles.cellGhost : styles.cellMono} data-op-value={mark} data-mono="" data-level={when.level}>{w.text}</Box>
+                        <Box as="span" css={styles.cellRes} data-op-value={mark} data-slot="whenRes" data-level={when.level}>{w.suffix}</Box>
                     </>
                 );
             }
-            return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellMono} data-mono="">{cellText(shown, meta, words)}</Box>;
+            return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellMono} data-op-value={mark} data-mono="">{cellText(shown, meta, words)}</Box>;
         }
         case "quantity":
         case "integer": {
             if (cellIsBlank(shown)) return null;
             return (
                 <>
-                    <Box as="span" css={isGhost ? styles.cellGhost : styles.cellNum} data-num="">{cellText(shown, meta, words)}</Box>
-                    {unit !== undefined && <Box as="span" css={styles.cellUnit}>{unit}</Box>}
+                    <Box as="span" css={isGhost ? styles.cellGhost : styles.cellNum} data-op-value={mark} data-num="">{cellText(shown, meta, words)}</Box>
+                    {unit !== undefined && <Box as="span" css={styles.cellUnit} data-op-value={mark}>{unit}</Box>}
                 </>
             );
         }
         case "enum": {
-            if (cellIsBlank(shown)) return rowBlank ? null : <Box as="span" css={styles.cellGhost}>—</Box>;
+            if (cellIsBlank(shown)) return rowBlank ? null : <Box as="span" css={styles.cellGhost} data-op-value={mark}>—</Box>;
             const tone = member !== undefined ? getSomeorUndefined(member.tone)?.type : undefined;
-            if (isGhost) return <Box as="span" css={styles.cellGhost}>{cellText(shown, meta, words)}</Box>;
+            if (isGhost) return <Box as="span" css={styles.cellGhost} data-op-value={mark}>{cellText(shown, meta, words)}</Box>;
             return (
                 <>
-                    <Box as="span" css={styles.cellDot} data-tone={tone} />
-                    <Box as="span" css={styles.cellWord}>{cellText(shown, meta, words)}</Box>
+                    <Box as="span" css={styles.cellDot} data-op-value={mark} data-tone={tone} />
+                    <Box as="span" css={styles.cellWord} data-op-value={mark}>{cellText(shown, meta, words)}</Box>
                 </>
             );
         }
         case "set": {
             if (shown === undefined || shown.type !== "Link") {
-                if (shown !== undefined && !cellIsBlank(shown)) return <Box as="span" css={styles.cellText}>{cellText(shown, meta, words)}</Box>;
+                if (shown !== undefined && !cellIsBlank(shown)) return <Box as="span" css={styles.cellText} data-op-value={mark}>{cellText(shown, meta, words)}</Box>;
                 return null;
             }
             const set = shown.value;
             return (
-                <Box css={styles.half} data-half="to" style={{ justifyContent: "flex-start" }}>
+                <Box css={styles.half} data-op-value={mark} data-half="to" style={{ justifyContent: "flex-start" }}>
                     {set.to.map((m, i) => (
                         <Box key={i} as="span" css={memberIsDashed(m) || isGhost ? styles.chipDashed : styles.chip} data-slot="chip" data-member={m.type}>{memberLabel(m)}</Box>
                     ))}
@@ -132,7 +135,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
             // The two halves are always drawn once the row has content, so an
             // empty cell still says what it wants; blank rows stay blank.
             if (shown !== undefined && shown.type !== "Link" && !cellIsBlank(shown)) {
-                return <Box as="span" css={styles.cellText}>{cellText(shown, meta, words)}</Box>;
+                return <Box as="span" css={styles.cellText} data-op-value={mark}>{cellText(shown, meta, words)}</Box>;
             }
             if (rowBlank || link === undefined) return null;
             const value = shown !== undefined && shown.type === "Link" ? shown.value : EMPTY_LINK;
@@ -150,7 +153,7 @@ export const SheetCellContent = memo(function SheetCellContent({ styles, meta, c
         }
         default: {
             if (cellIsBlank(shown)) return null;
-            return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellText}>{cellText(shown, meta, words)}</Box>;
+            return <Box as="span" css={isGhost ? styles.cellGhost : styles.cellText} data-op-value={mark}>{cellText(shown, meta, words)}</Box>;
         }
     }
 });

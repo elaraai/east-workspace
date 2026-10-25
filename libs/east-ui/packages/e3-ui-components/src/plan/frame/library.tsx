@@ -176,6 +176,8 @@ export interface PlanLibraryProps {
     backlogNarrowing?: BacklogNarrowing<PlanEventPart> | undefined;
     /** Whether the backlog's cards and count stand in for a read in flight (#1398, CL8): its pane busy, and retained. */
     backlogRetained?: boolean | undefined;
+    /** Whether a run of the optimiser moved an event into or out of the backlog (#1409): the Backlog tab's count flashes as it lands. */
+    backlogFlash?: boolean | undefined;
 }
 
 /** A pane whose cards stand in for a read in flight (#1398, CL8): busy, and retained. */
@@ -323,7 +325,7 @@ function tabBody(styles: Record<string, Record<string, unknown>>, tab: string, p
 export function usePlanLibrary({
     library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards,
     unscheduled: read, takesEvents = false, patchKinds = NO_PATCH_KINDS, followed = NONE_FOLLOWED, backlogNarrowing = NO_BACKLOG_NARROWING,
-    backlogRetained = false,
+    backlogRetained = false, backlogFlash = false,
 }: PlanLibraryProps): BuilderFrameDock | undefined {
     const { m } = words;
     // The kinds' unscheduled events once their first read lands (#1398, CL13): until then the tab knows nothing.
@@ -531,6 +533,7 @@ export function usePlanLibrary({
                     }
                     // The last complete read's cards and count, held as one; retained while either is read again (#1398, CL8).
                     return { key: "backlog", label: m.libraryTab({ tab: "backlog" }), count: backlogFollow.count, shown: backlog.items.length,
+                        ...(backlogFlash ? { flash: true } : {}),
                         body: tabBody(styles, "backlog", backlogRetained ? RETAINED_PANE : READ_PANE, (
                             <EastChakraLibrary value={backlog} storageKey={`${keys.library}.backlog`} empty={empty("backlog", "")} narrowing={backlogFollow.narrowing} />
                         )) };
@@ -570,5 +573,5 @@ export function usePlanLibrary({
             persist: "local",
             tabs: tabs.map(({ shown: _shown, ...pane }) => pane),
         };
-    }, [library, m, words, templates, templatesFollow, backlog, backlogFollow, backlogRead, backlogRetained, seriesPick, authorLibraries, authorFollows, keys, empty, listsBacklog, styles]);
+    }, [library, m, words, templates, templatesFollow, backlog, backlogFollow, backlogRead, backlogRetained, seriesPick, authorLibraries, authorFollows, keys, empty, listsBacklog, styles, backlogFlash]);
 }

@@ -165,6 +165,7 @@ import { queryAutocompleteSlotRecipe } from "./slot-recipes/queryAutocomplete.js
 import { logViewerSlotRecipe } from "./slot-recipes/logViewer.js";
 import { nativeSelectSlotRecipe } from "./slot-recipes/nativeSelect.js";
 import { alertSlotRecipe } from "./slot-recipes/alert.js";
+import { optimiseSlotRecipe } from "./slot-recipes/optimise.js";
 
 const config = defineConfig({
     globalCss,
@@ -311,6 +312,7 @@ const config = defineConfig({
             logViewer:       logViewerSlotRecipe,
             nativeSelect:    nativeSelectSlotRecipe,
             alert:           alertSlotRecipe,
+            optimise:        optimiseSlotRecipe,
         },
     },
 });

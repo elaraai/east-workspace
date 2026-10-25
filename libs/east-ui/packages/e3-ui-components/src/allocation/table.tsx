@@ -46,6 +46,7 @@ import type { AllocationFit } from "./fit.js";
 import { bandLine, narrowBands, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
 import { NarrowedEmpty } from "./narrowed.js";
 import { a, one, useNouns } from "./nouns.js";
+import type { AllocationBinOp, AllocationOptimised } from "./optimise.js";
 import type { TimelineFollow } from "./timeline.js";
 import {
     allocationWords, compareFloat, partsOf, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type FitAsk,
@@ -106,6 +107,10 @@ export interface TableProps {
      * top of its view where the narrowing holds it — by its key, and the px into it — and else starts at its top.
      */
     narrowing?: RowNarrowing | undefined;
+    /** What the runs of the app's optimiser left on the day's bins (#1409): each bin's operation, drawn on its row's chip, and its provenance on hover. */
+    optimised?: AllocationOptimised | undefined;
+    /** Whether a run's highlight is on (#1409): a band's count flashes where the run changed its rows. */
+    lit?: boolean | undefined;
 }
 
 /**
@@ -268,7 +273,8 @@ export function AllocationTable(props: TableProps) {
                     // A day not read yet: its band's count a placeholder, its line said once its rows land.
                     return <GroupHeading scope="allocation" group={{ key: line.band.key, label: line.band.label }} styles={styles} collapsed={folded} toggle={toggle}>
                         {unread ? pending && <PlaceholderShape kind="count" index={index} /> : <>
-                            <Box as="span" css={styles.bandCount} data-allocation-band-count="">{line.band.rows.length}</Box>
+                            <Box as="span" css={styles.bandCount} data-allocation-band-count=""
+                                data-opn={props.lit === true && line.band.rows.some(r => r.bin !== undefined && props.optimised?.ops.has(r.bin) === true) ? "" : undefined}>{line.band.rows.length}</Box>
                             <Box as="span" css={styles.groupMeta}>{bandLine(line.band, words.quantity(Math.round(line.band.quantity), unit), folded)}</Box>
                         </>}
                     </GroupHeading>;
@@ -348,7 +354,9 @@ function Row(args: RowProps) {
         pickedCode === undefined ? undefined : `click to book ${pickedCode} here`);
     const resourceSay = resourceVerdict === undefined || resourceVerdict.caption === "already on it" ? undefined
         : sayOf(resourceVerdict, row.kind === "free" ? "drop to reserve" : "drop to link", undefined);
-    return <RowBody {...args} bin={bin} code={code} chip={chip} arrivalDrop={arrivalDrop} resourceDrop={resourceDrop}
+    // What a run of the optimiser did to the row's bin (#1409, R7, R17), while it is still the run's draft.
+    const op = row.bin === undefined ? undefined : props.optimised?.ops.get(row.bin);
+    return <RowBody {...args} bin={bin} code={code} chip={chip} arrivalDrop={arrivalDrop} resourceDrop={resourceDrop} op={op}
         arrivalState={arrivalSay?.state} arrivalWords={arrivalSay?.drop} arrivalReason={arrivalSay?.reason} arrivalPick={arrivalSay?.pick}
         resourceState={resourceSay?.state} resourceWords={resourceSay?.drop} resourceReason={resourceSay?.reason} />;
 }
@@ -361,10 +369,12 @@ function libraryCode(props: TableProps, grip: Extract<Grip, { kind: "arrival" | 
 }
 
 /** A row's body: its cells, from the drafts, the loads and the app's columns. */
-const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open, setOpen, words, bin, code, chip, arrivalDrop, resourceDrop,
+const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open, setOpen, words, bin, code, chip, arrivalDrop, resourceDrop, op: marked,
     arrivalState, arrivalWords, arrivalReason, arrivalPick, resourceState, resourceWords, resourceReason }: RowProps & {
     bin: Bin | undefined; code: string | undefined; chip: ReturnType<typeof useDragEventChip>;
     arrivalDrop: (el: HTMLElement | null) => void; resourceDrop: (el: HTMLElement | null) => void;
+    /** What a run of the optimiser did to the row's bin (#1409): its mark on the row's chip, and its provenance on hover. */
+    op: AllocationBinOp | undefined;
     /** What the arrival and the resource cells say during a drag or a pick, as primitives, so pointer motion repaints nothing (A35). */
     arrivalState: Say["state"] | undefined; arrivalWords: string | undefined; arrivalReason: string | undefined; arrivalPick: string | undefined;
     resourceState: Say["state"] | undefined; resourceWords: string | undefined; resourceReason: string | undefined;
@@ -379,7 +389,9 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     const load = resource === undefined ? undefined : props.loads.get(resource.key);
     const committed = row.bin === undefined ? undefined : held?.bins.get(row.bin);
     const draft = bin !== undefined && (committed === undefined || !props.sameBin(committed, bin));
-    const marked = selects(props.selection, row, plan, props.highlight);
+    // A run's mark holds while the bin is still the run's draft (R17): an Undo that takes the run back leaves none.
+    const op = draft ? marked : undefined;
+    const selectedAs = selects(props.selection, row, plan, props.highlight);
     const arrivalSay: Say | undefined = arrivalState === undefined ? undefined : { state: arrivalState, drop: arrivalWords ?? "", reason: arrivalReason, pick: arrivalPick };
     const resourceSay: Say | undefined = resourceState === undefined ? undefined : { state: resourceState, drop: resourceWords ?? "", reason: resourceReason, pick: undefined };
     const time = formatDatePattern("HH:mm", row.at);
@@ -443,13 +455,14 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     const remainderTrigger = (isOpen: boolean) => <chakra.button type="button" css={styles.tablePlaceholder} data-allocation-placeholder="remainder" data-open={isOpen ? "" : undefined}
         title={remainderWords} aria-label={remainderWords} aria-haspopup="listbox" onPointerDown={event => event.stopPropagation()}>{remainderInside}</chakra.button>;
     return <Box ref={given} css={styles.tableRow} role="row" tabIndex={row.bin !== undefined ? -1 : undefined} data-allocation-row={row.key} data-kind={row.kind}
-        data-columns={shown === 0 ? "none" : undefined} data-selected={marked !== undefined ? "" : undefined} data-draft={draft ? "" : undefined} onClick={select}>
+        data-columns={shown === 0 ? "none" : undefined} data-selected={selectedAs !== undefined ? "" : undefined} data-draft={draft ? "" : undefined} onClick={select}>
         <Box as="span" css={styles.tableTime} data-holds={bin !== undefined ? "" : undefined}>{time}</Box>
         <Box as="span" css={styles.tableLane}>{lane}</Box>
         {row.kind === "bin" && bin !== undefined ? <>
             <Box css={styles.tableCell} data-allocation-cell-side="arrival">
                 <Box {...chip} css={styles.tableChip} data-scope="allocation" data-allocation-chip="arrival" data-draft={draft ? "" : undefined} data-draggable={chip !== undefined ? "" : undefined}
-                    title={`${code}${meta?.type === "some" ? ` · ${meta.value}` : ""} · ${board.quantity(bin.quantity, unit)} · drag onto an empty row to move it`}
+                    data-op={op?.op} data-fill={op === undefined ? undefined : "own"}
+                    title={`${op === undefined ? "" : `${op.provenance} · `}${code}${meta?.type === "some" ? ` · ${meta.value}` : ""} · ${board.quantity(bin.quantity, unit)} · drag onto an empty row to move it`}
                     onPointerDown={event => { if (row.bin !== undefined) drag.arm({ kind: "body", bin: row.bin }); chip?.onPointerDown?.(event); }}>
                     {chip !== undefined && <Box as="span" css={styles.tableChipIcon} data-icon-role="grip"><FontAwesomeIcon icon={faGripVertical} /></Box>}
                     <Box as="span" css={styles.tableChipCode}>{code}</Box>
@@ -479,7 +492,9 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
         </Box> : resource !== undefined && row.bin !== undefined ? <>
             <Box ref={resourceDrop} css={styles.tableCell} data-allocation-cell-side="resource">
                 <Box css={styles.tableChip} data-allocation-chip="resource" data-draft={draft ? "" : undefined} data-verdict={resourceSay?.state}
-                    title={resourceSay?.state === "refused" && resourceSay.reason !== undefined ? resourceSay.reason : `${resource.label}${resource.meta.type === "some" ? ` · ${resource.meta.value}` : ""}`}>
+                    data-op={row.kind === "reserved" ? op?.op : undefined} data-fill={row.kind === "reserved" && op !== undefined ? "own" : undefined}
+                    title={resourceSay?.state === "refused" && resourceSay.reason !== undefined ? resourceSay.reason
+                        : `${row.kind === "reserved" && op !== undefined ? `${op.provenance} · ` : ""}${resource.label}${resource.meta.type === "some" ? ` · ${resource.meta.value}` : ""}`}>
                     <Box as="span" css={styles.tableChipIcon}><FontAwesomeIcon icon={faLink} /></Box>
                     <Box as="span" css={styles.tableChipCode}>{resource.label}</Box>
                     {chooser("resource", chevron(resourceLabel))}

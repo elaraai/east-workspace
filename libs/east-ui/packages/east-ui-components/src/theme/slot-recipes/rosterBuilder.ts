@@ -37,7 +37,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         "readLine", "heldSlot", "unreadValue",
         "peopleRow", "peopleName", "nameLine", "personName", "agencyBadge", "hoursCell", "hoursText", "meter", "meterFill", "dayCell", "tile", "tileLabel", "tileMeta", "tileWarn", "tileMore",
         "assign", "assignMenuHead", "assignItem", "swatch", "monthRow", "monthHead", "monthGutter", "weekHead", "weekNumber", "weekRange", "dayTicks", "dayTick", "monthCell",
-        "markStrip", "mark", "patternDays", "patternStrip", "patternMark"],
+        "markStrip", "mark", "patternStrip", "patternMark"],
     base: {
         ...moveGhostBase,
         ...scheduleGroupBase,
@@ -165,6 +165,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "&[data-week-selected]": { boxShadow: "inset 0 0 0 1px {colors.fg}" }, "&[data-week-selected] + &[data-week-selected]": { boxShadow: "inset 0 -1px 0 {colors.fg}, inset 0 1px 0 {colors.fg}" },
             "&[data-drop-active]": { background: "brand.subtle" }, "&[data-pattern-hover]": { boxShadow: "inset 0 0 0 1px {colors.brand.solid}" },
             "&[data-pattern-hover][data-pattern-changes]": { background: "{colors.brandTint}" },
+            // While the pattern's day previews, the day's own tiles, `+1` and `+ Assign` stay mounted and hide (P19).
+            "&[data-roster-previewing] > :not([data-preview])": { display: "none" },
             "[data-roster-stale] &": retainedColumn },
         // A tile a duty: its fill the shift's token, its words in the ink the shade takes; neutral on the panel without one.
         tile: { display: "flex", alignItems: "center", gap: "6px", flex: "1 1 0", minWidth: 0, height: "24px", padding: "0 6px", borderRadius: "3px", cursor: "pointer",
@@ -185,10 +187,11 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "&[data-group]": { fontSize: "label.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.06em" } },
         tileWarn: { display: "inline-flex", flexShrink: 0, color: "fg.warning", ...fontAwesomeSize("10px"), "&[data-tone=danger]": { color: "fg.danger" } },
         tileMore: { textStyle: "mono.xs", fontWeight: "semibold", color: "fg.danger", flexShrink: 0, whiteSpace: "nowrap" },
-        // An off day's `+ Assign`: a wash across the cell, its words shown on hover, focus or selection.
+        // An off day's `+ Assign`: a wash across the cell, its words shown on hover, focus or selection; inert while a run of the
+        // optimiser holds the week (#1409, R2).
         assign: { flex: "1 1 0", minWidth: 0, height: "24px", borderRadius: "3px", background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent",
             textStyle: "mono.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.08em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-            "[data-density=compact] &": { height: "20px" }, "&:hover, &:focus-visible, &[data-state=open], [data-selected] > &": { color: "fg.muted" }, ...planElementFocus },
+            "[data-density=compact] &": { height: "20px" }, "&:hover, &:focus-visible, &[data-state=open], [data-selected] > &": { color: "fg.muted" }, "&:disabled": { cursor: "not-allowed" }, ...planElementFocus },
         assignMenuHead: { textStyle: "mono.xs", fontSize: "label.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.08em", color: "fg.muted", padding: "4px 8px" },
         assignItem: { display: "flex", alignItems: "center", gap: "8px", minHeight: "28px", "& [data-roster-shift-times]": { textStyle: "mono.xs", color: "fg.subtle", marginLeft: "auto" } },
         swatch: { width: "12px", height: "12px", borderRadius: "2px", flexShrink: 0, background: "var(--roster-fill, {colors.bg.panel})", borderWidth: "1px", borderColor: "border.subtle" },
@@ -221,9 +224,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "&[data-preview]": { borderStyle: "dashed", borderColor: "brand.solid", background: "transparent", color: "brand.fg" },
             "&[data-preview][data-off]": { borderColor: "fg.subtle", color: "transparent" },
             "&[data-pending]": { background: "bg.subtle", color: "transparent" } },
-        // The Patterns tab: the seven day initials over the cards, and each card's strip of marks.
-        patternDays: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "2px", padding: "4px 12px 4px 56px", textStyle: "mono.xs", fontWeight: "semibold", color: "fg.subtle",
-            textAlign: "center", borderBottomWidth: "1px", borderColor: "border.subtle" },
+        // The Patterns tab: each card's strip of marks, Sunday to Saturday as the card's name reads.
         patternStrip: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "2px", height: "18px", marginTop: "4px", width: "100%" },
         patternMark: { display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden", borderRadius: "2px", textStyle: "mono.xs", fontWeight: "semibold",
             background: "var(--roster-fill, {colors.bg.panel})", color: "var(--roster-ink, {colors.fg})",

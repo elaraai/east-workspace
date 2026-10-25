@@ -96,6 +96,10 @@ interface LibraryArgs {
     followed: FollowedSources;
     /** Each resource kind's rows the rail shows: what a placement's Chooser offers. */
     shown: CalendarShownResources;
+    /** Whether a run of the optimiser moved an event into or out of the backlog (#1409): the Backlog tab's count flashes as it lands. */
+    backlogFlash?: boolean | undefined;
+    /** Whether a run of the optimiser is out (#1409, R2): no card drags, and the pane's actions are held, while the pane stays live. */
+    locked?: boolean | undefined;
 }
 /**
  * What a tab is, as its pane takes it: its cards, its count (none while it is read), what it says empty, and whether its
@@ -110,10 +114,11 @@ interface TabFacts {
 export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefined {
     const { value, backlog, backlogRead, backlogRetained, backlogPages, backlogCount, key, narrow, day, now, styles, commands, selection, activeTemplate, onTemplate, templates,
         backlogNarrowing, followed, shown } = args;
+    const locked = args.locked === true;
     const format = useFormatters();
     const [chosen, setChosen] = useState<Record<string, string>>({});
     if (value.library.length === 0) return undefined;
-    const draggable = commands !== undefined && !narrow;
+    const draggable = commands !== undefined && !narrow && !locked;
     const baseCard = (id: string, label: string, meta: string, icon: string | undefined, group: string, placed: boolean): LibraryItemValue => scheduleLibraryCard({
         key: id, label, sublabel: some(meta), icon: icon === undefined ? none : some(icon), status: none, trailing: none,
         draggable, filtered: false, placed, search: some(`${label} ${meta}`), groups: new Map([["group", group]]),
@@ -188,10 +193,11 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
         const patch = author?.cards.find(card => card.key === chosen[tabKey]);
         const targetKind = author?.drop.type === "some" ? author.drop.value : undefined;
         const targets = selection.filter(item => item.kind === targetKind);
-        const held = facts.pane["aria-disabled"] === true;
+        const held = facts.pane["aria-disabled"] === true || locked;
         // One Library whatever is read (#1398): its pending rows follow the cards it holds while the rest are read, and
         // it is never swapped out, so its search box keeps its query and its focus.
-        return { key: tabKey, label, ...(facts.count === undefined ? {} : { count: facts.count }), shownCount: facts.cards.length, body: <Box css={styles.pane} {...facts.pane}>
+        return { key: tabKey, label, ...(facts.count === undefined ? {} : { count: facts.count }), ...(tab.type === "backlog" && args.backlogFlash === true ? { flash: true } : {}),
+            shownCount: facts.cards.length, body: <Box css={styles.pane} {...facts.pane}>
             <EastChakraLibrary value={library} storageKey={calendarLibraryId(key, tabKey)} empty={facts.empty} narrowing={facts.narrowing} pending={facts.pending === true} />
             {commands !== undefined && (source !== undefined || patch !== undefined) && <Box css={styles.paneFoot}>
                 {source !== undefined && <PlacementAction label={"template" in source ? "Create" : "Schedule"} source={source} value={value} shown={shown} day={day} commands={commands} styles={styles} held={held} />}
