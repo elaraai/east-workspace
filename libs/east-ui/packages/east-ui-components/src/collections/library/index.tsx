@@ -19,6 +19,7 @@ import { Library, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { useDragSourceItem, useDropSink, type DragHandle } from "../../dnd/drag-layer";
+import { inRetained } from "../../dnd/retained.js";
 import { HOST_RANK, useSliceToolbarItems } from "../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { radioGroupKey } from "../../primitives/radio-group.js";
@@ -289,7 +290,8 @@ interface LibraryCardProps {
  * A draggable card's handle with its ⏎ taken by the host (#1187) — a plain
  * Enter, while the card is not itself being carried: during a keyboard drag
  * ⏎ drops it, as on any draggable. Every other key is the handle's, Space's
- * pickup among them.
+ * pickup among them. A card in retained content (#1398, CL8: its tab's source
+ * read again) places nothing on ⏎, as it is picked up by no key.
  *
  * @param drag - The card's drag handle, `undefined` when it cannot be dragged
  * @param key - The card's key
@@ -304,7 +306,7 @@ function useEnterHandle(drag: DragHandle | undefined, key: string, onCardEnter: 
             const plain = event.key === "Enter" && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
             if (plain && !(event.currentTarget as HTMLElement).hasAttribute("data-dragging")) {
                 event.preventDefault();
-                onCardEnter(key);
+                if (!inRetained(event.currentTarget)) onCardEnter(key);
                 return;
             }
             drag.onKeyDown?.(event);
@@ -411,11 +413,11 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
                 </Box>
             )}
             {remove !== undefined && (
-                // Its own target: it picks no drag up, and its click is not the card's.
+                // Its own target: it picks no drag up, and its click is not the card's. In retained content it takes nothing back.
                 <chakra.button type="button" css={styles.cardRemove} aria-label={remove.label} title={remove.label} data-library-remove=""
                     onPointerDown={(event: ReactPointerEvent) => event.stopPropagation()}
                     onKeyDown={(event: React.KeyboardEvent) => event.stopPropagation()}
-                    onClick={(event: React.MouseEvent) => { event.stopPropagation(); remove.onRemove(); }}>
+                    onClick={(event: React.MouseEvent) => { event.stopPropagation(); if (!inRetained(event.currentTarget)) remove.onRemove(); }}>
                     <FontAwesomeIcon icon={faXmark} />
                 </chakra.button>
             )}
@@ -997,8 +999,9 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
     const hint = getSomeorUndefined(value.hint);
     const addLabel = getSomeorUndefined(value.addLabel);
     const onAddFn = useMemo(() => getSomeorUndefined(value.onAdd), [value.onAdd]);
-    const handleAdd = useCallback(() => {
-        if (onAddFn) queueMicrotask(() => onAddFn());
+    // Its add, which in retained content (#1398, CL8) adds nothing.
+    const handleAdd = useCallback((event: React.MouseEvent) => {
+        if (onAddFn && !inRetained(event.currentTarget)) queueMicrotask(() => onAddFn());
     }, [onAddFn]);
 
     // ── Scroll region + virtualization ──────────────────────────────────────

@@ -70,8 +70,10 @@ const FILL = { background: "bg.subtle", ...UNREVEALED } as const;
  * through a narrowing or a revision's re-read wears — its row rules dashed
  * `--rule-strong` and its text `--ink-3`, every part of it. A builder merges it
  * into its row's (or a row's cells') slot under its main's stale mark (the
- * Roster's `[data-roster-stale] &`), and its main takes no gesture while the
- * rows stand in (`inert`); selection is kept. Item edges keep their own
+ * Roster's `[data-roster-stale] &`), and its main is retained while the rows
+ * stand in (CL8, the loading design's stale card): `aria-disabled` — readable,
+ * focusable and selectable, its selection kept, every edit and drag refused in
+ * code (`dnd/retained.ts`), never `inert`. Item edges keep their own
  * meaning: a chip's or a card's border is its own. Each side is set on its own:
  * the theme resolves a colour token on a side's own property, never on the
  * `borderBlockColor` shorthand.

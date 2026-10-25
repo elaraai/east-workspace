@@ -26,7 +26,8 @@
  *
  * Once a touch drag engages, the page does not pan for the rest of it. Escape,
  * a window resize or a hidden page cancels the drag, and the click a drag ends
- * with never reaches the element it began on.
+ * with never reaches the element it began on. Neither sensor picks a drag up in
+ * retained content (`aria-disabled`, #1398, CL8: {@link inRetained}).
  *
  * The keyboard sensor picks a focused draggable up with a start key, drops it
  * with an end key and cancels it with a cancel key (the layer's: Space or
@@ -49,6 +50,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type {
     Activators, DraggableNode, KeyboardCodes, KeyboardCoordinateGetter, SensorInstance, SensorProps,
 } from "@dnd-kit/core";
+import { inRetained } from "./retained.js";
 
 /** The drag in flight, as its sensor reports it — written by the sensors, read by the layer. */
 export interface DragTrack {
@@ -159,10 +161,10 @@ export class DragPointerSensor implements SensorInstance {
         }
     }
 
-    /** The draggable's activator: the primary button's press, of any pointer type. */
+    /** The draggable's activator: the primary button's press, of any pointer type — never in retained content. */
     static activators: Activators<DragPointerOptions> = [{
         eventName: "onPointerDown",
-        handler: ({ nativeEvent }: { nativeEvent: PointerEvent }) => nativeEvent.button === 0,
+        handler: ({ nativeEvent }: { nativeEvent: PointerEvent }) => nativeEvent.button === 0 && !inRetained(nativeEvent.target),
     }];
 
     /** Engage the drag. */
@@ -319,13 +321,14 @@ export class DragKeyboardSensor implements SensorInstance {
         }, 0);
     }
 
-    /** The draggable's activator: a start key pressed on the draggable itself — never in a control inside it. */
+    /** The draggable's activator: a start key pressed on the draggable itself — never in a control inside it, nor in retained content. */
     static activators: Activators<DragKeyboardOptions> = [{
         eventName: "onKeyDown",
         handler: (event: ReactKeyboardEvent, { keyboardCodes }: DragKeyboardOptions, { active }: { active: DraggableNode }) => {
             if (!keyboardCodes.start.includes(event.nativeEvent.code)) return false;
             const activator = active.activatorNode.current;
             if (activator !== null && event.target !== activator) return false;
+            if (inRetained(event.target)) return false;
             event.preventDefault();
             return true;
         },
