@@ -30,8 +30,10 @@
  *   last layout for its host to stand in while the pages are read again.
  * - **A key search's jump** reads where its row is, beside the view, until
  *   that row is drawn — its host then scrolls to it — or is known to be a row
- *   the narrowing does not hold, when nothing moves: the view's own rows stay
- *   drawn throughout.
+ *   the narrowing does not hold, when its host clears the filters that hide
+ *   it and jumps again under the narrowing they leave (the hidden pick,
+ *   `hidden.ts`): the view's own rows stay drawn throughout, and a jump made
+ *   as a new narrowing is read lands once that narrowing draws the row.
  *
  * @packageDocumentation
  */
@@ -149,6 +151,8 @@ export interface RecordLens {
     total: number | undefined;
     /** How many rows the narrowing holds, once placed. */
     matches: number | undefined;
+    /** The record's revision the lens reads at, once known: what the answers of which choices hide a row are kept by. */
+    revision: string | undefined;
     /** Whether the narrowing's layout is drawn: its placement begun and the segments near the view read. */
     ready: boolean;
     /** Whether a read is still in flight. */
@@ -440,6 +444,7 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         positions: drawn.positions,
         total: value?.placement?.records,
         matches: value?.placement?.matches,
+        revision: active ? value?.revision : undefined,
         ready: active && value !== undefined && value.ready && shown !== undefined && shown.query === query && shown.revision === value.revision,
         loading: active && (value === undefined || value.loading),
         replacing,

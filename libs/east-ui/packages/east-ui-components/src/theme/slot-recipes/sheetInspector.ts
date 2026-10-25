@@ -13,7 +13,8 @@
  * recipe lays them out — a link's halves drawn as the grid draws them, with
  * Edit in sheet; its sub rows; and its gestures. For a band, several rows, or
  * nothing selected, the same sections hold what they show. The Issues tab
- * lists the batch's issues by row, each a control that goes to its cell.
+ * lists the batch's issues by row, each a control that goes to its cell — one
+ * whose row the rail's filters hide saying which.
  *
  * Only the layout is the inspector's own: its words take the theme's text
  * styles, its controls are the shared `button` and `iconButton`, its form is
@@ -36,7 +37,7 @@ export const sheetInspectorSlotRecipe = defineSlotRecipe({
         "issues", "issue", "issueField", "issueText",
         "link", "linkCell", "subRows", "subRow", "subRowCode", "subRowName", "subRowFacts",
         "commit",
-        "issueList", "issueItem", "issueWhere", "issueMessage",
+        "issueList", "issueItem", "issueWhere", "issueMessage", "issueHidden",
     ],
     base: {
         ...inspectorBase,
@@ -96,5 +97,7 @@ export const sheetInspectorSlotRecipe = defineSlotRecipe({
             overflowWrap: "anywhere",
             "&[data-kind=invalid]": { color: "fg.danger" },
         },
+        /* An issue whose row the rail's filters hide: which, and that a click clears them. */
+        issueHidden: { textStyle: "body.sm", color: "fg.muted", overflowWrap: "anywhere" },
     },
 });

@@ -7,7 +7,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { none, some } from "@elaraai/east";
-import { useSheetSeek } from "./use-seek.js";
+import { useSheetSeek, type SheetSeekNarrowing } from "./use-seek.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
 afterEach(cleanup);
@@ -28,10 +28,29 @@ function source(revision: string, found: boolean): SheetPagedSourceValue {
     };
 }
 
+/** A source whose pages are the rows at their places, each asked noted. */
+function listedSource(asked: [bigint, bigint][]): SheetPagedSourceValue {
+    return { ...source("a", true), page: (offset, limit) => { asked.push([offset, limit]); return some(rowsAt(offset, limit)); } };
+}
+
+/** A narrowing that holds every third row, what the box asks of it noted, and the picks it is asked to reveal. */
+function everyThird() {
+    const asks: { from: number; keys: readonly string[]; held: readonly boolean[] }[] = [];
+    const reveals: [number, string][] = [];
+    const narrowing: SheetSeekNarrowing = {
+        held: (from, count) => some(Array.from({ length: count }, (_x, i) => (from + i) % 3 === 0)),
+        hiddenLine: hidden,
+        askHidden: (from, keys, held) => { asks.push({ from, keys, held }); },
+        reveal: (row, key) => { reveals.push([row, key]); },
+        version: 0,
+    };
+    return { narrowing, asks, reveals };
+}
+
 test("a new revision cancels a pending query and releases its jump pin", async () => {
     const jump = vi.fn();
     const clear = vi.fn();
-    const hook = renderHook(({ src }) => useSheetSeek(src, jump, clear, undefined, hidden), {
+    const hook = renderHook(({ src }) => useSheetSeek(src, jump, clear, undefined), {
         initialProps: { src: source("a", false) },
     });
     let outcome: Promise<unknown>;
@@ -48,12 +67,11 @@ test("a new revision cancels a pending query and releases its jump pin", async (
     expect(clear).toHaveBeenCalled();
 });
 
-test("the match list reads the run's rows through the source by their places — a far one as well as one in view — and marks those a narrowing hides (#1398, CL10)", async () => {
+test("the match list reads the run's rows through the source by their places — a far one as well as one in view — and marks those a narrowing hides, asking which filters hide them (#1398, CL10)", async () => {
     const asked: [bigint, bigint][] = [];
-    const src: SheetPagedSourceValue = { ...source("a", true), page: (offset, limit) => { asked.push([offset, limit]); return some(rowsAt(offset, limit)); } };
-    // The narrowing holds every third row.
-    const held = (from: number, count: number) => some(Array.from({ length: count }, (_x, i) => (from + i) % 3 === 0));
-    const hook = renderHook(() => useSheetSeek(src, vi.fn(), vi.fn(), held, hidden));
+    const src = listedSource(asked);
+    const { narrowing, asks } = everyThird();
+    const hook = renderHook(() => useSheetSeek(src, vi.fn(), vi.fn(), narrowing));
     const search = hook.result.current.search!;
     // Far from any row the sheet has drawn: read by its place, its key the box shows once picked.
     expect(await search.listRange(9_000, 3)).toEqual([
@@ -62,14 +80,31 @@ test("the match list reads the run's rows through the source by their places —
         { row: 9_002, label: "r9002 · hidden", text: "r9002" },
     ]);
     expect(asked).toEqual([[9_000n, 3n]]);
+    // The narrowing is asked which of its filters hide the rows it hides, by the rows listed and whether it holds each.
+    expect(asks).toEqual([{ from: 9_000, keys: ["r9000", "r9001", "r9002"], held: [true, false, false] }]);
     // Nothing narrowing the rows: none is marked.
-    const plain = renderHook(() => useSheetSeek(src, vi.fn(), vi.fn(), undefined, hidden));
+    const plain = renderHook(() => useSheetSeek(src, vi.fn(), vi.fn(), undefined));
     expect(await plain.result.current.search!.listRange(4, 2)).toEqual([{ row: 4, label: "r4", text: "r4" }, { row: 5, label: "r5", text: "r5" }]);
+});
+
+test("a pick of a listed row the narrowing hides is revealed — never a jump under the narrowing that hides it — and one it holds is jumped to (the hidden pick)", async () => {
+    const jump = vi.fn();
+    const { narrowing, reveals } = everyThird();
+    const hook = renderHook(() => useSheetSeek(listedSource([]), jump, vi.fn(), narrowing));
+    await hook.result.current.search!.listRange(9_000, 3);
+    act(() => { hook.result.current.search!.jump(9_001); });
+    expect(reveals).toEqual([[9_001, "r9001"]]);
+    expect(jump).not.toHaveBeenCalled();
+    expect(hook.result.current.target).toBeUndefined();
+    act(() => { hook.result.current.search!.jump(9_000); });
+    expect(jump).toHaveBeenCalledWith(9_000);
+    expect(hook.result.current.target).toBe(9_000);
+    expect(reveals).toHaveLength(1);
 });
 
 test("unmount rejects a pending search instead of leaving the control waiting", async () => {
     const clear = vi.fn();
-    const hook = renderHook(() => useSheetSeek(source("a", false), vi.fn(), clear, undefined, hidden));
+    const hook = renderHook(() => useSheetSeek(source("a", false), vi.fn(), clear, undefined));
     let outcome: Promise<unknown>;
     act(() => { outcome = hook.result.current.search!.find({ prefix: "x" }).catch(e => e); });
     hook.unmount();

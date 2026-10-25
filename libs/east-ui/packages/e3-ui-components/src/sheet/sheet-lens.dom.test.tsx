@@ -14,10 +14,11 @@
  * the rows' pitch, and its rows land where it stood. A segment whose rows
  * disagree with where e3 placed the narrowing's is one failed run that says
  * so, the footer's line why, never a match the index does not hold. A key
- * search finds a row the narrowing hides and says so — a pick of it moves
- * nothing — and starts afresh with each narrowing of the rows; a saved view
- * keeps every source's narrowing and opens it again as it was. Over the
- * example's record on e3 itself (#1376).
+ * search finds a row the narrowing hides and names the filters that hide it —
+ * a pick of it clears them and goes to the row, at its number (the hidden
+ * pick, `sheet-hidden-pick.dom.test.tsx`) — and starts afresh with each
+ * narrowing of the rows; a saved view keeps every source's narrowing and opens
+ * it again as it was. Over the example's record on e3 itself (#1376).
  */
 
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -309,7 +310,7 @@ function searchRecords(container: HTMLElement) {
     return { box, input, type, clear, lines };
 }
 
-test("a key search finds a row the narrowing hides and says so; a pick of it moves nothing — the view, its rows and the ring stay — and another narrowing of the rows starts the search afresh", async () => {
+test("a key search finds a row the narrowing hides and names the filter that hides it; a pick of it clears that filter and puts the ring on the row at its number — and another narrowing of the rows starts the search afresh", async () => {
     const ui = await setup();
     await waitFor(() => expect(ui.ids()[0]).toBe("JOB-10000"));
     await narrow(QUANTITY_700);
@@ -318,20 +319,16 @@ test("a key search finds a row the narrowing hides and says so; a pick of it mov
     const search = searchRecords(ui.container);
     await search.type("JOB-10001");
     await waitFor(() => expect(search.box().textContent).toMatch(/1 match/), { timeout: 5_000 });
-    await waitFor(() => expect(search.lines()).toEqual(["JOB-10001 · hidden by the filters"]), { timeout: 5_000 });
-    const frame = ui.main().querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
-    const ring = () => ui.row("JOB-10006")!.querySelector('[data-slot="cell"][data-selected]');
-    const shown = { ids: ui.ids(), scroll: frame.scrollTop, pages: h.requests("page", ORDERS).length };
-    expect(ring()).not.toBeNull();
+    // Its quantity is 200: the choice of 700 hides it, and its line names that choice as the rail words it.
+    await waitFor(() => expect(search.lines()).toEqual(["JOB-10001 · hidden by Quantity: 700 — picking it clears that filter"]), { timeout: 5_000 });
     fireEvent.keyDown(search.input(), { key: "Enter" });
-    await settle();
-    // The lens knows it a row the narrowing does not hold: nothing draws it, and nothing moves.
-    expect(ui.row("JOB-10001")).toBeNull();
-    expect(ui.ids()).toEqual(shown.ids);
-    expect(frame.scrollTop).toBe(shown.scroll);
-    expect(ring()).not.toBeNull();
-    // Its segment is the one the view shows, read already: no page more.
-    expect(h.requests("page", ORDERS)).toHaveLength(shown.pages);
+    // The choice cleared, nothing left narrowing the rows: the record's own rows, the ring on the order at its number,
+    // JOB-10000 and JOB-10002 — of other quantities — drawn either side of it.
+    await waitFor(() => expect(ui.row("JOB-10001")?.querySelector('[data-slot="cell"][data-selected]') ?? null).not.toBeNull(), { timeout: 10_000 });
+    expect(rail().slice.parts[0]!.slice.read().where.size).toBe(0);
+    expect(ui.row("JOB-10001")!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("2");
+    const at = ui.ids().indexOf("JOB-10001");
+    expect(ui.ids().slice(at - 1, at + 2)).toEqual(["JOB-10000", "JOB-10001", "JOB-10002"]);
     // It sought the record's own order: the key, as the record's keys sort.
     expect(h.requests("find", ORDERS).some((request) => request.searches.some((s) => "prefix" in s || "key" in s))).toBe(true);
     // The orders ready again: the rows' narrowing moved, and the search starts afresh — no key, no match it stood on —
@@ -342,7 +339,10 @@ test("a key search finds a row the narrowing hides and says so; a pick of it mov
     expect(search.box().textContent).not.toMatch(/\d+ of \d+/);
 });
 
-test("Search Records lists the rows its key finds wherever they are — on screen, far off, and those the narrowing hides, marked — and takes the ring to a far one the narrowing holds (#1398, CL10)", async () => {
+/** A listed order the example's narrowing — the orders ready — hides, as Search Records lists it once e3 has said why. */
+const notReady = (key: string) => `${key} · hidden by Status: Ready — picking it clears that filter`;
+
+test("Search Records lists the rows its key finds wherever they are — on screen, far off, and those the narrowing hides, marked by the filter that hides them — and takes the ring to a far one the narrowing holds (#1398, CL10)", async () => {
     const ui = await setup();
     await waitFor(() => expect(ui.ids().slice(0, 3)).toEqual(["JOB-10000", "JOB-10003", "JOB-10006"]));
     await settle();
@@ -350,13 +350,13 @@ test("Search Records lists the rows its key finds wherever they are — on scree
     // On screen: the head of the thousand orders it finds, each a line — the ones Ready drawn, the others marked.
     await search.type("JOB-10");
     await waitFor(() => expect(search.box().textContent).toMatch(/1,000 matches/), { timeout: 5_000 });
-    await waitFor(() => expect(search.lines().slice(0, 4)).toEqual(["JOB-10000", "JOB-10001 · hidden by the filters", "JOB-10002 · hidden by the filters", "JOB-10003"]), { timeout: 5_000 });
+    await waitFor(() => expect(search.lines().slice(0, 4)).toEqual(["JOB-10000", notReady("JOB-10001"), notReady("JOB-10002"), "JOB-10003"]), { timeout: 5_000 });
     expect(search.lines()).toHaveLength(20);
     // Far off, where the lens has read nothing: its lines all the same.
     await search.clear();
     await search.type("JOB-2");
     await waitFor(() => expect(search.box().textContent).toMatch(/10,000 matches/), { timeout: 5_000 });
-    await waitFor(() => expect(search.lines().slice(0, 3)).toEqual(["JOB-20000 · hidden by the filters", "JOB-20001 · hidden by the filters", "JOB-20002"]), { timeout: 5_000 });
+    await waitFor(() => expect(search.lines().slice(0, 3)).toEqual([notReady("JOB-20000"), notReady("JOB-20001"), "JOB-20002"]), { timeout: 5_000 });
     // A far one the narrowing holds: the ring lands on it, at its number.
     await search.clear();
     await search.type("JOB-20002");

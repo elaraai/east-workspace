@@ -35,7 +35,10 @@
  *
  * Issues (SB53) lists every issue of the batch by row — a field still
  * missing or unreadable, an author's check, an Apply's conflict or refusal —
- * each a control that goes to its cell, seeking its row on a paged sheet.
+ * each a control that goes to its cell, seeking its row on a paged sheet. An
+ * issue whose row the rail's filters hide says so, and by which once e3 has
+ * said — `hidden by Status: Ready — picking it clears that filter` — and a
+ * click clears them and goes to the row (the hidden pick, `hidden.ts`).
  *
  * Styles are the `sheetInspector` recipe's, the form's `fieldForm`'s and a
  * link cell's the `sheet` recipe's; the pane — its tab row, its collapse
@@ -44,7 +47,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLock } from "@fortawesome/free-solid-svg-icons";
@@ -673,6 +676,10 @@ const SheetInspectorIssues = memo(function SheetInspectorIssues({ forms, words, 
         const row = getSomeorUndefined(issue.row);
         return row === undefined ? issue.entry : m.rowRef({ line: true, number: words.number(Number(row) + 1), title: issue.entry, noun });
     }, [m, words, noun]);
+    // Whether the rail's filters hide the rows of the issues the sheet does not draw, and by which, asked of e3 while the
+    // tab lists them (the hidden pick).
+    const { issues, askHidden } = inspect;
+    useEffect(() => { askHidden(issues); }, [askHidden, issues]);
     if (inspect.issues.length === 0) {
         return (
             <Box css={styles.empty} data-inspector-no-issues="">
@@ -685,11 +692,13 @@ const SheetInspectorIssues = memo(function SheetInspectorIssues({ forms, words, 
         <Box as="ul" css={styles.issueList} data-inspector-issue-list="">
             {inspect.issues.map((issue, i) => {
                 const field = getSomeorUndefined(issue.field);
+                const hidden = inspect.hiddenNote(issue);
                 return (
                     <Box as="li" key={i}>
                         <chakra.button type="button" css={styles.issueItem} onClick={() => inspect.goToIssue(issue)} data-inspector-issue="">
                             <Box as="span" css={styles.issueWhere}>{m.inspectorIssueAt({ where: where(issue), field: field === undefined ? undefined : labels.get(field) ?? field })}</Box>
                             <Box as="span" css={styles.issueMessage} data-kind={inspect.kindOf(issue)}>{issueText(issue.message, words)}</Box>
+                            {hidden !== undefined && <Box as="span" css={styles.issueHidden} data-inspector-issue-hidden="">{hidden}</Box>}
                         </chakra.button>
                     </Box>
                 );
