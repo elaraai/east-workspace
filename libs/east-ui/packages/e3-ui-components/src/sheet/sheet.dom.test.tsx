@@ -937,8 +937,14 @@ function heldSheet(n: number) {
  */
 const HELD_TEST_MS = 60_000;
 
-/** Type a key into the toolbar's key search, a keystroke at a time, and jump to its match with ⏎. */
-async function seekKey(container: HTMLElement, key: string): Promise<void> {
+/**
+ * Type a key into the toolbar's key search, a keystroke at a time, until it finds its one match. The box lists the
+ * matches of each query it settles on as it is typed, reading their rows through the source by their place (#1398,
+ * CL10) — "r"'s from the first row — and how many queries it settles on depends on how fast the keys come.
+ *
+ * @returns The search's input
+ */
+async function typeKey(container: HTMLElement, key: string): Promise<HTMLInputElement> {
     const search = container.querySelector('[data-part="dataset-key-search"]')!;
     const input = search.querySelector("input") as HTMLInputElement;
     for (const ch of key) {
@@ -947,7 +953,12 @@ async function seekKey(container: HTMLElement, key: string): Promise<void> {
         await waitFor(() => expect(input.value).toBe(typed));
     }
     await waitFor(() => expect(search.textContent).toMatch(/1 match/), { timeout: 5_000 });
-    fireEvent.keyDown(input, { key: "Enter" });
+    return input;
+}
+
+/** Type a key into the toolbar's key search, a keystroke at a time, and jump to its match with ⏎. */
+async function seekKey(container: HTMLElement, key: string): Promise<void> {
+    fireEvent.keyDown(await typeKey(container, key), { key: "Enter" });
 }
 
 describe("a key-search jump owns the viewport (#854)", () => {
@@ -1004,8 +1015,11 @@ describe("a window loading above the rows never hides them (#876)", () => {
         const held = heldSheet(8_000);
         const { container, key, input, flush, scrollFrame } = mount(held.value);
         await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
+        // What the jump reads is counted from the query found on: the box's lists of the queries typed on the way
+        // read the source too.
+        const query = await typeKey(container, "r6000");
         const read = held.state.asked.length;
-        await seekKey(container, "r6000");
+        fireEvent.keyDown(query, { key: "Enter" });
         await waitFor(() => expect(container.querySelector('[data-row-id="r6000"] [data-key="task"]')?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
         await flush();
         // The run around the sought row starts at the first window the jump read. The window above the
