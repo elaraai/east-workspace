@@ -28,7 +28,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Box, Button, chakra } from "@chakra-ui/react";
 import { variant, type SortedMap, type option } from "@elaraai/east";
-import { LoadingFailedLine, PlaceholderShape, VirtualRows, formatDatePattern, type RowsInView } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedLine, PlaceholderShape, VirtualRows, formatDatePattern, useRowsTop } from "@elaraai/east-ui-components/internal";
 import type { PeriodRead } from "../shared/loading.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { remainderOf, splitOf } from "./actions.js";
@@ -85,13 +85,24 @@ function ReadFailure({ read }: { read: Extract<PeriodRead, { state: "failed" }> 
     return <LoadingFailedLine message={read.message} retry={{ onRetry: read.retry }} />;
 }
 
-/** The first card in view among a list's lines that `holds`, else the last one above it: where a failed day says so once (#1398). */
-function firstInView(count: number, holds: (index: number) => boolean, view: RowsInView): number | undefined {
-    const from = Math.max(0, view.top ?? 0);
+/**
+ * The first card in view among a list's lines that `holds`, else the last one above it: where a failed day says so once
+ * (#1398).
+ *
+ * @param count - The list's lines
+ * @param holds - Whether a line is one that may say it
+ * @param top - The line at the top of the view; `undefined` before the lines are placed
+ * @returns The line's index; `undefined` with none that holds
+ */
+function firstInView(count: number, holds: (index: number) => boolean, top: number | undefined): number | undefined {
+    const from = Math.max(0, top ?? 0);
     for (let i = from; i < count; i++) if (holds(i)) return i;
     for (let i = Math.min(from, count) - 1; i >= 0; i--) if (holds(i)) return i;
     return undefined;
 }
+
+/** Every resource's card may say a failed day's failure. */
+const ANY_CARD = () => true;
 
 /** What a card's Chooser has open: its row's cell (`Open`), or a resource card's `Book an arrival…`. */
 type CardsOpen = Open | undefined;
@@ -137,8 +148,8 @@ function ResourceCards({ props, words }: { props: CardsProps; words: CardWords }
     return <Box css={styles.cards} data-allocation-cards="timeline">
         <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.agenda} count={keys.length} getItemKey={getItemKey}
             estimateSize={() => 152} overscan={2} scrollToIndex={followed < 0 ? undefined : followed} scrollNonce={props.follow.nonce} scrollAlign="auto"
-            renderRow={(index, inView) => <Box css={styles.agendaItem}><ResourceCard props={props} words={words} resource={keys[index]!} rows={rows} open={open} setOpen={setOpen}
-                index={index} failing={props.read.state === "failed" && index === firstInView(keys.length, () => true, inView)} /></Box>} />
+            renderRow={index => <Box css={styles.agendaItem}><ResourceCard props={props} words={words} resource={keys[index]!} rows={rows} open={open} setOpen={setOpen}
+                index={index} count={keys.length} /></Box>} />
     </Box>;
 }
 
@@ -147,14 +158,15 @@ function ResourceCards({ props, words }: { props: CardsProps; words: CardWords }
  * A day not read yet: its name and what its line knows without the day's read, a placeholder where its bins go; a day
  * whose read failed, the failure in the first card in view (#1398).
  */
-function ResourceCard({ props, words, resource, rows, open, setOpen, index, failing }: {
+function ResourceCard({ props, words, resource, rows, open, setOpen, index, count }: {
     props: CardsProps; words: CardWords; resource: string; rows: ReadonlyMap<string, TableRow>; open: CardsOpen; setOpen: (open: CardsOpen) => void;
     /** Its place in the list: what keys its placeholder's width. */
     index: number;
-    /** Whether a failed day says so in this card. */
-    failing: boolean;
+    /** The cards in the list: the first in view of a failed day says so, which the card reads itself (CL9). */
+    count: number;
 }) {
     const { context, styles, plan, held, selection, read } = props;
+    const failing = useRowsTop(top => read.state === "failed" && index === firstInView(count, ANY_CARD, top));
     const row = context.resources.get(resource)!;
     const line = props.lines.get(resource);
     const mates = matesOf(plan, held, resource, context, words.inspector);
@@ -272,7 +284,7 @@ function RowCards({ props, words }: { props: CardsProps; words: CardWords }) {
     return <Box css={styles.cards} data-allocation-cards="table">
         <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.agenda} count={lines.length} getItemKey={getItemKey}
             estimateSize={index => lines[index]!.kind === "band" ? 46 : 132} overscan={2} scrollToIndex={followed < 0 ? undefined : followed}
-            scrollNonce={props.follow.nonce} scrollAlign="auto" renderRow={(index, inView) => {
+            scrollNonce={props.follow.nonce} scrollAlign="auto" renderRow={index => {
                 const line = lines[index]!;
                 if (line.kind === "band") {
                     const folded = collapsed.includes(line.band.key);
@@ -284,21 +296,26 @@ function RowCards({ props, words }: { props: CardsProps; words: CardWords }) {
                         </>}
                     </GroupHeading></Box>;
                 }
-                if (line.kind === "unread") {
-                    // A row's card's place: its title, its line and its status placeholders, unseen until the frame's reveal says
-                    // so, or blank where the day failed — but in the first such card in view, which says so once.
-                    const failing = read.state === "failed" && index === firstInView(lines.length, i => lines[i]!.kind === "unread", inView);
-                    return <Box css={styles.agendaItem}><Box css={styles.agendaCard} data-allocation-row-card={`unread:${line.band.key}`} data-allocation-unread=""
-                        data-blank={read.state === "failed" ? "" : undefined} aria-hidden={failing ? undefined : true}>
-                        {failing && read.state === "failed" ? <ReadFailure read={read} /> : <Box css={styles.agendaCardHead}>
-                            <Box css={styles.agendaCardTitle}><PlaceholderShape kind="label" index={index} /></Box>
-                            <Box css={styles.agendaLine}><PlaceholderShape kind="text" index={index + 1} /></Box>
-                            <Box css={styles.agendaStatus}><PlaceholderShape kind="enum" index={index} /></Box>
-                        </Box>}
-                    </Box></Box>;
-                }
+                if (line.kind === "unread") return <Box css={styles.agendaItem}><UnreadRowCard styles={styles} band={line.band} index={index} lines={lines} read={read} /></Box>;
                 return <Box css={styles.agendaItem}><RowCard props={props} words={words} row={line.row} open={open} setOpen={setOpen} /></Box>;
             }} />
+    </Box>;
+}
+
+/**
+ * A band's placeholder card of a day not read, or whose read failed (#1398, CL2, CL11): its title, its line and its status
+ * placeholders, unseen until the frame's reveal says so, or blank where the day failed — but in the first such card in
+ * view, which says so once. It reads which line is at the top of the view itself (CL9).
+ */
+function UnreadRowCard({ styles, band, index, lines, read }: { styles: AllocationStyles; band: TableBand; index: number; lines: readonly Line[]; read: PeriodRead }) {
+    const failing = useRowsTop(top => read.state === "failed" && index === firstInView(lines.length, i => lines[i]!.kind === "unread", top));
+    return <Box css={styles.agendaCard} data-allocation-row-card={`unread:${band.key}`} data-allocation-unread=""
+        data-blank={read.state === "failed" ? "" : undefined} aria-hidden={failing ? undefined : true}>
+        {failing && read.state === "failed" ? <ReadFailure read={read} /> : <Box css={styles.agendaCardHead}>
+            <Box css={styles.agendaCardTitle}><PlaceholderShape kind="label" index={index} /></Box>
+            <Box css={styles.agendaLine}><PlaceholderShape kind="text" index={index + 1} /></Box>
+            <Box css={styles.agendaStatus}><PlaceholderShape kind="enum" index={index} /></Box>
+        </Box>}
     </Box>;
 }
 

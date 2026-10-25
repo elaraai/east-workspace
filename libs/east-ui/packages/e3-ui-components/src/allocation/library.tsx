@@ -447,11 +447,13 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
     const hint = (tab: "arrivals" | "resources") => narrow ? `Select ${a(nouns.arrival)}, then Book`
         : tab === "arrivals" ? (layout === "table" ? `Drag onto a row’s ${one(nouns.arrival)} cell` : `Drag onto ${a(nouns.lane)} hour or ${a(nouns.resource)}`)
             : (layout === "table" ? `Drag onto a row’s ${one(nouns.resource)} cell` : `Drag onto a bin or an empty ${one(nouns.lane)} hour`);
+    // A tab its source reads again holds its cards retained (#1398, CL8): its action waits until it lands.
     const feet = (tab: "arrivals" | "resources") => <>
         <Box css={[styles.paneFoot, styles.paneHint]} data-allocation-library-hint="">{hint(tab)}</Box>
         {action !== undefined && <Box css={[styles.paneFoot, styles.paneAction]} data-allocation-library-action="">
             <Box as="span" css={styles.paneHint} data-tone={action.tone}>{action.note}</Box>
-            {action.button !== undefined && <Button size="xs" variant="outline" disabled={action.button.disabled} onClick={runAction}>
+            {action.button !== undefined && <Button size="xs" variant="outline" onClick={runAction}
+                disabled={action.button.disabled || (tab === "arrivals" ? arrivalTab : resourceTab).pane["aria-disabled"] === true}>
                 <FontAwesomeIcon icon={faInbox} />{action.button.label}
             </Button>}
         </Box>}
