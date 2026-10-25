@@ -2,7 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
-import { East, ArrayType, IntegerType, StringType, NullType, SetType, DictType, StructType, VariantType, variant, FloatType, BooleanType, DateTimeType, SortedSet, RefType, ref, RecursiveType, some, none, PatchType } from "../src/index.js";
+import { East, ArrayType, IntegerType, StringType, NullType, SetType, DictType, StructType, VariantType, variant, FloatType, BooleanType, DateTimeType, SortedSet, RefType, ref, RecursiveType, some, none, PatchType, encodeBeast2For } from "../src/index.js";
 import type { EastType, ValueTypeOf } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import { generateFuzzTestCases } from "../src/patch/fuzz.js";
@@ -514,6 +514,285 @@ await describe("Patch - Arrays", (test) => {
         $(assert.equal(result.get(1n), "x"));
         $(assert.equal(result.get(2n), "c"));
         $(assert.equal(result.get(3n), "d"));
+    });
+});
+
+// =============================================================================
+// Array edits — the trim, the shortest edit script, and its bound (#1425)
+// =============================================================================
+
+// An Array's diff trims the common start and end, finds a shortest edit script
+// over the middle by Myers' greedy forward algorithm, and past the search's
+// bound — min(m′ + n′, ⌊2^24 / (m′ + n′)⌋) edits — pairs the middle by
+// position. Each case pins its patch as a value and as the bytes TypeScript
+// encodes for it, so every runtime keeps the same pairs, then applies it and
+// inverts it. The inputs are built with the Array builtins, never an East
+// loop, so the suite stays quick on every runtime, the eager replay's
+// included. The work is pinned by counting element comparisons, over
+// alignArrays in src/patch/patch.spec.ts and in east-c's tests/test_patch_diff.c.
+const IntArray = ArrayType(IntegerType);
+const IntArrayPatch = PatchType(IntArray);
+const IntArrayOp = StructType({
+    key: IntegerType,
+    offset: IntegerType,
+    operation: VariantType({ delete: IntegerType, insert: IntegerType, update: PatchType(IntegerType) }),
+});
+type IntArrayPatchValue = ValueTypeOf<typeof IntArrayPatch>;
+type IntArrayOpValue = ValueTypeOf<typeof IntArrayOp>;
+/** The bytes TypeScript encodes for an Array patch: the Blob each runtime's encoding of it must equal. */
+const encodeIntArrayPatch = encodeBeast2For(IntArrayPatch);
+
+/** An `update` at `key`, replacing `before` with `after`. */
+function updateOp(key: number, before: number, after: number): IntArrayOpValue {
+    return { key: BigInt(key), offset: 0n, operation: variant("update", variant("replace", { before: BigInt(before), after: BigInt(after) })) };
+}
+
+/** A `delete` at `key` of `value`. */
+function deleteOp(key: number, value: number): IntArrayOpValue {
+    return { key: BigInt(key), offset: 0n, operation: variant("delete", BigInt(value)) };
+}
+
+/** An `insert` at `key` of `value`. */
+function insertOp(key: number, value: number): IntArrayOpValue {
+    return { key: BigInt(key), offset: 0n, operation: variant("insert", BigInt(value)) };
+}
+
+const ONE_CHANGE: IntArrayPatchValue = variant("patch", [updateOp(50000, 50000, -1)]);
+const ONE_REMOVED: IntArrayPatchValue = variant("patch", [deleteOp(50000, 50000)]);
+const ONE_INSERTED: IntArrayPatchValue = variant("patch", [insertOp(50000, -1)]);
+const APPENDED: IntArrayPatchValue = variant("patch", [insertOp(100000, 100000)]);
+const PREPENDED: IntArrayPatchValue = variant("patch", [insertOp(0, -1)]);
+const FAR_APART: IntArrayPatchValue = variant("patch", [updateOp(10, 10, -1), updateOp(99989, 99989, -2)]);
+const MOVED: IntArrayPatchValue = variant("patch", [deleteOp(10, 10), insertOp(99990, 10)]);
+const SHIFT: IntArrayPatchValue = variant("patch", [insertOp(0, -1), deleteOp(4095, 4094), deleteOp(4095, 4095)]);
+const TIE: IntArrayPatchValue = variant("patch", [deleteOp(1, 1)]);
+
+// The elements the two cases at the bound negate: x mod 2,490 = 100, the 41
+// from 100 to 99,700, either side of the moved element's stretch.
+const BOUND_NEGATED = Array.from({ length: 41 }, (_, i) => 100 + 2490 * i);
+const AT_THE_BOUND: IntArrayPatchValue = variant("patch", [
+    ...BOUND_NEGATED.filter((x) => x < 50000).map((x) => updateOp(x, x, -x)),
+    deleteOp(50000, 50000),
+    insertOp(50010, 50000),
+    ...BOUND_NEGATED.filter((x) => x > 50010).map((x) => updateOp(x, x, -x)),
+]);
+const PAST_THE_BOUND: IntArrayPatchValue = variant("patch", [
+    ...BOUND_NEGATED.filter((x) => x < 50000).map((x) => updateOp(x, x, -x)),
+    ...Array.from({ length: 10 }, (_, i) => updateOp(50000 + i, 50000 + i, 50001 + i)),
+    updateOp(50010, 50010, 50000),
+    ...BOUND_NEGATED.filter((x) => x > 50010).map((x) => updateOp(x, x, -x)),
+    deleteOp(99800, 99800),
+]);
+// Built in East in its test, where it is long; its bytes are these.
+const SCATTERED: IntArrayPatchValue = variant("patch",
+    Array.from({ length: 1000 }, (_, i) => updateOp(100 * i + 50, 100 * i + 50, -(100 * i + 50))));
+
+const ONE_CHANGE_BYTES = encodeIntArrayPatch(ONE_CHANGE);
+const ONE_REMOVED_BYTES = encodeIntArrayPatch(ONE_REMOVED);
+const ONE_INSERTED_BYTES = encodeIntArrayPatch(ONE_INSERTED);
+const APPENDED_BYTES = encodeIntArrayPatch(APPENDED);
+const PREPENDED_BYTES = encodeIntArrayPatch(PREPENDED);
+const FAR_APART_BYTES = encodeIntArrayPatch(FAR_APART);
+const MOVED_BYTES = encodeIntArrayPatch(MOVED);
+const SHIFT_BYTES = encodeIntArrayPatch(SHIFT);
+const TIE_BYTES = encodeIntArrayPatch(TIE);
+const AT_THE_BOUND_BYTES = encodeIntArrayPatch(AT_THE_BOUND);
+const PAST_THE_BOUND_BYTES = encodeIntArrayPatch(PAST_THE_BOUND);
+const SCATTERED_BYTES = encodeIntArrayPatch(SCATTERED);
+
+const Row = StructType({ id: IntegerType, name: StringType });
+const RowArrayPatch = PatchType(ArrayType(Row));
+const NESTED_FIELD: ValueTypeOf<typeof RowArrayPatch> = variant("patch", [{
+    key: 50000n,
+    offset: 0n,
+    operation: variant("update", variant("patch", {
+        id: variant("unchanged", null),
+        name: variant("replace", { before: "row 50000", after: "renamed" }),
+    })),
+}]);
+const NESTED_FIELD_BYTES = encodeBeast2For(RowArrayPatch)(NESTED_FIELD);
+
+await describe("Patch - Array edits", (test) => {
+    assert.examples(test, {
+        patchDiffArrayOneChange: ex.patchDiffArrayOneChange,
+        patchDiffArrayMove: ex.patchDiffArrayMove,
+    });
+
+    test("one change in 100,000 elements is one update", $ => {
+        const before = $.let(East.Array.range(0n, 100000n));
+        const after = $.let(before.copy());
+        $(after.update(50000n, -1n));
+        const patch = $.let(East.diff(before, after));
+        $(assert.equal(patch, ONE_CHANGE));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), ONE_CHANGE_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, IntArray)), before));
+    });
+
+    test("one element removed is one delete", $ => {
+        const before = $.let(East.Array.range(0n, 100000n));
+        const after = $.let(before.slice(0n, 50000n));
+        $(after.append(before.slice(50001n, 100000n)));
+        const patch = $.let(East.diff(before, after));
+        $(assert.equal(patch, ONE_REMOVED));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), ONE_REMOVED_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, IntArray)), before));
+    });
+
+    test("one element inserted is one insert", $ => {
+        const before = $.let(East.Array.range(0n, 100000n));
+        const after = $.let(before.slice(0n, 50000n));
+        $(after.pushLast(-1n));
+        $(after.append(before.slice(50000n, 100000n)));
+        const patch = $.let(East.diff(before, after));
+        $(assert.equal(patch, ONE_INSERTED));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), ONE_INSERTED_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, IntArray)), before));
+    });
+
+    test("an appended element is one insert at the end", $ => {
+        const before = $.let(East.Array.range(0n, 100000n));
+        const after = $.let(before.copy());
+        $(after.pushLast(100000n));
+        const patch = $.let(East.diff(before, after));
+        $(assert.equal(patch, APPENDED));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), APPENDED_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, IntArray)), before));
+    });
+
+    test("a prepended element is one insert at the start", $ => {
+        const before = $.let(East.Array.range(0n, 100000n));
+        const after = $.let(before.copy());
+        $(after.pushFirst(-1n));
+        const patch = $.let(East.diff(before, after));
+        $(assert.equal(patch, PREPENDED));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), PREPENDED_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, IntArray)), before));
+    });
+
+    test("two changes far apart are two updates", $ => {
+        // The middle between them is the whole array but 20 elements, and its
+        // shortest script is 4 edits long.
+        const before = $.let(East.Array.range(0n, 100000n));
+        const after = $.let(before.copy());
+        $(after.update(10n, -1n));
+        $(after.update(99989n, -2n));
+        const patch = $.let(East.diff(before, after));
+        $(assert.equal(patch, FAR_APART));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), FAR_APART_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, IntArray)), before));
+    });
+
+    test("a moved element is one delete and one insert", $ => {
+        // Element 10 removed and put back at position 99,990: a shift across
+        // the whole middle, which a shortest script keeps whole.
+        const before = $.let(East.Array.range(0n, 100000n));
+        const after = $.let(before.slice(0n, 10n));
+        $(after.append(before.slice(11n, 99991n)));
+        $(after.pushLast(10n));
+        $(after.append(before.slice(99991n, 100000n)));
+        const patch = $.let(East.diff(before, after));
+        $(assert.equal(patch, MOVED));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), MOVED_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, IntArray)), before));
+    });
+
+    test("a nested struct field is one update carrying the struct's patch", $ => {
+        const before = $.let(East.Array.range(0n, 100000n).map(($, x) => East.value({ id: x, name: East.str`row ${x}` }, Row)));
+        const after = $.let(before.copy());
+        $(after.update(50000n, { id: 50000n, name: "renamed" }));
+        const patch = $.let(East.diff(before, after));
+        $(assert.equal(patch, NESTED_FIELD));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), NESTED_FIELD_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, ArrayType(Row))), before));
+    });
+
+    test("a shift is one insert and the trailing deletes", $ => {
+        // [0, …, 4,095] to [-1, 0, …, 4,093]: the trim keeps nothing, and the
+        // middle's shortest script is 3 edits long.
+        const before = $.let(East.Array.range(0n, 4096n));
+        const after = $.let(East.Array.range(0n, 4094n));
+        $(after.pushFirst(-1n));
+        const patch = $.let(East.diff(before, after));
+        $(assert.equal(patch, SHIFT));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), SHIFT_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, IntArray)), before));
+    });
+
+    test("at the bound the middle gets a shortest script", $ => {
+        // 41 elements negated and element 50,000 moved to position 50,010: the
+        // trim leaves a middle of 99,601 a side, whose bound is
+        // ⌊2^24 / 199,202⌋ = 84 edits, and its shortest script is 84 long.
+        const before = $.let(East.Array.range(0n, 100000n));
+        const changed = $.let(before.map(($, x) => East.equal(x.remainder(2490n), 100n).ifElse(($) => x.negate(), ($) => x)));
+        const after = $.let(changed.slice(0n, 50000n));
+        $(after.append(changed.slice(50001n, 50011n)));
+        $(after.pushLast(changed.get(50000n)));
+        $(after.append(changed.slice(50011n, 100000n)));
+        const patch = $.let(East.diff(before, after));
+        $(assert.equal(patch, AT_THE_BOUND));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), AT_THE_BOUND_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, IntArray)), before));
+    });
+
+    test("past the bound the middle is paired by position", $ => {
+        // The same, and element 99,800 removed: the middle is 99,701 by 99,700,
+        // whose bound is still 84, and its shortest script is 85 long, so the
+        // middle is paired by position — the moved element's stretch an update
+        // at every position it was moved over.
+        const before = $.let(East.Array.range(0n, 100000n));
+        const changed = $.let(before.map(($, x) => East.equal(x.remainder(2490n), 100n).ifElse(($) => x.negate(), ($) => x)));
+        const after = $.let(changed.slice(0n, 50000n));
+        $(after.append(changed.slice(50001n, 50011n)));
+        $(after.pushLast(changed.get(50000n)));
+        $(after.append(changed.slice(50011n, 99800n)));
+        $(after.append(changed.slice(99801n, 100000n)));
+        const patch = $.let(East.diff(before, after));
+        $(assert.equal(patch, PAST_THE_BOUND));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), PAST_THE_BOUND_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, IntArray)), before));
+    });
+
+    test("many scattered changes are paired by position", $ => {
+        // 1,000 negated (x mod 100 = 50): the middle is 99,901 a side, bound 83,
+        // against a shortest script of 2,000.
+        const before = $.let(East.Array.range(0n, 100000n));
+        const after = $.let(before.map(($, x) => East.equal(x.remainder(100n), 50n).ifElse(($) => x.negate(), ($) => x)));
+        const patch = $.let(East.diff(before, after));
+        const ops = $.let(East.Array.range(0n, 1000n).map(($, i) => {
+            const x = $.let(i.multiply(100n).add(50n));
+            return East.value({ key: x, offset: 0n, operation: variant("update", variant("replace", { before: x, after: x.negate() })) }, IntArrayOp);
+        }));
+        $(assert.equal(patch, variant("patch", ops)));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), SCATTERED_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, IntArray)), before));
+    });
+
+    test("a tie keeps the leading element", $ => {
+        const before = $.let([1n, 1n], IntArray);
+        const after = $.let([1n], IntArray);
+        const patch = $.let(East.diff(before, after));
+        $(assert.equal(patch, TIE));
+        $(assert.equal(East.Blob.encodeBeast(patch, 'v2'), TIE_BYTES));
+        $(assert.equal(East.applyPatch(before, patch), after));
+        $(assert.equal(East.applyPatch(after, East.invertPatch(patch, IntArray)), before));
+    });
+
+    test("an unchanged array diffs to unchanged, the same one or an equal copy", $ => {
+        const before = $.let(East.Array.range(0n, 100000n));
+        $(assert.equal(East.diff(before, before).getTag(), "unchanged"));
+        $(assert.equal(East.diff(before, before.copy()).getTag(), "unchanged"));
     });
 });
 

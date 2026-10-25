@@ -12,6 +12,7 @@ import { applyFor } from './apply.js';
 import { composeFor } from './compose.js';
 import { invertFor } from './invert.js';
 import { PatchType } from './index.js';
+import { alignArrays } from './types.js';
 import { ArrayType, BooleanType, DictType, FloatType, IntegerType, NullType, SetType, StringType, StructType, VariantType, isTypeEqual } from '../types.js';
 import { compareFor, equalFor } from '../comparison.js';
 import { generateFuzzTestCases } from './fuzz.js';
@@ -206,6 +207,151 @@ describe('Patch system for EAST values', () => {
             const inverted = invert(patch);
             const result = apply(after, inverted);
             assert.deepEqual(result, before);
+        });
+    });
+
+    describe('Array alignment', () => {
+        // An Array's diff, counted and never timed (#1425): each case is held to
+        // the bound the issue gives it — the trim's p + s + 2, Myers'
+        // (2D + 1)·min(m′, n′), and min(m′, n′) more when the middle is paired
+        // by position — by an element equality that counts its calls and throws
+        // once past it, so a regression to a table over the whole of both
+        // arrays fails at once rather than running. The table the diff used to
+        // fill made about 10^10 comparisons for each 100,000-element case.
+        //
+        // The assertions compare counts and a few positions, never a whole
+        // array of 100,000 positions: assert's message for two such arrays
+        // that differ diffs them line by line, and that diff outgrows the
+        // memory of the machine before it reports. A regression fails here
+        // with a short message instead.
+        const intEqual = equalFor(IntegerType);
+        const N = 100_000;
+        const range = (from: number, to: number): bigint[] => Array.from({ length: to - from }, (_, i) => BigInt(from + i));
+        // [0, …, 99,999] with every x where x mod `period` is `phase` made -x.
+        const negated = (period: number, phase: number): bigint[] =>
+            Array.from({ length: N }, (_, x) => BigInt(x % period === phase ? -x : x));
+
+        function align<T>(before: readonly T[], after: readonly T[], equal: (a: T, b: T) => boolean, bound: number) {
+            let compares = 0;
+            const alignment = alignArrays(before, after, (a: T, b: T) => {
+                compares++;
+                if (compares > bound) throw new Error(`past the bound of ${bound} comparisons`);
+                return equal(a, b);
+            });
+            return { ...alignment, compares };
+        }
+
+        // Whether each match keeps a position of `before` as the same position
+        // of `after`: the middle paired by position.
+        const pairedByPosition = (a: { beforeIndices: number[]; afterIndices: number[] }): boolean =>
+            a.beforeIndices.length === a.afterIndices.length && a.beforeIndices.every((x, k) => x === a.afterIndices[k]);
+
+        test('one change in 100,000 elements: the trim leaves one pair, which does not match', () => {
+            const after = range(0, N);
+            after[50000] = -1n;
+            const a = align(range(0, N), after, intEqual, 100_006);
+            assert.deepEqual([a.start, a.end, a.beforeIndices.length, a.afterIndices.length], [50000, 49999, 0, 0]);
+        });
+
+        test('one removed, one inserted, appended and prepended: the trim alone', () => {
+            const removed = [...range(0, 50000), ...range(50001, N)];
+            const inserted = [...range(0, 50000), -1n, ...range(50000, N)];
+            const removal = align(range(0, N), removed, intEqual, 100_001);
+            assert.deepEqual([removal.start, removal.end, removal.beforeIndices.length], [50000, 49999, 0]);
+            const insertion = align(range(0, N), inserted, intEqual, 100_002);
+            assert.deepEqual([insertion.start, insertion.end, insertion.beforeIndices.length], [50000, 50000, 0]);
+            const appended = align(range(0, N), range(0, N + 1), intEqual, 100_002);
+            assert.deepEqual([appended.start, appended.end], [N, 0]);
+            const prepended = align(range(0, N), [-1n, ...range(0, N)], intEqual, 100_002);
+            assert.deepEqual([prepended.start, prepended.end], [0, N]);
+        });
+
+        test('two changes far apart: a script of 4 edits over a 99,980-element middle', () => {
+            const after = range(0, N);
+            after[10] = -1n;
+            after[99989] = -2n;
+            const a = align(range(0, N), after, intEqual, 899_842);
+            assert.deepEqual([a.start, a.end, a.beforeIndices.length], [10, 10, 99_978]);
+            assert.deepEqual([a.beforeIndices[0], a.afterIndices[0], a.beforeIndices.at(-1), a.afterIndices.at(-1)], [11, 11, 99_988, 99_988]);
+        });
+
+        test('a moved element: a script of 2 edits keeps the 99,980 elements it was moved over', () => {
+            const after = [...range(0, 10), ...range(11, 99991), 10n, ...range(99991, N)];
+            const a = align(range(0, N), after, intEqual, 499_926);
+            assert.deepEqual([a.start, a.end, a.beforeIndices.length], [10, 9, 99_980]);
+            assert.deepEqual([a.beforeIndices[0], a.afterIndices[0], a.beforeIndices.at(-1), a.afterIndices.at(-1)], [11, 10, 99_990, 99_989]);
+        });
+
+        test('a nested struct field: the rows compare whole, as many times as integers would', () => {
+            const Row = StructType({ id: IntegerType, name: StringType });
+            const rows = Array.from({ length: N }, (_, i) => ({ id: BigInt(i), name: `row ${i}` }));
+            const after = rows.slice();
+            after[50000] = { id: 50000n, name: "renamed" };
+            const a = align(rows, after, equalFor(Row), 100_006);
+            assert.deepEqual([a.start, a.end, a.beforeIndices.length], [50000, 49999, 0]);
+        });
+
+        test('a shift: a script of 3 edits keeps 4,094 of 4,096', () => {
+            const a = align(range(0, 4096), [-1n, ...range(0, 4094)], intEqual, 28_667);
+            assert.deepEqual([a.start, a.end, a.beforeIndices.length], [0, 0, 4094]);
+            assert.deepEqual([a.beforeIndices[0], a.afterIndices[0], a.beforeIndices.at(-1), a.afterIndices.at(-1)], [0, 1, 4093, 4094]);
+        });
+
+        test('at the bound the search finds a shortest script, and past it pairs by position', () => {
+            // At the bound: 41 negated and element 50,000 moved to 50,010. The
+            // middle is 99,601 a side, bound ⌊2^24 / 199,202⌋ = 84, script 84.
+            const changed = negated(2490, 100);
+            const at = [...changed.slice(0, 50000), ...changed.slice(50001, 50011), changed[50000]!, ...changed.slice(50011)];
+            const myers = align(range(0, N), at, intEqual, 16_832_970);
+            assert.deepEqual([myers.start, myers.end, myers.beforeIndices.length], [100, 299, (99_601 * 2 - 84) / 2]);
+            // Past it: element 99,800 removed too. The middle is 99,701 by
+            // 99,700, bound still 84, script 85: paired by position, every
+            // position equal but the 41 negated and the 11 the move shifted.
+            const past = [...at.slice(0, 99800), ...at.slice(99801)];
+            const byPosition = align(range(0, N), past, intEqual, 16_949_301);
+            assert.deepEqual([byPosition.start, byPosition.end, byPosition.beforeIndices.length], [100, 199, 99_700 - 41 - 11]);
+            assert.ok(pairedByPosition(byPosition), 'the middle is paired by position');
+        });
+
+        test('many scattered changes pair by position past the bound', () => {
+            // 1,000 negated: the middle is 99,901 a side, bound 83, script 2,000.
+            const a = align(range(0, N), negated(100, 50), intEqual, 16_783_469);
+            assert.deepEqual([a.start, a.end, a.beforeIndices.length], [50, 49, 99_901 - 1000]);
+            assert.ok(pairedByPosition(a), 'the middle is paired by position');
+        });
+
+        test('a tie, an unchanged copy', () => {
+            const tie = align([1n, 1n], [1n], intEqual, 3);
+            assert.deepEqual([tie.start, tie.end, tie.beforeIndices.length], [1, 0, 0]);
+            const copy = align(range(0, N), range(0, N), intEqual, 100_002);
+            assert.deepEqual([copy.start, copy.end, copy.beforeIndices.length], [N, 0, 0]);
+        });
+
+        test('within the bound the alignment keeps as many pairs as a longest common subsequence', () => {
+            // A seeded stream of small arrays over small alphabets — the inputs
+            // where pairs can be matched more than one way.
+            let seed = 0x1425;
+            const next = (n: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n; };
+            for (let trial = 0; trial < 2000; trial++) {
+                const alphabet = 1 + next(4);
+                const before = Array.from({ length: next(12) }, () => BigInt(next(alphabet)));
+                const after = Array.from({ length: next(12) }, () => BigInt(next(alphabet)));
+                const { start, end, beforeIndices, afterIndices } = alignArrays(before, after, intEqual);
+                // The longest common subsequence's length, by the table.
+                const table = Array.from({ length: before.length + 1 }, () => new Array<number>(after.length + 1).fill(0));
+                for (let i = 1; i <= before.length; i++) {
+                    for (let j = 1; j <= after.length; j++) {
+                        table[i]![j] = intEqual(before[i - 1]!, after[j - 1]!)
+                            ? table[i - 1]![j - 1]! + 1
+                            : Math.max(table[i - 1]![j]!, table[i]![j - 1]!);
+                    }
+                }
+                assert.equal(start + end + beforeIndices.length, table[before.length]![after.length]!);
+                for (let k = 0; k < beforeIndices.length; k++) {
+                    assert.ok(intEqual(before[beforeIndices[k]!]!, after[afterIndices[k]!]!));
+                    if (k > 0) assert.ok(beforeIndices[k]! > beforeIndices[k - 1]! && afterIndices[k]! > afterIndices[k - 1]!);
+                }
+            }
         });
     });
 

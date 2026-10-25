@@ -1,10 +1,10 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1301,
+    "totalEntries": 1303,
     "totalFiles": 222,
     "packages": {
-      "east": 582,
+      "east": 584,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
@@ -14813,7 +14813,7 @@
         "identical"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14847,7 +14847,7 @@
         "changed"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14881,7 +14881,7 @@
         "replace"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14916,7 +14916,7 @@
         "reverse"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14954,7 +14954,7 @@
         "round-trip"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -14991,7 +14991,7 @@
         "ArrayType"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15025,7 +15025,7 @@
         "ArrayType"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15062,7 +15062,7 @@
         "restore"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15086,6 +15086,90 @@
       ]
     },
     {
+      "id": "east:patch.examples.ts:patchDiffArrayOneChange",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/patch.examples.ts",
+      "suite": "Arrays",
+      "test": "Diff two 100,000-element arrays that differ in one element: the patch is one update at its position",
+      "keywords": [
+        "patch",
+        "diff",
+        "array",
+        "ArrayType",
+        "large",
+        "update",
+        "one change",
+        "linear"
+      ],
+      "imports": [
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+      ],
+      "languages": [
+        "typescript",
+        "python"
+      ],
+      "ir": "{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Variant\",\"value\":[{\"name\":\"patch\",\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Struct\",\"value\":[{\"name\":\"key\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"offset\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"operation\",\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"delete\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"insert\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"update\",\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"replace\",\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"before\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"after\",\"type\":{\"type\":\"Integer\",\"value\":null}}]}},{\"name\":\"unchanged\",\"type\":{\"type\":\"Null\",\"value\":null}}]}}]}}]}}},{\"name\":\"replace\",\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"before\",\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}}},{\"name\":\"after\",\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}}}]}},{\"name\":\"unchanged\",\"type\":{\"type\":\"Null\",\"value\":null}}]}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"4#type/Function/output/Variant\"}},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"ArrayRange\",\"type_parameters\":[],\"arguments\":[{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"0\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"100000\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"1\"}}}]}}}},{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"ArrayCopy\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}}]}}}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"ArrayUpdate\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"50000\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"-1\"}}}]}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"7#type/Function/output/Variant\"}},\"loc_id\":\"0\",\"builtin\":\"Diff\",\"type_parameters\":[{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},{\"type\":\"Variant\",\"value\":{\"$ref\":\"8#type/Function/output/Variant\"}}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}}]}}]}}}}",
+      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, NullType, IntegerType, ArrayType, StructType, VariantType } from \"@elaraai/east\";\n\nexport const patchDiffArrayOneChange = East.function(\n  [],\n  VariantType({\n    patch: ArrayType(StructType({\n      key: IntegerType,\n      offset: IntegerType,\n      operation: VariantType({\n        delete: IntegerType,\n        insert: IntegerType,\n        update: VariantType({\n          replace: StructType({ before: IntegerType, after: IntegerType }),\n          unchanged: NullType,\n        }),\n      }),\n    })),\n    replace: StructType({ before: ArrayType(IntegerType), after: ArrayType(IntegerType) }),\n    unchanged: NullType,\n  }),\n  ($) => {\n    const before = $.let(East.Array.range(East.value(0n), 100000n, 1n));\n    const after = $.let(before.copy());\n    $(after.update(50000n, -1n));\n    return East.diff(before, after);\n  },\n);\n",
+      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, NullType, IntegerType, ArrayType, StructType, VariantType\n\n@East.function(\n    [],\n    VariantType([\n        ('patch', ArrayType(StructType([\n            ('key', IntegerType),\n            ('offset', IntegerType),\n            ('operation', VariantType([\n                ('delete', IntegerType),\n                ('insert', IntegerType),\n                ('update', VariantType([\n                    ('replace', StructType([('before', IntegerType), ('after', IntegerType)])),\n                    ('unchanged', NullType),\n                ])),\n            ])),\n        ]))),\n        ('replace', StructType([\n            ('before', ArrayType(IntegerType)),\n            ('after', ArrayType(IntegerType)),\n        ])),\n        ('unchanged', NullType),\n    ]),\n)\ndef patchDiffArrayOneChange(b):\n    before = b.let(East.Array.range(East.value(0, IntegerType), 100000, 1))\n    after = b.let(before.copy())\n    b.do(after.update(50000, -1))\n    return East.diff(ArrayType(IntegerType), before, after)\n",
+      "signature": {
+        "inputs": [],
+        "output": "VariantType({ patch: ArrayType(StructType({ key: IntegerType, offset: IntegerType, operation: VariantType({ delete: IntegerType, insert: IntegerType, update: VariantType({ replace: StructType({ before: IntegerType, after: IntegerType }), unchanged: NullType }) }) })), replace: StructType({ before: ArrayType(IntegerType), after: ArrayType(IntegerType) }), unchanged: NullType })",
+        "async": false
+      },
+      "inputs": "[]",
+      "returns": "{\"type\":\"patch\",\"value\":[{\"key\":\"50000\",\"offset\":\"0\",\"operation\":{\"type\":\"update\",\"value\":{\"type\":\"replace\",\"value\":{\"before\":\"50000\",\"after\":\"-1\"}}}}]}",
+      "builtins": [
+        "ArrayCopy",
+        "ArrayRange",
+        "ArrayUpdate",
+        "Diff"
+      ]
+    },
+    {
+      "id": "east:patch.examples.ts:patchDiffArrayMove",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/patch.examples.ts",
+      "suite": "Arrays",
+      "test": "Diff an array with one element moved far along it: the patch deletes it where it was and inserts it where it went",
+      "keywords": [
+        "patch",
+        "diff",
+        "array",
+        "ArrayType",
+        "move",
+        "reorder",
+        "delete",
+        "insert",
+        "shortest edit script"
+      ],
+      "imports": [
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
+      ],
+      "languages": [
+        "typescript",
+        "python"
+      ],
+      "ir": "{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Variant\",\"value\":[{\"name\":\"patch\",\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Struct\",\"value\":[{\"name\":\"key\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"offset\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"operation\",\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"delete\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"insert\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"update\",\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"replace\",\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"before\",\"type\":{\"type\":\"Integer\",\"value\":null}},{\"name\":\"after\",\"type\":{\"type\":\"Integer\",\"value\":null}}]}},{\"name\":\"unchanged\",\"type\":{\"type\":\"Null\",\"value\":null}}]}}]}}]}}},{\"name\":\"replace\",\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"before\",\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}}},{\"name\":\"after\",\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}}}]}},{\"name\":\"unchanged\",\"type\":{\"type\":\"Null\",\"value\":null}}]}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"4#type/Function/output/Variant\"}},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"ArrayRange\",\"type_parameters\":[],\"arguments\":[{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"0\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"100000\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"1\"}}}]}}}},{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"ArraySlice\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"0\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"10\"}}}]}}}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"ArrayAppend\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"ArraySlice\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"11\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"99991\"}}}]}}]}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"ArrayPushLast\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"10\"}}}]}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"ArrayAppend\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"ArraySlice\",\"type_parameters\":[{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"99991\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"100000\"}}}]}}]}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"7#type/Function/output/Variant\"}},\"loc_id\":\"0\",\"builtin\":\"Diff\",\"type_parameters\":[{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},{\"type\":\"Variant\",\"value\":{\"$ref\":\"8#type/Function/output/Variant\"}}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"before\",\"mutable\":true,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Array\",\"value\":{\"type\":\"Integer\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"after\",\"mutable\":true,\"captured\":false}}]}}]}}}}",
+      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, NullType, IntegerType, ArrayType, StructType, VariantType } from \"@elaraai/east\";\n\nexport const patchDiffArrayMove = East.function(\n  [],\n  VariantType({\n    patch: ArrayType(StructType({\n      key: IntegerType,\n      offset: IntegerType,\n      operation: VariantType({\n        delete: IntegerType,\n        insert: IntegerType,\n        update: VariantType({\n          replace: StructType({ before: IntegerType, after: IntegerType }),\n          unchanged: NullType,\n        }),\n      }),\n    })),\n    replace: StructType({ before: ArrayType(IntegerType), after: ArrayType(IntegerType) }),\n    unchanged: NullType,\n  }),\n  ($) => {\n    const before = $.let(East.Array.range(East.value(0n), 100000n, 1n));\n    const after = $.let(before.slice(0n, 10n));\n    $(after.append(before.slice(11n, 99991n)));\n    $(after.pushLast(10n));\n    $(after.append(before.slice(99991n, 100000n)));\n    return East.diff(before, after);\n  },\n);\n",
+      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, NullType, IntegerType, ArrayType, StructType, VariantType\n\n@East.function(\n    [],\n    VariantType([\n        ('patch', ArrayType(StructType([\n            ('key', IntegerType),\n            ('offset', IntegerType),\n            ('operation', VariantType([\n                ('delete', IntegerType),\n                ('insert', IntegerType),\n                ('update', VariantType([\n                    ('replace', StructType([('before', IntegerType), ('after', IntegerType)])),\n                    ('unchanged', NullType),\n                ])),\n            ])),\n        ]))),\n        ('replace', StructType([\n            ('before', ArrayType(IntegerType)),\n            ('after', ArrayType(IntegerType)),\n        ])),\n        ('unchanged', NullType),\n    ]),\n)\ndef patchDiffArrayMove(b):\n    before = b.let(East.Array.range(East.value(0, IntegerType), 100000, 1))\n    after = b.let(before.slice(0, 10))\n    b.do(after.append(before.slice(11, 99991)))\n    b.do(after.push_last(10))\n    b.do(after.append(before.slice(99991, 100000)))\n    return East.diff(ArrayType(IntegerType), before, after)\n",
+      "signature": {
+        "inputs": [],
+        "output": "VariantType({ patch: ArrayType(StructType({ key: IntegerType, offset: IntegerType, operation: VariantType({ delete: IntegerType, insert: IntegerType, update: VariantType({ replace: StructType({ before: IntegerType, after: IntegerType }), unchanged: NullType }) }) })), replace: StructType({ before: ArrayType(IntegerType), after: ArrayType(IntegerType) }), unchanged: NullType })",
+        "async": false
+      },
+      "inputs": "[]",
+      "returns": "{\"type\":\"patch\",\"value\":[{\"key\":\"10\",\"offset\":\"0\",\"operation\":{\"type\":\"delete\",\"value\":\"10\"}},{\"key\":\"99990\",\"offset\":\"0\",\"operation\":{\"type\":\"insert\",\"value\":\"10\"}}]}",
+      "builtins": [
+        "ArrayAppend",
+        "ArrayPushLast",
+        "ArrayRange",
+        "ArraySlice",
+        "Diff"
+      ]
+    },
+    {
       "id": "east:patch.examples.ts:patchDiffSet",
       "skill": "east",
       "package": "east",
@@ -15100,7 +15184,7 @@
         "insert"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15134,7 +15218,7 @@
         "SetType"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15171,7 +15255,7 @@
         "insert"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15205,7 +15289,7 @@
         "DictType"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15242,7 +15326,7 @@
         "field"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15276,7 +15360,7 @@
         "StructType"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15312,7 +15396,7 @@
         "same case"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15348,7 +15432,7 @@
         "replace"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15382,7 +15466,7 @@
         "VariantType"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15417,7 +15501,7 @@
         "combine"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15453,7 +15537,7 @@
         "identity"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15489,7 +15573,7 @@
         "identity"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15527,7 +15611,7 @@
         "array"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",
@@ -15566,7 +15650,7 @@
         "round-trip"
       ],
       "imports": [
-        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, variant, SortedSet, example } from \"@elaraai/east\";"
+        "import { East, IntegerType, StringType, BooleanType, ArrayType, SetType, DictType, StructType, VariantType, PatchType, variant, SortedSet, example } from \"@elaraai/east\";"
       ],
       "languages": [
         "typescript",

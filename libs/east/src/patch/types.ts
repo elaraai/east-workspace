@@ -220,51 +220,227 @@ export class ConflictError extends Error {
 }
 
 // ============================================================================
-// Helper functions
+// Array alignment
 // ============================================================================
 
-
 /**
- * Compute the Longest Common Subsequence of two arrays.
+ * The comparisons an Array diff's search of its middle may spend: the search
+ * stops at ⌊ARRAY_DIFF_BUDGET / (m′ + n′)⌋ edits.
+ *
+ * @remarks
+ * east-c's `ARRAY_DIFF_BUDGET` (`builtins/patch.c`) is the same number, so the
+ * two runtimes stop at the same bound and keep the same pairs.
  * @internal
  */
-export function computeLCS<T>(
-  before: T[],
-  after: T[],
+export const ARRAY_DIFF_BUDGET = 2 ** 24;
+
+/**
+ * The pairs of positions an Array diff keeps from `before` and `after`.
+ *
+ * @remarks
+ * The common start and end are kept whole. The matches are the middle's, in
+ * ascending order: `before[beforeIndices[i]]` is kept as
+ * `after[afterIndices[i]]`.
+ * @internal
+ */
+export interface ArrayAlignment {
+  /** The leading positions equal in both arrays, kept as they are. */
+  start: number;
+  /** The trailing positions equal in both, after `start`, kept as they are. */
+  end: number;
+  /** The middle's matched positions in `before`, ascending. */
+  beforeIndices: number[];
+  /** The middle's matched positions in `after`, ascending, pairwise with `beforeIndices`. */
+  afterIndices: number[];
+}
+
+/**
+ * Aligns two arrays: finds the pairs of positions their diff keeps.
+ *
+ * @remarks
+ * Trims the longest common start, then the longest common end of what it
+ * leaves, so the two never overlap. Over the middle between them, of m′ and
+ * n′ elements, finds a shortest edit script by Myers' greedy forward
+ * algorithm, to at most min(m′ + n′, ⌊{@link ARRAY_DIFF_BUDGET} / (m′ + n′)⌋)
+ * edits; when no script within that bound exists, pairs the middle by
+ * position, a pair whose two elements are equal being a match. The search
+ * compares each cell of the middle at most once, so the whole alignment makes
+ * at most 2^24 + m + n + 2 comparisons, and its trace holds at most 8,394,753
+ * entries. east-c's `align_arrays` takes the same steps, so the two runtimes
+ * keep the same pairs and give the same patch (#1425).
+ *
+ * @typeParam T - The arrays' element values
+ * @param before - The array the diff starts from
+ * @param after - The array it ends at
+ * @param equal - The element equality the diff uses
+ * @returns The common start and end, and the middle's matches
+ * @internal
+ */
+export function alignArrays<T>(
+  before: readonly T[],
+  after: readonly T[],
   equal: (a: T, b: T) => boolean
-): { beforeIndices: number[]; afterIndices: number[] } {
+): ArrayAlignment {
   const m = before.length;
   const n = after.length;
 
-  const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+  let start = 0;
+  while (start < m && start < n && equal(before[start]!, after[start]!)) {
+    start++;
+  }
+  let end = 0;
+  while (end < m - start && end < n - start && equal(before[m - 1 - end]!, after[n - 1 - end]!)) {
+    end++;
+  }
 
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (equal(before[i - 1]!, after[j - 1]!)) {
-        dp[i]![j] = dp[i - 1]![j - 1]! + 1;
-      } else {
-        dp[i]![j] = Math.max(dp[i - 1]![j]!, dp[i]![j - 1]!);
+  const width = m - start - end;
+  const height = n - start - end;
+  if (width === 0 || height === 0) {
+    // Nothing in the middle matches: the other side is deleted or inserted whole.
+    return { start, end, beforeIndices: [], afterIndices: [] };
+  }
+
+  const total = width + height;
+  const bound = Math.min(total, Math.floor(ARRAY_DIFF_BUDGET / total));
+  const script = shortestScript(before, after, start, width, height, bound, equal);
+  if (script !== null) {
+    return { start, end, beforeIndices: script.beforeIndices, afterIndices: script.afterIndices };
+  }
+
+  // Past the bound: the middle's k-th element of `before` with its k-th of `after`.
+  const beforeIndices: number[] = [];
+  const afterIndices: number[] = [];
+  const shorter = Math.min(width, height);
+  for (let k = 0; k < shorter; k++) {
+    if (equal(before[start + k]!, after[start + k]!)) {
+      beforeIndices.push(start + k);
+      afterIndices.push(start + k);
+    }
+  }
+  return { start, end, beforeIndices, afterIndices };
+}
+
+/** The entries a search's trace holds up to step `d`: d+1 at each step. */
+function traceEntries(d: number): number {
+  return ((d + 1) * (d + 2)) / 2;
+}
+
+/**
+ * Finds a shortest edit script over the middle of two arrays, by Myers' greedy
+ * forward algorithm, to at most `bound` edits.
+ *
+ * @remarks
+ * The middle is `before[offset … offset+width)` and `after[offset … offset+height)`.
+ * A point (x, y) has passed over the first x elements of the one and the
+ * first y of the other, on diagonal k = x − y; a move right deletes an
+ * element of `before`, a move down inserts one of `after`, and a run along the
+ * diagonal keeps each pair of equal elements. `v[k]` is the furthest x reached
+ * on diagonal k. At each step d, diagonal k is reached down from k+1 when
+ * k = −d, or when k ≠ d and v[k−1] < v[k+1], and right from k−1 otherwise — the
+ * move that reaches further, and the insert where both reach as far — then
+ * runs on while its elements are equal. `v` keeps x as computed, even past the
+ * middle's edge; only cells inside it are compared. Each step's d+1 values are
+ * kept in the trace, which the walk back reads.
+ *
+ * Every value fits 32 bits: a bound of 1 or more means a middle of at most
+ * 2^24 elements, and with a bound of 0 the one step compares the middle's
+ * first two elements, which the trim left unequal.
+ *
+ * @returns The matches, as positions in `before` and `after`, or `null` when no
+ *   script of `bound` edits or fewer exists
+ */
+function shortestScript<T>(
+  before: readonly T[],
+  after: readonly T[],
+  offset: number,
+  width: number,
+  height: number,
+  bound: number,
+  equal: (a: T, b: T) => boolean
+): { beforeIndices: number[]; afterIndices: number[] } | null {
+  const center = bound + 1;
+  // v[center + 1], diagonal 1, starts at 0: the first step's move down from it
+  // starts the search at (0, 0).
+  const v = new Int32Array(2 * bound + 3);
+  const capacity = traceEntries(bound);
+  let trace = new Int32Array(Math.min(capacity, 1024));
+
+  for (let d = 0; d <= bound; d++) {
+    const row = traceEntries(d - 1);
+    if (row + d + 1 > trace.length) {
+      const grown = new Int32Array(Math.min(capacity, Math.max(2 * trace.length, row + d + 1)));
+      grown.set(trace);
+      trace = grown;
+    }
+    for (let k = -d; k <= d; k += 2) {
+      let x = k === -d || (k !== d && v[center + k - 1]! < v[center + k + 1]!)
+        ? v[center + k + 1]!
+        : v[center + k - 1]! + 1;
+      let y = x - k;
+      while (x < width && y < height && equal(before[offset + x]!, after[offset + y]!)) {
+        x++;
+        y++;
+      }
+      v[center + k] = x;
+      trace[row + ((k + d) >> 1)] = x;
+      if (x >= width && y >= height) {
+        return walkBack(trace, d, width, height, offset);
       }
     }
   }
+  return null;
+}
 
-  const beforeIndices: number[] = [];
-  const afterIndices: number[] = [];
-  let i = m;
-  let j = n;
+/**
+ * Reads a shortest script's matches off a search's trace, walking back from the
+ * end of the middle.
+ *
+ * @remarks
+ * At step d the move is recomputed from step d−1's values by the search's own
+ * rule; the run between where the move landed and the current point is
+ * matches, and the walk goes on from the move's start. The run from (0, 0) is
+ * the last. The (width + height − steps) / 2 matches are written from the end.
+ *
+ * @returns The matches, as positions in `before` and `after`, ascending
+ */
+function walkBack(
+  trace: Int32Array,
+  steps: number,
+  width: number,
+  height: number,
+  offset: number
+): { beforeIndices: number[]; afterIndices: number[] } {
+  const count = (width + height - steps) / 2;
+  const beforeIndices = new Array<number>(count);
+  const afterIndices = new Array<number>(count);
+  let i = count;
+  let x = width;
+  let y = height;
 
-  while (i > 0 && j > 0) {
-    if (equal(before[i - 1]!, after[j - 1]!)) {
-      beforeIndices.unshift(i - 1);
-      afterIndices.unshift(j - 1);
+  for (let d = steps; d > 0; d--) {
+    const k = x - y;
+    const row = traceEntries(d - 2);
+    const reached = (diagonal: number): number => trace[row + ((diagonal + d - 1) >> 1)]!;
+    const down = k === -d || (k !== d && reached(k - 1) < reached(k + 1));
+    const from = down ? k + 1 : k - 1;
+    const fromX = reached(from);
+    const landedX = down ? fromX : fromX + 1;
+    while (x > landedX) {
+      x--;
+      y--;
       i--;
-      j--;
-    } else if (dp[i - 1]![j]! > dp[i]![j - 1]!) {
-      i--;
-    } else {
-      j--;
+      beforeIndices[i] = offset + x;
+      afterIndices[i] = offset + y;
     }
+    x = fromX;
+    y = fromX - from;
   }
-
+  while (x > 0) {
+    x--;
+    y--;
+    i--;
+    beforeIndices[i] = offset + x;
+    afterIndices[i] = offset + y;
+  }
   return { beforeIndices, afterIndices };
 }
