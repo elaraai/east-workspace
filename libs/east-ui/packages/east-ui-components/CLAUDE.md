@@ -767,6 +767,12 @@ Row virtualization via `@tanstack/react-virtual`:
   fractional device pixel ratio — is placed from where the view went and never
   takes it back there, nor does a correction the virtualizer held back at the
   scroll's end; and the range reported meanwhile says where the view is.
+- A frame that anchors its own scroll (keyed, given `anchorable`, its rows
+  positioned) is the only one to: the browser's scroll anchoring is off on its
+  scroll element, or at scale on its root (`overflow-anchor: none`). Left on,
+  the browser anchors on the focused element first, and a window landing that
+  moved it — a Plan's run not read that a click focused, its rows replacing
+  it — moved the view by itself, by as much as the run (#1398).
 
 **Persist scroll as a clamped ROW INDEX, never a pixel `scrollTop`.** The
 top visible row index survives data changes (restore clamps to the current

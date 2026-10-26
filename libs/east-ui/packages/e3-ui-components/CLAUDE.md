@@ -1350,7 +1350,9 @@ where the view is, pinned as a key search's jump is (the controller's
 rows land, to the first of them the view shows whole, and a key pressed on it
 waits for them and goes on from there (`wait`); an item a landing takes off the
 canvas leaves the focus on the canvas's surface, never the page's body, until a
-row takes it. ↑ and ↓ on a person's name in the
+row takes it, and the rows landing never move the view — the browser's own
+scroll anchoring, which anchors on the focused run, is off where `VirtualRows`
+anchors (`plan-run-focus.spec.ts`). ↑ and ↓ on a person's name in the
 People grid step to the next person or the one before, past the groups' bands
 and their agency requests, selecting them and focusing their name, its ring
 drawn.

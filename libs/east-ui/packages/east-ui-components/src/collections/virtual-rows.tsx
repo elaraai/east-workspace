@@ -78,7 +78,11 @@
  * rows moved from below the view to above it leave the content no taller —
  * stops at the scroll's end, and the rows are drawn again there before paint
  * (#1213). Rows in flow (the unbounded frame below scale) are the browser's
- * to anchor.
+ * to anchor; rows the frame anchors are never the browser's too
+ * (`overflow-anchor: none` on its scroll element, or at scale on its root):
+ * the browser anchors on the focused element first, and a window landing that
+ * moves it — a run not read that a click focused, its rows replacing it —
+ * moved the view by itself (#1398).
  *
  * A keyed frame's scroll request (`scrollToIndex`) brings in its ROW, never
  * whichever row holds its index a frame later (#885). TanStack reconciles a
@@ -1366,7 +1370,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     if (!bounded) {
         return (
             <RowsScrollContext.Provider value={rowsScroll}>
-                <Box {...rootProps} ref={rootRef} css={rootCss} data-virtual-rows={atScale ? "ancestor" : "watched"}>
+                {/* At scale the frame anchors its rows itself (#878): none of them is the ancestor's to anchor on — the
+                    focused one least of all, which a landing moves (#1398). */}
+                <Box {...rootProps} ref={rootRef} css={anchoring ? { ...rootCss, overflowAnchor: "none" } : rootCss}
+                    data-virtual-rows={atScale ? "ancestor" : "watched"}>
                     {header !== undefined && <Box ref={setHeaderEl}>{header}</Box>}
                     {atScale ? virtualWindow() : (
                         <Box ref={setRows} position={overlay !== undefined ? "relative" : undefined}
@@ -1404,6 +1411,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                 ...rootCss,
                 display: "block",
                 overflowY: "auto",
+                // A frame that anchors its own scroll (#878) is the only one to: the browser's scroll anchoring, left on,
+                // anchors on the focused element first — a row, or a run not read that a click focused — and a window
+                // landing that moves it moves the view by itself (#1398).
+                ...(anchoring ? { overflowAnchor: "none" } : {}),
                 minHeight: "0",
                 ...(fillParent === true ? { flex: "1 1 auto" } : {}),
                 ...virtualScrollbarCss,
