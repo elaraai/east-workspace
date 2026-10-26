@@ -816,6 +816,14 @@ Row virtualization via `@tanstack/react-virtual`:
   the browser anchors on the focused element first, and a window landing that
   moved it — a Plan's run not read that a click focused, its rows replacing
   it — moved the view by itself, by as much as the run (#1398).
+- A collection that draws the rows it has not read as one run — keyed by the
+  rows it stands for, so a window landing in it makes other items — names
+  where its rows stand in its runs (`runs`, `RowRuns`; the Calendar's timeline
+  over a paged resource kind, #1424): an anchorable run covering the view's top
+  anchors the frame on the row inside it there, by the key that row takes once
+  read, found again on its own line once its window lands, or in the run that
+  then holds it — so the rows landing around it never move it, however their
+  heights part from the run's pitch.
 
 **Persist scroll as a clamped ROW INDEX, never a pixel `scrollTop`.** The
 top visible row index survives data changes (restore clamps to the current

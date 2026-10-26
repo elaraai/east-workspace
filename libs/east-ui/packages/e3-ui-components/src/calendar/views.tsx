@@ -28,16 +28,35 @@
  * resource's events book, or the no-data hatch where no summary shades at that
  * period (`shading`) — and its booked hours, like a day's count, say they do
  * not count those events (`uncounted`), never 0.
+ *
+ * A paged resource kind (#1424) is laid out as the stretches of its places
+ * (`pages.ts`' `pagedSegments`), never a line or a column a place, so a
+ * million resources cost a view what the windows it holds do. On the timeline
+ * each held window's resources are rows, and the places between are runs — the
+ * shared unloaded run (`UnloadedRun`), as the Plan's and the Sheet's rows not
+ * read are: one virtualizer item however long, at its first place's position,
+ * its rows drawn at their pitch only where it meets the view, keyed by the
+ * places it stands for and their pitch (`run:<result>:<from>-<to>@<pitch>`), so
+ * a run a window lands inside is another item and never keeps the height
+ * measured for the last; a
+ * window whose read failed is a run that says so once, in its first row in
+ * view. The view rests in a run on the place there (`useRowAnchor`'s runs). The
+ * Resources view places each column it draws at its own offset in a content box
+ * as wide as all of them (`--calendar-column-at`), drawing those around the
+ * view alone: no grid holds a track a column.
  */
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
-import { Box, Button, chakra } from "@chakra-ui/react";
+import { Box, Button, chakra, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { none } from "@elaraai/east";
 import { tileNext } from "@elaraai/east-ui/internal";
 import { optimiseMessages, useDragEventChip, useDragEventEdge, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
-import { LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, VirtualRows, devicePixels, loadingLineText, useRowsTop } from "@elaraai/east-ui-components/internal";
+import {
+    LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, UnloadedRun, VirtualRows, devicePixels, loadingLineText, useRowsTop,
+    type RowRuns, type RunCell, type RunFailure,
+} from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PeriodRead } from "../shared/loading.js";
 import type { ScheduleCellShade, ScheduleCellShading } from "../shared/schedule/cells.js";
 import { eventsNotCounted } from "../shared/schedule/words.js";
@@ -59,7 +78,7 @@ import { calendarCoord, type CalendarDrag } from "./drag.js";
 import { calendarOpOf, type CalendarOptimised } from "./optimise.js";
 import { opKey } from "../shared/func/optimise-diff.js";
 import type { CalendarCommands, CalendarPlacement } from "./actions.js";
-import { CALENDAR_PAGE_SIZE, pagedFailureAt, pagedPlaces, pagedRowAt, type CalendarPagedDemand, type CalendarPages } from "./pages.js";
+import { CALENDAR_PAGE_SIZE, pagedFailureAt, pagedPlaces, pagedRowAt, pagedSegments, type CalendarPagedDemand, type CalendarPages } from "./pages.js";
 import { DAY, NOTHING_UNCOUNTED, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, onResource, resourceKey,
     type CalendarItem, type CalendarRange, type CalendarRow, type CalendarStyles, type CalendarUncounted, type CalendarValue, type CalendarView } from "./model.js";
 
@@ -472,10 +491,14 @@ function EventEdge({ coord, edge, label, styles, along }: { coord: Required<Cell
         onClick={event => event.stopPropagation()} onPointerDown={event => { event.stopPropagation(); handle?.onPointerDown?.(event); }} />;
 }
 
-/** A continuous cell uses the shared drop grammar and the Calendar's quarter-hour snap. */
-function DropLane({ props, from, to, resource, along = "y", wholeDay = false, children, css, style, draw = true, elementRef, outside = false, unassigned = false }: {
+/**
+ * A continuous cell uses the shared drop grammar and the Calendar's quarter-hour snap. A column of a paged kind's
+ * Resources view says its place among the columns (`column`), which places it (#1424).
+ */
+function DropLane({ props, from, to, resource, along = "y", wholeDay = false, children, css, style, draw = true, elementRef, outside = false, unassigned = false, column }: {
     props: EventView; from: Date; to: Date; resource: CalendarItem["resource"]; along?: "x" | "y";
     wholeDay?: boolean; children: ReactNode; css: CalendarStyles[string] | undefined; style?: CSSProperties; draw?: boolean; elementRef?: RefObject<HTMLDivElement | null>; outside?: boolean; unassigned?: boolean;
+    column?: number | undefined;
 }) {
     const ref = useRef<HTMLDivElement>(null);
     const resolution = along === "y" || props.view.period === "day" ? "hour" : props.view.period === "week" ? "day" : "month";
@@ -513,7 +536,7 @@ function DropLane({ props, from, to, resource, along = "y", wholeDay = false, ch
         // The slot is produced here from an instant; the shared reader uses the same codec.
         const parsed = props.drag.readTime(offset); return parsed ?? from;
     };
-    return <Box ref={attach} css={css} style={style} data-calendar-cell="" data-outside={outside ? "" : undefined} data-calendar-from={from.getTime()} data-calendar-to={to.getTime()} data-calendar-snap={snap}
+    return <Box ref={attach} css={css} style={style} data-calendar-cell="" data-calendar-column={column} data-outside={outside ? "" : undefined} data-calendar-from={from.getTime()} data-calendar-to={to.getTime()} data-calendar-snap={snap}
         onClick={event => { if (!(event.target as Element).closest("[data-calendar-event], button")) props.clear(); }}
         onKeyDown={event => { if (event.key === "Escape") { down.current = undefined; setDrawing(undefined); } }}
         onPointerDown={props.drag.enabled && draw && !wholeDay ? event => {
@@ -556,8 +579,27 @@ interface GridColumn {
 }
 
 /**
+ * A grid's columns, by their place: how many there are, and each as it draws — made as it is drawn, never every one of
+ * them a render (#1424), so a paged kind of a million resources costs the grid what the columns around its view do.
+ */
+interface GridColumns {
+    readonly count: number;
+    readonly at: (i: number) => GridColumn;
+}
+
+/**
+ * The time grid's columns over days: each day of the period.
+ *
+ * @param days - The period's days
+ * @returns The columns
+ */
+function dayColumns(days: readonly Date[]): GridColumns {
+    return { count: days.length, at: i => ({ day: days[i]!, row: undefined, at: undefined, key: String(days[i]!.getTime()) }) };
+}
+
+/**
  * The Resources view's columns (#1424): each resource the rail shows, the paged kind's places among them in the
- * kinds' order — before the first column of a kind after it, or the unassigned one.
+ * kinds' order — before the first column of a kind after it, or the unassigned one — each made by its place.
  *
  * @param shownRows - The resources the rail shows, in the kinds' order, the unassigned one last
  * @param kinds - The resource kinds, in order
@@ -565,14 +607,19 @@ interface GridColumn {
  * @param day - The view's day
  * @returns The columns
  */
-function resourceColumns(shownRows: readonly CalendarRow[], kinds: CalendarValue["resources"], pages: CalendarPages | undefined, day: Date): GridColumn[] {
-    const out: GridColumn[] = shownRows.map(row => ({ day, row, at: undefined, key: `row:${row.key}` }));
-    if (pages === undefined) return out;
+function resourceColumns(shownRows: readonly CalendarRow[], kinds: CalendarValue["resources"], pages: CalendarPages | undefined, day: Date): GridColumns {
+    const own = (row: CalendarRow): GridColumn => ({ day, row, at: undefined, key: `row:${row.key}` });
+    if (pages === undefined) return { count: shownRows.length, at: i => own(shownRows[i]!) };
     const after = kinds.slice(kinds.findIndex(kind => kind.key === pages.kind) + 1).map(kind => kind.key);
-    const before = out.findIndex(column => column.row!.resource.type === "none" || after.includes(column.row!.resource.value.kind));
-    const places = Array.from({ length: pagedPlaces(pages) }, (_, at): GridColumn => ({ day, row: pagedRowAt(pages, at), at, key: `paged:${pages.result}:${at}` }));
-    out.splice(before < 0 ? out.length : before, 0, ...places);
-    return out;
+    const found = shownRows.findIndex(row => row.resource.type === "none" || after.includes(row.resource.value.kind));
+    const before = found < 0 ? shownRows.length : found;
+    const places = pagedPlaces(pages);
+    return {
+        count: shownRows.length + places,
+        at: i => i < before ? own(shownRows[i]!)
+            : i < before + places ? { day, row: pagedRowAt(pages, i - before), at: i - before, key: `paged:${pages.result}:${i - before}` }
+            : own(shownRows[i - places]!),
+    };
 }
 
 /** The columns drawn either side of those in view, when the Resources view lays a paged kind out (#1424). */
@@ -616,22 +663,23 @@ function TimeGrid(props: CalendarViewsProps) {
     }, [props.nowRevision]);
     const resources = props.view.layout === "resources";
     // The columns: the days, or each resource the rail shows — a paged kind's places among them (#1424), drawn only around
-    // what the view shows, its windows and its cells read around the places it shows once its scroll rests.
+    // what the view shows, its windows and its cells read around the places it shows once its scroll rests. Each column is
+    // made as it is drawn, by its place: never every one a render.
     const { pages, demand, drawnRows } = props;
     const paged = resources ? pages : undefined;
     const pagedResult = paged?.result;
-    const columns: readonly GridColumn[] = resources ? resourceColumns(props.shownRows, props.value.resources, paged, dayStart(props.view.date))
-        : props.range.days.map(day => ({ day, row: undefined, at: undefined, key: String(day.getTime()) }));
+    const day = dayStart(props.view.date);
+    const columns: GridColumns = resources ? resourceColumns(props.shownRows, props.value.resources, paged, day) : dayColumns(props.range.days);
     const gutter = useRef<HTMLDivElement>(null);
     const [drawnColumns, setDrawnColumns] = useState({ from: 0, to: COLUMN_OVERSCAN * 4 });
     const dwell = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     useEffect(() => () => { if (dwell.current !== undefined) clearTimeout(dwell.current); }, []);
-    // The columns the view shows, from its scroll: every column a track as wide as the others, beside the hour column.
+    // The columns the view shows, from its scroll: every column as wide as the others, beside the hour column.
     const shownColumns = (el: HTMLElement): { first: number; last: number } | undefined => {
         const aside = gutter.current?.getBoundingClientRect().width ?? 0;
-        const track = (el.scrollWidth - aside) / Math.max(1, columns.length);
-        if (!(track > 0) || columns.length === 0) return undefined;
-        return { first: Math.max(0, Math.floor(el.scrollLeft / track)), last: Math.min(columns.length - 1, Math.floor((el.scrollLeft + el.clientWidth - aside - 1) / track)) };
+        const track = (el.scrollWidth - aside) / Math.max(1, columns.count);
+        if (!(track > 0) || columns.count === 0) return undefined;
+        return { first: Math.max(0, Math.floor(el.scrollLeft / track)), last: Math.min(columns.count - 1, Math.floor((el.scrollLeft + el.clientWidth - aside - 1) / track)) };
     };
     // The paged places among the columns shown, reported once the scroll rests (CL6).
     const report = (shown: { first: number; last: number }) => {
@@ -639,7 +687,7 @@ function TimeGrid(props: CalendarViewsProps) {
         let first: number | undefined;
         let last: number | undefined;
         for (let i = shown.first; i <= shown.last; i++) {
-            const at = columns[i]?.at;
+            const at = columns.at(i).at;
             if (at === undefined) continue;
             first ??= at;
             last = at;
@@ -651,7 +699,7 @@ function TimeGrid(props: CalendarViewsProps) {
         const shown = shownColumns(el);
         if (shown === undefined) return;
         setDrawnColumns(was => shown.first >= was.from + 2 && shown.last <= was.to - 2 ? was
-            : { from: Math.max(0, shown.first - COLUMN_OVERSCAN), to: Math.min(columns.length - 1, shown.last + COLUMN_OVERSCAN) });
+            : { from: Math.max(0, shown.first - COLUMN_OVERSCAN), to: Math.min(columns.count - 1, shown.last + COLUMN_OVERSCAN) });
         if (dwell.current !== undefined) clearTimeout(dwell.current);
         if (rested) report(shown);
         else dwell.current = setTimeout(() => { dwell.current = undefined; report(shown); }, COLUMN_DWELL_MS);
@@ -663,15 +711,15 @@ function TimeGrid(props: CalendarViewsProps) {
         follow(el, true);
         // The columns and their result are the trigger.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [paged === undefined, columns.length, pagedResult]);
+    }, [paged === undefined, columns.count, pagedResult]);
     const seenResult = useRef(pagedResult);
     useLayoutEffect(() => {
         if (pagedResult === undefined) return;
         if (seenResult.current !== undefined && seenResult.current !== pagedResult && scroll.current !== null) scroll.current.scrollLeft = 0;
         seenResult.current = pagedResult;
     }, [pagedResult]);
-    const span = paged === undefined ? { from: 0, to: columns.length - 1 } : drawnColumns;
-    const drawn = columns.slice(span.from, span.to + 1).map((column, n) => ({ column, i: span.from + n }));
+    const span = paged === undefined ? { from: 0, to: columns.count - 1 } : { from: drawnColumns.from, to: Math.min(drawnColumns.to, columns.count - 1) };
+    const drawn = Array.from({ length: Math.max(0, span.to - span.from + 1) }, (_, n) => ({ column: columns.at(span.from + n), i: span.from + n }));
     // A paged kind's window the view shows that could not be read: said once, at the grid's top-left (#1398, CL11).
     const failedAt = paged === undefined ? undefined : drawn.find(({ column }) => column.at !== undefined && pagedFailureAt(paged, column.at) !== undefined)?.column.at;
     const pagedFailure = paged === undefined || failedAt === undefined ? undefined : (() => {
@@ -680,20 +728,24 @@ function TimeGrid(props: CalendarViewsProps) {
         return loadingLineText(pagedLoadingMessages.lineFailed({ noun: paged.group.toLocaleLowerCase(props.format.locale), from: props.format.number(w * CALENDAR_PAGE_SIZE + 1), to: props.format.number(to) }));
     })();
     const pagedCorner = useFailureCorner(scroll, pagedFailure !== undefined);
-    const place = (i: number): CSSProperties | undefined => paged === undefined ? undefined : { gridColumn: i + 2 };
+    // A paged kind's columns are each placed at its own offset among them (the recipe's, by its place): no grid line a column.
+    const place = (i: number): CSSProperties | undefined => paged === undefined ? undefined : { "--calendar-column-at": i } as CSSProperties;
+    const placed = (i: number): number | undefined => paged === undefined ? undefined : i;
     const failure = useFailureCorner(scroll, props.read.state === "failed");
     // A run's ghosts and the days it changed (#1409): drawn in their columns, the changed days' counts flashing.
     const ghosts = ghostsOf(props);
     const changedDays = changedDaysOf(props);
+    // Whether the now line's chip shows in the hour column: today among the grid's days — the Resources view's one day.
+    const today = resources ? columns.count > 0 && dateText(day) === dateText(props.now) : props.range.days.some(column => dateText(column) === dateText(props.now));
     return <><Box ref={scroll} css={props.styles.scroll} data-calendar-time-grid="" data-calendar-unread={props.read.state === "held" ? undefined : props.read.state}
         onScroll={event => { keep(event.currentTarget); follow(event.currentTarget, false); }}>
-        <Box css={props.styles.timeGridContent} data-resources={resources ? "" : undefined} data-single={!resources && columns.length === 1 ? "" : undefined} style={{ "--calendar-columns": columns.length } as CSSProperties}>
+        <Box css={props.styles.timeGridContent} data-resources={resources ? "" : undefined} data-single={!resources && columns.count === 1 ? "" : undefined} style={{ "--calendar-columns": columns.count } as CSSProperties}>
             <Box css={props.styles.head} data-calendar-header="" data-resources={resources ? "" : undefined} data-paged={paged === undefined ? undefined : ""}><Box css={props.styles.timeGutter} />{drawn.map(({ column, i }) => column.row === undefined && column.at !== undefined
-                // A paged kind's place whose window is not held (#1424): its name a placeholder.
-                ? <Box key={column.key} css={props.styles.columnHead} style={place(i)} data-calendar-unread-column={column.at}>
+                // A paged kind's place whose window is not held (#1424): its name a placeholder — none where its read failed.
+                ? <Box key={column.key} css={props.styles.columnHead} style={place(i)} data-calendar-column={placed(i)} data-calendar-unread-column={column.at}>
                     <Box css={props.styles.resourceHeading}>{pagedFailureAt(paged!, column.at) === undefined && <PlaceholderShape kind="label" index={column.at} />}</Box>
                 </Box>
-                : <chakra.button type="button" key={column.key} css={props.styles.columnHead} style={place(i)}
+                : <chakra.button type="button" key={column.key} css={props.styles.columnHead} style={place(i)} data-calendar-column={placed(i)}
                 data-today={dateText(column.day) === dateText(props.now) ? "" : undefined} onClick={() => !resources && props.setView({ ...props.view, period: "day", date: column.day.getTime() })}>
                 {column.row === undefined ? <>
                     <Box css={props.styles.dayHeading} data-calendar-day-heading=""><Box as="span" css={props.styles.weekday}>{props.format.weekday(column.day)}</Box><Box as="span" css={props.styles.dayDate}>{column.day.getUTCDate()}</Box></Box>
@@ -708,12 +760,15 @@ function TimeGrid(props: CalendarViewsProps) {
                 </>}
             </chakra.button>)}</Box>
             <Box css={props.styles.columns} style={{ height }} data-paged={paged === undefined ? undefined : ""}>
-                <Box ref={gutter} css={props.styles.timeGutter} data-calendar-gutter="">{columns.some(column => dateText(column.day) === dateText(props.now)) && <NowChip styles={props.styles} at={(props.now.getUTCHours() + props.now.getUTCMinutes() / 60) / 24} along="y">{props.format.time(props.now)}</NowChip>}{HOURS.slice(1).map(h => <Box key={h} css={props.styles.timeLabel} style={{ top: h * hour }}>{String(h).padStart(2, "0")}:00</Box>)}</Box>
+                <Box ref={gutter} css={props.styles.timeGutter} data-calendar-gutter="">{today && <NowChip styles={props.styles} at={(props.now.getUTCHours() + props.now.getUTCMinutes() / 60) / 24} along="y">{props.format.time(props.now)}</NowChip>}{HOURS.slice(1).map(h => <Box key={h} css={props.styles.timeLabel} style={{ top: h * hour }}>{String(h).padStart(2, "0")}:00</Box>)}</Box>
                 {drawn.map(({ column, i }) => {
                     const from = column.day; const to = new Date(from.getTime() + DAY);
-                    // A paged kind's place whose window is not held (#1424): its column washed until it lands.
+                    // A paged kind's place whose window is not held (#1424): its column washed until it lands — blank where its
+                    // window's read failed, which the box at the grid's top-left says.
                     if (column.row === undefined && column.at !== undefined) {
-                        return <Box key={column.key} css={props.styles.column} style={{ height, ...place(i) }} data-calendar-unread-column={column.at}><LoadingWash /></Box>;
+                        return <Box key={column.key} css={props.styles.column} style={{ height, ...place(i) }} data-calendar-column={placed(i)} data-calendar-unread-column={column.at}>
+                            {pagedFailureAt(paged!, column.at) === undefined && <LoadingWash />}
+                        </Box>;
                     }
                     const row = column.row;
                     const items = props.items.filter(item => inWindow(item, from, to) && (row === undefined || onResource(item, row)));
@@ -722,7 +777,8 @@ function TimeGrid(props: CalendarViewsProps) {
                     // A resource's column of a kind past the cap: its shading in place of those events (#1424).
                     const ref = row?.resource;
                     const shades = ref?.type === "some" ? props.shading?.get(ref.value.kind)?.get(ref.value.key) : undefined;
-                    return <DropLane key={column.key} props={props} from={from} to={to} resource={row?.resource ?? none} unassigned={row?.resource.type === "none"} css={props.styles.column} style={{ height, ...place(i) }}>
+                    return <DropLane key={column.key} props={props} from={from} to={to} resource={row?.resource ?? none} unassigned={row?.resource.type === "none"} css={props.styles.column} style={{ height, ...place(i) }}
+                        column={placed(i)}>
                         {/* A period not read yet: the column washed, under its hour rules, shading and now line (#1398) — and a paged
                             kind's resource whose cells have not landed (#1424). */}
                         {(pendingOf(props.read) || (props.read.state === "held" && row !== undefined && !rowDrawn(row, pages?.kind, drawnRows))) && <LoadingWash />}
@@ -784,11 +840,38 @@ function MonthGrid(props: CalendarViewsProps) {
 }
 
 /**
- * A line of the timeline: a group's band, a resource's row, or a place of the paged resource kind (#1424) — its row once
- * its window is held, a placeholder until then, keyed by its place so it keeps its line as its window lands.
+ * A line of the timeline: a group's band, a resource's row, a resource of the paged resource kind whose window is held
+ * (#1424) — keyed by its place, the key a run gives the place before its window lands — or a run of the kind's places
+ * not read yet, or of a window whose read failed: one line however many places, keyed by the places it stands for.
  */
 type TimelineLine = { kind: "group"; key: string; group: string; count: number } | { kind: "row"; key: string; row: CalendarRow; r: number }
-    | { kind: "paged"; key: string; at: number; r: number };
+    | { kind: "paged"; key: string; at: number; r: number } | { kind: "run"; key: string; from: number; to: number; failed: boolean };
+
+/**
+ * A place of the paged kind's key among the timeline's lines: its row's once its window is held, and what the view
+ * resting in a run on it keeps (`useRowAnchor`'s runs).
+ *
+ * @param result - The result its places are of
+ * @param at - The place
+ * @returns Its key
+ */
+function placeKey(result: number | undefined, at: number): string {
+    return `paged:${result}:${at}`;
+}
+
+/**
+ * The place a key of {@link placeKey} names, under the result its places are of.
+ *
+ * @param key - The key
+ * @param result - The result read now
+ * @returns The place; `undefined` for a key that names none of this result's
+ */
+function placeOfKey(key: string, result: number | undefined): number | undefined {
+    const prefix = `paged:${result}:`;
+    if (result === undefined || !key.startsWith(prefix)) return undefined;
+    const at = Number(key.slice(prefix.length));
+    return Number.isSafeInteger(at) && at >= 0 ? at : undefined;
+}
 /** A resource row's events laid out once a read (#1398, CL9): the events, their spans, their lanes and the plot's height. */
 interface TimelineLayout {
     readonly items: readonly CalendarItem[];
@@ -844,7 +927,7 @@ const TIMELINE_AHEAD = 1;
 function rowResource(row: CalendarRow): string { return row.resource.type === "some" ? resourceKey(row.resource.value) : ""; }
 /**
  * The resource row a failed period says so in (#1398, CL11): the first at or below the line at the top of the view,
- * else the last above it.
+ * else the last above it — a resource's row, never a group's band or a run of places not read, which hold no events.
  *
  * @param lines - The timeline's lines
  * @param top - The line at the top of the view; `undefined` before they are placed
@@ -852,8 +935,9 @@ function rowResource(row: CalendarRow): string { return row.resource.type === "s
  */
 function firstRowInView(lines: readonly TimelineLine[], top: number | undefined): number | undefined {
     const from = Math.max(0, top ?? 0);
-    for (let i = from; i < lines.length; i++) if (lines[i]!.kind !== "group") return i;
-    for (let i = Math.min(from, lines.length) - 1; i >= 0; i--) if (lines[i]!.kind !== "group") return i;
+    const isRow = (line: TimelineLine) => line.kind === "row" || line.kind === "paged";
+    for (let i = from; i < lines.length; i++) if (isRow(lines[i]!)) return i;
+    for (let i = Math.min(from, lines.length) - 1; i >= 0; i--) if (isRow(lines[i]!)) return i;
     return undefined;
 }
 /**
@@ -920,33 +1004,37 @@ const TimelineRow = memo(function TimelineRow({ ctx, row, layout, span, index, r
 }) {
     const { styles } = ctx.view;
     return <Box ref={measure} css={styles.timelineRow} data-calendar-resource-row={row.key} data-calendar-row-group={row.group}>
-        <Box css={styles.rowHead}><Box css={styles.rowTitle} data-calendar-resource-title="">{row.label}</Box><TimelineRowMeta ctx={ctx} row={row} layout={layout} r={r} /></Box>
+        <Box css={styles.rowHead} data-calendar-row-head=""><Box css={styles.rowTitle} data-calendar-resource-title="">{row.label}</Box><TimelineRowMeta ctx={ctx} row={row} layout={layout} r={r} /></Box>
         <TimelinePlot ctx={ctx} row={row} layout={layout} span={span} index={index} />
     </Box>;
 });
+/** A recipe slot's styles, as the shared run merges them over its own. */
+const slotOf = (styles: CalendarStyles, name: string): SystemStyleObject | undefined => styles[name] as SystemStyleObject | undefined;
+/** A run's rows' tracks: the resource column, as wide as its cell's recipe makes it, then the plot. */
+const RUN_COLUMNS = "auto minmax(0, 1fr)";
+
 /**
- * A place of the paged resource kind whose window is not held (#1424): its row at a row's height, its name a
- * placeholder and its plot washed — or, its window's read failed, the failure said once, in the first of that window's
- * rows in view, with Retry (#1398, CL11).
+ * A run of the paged resource kind's places not read yet (#1424), or of a window whose read failed: the shared unloaded
+ * run (`UnloadedRun`), as the Plan's and the Sheet's rows not read are — one item of the timeline however many places, as
+ * tall as their rows at their pitch, drawing a row only where it meets the view: its name a placeholder in the sticky
+ * resource column and its plot washed. A failed window says so once, in its first row in view, with Retry (#1398, CL11).
  */
-const TimelineUnreadRow = memo(function TimelineUnreadRow({ ctx, at, index, failure, retry, measure }: {
-    ctx: TimelineContext; at: number; index: number; failure: string | undefined; retry: () => void; measure: (el: HTMLElement | null) => void;
+const TimelineRun = memo(function TimelineRun({ styles, from, to, pitch, failure, retryName, retry }: {
+    styles: CalendarStyles; from: number; to: number; pitch: number; failure: string | undefined; retryName: string | undefined; retry: (() => void) | undefined;
 }) {
-    const { styles } = ctx.view;
-    // The line of the first place its window holds: the window's places are lines one after another.
-    const first = index - at % CALENDAR_PAGE_SIZE;
-    const says = useRowsTop(top => failure !== undefined && index === Math.max(top ?? 0, first));
-    return <Box ref={measure} css={styles.timelineRow} data-calendar-unread-row={at}>
-        <Box css={styles.rowHead}><Box css={styles.rowTitle}>{failure === undefined && <PlaceholderShape kind="label" index={at} />}</Box></Box>
-        <Box css={styles.rowPlot} style={{ height: ctx.laneHeight + 9 }}>
-            {failure === undefined ? <LoadingWash /> : says && <Box css={styles.readLine} data-calendar-read-line="">
-                <LoadingFailedLine message={failure} retry={{ onRetry: retry }} /></Box>}
-        </Box>
+    const cells = useMemo((): RunCell[] => [{ kind: "label", css: slotOf(styles, "runHead") }, { kind: "wash", css: slotOf(styles, "runPlot") }], [styles]);
+    const failed = useMemo((): RunFailure | undefined => failure === undefined || retry === undefined ? undefined
+        : { message: failure, retry: { onRetry: retry, name: retryName }, from: 1 }, [failure, retry, retryName]);
+    return <Box data-calendar-run={`${from}-${to}`} data-calendar-run-failed={failed === undefined ? undefined : ""}>
+        <UnloadedRun height={(to - from + 1) * pitch} pitch={pitch} columns={RUN_COLUMNS} cells={cells} first={from} rowCss={slotOf(styles, "runRow")} failed={failed} />
     </Box>;
 });
 /** The estimate of a group's band before one has mounted: the shared band's height. */
 const BAND_FLOOR = 38;
-/** Every timeline line may anchor the view: none is a placeholder whose edge moves as rows land beside it. */
+/**
+ * Every timeline line may anchor the view: none is a placeholder whose edge moves as rows land beside it — a run a window
+ * lands in is another line, keyed by the places it then stands for, and the view rests in a run on the place there.
+ */
 const ANCHOR_EVERY_LINE = () => true;
 /** No span of the window left out: all of it read, or none of it drawn. */
 const NO_SPANS: readonly { readonly left: string; readonly width: string }[] = [];
@@ -984,7 +1072,14 @@ function Timeline(props: CalendarViewsProps) {
     const pagedGroup = pages?.group;
     const pagesResult = pages?.result;
     const pagedWindows = pages?.windows;
+    const pagedFailed = pages?.failed;
     const pagedRows = useMemo(() => pagedWindows === undefined ? [] : [...pagedWindows.values()].flat(), [pagedWindows]);
+    // Each kind of line's estimate, from the first of it to mount: a band's own height, a row's its plot's or its head's.
+    const [rowFloor, setRowFloor] = useState(0);
+    const [bandFloor, setBandFloor] = useState(BAND_FLOOR);
+    // A place not read yet's pitch: a row of one lane — or as tall as a row's head, if that is taller — and its rule. A run
+    // of places is as tall as its places at it.
+    const pitch = Math.max(laneHeight + 9, rowFloor) + 1;
     // Each row's events laid out once a read: their spans, their lanes and the plot's height — however its events fall —
     // at the period they were drawn at: a continuation's held read keeps its lanes, and every row its height (#1398).
     const lanesPeriod = props.lanesPeriod ?? view.period;
@@ -999,8 +1094,10 @@ function Timeline(props: CalendarViewsProps) {
         const lanes = packLanes(spans);
         return [row.key, { items, spans, lanes, height: lanes.reduce((n, lane) => Math.max(n, lane.lanes), 1) * laneHeight + 9 }] as const;
     })), [props.shownRows, pagedRows, byResource, lanesPeriod, laneHeight]);
-    // The lines: each group's band, and its rows unless it is folded — the paged kind's its places, among the groups in
-    // the kinds' order (#1424), each keyed by its place under the result its places are of.
+    // The lines: each group's band, and its rows unless it is folded — the paged kind's, among the groups in the kinds'
+    // order (#1424), the stretches of its places: a row each of the windows held, keyed by its place under the result its
+    // places are of, and a run each of the places between not read yet or of a window that failed, keyed by the places it
+    // stands for — never a line a place.
     const { resources } = props.value;
     const lines = useMemo((): TimelineLine[] => {
         const groups = [...new Set(props.shownRows.map(row => row.group))];
@@ -1012,14 +1109,20 @@ function Timeline(props: CalendarViewsProps) {
         let r = 0;
         return groups.flatMap((group): TimelineLine[] => {
             if (group === pagedGroup) {
-                return [{ kind: "group", key: `group:${group}`, group, count: places },
-                    ...(collapsed.includes(group) ? [] : Array.from({ length: places }, (_, at): TimelineLine => ({ kind: "paged", key: `paged:${pagesResult}:${at}`, at, r: r++ })))];
+                const band: TimelineLine = { kind: "group", key: `group:${group}`, group, count: places };
+                if (collapsed.includes(group) || pagedWindows === undefined || pagedFailed === undefined) return [band];
+                const base = r;
+                r += places;
+                return [band, ...pagedSegments({ windows: pagedWindows, failed: pagedFailed }, places).flatMap((segment): TimelineLine[] => segment.kind === "held"
+                    ? segment.rows.map((_, i): TimelineLine => ({ kind: "paged", key: placeKey(pagesResult, segment.from + i), at: segment.from + i, r: base + segment.from + i }))
+                    : [{ kind: "run", key: `${segment.kind === "failed" ? "failed" : "run"}:${pagesResult}:${segment.from}-${segment.to}@${pitch}`,
+                        from: segment.from, to: segment.to, failed: segment.kind === "failed" }])];
             }
             const rows = props.shownRows.filter(row => row.group === group);
             return [{ kind: "group" as const, key: `group:${group}`, group, count: rows.length },
                 ...(collapsed.includes(group) ? [] : rows.map(row => ({ kind: "row" as const, key: `row:${row.key}`, row, r: r++ })))];
         });
-    }, [props.shownRows, collapsed, resources, pagedKey, pagedGroup, places, pagesResult]);
+    }, [props.shownRows, collapsed, resources, pagedKey, pagedGroup, places, pagesResult, pagedWindows, pagedFailed, pitch]);
     const shades = useMemo(() => shadeBands({ min: range.from, max: range.to }, { hours: view.period === "day" ? { from: Number(props.value.settings.hours.from), to: Number(props.value.settings.hours.to) } : undefined }),
         [range.from, range.to, view.period, props.value.settings.hours]);
     // What an event and a cell read, held while it holds.
@@ -1084,9 +1187,6 @@ function Timeline(props: CalendarViewsProps) {
         shifted.current = shiftedScroll(element.scrollLeft, range, timelineRange(next), view.period);
         (props.onRecentre ?? props.setView)(next);
     };
-    // Each kind of line's estimate, from the first of it to mount: a band's own height, a row's its plot's or its head's.
-    const [rowFloor, setRowFloor] = useState(0);
-    const [bandFloor, setBandFloor] = useState(BAND_FLOOR);
     const measured = useRef({ band: false, row: false });
     const measureBand = useCallback((el: HTMLElement | null) => {
         if (el === null || measured.current.band) return;
@@ -1110,44 +1210,67 @@ function Timeline(props: CalendarViewsProps) {
     const estimateSize = useCallback((i: number) => {
         const line = lines[i]!;
         if (line.kind === "group") return bandFloor;
-        // A row as tall as its plot or its head, whichever is taller, and its rule; a place not read yet, one lane.
+        // A run of places not read, as many rows of one lane as it stands for (#1424).
+        if (line.kind === "run") return (line.to - line.from + 1) * pitch;
+        // A row as tall as its plot or its head, whichever is taller, and its rule.
         const row = rowOf(line);
         return Math.max((row === undefined ? undefined : layouts.get(row.key)?.height) ?? laneHeight + 9, rowFloor) + 1;
-    }, [lines, rowOf, layouts, laneHeight, rowFloor, bandFloor]);
-    // A paged kind's window that could not be read, as its first row in view says it (#1398, CL11).
+    }, [lines, rowOf, layouts, laneHeight, rowFloor, bandFloor, pitch]);
+    // A paged kind's window that could not be read, as its run's first row in view says it (#1398, CL11), its Retry named
+    // by what it asks again.
     const noun = pagedGroup?.toLocaleLowerCase(format.locale);
-    const failedWords = useCallback((at: number) => {
+    const failedRange = useCallback((at: number) => {
         const w = Math.floor(at / CALENDAR_PAGE_SIZE);
-        const to = Math.min(pages?.total ?? Infinity, (w + 1) * CALENDAR_PAGE_SIZE);
-        return loadingLineText(pagedLoadingMessages.lineFailed({ noun: noun ?? "", from: format.number(w * CALENDAR_PAGE_SIZE + 1), to: format.number(to) }));
+        return { noun: noun ?? "", from: format.number(w * CALENDAR_PAGE_SIZE + 1), to: format.number(Math.min(pages?.total ?? Infinity, (w + 1) * CALENDAR_PAGE_SIZE)) };
     }, [pages?.total, noun, format]);
+    const pagedRetry = pages?.retry;
     const renderRow = useCallback((i: number) => {
         const line = lines[i]!;
         if (line.kind === "group") return <GroupHeading scope="calendar" group={{ key: line.group, label: line.group || "Unassigned" }} styles={styles} collapsed={collapsed.includes(line.group)} toggle={toggle} measure={measureBand}>
             <Box as="span" css={styles.groupMeta}>{format.number(line.count)} resources</Box>
         </GroupHeading>;
-        const row = rowOf(line);
-        if (row === undefined && line.kind === "paged" && pages !== undefined) {
-            const failure = pagedFailureAt(pages, line.at);
-            return <TimelineUnreadRow ctx={ctx} at={line.at} index={i} failure={failure === undefined ? undefined : failedWords(line.at)} retry={pages.retry} measure={measureRow} />;
+        if (line.kind === "run") {
+            const failed = line.failed ? failedRange(line.from) : undefined;
+            return <TimelineRun styles={styles} from={line.from} to={line.to} pitch={pitch} retry={pagedRetry}
+                failure={failed === undefined ? undefined : loadingLineText(pagedLoadingMessages.lineFailed(failed))}
+                retryName={failed === undefined ? undefined : pagedLoadingMessages.retryRange(failed)} />;
         }
+        const row = rowOf(line);
         return row === undefined ? null : <TimelineRow ctx={ctx} row={row} layout={layouts.get(row.key)!} span={span} index={i} r={line.r} measure={measureRow} />;
-    }, [lines, styles, collapsed, toggle, measureBand, ctx, layouts, span, measureRow, rowOf, pages, failedWords, format]);
+    }, [lines, styles, collapsed, toggle, measureBand, ctx, layouts, span, measureRow, rowOf, failedRange, pagedRetry, pitch, format]);
     // The paged kind's places the view shows, reported as its scroll rests (#1424, CL6): what its windows and the cells of
-    // the events on it are read around. A view of no place of it leaves the last report standing.
-    const onRangeChange = useCallback((_range: { startIndex: number; endIndex: number }, isScrolling: boolean, _center?: { index: number; withinPx: number },
+    // the events on it are read around — each row of it shown, and of a run under the view's centre the places from the
+    // view's top to its foot, read from the px of it the centre is at; of a run beside that one, the place it meets the
+    // view at. A view of no place of it leaves the last report standing.
+    const onRangeChange = useCallback((_range: { startIndex: number; endIndex: number }, isScrolling: boolean, center?: { index: number; withinPx: number },
         shown?: { startIndex: number; endIndex: number }) => {
         if (demand === undefined || pagesResult === undefined || isScrolling || shown === undefined) return;
+        // The view's height, and what of its top the pinned head covers: the frame's own measures of them.
+        const element = scroll.current;
+        const height = element?.clientHeight ?? 0;
+        const head = element?.querySelector<HTMLElement>("[data-calendar-header]")?.offsetHeight ?? 0;
         let first: number | undefined;
         let last: number | undefined;
+        const take = (from: number, to: number) => {
+            first = first === undefined ? from : Math.min(first, from);
+            last = last === undefined ? to : Math.max(last, to);
+        };
         for (let i = shown.startIndex; i <= shown.endIndex; i++) {
             const line = lines[i];
-            if (line?.kind !== "paged") continue;
-            first ??= line.at;
-            last = line.at;
+            if (line?.kind === "paged") take(line.at, line.at);
+            else if (line?.kind === "run") {
+                if (center !== undefined && center.index === i) {
+                    const place = (px: number) => line.from + Math.min(line.to - line.from, Math.max(0, Math.floor(px / pitch)));
+                    take(place(center.withinPx - height / 2 + head), place(center.withinPx + height / 2 - 1));
+                } else {
+                    // Above the item under the centre, a run meets the view at its last place; below it, at its first.
+                    const edge = center !== undefined && i < center.index ? line.to : line.from;
+                    take(edge, edge);
+                }
+            }
         }
         if (first !== undefined && last !== undefined) demand.set({ first, last, result: pagesResult });
-    }, [demand, pagesResult, lines]);
+    }, [demand, pagesResult, lines, pitch]);
     // A new narrowing of the paged kind is a new result (#1424): its places start again, and so does the view, at the top.
     const seenResult = useRef(pagesResult);
     useLayoutEffect(() => {
@@ -1156,10 +1279,28 @@ function Timeline(props: CalendarViewsProps) {
         seenResult.current = pagesResult;
     }, [pagesResult]);
     // Where the timeline's view rests (#1398): its top line by key and the px into it, saved as a scroll settles, and
-    // brought back once its lines are laid out — the line it left, wherever the lines above it moved.
+    // brought back once its lines are laid out — the line it left, wherever the lines above it moved. Resting in a run of
+    // the paged kind's places (#1424), it rests on the place there, by the key its row takes once read, and comes back to
+    // that place: in the run that holds it while it is not read, on its row once it is. The frame anchors its scroll on
+    // that place too, so a window landing in the run, or above it, keeps it where it was on screen.
     const { onAnchor } = props;
     const save = useCallback((at: RowAnchor) => onAnchor?.({ timeline: at }), [onAnchor]);
-    const { restore, onAnchorChange } = useRowAnchor(lines, props.anchor?.timeline, save);
+    const runs = useMemo((): RowRuns | undefined => pagesResult === undefined ? undefined : {
+        rowAt: (index, offset) => {
+            const line = lines[index];
+            if (line?.kind !== "run") return undefined;
+            const k = Math.min(line.to - line.from, Math.max(0, Math.floor(offset / pitch)));
+            return { key: placeKey(pagesResult, line.from + k), offset: offset - k * pitch };
+        },
+        find: (at) => {
+            const place = placeOfKey(at.key, pagesResult);
+            if (place === undefined) return undefined;
+            const index = lines.findIndex(line => line.kind === "run" && line.from <= place && place <= line.to);
+            const line = lines[index];
+            return line?.kind === "run" ? { index, offset: (place - line.from) * pitch + at.offset } : undefined;
+        },
+    }, [lines, pagesResult, pitch]);
+    const { restore, onAnchorChange } = useRowAnchor(lines, props.anchor?.timeline, save, true, undefined, runs);
     // An event a pick asks to be shown (#1398): its row brought into the view's middle — its group opened, if folded —
     // and its time to the view's centre, which mounts the events there; drawn, the event tells the frame.
     const [scrollTo, setScrollTo] = useState<{ index: number; nonce: number }>();
@@ -1193,7 +1334,7 @@ function Timeline(props: CalendarViewsProps) {
     return <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.scroll} scrollElRef={scroll} onScroll={onScroll}
         rootProps={{ "data-calendar-timeline": "", "data-calendar-unread": props.read.state === "held" ? undefined : props.read.state } as Record<string, string | undefined>}
         minWidth={`${width + TIMELINE_GUTTER}px`} headerZIndex={5} header={header} count={lines.length} getItemKey={getItemKey} estimateSize={estimateSize}
-        anchorable={ANCHOR_EVERY_LINE} renderRow={renderRow} onAnchorChange={onAnchorChange} restoreAnchor={restore}
+        anchorable={ANCHOR_EVERY_LINE} runs={runs} renderRow={renderRow} onAnchorChange={onAnchorChange} restoreAnchor={restore}
         onRangeChange={demand === undefined || pages === undefined ? undefined : onRangeChange}
         scrollToIndex={scrollTo?.index} scrollNonce={scrollTo?.nonce} scrollAlign="center" />;
 }

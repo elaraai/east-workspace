@@ -10,7 +10,9 @@
  * retained (`data-calendar-stale` on main, CL5): its columns', rows' and cells' rules dashed, its events' and cards' words
  * in the third ink — the shared retained parts. A resource's shading past the cap (#1424): the Plan's booked-vs-free bar
  * along each period (`shadeBar`) and its no-data hatch (`shadeHatch`). A paged resource kind's columns in the Resources
- * view (#1424): a grid track each, only those around the view drawn (`data-paged`).
+ * view (#1424): each drawn at its own offset in a content box as wide as all of them, only those around the view drawn
+ * (`data-paged`); its places not read on the timeline, the shared unloaded run's rows in the timeline's own (`runRow`,
+ * `runHead`, `runPlot`).
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
@@ -30,11 +32,23 @@ import { timeAxisText, timeHeaderText, timeRulerBase } from "./time/axis.js";
 import { timeResizeEdge } from "./time/resize.js";
 
 /**
- * The Resources view's tracks over a paged resource kind (#1424): the hour column, then a track each column, as wide
- * as a resource column is at least (`timeGridContent`'s minimum) — so a column drawn in its track sits where it would
- * with every column drawn.
+ * A column of the Resources view over a paged resource kind (#1424), at its own offset: past the hour column, its place
+ * (`--calendar-column-at`) of the columns' share of the content box, which is as wide as every column at a resource
+ * column's least (`timeGridContent`'s minimum) — so a column drawn sits where it would with every column drawn, and no
+ * grid holds a track a column (a browser lays out so many tracks no further: Firefox stops at 10,000 lines).
  */
-const PAGED_COLUMNS = "56px repeat(var(--calendar-columns), minmax(104px, 1fr))";
+const PAGED_COLUMN = {
+    position: "absolute",
+    top: 0,
+    left: "calc(56px + var(--calendar-column-at) * (100% - 56px) / var(--calendar-columns))",
+    width: "calc((100% - 56px) / var(--calendar-columns))",
+} as const;
+
+/** The timeline's resource column, sticky as the plot scrolls by: a row's, and a run's of places not read (#1424). */
+const TIMELINE_HEAD = {
+    ...rowsBase.gutterCell, position: "sticky", left: 0, width: "184px", flexShrink: 0, padding: "4px 12px", zIndex: 4, background: "bg.surface",
+    borderRightWidth: "1px", borderColor: "border.subtle", overflowWrap: "anywhere",
+} as const;
 
 export const calendarSlotRecipe = defineSlotRecipe({
     className: "east-calendar",
@@ -46,7 +60,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
         "ruler", "rulerRow", "rulerTick", "rulerLabel", "resize", "month", "monthDay", "dayNumber", "more", "timeline",
         "timelineRow", "rowHead", "rowPlot", "agenda", "agendaGroup", "agendaHead", "card", "cardHead", "cardTitle",
         "actions", ...schedulePaneSlots, "section", "status", "footer", "toolbarRange", "rangeTitle", "toolbarText",
-        "form", "error", "empty", ...nowSlots, "unreadMeta", "monthWash", "readLine", "shadeBar", "shadeHatch",
+        "form", "error", "empty", ...nowSlots, "unreadMeta", "monthWash", "readLine", "shadeBar", "shadeHatch", "runRow", "runHead", "runPlot",
     ],
     base: {
         ...moveGhostBase,
@@ -59,9 +73,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
             // A card's placeholders keep their place where a failure blanks them (#1398); unread, each is unseen until the
             // frame's reveal says so by itself (`data-unrevealed`).
             "& [data-blank] [data-shape]": { visibility: "hidden" } },
-        head: { display: "flex", position: "sticky", top: 0, zIndex: 5, height: "28px", flexShrink: 0, background: "bg.surface", borderBottomWidth: "1px", borderColor: "border.subtle", "&[data-resources]": { height: "44px" }, "&[data-timeline]": { height: "auto" }, "&[data-month]": { minWidth: "var(--calendar-month-min-width)" },
-            // A paged resource kind's columns (#1424): a track each, the columns drawn placed in theirs, the rest empty.
-            "&[data-paged]": { display: "grid", gridTemplateColumns: PAGED_COLUMNS } },
+        head: { display: "flex", position: "sticky", top: 0, zIndex: 5, height: "28px", flexShrink: 0, background: "bg.surface", borderBottomWidth: "1px", borderColor: "border.subtle", "&[data-resources]": { height: "44px" }, "&[data-timeline]": { height: "auto" }, "&[data-month]": { minWidth: "var(--calendar-month-min-width)" } },
         headerCaption: { ...shellBase.brushCaption, position: "sticky", left: 0, width: "184px", flexShrink: 0, zIndex: 4, background: "bg.surface" },
         columnHead: {
             flex: 1, minWidth: 0, display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: "8px",
@@ -69,6 +81,8 @@ export const calendarSlotRecipe = defineSlotRecipe({
             padding: "0 10px", borderLeftWidth: "1px", borderColor: "border.subtle", textAlign: "left",
             "& svg": { ...fontAwesomeSize("10px"), color: "fg.subtle" },
             "&[data-today]": { color: "brand.fg", background: "brand.subtle" },
+            // A paged resource kind's column's head (#1424): at its own offset, the head's height.
+            "[data-paged] > &": { ...PAGED_COLUMN, bottom: 0 },
         },
         dayHeading: { display: "flex", alignItems: "baseline", gap: "6px", minWidth: 0, flexShrink: 0 },
         weekday: { ...timeHeaderText, "[data-today] &": { color: "brand.fg" } },
@@ -79,10 +93,12 @@ export const calendarSlotRecipe = defineSlotRecipe({
         timeGridContent: { minWidth: "calc(56px + var(--calendar-columns) * 112px)", "&[data-resources]": { minWidth: "calc(56px + var(--calendar-columns) * 104px)" }, "&[data-single]": { minWidth: "296px" } },
         timeGutter: { ...timeAxisText, width: "56px", flexShrink: 0, position: "sticky", left: 0, zIndex: 4, background: "bg.surface", color: "fg.subtle" },
         timeLabel: { position: "absolute", right: "8px", transform: "translateY(-50%)" },
-        columns: { display: "flex", flex: 1, minWidth: 0, position: "relative", "&[data-paged]": { display: "grid", gridTemplateColumns: PAGED_COLUMNS } },
+        columns: { display: "flex", flex: 1, minWidth: 0, position: "relative" },
         // A stacking context of its own: what a day column draws over itself — the now line, a drop's ghost, a dragged event —
         // stays under the sticky head as the grid scrolls down, and under the hour column as it scrolls sideways.
         column: { position: "relative", flex: 1, minWidth: 0, borderLeftWidth: "1px", borderColor: "border.subtle", touchAction: "pan-y", isolation: "isolate",
+            // A paged resource kind's column (#1424): at its own offset among the columns, the hour column beside them in flow.
+            "[data-paged] > &": PAGED_COLUMN,
             // Retained while a newer read of its period is in flight (#1398, CL5): the shared retained column.
             "[data-calendar-stale] &": retainedColumn },
         hour: { position: "absolute", left: 0, right: 0, borderTopWidth: "1px", borderColor: "border.subtle", pointerEvents: "none", "&[data-half]": { opacity: 0.45 } },
@@ -142,10 +158,24 @@ export const calendarSlotRecipe = defineSlotRecipe({
         timelineRow: { display: "flex", borderBottomWidth: "1px", borderColor: "border.subtle",
             // Retained while a newer read of its period is in flight (#1398, CL5): the shared retained row.
             "[data-calendar-stale] &": retainedRow },
-        rowHead: { ...rowsBase.gutterCell, position: "sticky", left: 0, width: "184px", flexShrink: 0, padding: "4px 12px", zIndex: 4, background: "bg.surface", borderRightWidth: "1px", borderColor: "border.subtle", overflowWrap: "anywhere" },
+        rowHead: TIMELINE_HEAD,
         // A stacking context of its own: its now line, a drop's ghost and a dragged event stay under the sticky resource column
         // as the timeline scrolls right, and under the head as it scrolls down.
         rowPlot: { position: "relative", flex: 1, isolation: "isolate" },
+        // ── A paged resource kind's places not read yet on the timeline (#1424): the shared unloaded run's rows at their
+        // pitch, each a resource's row — its rule, retained as a row is, its sticky resource column and its plot, washed. A
+        // window whose read failed says so once across its first row in view's plot, at the plot's start in view as a
+        // failed period's line is (`readLine`). ──
+        runRow: { borderBottomWidth: "1px", borderColor: "border.subtle", "[data-calendar-stale] &": retainedRow },
+        // Its name's placeholder where a row's name starts, as the run's cell would centre it across the column.
+        runHead: { ...TIMELINE_HEAD, alignItems: "flex-start" },
+        runPlot: {
+            position: "relative",
+            "&[data-run-failed]": {
+                overflow: "visible",
+                "& > [data-loading-failed]": { position: "sticky", left: "184px", zIndex: 3, height: "100%", width: "max-content", padding: "0 12px", background: "bg.surface" },
+            },
+        },
         // The narrow agenda: the shared part the Roster and the Allocation take too, a card in an overlap pair ringed in warn.
         agenda: scheduleAgenda, agendaGroup: scheduleAgendaGroup, agendaHead: scheduleAgendaHead,
         card: { ...scheduleCard, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING }, "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },

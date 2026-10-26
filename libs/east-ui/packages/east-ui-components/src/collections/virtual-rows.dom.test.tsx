@@ -20,7 +20,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import { useRowsTop } from "./rows-scroll.js";
-import { VirtualRows, devicePixels, observeOffsetWithin, type RowsViewport } from "./virtual-rows.js";
+import { VirtualRows, devicePixels, observeOffsetWithin, type RowRuns, type RowsViewport } from "./virtual-rows.js";
 
 const ROW_H = 32;
 /** What zoomed measurement reports for a nominally 32px row. */
@@ -743,6 +743,45 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         const el2 = scrollTo(c2, 50 * ROW_H);
         rerender2(frame([...keysOf("n", 10), ...ROWS], { anchorable: null }));
         expect(el2.scrollTop).toBe(50 * ROW_H);
+    });
+
+    test("a window landing in a run of rows not read leaves the row at the view's top where it is — the frame anchors on the row inside the run, by the key it takes once read, and finds it on its own line or in the run that then holds it (#1424)", () => {
+        // A run stands for rows r<from> to r<to>, one item at their pitch; a row read is its own line, twice as tall.
+        type Line = { readonly key: string; readonly px: number; readonly from?: number; readonly to?: number };
+        const run = (from: number, to: number): Line => ({ key: `run:${from}-${to}`, px: (to - from + 1) * ROW_H, from, to });
+        const read = (from: number, to: number): Line[] => Array.from({ length: to - from + 1 }, (_u, i) => ({ key: `r${from + i}`, px: 2 * ROW_H }));
+        const runsOf = (lines: readonly Line[]): RowRuns => ({
+            rowAt: (index, offset) => {
+                const line = lines[index];
+                if (line?.from === undefined || line.to === undefined) return undefined;
+                const k = Math.min(line.to - line.from, Math.max(0, Math.floor(offset / ROW_H)));
+                return { key: `r${line.from + k}`, offset: offset - k * ROW_H };
+            },
+            find: (at) => {
+                const n = Number(at.key.slice(1));
+                const index = lines.findIndex((line) => line.from !== undefined && line.to !== undefined && line.from <= n && n <= line.to);
+                const line = lines[index];
+                return line?.from === undefined ? undefined : { index, offset: (n - line.from) * ROW_H + at.offset };
+            },
+        });
+        const runs = (lines: readonly Line[]) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={lines.length} sizes={lines.map((line) => line.px)} measureRows={false} overscan={2}
+                    getItemKey={(i) => lines[i]!.key} anchorable={() => true} runs={runsOf(lines)}
+                    renderRow={(i) => <div data-key={lines[i]!.key}>{lines[i]!.key}</div>} />
+            </ChakraProvider>
+        );
+        // The view rests 5px into r60, in a run of all hundred rows. The window above it lands, its rows twice the run's
+        // pitch: r60 is in the run that is left, which starts lower by as much — and the view with it.
+        const { container, rerender } = render(runs([run(0, 99)]));
+        const scrollEl = scrollTo(container, 60 * ROW_H + 5);
+        rerender(runs([...read(0, 49), run(50, 99)]));
+        expect(scrollEl.scrollTop).toBe(50 * 2 * ROW_H + 10 * ROW_H + 5);
+        // The window that holds it lands: r60 is a line of its own, ten of its window's rows above it — the view on it.
+        const { container: c2, rerender: rerender2 } = render(runs([run(0, 99)]));
+        const el2 = scrollTo(c2, 60 * ROW_H + 5);
+        rerender2(runs([run(0, 49), ...read(50, 69), run(70, 99)]));
+        expect(el2.scrollTop).toBe(50 * ROW_H + 10 * 2 * ROW_H + 5);
     });
 
     describe("a scroll request follows its row, not its index (#885)", () => {

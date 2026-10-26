@@ -1320,12 +1320,24 @@ A resource kind may be paged (#1424, `Calendar.resources(Data.bindPaged(…))`):
 its resources come a window of 200 at a time (`calendar/pages.ts`), read in a
 component of their own (`CalendarPagesReader`, over `shared/windowed.ts`'
 store) around the places the views report they show — the timeline's rows by
-`VirtualRows`' `shown`, the Resources view's columns by a range of its own
-(`COLUMN_OVERSCAN`, a 100 ms dwell) — to a store only that reader and the
-window's read hear (`createPagedDemand`), so a scroll renders no frame. A
-place not read yet is the shared unread row (`TimelineUnreadRow`) or an empty
-column track; a window whose read failed is said in its first row in view, or
-a box at the grid's top-left, with Retry; and the footer's line reads the
+`VirtualRows`' `shown`, a run under the view's centre by the px of it there,
+the Resources view's columns by a range of its own (`COLUMN_OVERSCAN`, a 100
+ms dwell) — to a store only that reader and the window's read hear
+(`createPagedDemand`), so a scroll renders no frame. The views lay its places
+out as stretches (`pagedSegments`), never a line, a column or a grid track a
+place: on the timeline each held window's resources are rows and the places
+between not read yet are runs — the shared unloaded run (`TimelineRun` over
+`UnloadedRun`), as the Plan's and the Sheet's rows not read are: one
+virtualizer item however long, at its first place's position, its rows drawn
+at their pitch only where it meets the view, keyed by the places it stands for
+and their pitch (`run:<result>:<from>-<to>@<pitch>`, a failed window's
+`failed:…`), so a window landing inside one makes other items — and a view
+resting in one rests on the place there (`useRowAnchor`'s `runs`, which
+`VirtualRows` anchors its scroll on too). The Resources view makes each column as it draws it, by its place,
+and places it at its own offset (`--calendar-column-at`) in a content box as
+wide as every column, drawing those around the view alone. A window whose read
+failed is a run that says so in its first row in view, or a box at the grid's
+top-left, with Retry; and the footer's line reads the
 kind's windows (`pagedLoadingLine`, `Loading presses 401–600`). A count, a
 revision or a narrowing of the kind that throws is the source's failure, as the
 Plan's and the Sheet's drivers take one: caught inside the reader's read, it

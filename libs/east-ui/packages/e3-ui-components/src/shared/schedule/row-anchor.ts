@@ -19,11 +19,19 @@
  * view at the top — once the narrowing's rows are in, as the Sheet keeps its
  * own (the Allocation's Table).
  *
+ * A builder that draws rows not read yet as one item, a run however many
+ * (the Calendar's timeline over a paged resource kind, #1424), says where its
+ * rows stand in its runs (`VirtualRows`' `RowRuns`, which the frame anchors its
+ * scroll on too): a view resting in a run rests on the row there, by the key
+ * that row takes once read, and comes back to it — in the run that still holds
+ * it, or its own line once its window is read.
+ *
  * @packageDocumentation
  */
 
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { StringType, equalFor } from "@elaraai/east";
+import type { RowRuns } from "@elaraai/east-ui-components/internal";
 
 const sameText = equalFor(StringType);
 
@@ -51,10 +59,12 @@ export interface RowNarrowing {
  *   rows waits for that measure, so the rows above the one brought back stand where they will
  * @param narrowing - The narrowing the rows are under, where one chooses them: across a new one the view keeps the row it
  *   rested on where the narrowing holds it, else starts at the top
+ * @param runs - Where the rows it has not read stand, where it draws them as runs: a view resting in one rests on the row
+ *   there, and comes back to it there while the run holds it
  * @returns What its frame restores, and what it reports a settle to
  */
 export function useRowAnchor(rows: readonly { readonly key: string }[], saved: RowAnchor | undefined, save: ((at: RowAnchor) => void) | undefined, ready = true,
-    narrowing?: RowNarrowing): {
+    narrowing?: RowNarrowing, runs?: RowRuns): {
     restore: { index: number; offset: number } | undefined;
     onAnchorChange: (at: { index: number; offset: number }) => void;
 } {
@@ -67,26 +77,30 @@ export function useRowAnchor(rows: readonly { readonly key: string }[], saved: R
     const query = narrowing?.query;
     const settled = narrowing?.settled ?? false;
     useLayoutEffect(() => {
+        // A row by its key: its own line, or — not read yet — the run that holds it.
+        const placeOf = (at: RowAnchor): { index: number; offset: number } | undefined => {
+            const index = rows.findIndex(row => row.key === at.key);
+            return index >= 0 ? { index, offset: at.offset } : runs?.find(at);
+        };
         if (query !== undefined && settled && (kept.current === undefined || !sameText(kept.current, query))) {
             kept.current = query;
             pending.current = undefined;
             const at = rested.current;
-            const index = at === undefined ? -1 : rows.findIndex(row => row.key === at.key);
-            setRestore(at !== undefined && index >= 0 ? { index, offset: at.offset } : { index: 0, offset: 0 });
+            setRestore((at === undefined ? undefined : placeOf(at)) ?? { index: 0, offset: 0 });
             return;
         }
         const at = pending.current;
         if (at === undefined || !ready) return;
-        const index = rows.findIndex(row => row.key === at.key);
-        if (index < 0) return;
+        const place = placeOf(at);
+        if (place === undefined) return;
         pending.current = undefined;
-        setRestore({ index, offset: at.offset });
-    }, [rows, ready, query, settled]);
+        setRestore(place);
+    }, [rows, ready, query, settled, runs]);
     const onAnchorChange = useCallback((at: { index: number; offset: number }) => {
         const row = rows[at.index];
         if (row === undefined) return;
-        rested.current = { key: row.key, offset: at.offset };
+        rested.current = runs?.rowAt(at.index, at.offset) ?? { key: row.key, offset: at.offset };
         save?.(rested.current);
-    }, [rows, save]);
+    }, [rows, save, runs]);
     return { restore, onAnchorChange };
 }

@@ -71,7 +71,12 @@
  * view, else one covering the view — and a render that finds the anchor
  * moved, with nothing scrolled since, moves the virtualizer's offset by the
  * same amount (the rows drawn are the ones that will show) and the scroll
- * position follows before paint. A scroll not yet reported — a programmatic
+ * position follows before paint. A collection that draws rows not read as one
+ * item, a run however many (`runs`, the Calendar's paged places, #1424),
+ * anchors on the row inside a run at the view's top — by the key that row
+ * takes once read — and finds it again wherever it then is: its own line, or
+ * a run that holds it, so a window landing in the run keeps that row where it
+ * was. A scroll not yet reported — a programmatic
  * one — wins. The anchor is kept in the rows' own coordinates, net of the
  * scroll margin: the pinned header being measured, or growing, is no row
  * moving, and moves nothing (#944). An offset past where the view can go —
@@ -275,6 +280,29 @@ const RowContent = memo(function RowContent({ index, render }: { index: number; 
     return <>{render(index)}</>;
 });
 
+/**
+ * Where rows a collection draws as one item while they are not read — a run however many (the Calendar's paged
+ * places, #1424) — stand: a view resting in a run rests on the row there, by the key that row takes once read, and
+ * that row is found again in whatever item then holds it. Both read the run's own pitch.
+ */
+export interface RowRuns {
+    /**
+     * The row `offset` px into item `index`, where that item is a run: the key the row takes once read, and the px into it.
+     *
+     * @param index - The item, by its place among the frame's
+     * @param offset - The px into it
+     * @returns The row; `undefined` where the item is no run
+     */
+    readonly rowAt: (index: number, offset: number) => { readonly key: string; readonly offset: number } | undefined;
+    /**
+     * Where a row a run holds stands now: the run's index, and the px into it.
+     *
+     * @param at - The row, by its key, and the px into it
+     * @returns Its place; `undefined` for a row no run holds
+     */
+    readonly find: (at: { readonly key: string; readonly offset: number }) => { readonly index: number; readonly offset: number } | undefined;
+}
+
 /** What moves a frame's rows on screen (#856) — see `onViewport`. */
 export interface RowsViewport {
     /**
@@ -368,6 +396,12 @@ interface VirtualRowsBaseProps {
      * it in place would scroll them out of view.
      */
     anchorable?: ((index: number) => boolean) | undefined;
+    /**
+     * Where the rows a collection draws as runs stand ({@link RowRuns}): an anchorable run covering the view's top anchors
+     * the frame on the row inside it there, found again in whatever item then holds it — its own line once its window
+     * lands, or a run — so the rows landing around it never move it. Omitted, a run anchors as any item does.
+     */
+    runs?: RowRuns | undefined;
     /**
      * Whether to measure mounted rows (default true). Pass `false` when rows
      * are FIXED-HEIGHT (the given sizes are exact): rows then sit at exact
@@ -736,7 +770,9 @@ interface ScrollAnchor {
 
 /**
  * The item a frame keeps in place (#878): the first anchorable item that starts
- * inside the view, else an anchorable one covering the view's top.
+ * inside the view, else an anchorable one covering the view's top — or, that
+ * one a run of rows not read, the row inside it at the view's top, by the key
+ * it takes once read (#1424).
  *
  * @param virtualizer - The frame's virtualizer
  * @param offset - Its scroll offset
@@ -744,10 +780,12 @@ interface ScrollAnchor {
  * @param height - The view's height
  * @param anchorable - Which items may anchor
  * @param margin - The scroll margin the item starts carry — the pinned header's height
+ * @param runs - Where the rows the collection draws as runs stand, where it draws any
  * @returns The anchor, or null when no item in view may anchor
  */
 function anchorOf(
     virtualizer: Rows, offset: number, top: number, height: number, anchorable: (index: number) => boolean, margin: number,
+    runs: RowRuns | undefined,
 ): ScrollAnchor | null {
     const at = virtualizer.getVirtualItemForOffset(top);
     if (at === undefined) return null;
@@ -757,7 +795,11 @@ function anchorOf(
         if (item === undefined || item.start >= top + height) break;
         if (anchorable(i)) return { key: item.key, start: item.start - margin, offset, index: i };
     }
-    return at.start < top && anchorable(at.index) ? { key: at.key, start: at.start - margin, offset, index: at.index } : null;
+    if (!(at.start < top && anchorable(at.index))) return null;
+    // A run covering the view's top: its row there, at that row's own start.
+    const row = runs?.rowAt(at.index, top - at.start);
+    return row === undefined ? { key: at.key, start: at.start - margin, offset, index: at.index }
+        : { key: row.key, start: top - row.offset - margin, offset, index: at.index };
 }
 
 /**
@@ -781,18 +823,23 @@ function indexOfKey(count: number, keyOf: (index: number) => ItemKey, key: ItemK
 }
 
 /**
- * Where the item with `key` starts now (see {@link indexOfKey}).
+ * Where the item with `key` starts now (see {@link indexOfKey}) — or, a row a
+ * run holds and no item is (#1424), where it starts inside that run.
  *
  * @param virtualizer - The frame's virtualizer, its measurements current
  * @param count - The rows
  * @param keyOf - A row's key
  * @param key - The anchor's key
  * @param hint - The anchor's index when it was taken
+ * @param runs - Where the rows the collection draws as runs stand, where it draws any
  * @returns Its start, or undefined when it has left the frame
  */
-function startOfKey(virtualizer: Rows, count: number, keyOf: (index: number) => ItemKey, key: ItemKey, hint: number): number | undefined {
+function startOfKey(virtualizer: Rows, count: number, keyOf: (index: number) => ItemKey, key: ItemKey, hint: number, runs: RowRuns | undefined): number | undefined {
     const index = indexOfKey(count, keyOf, key, hint);
-    return index === undefined ? undefined : virtualizer.measurementsCache[index]?.start;
+    if (index !== undefined) return virtualizer.measurementsCache[index]?.start;
+    const within = typeof key === "string" ? runs?.find({ key, offset: 0 }) : undefined;
+    const run = within === undefined ? undefined : virtualizer.measurementsCache[within.index]?.start;
+    return run === undefined || within === undefined ? undefined : run + within.offset;
 }
 
 /** A keyed frame's scroll request (#885): the row it brings in, where to look
@@ -834,7 +881,7 @@ export function setVirtualRowsMeasureProbe(fn: (() => void) | undefined): void {
  */
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
-        header, sticky, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, renderRow, measureRows = true,
+        header, sticky, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, runs, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, rootProps, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
         virtualizeUnboundedAt, onAnchorChange, restoreAnchor, rowsProps, rowsRef, onViewport,
@@ -1057,7 +1104,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         const offset = virtualizer.scrollOffset;
         if (anchor !== null && offset !== null && offset === anchor.offset) {
             virtualizer.getTotalSize();  // this render's measurements
-            const start = startOfKey(virtualizer, count, getItemKey, anchor.key, anchor.index);
+            const start = startOfKey(virtualizer, count, getItemKey, anchor.key, anchor.index, runs);
             // Where the anchor starts among the rows now, as it was taken: a
             // header measured or grown since moves every start, and no row.
             const moved = start === undefined ? 0 : start - margin - anchor.start;
@@ -1104,7 +1151,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         }
         const offset = virtualizer.scrollOffset ?? 0;
         anchorRef.current = anchorable === undefined ? null
-            : anchorOf(virtualizer, offset, offset + margin, virtualizer.scrollRect?.height ?? 0, anchorable, margin);
+            : anchorOf(virtualizer, offset, offset + margin, virtualizer.scrollRect?.height ?? 0, anchorable, margin, runs);
     });
 
     // Bring a requested row into view. Keyed on the index (and the explicit
