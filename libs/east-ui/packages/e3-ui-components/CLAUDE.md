@@ -1326,7 +1326,12 @@ window's read hear (`createPagedDemand`), so a scroll renders no frame. A
 place not read yet is the shared unread row (`TimelineUnreadRow`) or an empty
 column track; a window whose read failed is said in its first row in view, or
 a box at the grid's top-left, with Retry; and the footer's line reads the
-kind's windows (`pagedLoadingLine`, `Loading presses 401–600`). An event kind
+kind's windows (`pagedLoadingLine`, `Loading presses 401–600`). A count, a
+revision or a narrowing of the kind that throws is the source's failure, as the
+Plan's and the Sheet's drivers take one: caught inside the reader's read, it
+ends the cold load and is said on the line with Retry (`Couldn't read
+presses`), the windows it fails said where their places would be — a window
+failed before the count is known laid out whole. An event kind
 placed on it is read a cell at a time where the view lays its resources out,
 by the shared reader through the Calendar's adapter (`calendarCellsPaged`,
 `calendarCellSpan`: the first and the last held row among the places shown,
