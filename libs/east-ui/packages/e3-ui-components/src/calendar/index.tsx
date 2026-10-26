@@ -19,6 +19,8 @@
  * steps to its event's period, selects it and brings it into view, and hands it
  * the keyboard where its ring is drawn once the window it is drawn in has landed
  * (`event-focus.ts`); a step through the matches leaves the keyboard in the box.
+ * An event its kind's choices hide is named by them, and a pick of it clears
+ * just them first, its window kept (the hidden pick, `hidden.tsx`).
  * Each layout's view keeps its place across a step and a remount — the time
  * grid's hour, the timeline's line — and Today brings the time grid to the now
  * line. Every key it acts on goes no further than the Calendar: `[` and `]`
@@ -86,6 +88,7 @@ import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLin
 import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedule/cells.js";
 import { useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
+import { clearHiding } from "../shared/schedule/hidden.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
@@ -97,6 +100,7 @@ import { useCalendarDrag } from "./drag.js";
 import { EventFocusContext, type EventFocus } from "./event-focus.js";
 import { useCalendarFind, type FoundEvent } from "./find.js";
 import { CalendarFooter } from "./footer.js";
+import { HideEvents, type HiddenEvents } from "./hidden.js";
 import { CalendarPagesReader, createPagedDemand, type CalendarPages } from "./pages.js";
 import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type CalendarSelection } from "./inspector.js";
 import { calendarLibraryId, templatesTab, useCalendarLibrary } from "./library.js";
@@ -124,6 +128,8 @@ interface HostProps extends EastChakraCalendarProps {
     dates: CalendarWindow; now: Date;
     /** The sources the Calendar follows beside its event kinds': what each shows. */
     followed: FollowedSources;
+    /** Each event kind's hidden pick, by its slot: what hides an event Search Records finds that its choices leave out. */
+    hidden: HiddenEvents;
     editing?: ScheduleEditing;
     /**
      * Told the rows the cells' reader holds of each kind it reads by its cells (#1424), as they move: where the editing
@@ -268,7 +274,7 @@ export function setCalendarFrameRenderProbe(fn: (() => void) | undefined): void 
 }
 function CalendarFrame(props: HostProps) {
     calendarFrameRenderProbe?.();
-    const { value, storageKey, editing, now, followed, dates, onHeld, onBacklog } = props;
+    const { value, storageKey, editing, now, followed, dates, onHeld, onBacklog, hidden: hiddenEvents } = props;
     const { view, range } = dates;
     // What the timeline shows: exactly, for a change of layout or period to keep its centre; and in whole days, in a store
     // of its own, read only by what says them — so its scroll draws nothing of the frame (#1398, CL9).
@@ -506,7 +512,9 @@ function CalendarFrame(props: HostProps) {
     // a pick gives it the keyboard there, once the box has let it go (`usePickHandOff`) and the window it is drawn in has
     // landed — after a step of the dates, that window: the element that stands for it where its ring is drawn takes the
     // focus (`event-focus.ts`). An event the views draw nowhere — one of the backlog — leaves the keyboard where it is, as
-    // does a step through the matches.
+    // does a step through the matches. One its kind's choices hide is shown by clearing those of its source that hide it —
+    // those e3 named, else every one of its choices, its window kept — a write of the rail like a chip's (the hidden pick),
+    // and is given the keyboard once the narrowing it leaves draws it.
     const handOff = usePickHandOff();
     // The event a pick gave the keyboard to: the first element of it drawn takes the focus, once. It waits only while the
     // event is the one selected, and until the viewer does something else (the root's captures below).
@@ -529,13 +537,23 @@ function CalendarFrame(props: HostProps) {
     const [pickLanding, setPickLanding] = useState<string>();
     const found = (event: FoundEvent) => {
         const ref = { kind: event.item.kind, key: event.item.key };
+        const hiding = event.hidden === undefined ? undefined : hiddenEvents.get(event.item.kind);
+        if (event.hidden !== undefined && hiding?.part !== undefined) {
+            try { clearHiding(hiding.part, event.hidden.answer, hiding.window); }
+            catch (reason) {
+                // Not drawn, so nothing takes the keyboard: it stays where it is.
+                handOff.drop();
+                setError(reason instanceof Error ? reason.message : "The filters hiding the event could not be cleared");
+                return;
+            }
+        }
         select([ref]);
         if (event.item.start.type !== "some") { handOff.drop(); return; }
         onNavigate(dayStart(event.item.start.value).getTime());
         setReveal(ref);
         setPickLanding(eventKey(ref));
     };
-    const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format, onPick: found, held: cellRows });
+    const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format, onPick: found, held: cellRows, hidden: hiddenEvents });
     const search = useMemo(() => (finder === undefined ? undefined : handOff.search(finder)), [finder, handOff]);
     useEffect(() => {
         if (pickLanding === undefined || !current || !items.some(item => stringEqual(eventKey(item), pickLanding))) return;
@@ -658,9 +676,12 @@ export function EastChakraCalendar({ value, storageKey }: EastChakraCalendarProp
     // The sources the Calendar follows itself, each read once (one component each, so their hooks keep their order).
     const sources = useMemo(() => followedSources(value), [value]);
     const nouns = useMemo(() => new Map(Object.entries(calendarNouns(value, locale))), [value, locale]);
+    // And each event kind's hidden pick, read through its source (one component each, as the sources are).
     return <FollowSources chrome={dates.chrome} narrowed={value.narrowed} sources={sources} nouns={nouns} said={calendarSaid}>
-        {followed => value.settings.readOnly ? <CalendarFrame value={value} storageKey={key} dates={dates} now={now} followed={followed} />
-            : <EditableCalendar value={value} storageKey={key} dates={dates} now={now} followed={followed} />}
+        {followed => <HideEvents parts={dates.eventParts}>
+            {hidden => value.settings.readOnly ? <CalendarFrame value={value} storageKey={key} dates={dates} now={now} followed={followed} hidden={hidden} />
+                : <EditableCalendar value={value} storageKey={key} dates={dates} now={now} followed={followed} hidden={hidden} />}
+        </HideEvents>}
     </FollowSources>;
 }
 implementUIComponent(CalendarComponent, EastChakraCalendar);

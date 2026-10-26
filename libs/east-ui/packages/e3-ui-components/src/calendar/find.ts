@@ -20,10 +20,18 @@
  *
  * The matches are one list, each kind's run in its keys' order, the kinds in
  * the Calendar's order. A line names an event by its key, its title, its
- * kind's name and when it starts; a pick hands the frame the event
- * (`onPick`), which steps to its period, selects it and brings it into view,
- * and the box shows its key. The box asks its query again as a kind's record
- * moves — its revision, or a kind read whole's commits.
+ * kind's name and when it starts; one its kind's choices hide — its source's
+ * narrowing but the window, which hides no event: a pick steps to it — says
+ * which, as the rail words them, `· hidden by Status: Ready — picking it clears
+ * that filter`, once e3 has said, `· hidden by the filters` until then (the
+ * hidden pick, `hidden.tsx`): which of the events a list shows the choices
+ * hide is asked of e3 over the page the list read them from
+ * (`recordSliceWithinAt`), and which choices hide those, each read once at a
+ * revision and a narrowing. A pick hands the frame the event (`onPick`), which
+ * clears what hides it, steps to its period, selects it and brings it into
+ * view, and the box shows its key. The box asks its query again as a kind's
+ * record moves — its revision, or a kind read whole's commits — and lists its
+ * lines again as e3 says what hides an event, and as a kind's choices move.
  *
  * @packageDocumentation
  */
@@ -32,8 +40,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { StringType, compareFor, equalFor, none, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
 import { findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type Formatters, type KeySearchSource } from "@elaraai/east-ui-components";
-import { awaitTracked, recordSlicePage, recordSliceRevision, recordSliceSeek, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { awaitTracked, recordSlicePage, recordSliceRevision, recordSliceSeek, recordSliceWithinAt, toSeekQuery } from "@elaraai/east-ui-components/internal";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleEditing, type ScheduleHeldRows } from "../shared/schedule/editing.js";
+import { hiddenByText, hidingWords, type HiddenAnswer, type HidingWords } from "../shared/schedule/hidden.js";
+import { hiddenVersion, type HiddenEvents, type KindHidden } from "./hidden.js";
 import type { CalendarEventPart } from "./window.js";
 import type { CalendarItem, CalendarKind, CalendarRange } from "./model.js";
 
@@ -67,23 +77,44 @@ interface FindRun {
     readonly items: readonly CalendarItem[] | undefined;
 }
 
-/** An event Search Records found: the event, and its kind's name. */
+/** An event Search Records found: the event, its kind's name, and what hides it. */
 export interface FoundEvent {
     readonly item: CalendarItem;
     readonly kind: string;
+    /**
+     * What hides it: `undefined` for one its kind's choices show, or of a kind no source narrows; for one they hide, what
+     * e3 said hides it — `undefined` until it has.
+     */
+    readonly hidden: { readonly answer: HiddenAnswer | undefined } | undefined;
 }
 
 /**
- * How a found event reads in the list: its key, its title, its kind's name and when it starts — or that it waits in the backlog.
+ * How a found event reads in the list: its key, its title, its kind's name and when it starts — or that it waits in the
+ * backlog — and, one its kind's choices hide, what hides it.
  *
  * @param found - The event
  * @param format - The app's formatters
+ * @param hiding - The choices that hide it and those a pick clears with them, as the rail words them, once e3 has said
  * @returns Its line
  */
-export function foundEventLine(found: FoundEvent, format: Pick<Formatters, "weekdayDate" | "time">): string {
+export function foundEventLine(found: FoundEvent, format: Pick<Formatters, "weekdayDate" | "time">, hiding?: HidingWords): string {
     const { item } = found;
     const when = item.start.type === "some" ? `${format.weekdayDate(item.start.value)} ${format.time(item.start.value)}` : "backlog";
-    return [item.key, ...(keyEqual(item.title, item.key) ? [] : [item.title]), found.kind, when].join(" · ");
+    const hidden = found.hidden === undefined ? [] : [hiding === undefined ? "hidden by the filters" : hiddenByText(hiding.filters, hiding.also)];
+    return [item.key, ...(keyEqual(item.title, item.key) ? [] : [item.title]), found.kind, when, ...hidden].join(" · ");
+}
+
+/**
+ * What hides an event its kind's choices leave out of the page the list read, as far as e3 has said.
+ *
+ * @param pick - Its kind's hidden pick
+ * @param key - The event's key
+ * @returns What hides it; `undefined` where e3 says the choices hold it — the list was read at another revision
+ */
+function hiddenOf(pick: KindHidden, key: string): FoundEvent["hidden"] {
+    const state = pick.rows.stateOf(key);
+    if (state !== undefined && !state.hidden) return undefined;
+    return { answer: state?.hidden === true ? state.answer : undefined };
 }
 
 /**
@@ -123,23 +154,25 @@ export interface CalendarFindProps {
     readonly editing: ScheduleEditing | undefined;
     /** The window the Calendar shows: what an event is read over, by key past it. */
     readonly range: CalendarRange;
-    /** The app's formatters. */
-    readonly format: Pick<Formatters, "weekdayDate" | "time">;
+    /** The app's formatters, which word a choice as the rail does. */
+    readonly format: Formatters;
     /** Told the event a pick lands on. */
     readonly onPick: (found: FoundEvent) => void;
     /** The rows a kind read by its cells holds (#1424): a found event of such a kind is read from them, else by its key — never over the window. */
     readonly held?: ScheduleHeldRows | undefined;
+    /** Each kind's hidden pick, by its slot: what e3 has said hides an event its choices leave out. */
+    readonly hidden: HiddenEvents;
 }
 
 /**
  * Search Records' source, for the shared key search's toolbar item (see the module docs).
  *
- * @param props - The kinds and their parts, the editing, the window, the words and the pick
+ * @param props - The kinds and their parts, the editing, the window, the words, the pick and the kinds' hidden picks
  * @returns The source; `undefined` with no event kind to seek
  */
-export function useCalendarFind({ kinds, parts, editing, range, format, onPick, held }: CalendarFindProps): KeySearchSource | undefined {
-    const latest = useRef({ kinds, parts, editing, range, format, onPick, held });
-    useLayoutEffect(() => { latest.current = { kinds, parts, editing, range, format, onPick, held }; });
+export function useCalendarFind({ kinds, parts, editing, range, format, onPick, held, hidden }: CalendarFindProps): KeySearchSource | undefined {
+    const latest = useRef({ kinds, parts, editing, range, format, onPick, held, hidden });
+    useLayoutEffect(() => { latest.current = { kinds, parts, editing, range, format, onPick, held, hidden }; });
     const partOf = useCallback((kind: CalendarKind) => latest.current.parts.find(p => keyEqual(p.kind.key, kind.key))?.part, []);
     const draftsOf = useCallback((kind: CalendarKind) => latest.current.editing?.drafts.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS, []);
     // What the last find found, each kind's run; a find answered after a newer one asked finds nothing here.
@@ -171,20 +204,35 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
     /** The matches at the list's rows `[row, row + limit)`, each with the row it is at. */
     const eventsAt = useCallback(async (row: number, limit: number): Promise<{ at: number; found: FoundEvent }[]> => {
         const parts = await Promise.all(runsAt(found.current, row, limit).map(async ({ run, offset, n, at }) => {
-            if (run.items !== undefined) return run.items.slice(offset, offset + n).map((item, i) => ({ at: at + i, found: { item, kind: run.kind.name } }));
+            if (run.items !== undefined) return run.items.slice(offset, offset + n).map((item, i) => ({ at: at + i, found: { item, kind: run.kind.name, hidden: undefined } }));
             const part = run.part!;
-            const entries = await awaitTracked(() => recordSlicePage(part, WHOLE, BigInt(run.start + offset), BigInt(n))) as readonly RecordEntry[];
+            const from = BigInt(run.start + offset);
+            const entries = await awaitTracked(() => recordSlicePage(part, WHOLE, from, BigInt(n))) as readonly RecordEntry[];
+            // Which of them the kind's choices hide, asked of e3 over the page just read — its narrowing but the window,
+            // which hides no event — and which choices hide those (the hidden pick): nothing is asked with no choice.
+            const pick = latest.current.hidden.get(run.kind.key);
+            const where = pick?.where;
+            const shown = where === undefined || where.size === 0 ? undefined : await awaitTracked(() => recordSliceWithinAt(part, where, from, BigInt(n)));
+            if (pick !== undefined && shown !== undefined) pick.rows.askListed(Number(from), entries.map(entry => entry.key), shown);
             const { range: window, held } = latest.current;
             const drafts = draftsOf(run.kind);
             const read = await Promise.all(entries.map(entry => awaitTracked(() => run.kind.event(entry.key, drafts, window.from, window.to, heldRowOf(held, run.kind.key, entry.key)))));
-            return read.map((event, i) => ({ at: at + i, found: { item: event.item, kind: run.kind.name } }));
+            return read.map((event, i) => ({ at: at + i, found: { item: event.item, kind: run.kind.name,
+                hidden: pick === undefined || shown === undefined || shown[i] !== false ? undefined : hiddenOf(pick, entries[i]!.key) } }));
         }));
         return parts.flat();
     }, [draftsOf]);
     const listRange = useCallback(async (row: number, limit: number) => {
-        const { format: words } = latest.current;
-        // A pick shows the event's key in the box: what its query is typed against.
-        return (await eventsAt(row, limit)).map(({ at, found: event }) => ({ row: at, label: foundEventLine(event, words), text: event.item.key }));
+        const listed = await eventsAt(row, limit);
+        const { format: words, hidden: picks } = latest.current;
+        return listed.map(({ at, found: event }) => {
+            // One its kind's choices hide: the choices that do, as the rail words them, once e3 has said.
+            const pick = event.hidden === undefined ? undefined : picks.get(event.item.kind);
+            const answer = event.hidden?.answer;
+            const said = answer === undefined || pick?.part === undefined ? undefined : hidingWords(pick.part.config.fields, pick.where ?? WHOLE, answer, words);
+            // A pick shows the event's key in the box: what its query is typed against.
+            return { row: at, label: foundEventLine(event, words, said), text: event.item.key };
+        });
     }, [eventsAt]);
     const jump = useCallback((row: number) => {
         void eventsAt(row, 1).then(([hit]) => { if (hit !== undefined) latest.current.onPick(hit.found); })
@@ -209,8 +257,10 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
         setRequery(n => n + 1);
     }, [answers]);
     const any = kinds.length > 0;
-    return useMemo(() => (any ? { resetKey: "calendar", requery, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY,
-        noMatchesText: "No matching events. Search by an event's key." } : undefined), [any, requery, find, listRange, jump, clear]);
+    // And lists its lines again as e3 says what hides an event, and as a kind's choices move.
+    const relist = hiddenVersion(hidden);
+    return useMemo(() => (any ? { resetKey: "calendar", requery, relist, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY,
+        noMatchesText: "No matching events. Search by an event's key." } : undefined), [any, requery, relist, find, listRange, jump, clear]);
 }
 
 /** A record's revision, as a token: `-` while it is not yet known. */
