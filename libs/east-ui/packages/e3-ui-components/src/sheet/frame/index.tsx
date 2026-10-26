@@ -67,7 +67,7 @@ import { Box, Button } from "@chakra-ui/react";
 import { StringType, equalFor, equivalentFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { SheetComponent, SheetPayloadType, sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, usePersistedState, useTrackedEvaluation,
+    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, usePersistedState, useTrackedEvaluation,
     type EditIssue,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal } from "@elaraai/east-ui-components/internal";
@@ -252,12 +252,13 @@ function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: Sheet
     const where = useCallback((issue: EditIssue) => (issue.entry === "" || issue.row.type === "none" ? issue.entry
         : m.rowRef({ line: true, number: words.number(Number(issue.row.value) + 1), title: issue.entry, noun: m.groupNoun() })), [m, words]);
     const readIssue = useCallback((message: string) => issueText(message, words), [words]);
-    // The history keys from anywhere in the frame (SB26): the grid's own it has answered already.
+    // The history keys from anywhere in the frame (SB26): the grid's own it has answered already. Taken, they go no
+    // further than the Sheet (#1398).
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
         if (event.defaultPrevented || typedInto(event.target)) return;
         const action = historyShortcut(event);
         if (action === undefined) return;
-        event.preventDefault();
+        takeKey(event);
         onAction(action);
     }, [onAction]);
     const missing = getSomeorUndefined(value.missing);

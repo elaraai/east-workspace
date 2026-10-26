@@ -28,7 +28,7 @@ import { SortedMap, StringType, equalFor, none, variant } from "@elaraai/east";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters,
+    BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, takeKey, typedInto, useContainerBelow, useFormatters,
     usePersistedState, useSliceReactivity, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, formatDatePattern, usePickHandOff } from "@elaraai/east-ui-components/internal";
@@ -463,18 +463,21 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         <LoadingReveal waiting={line?.kind === "loading"}>
         <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={cold} loadingPitch={ROW_H} busy={busy} liveFooter toolbar={toolbar}
             start={start} end={end} onKeyDown={event => {
-            // The keys, never while typing (A6).
+            // The keys, never while typing (A6); each it acts on goes no further than the board (#1398).
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);
-            if (action !== undefined && history !== undefined && !value.settings.readOnly && (commands.canEdit() || history.pending > 0)) { event.preventDefault(); onAction(action); }
-            else if (event.key === "[" || event.key === "]") { event.preventDefault(); window.step(event.key === "[" ? -1 : 1); }
-            // Esc closes the inspector's Chooser, else clears the pick, else the selection (A6).
-            else if (event.key === "Escape" && chooser !== undefined) setChooser(undefined);
-            else if (event.key === "Escape" && pick !== undefined) setPick(undefined);
-            else if (event.key === "Escape") { setSelection(undefined); setLink(undefined); setNotice(undefined); setError(undefined); setRefusal(undefined); }
+            if (action !== undefined && history !== undefined && !value.settings.readOnly && (commands.canEdit() || history.pending > 0)) { takeKey(event); onAction(action); }
+            else if (event.key === "[" || event.key === "]") { takeKey(event); window.step(event.key === "[" ? -1 : 1); }
+            // Esc closes the inspector's Chooser, else clears the pick, else the selection (A6) — none to let go of, it goes on.
+            else if (event.key === "Escape" && chooser !== undefined) { takeKey(event); setChooser(undefined); }
+            else if (event.key === "Escape" && pick !== undefined) { takeKey(event); setPick(undefined); }
+            else if (event.key === "Escape" && (selection !== undefined || link !== undefined || notice !== undefined || error !== undefined || refusal !== undefined)) {
+                takeKey(event);
+                setSelection(undefined); setLink(undefined); setNotice(undefined); setError(undefined); setRefusal(undefined);
+            }
             // Delete unlinks the selected link, else removes the selected bin (A6, A68).
-            else if ((event.key === "Delete" || event.key === "Backspace") && link !== undefined && commands.canEdit()) { event.preventDefault(); commands.unlink(link.bin, link.resource); }
-            else if ((event.key === "Delete" || event.key === "Backspace") && selection?.type === "bin" && commands.canEdit()) { event.preventDefault(); commands.remove(selection.id); }
+            else if ((event.key === "Delete" || event.key === "Backspace") && link !== undefined && commands.canEdit()) { takeKey(event); commands.unlink(link.bin, link.resource); }
+            else if ((event.key === "Delete" || event.key === "Backspace") && selection?.type === "bin" && commands.canEdit()) { takeKey(event); commands.remove(selection.id); }
         }} banners={<>
             {editing?.schedule.sessions.map(part => <SessionBanners key={part.key} session={part.session} words={words} name={sessionName(part.kind)} where={where(part.kind)}
                 onAction={action => editing.history.actOn(part.key, action)} />)}

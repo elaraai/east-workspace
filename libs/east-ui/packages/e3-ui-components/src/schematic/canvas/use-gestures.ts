@@ -9,8 +9,9 @@
  * zoom box and the marquee, Move and its preview (invariant 4), Connect and its
  * Shift session (invariant 11), Retarget and Extend, each held to the host's
  * veto (invariant 6), and the taps, each hit-testing what the painter draws
- * (invariant 9); the canvas's keys, and the window's while the pointer is over
- * it (invariant 16); and the link or the net lit under the pointer (#1403,
+ * (invariant 9); the canvas's keys, and the frame's and the page's while the
+ * pointer is over it (invariant 16), each it acts on going no further than the
+ * Schematic (#1398); and the link or the net lit under the pointer (#1403,
  * invariant 12). Every gesture that writes is one step of the editing's
  * history (`../edits.ts`, #1388).
  *
@@ -27,7 +28,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import type RBush from "rbush";
 import { StringType, equalFor, type option } from "@elaraai/east";
 import { SCHEMATIC_WINDOW_ROWS } from "@elaraai/e3-ui/internal";
-import { getSomeorUndefined, typedInto, type Origin } from "@elaraai/east-ui-components";
+import { getSomeorUndefined, takeKey, typedInto, type Origin } from "@elaraai/east-ui-components";
 import { densityInView } from "../area.js";
 import type { SchematicValue } from "../data.js";
 import {
@@ -77,11 +78,23 @@ const DRAG_THRESHOLD_PX = 4;
  * @returns Whether the key is the canvas's
  */
 function keyIsCanvas(canvas: Element | null, target: EventTarget | null): boolean {
+    if (keyFromPage(target)) return true;
+    const frame = canvas?.closest("[data-builder-frame]") ?? canvas;
+    return frame !== null && frame !== undefined && frame.contains(target as Element);
+}
+
+/**
+ * Whether a key comes from nowhere in particular — the page, its body, with nothing focused — and so passed through no
+ * element of the frame: the window hears it for the canvas. One from inside the frame the frame hears as it leaves it,
+ * and takes there (#1398).
+ *
+ * @param target - The key's target
+ * @returns Whether it is the page's
+ */
+function keyFromPage(target: EventTarget | null): boolean {
     if (!(target instanceof Element)) return true;
     const doc = target.ownerDocument;
-    if (target === doc.body || target === doc.documentElement) return true;
-    const frame = canvas?.closest("[data-builder-frame]") ?? canvas;
-    return frame !== null && frame !== undefined && frame.contains(target);
+    return target === doc.body || target === doc.documentElement;
 }
 
 /**
@@ -242,7 +255,7 @@ export interface GesturesProps {
     readonly W: number;
     /** The drawing's extent's height, in world units. */
     readonly H: number;
-    /** The canvas's element: what a key the window hears is the canvas's by. */
+    /** The canvas's element: what a key the frame or the window hears is the canvas's by. */
     readonly canvasRef: RefObject<HTMLDivElement | null>;
     /** Each entity's reference by its id on the canvas. */
     readonly refById: ReadonlyMap<string, SchematicRef>;
@@ -636,19 +649,20 @@ export function useGestures({
     // Keyboard traversal (#183 WS7): with the canvas focused, arrows step the
     // selection through the deterministic item order (the toolbar's steps'
     // exact path — fly + select), and Del deletes it (#1388). Enter opens the
-    // selection in the inspector's Details, with the inspector (#1391). Esc /
-    // Space / Ctrl stay on the window handler, which hears Del too while the
+    // selection in the inspector's Details, with the inspector (#1391). Each
+    // key it acts on goes no further than the Schematic (#1398). Esc / Space /
+    // Ctrl are the hovered keys' (`hoverKey`), which hear Del too while the
     // pointer is over the canvas.
     const onCanvasKeyDown = useCallback((e: React.KeyboardEvent) => {
-        if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); stepSelection(1); }
-        else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); stepSelection(-1); }
+        if (e.key === "ArrowRight" || e.key === "ArrowDown") { takeKey(e); stepSelection(1); }
+        else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { takeKey(e); stepSelection(-1); }
         // Del deletes what is selected, as one step (#1388, SC5).
-        else if ((e.key === "Delete" || e.key === "Backspace") && deleteSelection()) e.preventDefault();
+        else if ((e.key === "Delete" || e.key === "Backspace") && deleteSelection()) takeKey(e);
         // Enter opens what is selected in Details (#1391, D34): something must be.
         else if (e.key === "Enter" && onOpen !== undefined) {
             const snap = renderSnapRef.current;
             if (snap.selection.selected.size > 0 || snap.zoneSelection.size > 0 || snap.selectedLink !== null) {
-                e.preventDefault();
+                takeKey(e);
                 onOpen();
             }
         }
@@ -1210,24 +1224,42 @@ export function useGestures({
     // nor one the canvas has heard itself, nor one from a layer portaled out of
     // the frame — a popover, a menu, a Chooser's list — which is the layer's
     // (`keyIsCanvas`); window blur and pointer-leave clear a stuck override.
+    /** Whether a key is the canvas's while the pointer is over it (see above). */
+    const canvasHears = useCallback((e: { readonly defaultPrevented: boolean; readonly target: EventTarget | null }): boolean =>
+        hoveredRef.current && !e.defaultPrevented && !typedInto(e.target) && keyIsCanvas(canvasRef.current, e.target), [canvasRef]);
+    /**
+     * Does what a key the canvas hears while the pointer is over it does (see above): `true` when it acted on the key,
+     * which then goes no further (#1398) — EVERY Space, auto-repeat too, so the page never scrolls while panning; Ctrl,
+     * a modifier held, goes on.
+     */
+    const hoverKey = useCallback((e: { readonly key: string; readonly code: string; readonly repeat: boolean }): boolean => {
+        if (e.code === "Space") { if (!e.repeat) setTempTool("select"); return true; }
+        if (e.key === "Control") { if (!e.repeat) setTempTool("zoom"); return false; }
+        if (e.key === "Delete" || e.key === "Backspace") return deleteSelection();
+        if (e.key !== "Escape") return false;
+        onRefused(undefined);
+        if (moveDragRef.current !== null) { moveDragRef.current = null; setDragMoves(NO_MOVES); }
+        else if (connectDragRef.current !== null || handlePressRef.current !== null) { connectDragRef.current = null; handlePressRef.current = null; setConnectDraft(null); }
+        else if (selStartRef.current !== null) { selStartRef.current = null; setBoxDrag(null); }
+        else if (linkSessionRef.current !== undefined) endLinkSession();
+        else if (renderSnapRef.current.selection.selected.size > 0
+            || renderSnapRef.current.zoneSelection.size > 0
+            || renderSnapRef.current.selectedLink !== null) { clearSelection(); clearZoneSelection(); commitLinkSelection(null); }
+        else return false;
+        return true;
+    }, [clearSelection, clearZoneSelection, endLinkSession, deleteSelection, commitLinkSelection, onRefused, setTempTool, setDragMoves, setConnectDraft,
+        setBoxDrag, renderSnapRef]);
+    // A key from inside the frame — the canvas, its toolbar, its panes — heard as it leaves the frame, after every part
+    // of it that takes keys of its own, and taken there where it acts (#1398): it goes no further than the Schematic.
+    const onFrameKeyDown = useCallback((e: React.KeyboardEvent) => {
+        if (keyFromPage(e.target) || !canvasHears(e)) return;
+        if (hoverKey(e)) takeKey(e);
+    }, [canvasHears, hoverKey]);
+    // A key from the page, which no part of the frame hears: the window's.
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {
-            if (!hoveredRef.current || e.defaultPrevented || typedInto(e.target) || !keyIsCanvas(canvasRef.current, e.target)) return;
-            // preventDefault on EVERY Space (incl. auto-repeat) so the page never
-            // scrolls while panning; only the first sets the tool.
-            if (e.code === "Space") { e.preventDefault(); if (!e.repeat) setTempTool("select"); }
-            else if (e.key === "Control" && !e.repeat) setTempTool("zoom");
-            else if (e.key === "Delete" || e.key === "Backspace") { if (deleteSelection()) e.preventDefault(); }
-            else if (e.key === "Escape") {
-                onRefused(undefined);
-                if (moveDragRef.current !== null) { moveDragRef.current = null; setDragMoves(NO_MOVES); }
-                else if (connectDragRef.current !== null || handlePressRef.current !== null) { connectDragRef.current = null; handlePressRef.current = null; setConnectDraft(null); }
-                else if (selStartRef.current !== null) { selStartRef.current = null; setBoxDrag(null); }
-                else if (linkSessionRef.current !== undefined) endLinkSession();
-                else if (renderSnapRef.current.selection.selected.size > 0
-                    || renderSnapRef.current.zoneSelection.size > 0
-                    || renderSnapRef.current.selectedLink !== null) { clearSelection(); clearZoneSelection(); commitLinkSelection(null); }
-            }
+            if (!keyFromPage(e.target) || !canvasHears(e)) return;
+            if (hoverKey(e)) e.preventDefault();
         };
         const onKeyUp = (e: KeyboardEvent) => {
             if (e.code === "Space" || e.key === "Control") setTempTool(null);
@@ -1241,11 +1273,10 @@ export function useGestures({
             window.removeEventListener("keyup", onKeyUp);
             window.removeEventListener("blur", clear);
         };
-    }, [clearSelection, clearZoneSelection, endLinkSession, deleteSelection, commitLinkSelection, onRefused, canvasRef, setTempTool, setDragMoves,
-        setConnectDraft, setBoxDrag, renderSnapRef]);
+    }, [canvasHears, hoverKey, setTempTool]);
     return {
-        hoveredRef, onCanvasKeyDown, itemKeyAt, zoneKeyAt, linkKeyAt, onCanvasPointerDown, onCanvasPointerMove, onCanvasPointerUp, onCanvasPointerCancel,
-        onCanvasDoubleClick,
+        hoveredRef, onCanvasKeyDown, onFrameKeyDown, itemKeyAt, zoneKeyAt, linkKeyAt, onCanvasPointerDown, onCanvasPointerMove, onCanvasPointerUp,
+        onCanvasPointerCancel, onCanvasDoubleClick,
     };
 }
 

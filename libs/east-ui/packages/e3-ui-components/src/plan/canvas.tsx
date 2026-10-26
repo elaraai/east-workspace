@@ -84,7 +84,7 @@ import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Plan, ScheduleEventRefType, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
-    getSomeorUndefined, useContainerBelow, useDataStable, usePersistedState, historyShortcut,
+    getSomeorUndefined, useContainerBelow, useDataStable, usePersistedState, historyShortcut, takeKey,
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
@@ -212,7 +212,8 @@ function drawsItem(body: HTMLElement | null, key: string): boolean {
 
 /** The canvas-wide keys (§11) — esc runs the one-rung ladder, `n` / `[` / `]`
  *  move the window, `g` cycles the grain. They work from anywhere in the
- *  canvas; the grid's own keys (`root/keyboard.ts`) come first. */
+ *  canvas; the grid's own keys (`root/keyboard.ts`) come first. Every key the
+ *  canvas acts on goes no further than the Plan (`takeKey`, #1398). */
 const KEYS: Readonly<Record<string, PlanEvent>> = {
     Escape: { t: "key", key: "esc" },
     n: { t: "key", key: "n" },
@@ -1486,6 +1487,32 @@ export function usePlanCanvas({
         }
     };
 
+    /** A key the canvas acts on, in the order its rungs take one — `true` when it took it. */
+    const canvasKey = (e: KeyboardEvent<HTMLDivElement>, bodyEl: HTMLElement, t: HTMLElement): boolean => {
+        // An element carried by the keyboard takes the keys while it lasts (#825).
+        if (editStore.carry !== null && carry.keys(e)) return true;
+        // The history keys every collection shares (#988): the Plan's one history's (#1194).
+        const historyKey = edits ? historyShortcut(e) : undefined;
+        if (historyKey !== undefined) {
+            e.preventDefault();
+            history.act(historyKey);
+            return true;
+        }
+        // An open popover is the ladder's top rung.
+        if (e.key === "Escape" && overlayHandlers.onKeyDown(e)) return true;
+        if (gridKeys(e, bodyEl)) return true;
+        // Enter on an element outside the grid — a narrow card's.
+        if (overlayHandlers.onKeyDown(e)) return true;
+        const ev = KEYS[e.key];
+        if (ev === undefined) return false;
+        e.preventDefault();
+        controller.dispatch(ev);
+        // A key pressed on a row keeps focus on it: the ladder may re-render
+        // it as another element (a rail returning to a row).
+        const item = gridItemOf(t, bodyEl);
+        if (item !== null && item === t) controller.focusItem(item.getAttribute("data-plan-item") ?? "");
+        return true;
+    };
     const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
         const bodyEl = focusBodyRef.current;
         const t = e.target as HTMLElement;
@@ -1497,28 +1524,9 @@ export function usePlanCanvas({
         // Escape (its layer listens on the document, ahead of the canvas), a
         // widget in an expand render, a nested canvas's own ladder.
         if (e.defaultPrevented) return;
-        // An element carried by the keyboard takes the keys while it lasts (#825).
-        if (editStore.carry !== null && carry.keys(e)) return;
-        // The history keys every collection shares (#988): the Plan's one history's (#1194).
-        const historyKey = edits ? historyShortcut(e) : undefined;
-        if (historyKey !== undefined) {
-            e.preventDefault();
-            history.act(historyKey);
-            return;
-        }
-        // An open popover is the ladder's top rung.
-        if (e.key === "Escape" && overlayHandlers.onKeyDown(e)) return;
-        if (gridKeys(e, bodyEl)) return;
-        // Enter on an element outside the grid — a narrow card's.
-        if (overlayHandlers.onKeyDown(e)) return;
-        const ev = KEYS[e.key];
-        if (ev === undefined) return;
-        e.preventDefault();
-        controller.dispatch(ev);
-        // A key pressed on a row keeps focus on it: the ladder may re-render
-        // it as another element (a rail returning to a row).
-        const item = gridItemOf(t, bodyEl);
-        if (item !== null && item === t) controller.focusItem(item.getAttribute("data-plan-item") ?? "");
+        // A key the canvas acts on goes no further than the Plan (#1398): the page's own `[`, `]` or Esc never hears
+        // what pans, steps or climbs the ladder here.
+        if (canvasKey(e, bodyEl, t)) takeKey(e);
     };
 
     // Focus landing on the grid itself (it is the tab stop while no mounted

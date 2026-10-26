@@ -32,7 +32,7 @@ import {
     faArrowDown, faArrowRight, faArrowUp, faCircleExclamation, faFilter, faInbox, faLink, faLinkSlash, faTriangleExclamation, faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap, option } from "@elaraai/east";
-import { useContainerBelow, useDragEventChip, useDropCell, type Formatters } from "@elaraai/east-ui-components";
+import { takeKey, useContainerBelow, useDragEventChip, useDropCell, type Formatters } from "@elaraai/east-ui-components";
 import { LoadingEmptyLine, LoadingFailedLine, LoadingWash, PlaceholderShape, VirtualRows, formatDatePattern, useRevealed } from "@elaraai/east-ui-components/internal";
 import type { PeriodRead } from "../shared/loading.js";
 import { LinksLayer, type LinkGripProps, type LinkLine, type LinkRibbon } from "../shared/links/layer.js";
@@ -237,9 +237,9 @@ function scrollRowsTo(pane: HTMLElement, top: number) {
     requestAnimationFrame(() => requestAnimationFrame(() => pane.removeAttribute("data-snap-suspended")));
 }
 
-/** Enter or Space acts as a click. */
+/** Enter or Space acts as a click, the key going no further than the board (#1398). */
 const onActivate = (act: () => void) => (event: KeyboardEvent) => {
-    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); act(); }
+    if (event.key === "Enter" || event.key === " ") { takeKey(event); act(); }
 };
 
 /**
@@ -636,7 +636,7 @@ function LinkGrip({ ribbon, part, render }: LinkGripProps) {
     return <>{render({
         ...pointer, ...control,
         onKeyDown: event => {
-            if (event.key === "Enter") { event.preventDefault(); scope.select(link); return; }
+            if (event.key === "Enter") { takeKey(event); scope.select(link); return; }
             if (event.key === " ") scope.drag.arm(grip);
             onKeyDown?.(event);
         },
@@ -784,7 +784,7 @@ const CardBody = memo(function CardBody({ card, props, lines, flags, lit, refuse
         data-draggable={body !== undefined ? "" : undefined} style={{ "--card-lane": card.lane, "--card-row": card.row } as CSSProperties}
         onPointerDown={event => { drag.arm({ kind: "body", bin: id }); body?.onPointerDown?.(event); }}
         onClick={() => props.select({ type: "bin", id })}
-        onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); props.select({ type: "bin", id }); } else { if (event.key === " ") drag.arm({ kind: "body", bin: id }); body?.onKeyDown?.(event); } }}>
+        onKeyDown={event => { if (event.key === "Enter") { takeKey(event); props.select({ type: "bin", id }); } else { if (event.key === " ") drag.arm({ kind: "body", bin: id }); body?.onKeyDown?.(event); } }}>
         <Box as="span" css={styles.cardTop}>
             <Box as="span" css={styles.cardCode} data-allocation-code="">{code}</Box>
             {!reserved && <Box as="span" css={styles.cardQty}>{qty}</Box>}

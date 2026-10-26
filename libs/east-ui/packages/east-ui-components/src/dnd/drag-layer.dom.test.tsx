@@ -380,6 +380,26 @@ describe("DragLayerProvider", () => {
         expect(getByTestId("card-patel").hasAttribute("data-dragging")).toBe(false);
     });
 
+    test("the Escape that cancels a pointer drag goes no further than the drag (#1398): the page's own listeners never hear it", () => {
+        const heard: string[] = [];
+        const listen = (event: KeyboardEvent) => { heard.push(event.key); };
+        window.addEventListener("keydown", listen);
+        try {
+            const { getByTestId } = render(
+                <DragLayerProvider>
+                    <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL }} />
+                    <Card library="people" itemKey="patel" />
+                    <Cell surface="roster" row="patel" slot="thu" />
+                </DragLayerProvider>,
+            );
+            drag(getByTestId("card-patel"), getByTestId("cell-patel-thu"), { cancel: true });
+            expect(getByTestId("card-patel").hasAttribute("data-dragging")).toBe(false);
+            expect(heard).toEqual([]);
+        } finally {
+            window.removeEventListener("keydown", listen);
+        }
+    });
+
     test("indicators precede the drop: valid cells marked once the drag engages, hover marks active", () => {
         const { getByTestId } = render(
             <DragLayerProvider>
@@ -893,6 +913,39 @@ describe("keyboard drags (#608)", () => {
             expect(e.value.into.row).toBe("cho");
             expect(e.value.into.slot).toBe("mon");
             expect(e.value.duplicate).toBe(true);
+        }
+    });
+
+    test("every key a keyboard drag takes goes no further than the drag (#1398): the page's own listeners hear none of its pick-up, arrows, drop or cancel — and a key it leaves goes on", async () => {
+        const heard: string[] = [];
+        const listen = (event: KeyboardEvent) => { heard.push(event.code); };
+        window.addEventListener("keydown", listen);
+        try {
+            const events: DragEventValue[] = [];
+            const { getByTestId } = render(<Grid events={events} />);
+            lay(getByTestId);
+            const card = getByTestId("card-patel");
+            card.focus();
+            // Picked up with Space, moved, dropped with Space.
+            press("Space");
+            await tick();
+            press("ArrowRight");
+            press("ArrowDown");
+            press("Space");
+            expect(events).toHaveLength(1);
+            // Picked up with Enter, moved, cancelled with Escape.
+            card.focus();
+            press("Enter");
+            await tick();
+            press("ArrowRight");
+            press("Escape");
+            expect(card.hasAttribute("data-dragging")).toBe(false);
+            expect(heard).toEqual([]);
+            // A letter no drag takes goes on as it came.
+            press("KeyA");
+            expect(heard).toEqual(["KeyA"]);
+        } finally {
+            window.removeEventListener("keydown", listen);
         }
     });
 

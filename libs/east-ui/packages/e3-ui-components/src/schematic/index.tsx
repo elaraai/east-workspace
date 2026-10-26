@@ -117,7 +117,7 @@ import { ArrayType, StringType, equalFor, equivalentFor, none, some, type option
 import { Schematic, schematicAreaIndexes, schematicKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
-    implementUIComponent, typedInto, useContainerBelow, useDataStable, useFormatters, usePersistedState, useSlicesReactivity,
+    implementUIComponent, takeKey, typedInto, useContainerBelow, useDataStable, useFormatters, usePersistedState, useSlicesReactivity,
     type EditIssue, type EditingWords, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
@@ -538,18 +538,22 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         onZoom: zoomBy, zoom: zoomRange, onFit: fit, selected, onStep: step, history: historyItem,
     });
     // ⌘F, or Ctrl+F, anywhere in the frame: Find, in whichever form the row holds it; ⌘Z, ⇧⌘Z and ⌘Y the history's,
-    // but in a field typed into, whose own they are.
+    // but in a field typed into, whose own they are; and the canvas's keys while the pointer is over it — Space, Ctrl,
+    // Del and Esc (invariant 16). Each key acted on goes no further than the Schematic (#1398).
     const edits = editing.edits;
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
         if (event.defaultPrevented) return;
         if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
-            if (focusKeySearch(toolbarRef.current)) event.preventDefault();
+            if (focusKeySearch(toolbarRef.current)) takeKey(event);
             return;
         }
         const action = historyShortcut(event);
-        if (action === undefined || !edits || typedInto(event.target)) return;
-        event.preventDefault();
-        onAction(action);
+        if (action !== undefined && edits && !typedInto(event.target)) {
+            takeKey(event);
+            onAction(action);
+            return;
+        }
+        canvasRef.current?.key(event);
     }, [edits, onAction]);
 
     // ── The library (#1389, §8): the start pane, when `library` lists a tab ──

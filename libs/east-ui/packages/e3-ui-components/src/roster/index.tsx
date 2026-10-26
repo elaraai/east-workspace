@@ -24,7 +24,7 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { equalFor, none, some, variant } from "@elaraai/east";
 import { RosterComponent, RosterContextType } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useDataStable, useFormatters,
+    BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, takeKey, typedInto, useContainerBelow, useDataStable, useFormatters,
     usePersistedState, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, usePickHandOff } from "@elaraai/east-ui-components/internal";
@@ -285,12 +285,13 @@ function RosterFrame(props: FrameProps) {
         <RosterDataReader value={source} start={start} pickerDates={pickerDates} holds={holds} onData={setData} />
         <LoadingReveal waiting={line?.kind === "loading"}>
         <BuilderFrame storageKey={`${key}.frame`} label="Roster" loading={cold} busy={busy} liveFooter start={library} end={inspector} toolbar={toolbar} onKeyDown={event => {
+            // Each key the frame acts on goes no further than the Roster (#1398); Esc with nothing to let go of goes on.
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);
-            if (action !== undefined && history !== undefined && !value.settings.readOnly && (commands.available || history.pending > 0)) { event.preventDefault(); onAction(action); }
-            else if (event.key === "[" || event.key === "]") { event.preventDefault(); window.setView({ ...window.view, date: window.view.date + (event.key === "[" ? -7 : 7) * 86_400_000 }); }
-            else if (event.key === "Escape") { setSelection(undefined); setError(undefined); }
-            else if ((event.key === "Delete" || event.key === "Backspace") && (selection?.type === "assignment" || selection?.type === "proposal") && commands.available) { event.preventDefault(); if (selection.type === "assignment") commands.remove(selection.key); else commands.reject(selection.key); }
+            if (action !== undefined && history !== undefined && !value.settings.readOnly && (commands.available || history.pending > 0)) { takeKey(event); onAction(action); }
+            else if (event.key === "[" || event.key === "]") { takeKey(event); window.setView({ ...window.view, date: window.view.date + (event.key === "[" ? -7 : 7) * 86_400_000 }); }
+            else if (event.key === "Escape" && (selection !== undefined || error !== undefined)) { takeKey(event); setSelection(undefined); setError(undefined); }
+            else if ((event.key === "Delete" || event.key === "Backspace") && (selection?.type === "assignment" || selection?.type === "proposal") && commands.available) { takeKey(event); if (selection.type === "assignment") commands.remove(selection.key); else commands.reject(selection.key); }
         }} banners={<>
             {editing?.schedule.sessions.map(held => <SessionBanners key={held.key} session={held.session} words={words} name={sessionName(held.kind)} where={where(held.kind)}
                 onAction={action => editing.history.actOn(held.key, action)} />)}

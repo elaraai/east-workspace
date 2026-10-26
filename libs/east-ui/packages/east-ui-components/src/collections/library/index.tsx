@@ -20,6 +20,7 @@ import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { useDragSourceItem, useDropSink, type DragHandle } from "../../dnd/drag-layer";
 import { inRetained } from "../../dnd/retained.js";
+import { takeKey } from "../../editing/shortcuts.js";
 import { HOST_RANK, useSliceToolbarItems } from "../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { radioGroupKey } from "../../primitives/radio-group.js";
@@ -316,7 +317,8 @@ interface LibraryCardProps {
  * Enter, while the card is not itself being carried: during a keyboard drag
  * ⏎ drops it, as on any draggable. Every other key is the handle's, Space's
  * pickup among them. A card in retained content (#1398, CL8: its tab's source
- * read again) places nothing on ⏎, as it is picked up by no key.
+ * read again) places nothing on ⏎, as it is picked up by no key. The ⏎ it
+ * takes goes no further than the card (`takeKey`, #1398).
  *
  * @param drag - The card's drag handle, `undefined` when it cannot be dragged
  * @param key - The card's key
@@ -330,7 +332,7 @@ function useEnterHandle(drag: DragHandle | undefined, key: string, onCardEnter: 
         onKeyDown: (event: React.KeyboardEvent) => {
             const plain = event.key === "Enter" && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
             if (plain && !(event.currentTarget as HTMLElement).hasAttribute("data-dragging")) {
-                event.preventDefault();
+                takeKey(event);
                 if (!inRetained(event.currentTarget)) onCardEnter(key);
                 return;
             }
@@ -363,7 +365,7 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
     const handle = useEnterHandle(drag, item.key, onCardEnter);
     // A click reports the card; a drag never clicks (the sensor swallows the
     // click it ends with). A card that cannot be dragged is a button, so the
-    // keyboard clicks it too.
+    // keyboard clicks it too, the key going no further.
     const click = onCardClick === undefined ? {} : {
         onClick: () => onCardClick(item.key),
         ...(drag === undefined ? {
@@ -371,7 +373,7 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
             tabIndex: 0,
             onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
+                takeKey(event);
                 onCardClick(item.key);
             },
         } : {}),
@@ -494,7 +496,7 @@ function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, s
             tabIndex: 0,
             onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
+                takeKey(event);
                 onCardClick(item.key);
             },
         } : {}),

@@ -170,7 +170,14 @@ component, nothing in east-ui.
   accessible name; `ref` is its root (the bounds of a popover inside it), and
   `toolbarRef` its toolbar's element (where a host finds its items' controls:
   the search box a key focuses); `onKeyDown` hears keys from anywhere in the
-  frame, the panes included.
+  frame, the panes included. A key a builder acts on — there, in its canvas
+  or grid, a radio group's arrows (`radioGroupKey`), a Library card's ⏎ or a
+  drag's keys — is taken (`takeKey`: its default prevented, its propagation
+  stopped), so it goes no further than the builder: a page's own shortcut on
+  the same key, the showcase's `[` that folds its sidebar, never hears it
+  (#1398). While a drag is in flight its sensors hear its keys on the
+  document ahead of everything under it, so a builder's own Escape or arrows
+  never take one the drag needs. A key it leaves goes on as it came.
 - **Loading (opt-in).** `loading` covers the complete frame with shared Chakra
   Skeletons for its cold load only — the first read, before anything it shows
   has landed (#1398, CL5) — its body rows at `loadingPitch`, the component's
