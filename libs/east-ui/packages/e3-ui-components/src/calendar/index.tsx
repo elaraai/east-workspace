@@ -16,9 +16,13 @@
  * old period's events under its labels — its regions washed and its counts
  * placeholders; one whose read failed keeps its grid and says so once (CL11).
  * Its Search Records seeks each event kind's record by key (`find.ts`): a pick
- * steps to its event's period, selects it and brings it into view. Each
- * layout's view keeps its place across a step and a remount — the time grid's
- * hour, the timeline's line — and Today brings the time grid to the now line.
+ * steps to its event's period, selects it and brings it into view, and hands it
+ * the keyboard where its ring is drawn once the window it is drawn in has landed
+ * (`event-focus.ts`); a step through the matches leaves the keyboard in the box.
+ * Each layout's view keeps its place across a step and a remount — the time
+ * grid's hour, the timeline's line — and Today brings the time grid to the now
+ * line. Every key it acts on goes no further than the Calendar: `[` and `]`
+ * step its period from anywhere in the frame.
  *
  * The timeline continues what it shows (#1398): its view nearing an end of its
  * window, the window moves on along a fixed grid (`timeline.ts`), and every
@@ -75,7 +79,7 @@ import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useFormatters,
     usePersistedState, useLanding, useLandingStyles, useTrackedEvaluation, type Formatters,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal, PAGED_LIBRARY_PAGE } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, PAGED_LIBRARY_PAGE, usePickHandOff } from "@elaraai/east-ui-components/internal";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
@@ -90,6 +94,7 @@ import type { CalendarBucket } from "./cells.js";
 import { CalendarDataReader, initialCalendarData, resourceRows, windowedBacklogKinds, type CalendarDataState } from "./data.js";
 import { CalendarChooserContext, type CalendarChooser } from "./chooser.js";
 import { useCalendarDrag } from "./drag.js";
+import { EventFocusContext, type EventFocus } from "./event-focus.js";
 import { useCalendarFind, type FoundEvent } from "./find.js";
 import { CalendarFooter } from "./footer.js";
 import { CalendarPagesReader, createPagedDemand, type CalendarPages } from "./pages.js";
@@ -497,15 +502,46 @@ function CalendarFrame(props: HostProps) {
     // is pressed — what `[` and `]` do from anywhere in the frame, as the Roster's and the Allocation's do.
     const step = (by: -1 | 1) => onNavigate(navigate({ ...view, date: (timeline ? visibleDays.get()?.center : undefined) ?? view.date }, by).date);
     const nouns = useMemo(() => calendarNouns(value, format.locale), [value, format.locale]);
-    // Search Records (#1398): an event found by its key steps the view to its period, is selected and is brought into view.
+    // Search Records (#1398): an event found by its key steps the view to its period, is selected and is brought into view;
+    // a pick gives it the keyboard there, once the box has let it go (`usePickHandOff`) and the window it is drawn in has
+    // landed — after a step of the dates, that window: the element that stands for it where its ring is drawn takes the
+    // focus (`event-focus.ts`). An event the views draw nowhere — one of the backlog — leaves the keyboard where it is, as
+    // does a step through the matches.
+    const handOff = usePickHandOff();
+    // The event a pick gave the keyboard to: the first element of it drawn takes the focus, once. It waits only while the
+    // event is the one selected, and until the viewer does something else (the root's captures below).
+    const [focusAsk, setFocusAsk] = useState<{ readonly id: string }>();
+    const focusTaken = useRef<object | undefined>(undefined);
+    const eventFocus = useMemo((): EventFocus => ({
+        id: focusAsk?.id,
+        take: () => {
+            if (focusAsk === undefined || focusTaken.current === focusAsk) return false;
+            focusTaken.current = focusAsk;
+            setFocusAsk(was => (was === focusAsk ? undefined : was));
+            return true;
+        },
+    }), [focusAsk]);
+    useEffect(() => {
+        if (focusAsk !== undefined && !refs.some(ref => stringEqual(eventKey(ref), focusAsk.id))) setFocusAsk(undefined);
+    }, [refs, focusAsk]);
+    const dropFocus = focusAsk === undefined ? undefined : () => setFocusAsk(undefined);
+    // The pick's event, waiting for the window it is drawn in to land.
+    const [pickLanding, setPickLanding] = useState<string>();
     const found = (event: FoundEvent) => {
         const ref = { kind: event.item.kind, key: event.item.key };
         select([ref]);
-        if (event.item.start.type !== "some") return;
+        if (event.item.start.type !== "some") { handOff.drop(); return; }
         onNavigate(dayStart(event.item.start.value).getTime());
         setReveal(ref);
+        setPickLanding(eventKey(ref));
     };
-    const search = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format, onPick: found, held: cellRows });
+    const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format, onPick: found, held: cellRows });
+    const search = useMemo(() => (finder === undefined ? undefined : handOff.search(finder)), [finder, handOff]);
+    useEffect(() => {
+        if (pickLanding === undefined || !current || !items.some(item => stringEqual(eventKey(item), pickLanding))) return;
+        setPickLanding(undefined);
+        handOff.land(() => setFocusAsk({ id: pickLanding }));
+    }, [pickLanding, current, items, handOff]);
     // The window's own count: "…" while the period is read, never a count of another period's (#1398, CL13).
     const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
         count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, uncounted,
@@ -554,7 +590,8 @@ function CalendarFrame(props: HostProps) {
     const stale = drawn && (reading || [...followed.values()].some(source => source.shown.busy) || pages?.stale === true);
     // The cold load's cover at the board's own pitch: an hour of its time grid (CL1).
     const pitch = view.layout === "timeline" || (view.layout === "calendar" && view.period === "month") ? undefined : calendarHour(value.settings.density);
-    return <Box ref={root} css={[styles.root, landingStyles.main]} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined} {...landing.attributes}>
+    return <EventFocusContext.Provider value={eventFocus}><Box ref={root} css={[styles.root, landingStyles.main]} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined}
+        {...landing.attributes} onPointerDownCapture={dropFocus} onKeyDownCapture={dropFocus}>
         {pagedValue !== undefined && pagedKind !== undefined
             && <CalendarPagesReader paged={pagedValue} name={pagedKind.name} icon={pagedKind.icon} demand={demand} onPages={setPages} />}
         {backlogPages !== undefined && <CalendarBacklogCountReader pages={backlogPages} onCount={setBacklogCount} />}
@@ -610,7 +647,7 @@ function CalendarFrame(props: HostProps) {
         </BuilderFrame>
         </CalendarChooserContext.Provider>
         </LoadingReveal>
-    </Box>;
+    </Box></EventFocusContext.Provider>;
 }
 /** Calendar in its own shared frame, with the same renderer for read-only views. */
 export function EastChakraCalendar({ value, storageKey }: EastChakraCalendarProps) {

@@ -75,6 +75,7 @@ import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { EventActions, type CalendarShownResources } from "./controls.js";
 import { calendarCoord, type CalendarDrag } from "./drag.js";
+import { useEventFocus } from "./event-focus.js";
 import { calendarOpOf, type CalendarOptimised } from "./optimise.js";
 import { opKey } from "../shared/func/optimise-diff.js";
 import type { CalendarCommands, CalendarPlacement } from "./actions.js";
@@ -393,6 +394,8 @@ function EventBlock({ item, props, geometry, along = "y", chip = false, window }
     const enabled = drag.enabled && commands?.editing.available(item.kind) === true;
     const handle = useDragEventChip(enabled ? coord : null, <MoveGhost styles={styles} label={item.title} />, !enabled, item.title);
     const block = useRef<HTMLDivElement>(null);
+    // It takes the keyboard a pick in Search Records gives its event (#1398): where its ring is drawn.
+    useEventFocus(id, block);
     const dragRef = handle?.ref;
     const attachEvent = useCallback((element: HTMLDivElement | null) => { block.current = element; dragRef?.(element); }, [dragRef]);
     const title = useRef<HTMLDivElement>(null);
@@ -1352,25 +1355,7 @@ function Agenda(props: CalendarViewsProps) {
             return <Box key={day.getTime()} css={props.styles.agendaGroup} data-calendar-day={dateText(day)}>
                 <Box css={props.styles.agendaHead} data-calendar-agenda-heading="">{props.format.weekdayDate(day)}</Box>
                 {items.length === 0 && ghosts.length === 0 && <Box css={props.styles.empty}>Nothing scheduled</Box>}
-                {items.map(item => {
-                    const id = eventKey(item);
-                    const drafted = props.commands?.editing.draftsOf(item.kind).has(item.key) === true;
-                    const op = drafted ? calendarOpOf(props.optimised, item) : undefined;
-                    const marked = op?.op === "add" || op?.op === "chg" ? op.op : undefined;
-                    const was = marked === "chg" ? props.optimised?.previous.get(opKey(item.kind, item.key)) : undefined;
-                    const run = op?.run ?? "";
-                    const provenance = marked === "add" ? optimiseMessages.entryAdded({ run }) : marked === "chg" && was !== undefined ? optimiseMessages.entryChanged({ previous: previousWords(was, props), run }) : undefined;
-                    return <Box key={id} css={props.styles.card} data-calendar-card={id} data-selected={props.selected.has(id) ? "" : undefined} data-op={marked} title={provenance}
-                        data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-overlap={props.overlaps.peers.has(id) ? "" : undefined}>
-                        <chakra.button type="button" css={props.styles.cardHead} onClick={event => props.select(item, event.shiftKey || event.metaKey || event.ctrlKey)} aria-pressed={props.selected.has(id)}>
-                            <Box css={props.styles.cardTitle}>{item.title}</Box>
-                            <Box css={props.styles.detail}>{item.start.type === "some" && props.format.time(item.start.value)}–{item.end.type === "some" && props.format.time(item.end.value)} · {resourceLabel(item, props.rows)}</Box>
-                            <Box css={props.styles.detail}>{props.value.events.find(kind => kind.key === item.kind)?.name}{item.status.type === "some" && ` · ${item.status.value.label}`}{props.overlaps.peers.has(id) && " · Overlap"}</Box>
-                        </chakra.button>
-                        <Button size="xs" variant="ghost" aria-pressed={props.selected.has(id)} onClick={() => props.select(item, true)}>{props.selected.has(id) ? "Remove from selection" : "Add to selection"}</Button>
-                        {props.commands !== undefined && <EventActions item={item} value={props.value} shown={props.shown} commands={props.commands} day={day} styles={props.styles} />}
-                    </Box>;
-                })}
+                {items.map(item => <AgendaCard key={eventKey(item)} props={props} item={item} day={day} />)}
                 {ghosts.map(ghost => <Box key={`ghost:${eventKey(ghost.item)}`} css={props.styles.card} data-calendar-ghost={eventKey(ghost.item)} data-op={ghost.op} aria-hidden="true"
                     title={ghost.op === "del" ? optimiseMessages.ghostRemoved({ run: ghost.run }) : optimiseMessages.ghostMoved({ run: ghost.run })}>
                     <Box css={props.styles.cardHead}>
@@ -1381,6 +1366,32 @@ function Agenda(props: CalendarViewsProps) {
             </Box>;
         })}
     </Box></Box>;
+}
+/**
+ * An agenda card: its head selects the event — and takes the keyboard a pick in Search Records gives it (#1398), where
+ * the card's ring is drawn — its explicit actions below.
+ */
+function AgendaCard({ props, item, day }: { props: CalendarViewsProps; item: CalendarItem; day: Date }) {
+    const id = eventKey(item);
+    const head = useRef<HTMLButtonElement>(null);
+    useEventFocus(id, head);
+    const drafted = props.commands?.editing.draftsOf(item.kind).has(item.key) === true;
+    // What a run of the optimiser did to the event (#1409, R7, R17), while it is still the run's draft: its mark, and its provenance on hover.
+    const op = drafted ? calendarOpOf(props.optimised, item) : undefined;
+    const marked = op?.op === "add" || op?.op === "chg" ? op.op : undefined;
+    const was = marked === "chg" ? props.optimised?.previous.get(opKey(item.kind, item.key)) : undefined;
+    const run = op?.run ?? "";
+    const provenance = marked === "add" ? optimiseMessages.entryAdded({ run }) : marked === "chg" && was !== undefined ? optimiseMessages.entryChanged({ previous: previousWords(was, props), run }) : undefined;
+    return <Box css={props.styles.card} data-calendar-card={id} data-selected={props.selected.has(id) ? "" : undefined} data-op={marked} title={provenance}
+        data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-overlap={props.overlaps.peers.has(id) ? "" : undefined}>
+        <chakra.button ref={head} type="button" css={props.styles.cardHead} onClick={event => props.select(item, event.shiftKey || event.metaKey || event.ctrlKey)} aria-pressed={props.selected.has(id)}>
+            <Box css={props.styles.cardTitle}>{item.title}</Box>
+            <Box css={props.styles.detail}>{item.start.type === "some" && props.format.time(item.start.value)}–{item.end.type === "some" && props.format.time(item.end.value)} · {resourceLabel(item, props.rows)}</Box>
+            <Box css={props.styles.detail}>{props.value.events.find(kind => kind.key === item.kind)?.name}{item.status.type === "some" && ` · ${item.status.value.label}`}{props.overlaps.peers.has(id) && " · Overlap"}</Box>
+        </chakra.button>
+        <Button size="xs" variant="ghost" aria-pressed={props.selected.has(id)} onClick={() => props.select(item, true)}>{props.selected.has(id) ? "Remove from selection" : "Add to selection"}</Button>
+        {props.commands !== undefined && <EventActions item={item} value={props.value} shown={props.shown} commands={props.commands} day={day} styles={props.styles} />}
+    </Box>;
 }
 /** Calendar's main view; the narrow branch contains no drag hooks. */
 export function CalendarViews(props: CalendarViewsProps) {
