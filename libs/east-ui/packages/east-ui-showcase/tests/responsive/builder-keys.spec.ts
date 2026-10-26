@@ -9,8 +9,11 @@
  * least of all. Each builder's keys, pressed where they act: the Plan's canvas
  * and grid keys; the Sheet's grid's, and a key that starts an edit; the
  * Roster's and the Allocation's frame keys — `[` and `]` step the period —
- * their views' and a keyboard drag's; and the Schematic's canvas keys, its
- * hovered keys and its Index's. A key no builder acts on goes on as it came.
+ * their views' and a keyboard drag's; the Schematic's canvas keys, its
+ * hovered keys and its Index's; and the Flowchart's canvas keys, its state
+ * editor's and its history's — and an Escape typed elsewhere on the page never
+ * acts on the Flowchart, which hears one from the page itself only with the
+ * pointer over its canvas. A key no builder acts on goes on as it came.
  * What reaches the page is read from a listener on the window, the last thing
  * a key reaches; one area a test, each its own e3.
  *
@@ -180,5 +183,55 @@ test.describe("a key a builder acts on goes no further than the builder (#1398)"
         // The Index's tree takes its arrows and Enter.
         await openTab(page, root, "Index");
         await pressedOn(page, root.locator("[data-frame-slot='start'] [role='tree']").first(), ["ArrowDown", "Enter"]);
+    });
+
+    test("the Flowchart's keys: its canvas's Escape and Del, its history's undo and a state's editor's Enter and Escape — and an Escape typed elsewhere on the page never acting on it @desktop", async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        const route = "e3/flowchart/flowchart/flowchartDetail";
+        const entry = await visitBuilder(page, route, "[data-flowchart-root] [data-flowchart-node]", "light");
+        const root = entry.locator("[data-flowchart-root]").first();
+        const canvas = root.locator("[data-flowchart-scroll]");
+        const state = (key: string) => root.locator(`[data-flowchart-node="${key}"]`);
+        const folded = await sidebar(page);
+        // A state selected by a click: Escape in the canvas lets it go.
+        await state("CLD").click();
+        await expect(state("CLD")).toHaveAttribute("data-selected", "true");
+        await pressedOn(page, canvas, ["Escape"]);
+        await expect(state("CLD")).not.toHaveAttribute("data-selected", "true");
+        // Del deletes the selected state; the history's undo, from anywhere in the frame, puts it back — its Control the
+        // only key the page hears.
+        await state("RCV").click();
+        await pressedOn(page, canvas, ["Delete"]);
+        await expect(state("RCV")).toHaveCount(0);
+        await canvas.focus();
+        await listen(page);
+        await page.keyboard.press("Control+z");
+        await expect(state("RCV")).toHaveCount(1);
+        expect(await heard(page)).toEqual(["Control"]);
+        // A state's editor, opened by a double-click: Escape puts it away, and Enter commits what it holds — each key, which
+        // closes the editor it is pressed in, going no further.
+        const editor = root.locator("[data-flowchart-stateeditor]");
+        for (const key of ["Escape", "Enter"]) {
+            await state("BKD").dblclick();
+            await editor.locator("input").first().focus();
+            await listen(page);
+            await page.keyboard.press(key);
+            await expect(editor, key).toHaveCount(0);
+            expect(await heard(page), `${key} in a state's editor`).toEqual([]);
+        }
+        await settled(page);
+        // An Escape typed elsewhere on the page — on the example's own link, outside the frame — leaves the selection be.
+        await state("CLD").click();
+        await expect(state("CLD")).toHaveAttribute("data-selected", "true");
+        await entry.locator(`a[href="#${route}"]`).first().focus();
+        await page.keyboard.press("Escape");
+        await expect(state("CLD")).toHaveAttribute("data-selected", "true");
+        // One from the page itself, nothing focused, is the canvas's while the pointer is over it.
+        await canvas.hover();
+        await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+        await page.keyboard.press("Escape");
+        await expect(state("CLD")).not.toHaveAttribute("data-selected", "true");
+        expect(await sidebar(page)).toBe(folded);
+        await goesOn(page, canvas);
     });
 });

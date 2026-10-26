@@ -21,7 +21,13 @@
  * diamond, or a lane's header, which selects the lane (the user's ruling,
  * 2026-10-08); a shift-, ⌘- or Ctrl-click on a state puts it into a
  * selection of several, or takes it out; a click on the canvas where nothing
- * is, and Esc — never in a field being typed into — select nothing. The
+ * is, and Esc, select nothing. Esc is the canvas's from inside its frame —
+ * heard as it leaves the frame (the handle's `key`), never in a field being
+ * typed into nor from a layer portaled out of the frame, a popover or a menu,
+ * which is that layer's — and from the page itself, nothing focused, while
+ * the pointer is over the canvas, at the window: a key typed anywhere else on
+ * the page never acts on it (`../shared/frame-keys.ts`). Every key the canvas
+ * acts on goes no further than the Flowchart (`takeKey`, #1398). The
  * selected lane takes the recipe's ring, and a selected decision's diamond
  * the brand.
  *
@@ -62,14 +68,15 @@
  * @packageDocumentation
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
 import { Box, Portal, Tooltip, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBan, faPlus, faRotateRight, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { StringType, equalFor } from "@elaraai/east";
 import {
-    getSomeorUndefined, typedInto, useDragLayerOptional, useDropCell, type CellCoord, type DragPayload,
+    getSomeorUndefined, takeKey, typedInto, useDragLayerOptional, useDropCell, type CellCoord, type DragPayload,
 } from "@elaraai/east-ui-components";
+import { keyFromPage, keyInFrame } from "../shared/frame-keys.js";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartCanvasValue, FlowchartModel, ModelLink } from "./model.js";
 import {
@@ -137,6 +144,15 @@ export interface FlowchartCanvasEdit {
     readonly deleteDecision: (key: string) => void;
 }
 
+/** What the frame hears the canvas's keys through (#1398). */
+export interface FlowchartCanvasHandle {
+    /**
+     * Hears a key from inside the frame as it leaves it — after every part of it that takes keys of its own: Esc, the
+     * canvas's, taken there where it acts, going no further.
+     */
+    key(event: React.KeyboardEvent<HTMLElement>): void;
+}
+
 /** Props of {@link FlowchartCanvasView}. */
 export interface FlowchartCanvasViewProps {
     /** What the canvas draws its flow with. */
@@ -159,6 +175,8 @@ export interface FlowchartCanvasViewProps {
     readonly words: FlowchartWords;
     /** The structural storage key. */
     readonly storageKey: string;
+    /** The canvas's handle, the frame's: what a key from inside the frame reaches the canvas through. */
+    readonly ref?: Ref<FlowchartCanvasHandle> | undefined;
 }
 
 /** All East callbacks route through one funnel: microtask + try/catch. */
@@ -336,10 +354,10 @@ function badgeStyle(cls: ModelLink["cls"], selected: boolean): { stroke: string;
  * The canvas: one flow, drawn with the canvas's options, filling its frame's
  * main — see the module docs.
  *
- * @param props - The canvas's options, the flow's model, the orientation, what to reveal, the gestures, the drop cell, the selection and what selects, the words and the storage key
+ * @param props - The canvas's options, the flow's model, the orientation, what to reveal, the gestures, the drop cell, the selection and what selects, the words, the storage key and the frame's handle
  * @returns The canvas's box, which scrolls the flow inside it
  */
-export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, drop, selection, onSelect, words, storageKey }: FlowchartCanvasViewProps) {
+export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, drop, selection, onSelect, words, storageKey, ref }: FlowchartCanvasViewProps) {
     const styles = useSlotRecipe({ key: "flowchart" })();
 
     // ── decode ────────────────────────────────────────────────────────────
@@ -365,6 +383,9 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
     onSelectRef.current = onSelect;
     const pickedStates = selectedStates(selection);
     const [hover, setHover] = useState<Hover>(null);
+    // The dimming, for Esc: what it puts back.
+    const hoverRef = useRef<Hover>(hover);
+    hoverRef.current = hover;
     // A drag in flight (#1249): it raises no dimming and no "+ STATE" ghost.
     const dragging = useDragLayerOptional()?.active ?? false;
     const draggingRef = useRef(dragging);
@@ -505,29 +526,48 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
         box.scrollTop = Math.max(0, at.y - box.clientHeight / 2);
     }, [reveal, layout, model, select]);
 
+    // Esc restores everything at once (the spec): nothing selected, nothing dimmed, no transition being drawn — and says
+    // whether it had any of them to put back: an Esc with nothing to put back does nothing, and goes on as it came.
+    const escape = useCallback((): boolean => {
+        if (selectionRef.current === null && hoverRef.current === null && draftRef.current === null) return false;
+        onSelectRef.current(null);
+        setHover(null);
+        setDraft(null);
+        return true;
+    }, []);
+    // Whether the pointer is over the canvas: a key from the page itself, nothing focused, is the canvas's only then.
+    const hoveredRef = useRef(false);
+    // A key from inside the frame, heard as it leaves it (the handle's `key`), after every part of it that takes keys of
+    // its own: Esc is the canvas's from the frame's own regions — never from a field being typed into, which keeps its
+    // own Esc, what it holds put back and the selection kept, nor from a layer portaled out of the frame, a popover or a
+    // menu, which is that layer's — and is taken where it acts (#1398).
+    const onFrameKey = useCallback((e: React.KeyboardEvent<HTMLElement>): void => {
+        if (e.key !== "Escape" || e.defaultPrevented || typedInto(e.target) || !keyInFrame(bodyRef.current, e.target)) return;
+        if (escape()) takeKey(e);
+    }, [escape]);
+    useImperativeHandle(ref, () => ({ key: onFrameKey }), [onFrameKey]);
+    // A key from the page itself, which no part of the frame hears: the window's, while the pointer is over the canvas.
+    // A key typed anywhere else on the page — another builder's, a field's, a menu's — never acts on the canvas.
     useEffect(() => {
         const onKey = (e: KeyboardEvent): void => {
-            // A field being typed into keeps its own Esc: what it holds is put back, the selection kept.
-            if (e.key !== "Escape" || typedInto(e.target)) return;
-            // Spec: esc restores everything instantly.
-            onSelectRef.current(null);
-            setHover(null);
-            setDraft(null);
+            if (e.key !== "Escape" || e.defaultPrevented || !hoveredRef.current || !keyFromPage(e.target)) return;
+            if (escape()) e.preventDefault();
         };
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
-    }, []);
+    }, [escape]);
 
     // Del deletes the selection (FB17) — heard in the canvas, never in a field
     // being typed into, which keeps its own Del: a state with its transitions,
     // several states (#1250), a transition, a decision cleared from the
-    // transitions it governs, a lane holding no state (#1250).
+    // transitions it governs, a lane holding no state (#1250) — the key going
+    // no further than the Flowchart (#1398).
     const onCanvasKey = useCallback((e: React.KeyboardEvent<HTMLDivElement>): void => {
         if ((e.key !== "Delete" && e.key !== "Backspace") || edit === undefined || typedInto(e.target)) return;
         const sel = selectionRef.current;
         // A lane holding states is never deleted (FB19): Del leaves it, selected.
         if (sel === null || (sel.kind === "lane" && (modelRef.current.laneStates.get(sel.key) ?? 0) > 0)) return;
-        e.preventDefault();
+        takeKey(e);
         onSelectRef.current(null);
         setHover(null);
         switch (sel.kind) {
@@ -652,7 +692,8 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
     // The lanes a gesture may rename, delete or add a state to: the flow's own — never the stand-in band of a flow with none.
     const laneGestures = edit !== undefined && !model.standIn ? edit : undefined;
     const body = (
-        <Box ref={bodyRef} css={styles.body} data-flowchart-body="">
+        <Box ref={bodyRef} css={styles.body} data-flowchart-body=""
+            onPointerEnter={() => { hoveredRef.current = true; }} onPointerLeave={() => { hoveredRef.current = false; }}>
             {layout !== null && !empty && (
                 // Focusable, so a press inside it — a state, a transition — lands its keys here: Del's.
                 <Box ref={scrollRef} css={styles.scroll} data-flowchart-scroll="" tabIndex={-1} onKeyDown={onCanvasKey}>
@@ -1134,9 +1175,10 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                                 if (ed.mode === "add") edit.addState(ed.lane, ed.code.trim(), ed.label.trim());
                                 else edit.editState(ed.key, ed.code.trim(), ed.label.trim());
                             };
+                            // ⏎ commits and Esc dismisses, each key going no further than the Flowchart (#1398).
                             const keys = (e: React.KeyboardEvent): void => {
-                                if (e.key === "Enter") commit();
-                                else if (e.key === "Escape") { e.stopPropagation(); setStateEditor(null); }
+                                if (e.key === "Enter") { takeKey(e); commit(); }
+                                else if (e.key === "Escape") { takeKey(e); setStateEditor(null); }
                             };
                             return (
                                 <Box
@@ -1237,8 +1279,9 @@ export function FlowchartCanvasView({ canvas, model, orientation, reveal, edit, 
                                     onChange={e => setLaneEdit(le => (le === null ? le : { ...le, label: e.target.value }))}
                                     onBlur={commit}
                                     onKeyDown={e => {
-                                        if (e.key === "Enter") commit();
-                                        else if (e.key === "Escape") { e.stopPropagation(); setLaneEdit(null); }
+                                        // ⏎ commits and Esc puts the label back, each key going no further than the Flowchart (#1398).
+                                        if (e.key === "Enter") { takeKey(e); commit(); }
+                                        else if (e.key === "Escape") { takeKey(e); setLaneEdit(null); }
                                     }}
                                     style={{
                                         position: "absolute", ...style, zIndex: 11,
