@@ -2,6 +2,8 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
+ * @vitest-environment jsdom
+ *
  * The drawing's issues (#1391, `issues.ts`, SC16), pure: an item outside the
  * extent; a footprint or a zone's shape past its box — its vertices, the arcs
  * its bulges draw and a band's half-width; a colour naming no theme colour,
@@ -15,9 +17,15 @@
 import { describe, expect, test } from "vitest";
 import { defaultValue, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
+import { formatters } from "@elaraai/east-ui-components";
 import { drawnItem, drawnLink, drawnNet, drawnZone, entityId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
+import { entityNames, nameOfEntity } from "./inspect.js";
 import { detailsKey } from "./record-keys.js";
 import { drawingIssues, outsideBox, sessionIssues, shapeExtent, type SchematicIssueArgs, type SchematicIssueSession } from "./issues.js";
+import { schematicMessages, type SchematicWords } from "./messages.js";
+
+/** The Schematic's words, in English: what an issue's row names an entity in. */
+const words: SchematicWords = { ...formatters("en-US"), m: schematicMessages };
 
 const T = Schematic.Types;
 type Geometry = ValueTypeOf<typeof T.Geometry>;
@@ -35,12 +43,15 @@ function item(at: SchematicRef, x: number, y: number, extra: Partial<ValueTypeOf
 const NAMES = new Map([["racks", "Rack"], ["network", "Network frame"], ["areas", "Area"], ["fibre", "Fibre run"], ["feeds", "Power feed"]]);
 const COLOURS: ReadonlySet<string> = new Set(["status.warn", "brand.solid", "heat.3"]);
 
-/** The issue args over a drawing: every rack held but A09, the frames read through a source. */
+/** The issue args over a drawing: every rack held but A09, the frames read through a source; each entity named as the Schematic names it. */
 function args(drawn: Partial<SchematicDrawn>, extra: Partial<SchematicIssueArgs> = {}): SchematicIssueArgs {
+    const whole: SchematicDrawn = { items: [], zones: [], links: [], nets: [], ...drawn };
+    const named = entityNames(whole, words);
     return {
-        drawn: { items: [], zones: [], links: [], nets: [], ...drawn },
+        drawn: whole,
         extent: { width: 28, height: 14 },
         names: NAMES,
+        nameOf: (id) => nameOfEntity(named, id),
         holds: (at) => (at.kind === "racks" ? at.key !== "A09" : at.kind === "network" ? undefined : false),
         layers: [],
         colours: COLOURS,
@@ -112,7 +123,7 @@ describe("drawingIssues", () => {
         ]);
     });
 
-    test("a link's end or a net's member no kind holds warns, naming it; one a kind read through its source may hold is never asked", () => {
+    test("a link's end or a net's member no kind holds warns, naming it — the link by its ends, the net by its label; one a kind read through its source may hold is never asked", () => {
         const run = drawnLink(ref("fibre", "u1"), { ...defaultValue<typeof T.Link>(T.Link), from: ref("racks", "A09"), to: ref("network", "ODF-9") });
         const stray = drawnLink(ref("fibre", "u2"), { ...defaultValue<typeof T.Link>(T.Link), from: ref("racks", "A01"), to: ref("pumps", "P1") });
         const feed = drawnNet(ref("feeds", "feed-a"), {
@@ -120,9 +131,9 @@ describe("drawingIssues", () => {
         });
         expect(drawingIssues(args({ links: [run, stray], nets: [feed] }))).toEqual([
             // A09 no rack holds; ODF-9's kind is read through its source: never asked.
-            { at: run.key, blocking: false, where: { kind: "Fibre run", name: "u1" }, word: { issue: "missing", kind: "Rack", key: "A09" } },
+            { at: run.key, blocking: false, where: { kind: "Fibre run", name: "A09 → ODF-9" }, word: { issue: "missing", kind: "Rack", key: "A09" } },
             // A slot no item kind has: named by the slot.
-            { at: stray.key, blocking: false, where: { kind: "Fibre run", name: "u2" }, word: { issue: "missing", kind: "pumps", key: "P1" } },
+            { at: stray.key, blocking: false, where: { kind: "Fibre run", name: "A01 → P1" }, word: { issue: "missing", kind: "pumps", key: "P1" } },
             { at: feed.key, blocking: false, where: { kind: "Power feed", name: "PDU-A · A side" }, word: { issue: "missing", kind: "pdus", key: "PDU-A" } },
             { at: feed.key, blocking: false, where: { kind: "Power feed", name: "PDU-A · A side" }, word: { issue: "missing", kind: "Rack", key: "A09" } },
         ]);

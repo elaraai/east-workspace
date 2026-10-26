@@ -58,7 +58,7 @@ const REDO = editingMessages.redo();
  */
 const CENTRES: readonly (readonly [kind: string, key: string, x: number, y: number])[] = [
     ["racks", "A01", 2.4, 2.9], ["racks", "A02", 6.0, 2.9], ["racks", "A03", 9.6, 2.9], ["racks", "A04", 13.2, 2.9], ["racks", "A05", 16.8, 2.9],
-    ["network", "MMR-1", 24.2, 2.9], ["network", "ODF-1", 8.4, 9.6],
+    ["network", "MMR-1", 24.2, 2.9], ["network", "ODF-1", 8.4, 9.6], ["network", "CORE-1", 23.2, 9.7],
 ];
 
 /** The canvas. */
@@ -348,14 +348,15 @@ test("a zone shows its form; a link its ends as Choosers over the items of its s
     expect(showing(container)).toBe("zone");
     expect(head(container)).toEqual({ kind: "Area", title: "Cage A", when: "19.60 × 4.60 m", status: null, chip: null });
     expect(editors(container, "row")).toEqual(["kind:readonly"]);
-    // u3, from A03 to ODF-1, tapped on its line: its ends, each a Chooser.
+    // u3, from A03 to ODF-1, tapped on its line: titled by its ends, as the rail names it — it has no caption — and its
+    // ends, each a Chooser.
     await tap(canvas, CAM, 9.6, 6.0);
     expect(showing(container)).toBe("link");
-    expect(head(container)).toEqual({ kind: "Fibre run", title: "u3", when: "A03 → ODF-1", status: null, chip: null });
+    expect(head(container)).toEqual({ kind: "Fibre run", title: "A03 → ODF-1", when: "", status: null, chip: null });
     expect(editors(container, "ends")).toEqual(["from:reference", "to:reference"]);
     await choose(container, "ends", "to", "MMR-1 · Network frame");
     expect(unsaved(container)).toBe(true);
-    expect(head(container).when).toBe("A03 → MMR-1");
+    expect(head(container).title).toBe("A03 → MMR-1");
     const stored = await h.read(ex.schematicFibre);
     await history(container, SAVE);
     expect(equalFor(ex.DcFibre)((await h.read(ex.schematicFibre)).get("u3")!, { ...stored.get("u3")!, to: variant("frame", "MMR-1") })).toBe(true);
@@ -363,6 +364,54 @@ test("a zone shows its form; a link its ends as Choosers over the items of its s
     await click(action(container, "delete")!);
     expect(showing(container)).toBe("drawing");
     expect(drawingCounts(container).links).toBe("5");
+});
+
+/** Picks a tool from the toolbar. */
+async function tool(c: HTMLElement, name: string): Promise<void> {
+    await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("radio", { name })); });
+}
+
+/** A drag on the canvas from one world point to another, let go there — Shift held where it says. */
+async function drag(canvas: Element, from: readonly [number, number], to: readonly [number, number], shiftKey = false): Promise<void> {
+    await act(async () => {
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, shiftKey, ...at(CAM, from[0], from[1]) });
+        fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", buttons: 1, shiftKey, ...at(CAM, to[0], to[1]) });
+        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, shiftKey, ...at(CAM, to[0], to[1]) });
+    });
+    await settle();
+}
+
+test("a run and a trunk the Schematic minted their keys for are each titled by what they join, as the collapsed rail names them — never by their keys (#1391)", async () => {
+    const { container } = await open(ex.schematicDataCentre);
+    const canvas = canvasOf(container);
+    // A04 to the core: a new run. A05 to the meet-me room, and A04 to it Shift held: a new trunk.
+    await tool(container, "Connect");
+    await drag(canvas, [13.2, 2.9], [23.2, 9.7]);
+    await tool(container, "Select");
+    await tool(container, "Connect");
+    await drag(canvas, [16.8, 2.9], [24.2, 2.9]);
+    await drag(canvas, [13.2, 2.9], [24.2, 2.9], true);
+    await tool(container, "Select");
+    // Each selected from what A04 is joined to, in Details.
+    await tap(canvas, CAM, 13.2, 2.9);
+    const minted = (kind: string) => joins(container).find((id) => id?.startsWith(`(kind="${kind}"`) === true && !id.includes('key="u4"'))!;
+    const run = minted("fibre"), trunk = minted("trunks");
+    expect(run).toMatch(/key="[0-9a-f-]{36}"/u);
+    expect(trunk).toMatch(/key="[0-9a-f-]{36}"/u);
+    await click(panel(container).querySelector(`[data-inspector-join=${JSON.stringify(run)}]`)!);
+    expect(showing(container)).toBe("link");
+    expect(head(container)).toEqual({ kind: "Fibre run", title: "A04 → CORE-1", when: "", status: null, chip: "New" });
+    // Collapsed, the rail names it the same.
+    await click(within(pane(container)).getByRole("button", { name: "Collapse Inspector" }));
+    expect(pane(container).querySelector("[data-dock-detail]")?.textContent).toBe("A04 → CORE-1");
+    await click(within(pane(container)).getByRole("button", { name: "Expand Inspector" }));
+    // The trunk, by its racks and its frame.
+    await tap(canvas, CAM, 13.2, 2.9);
+    await click(panel(container).querySelector(`[data-inspector-join=${JSON.stringify(trunk)}]`)!);
+    expect(showing(container)).toBe("net");
+    expect(head(container)).toEqual({ kind: "Fibre trunk", title: "A05, A04 → MMR-1", when: "2 sources → 1 destination", status: null, chip: "New" });
+    await click(within(pane(container)).getByRole("button", { name: "Collapse Inspector" }));
+    expect(pane(container).querySelector("[data-dock-detail]")?.textContent).toBe("A05, A04 → MMR-1");
 });
 
 test("a net shows its sides as tags, a member taken off one step and an emptied side refused in the footer's words; a leg shows its item, and Remove takes it off its side", async () => {
@@ -482,7 +531,8 @@ test("Issues lists the drawing's issues — an item outside the extent, a footpr
     expect(issueRows(container)).toEqual([
         ["Rack · A05", "Outside the drawing", "warning"],
         ["Cooling unit · CRAH-1", "Its shape reaches past its box", "warning"],
-        ["Fibre run · u1", "Names Network frame ODF-9, which no network frame holds", "warning"],
+        // A run named by its ends, as the Schematic names it everywhere.
+        ["Fibre run · A01 → ODF-9", "Names Network frame ODF-9, which no network frame holds", "warning"],
         ["Layer · Power", "Its colour, heat.9, is no theme colour: it draws its tone", "warning"],
     ]);
     const issue = (i: number) => panel(container).querySelectorAll("[data-inspector-issue]")[i]!;

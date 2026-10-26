@@ -2,18 +2,26 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
+ * @vitest-environment jsdom
+ *
  * What the Schematic's inspector shows (#1391, `inspect.ts`), pure: the
  * selection as Details shows it — the drawing, one entity, a net's leg, or
  * several in the order the canvas selected them, an id the drawing no longer
- * draws left out — whether two of them are one, and what an item is joined to.
- * Fixtures are real East values typed from the Schematic's East types.
+ * draws left out — whether two of them are one, what an item is joined to, and
+ * each entity's one name, never a key the Schematic minted. Fixtures are real
+ * East values typed from the Schematic's East types.
  */
 
 import { describe, expect, test } from "vitest";
 import { defaultValue, some } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
+import { formatters } from "@elaraai/east-ui-components";
 import { drawnItem, drawnLink, drawnNet, drawnZone, entityId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
-import { NOTHING_INSPECTED, drawnEntities, inspectedEqual, inspectedOf, joinsOf } from "./inspect.js";
+import { NOTHING_INSPECTED, drawnEntities, entityNames, inspectedEqual, inspectedOf, joinsOf, nameOfEntity } from "./inspect.js";
+import { schematicMessages, type SchematicWords } from "./messages.js";
+
+/** The Schematic's words, in English. */
+const words: SchematicWords = { ...formatters("en-US"), m: schematicMessages };
 
 const T = Schematic.Types;
 
@@ -70,6 +78,40 @@ describe("inspectedEqual", () => {
         const both = inspectedOf(new Set([entityId(A01), entityId(A02)]), null, ENTITIES);
         expect(inspectedEqual(both, inspectedOf(new Set([entityId(A01), entityId(A02)]), null, ENTITIES))).toBe(true);
         expect(inspectedEqual(both, inspectedOf(new Set([entityId(A02), entityId(A01)]), null, ENTITIES))).toBe(false);
+    });
+});
+
+describe("entityNames", () => {
+    test("an item and a zone by their labels; a link by its ends' items; a net by its label — never a key", () => {
+        const labelled = { ...DRAWN, nets: [drawnNet(FEED, { ...defaultValue<typeof T.Net>(T.Net), label: some("PDU-A · A side"), sources: [PDU], destinations: [A01, A02] })] };
+        const names = entityNames(labelled, words);
+        expect([entityId(A01), entityId(CAGE), entityId(U1), entityId(FEED)].map((id) => names.get(id))).toEqual(["A01", "Cage A", "A01 → ODF-1", "PDU-A · A side"]);
+    });
+
+    test("a link or a net the Schematic minted a key for is named by what it joins: a net with no label by its sources, then its destinations, three a side and how many more", () => {
+        const minted = (kind: string) => ref(kind, "5f0c1d6e-3a7b-4c2d-9e8f-0a1b2c3d4e5f");
+        const racks = Array.from({ length: 5 }, (_, i) => ref("racks", `B0${i + 1}`));
+        const drawn: SchematicDrawn = {
+            items: [...DRAWN.items, ...racks.map((at, i) => drawnItem(at, { ...defaultValue<typeof T.Item>(T.Item), position: some({ x: i, y: 6 }), label: at.key }, undefined)!)],
+            zones: [],
+            links: [drawnLink(minted("fibre"), { ...defaultValue<typeof T.Link>(T.Link), from: A02, to: ODF })],
+            nets: [
+                drawnNet(minted("trunks"), { ...defaultValue<typeof T.Net>(T.Net), sources: [A01], destinations: [ODF, PDU] }),
+                drawnNet(ref("trunks", "many"), { ...defaultValue<typeof T.Net>(T.Net), sources: racks, destinations: [ODF] }),
+            ],
+        };
+        const names = entityNames(drawn, words);
+        expect(names.get(entityId(minted("fibre")))).toBe("A02 → ODF-1");
+        expect(names.get(entityId(minted("trunks")))).toBe("A01 → ODF-1, PDU-A");
+        expect(names.get(entityId(ref("trunks", "many")))).toBe("B01, B02, B03 and 2 more → ODF-1");
+    });
+
+    test("an end the drawing doesn't draw is named by its key; an entity it doesn't draw, by the key its id names", () => {
+        const stray = drawnLink(ref("fibre", "u9"), { ...defaultValue<typeof T.Link>(T.Link), from: A01, to: ref("network", "ODF-9") });
+        const names = entityNames({ ...DRAWN, links: [stray] }, words);
+        expect(names.get(entityId(ref("fibre", "u9")))).toBe("A01 → ODF-9");
+        expect(nameOfEntity(names, entityId(ref("racks", "gone")))).toBe("gone");
+        expect(nameOfEntity(names, entityId(A02))).toBe("A02");
     });
 });
 

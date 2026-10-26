@@ -142,7 +142,7 @@ import { connectVeto, type NetLeg, type SchematicEdit } from "./edits.js";
 import { recordSlot, useSchematicEditing } from "./editing.js";
 import { foundMark, useSchematicFind, type FindKind, type FoundItem } from "./find.js";
 import { SchematicFooter, type SchematicFoundNotice, type SchematicNotice } from "./footer.js";
-import { drawnEntities, inspectedEqual, inspectedOf, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
+import { drawnEntities, entityNames, inspectedEqual, inspectedOf, nameOfEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
 import { schematicInspectorPane } from "./inspector.js";
 import { NO_INSPECTED_ROWS, SchematicInspectedReader, type SchematicInspectedRows } from "./inspector-rows.js";
 import { drawingIssues, sessionIssues } from "./issues.js";
@@ -617,16 +617,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const dropKinds = useMemo(() => new Map<string, SchematicDropKind>([...value.items, ...value.zones, ...value.links, ...value.nets]
         .map((kind) => [kind.key, { name: kind.name, writes: kind.editable && !value.readOnly }] as const)),
     [value.items, value.zones, value.links, value.nets, value.readOnly]);
-    // Each entity's name, as a drop's words say it: an item's or a zone's label, a link's ends, a net's label or its key.
-    const names = useMemo(() => {
-        const out = new Map<string, string>();
-        for (const item of drawing.items) out.set(item.key, item.label);
-        for (const zone of drawing.zones) out.set(zone.key, zone.label);
-        const end = (id: string) => out.get(id) ?? refOfId(id)?.key ?? id;
-        for (const link of drawing.links) out.set(link.key, words.m.linkEnds({ from: end(link.from), to: end(link.to) }));
-        for (const net of drawing.nets) out.set(net.key, getSomeorUndefined(net.label) ?? net.ref.key);
-        return out;
-    }, [drawing, words]);
+    // Each entity's one name, wherever the Schematic says it — a drop's words, the inspector's head and rail, an issue's row
+    // and a session's banners: an item's or a zone's label, a link's ends, a net's label or its ends; never a minted key.
+    const names = useMemo(() => entityNames(drawing, words), [drawing, words]);
     // The zones a point lands in, smallest first, as the Index files an item: what a drop's words name.
     const hosts = useMemo(() => hostZones(shownZones), [shownZones]);
     // A kind takes a drop while its session takes an edit and nothing the canvas draws is retained (#1398, CL8).
@@ -740,8 +733,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     }, [data.error, data.failures, data.failedAreas, followed, reading, resolving, nounOf, words, retry]);
     // Each source the library follows whose narrowing could not be read, with Retry (#1389).
     const followedFailures = [...followed.values()].filter((source) => source.error !== undefined);
-    // Each record's session's banners, titled by its kind, an issue placed by the item it names.
-    const labels = useMemo(() => new Map(drawing.items.map((item) => [item.key, item.label] as const)), [drawing.items]);
+    // Each record's session's banners, titled by its kind, an issue placed by the entity it names, by its name.
     const sessionName = (key: string) => {
         const slot = recordSlot(key);
         const name = kindName.get(slot) ?? slot;
@@ -751,7 +743,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         <>
             {sessions.map((part) => (
                 <SessionBanners key={part.key} session={part.session} words={editingWords} name={sessionName(part.kind)}
-                    where={(issue) => labels.get(entityId({ kind: recordSlot(part.kind), key: issue.entry })) ?? issue.entry}
+                    where={(issue) => names.get(entityId({ kind: recordSlot(part.kind), key: issue.entry })) ?? issue.entry}
                     onAction={(action) => history.actOn(part.key, action)} />
             ))}
             {followedFailures.map((source) => (
@@ -801,14 +793,14 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const heldItems = useMemo(() => new Set([...drawing.items.map((item) => item.key), ...backlog.map((entry) => entry.id)]), [drawing.items, backlog]);
     const historyVersion = editing.version;
     const issues = useMemo(() => [
-        ...sessionIssues(sessions, kindName, (id) => labels.get(id)),
+        ...sessionIssues(sessions, kindName, (id) => names.get(id)),
         ...drawingIssues({
-            drawn: drawing, extent: value.extent, names: kindName, layers: layerValues, colours: THEME_COLOURS,
+            drawn: drawing, extent: value.extent, names: kindName, nameOf: (id) => nameOfEntity(names, id), layers: layerValues, colours: THEME_COLOURS,
             holds: (ref) => (!itemSlots.has(ref.kind) ? false : wholeItems.has(ref.kind) ? heldItems.has(entityId(ref)) : undefined),
         }),
         // A session's readiness and its Save's issues move with the history's version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    ], [sessions, historyVersion, kindName, labels, drawing, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
+    ], [sessions, historyVersion, kindName, names, drawing, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
     // The host's veto, as Details' Connect to…, a link's ends and a net's sides ask it — as the canvas's gestures do (#1394).
     const canConnectFn = useMemo(() => getSomeorUndefined(value.canConnect), [value.canConnect]);
     const veto = useMemo(() => connectVeto(canConnectFn, refOfId), [canConnectFn]);
@@ -816,7 +808,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const enterCard = drop.enter;
     const place = useCallback((id: string) => enterCard(schematicLibraryId(keys, "backlog"), id), [enterCard, keys]);
     const end = schematicInspectorPane({
-        value, inspected, rows: inspectedRows, drawn: drawing, listed, editing, counts, records, issues, zoneAt, reveal: revealEntity, refuse: setRefusal,
+        value, inspected, rows: inspectedRows, drawn: drawing, names, listed, editing, counts, records, issues, zoneAt, reveal: revealEntity, refuse: setRefusal,
         tab: inspectorTab.tab, onTab: onInspectorTab, storageKey: keys.frame, words,
         narrow, veto, linkKind: connectKind, onLinkKind: pickConnectKind, connectValues, place,
     });
