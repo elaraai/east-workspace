@@ -52,6 +52,57 @@ test("the time grid opens at half past five, keeps the hour a scroll left across
     expect(grid(again.container).scrollTop).toBe(15 * HOUR);
 });
 
+/** The keys that reach the window — the page around the Calendar, the last thing a key reaches — from now until `stop`. */
+function hearKeys(): { heard: string[]; stop: () => void } {
+    const heard: string[] = [];
+    const listener = (event: KeyboardEvent) => { heard.push(event.key); };
+    window.addEventListener("keydown", listener);
+    return { heard, stop: () => window.removeEventListener("keydown", listener) };
+}
+/** The day the navigator steps from: its anchor, as an epoch's text. */
+const anchorOf = (c: HTMLElement) => slot(c, "toolbar").querySelector("[data-time-navigation=calendar]")?.getAttribute("data-time-anchor");
+
+test("each key the Calendar acts on goes no further than the Calendar — an event's Enter, `[` and `]`, which step the week, Esc while there is something to let go of, Delete and the history keys — and one it does not act on goes on (#1398)", async () => {
+    const { container } = await open(ex.calendarOperations);
+    const brackets = () => event(container, "job", "job1")!;
+    await waitFor(() => expect(brackets()).not.toBeNull());
+    await settle();
+    const keys = hearKeys();
+    /** Presses a key on an element and settles: what reached the page since the last press. */
+    const press = async (at: HTMLElement, key: string, init: { ctrlKey?: boolean } = {}) => {
+        keys.heard.length = 0;
+        await act(async () => { fireEvent.keyDown(at, { key, ...init }); });
+        await settle();
+        return [...keys.heard];
+    };
+    try {
+        // Enter on an event selects it, and Esc lets it go: each the Calendar's.
+        expect(await press(brackets(), "Enter")).toEqual([]);
+        expect(brackets().getAttribute("aria-pressed")).toBe("true");
+        expect(await press(brackets(), "Escape")).toEqual([]);
+        expect(brackets().getAttribute("aria-pressed")).toBe("false");
+        // Nothing left to let go of: Esc goes on as it came.
+        expect(await press(brackets(), "Escape")).toEqual(["Escape"]);
+        // `]` steps the week on from anywhere in the frame — here an event — and `[` back, here from a toolbar button.
+        const week = anchorOf(container);
+        expect(await press(brackets(), "]")).toEqual([]);
+        expect(Number(anchorOf(container))).toBe(Number(week) + 7 * 86_400_000);
+        expect(await press(within(slot(container, "toolbar")).getByRole("button", { name: "Previous week" }), "[")).toEqual([]);
+        expect(anchorOf(container)).toBe(week);
+        // Delete removes the selected event, and Ctrl+Z brings it back.
+        await waitFor(() => expect(brackets()).not.toBeNull());
+        expect(await press(brackets(), "Enter")).toEqual([]);
+        expect(await press(brackets(), "Delete")).toEqual([]);
+        expect(brackets()).toBeNull();
+        expect(await press(slot(container, "main"), "z", { ctrlKey: true })).toEqual([]);
+        await waitFor(() => expect(brackets()).not.toBeNull());
+        // A key the Calendar does not act on goes on.
+        expect(await press(brackets(), "Shift")).toEqual(["Shift"]);
+    } finally {
+        keys.stop();
+    }
+});
+
 /** Search Records' box, in the toolbar's row. */
 const searchBox = (c: HTMLElement) => slot(c, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search']")!;
 /** Types into Search Records' box, a key at a time, as a person does. */

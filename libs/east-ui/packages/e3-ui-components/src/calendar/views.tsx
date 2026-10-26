@@ -52,7 +52,7 @@ import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { none } from "@elaraai/east";
 import { tileNext } from "@elaraai/east-ui/internal";
-import { optimiseMessages, useDragEventChip, useDragEventEdge, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
+import { optimiseMessages, takeKey, useDragEventChip, useDragEventEdge, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import {
     LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, UnloadedRun, VirtualRows, devicePixels, loadingLineText, useRowsTop,
     type RowRuns, type RunCell, type RunFailure,
@@ -447,7 +447,8 @@ function EventBlock({ item, props, geometry, along = "y", chip = false, window }
             }
             handle?.onPointerDown?.(event);
         }} onClick={choose} onKeyDown={event => {
-            if (event.key === "Enter") { event.preventDefault(); props.select(item, event.shiftKey); }
+            // Enter selects it, the key going no further than the Calendar (#1398); Space picks it up, the drag's to take.
+            if (event.key === "Enter") { takeKey(event); props.select(item, event.shiftKey); }
             else {
                 if (event.key === " ") {
                     const cell = event.currentTarget.closest<HTMLElement>("[data-calendar-cell]");
@@ -525,7 +526,8 @@ function DropLane({ props, from, to, resource, along = "y", wholeDay = false, ch
     };
     return <Box ref={attach} css={css} style={style} data-calendar-cell="" data-calendar-column={column} data-outside={outside ? "" : undefined} data-calendar-from={from.getTime()} data-calendar-to={to.getTime()} data-calendar-snap={snap}
         onClick={event => { if (!(event.target as Element).closest("[data-calendar-event], button")) props.clear(); }}
-        onKeyDown={event => { if (event.key === "Escape") { down.current = undefined; setDrawing(undefined); } }}
+        // Esc lets a draw under way go, the key going no further (#1398); with none, it goes on to the frame.
+        onKeyDown={event => { if (event.key === "Escape" && (down.current !== undefined || drawing !== undefined)) { takeKey(event); down.current = undefined; setDrawing(undefined); } }}
         onPointerDown={props.drag.enabled && draw && !wholeDay ? event => {
             if (event.button !== 0 || (event.target as Element).closest("[data-calendar-event]")) return;
             down.current = { start: timeAt(event), x: event.clientX, y: event.clientY }; event.currentTarget.setPointerCapture(event.pointerId);

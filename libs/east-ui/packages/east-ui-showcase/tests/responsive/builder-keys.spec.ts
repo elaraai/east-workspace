@@ -170,6 +170,47 @@ test.describe("a key a builder acts on goes no further than the builder (#1398)"
         await goesOn(page, frame.locator("[data-allocation-card]").first());
     });
 
+    test("the Calendar's keys: its period's steps, an event's Enter, Escape, Delete and a keyboard drag @desktop", async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        const entry = await visitBuilder(page, "e3/calendar/calendar/calendarOperations", "[data-calendar-frame]", "light");
+        const frame = entry.locator("[data-calendar-frame]").first();
+        const folded = await sidebar(page);
+        // The week's brackets batch, by the name its block gives it.
+        const brackets = frame.locator("[data-calendar-event][aria-label^='Mounting brackets']");
+        // An event selected by Enter, and Escape letting it go; with nothing left to let go of, Escape goes on.
+        await pressedOn(page, brackets, ["Enter", "Escape"]);
+        await brackets.focus();
+        await listen(page);
+        await page.keyboard.press("Escape");
+        expect(await heard(page)).toEqual(["Escape"]);
+        // The week stepped on and back from anywhere in the frame — here its toolbar's Next week, a button, which leaves `[`
+        // and `]` to the frame.
+        const anchor = () => frame.locator("[data-time-navigation=calendar]").first().getAttribute("data-time-anchor");
+        const week = await anchor();
+        const next = frame.getByRole("button", { name: "Next week", exact: true });
+        await pressedOn(page, next, ["]"]);
+        await settled(page);
+        expect(Number(await anchor())).toBe(Number(week) + 7 * 86_400_000);
+        await pressedOn(page, next, ["["]);
+        await settled(page);
+        expect(await anchor()).toBe(week);
+        expect(await sidebar(page)).toBe(folded);
+        // An event picked up by Space, moved and let go by Escape: the drag's keys are the drag's.
+        const carried = frame.locator("[data-calendar-event][data-draggable]").first();
+        await carried.focus();
+        await listen(page);
+        await page.keyboard.press("Space");
+        await expect(carried).toHaveAttribute("data-dragging", "");
+        await page.keyboard.press("ArrowRight");
+        await page.keyboard.press("Escape");
+        await expect(carried).not.toHaveAttribute("data-dragging", "");
+        expect(await heard(page)).toEqual([]);
+        // Delete removes the selected event: the Calendar's too.
+        await pressedOn(page, brackets, ["Enter", "Delete"]);
+        await expect(brackets).toHaveCount(0);
+        await goesOn(page, frame.locator("[data-calendar-event]").first());
+    });
+
     test("the Schematic's keys: its canvas's, its hovered keys and its Index's @desktop", async ({ page }) => {
         await page.setViewportSize({ width: 1440, height: 900 });
         const root = await openSchematic(page, DATA_CENTRE, "light");
