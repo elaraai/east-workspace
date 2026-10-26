@@ -60,6 +60,14 @@ const rowsOf = (dl: Element | null) => {
     return out;
 };
 const mates = (c: HTMLElement) => [...details(c).querySelectorAll<HTMLElement>("[data-allocation-mate]")].map(m => [...m.children].map(s => s.textContent).concat(m.hasAttribute("data-current") ? ["current"] : []));
+/** The Key field among a bin's facts: its label, the key it prints, whether it is read only, and whether it is tinted as a draft. */
+const keyField = (root: HTMLElement) => {
+    const field = root.querySelector<HTMLElement>('[data-field="key"]')!;
+    return {
+        label: field.querySelector("label")!.firstChild!.textContent, value: field.querySelector("input")!.value,
+        readOnly: field.getAttribute("data-editor") === "readonly" && field.querySelector("input")!.readOnly, dirty: field.hasAttribute("data-dirty"),
+    };
+};
 async function press(node: Element | null | undefined) { expect(node).toBeTruthy(); await act(async () => { fireEvent.click(node!); }); await settle(); }
 async function key(c: HTMLElement, k: string) { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: k }); }); await settle(); }
 async function open(example: { fn: { toIR(): unknown } } = ex.allocationKilnYard) { const r = await h.mount(example); return r.container; }
@@ -148,6 +156,15 @@ describe("a bin (A56–A59)", () => {
         expect(headOf(c)).toEqual({ kind: "Bin 3113", title: "LD-2210 · 32 m³", when: "FRN · R2 · spec MC08", status: "Committed", tone: "success", chip: null });
         expect(actions(c)).toEqual(["Unlink", "Back to Arrivals"]);
         expect(banners(c)).toEqual([]);
+    });
+
+    test("its key stands first among its facts, a field read only — what Search Records finds it by (#1398)", async () => {
+        const c = await open();
+        await press(card(c, "3113"));
+        const fields = [...details(c).querySelectorAll<HTMLElement>("[data-allocation-bin-section] [data-field]")];
+        // The board's own fields first — the key, then where and when it stands and what it holds — then the row's.
+        expect(fields.slice(0, 4).map(f => f.getAttribute("data-field"))).toEqual(["key", "lane", "at", "quantity"]);
+        expect(keyField(details(c))).toEqual({ label: "Key", value: "3113", readOnly: true, dirty: false });
     });
 
     test("A56 — a banner per issue: `Over max · K-207 holds 44 m³ against a 40 m³ max · 4 m³ over.`; `Overlaps the next job · The 8-day hold on K-105 runs to Tue 18, 2 d into the job planned Mon 17.`", async () => {
@@ -395,6 +412,14 @@ describe("a reservation (A61)", () => {
         expect(button(assigned, "Remove").getAttribute("title")).toBe("Remove the reservation · the slot becomes free");
         expect(within(assigned).getByRole("button", { name: "Open resource" })).toBeTruthy();
         expect([text(assigned.querySelector("[data-allocation-fill]")), assigned.querySelector("[data-allocation-meter]") !== null]).toEqual(["0 m³ · takes 4–10", true]);
+    });
+
+    test("its key stands among its facts, a field read only — what Search Records finds it by; a new one's, the key it is minted, a draft until Save (#1398)", async () => {
+        const c = await reserved();
+        expect(keyField(details(c).querySelector<HTMLElement>("[data-allocation-reservation]")!)).toEqual({ label: "Key", value: "V1", readOnly: true, dirty: true });
+        await press(save(c));
+        await press(tableRow(c, "bin:V1").querySelector("span"));
+        expect(keyField(details(c).querySelector<HTMLElement>("[data-allocation-reservation]")!)).toEqual({ label: "Key", value: "V1", readOnly: true, dirty: false });
     });
 
     test("A61 — Book an arrival: each checked against the resource, one take of it — Book off and `doesn’t fit · …` in warn when refused; a fit fills the reservation", async () => {

@@ -28,7 +28,7 @@ import { SortedMap, StringType, equalFor, none, variant } from "@elaraai/east";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters,
+    BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters,
     usePersistedState, useSliceReactivity, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, formatDatePattern, usePickHandOff } from "@elaraai/east-ui-components/internal";
@@ -50,6 +50,7 @@ import { AllocationFooter } from "./footer.js";
 import { useAllocationInspector } from "./inspector.js";
 import { binCode } from "./inspector-model.js";
 import { useAllocationLibrary, type Pick, type ResourceFind } from "./library.js";
+import { allocationMessages, type AllocationWords } from "./messages.js";
 import {
     DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationWords, compareDate, compareFloat, compareString, configError, dayKey, dayStart,
     editableStatus, focusOf, placeDrafted, placeStored, started, statusText, type AllocationStyles, type AllocationValue, type Day, type DraftedBin,
@@ -183,14 +184,15 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     useEffect(() => { setLink(undefined); setFollow(before => before.nonce === 0 ? before : { nonce: before.nonce + 1, soft: false }); }, [window.view.layout]);
     const recipe = useSlotRecipe({ key: "allocationBuilder" });
     const styles = useMemo(() => recipe({}) as unknown as AllocationStyles, [recipe]);
-    const format = useFormatters(), words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
+    // The board's words: its message table — the editing session's, and its own — in the app's locale.
+    const format = useFormatters(), words = useMemo((): AllocationWords => ({ ...format, m: allocationMessages }), [format]);
     // Search Records (#1398): a bin found by its key steps the board to its day, where — once the day is read, after the
     // step's own clearing above — it is selected, and the board follows it into view; a pick gives it the keyboard there,
     // once the box has let it go: the element that stands for it in the layout shown takes the focus (`bin-focus.ts`).
     const handOff = usePickHandOff();
     const [found, setFound] = useState<string>();
     const [binFocus, setBinFocus] = useState<string>();
-    const finder = useAllocationFind({ value, domain, part: binsPart, format, onPick: (bin: FoundBin) => {
+    const finder = useAllocationFind({ value, domain, part: binsPart, words, onPick: (bin: FoundBin) => {
         setFound(bin.key);
         window.setView({ ...window.view, date: dayStart(bin.at).getTime() });
     } });
@@ -362,7 +364,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         value, domain, context, day, plan, held, loads, lines, slots, issues, layout: window.view.layout, selection, inspect, drag, fit, commands,
         without, reserving, shown: { lanes: lanesShown.keys, resources: resourcesShown.keys, arrivals: arrivalsShown.keys },
         refusal, dismissRefusal: () => setRefusal(undefined), chooser, setChooser, book: bookPicked, firstFree,
-        tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key, onFind: findable ? onFind : undefined, finding,
+        tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key, onFind: findable ? onFind : undefined, finding, m: words.m,
     });
     // Nothing above the board comes or goes during a drag (A22): a failed fit's banner waits for the drop.
     const [fitError, setFitError] = useState<string>();

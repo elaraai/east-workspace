@@ -8,7 +8,7 @@
  * the narrowing's one rail over its bins, its lanes, its resources and its
  * arrivals, and each one's count, in both layouts (#1336, #1339) — the bins'
  * day the board's own navigation, never a chip of the rail (#1372) — the
- * issues chip, Search Records over the bins' keys (#1398) — its box the first
+ * issues chip, Search Records over the bins' keys (#1398), worded so — its box the first
  * thing the row folds, to its icon (ruled 25 Oct 2026) — the shared history
  * and Publish — each folding by its rank,
  * history last, and in the narrowest frame the date, the layout, Save and
@@ -26,7 +26,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarDay, faChartGantt, faLink, faTable, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap } from "@elaraai/east";
 import {
-    ChipMenu, historyToolbarItem, useKeySearchToolbarItem, type EditingWords, type HistoryAction, type KeySearchSource, type ToolbarItem,
+    ChipMenu, historyToolbarItem, useKeySearchToolbarItem, type HistoryAction, type KeySearchSource, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
@@ -34,6 +34,7 @@ import { Seg } from "../shared/schedule/segments.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import type { AllocationCommands } from "./actions.js";
 import type { AllocationEditing } from "./editing.js";
+import type { AllocationWords } from "./messages.js";
 import type { AllocationWindow } from "./window.js";
 import { DAY, allocationWords, type AllocationStyles, type AllocationValue, type Day, type Issue, type Load, type ResourceRow } from "./model.js";
 import { other, type Nouns } from "./nouns.js";
@@ -86,7 +87,8 @@ interface ToolbarArgs extends AllocationWindow {
     commands: AllocationCommands;
     /** The editing; `undefined` for a read-only board. */
     editing: AllocationEditing | undefined;
-    words: EditingWords;
+    /** The board's words: its message table, the editing session's among them, and the app's formatters. */
+    words: AllocationWords;
     /** The day's status chip's words (A3): Not started, Draft, Published, or the app's own case; `undefined` without periods. */
     status: string | undefined;
     /**
@@ -129,10 +131,10 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
     });
     const chip = useRecipe({ key: "chip" });
-    // Search Records (#1398): primary-key navigation over the bins' record, at the row's end. Its box is the first thing the
-    // row folds, to its icon, before the rail and the day's steps (ruled 25 Oct 2026); at the row's last step it goes into
-    // the View, beside the date and the controls.
-    const search = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK });
+    // Search Records (#1398): primary-key navigation over the bins' record, at the row's end, its words saying so — `Search
+    // bins by key`. Its box is the first thing the row folds, to its icon, before the rail and the day's steps (ruled 25 Oct
+    // 2026); at the row's last step it goes into the View, beside the date and the controls.
+    const search = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK, label: words.m.keySearch() });
     const summary = issueSummary(issues);
     const status = args.publishing ? "Publishing" : args.status;
     const unread = args.unread;

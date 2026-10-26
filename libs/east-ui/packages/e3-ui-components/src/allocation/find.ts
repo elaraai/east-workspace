@@ -14,7 +14,9 @@
  * arrival — or that it is a reservation — its lane and its time, and its day;
  * a pick hands the board the bin (`onPick`), which steps to its day and
  * selects it there, and the box shows its key. The box asks its query again
- * as the record moves to another revision.
+ * as the record moves to another revision. Its words are the board's message
+ * table's: a query no bin's key matches says so, and that a bin's key is in its
+ * Details, where the board has them (`messages.ts`).
  *
  * @packageDocumentation
  */
@@ -24,6 +26,7 @@ import { StringType, equalFor, toEastTypeValue, type EastTypeValue, type ValueTy
 import type { DatasetKeyMatchRange, DatasetKeyQuery, RecordSliceBindType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type Formatters, type KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked, formatDatePattern, recordSlicePage, recordSliceRevision, recordSliceSeek, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import type { AllocationWords } from "./messages.js";
 import type { AllocationDomain, AllocationValue } from "./model.js";
 
 /** A bin's key is a String: the search's text parses against that. */
@@ -70,8 +73,8 @@ export interface AllocationFindProps {
     readonly domain: AllocationDomain;
     /** The bins' source of the slice: the record sought; `undefined` with none, and no search. */
     readonly part: RecordPart | undefined;
-    /** The app's formatters. */
-    readonly format: Pick<Formatters, "weekdayDate">;
+    /** The board's words: the app's formatters, and its message table. */
+    readonly words: Pick<AllocationWords, "weekdayDate" | "m">;
     /** Told the bin a pick lands on. */
     readonly onPick: (bin: FoundBin) => void;
 }
@@ -82,9 +85,9 @@ export interface AllocationFindProps {
  * @param props - The payload, the domain, the bins' source, the words and the pick
  * @returns The source; `undefined` without a source of the bins to seek
  */
-export function useAllocationFind({ value, domain, part, format, onPick }: AllocationFindProps): KeySearchSource | undefined {
-    const latest = useRef({ value, domain, part, format, onPick });
-    useLayoutEffect(() => { latest.current = { value, domain, part, format, onPick }; });
+export function useAllocationFind({ value, domain, part, words, onPick }: AllocationFindProps): KeySearchSource | undefined {
+    const latest = useRef({ value, domain, part, words, onPick });
+    useLayoutEffect(() => { latest.current = { value, domain, part, words, onPick }; });
     // What the last find found: the run of the record's rows it placed; a find answered after a newer one asked finds nothing here.
     const found = useRef({ start: 0, count: 0 });
     const asked = useRef(0);
@@ -111,9 +114,9 @@ export function useAllocationFind({ value, domain, part, format, onPick }: Alloc
         });
     }, []);
     const listRange = useCallback(async (row: number, limit: number) => {
-        const { value: board, format: words } = latest.current;
+        const { value: board, words: format } = latest.current;
         // A pick shows the bin's key in the box: what its query is typed against.
-        return (await binsAt(row, limit)).map((bin, i) => ({ row: row + i, label: foundBinLine(bin, board, words), text: bin.key }));
+        return (await binsAt(row, limit)).map((bin, i) => ({ row: row + i, label: foundBinLine(bin, board, format), text: bin.key }));
     }, [binsAt]);
     const jump = useCallback((row: number) => {
         void binsAt(row, 1).then(([bin]) => { if (bin !== undefined) latest.current.onPick(bin); })
@@ -136,6 +139,8 @@ export function useAllocationFind({ value, domain, part, format, onPick }: Alloc
         setRequery(n => n + 1);
     }, [revision]);
     const any = part !== undefined;
+    // What it searches, where nothing matches: bins' keys, which a bin's Details show where the board has them.
+    const noMatches = words.m.keySearchNoMatches({ inspector: value.inspector });
     return useMemo(() => (any ? { resetKey: "allocation", requery, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY,
-        noMatchesText: "No matching bins. Search by a bin's key." } : undefined), [any, requery, find, listRange, jump, clear]);
+        noMatchesText: noMatches } : undefined), [any, requery, find, listRange, jump, clear, noMatches]);
 }

@@ -96,7 +96,9 @@ position, its Place, beside its Move fields, ends, sides and Delete, every
 route that connects held to the host's veto (`edits.ts`' `connectVeto`). The
 Allocation's renderer (`src/allocation/`, #1319) registers against its
 `Allocation` tag and renders in its `BuilderFrame` the same way: its frame and
-toolbar (`index.tsx`, `toolbar.tsx`); one history over a session per record it
+toolbar (`index.tsx`, `toolbar.tsx`); its words (`messages.ts`: the editing
+session's, and its own that are no noun of the app's — what Search Records
+searches, `Search bins by key`); one history over a session per record it
 writes, the bins' and the days' (`editing.ts`, #1372); the day's reads in a
 component of their own (`data.ts`), and the day assembled from the bins the
 kind's `rows` read, drafts in place (`model.ts`); the
@@ -107,7 +109,9 @@ commands (`actions.ts`: each records the bins it changes as one step, a
 changed bin's row through the bin kind's `write`, a new one's through `create`
 with its arrival's `values`), its Library (`library.tsx`) and its Inspector
 (`inspector.tsx`, #1331) — the end pane: Details (a refused drop's note, the
-drop list while a drag or a pick is under way, else the selection, else the
+drop list while a drag or a pick is under way, else the selection — a bin's
+key printed first among its facts, a reservation's in a section of its own,
+what Search Records finds them by (#1398) — else the
 summary) and Issues, on the shared inspector's head and sections, `FieldForm`
 (the lane's segments and the time's stepper drawn through `renderControl`),
 the Chooser laid in the pane and the meter, its words and figures pure in
@@ -398,7 +402,9 @@ rows of, and the Filters editor counts each source in its heading (#1358).
 Search Records remains primary-key navigation, not Slice field search: the
 Sheet's and the Plan's over their sources' keys, the Roster's over its staff,
 the Calendar's over each event kind's record and the Allocation's over its
-bins' (each one's `find.ts`, #1398, CL10). It lists the rows a query finds
+bins' (each one's `find.ts`, #1398, CL10) — whose keys the board draws only in
+a bin's Details, so its box says what it searches (`Search bins by key`) and,
+where nothing matches, where a bin's key is. It lists the rows a query finds
 wherever they are — read through the source by their place, never only what is
 drawn — and the Roster's marks a row the rail's narrowing hides `· hidden by
 the filters`. The Sheet's names the choices of its `rows` source that hide it,
