@@ -13,10 +13,15 @@
  * its roles by the bin kind's `read`. A line names a bin by its key, its
  * arrival — or that it is a reservation — its lane and its time, and its day;
  * a pick hands the board the bin (`onPick`), which steps to its day and
- * selects it there, and the box shows its key. The box asks its query again
- * as the record moves to another revision. Its words are the board's message
- * table's: a query no bin's key matches says so, and that a bin's key is in its
- * Details, where the board has them (`messages.ts`).
+ * selects it there, and the box shows its key. A bin the rail's narrowing
+ * hides on the board says so — `· hidden by Area: South — picking it clears
+ * that filter`, the choices that hide it as the rail words them once e3 has
+ * said, `· hidden by the filters` until then — asked of e3 for the bins the box
+ * lists, and listed again as the answers land (the hidden pick, `hidden.ts`).
+ * The box asks its query again as the record moves to another revision. Its
+ * words are the board's message table's: a query no bin's key matches says so,
+ * and that a bin's key is in its Details, where the board has them
+ * (`messages.ts`).
  *
  * @packageDocumentation
  */
@@ -26,8 +31,9 @@ import { StringType, equalFor, toEastTypeValue, type EastTypeValue, type ValueTy
 import type { DatasetKeyMatchRange, DatasetKeyQuery, RecordSliceBindType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type Formatters, type KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked, formatDatePattern, recordSlicePage, recordSliceRevision, recordSliceSeek, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import type { HiddenBins } from "./hidden.js";
 import type { AllocationWords } from "./messages.js";
-import type { AllocationDomain, AllocationValue } from "./model.js";
+import { partsOf, type AllocationDomain, type AllocationValue } from "./model.js";
 
 /** A bin's key is a String: the search's text parses against that. */
 const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
@@ -42,13 +48,15 @@ type RecordPart = ValueTypeOf<RecordSliceBindType>;
 /** An entry of a record's window, as every record Slice binding reads one: its key and its row, joined. */
 interface RecordEntry { readonly key: string; readonly row: option<unknown> }
 
-/** A bin Search Records found: its key, and its place — its day and time, its lane — and its arrival. */
+/** A bin Search Records found: its key, and its place — its day and time, its lane — its arrival and its resources. */
 export interface FoundBin {
     readonly key: string;
     readonly at: Date;
     readonly lane: string;
     /** Its arrival's key; `undefined` for a reservation. */
     readonly arrival: string | undefined;
+    /** The resources it has parts on, the largest part first: the first, the one it is shown on. */
+    readonly parts: readonly string[];
 }
 
 /**
@@ -75,6 +83,8 @@ export interface AllocationFindProps {
     readonly part: RecordPart | undefined;
     /** The board's words: the app's formatters, and its message table. */
     readonly words: Pick<AllocationWords, "weekdayDate" | "m">;
+    /** What hides a bin the rail's narrowing hides on the board, and what e3 has said of it (the hidden pick). */
+    readonly hidden: HiddenBins;
     /** Told the bin a pick lands on. */
     readonly onPick: (bin: FoundBin) => void;
 }
@@ -82,12 +92,12 @@ export interface AllocationFindProps {
 /**
  * Search Records' source, for the shared key search's toolbar item (see the module docs).
  *
- * @param props - The payload, the domain, the bins' source, the words and the pick
+ * @param props - The payload, the domain, the bins' source, the words, the hidden pick and the pick
  * @returns The source; `undefined` without a source of the bins to seek
  */
-export function useAllocationFind({ value, domain, part, words, onPick }: AllocationFindProps): KeySearchSource | undefined {
-    const latest = useRef({ value, domain, part, words, onPick });
-    useLayoutEffect(() => { latest.current = { value, domain, part, words, onPick }; });
+export function useAllocationFind({ value, domain, part, words, hidden, onPick }: AllocationFindProps): KeySearchSource | undefined {
+    const latest = useRef({ value, domain, part, words, hidden, onPick });
+    useLayoutEffect(() => { latest.current = { value, domain, part, words, hidden, onPick }; });
     // What the last find found: the run of the record's rows it placed; a find answered after a newer one asked finds nothing here.
     const found = useRef({ start: 0, count: 0 });
     const asked = useRef(0);
@@ -110,13 +120,23 @@ export function useAllocationFind({ value, domain, part, words, onPick }: Alloca
         return entries.flatMap((entry): FoundBin[] => {
             if (entry.row.type !== "some") return [];
             const roles = board.bin.read(rows.encodeRow(entry.row.value));
-            return [{ key: entry.key, at: roles.at, lane: roles.lane, arrival: roles.arrival.type === "some" ? roles.arrival.value : undefined }];
+            return [{ key: entry.key, at: roles.at, lane: roles.lane, arrival: roles.arrival.type === "some" ? roles.arrival.value : undefined,
+                parts: partsOf(roles).map(p => p.key) }];
         });
     }, []);
     const listRange = useCallback(async (row: number, limit: number) => {
-        const { value: board, words: format } = latest.current;
-        // A pick shows the bin's key in the box: what its query is typed against.
-        return (await binsAt(row, limit)).map((bin, i) => ({ row: row + i, label: foundBinLine(bin, board, format), text: bin.key }));
+        const bins = await binsAt(row, limit);
+        const { value: board, words: format, hidden: hiding } = latest.current;
+        // Which choices hide the bins the narrowing hides, asked of e3: a line says the filters do until it has said which.
+        hiding.ask(bins);
+        return bins.map((bin, i) => {
+            const line = foundBinLine(bin, board, format);
+            const hides = hiding.of(bin);
+            const label = hides === undefined ? line
+                : hides.words === undefined ? format.m.keySearchHidden({ line }) : format.m.keySearchHiddenBy({ line, ...hides.words });
+            // A pick shows the bin's key in the box: what its query is typed against.
+            return { row: row + i, label, text: bin.key };
+        });
     }, [binsAt]);
     const jump = useCallback((row: number) => {
         void binsAt(row, 1).then(([bin]) => { if (bin !== undefined) latest.current.onPick(bin); })
@@ -141,6 +161,8 @@ export function useAllocationFind({ value, domain, part, words, onPick }: Alloca
     const any = part !== undefined;
     // What it searches, where nothing matches: bins' keys, which a bin's Details show where the board has them.
     const noMatches = words.m.keySearchNoMatches({ inspector: value.inspector });
-    return useMemo(() => (any ? { resetKey: "allocation", requery, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY,
-        noMatchesText: noMatches } : undefined), [any, requery, find, listRange, jump, clear, noMatches]);
+    // The lines are listed again as e3 says what hides a bin, and as what the narrowing shows moves.
+    const relist = hidden.version;
+    return useMemo(() => (any ? { resetKey: "allocation", requery, relist, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY,
+        noMatchesText: noMatches } : undefined), [any, requery, relist, find, listRange, jump, clear, noMatches]);
 }
