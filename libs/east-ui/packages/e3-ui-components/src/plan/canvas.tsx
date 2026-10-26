@@ -1155,8 +1155,9 @@ export function usePlanCanvas({
     };
     // What the rail counts each source in (#1344).
     const nouns = useMemo(() => planNouns(kinds, resources, tabs, words.locale), [kinds, resources, tabs, words.locale]);
-    // What the loading line and a failed run name the rows by: what the rail counts them in (#1398).
-    const rowsSource = slices?.slice.parts.find((part) => stringEqual(part.source, ROWS_SOURCE));
+    // What the loading line and a failed run name the rows by: what the rail counts them in (#1398) — a paged resource
+    // kind's source's where the canvas pages one (its rows are that source's), else the `rows` source's.
+    const rowsSource = slices?.slice.parts.find((part) => stringEqual(part.source, pagedSlot ?? ROWS_SOURCE));
     const rowsNoun = rowsSource !== undefined ? recordSliceNoun(rowsSource, nouns, words.locale) : words.m.saveNoticeNoun({ kind: undefined, n: 2 });
     const bound = declaredBound ? { height, maxHeight } : undefined;
 

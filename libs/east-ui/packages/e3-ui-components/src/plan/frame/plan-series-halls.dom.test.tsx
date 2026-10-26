@@ -445,6 +445,17 @@ describe("a bounded view of the narrowed presses (#1344)", () => {
         expect(said.map((busy) => busy === "true").filter((busy, i, all) => i === 0 || busy !== all[i - 1])).toEqual([false, true, false]);
     });
 
+    test("the line names the presses the view waits for as the rail counts them — `Loading presses 1,201–2,000` — never as rows (#1398, CL3)", async () => {
+        const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
+        await settle();
+        const windows = h.e3.hold((request) => request.dataset === PRESSES && request.kind === "page");
+        await scrollAndSettle(c, 1500 * ROW_PX);
+        await windows.holding;
+        await waitFor(() => expect(loadingLine(c)).toBe("Loading presses 1,201–2,000"));
+        await act(async () => { windows.release(); });
+        await settle();
+    });
+
     test("the press at its top keeps its place by its key where the hall chosen holds it — the press and the px into it — and the view starts at the top where it does not", async () => {
         const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
         await settle();
