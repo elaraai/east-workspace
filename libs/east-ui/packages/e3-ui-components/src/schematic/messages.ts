@@ -207,7 +207,7 @@ export interface SchematicMessages extends PagedLoadingMessages {
     netEnds: (p: { sources: SchematicMembers; destinations: SchematicMembers }) => string;
     /** The entities of a kind a card's ⏎ drops on, several of them — `3 racks`; `name` is the kind's, as running text writes it. */
     dropMany: (p: SchematicCount & { name: string }) => string;
-    /** Why a drop is refused where the drag rests: red under the ghost, and for a card's ⏎ in the footer. */
+    /** Why a drop is refused where the drag rests: red under the ghost, and for a card's ⏎ and Details' Place in the footer. */
     dropRefused: (p: SchematicDropRefusalWord) => string;
     /** Where a drag that lands nowhere rests, as a screen reader hears it. */
     dropCanvas: () => string;
@@ -271,13 +271,15 @@ export interface SchematicMessages extends PagedLoadingMessages {
 export type SchematicInspectorSection = "fields" | "details" | "position" | "joins" | "ends" | "sides" | "member" | "connect";
 
 /**
- * Why a drop is refused, as its words say it (#1390): outside the drawing; no
- * entity of the card's kind under the drag; its kind read only; or its kind's
- * session taking no edit now — `kind` is the kind's name, as running text
- * writes it.
+ * Why a drop is refused, as its words say it (#1390): outside the drawing; the
+ * view's centre, where a card's ⏎ and Details' Place land, off the drawing
+ * (#1394), which no pointer moves; no entity of the card's kind under the
+ * drag; its kind read only; or its kind's session taking no edit now — `kind`
+ * is the kind's name, as running text writes it.
  */
 export type SchematicDropRefusalWord =
     | { readonly why: "outside" }
+    | { readonly why: "offView" }
     | { readonly why: "onto" | "readOnly" | "busy"; readonly kind: string };
 
 /** A tab of the library, as its words name it: its own, or an author's (`tab`). */
@@ -327,6 +329,7 @@ function inspectorSection({ section, name }: { section: SchematicInspectorSectio
 function dropRefused(p: SchematicDropRefusalWord): string {
     switch (p.why) {
         case "outside": return "Outside the drawing";
+        case "offView": return "The middle of the view is off the drawing: pan the drawing into view, or Fit";
         case "onto": return `Drop onto ${article(p.kind)} ${p.kind}`;
         case "readOnly": return `${capital(p.kind)}s are read only`;
         case "busy": return `${capital(p.kind)}s take no edit now`;

@@ -13,9 +13,10 @@
  * place: an item's Connect to… records a run as a Connect drag does, one step
  * Save writes, and the host's veto refuses a pair in the footer's words; the
  * Backlog's card picked is an item with no position, whose Place — or a tap on
- * the card — puts it at the canvas's centre, selected, its fields Details' then.
- * A run's ends and a trunk's sides are held to the veto at any width, as their
- * gestures are.
+ * the card — puts it at the canvas's centre, selected, its fields Details' then,
+ * and where that is off the drawing is refused in words that say what brings the
+ * drawing there. A run's ends and a trunk's sides are held to the veto at any
+ * width, as their gestures are.
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin — its width, as main's, the harness's
@@ -345,6 +346,28 @@ test("below 480px of main the Backlog's card picked is an item with no position 
     // The view's centre: the fitted floor's middle, 14 × 7 m.
     const saved = await h.read(ex.schematicRacks);
     for (const key of ["A06", "A07"]) expect(rackEqual(saved.get(key)!, { ...stored.get(key)!, x: some(14.0), y: some(7.0) }), key).toBe(true);
+});
+
+test("below 480px of main Place where the middle of the view is off the drawing is refused, the footer saying what brings the drawing there, the rack still Details' and nothing recorded; the drawing panned back, it lands there (#1394)", async () => {
+    const { container } = await open();
+    const canvas = canvasOf(container);
+    await mainAt(container, 479);
+    // The view panned 17 m past the floor's right: its middle at 31 × 7 m, off the 28 m floor.
+    await drag(canvas, [18, 8.4], [1, 8.4]);
+    await libraryTab(container, "Backlog");
+    await click(libraryCard(container, entityId({ kind: "racks", key: "A06" })));
+    expect([showing(container), head(container).title]).toEqual(["unplaced", "A06"]);
+    await click(action(container, "place")!);
+    expect(footer(container, "data-schematic-refused")).toBe("The middle of the view is off the drawing: pan the drawing into view, or Fit");
+    expect([showing(container), head(container).title, unsaved(container), libraryTabs(container)[1]]).toEqual(["unplaced", "A06", false, "Backlog 2"]);
+    // Panned back, as the words say: Place lands at the middle of the view, the words gone.
+    await drag(canvas, [1, 8.4], [18, 8.4]);
+    await click(action(container, "place")!);
+    await waitFor(() => expect(showing(container)).toBe("item"));
+    expect([head(container).title, footer(container, "data-schematic-refused"), libraryTabs(container)[1]]).toEqual(["A06", undefined, "Backlog 1"]);
+    const stored = await h.read(ex.schematicRacks);
+    await history(container, SAVE);
+    expect(rackEqual((await h.read(ex.schematicRacks)).get("A06")!, { ...stored.get("A06")!, x: some(14.0), y: some(7.0) })).toBe(true);
 });
 
 // ============================================================================

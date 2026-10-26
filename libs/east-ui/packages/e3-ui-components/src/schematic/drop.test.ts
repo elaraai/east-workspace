@@ -229,11 +229,20 @@ describe("a kind read only, or whose session takes no edit now, refuses every dr
 describe("⏎ on a card drops it on the selection, or at the view's centre (SC13)", () => {
     const centre: SchematicDropPoint = { x: 14, y: 7, digits: 2n };
 
-    test("a card that adds or places an item lands at the view's centre; a canvas with no size yet has none, and refuses it", () => {
+    test("a card that adds or places an item lands at the view's centre; off the drawing — or on a canvas with no size yet — it is refused in words that say what brings the drawing there, which no pointer moves (#1394)", () => {
         expect(planEnter(R42, [A01], centre, CTX)).toMatchObject({ kind: "add", at: centre, zone: undefined });
         expect(planEnter(PLACE_A06, [], centre, CTX)).toMatchObject({ kind: "place", ref: A06, at: centre });
-        expect(dropRefusal(planEnter(R42, [], undefined, CTX), words)).toBe("Outside the drawing");
-        expect(dropRefusal(planEnter(R42, [], { x: 40, y: 7, digits: 0n }, CTX), words)).toBe("Outside the drawing");
+        const offView = "The middle of the view is off the drawing: pan the drawing into view, or Fit";
+        for (const card of [R42, PLACE_A06]) {
+            for (const at of [undefined, { x: 40, y: 7, digits: 0n }, { x: 14, y: -0.5, digits: 1n }]) {
+                const plan = planEnter(card, [], at, CTX);
+                expect([plan, dropRefusal(plan, words)], `${card.label} at ${at === undefined ? "no centre" : atText(variant("point", at))}`)
+                    .toEqual([{ kind: "refused", why: { why: "offView" } }, offView]);
+            }
+        }
+        // A drag resting there says where its pointer is; a kind read only, or busy, says so first.
+        expect(dropCaption(planDrop(R42, point(40, 7, 0), CTX), words, "m")).toBe("Outside the drawing");
+        expect(dropRefusal(planEnter(PLACE_A06, [], { x: 40, y: 7, digits: 0n }, { ...CTX, available: () => false }), words)).toBe("Racks take no edit now");
     });
 
     test("a template on the selected link of its kind; an author's card on the selected rack — or on every selected rack, as one step", () => {
