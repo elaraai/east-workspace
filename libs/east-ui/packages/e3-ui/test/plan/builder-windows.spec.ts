@@ -12,8 +12,8 @@
  * index window of the kind's own record, a kind read by day whose backlog has
  * no window, a `window` without `entries`, `entries` without a `window` or
  * not the record's own entries, `window` on a resource kind (gone), a paged
- * resource kind keyed by another type than String, grouped or nested, read by
- * the Calendar, two paged kinds, and a paged kind beside a paged `data`; an
+ * resource kind keyed by another type than String, grouped or nested, two
+ * paged kinds, and a paged kind beside a paged `data`; an
  * event kind on a paged resource kind read whole, read through its day index,
  * or placed on another kind beside it (#1039); a resource kind read whole,
  * which lists its rows; and the windows example's manifest: its records and
@@ -185,13 +185,6 @@ describe("the windows' types and their refusals", () => {
             const rows = $.let(Data.bind(ex.planWindowPresses));
             return Schedule.resources(rows.read(), { name: "Presses", icon: "print", label: (p: ExprType<typeof PrintPress>) => p.name, window: $.let(Data.bindPaged(ex.planWindowPresses)) } as never);
         }), /^Schedule\.resources: "Presses": `window` is gone — a kind pages when its resources are a paged read: Schedule\.resources\(Data\.bindPaged\(record\), \{ … \}\)/);
-    });
-
-    test("the Calendar reads a resource kind whole, and refuses a paged one in words", () => {
-        assert.match(refusal(($) => {
-            const pages = $.let(Data.bindPaged(ex.planWindowPresses));
-            return Schedule.resources(pages, { name: "Presses", icon: "print", label: (p) => p.name }).build("presses");
-        }), /^Schedule\.resources: "Presses": the Calendar reads a resource kind's resources whole, and this one's are a paged read — give it the resources as a Dict, usually a record's read\(\)$/);
     });
 
     test("a Plan pages one source: two paged resource kinds, or a paged kind beside a paged `data`, are refused", () => {

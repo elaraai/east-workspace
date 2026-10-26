@@ -25,7 +25,9 @@ const stringEqual = equalFor(StringType);
 /**
  * The sources the Calendar follows beside its event kinds': each resource
  * kind's the slice holds, each templates list's and each one an app's tab
- * names — each once, in that order.
+ * names — each once, in that order. A paged resource kind's source is followed
+ * by none (#1424): it narrows the kind's windows themselves (`pages.ts`), so no
+ * key of it is scanned.
  *
  * @param value - The payload
  * @returns The sources' names
@@ -33,8 +35,9 @@ const stringEqual = equalFor(StringType);
 export function followedSources(value: CalendarValue): string[] {
     const parts = value.slice.type === "some" ? value.slice.value.slice.parts : [];
     const held = (name: string) => parts.some(part => stringEqual(part.source, name));
+    const paged = (name: string) => value.paged.type === "some" && stringEqual(value.paged.value.kind, name);
     const named = [
-        ...value.resources.map(kind => kind.key).filter(held),
+        ...value.resources.map(kind => kind.key).filter(name => held(name) && !paged(name)),
         ...value.events.flatMap(kind => kind.templatesSource.type === "some" ? [kind.templatesSource.value] : []),
         ...value.library.flatMap(tab => tab.type === "tab" && tab.value.source.type === "some" ? [tab.value.source.value] : []),
     ];

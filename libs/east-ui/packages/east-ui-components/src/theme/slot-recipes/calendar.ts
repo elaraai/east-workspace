@@ -9,7 +9,8 @@
  * failed one says so in its timeline's first row (`readLine`), its agenda's other cards blank (`data-blank`); and a newer read of the period shown keeps its events,
  * retained (`data-calendar-stale` on main, CL5): its columns', rows' and cells' rules dashed, its events' and cards' words
  * in the third ink — the shared retained parts. A resource's shading past the cap (#1424): the Plan's booked-vs-free bar
- * along each period (`shadeBar`) and its no-data hatch (`shadeHatch`).
+ * along each period (`shadeBar`) and its no-data hatch (`shadeHatch`). A paged resource kind's columns in the Resources
+ * view (#1424): a grid track each, only those around the view drawn (`data-paged`).
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
@@ -27,6 +28,13 @@ import { shellBase } from "./plan/shell.js";
 import { nowSlots, nowBase } from "./time/now.js";
 import { timeAxisText, timeHeaderText, timeRulerBase } from "./time/axis.js";
 import { timeResizeEdge } from "./time/resize.js";
+
+/**
+ * The Resources view's tracks over a paged resource kind (#1424): the hour column, then a track each column, as wide
+ * as a resource column is at least (`timeGridContent`'s minimum) — so a column drawn in its track sits where it would
+ * with every column drawn.
+ */
+const PAGED_COLUMNS = "56px repeat(var(--calendar-columns), minmax(104px, 1fr))";
 
 export const calendarSlotRecipe = defineSlotRecipe({
     className: "east-calendar",
@@ -51,7 +59,9 @@ export const calendarSlotRecipe = defineSlotRecipe({
             // A card's placeholders keep their place where a failure blanks them (#1398); unread, each is unseen until the
             // frame's reveal says so by itself (`data-unrevealed`).
             "& [data-blank] [data-shape]": { visibility: "hidden" } },
-        head: { display: "flex", position: "sticky", top: 0, zIndex: 5, height: "28px", flexShrink: 0, background: "bg.surface", borderBottomWidth: "1px", borderColor: "border.subtle", "&[data-resources]": { height: "44px" }, "&[data-timeline]": { height: "auto" }, "&[data-month]": { minWidth: "var(--calendar-month-min-width)" } },
+        head: { display: "flex", position: "sticky", top: 0, zIndex: 5, height: "28px", flexShrink: 0, background: "bg.surface", borderBottomWidth: "1px", borderColor: "border.subtle", "&[data-resources]": { height: "44px" }, "&[data-timeline]": { height: "auto" }, "&[data-month]": { minWidth: "var(--calendar-month-min-width)" },
+            // A paged resource kind's columns (#1424): a track each, the columns drawn placed in theirs, the rest empty.
+            "&[data-paged]": { display: "grid", gridTemplateColumns: PAGED_COLUMNS } },
         headerCaption: { ...shellBase.brushCaption, position: "sticky", left: 0, width: "184px", flexShrink: 0, zIndex: 4, background: "bg.surface" },
         columnHead: {
             flex: 1, minWidth: 0, display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: "8px",
@@ -69,7 +79,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
         timeGridContent: { minWidth: "calc(56px + var(--calendar-columns) * 112px)", "&[data-resources]": { minWidth: "calc(56px + var(--calendar-columns) * 104px)" }, "&[data-single]": { minWidth: "296px" } },
         timeGutter: { ...timeAxisText, width: "56px", flexShrink: 0, position: "sticky", left: 0, zIndex: 4, background: "bg.surface", color: "fg.subtle" },
         timeLabel: { position: "absolute", right: "8px", transform: "translateY(-50%)" },
-        columns: { display: "flex", flex: 1, minWidth: 0, position: "relative" },
+        columns: { display: "flex", flex: 1, minWidth: 0, position: "relative", "&[data-paged]": { display: "grid", gridTemplateColumns: PAGED_COLUMNS } },
         // A stacking context of its own: what a day column draws over itself — the now line, a drop's ghost, a dragged event —
         // stays under the sticky head as the grid scrolls down, and under the hour column as it scrolls sideways.
         column: { position: "relative", flex: 1, minWidth: 0, borderLeftWidth: "1px", borderColor: "border.subtle", touchAction: "pan-y", isolation: "isolate",

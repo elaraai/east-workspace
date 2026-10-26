@@ -50,8 +50,18 @@
  * or is hatched where none shades at that period; the banner says how many
  * events there are and to narrow or to choose another period; and every
  * figure that would count them says they are not counted, never 0.
+ *
+ * A resource kind may be paged (#1424): its resources come a window at a time
+ * (`pages.ts`), read in a component of their own around the places the views
+ * show — the timeline's rows, the Resources view's columns — and an event kind
+ * placed on it is read a cell at a time there, the events of the resources and
+ * the dates on screen alone (`cells.ts`). Its source of the slice narrows its
+ * windows themselves, so the frame follows no such source; a choice keeps the
+ * last view standing, retained, until its windows land. Its Choosers search it
+ * by key through its own paged read, and an event names its resource by the
+ * windows held, else by the resource's key.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { none } from "@elaraai/east";
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
@@ -61,18 +71,20 @@ import {
     type Formatters,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal } from "@elaraai/east-ui-components/internal";
-import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
+import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedule/cells.js";
-import { useScheduleEditing, type ScheduleEditing } from "../shared/schedule/editing.js";
+import { useScheduleEditing, type ScheduleEditing, type ScheduleHeldRows } from "../shared/schedule/editing.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
 import type { CalendarBucket } from "./cells.js";
 import { CalendarDataReader, initialCalendarData, resourceRows, windowedBacklogKinds, type CalendarDataState } from "./data.js";
+import { CalendarChooserContext, type CalendarChooser } from "./chooser.js";
 import { useCalendarDrag } from "./drag.js";
 import { useCalendarFind, type FoundEvent } from "./find.js";
 import { CalendarFooter } from "./footer.js";
+import { CalendarPagesReader, createPagedDemand, type CalendarPages } from "./pages.js";
 import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type CalendarSelection } from "./inspector.js";
 import { templatesTab, useCalendarLibrary } from "./library.js";
 import { useBacklogNarrowing, type BacklogNarrowing } from "../shared/schedule/backlog.js";
@@ -96,6 +108,11 @@ interface HostProps extends EastChakraCalendarProps {
     /** The sources the Calendar follows beside its event kinds': what each shows. */
     followed: FollowedSources;
     editing?: ScheduleEditing;
+    /**
+     * Told the rows the cells' reader holds of each kind it reads by its cells (#1424), as they move: where the editing
+     * finds one of their events — never by a read over the window.
+     */
+    onHeld?: ((held: ScheduleHeldRows | undefined) => void) | undefined;
 }
 const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
 const NO_ITEMS: CalendarItem[] = [];
@@ -107,6 +124,19 @@ const UNASSIGNED: CalendarRow = { key: "", label: "Unassigned", meta: "", group:
 const NO_CELL_RESOURCES: readonly ScheduleCellResources[] = [];
 /** A summary's tile the timeline shades a resource's row at, as the toolbar names the period (#1424). */
 const PERIOD_NAMES: Partial<Record<RecordTile, string>> = { day: "Day", week: "Week", month: "Month" };
+/** No resource of a paged kind held. */
+const NO_ROWS: readonly CalendarRow[] = [];
+
+/**
+ * The paged kind's resources the frame holds (#1424), every window's in order: what an event names its resource by.
+ *
+ * @param windows - The windows the frame holds of the paged kind, by window
+ * @returns Their rows
+ */
+function heldRows(windows: CalendarPages["windows"] | undefined): readonly CalendarRow[] {
+    if (windows === undefined || windows.size === 0) return NO_ROWS;
+    return [...windows.entries()].sort((a, b) => a[0] - b[0]).flatMap(([, rows]) => rows);
+}
 
 /**
  * What the banner says of a kind past the cap (#1424): how many of its events the window holds — or, where its count is
@@ -163,11 +193,13 @@ function inKindOrder(kinds: readonly CalendarKind[], windowed: readonly Calendar
 }
 
 /** The sole editable wrapper: read-only Calendar never creates a record session. */
-function EditableCalendar(props: Omit<HostProps, "editing">) {
+function EditableCalendar(props: Omit<HostProps, "editing" | "onHeld">) {
     // Each event kind's Save notice counts what leaves its own source's narrowing.
     const recordSlices = useMemo(() => props.dates.eventParts.map(({ part }) => part), [props.dates.eventParts]);
-    const editing = useScheduleEditing({ kinds: props.value.events, storageKey: props.storageKey, joined: NO_JOINED, applyMode: "batch", range: props.dates.range, recordSlices });
-    return <CalendarFrame {...props} editing={editing} />;
+    // The rows a kind read by its cells holds (#1424): where a gesture finds one of its events, as the frame's reader hands them on.
+    const [held, setHeld] = useState<ScheduleHeldRows | undefined>(undefined);
+    const editing = useScheduleEditing({ kinds: props.value.events, storageKey: props.storageKey, joined: NO_JOINED, applyMode: "batch", range: props.dates.range, recordSlices, held });
+    return <CalendarFrame {...props} editing={editing} onHeld={setHeld} />;
 }
 /**
  * Test-only render probe — lets "a landing key search re-renders the window's reader, never the frame" be asserted
@@ -184,7 +216,7 @@ export function setCalendarFrameRenderProbe(fn: (() => void) | undefined): void 
 }
 function CalendarFrame(props: HostProps) {
     calendarFrameRenderProbe?.();
-    const { value, storageKey, editing, now, followed, dates } = props;
+    const { value, storageKey, editing, now, followed, dates, onHeld } = props;
     const { view, range } = dates;
     // What the timeline shows: exactly, for a change of layout or period to keep its centre; and in whole days, in a store
     // of its own, read only by what says them — so its scroll draws nothing of the frame (#1398, CL9).
@@ -229,6 +261,15 @@ function CalendarFrame(props: HostProps) {
     // window lands, it reads ahead what a step goes to (#1398, CL7): the periods either side, or on the timeline the next
     // window of its grid the way its view last moved — its scroll's way, or a step's.
     const [data, setData] = useState<CalendarDataState>(() => initialCalendarData(range));
+    // The rows a kind read by its cells holds (#1424): the editing, the selection and Search Records find its events there.
+    const cellRows = data.cells?.held;
+    useLayoutEffect(() => { onHeld?.(cellRows); }, [cellRows, onHeld]);
+    // The paged resource kind (#1424): its windows around the places the views show, read in a component of their own;
+    // the views report those places to a store only that reader and the window's hear, so a scroll renders no frame.
+    const pagedValue = value.paged.type === "some" ? value.paged.value : undefined;
+    const pagedKind = pagedValue === undefined ? undefined : value.resources.find(kind => kind.key === pagedValue.kind);
+    const [demand] = useState(createPagedDemand);
+    const [pages, setPages] = useState<CalendarPages | undefined>(undefined);
     // The period shown has landed when the held read is of the window read now (#1398): a grid's step to a period not read
     // yet holds none of the old period's events, which never show under its labels (CL5); a newer read of the same period
     // keeps them meanwhile, as the timeline's continuations do.
@@ -312,10 +353,19 @@ function CalendarFrame(props: HostProps) {
     const backlogRetained = data.apart.loading || (windowedBacklog.size > 0 && shownBacklog !== undefined && (!landed || backlogNarrowing.counting));
     const reading = data.loading || data.apart.loading;
     const commands = useMemo(() => editing === undefined ? undefined : calendarCommands(value, editing, select, items, shown), [value, editing, select, items, shown]);
-    const available = current && !reading && data.error === undefined && data.apart.error === undefined && !resourcesBusy;
+    // A paged kind's last view standing in for a new narrowing's is retained (CL8): no gesture until its windows land.
+    const available = current && !reading && data.error === undefined && data.apart.error === undefined && !resourcesBusy && pages?.stale !== true;
     const gestures = available ? commands : undefined;
-    // Every resource names an event's place; the ones the rail shows lay out the columns and rows.
-    const rows = useMemo(() => [...resourceRows(value.resources), UNASSIGNED], [value.resources]);
+    // Every resource names an event's place — a paged kind's, those of its windows held; the ones the rail shows lay out
+    // the columns and rows, a paged kind's a window at a time beside them (`pages`).
+    const pagedWindows = pages?.windows;
+    const rows = useMemo(() => [...resourceRows(value.resources), ...heldRows(pagedWindows), UNASSIGNED], [value.resources, pagedWindows]);
+    // The paged kind's Choosers search it by key (#1424, `chooser.tsx`), each resource named by a window held, else by its key.
+    const chooser = useMemo((): CalendarChooser | undefined => {
+        if (pagedValue === undefined || pagedKind === undefined) return undefined;
+        const names = new Map(heldRows(pagedWindows).flatMap(row => row.resource.type === "some" ? [[row.resource.value.key, row.label] as const] : []));
+        return { paged: pagedValue, noun: pagedKind.name.toLocaleLowerCase(format.locale), nameOf: key => names.get(key) ?? key };
+    }, [pagedValue, pagedKind, pagedWindows, format.locale]);
     const shownRows = useMemo(() => [...resourceRows(shown), UNASSIGNED], [shown]);
     // As the window read, the selection's read reports from a component of its own (#1343).
     const [selection, setSelection] = useState<CalendarSelection>(NO_SELECTION);
@@ -349,7 +399,7 @@ function CalendarFrame(props: HostProps) {
         onNavigate(dayStart(event.item.start.value).getTime());
         setReveal(ref);
     };
-    const search = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format, onPick: found });
+    const search = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format, onPick: found, held: cellRows });
     // The window's own count: "…" while the period is read, never a count of another period's (#1398, CL13).
     const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
         count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, uncounted,
@@ -362,8 +412,10 @@ function CalendarFrame(props: HostProps) {
         const ref = { kind: item.kind, key: item.key }; const id = eventKey(ref);
         select(additive ? selected.has(id) ? refs.filter(ref => eventKey(ref) !== id) : [...refs, ref] : [ref]);
     }, [select, selected, refs]);
-    // A followed source not yet resolved holds the frame's cold load, as an event kind's window does.
-    const cold = [...followed.values()].some(source => !source.shown.ready && source.error === undefined);
+    // A followed source not yet resolved holds the frame's cold load, as an event kind's window does — and a paged kind's
+    // first window.
+    const cold = [...followed.values()].some(source => !source.shown.ready && source.error === undefined)
+        || (pagedValue !== undefined && pages?.ready !== true);
     // What the footer's loading line says (#1398, CL3): the period being read, a followed source's new narrowing, or
     // why one could not be read, with Retry — the period's asking again each event kind's record, whether or not a
     // source of the slice narrows it.
@@ -372,9 +424,15 @@ function CalendarFrame(props: HostProps) {
     }))), [value.events, dates.eventParts]);
     const periodName = periodWords(view, range, value.settings, format);
     const failure = data.error ?? data.apart.error;
+    // The period's reads first; else a paged kind's windows the view shows, in its own noun (`Loading presses 401–600`).
+    const pagedNoun = pagedKind?.name.toLocaleLowerCase(format.locale);
+    const pagedLine = pages?.line;
+    const pagedRetry = pages?.retry;
     const line = useMemo(() => periodLoadingLine(periodLoading({ loading: reading, error: failure, retry: retryWindow },
         [...followed.values()].map(source => ({ noun: source.name, ready: source.shown.ready, loading: source.shown.busy && source.error === undefined,
-            error: source.error, retry: source.retry }))), periodName), [reading, failure, retryWindow, followed, periodName]);
+            error: source.error, retry: source.retry }))), periodName)
+        ?? (pagedNoun === undefined || pagedRetry === undefined ? undefined : pagedLoadingLine(pagedLine, pagedNoun, pagedLoadingMessages, format.number, pagedRetry)),
+    [reading, failure, retryWindow, followed, periodName, pagedNoun, pagedLine, pagedRetry, format.number]);
     // What the views draw of the period (#1398): the period as read — or a continuation's window, the held read standing in;
     // one not read yet, its grid at once and its placeholders, unseen until the frame's one reveal clock says so (CL4:
     // `LoadingReveal` below, which the footer's line and each placeholder read where they show, so its flip renders them
@@ -383,19 +441,23 @@ function CalendarFrame(props: HostProps) {
     // events kept drawn.
     const read = useMemo(() => periodRead({ current: current || (continuing && data.error === undefined), error: data.error, name: periodName, retry: retryWindow }),
         [current, continuing, data.error, periodName, retryWindow]);
-    // A newer read of what is shown — a narrowing, a revision, a continuation's window — keeps its events, stale (#1398, CL5):
-    // their words in the third ink, the grid's rules dashed, and nothing dragged or dropped until it lands.
-    const stale = drawn && (reading || [...followed.values()].some(source => source.shown.busy));
+    // A newer read of what is shown — a narrowing, a revision, a continuation's window, a paged kind's new narrowing — keeps
+    // its events, stale (#1398, CL5): their words in the third ink, the grid's rules dashed, and nothing dragged or dropped
+    // until it lands.
+    const stale = drawn && (reading || [...followed.values()].some(source => source.shown.busy) || pages?.stale === true);
     // The cold load's cover at the board's own pitch: an hour of its time grid (CL1).
     const pitch = view.layout === "timeline" || (view.layout === "calendar" && view.period === "month") ? undefined : calendarHour(value.settings.density);
     return <Box css={styles.root} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined}>
+        {pagedValue !== undefined && pagedKind !== undefined
+            && <CalendarPagesReader paged={pagedValue} name={pagedKind.name} icon={pagedKind.icon} demand={demand} onPages={setPages} />}
         <CalendarDataReader value={value} range={range} editing={editing} view={view} travel={timeline ? travel : undefined}
-            resources={cellResources} bucket={bucket} onData={setData} />
+            resources={cellResources} bucket={bucket} pages={pages} demand={pagedValue === undefined ? undefined : demand} onData={setData} />
         {/* The selection is read where its events are drawn: the held read, while a continuation's window is read. */}
-        <CalendarSelectionReader value={value} refs={refs} range={continuing ? data.range : range} commands={commands} onSelection={setSelection} />
+        <CalendarSelectionReader value={value} refs={refs} range={continuing ? data.range : range} commands={commands} held={cellRows} onSelection={setSelection} />
         <LoadingReveal waiting={line?.kind === "loading"}>
+        <CalendarChooserContext.Provider value={chooser}>
         <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={(!data.ready && data.loading && data.error === undefined) || cold} loadingPitch={pitch}
-            busy={reading || resourcesBusy} liveFooter toolbar={toolbar} start={start} end={end}
+            busy={reading || resourcesBusy || pages?.reading === true} liveFooter toolbar={toolbar} start={start} end={end}
             onKeyDown={event => {
                 if (event.defaultPrevented || typedInto(event.target)) return;
                 const action = historyShortcut(event);
@@ -427,11 +489,12 @@ function CalendarFrame(props: HostProps) {
                 data-calendar-narrow={narrow ? "" : undefined}>
                 <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visible={visibleDays} onVisible={showRange} items={items}
                     rows={rows} shownRows={shownRows} shown={shown} now={now} narrow={narrow} styles={styles} read={read} covered={covered} lanesPeriod={lanesPeriod} onRecentre={onRecentre} travel={travel}
-                    uncounted={uncounted} shading={data.cells?.shading} bucket={bucket}
+                    uncounted={uncounted} shading={data.cells?.shading} bucket={bucket} pages={pages} demand={demand} drawnRows={data.cells?.drawn}
                     selected={selected} select={pick} clear={clear} overlaps={overlaps} commands={gestures} drag={drag}
                     nowRevision={nowAsked} anchor={anchor} onAnchor={onAnchor} reveal={reveal === undefined ? undefined : eventKey(reveal)} onRevealed={revealed} />
             </Box>
         </BuilderFrame>
+        </CalendarChooserContext.Provider>
         </LoadingReveal>
     </Box>;
 }

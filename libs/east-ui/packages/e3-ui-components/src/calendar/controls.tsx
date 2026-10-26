@@ -4,12 +4,13 @@
  */
 
 /** Shared forms for the explicit actions and the inspector's schedule section. */
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
 import { DateTimeType, OptionType, StringType, StructType, none, some, type ValueTypeOf } from "@elaraai/east";
-import { Fields } from "@elaraai/east-ui";
+import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
 import { FieldForm, SliceEditPopover } from "@elaraai/east-ui-components";
 import { initialPlacement, type CalendarCommands, type CalendarPlacement, type CalendarSource } from "./actions.js";
+import { pagedControl, useCalendarChooser } from "./chooser.js";
 import { parseResourceKey, resourceChoices, resourceKey, type CalendarItem, type CalendarStyles, type CalendarValue } from "./model.js";
 
 /** Each resource kind's rows the rail shows (#1343): what a resource Chooser offers. */
@@ -27,9 +28,13 @@ function placementOf(form: PlacementForm): CalendarPlacement | undefined {
     const parsed = parseResourceKey(form.resource.value);
     return parsed.success ? { ...form, resource: some(parsed.value) } : undefined;
 }
+/** Whether a placement form's field is its resource. */
+const isResource = (spec: FieldSpecValue) => spec.path[0] === "resource";
+
 /**
  * The placement form is one shared FieldForm in both the inspector and popovers. Its resource Chooser offers the
- * rows the rail shows, and the placement's own resource whatever the rail hides (#1343).
+ * rows the rail shows, and the placement's own resource whatever the rail hides (#1343) — or, for a kind placed on the
+ * paged resource kind, searches that kind by key (#1424, `chooser.tsx`).
  */
 export function PlacementFields({ source, value, shown, placement, onChange, readOnly = false }: {
     source: CalendarSource; value: CalendarValue; shown: CalendarShownResources; placement: CalendarPlacement; onChange: (at: CalendarPlacement) => void; readOnly?: boolean;
@@ -39,7 +44,14 @@ export function PlacementFields({ source, value, shown, placement, onChange, rea
     const options = useMemo(() => ({ resources: resourceChoices(value.resources, shown, own.type === "some" ? [own.value] : [])
         .filter(kind => source.kind.takes.includes(kind.key)).flatMap(kind => kind.rows.map(row => ({ key: resourceKey({ kind: kind.key, key: row.key }), label: `${row.label} · ${kind.name}` }))) }),
     [value.resources, shown, own, source.kind.takes]);
-    return <FieldForm specs={SPECS} readOnly={readOnly} value={form} options={options} onChange={(path, next) => {
+    // A kind placed on the paged resource kind chooses its resource by key, through the kind's own paged read (#1424).
+    const chooser = useCalendarChooser();
+    const paged = chooser !== undefined && source.kind.takes.includes(chooser.paged.kind) ? chooser : undefined;
+    const chosen = own.type === "some" && paged !== undefined && own.value.kind === paged.paged.kind ? own.value.key : undefined;
+    const renderControl = useCallback((spec: FieldSpecValue) => pagedControl(paged, spec, isResource, chosen, key => {
+        if (paged !== undefined) onChange({ start: placement.start, end: placement.end, resource: some({ kind: paged.paged.kind, key }) });
+    }, readOnly), [paged, chosen, onChange, placement.start, placement.end, readOnly]);
+    return <FieldForm specs={SPECS} readOnly={readOnly} value={form} options={options} renderControl={paged === undefined ? undefined : renderControl} onChange={(path, next) => {
         let changed = { ...form, [path[0]!]: next };
         if (path[0] === "start" && next instanceof Date) changed = { ...changed, end: new Date(next.getTime() + form.end.getTime() - form.start.getTime()) };
         if (path[0] === "end" && next instanceof Date && next <= changed.start) changed = { ...changed, end: new Date(next.getTime() + 86_400_000) };
