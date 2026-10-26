@@ -92,7 +92,7 @@ import { clearHiding } from "../shared/schedule/hidden.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
-import { CalendarBacklogPages, type BacklogPageCount } from "./backlog-pages.js";
+import { BacklogServed, CalendarBacklogPages, type BacklogPageCount } from "./backlog-pages.js";
 import type { CalendarBucket } from "./cells.js";
 import { CalendarDataReader, initialCalendarData, resourceRows, windowedBacklogKinds, type CalendarDataState } from "./data.js";
 import { CalendarChooserContext, type CalendarChooser } from "./chooser.js";
@@ -404,9 +404,12 @@ function CalendarFrame(props: HostProps) {
     const drafts = data.cells?.drafts ?? editing?.drafts ?? NO_DRAFTS;
     // A drafted event's row as its session began from it: what tells the list whether a page lists the event.
     const original = editing?.held ?? NO_ORIGINAL;
+    // What the list's pages have listed, kept across the lists the drafts make: what a card is — its Schedule, a drag of it,
+    // the original a gesture placing it rewrites — never waits on a new list's pages being read.
+    const [backlogServed] = useState(() => new BacklogServed());
     const backlogPages = useMemo(() => backlogParts.length === 0 || !data.apart.ready ? undefined
-        : new CalendarBacklogPages(calendarLibraryId(storageKey, "backlog"), backlog, backlogParts, drafts, original),
-    [backlogParts, data.apart.ready, storageKey, backlog, drafts, original]);
+        : new CalendarBacklogPages(calendarLibraryId(storageKey, "backlog"), backlog, backlogParts, drafts, original, backlogServed),
+    [backlogParts, data.apart.ready, storageKey, backlog, drafts, original, backlogServed]);
     // Where a gesture placing one of its events finds the original it rewrites.
     useLayoutEffect(() => { onBacklog?.(backlogPages); }, [backlogPages, onBacklog]);
     // What the paged Backlog counts, read in a component of its own: "…" until it is first read (CL13), the last count

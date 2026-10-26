@@ -297,7 +297,11 @@ leaves out a cells kind's), so a backlog event a gesture scheduled draws where
 it lands and another narrowing's draft draws nowhere. A gesture placing a
 paged card finds the original it rewrites in the page that listed it, at the
 revision the page read it at (the editing's `reads`, `servedRow`), as the
-Schematic's does. No step of the dates reads the Backlog again, so it never
+Schematic's does. What the pages listed is the frame's, kept across the lists
+it makes as the drafts move (`BacklogServed`), and a card is its kind's
+projection of the row its page read with the drafts as they stand
+(`served`), so a draft of another event never takes the chosen card's
+Schedule away while the new list's pages are read. No step of the dates reads the Backlog again, so it never
 blinks (ruled 25 Oct 2026); a new narrowing keeps its cards standing, retained
 (CL8), until its count and first rows land (`PagedLibrary`), and its tab's
 count is handed on with the list's first page, so a count is never shown

@@ -31,7 +31,12 @@
  *   listed, and not as context, by its card's id — what a drag of it, or its
  *   Schedule, finds it by — and a page's event's row at the revision the page
  *   read it at ({@link CalendarBacklogPages.servedRow}): the original a gesture
- *   placing it rewrites, read by no other request, as the Schematic's are.
+ *   placing it rewrites, read by no other request, as the Schematic's are. The
+ *   rows its pages listed are kept by the frame ({@link BacklogServed}), across
+ *   the lists it makes as the drafts move, and a card is its kind's projection
+ *   of its row with the drafts as they stand: a draft of another event — a list
+ *   made again before its pages are read — leaves the chosen card what it is,
+ *   its Schedule with it.
  *
  * The drafts it is given are the shared schedule reader's (`cells.ts`): those
  * of events a kind's narrowing does not hold left out, so a draft never brings
@@ -108,17 +113,62 @@ function idsOf(kind: CalendarKind): (key: unknown) => string {
     return idOf;
 }
 
+/** A page's event the paged Backlog listed, not as context: its kind's slot, its key's text, and its row as its page read it. */
+interface ServedRow {
+    readonly kind: string;
+    readonly key: string;
+    /** Its row as the record held it, and the revision its page read it at. */
+    readonly row: { readonly revision: string; readonly row: Uint8Array };
+}
+
+/**
+ * What the paged Backlog's pages have listed (#1424): each event a page listed, and not as context, by its card's id —
+ * its row as its page read it — kept for the narrowing it was listed under. The frame keeps one while it is mounted and
+ * gives it to every list it makes as the drafts move, so what a card is never waits on the new list's pages being read.
+ */
+export class BacklogServed {
+    private rows = new Map<string, ServedRow>();
+    private listing = "";
+
+    /**
+     * Starts afresh for another listing: the narrowings the kinds' backlogs are read under.
+     *
+     * @param listing - The listing, as {@link CalendarBacklogPages.query} prints it
+     */
+    under(listing: string): void {
+        if (stringEqual(listing, this.listing)) return;
+        this.rows = new Map();
+        this.listing = listing;
+    }
+
+    /**
+     * Keeps a page's event, the most recent last: past the most it keeps — far more than the pages around a view hold —
+     * the oldest go.
+     *
+     * @param id - Its card's id: the event's key, as `eventKey` prints it
+     * @param row - Its kind, its key and its row as its page read it
+     */
+    keep(id: string, row: ServedRow): void {
+        this.rows.delete(id);
+        this.rows.set(id, row);
+        if (this.rows.size > MAX_SERVED) this.rows.delete(this.rows.keys().next().value!);
+    }
+
+    /**
+     * A page's event, by its card's id.
+     *
+     * @param id - Its card's id
+     * @returns Its kind, its key and its row; `undefined` for one no page of this listing has listed, or listed as context
+     */
+    get(id: string): ServedRow | undefined {
+        return this.rows.get(id);
+    }
+}
+
 /**
  * The Calendar's paged Backlog — see the module docs.
  */
 export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent> {
-    /**
-     * What each event listed and not as context is, by its card's id — and, read in a kind's page, its row and the
-     * revision the page read it at: kept for the narrowing it was listed under.
-     */
-    private servedEvents = new Map<string, { readonly item: CalendarItem; readonly row?: { readonly revision: string; readonly row: Uint8Array } | undefined }>();
-    private servedFor = "";
-
     /**
      * @param id - The list's id: the Backlog's library, which its cards drag from
      * @param apart - The events of the kinds whose backlog is read apart, in the kinds' order: in hand
@@ -126,9 +176,11 @@ export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent>
      * @param drafts - Every kind's drafts as the shared reader gives them: those of events a kind's narrowing does not hold left out
      * @param original - A drafted event's row as its kind's record held it when its session first read it, decoded — the
      *   editing's `held`; `undefined` for an event a gesture made, which no stored row names
+     * @param servedRows - What the pages have listed, the frame's, kept across the lists it makes ({@link BacklogServed})
      */
     constructor(readonly id: string, private readonly apart: readonly CalendarItem[], private readonly kinds: readonly CalendarEventPart[],
-        private readonly drafts: ScheduleEventDraftsValue, private readonly original: (kind: string, id: string) => unknown) {}
+        private readonly drafts: ScheduleEventDraftsValue, private readonly original: (kind: string, id: string) => unknown,
+        private readonly servedRows: BacklogServed) {}
 
     /** A kind's drafts. */
     private draftsOf(kind: CalendarKind) {
@@ -250,11 +302,7 @@ export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent>
         const hand = this.inHand();
         const counts = this.listed();
         if (counts === undefined) return none;
-        const listing = this.query();
-        if (!stringEqual(listing, this.servedFor)) {
-            this.servedEvents = new Map();
-            this.servedFor = listing;
-        }
+        this.servedRows.under(this.query());
         const rows: BacklogPageEvent[] = [];
         let at = offset;
         let left = limit;
@@ -280,10 +328,10 @@ export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent>
             }
             base += count;
         }
+        // A page's events, kept by the frame across the lists it makes; an event in hand is found among them as it stands.
         for (const row of rows) {
-            if (row.context) continue;
-            this.servedEvents.set(eventKey({ kind: row.item.kind, key: row.item.key }), { item: row.item, row: row.stored });
-            if (this.servedEvents.size > MAX_SERVED) this.servedEvents.delete(this.servedEvents.keys().next().value!);
+            if (row.context || row.stored === undefined) continue;
+            this.servedRows.keep(eventKey({ kind: row.item.kind, key: row.item.key }), { kind: row.item.kind, key: row.item.key, row: row.stored });
         }
         return some(rows);
     }
@@ -322,13 +370,21 @@ export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent>
     }
 
     /**
-     * An event the list has served, by its card's id: what a drag of its card, or its Schedule, finds it by.
+     * An event the list has served, by its card's id: what a drag of its card, or its Schedule, finds it by — a page's
+     * event as its kind projects the row its page read with the drafts as they stand, whichever list listed it, and an
+     * event in hand as it stands.
      *
      * @param id - The card's id: the event's key, as `eventKey` prints it
-     * @returns The event; `undefined` for one it has not listed, or listed as context
+     * @returns The event; `undefined` for one it has not listed, or one a draft has scheduled or deleted since: context
      */
     served(id: string): CalendarItem | undefined {
-        return this.servedEvents.get(id)?.item;
+        const listed = this.servedRows.get(id);
+        const kind = listed === undefined ? undefined : this.kinds.find(({ kind }) => stringEqual(kind.key, listed.kind))?.kind;
+        if (listed !== undefined && kind !== undefined) {
+            const drafted = kind.event(listed.key, this.draftsOf(kind), EVER.from, EVER.to, some(some(listed.row.row)));
+            return drafted.type === "some" && drafted.value.item.start.type === "none" ? drafted.value.item : undefined;
+        }
+        return this.inHand().find(item => stringEqual(eventKey({ kind: item.kind, key: item.key }), id));
     }
 
     /**
@@ -340,6 +396,6 @@ export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent>
      * @returns Its row and that revision; `undefined` for an event no page listed, or one in hand
      */
     servedRow(kind: string, id: string): { readonly revision: string; readonly row: Uint8Array } | undefined {
-        return this.servedEvents.get(eventKey({ kind, key: id }))?.row;
+        return this.servedRows.get(eventKey({ kind, key: id }))?.row;
     }
 }
