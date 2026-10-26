@@ -4,11 +4,12 @@
  */
 
 /**
- * A test-only hook on the showcase's in-page e3 (#1398): it holds, fails and
- * releases the page's requests of its e3, by what they ask and the dataset
- * they name, so the responsive suite can measure what a builder draws while a
- * read is in flight, or once it has failed — the footer's loading line in
- * each of its forms, a failure with its Retry. It also applies a record's
+ * A test-only hook on the showcase's in-page e3 (#1398): it holds, slows,
+ * fails and releases the page's requests of its e3, by what they ask and the
+ * dataset they name, so the responsive suite can measure what a builder draws
+ * while a read is in flight, as each lands on a slow e3, or once it has failed
+ * — the footer's loading line in each of its forms, a failure with its Retry,
+ * the rows a far move lands. It also applies a record's
  * mutation of the spec's own, as another session would (#1393): the budget
  * run fills a floor through its patch doors so.
  *
@@ -17,9 +18,9 @@
  * showcase is never published, so no page a person opens has it. Installed,
  * it wraps the e3's `fetch`, which every request the page makes of its e3
  * goes through — its start's and its examples' — and puts its controls on the
- * window ({@link FAULTS_CONTROLS}). Without a hold or a fault, a request goes
- * to e3 as it would. A spec's own mutation goes to e3 past it: no hold or
- * fault takes it, and the log never lists it.
+ * window ({@link FAULTS_CONTROLS}). Without a hold, a slowing or a fault, a
+ * request goes to e3 as it would. A spec's own mutation goes to e3 past it: no
+ * hold, slowing or fault takes it, and the log never lists it.
  *
  * A request's kind and dataset are read from its route as e3's API server
  * routes it, as e3-ui-components' test harness reads them
@@ -79,13 +80,21 @@ export interface ShowcaseE3Faults {
      */
     hold(match: FaultMatch): number;
     /**
+     * Slows each request it matches, from now until released: each waits `ms`
+     * from when it was made, then goes on to e3 — a slow worker, every read
+     * answered that long after it was asked, in the order they were asked.
+     *
+     * @returns The slowing's id
+     */
+    slow(match: FaultMatch, ms: number): number;
+    /**
      * Answers each request it matches as the failure says — as e3 answers a
      * failure, a 500 unless given another — from now until released.
      *
      * @returns The fault's id
      */
     fail(match: FaultMatch, failure?: FaultFailure): number;
-    /** Lets every request a hold holds go on to e3, and holds no more; or stops a fault. */
+    /** Lets every request a hold holds go on to e3, and holds no more; or stops a fault, or a slowing — a request it slows goes on when its wait is up. */
     release(id: number): void;
     /** How many requests a hold holds now. */
     held(id: number): number;
@@ -105,13 +114,15 @@ export interface ShowcaseE3Faults {
     mutate(workspace: string, record: string, mutation: string, args: readonly string[]): Promise<string>;
 }
 
-/** A hold or a fault, as the hook keeps it. */
+/** A hold, a fault or a slowing, as the hook keeps it. */
 interface Rule {
     readonly id: number;
     readonly match: FaultMatch;
     live: boolean;
-    /** A fault's answer; a hold has none. */
+    /** A fault's answer; a hold and a slowing have none. */
     readonly failure?: FaultFailure | undefined;
+    /** A slowing's wait, in ms, from when a request it slows is made; a hold and a fault have none. */
+    readonly delay?: number | undefined;
     /** What lets each request a hold parks go, the oldest first. */
     readonly parked: (() => void)[];
 }
@@ -193,13 +204,14 @@ export function withFaults(e3: WebE3, repo: string): WebE3 {
     const rules: Rule[] = [];
     const log: Logged[] = [];
     let ids = 0;
-    const add = (match: FaultMatch, failure?: FaultFailure): number => {
+    const add = (match: FaultMatch, failure?: FaultFailure, delay?: number): number => {
         const id = ++ids;
-        rules.push({ id, match, live: true, failure, parked: [] });
+        rules.push({ id, match, live: true, failure, delay, parked: [] });
         return id;
     };
     const controls: ShowcaseE3Faults = {
         hold: (match) => add(match),
+        slow: (match, ms) => add(match, undefined, Math.max(0, ms)),
         fail: (match, failure) => add(match, failure ?? {}),
         release(id) {
             const rule = rules.find((candidate) => candidate.id === id);
@@ -224,7 +236,24 @@ export function withFaults(e3: WebE3, repo: string): WebE3 {
         // A batch read's body names what it reads: read from a copy, so the request goes on whole.
         const body = request.method === "POST" && BATCHES.includes(kind) ? await request.clone().text() : undefined;
         log.push({ kind, dataset, method: request.method, signal: request.signal, body });
-        const hold = rules.find((rule) => rule.live && rule.failure === undefined && takes(rule.match, kind, dataset));
+        // A slowing: the request waits its own time, from when it was made — or until its caller gives it up.
+        const slowing = rules.find((rule) => rule.live && rule.delay !== undefined && takes(rule.match, kind, dataset));
+        if (slowing?.delay !== undefined) {
+            const wait = slowing.delay;
+            await new Promise<void>((resolve, reject) => {
+                const abort = () => {
+                    clearTimeout(timer);
+                    reject(request.signal.reason ?? new DOMException("The request was aborted.", "AbortError"));
+                };
+                const timer = setTimeout(() => {
+                    request.signal.removeEventListener("abort", abort);
+                    resolve();
+                }, wait);
+                if (request.signal.aborted) { abort(); return; }
+                request.signal.addEventListener("abort", abort, { once: true });
+            });
+        }
+        const hold = rules.find((rule) => rule.live && rule.failure === undefined && rule.delay === undefined && takes(rule.match, kind, dataset));
         if (hold !== undefined) {
             // Parked until the hold lets it go, or its caller gives it up — as fetch rejects then.
             await new Promise<void>((resolve, reject) => {

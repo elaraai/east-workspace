@@ -1103,7 +1103,13 @@ Sheet's with its gutter, its columns' rules and a flat sheet's real row
 numbers, each cell its column kind's shape; the Plan's with its label bars and
 its plot washed under its grid and now line — one item of the virtualizer
 however long the run, and to the grid one row, its one cell across it, busy
-while its windows are read. On the Plan and a flat sheet that row sits at its
+while its windows are read. The Sheet keys a run by the elements it stands for
+(`band:<at>:<from>-<to>`), so a run that comes to stand for others — a window
+landing beside it, or leaving it — is another item and never keeps the height
+the frame measured for the last: on a fractional device pixel ratio a run
+measures off its estimate, the virtualizer keeps that height by its key, and
+keyed by its side alone a far drag's rows landed a window away from where
+their placeholders stood (`sheet-far-moves.spec.ts`). On the Plan and a flat sheet that row sits at its
 first row's place and counts as the rows it stands for, so the grid's
 `aria-rowcount` is every row, read or not (CL12; the Plan's `gridPlaces`). A
 failed window is said once, in its run's first
