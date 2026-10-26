@@ -249,7 +249,14 @@ component, nothing in east-ui.
   same under every narrowing (#1354) — it starts its viewport again when the
   source's `query()` moves, as for a new source; a reader that keeps windows
   keys them by `snapshotOf(source)`, the revision and the narrowing together.
-  A tab's count
+  It never blinks (#1398, CL8; #1424): while a new narrowing's count and first
+  rows — the rail's, or its own search's — or a new revision's rows in view are
+  read, the rows that last landed stand in, retained (`aria-disabled` in an
+  `aria-busy` region on its rows), and are swapped whole once they land, a new
+  narrowing's view starting at its start; only its first read draws pending
+  rows. Its page, `PAGED_LIBRARY_PAGE` (32), is what a host whose figures swap
+  with its rows waits on: the Calendar's Backlog hands its tab's count on with
+  the list's first page. A tab's count
   while a rail narrows it is `narrowedCount` over resident cards (`10 of 33`),
   or `pagedCount` over a paged record's exact counts (`40 of 2,048`). A collapsed
   pane's rail may carry a `mark` after its badge (`Overdue arrival`).

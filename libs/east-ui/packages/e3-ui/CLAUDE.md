@@ -224,6 +224,24 @@ templates list (`Calendar.templates(rows, { …, source })`) and an app's tab
 written in the code is refused. Overlaps, checks and commands read every event.
 Existing day-index consumers remain supported separately.
 
+A record too large to read whole is read the Plan's way (#1424). A resource
+kind may be paged — `Calendar.resources(Data.bindPaged(record), …)`, keyed by
+String, one a Calendar — its resources the pages around the view, its source
+of the slice paging the narrowing's resources in its index's order, and its
+Choosers seeking one by key. An event kind placed on it is read a cell at a
+time where a view lays its resources out, through a series index, and shaded
+from a summary index past 10,000 events in the cells wanted: its source lists
+both beside its interval index, and a kind on a paged kind read any other way —
+its interval index alone, a summary and no series, no source, its record whole
+or a day index, or placed beside another resource kind — is refused, naming
+both declarations over the kind's own fields (`calendarWindows`,
+`calendarWindowsByHall`, `calendarWindowsMobile`). Every other kind is counted
+before one of its events is read, and past 10,000 over the window none is read
+or drawn. A narrowed kind's backlog is paged by the Backlog tab through its
+source, its start Unset, a page a request and counted from the index — the
+Calendar's kinds (`build`) read their window's rows alone, never the backlog —
+so nothing reads every unscheduled event.
+
 Calendar means overlap with `[from, to)`: preserve carry-in, whole-window,
 overnight and multi-day events once by original primary key. An instant at
 `from` is included; one at `to` is excluded. A missing end on a scheduled

@@ -271,21 +271,34 @@ as the page's first Calendar under its key mounts and never followed. Followed,
 a second tab's step moved this page's date without its window, which put the
 date back at its first day, and the timeline, centred there, re-centred a window
 back, which the other tab heard in turn: both ran back a window at a time. A
-narrowed kind reads its window
-and its backlog as one, so a draft moves an event between them by its times
-alone: its backlog follows the window, and never blinks (ruled 25 Oct 2026). The
-last complete read of it, and what the rail hides of it counted with it, are held
-as one (`calendar/index.tsx`' `HeldBacklog`): they stand in, retained (CL8), while
-a step's, a re-centre's, a layout's, a period's or a narrowing's window or count
-is read, and are swapped whole once both have landed — never `…`, never emptied,
-so a count is never shown against another read's cards; only its first read
-draws the Library's pending rows, under the cold load's cover. Every other kind's backlog, read whole or through its backlog
+narrowed kind's backlog is paged by the Backlog tab itself (#1424,
+`calendar/backlog-pages.ts`), as the Schematic's is: the events in hand first —
+every other kind's, read apart, and a paged kind's drafted events with no start
+no page lists, each told by the row its session began from — then each such
+kind's through its source with its start Unset, its choices but its window, a
+page a request with the shared `PagedLibrary`, counted from the index. Nothing
+reads every unscheduled event: the kind's window reads its window's rows alone
+(e3-ui's `build` reads a narrowed kind's backlog with none of its seams but
+`unscheduled`, which the Calendar never asks), and a draft draws where it
+places its event — the shared cells reader leaving out the drafts of events
+the kind's narrowing, but its window, does not hold (`windowField`, as it
+leaves out a cells kind's), so a backlog event a gesture scheduled draws where
+it lands and another narrowing's draft draws nowhere. A gesture placing a
+paged card finds the original it rewrites in the page that listed it, at the
+revision the page read it at (the editing's `reads`, `servedRow`), as the
+Schematic's does. No step of the dates reads the Backlog again, so it never
+blinks (ruled 25 Oct 2026); a new narrowing keeps its cards standing, retained
+(CL8), until its count and first rows land (`PagedLibrary`), and its tab's
+count is handed on with the list's first page, so a count is never shown
+against another read's cards. Every other kind's backlog, read whole or through its backlog
 index, follows no window: the Calendar reads it apart from the window, once,
-and no date change empties it or reads it again (`calendar/data.ts`, #1398).
-The Backlog's Library stays mounted throughout, so its search box keeps its
-query and its focus (east-ui-components' `EastChakraLibrary`'s `pending`).
-Its Backlog tab counts `N of M`, what its kinds' narrowing shows beside
-the stored events their choices hide, and its Clear filters keeps each window
+and no date change empties it or reads it again (`calendar/data.ts`, #1398);
+its resident Library stays mounted throughout, so its search box keeps its
+query and its focus (east-ui-components' `EastChakraLibrary`'s `pending`); the
+paged one has no search of its own, the rail's choices narrowing it. Its
+Backlog tab counts `N of M`, what its kinds' narrowing shows beside the stored
+events their choices hide — `…` until every count it says is read, never a
+bare `Backlog` (CL13) — and its Clear filters keeps each window
 (`shared/schedule/backlog.ts`, the Calendar's and the Plan's). The Plan's
 Backlog holds its cards and their count as one too (`plan/frame/counts.ts`'
 `PlanKindsReader`): retained while a narrowing's, a window's or a revision's
@@ -1109,7 +1122,11 @@ footer's line and the frame's `busy` follow the windows the view shows, never
 those read ahead of it. An empty message, a zero count, `No rows`, `Backlog
 clear` or the Sheet's insert strip shows only once a completed read says so
 (CL13): until then its slot holds a placeholder — the Plan's narrow tail its
-placeholder cards, its Backlog `…` over placeholder cards.
+placeholder cards, its Backlog `…` over placeholder cards. A Backlog tab's count
+says `…` while what a narrowing hides of it is still counted, too — a cold load
+with a narrowing restored draws `Backlog …`, then `Backlog 1 of 8`, never a bare
+`Backlog` between (#1424; the Plan's and the Calendar's, each tested by every
+state its tab is drawn in).
 
 A period builder — the Roster, the Calendar, the Allocation — draws its
 period through one read state (`shared/loading.ts`' `periodRead`, #1398):
@@ -1210,10 +1227,11 @@ stable while partial results arrive: the reader must keep advancing without
 rebuilding the toolbar, library and canvas for every page, and it hands the
 frame its read only when what the frame shows moves. Loading, errors and the
 next complete window still update the frame immediately. It reads in two
-tracked reads (#1398): the window — every kind's events, and the backlog of
-each kind that reads it with its window — and the backlog of every other
-kind, apart, asked over no window; its first read lands whole, the frame
-hearing of neither until both have. Every kind is counted before one of its
+tracked reads (#1398): the window — every kind's events, a kind narrowed
+through its source its window's rows alone (#1424) — and the backlog of every
+kind no source narrows, apart, asked over no window; its first read lands
+whole, the frame hearing of neither until both have. The drafts every kind's
+seams are given are the shared reader's (`cells.drafts`). Every kind is counted before one of its
 events is read (#1424), by the shared schedule reader through the Calendar's
 adapter (`calendar/cells.ts`), in the same component: within
 `SCHEDULE_EVENT_CAP` over the window the window's read reads it — once its
@@ -1230,6 +1248,36 @@ not counted (`shared/schedule/words.ts`' `eventsNotCounted`, the Plan's footer
 words too), never 0. What the reader read is held with the window's read
 (`CalendarData.cells`), so the frame hears of it only as it hears of the
 window, whole.
+
+A resource kind may be paged (#1424, `Calendar.resources(Data.bindPaged(…))`):
+its resources come a window of 200 at a time (`calendar/pages.ts`), read in a
+component of their own (`CalendarPagesReader`, over `shared/windowed.ts`'
+store) around the places the views report they show — the timeline's rows by
+`VirtualRows`' `shown`, the Resources view's columns by a range of its own
+(`COLUMN_OVERSCAN`, a 100 ms dwell) — to a store only that reader and the
+window's read hear (`createPagedDemand`), so a scroll renders no frame. A
+place not read yet is the shared unread row (`TimelineUnreadRow`) or an empty
+column track; a window whose read failed is said in its first row in view, or
+a box at the grid's top-left, with Retry; and the footer's line reads the
+kind's windows (`pagedLoadingLine`, `Loading presses 401–600`). An event kind
+placed on it is read a cell at a time where the view lays its resources out,
+by the shared reader through the Calendar's adapter (`calendarCellsPaged`,
+`calendarCellSpan`: the first and the last held row among the places shown,
+standing while the view shows only places not read): the blocks of fifty
+around them by the tiles the window touches, every cell's searches in one
+request and the missing cells' entries in one more; a row whose cells have not
+landed draws the wash, busy, and its booked hours a placeholder
+(`drawnRows`). The time grids and the agenda count such a kind over the window
+first, as any other. e3-ui refuses such a kind read any other way, naming the
+series and the summary index to declare. A source of the slice named after the
+paged kind's slot narrows its windows themselves: a new narrowing is a new
+result, the last view standing in, retained, until its windows land, and the
+frame follows no such source (`followedSources`). The inspector's resource
+Chooser over the kind is the shared key search (`calendar/chooser.tsx`'s
+`PagedChooser`, through `FieldForm`'s `renderControl`): it seeks the kind
+through its paged read by key and lists the windows it lands in, each line the
+resource's name and its meta; an event names its resource by the windows held,
+else by its key.
 
 Bound the work, not only the CSS scroll box. Use Library's existing virtualizer
 for populated bounded panes; do not disable it in an adapter. People rows and
