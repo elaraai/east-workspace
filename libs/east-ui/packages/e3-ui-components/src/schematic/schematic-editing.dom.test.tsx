@@ -56,6 +56,7 @@ const printRefs = printFor(ArrayType(Schematic.Types.Ref));
 const CARDS: readonly (readonly [kind: string, key: string, x: number, y: number, w: number, h: number])[] = [
     ["racks", "A01", 2.4, 2.9, 3.2, 60], ["racks", "A02", 6.0, 2.9, 3.2, 60], ["racks", "A03", 9.6, 2.9, 3.2, 60], ["racks", "A04", 13.2, 2.9, 3.2, 60],
     ["racks", "A05", 16.8, 2.9, 3.2, 60], ["network", "MMR-1", 24.2, 2.9, 4.0, 37], ["network", "ODF-1", 8.4, 9.6, 12.8, 37],
+    ["network", "CORE-1", 23.2, 9.7, 4.0, 37],
 ];
 
 /** ODF-1's top edge, in metres: where u1, down from A01, meets it — its handle there once it is selected (#1403). */
@@ -261,6 +262,89 @@ test("a Shift-drag grows the session into a fibre trunk, absorbing the run it gr
     expect(trunks).toHaveLength(1);
     expect(equalFor(ex.DcTrunk)(trunks[0]!, { ...defaultValue<typeof ex.DcTrunk>(ex.DcTrunk), racks: ["A05", "A04"], frames: ["MMR-1"] })).toBe(true);
     expect(equalFor(ex.schematicFibre.type)(await h.read(ex.schematicFibre), runs)).toBe(true);
+});
+
+/** The words a refused draft shows under the item it would end at; `undefined` while none is refused. */
+const refusedCaption = (container: HTMLElement) => container.querySelector("[data-schematic-refusal] [data-drag-caption][data-refused]")?.textContent ?? undefined;
+
+/** A drag's press and its move onto a world point, Shift held, its release still to come: what its draft shows there. */
+async function dragOnto(canvas: Element, from: readonly [number, number], to: readonly [number, number]) {
+    await act(async () => { pointer(canvas, "pointerDown", from[0], from[1], true); pointer(canvas, "pointerMove", to[0], to[1], true); });
+}
+
+test("a Shift-drag gathering a run into a trunk is held to the host's veto in every leg it would leave: the run onto the core refuses it in the veto's words, nothing recorded (SC9, D34)", async () => {
+    const { container } = await open(ex.schematicDataCentre);
+    const canvas = canvasOf(container);
+    await tool(container, "Connect");
+    // A03 to the core: a plain run, which the veto allows.
+    await drag(canvas, [9.6, 2.9], [23.2, 9.7]);
+    expect(unsaved(container)).toBe(true);
+    // Shift-dragged on from A03 to the fibre frame: the trunk the session would grow into lands on the core too — the
+    // draft goes danger in the veto's words, though A03 → ODF-1 alone would land.
+    await dragOnto(canvas, [9.6, 2.9], [8.4, 9.6]);
+    expect(canvas.hasAttribute("data-forbidden")).toBe(true);
+    expect(refusedCaption(container)).toBe("A trunk lands on a fibre frame, never the core");
+    await act(async () => { pointer(canvas, "pointerUp", 8.4, 9.6, true); });
+    await settle();
+    expect(refusedCaption(container)).toBeUndefined();
+    // Nothing recorded: the run alone waits on Save, and no trunk.
+    await seeDrawing(container);
+    expect([drawingCounts(container).links, drawingCounts(container).nets]).toEqual(["7", "2"]);
+    await history(container, editingMessages.apply());
+    expect(mutated()).toEqual(["schematic_fibre"]);
+    expect((await h.read(ex.schematicTrunks)).size).toBe(0);
+});
+
+test("a Shift-drag growing an open trunk is held to the veto in each pair it newly joins: from a frame the trunk holds to another, each of its racks joins it — never asked as two frames (SC9, D34)", async () => {
+    const { container } = await open(ex.schematicDataCentre);
+    const canvas = canvasOf(container);
+    await tool(container, "Connect");
+    await drag(canvas, [16.8, 2.9], [24.2, 2.9]);
+    await drag(canvas, [13.2, 2.9], [24.2, 2.9], true);
+    // From MMR-1, which the trunk holds, Shift-dragged to the fibre frame: A05 and A04 land on it too, as the veto allows.
+    await dragOnto(canvas, [24.2, 2.9], [8.4, 9.6]);
+    expect(refusedCaption(container)).toBeUndefined();
+    await act(async () => { pointer(canvas, "pointerUp", 8.4, 9.6, true); });
+    await settle();
+    // Onto the core: each of its racks would land there — refused, nothing recorded.
+    await dragOnto(canvas, [24.2, 2.9], [23.2, 9.7]);
+    expect(refusedCaption(container)).toBe("A trunk lands on a fibre frame, never the core");
+    await act(async () => { pointer(canvas, "pointerUp", 23.2, 9.7, true); });
+    await settle();
+    await history(container, editingMessages.apply());
+    const trunks = [...(await h.read(ex.schematicTrunks)).values()];
+    expect(trunks).toHaveLength(1);
+    expect(equalFor(ex.DcTrunk)(trunks[0]!, { ...defaultValue<typeof ex.DcTrunk>(ex.DcTrunk), racks: ["A05", "A04"], frames: ["MMR-1", "ODF-1"] })).toBe(true);
+});
+
+test("an Extend of a selected trunk is held to the veto in each pair it newly joins: dragged from a frame it holds to the fibre frame, it joins its racks to it; onto the core, refused (SC10, D34)", async () => {
+    const { container } = await open(ex.schematicDataCentre);
+    const canvas = canvasOf(container);
+    await tool(container, "Connect");
+    await drag(canvas, [16.8, 2.9], [24.2, 2.9]);
+    await drag(canvas, [13.2, 2.9], [24.2, 2.9], true);
+    // The session over, the trunk selected from what A05 is joined to, in Details.
+    await tool(container, "Select");
+    await tap(canvas, CAM, 16.8, 2.9);
+    const join = slot(container, "end").querySelector<HTMLElement>("[role='tabpanel']:not([hidden]) [data-inspector-join^='(kind=\"trunks\"']")!;
+    await act(async () => { fireEvent.click(join); });
+    await settle();
+    await waitFor(() => expect(keptSelection()).toMatch(/^\[\(kind="trunks", key="/u));
+    // Shift-dragged from MMR-1, a member, to the fibre frame: an Extend, its racks landing on it.
+    await tool(container, "Connect");
+    await dragOnto(canvas, [24.2, 2.9], [8.4, 9.6]);
+    expect(refusedCaption(container)).toBeUndefined();
+    await act(async () => { pointer(canvas, "pointerUp", 8.4, 9.6, true); });
+    await settle();
+    // From A05 onto the core: refused in the veto's words.
+    await dragOnto(canvas, [16.8, 2.9], [23.2, 9.7]);
+    expect(refusedCaption(container)).toBe("A trunk lands on a fibre frame, never the core");
+    await act(async () => { pointer(canvas, "pointerUp", 23.2, 9.7, true); });
+    await settle();
+    await history(container, editingMessages.apply());
+    const trunks = [...(await h.read(ex.schematicTrunks)).values()];
+    expect(trunks).toHaveLength(1);
+    expect(equalFor(ex.DcTrunk)(trunks[0]!, { ...defaultValue<typeof ex.DcTrunk>(ex.DcTrunk), racks: ["A05", "A04"], frames: ["MMR-1", "ODF-1"] })).toBe(true);
 });
 
 // ── Retarget, Extend, and Del on a leg and on a net (SC10) ──────────────────

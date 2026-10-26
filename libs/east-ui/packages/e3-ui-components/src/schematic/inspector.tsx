@@ -87,7 +87,7 @@ import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type 
 import type { SchematicCounts, SchematicSavedRecord } from "./counts.js";
 import type { SchematicValue } from "./data.js";
 import {
-    NO_SESSION, connectStep, deleteEdits, editKinds, joinedPairs, linkRefusal, retargetEdits,
+    NO_SESSION, connectStep, deleteEdits, editKinds, joinedPairs, linkRefusal, retargetEdits, vetoOfPairs,
     type ConnectVetoOf, type DeleteSelection, type EditRefusal, type NetLeg, type SchematicEdit, type SchematicFieldWrite,
 } from "./edits.js";
 import { detailsKey, type SchematicEditing } from "./editing.js";
@@ -845,13 +845,11 @@ function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
         const sides = side === "sources" ? { sources: written, destinations: refs(net.destinations) } : { sources: refs(net.sources), destinations: written };
         // Each pair the sides newly join held to the host's veto, as an Extend's is (#1394): refused, the footer says why,
         // and the tags show the sides as they stand.
-        for (const pair of joinedPairs({ sources: refs(net.sources), destinations: refs(net.destinations) }, sides)) {
-            const said = veto(net.ref.kind, entityId(pair.from), entityId(pair.to));
-            if (said !== undefined) {
-                say(said);
-                refuse();
-                return;
-            }
+        const said = vetoOfPairs(veto, net.ref.kind, joinedPairs({ sources: refs(net.sources), destinations: refs(net.destinations) }, sides));
+        if (said !== undefined) {
+            say(said);
+            refuse();
+            return;
         }
         if (!commit([{ op: "sides", ref: net.ref, sides }], "typed", m.inspectorStep({ edit: "edit", name }))) refuse();
     }, [net, kind.sides, commit, m, name, say, refuse, veto]);

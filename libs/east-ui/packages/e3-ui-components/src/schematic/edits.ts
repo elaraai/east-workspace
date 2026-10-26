@@ -46,15 +46,18 @@
  * The host's veto (`canConnect`, #1401, D34) is asked the same way by every
  * route that connects two items ({@link connectVeto}): a Connect drag's draft
  * and its release, a Retarget's and an Extend's, and the inspector's Connect
- * to…, ends and sides — a change of a net's sides by each pair it newly joins
- * ({@link joinedPairs}).
+ * to…, ends and sides — of every pair the gesture newly joins under the kind it
+ * writes ({@link vetoOfPairs}): a link's one; a net a Shift session grows into,
+ * every pair of its sides, the runs it gathers among them; and a change of a
+ * net's sides — a Shift-drag's, an Extend's, the inspector's — each pair it
+ * newly joins ({@link joinedPairs}), never the pair dragged alone.
  *
  * @packageDocumentation
  */
 
 import { StringType, equalFor, some, type ValueTypeOf, type option } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
-import { refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
+import { entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
 
 /** A point in world units. */
@@ -366,38 +369,51 @@ function grows(args: ConnectDragArgs): { readonly net: SchematicRef | undefined;
     return { net: undefined, sides: foldSession(pairs), links: open.links };
 }
 
-/** What a Connect drag would write, before it lands: the kind it writes, and why it can't, if it can't. */
+/** What a Connect drag would write, before it lands: the kind it writes, why it can't, and the pairs it newly joins. */
 export interface ConnectCandidate {
     /** The slot of the link or net kind it writes; `undefined` where none can be written. */
     readonly kind: string | undefined;
     /** Why its kind can't hold the pair; `undefined` when it can. */
     readonly refusal: EditRefusal | undefined;
+    /**
+     * Each pair it newly joins under its kind, in its sides' order — what the host's veto hears of it: a link's one pair;
+     * a net a session grows into, every pair of its sides, each run it gathers among them; an open net, each pair its new
+     * member joins. None where no kind can be written.
+     */
+    readonly pairs: readonly ConnectPair[];
 }
+
+/** No kind can be written: nothing to ask the veto of. */
+const NO_CANDIDATE: ConnectCandidate = { kind: undefined, refusal: undefined, pairs: [] };
 
 /**
  * What a Connect drag would write (SC9): a link of the Connect tool's kind —
  * or, a Shift-drag in an open session, the session's net: its own, or the
  * first editable net kind's whose sides hold the session's members, else a
- * link. The kind it writes is what the veto hears (`Candidate.kind`), and its
- * refusal what the draft shows.
+ * link. The kind it writes is what the veto hears (`Candidate.kind`), of each
+ * pair it newly joins — a net's, the runs it gathers among them, never the
+ * pair dragged alone — and its refusal what the draft shows.
  *
  * @param kinds - The Schematic's kinds
  * @param args - The drag
- * @returns The kind it writes, and why it can't
+ * @returns The kind it writes, why it can't, and the pairs it newly joins
  */
 export function connectCandidate(kinds: EditKinds, args: ConnectDragArgs): ConnectCandidate {
     const link = args.linkKind === undefined ? undefined : kinds.links.get(args.linkKind);
-    const plain = (): ConnectCandidate => (link === undefined || !link.editable ? { kind: undefined, refusal: undefined }
-        : { kind: args.linkKind, refusal: linkRefusal(link, args.from, args.to) });
+    const pair: ConnectPair = { from: args.from.ref, to: args.to.ref };
+    const plain = (): ConnectCandidate => (link === undefined || !link.editable ? NO_CANDIDATE
+        : { kind: args.linkKind, refusal: linkRefusal(link, args.from, args.to), pairs: [pair] });
     const open = grows(args);
     if (open === undefined) return plain();
-    const sides = foldPair(open.sides, { from: args.from.ref, to: args.to.ref });
+    const sides = foldPair(open.sides, pair);
     if (open.net !== undefined) {
         const net = kinds.nets.get(open.net.kind);
-        return net === undefined || !net.editable ? { kind: undefined, refusal: undefined } : { kind: open.net.kind, refusal: netRefusal(net, sides, args.labelOf) };
+        return net === undefined || !net.editable ? NO_CANDIDATE
+            : { kind: open.net.kind, refusal: netRefusal(net, sides, args.labelOf), pairs: joinedPairs(open.sides, sides) };
     }
+    // Grown from links into a net: each run it gathers is a leg of the net's kind now, as the new pair is.
     const grown = netKindFor(kinds, sides);
-    return grown !== undefined ? { kind: grown, refusal: undefined } : plain();
+    return grown !== undefined ? { kind: grown, refusal: undefined, pairs: joinedPairs(NO_SIDES, sides) } : plain();
 }
 
 /** One Connect drag landed: what it writes, and the session it leaves. */
@@ -497,6 +513,24 @@ export function connectVeto(veto: ConnectVeto | undefined, refOf: (id: string) =
 }
 
 /**
+ * The host's veto of a gesture, as every route that connects asks it (#1401, D34): of each pair the gesture newly joins
+ * under the kind it writes, in order — a link's one pair; a net's, every pair it newly joins, the runs a Shift session
+ * gathers into it among them — the first it refuses saying why the gesture is.
+ *
+ * @param veto - The host's veto ({@link connectVeto})
+ * @param kind - The link or net kind the gesture writes, by its slot
+ * @param pairs - The pairs it newly joins ({@link connectCandidate}'s, {@link joinedPairs}, {@link extendPairs})
+ * @returns The first refusal's words; `undefined` while it refuses none
+ */
+export function vetoOfPairs(veto: ConnectVetoOf, kind: string, pairs: readonly ConnectPair[]): string | undefined {
+    for (const pair of pairs) {
+        const said = veto(kind, entityId(pair.from), entityId(pair.to));
+        if (said !== undefined) return said;
+    }
+    return undefined;
+}
+
+/**
  * The pairs a change of a net's sides joins that its sides didn't before (#1394): each source with each destination, one
  * of the two new to its side — what the host's veto hears of the change, each pair a net's feeding member and its fed one
  * (`Schematic.Types.Candidate`), as it hears an Extend's. A change that only takes members off joins none.
@@ -532,6 +566,12 @@ export function retargetEdits(link: { readonly ref: SchematicRef; readonly ends:
     return [{ op: "ends", ref: link.ref, ends }];
 }
 
+/** A net's sides once an Extend adds an item to its destinations; `undefined` for an item the net holds already. */
+function extendedSides(sides: SchematicSides, target: SchematicRef): SchematicSides | undefined {
+    if (holds(sides.sources, target) || holds(sides.destinations, target)) return undefined;
+    return { sources: sides.sources, destinations: [...sides.destinations, target] };
+}
+
 /**
  * What an Extend writes (SC10): an item added to a net's destinations.
  *
@@ -540,8 +580,21 @@ export function retargetEdits(link: { readonly ref: SchematicRef; readonly ends:
  * @returns The edits; none for an item the net holds already
  */
 export function extendEdits(net: { readonly ref: SchematicRef; readonly sides: SchematicSides }, target: SchematicRef): SchematicEdit[] {
-    if (holds(net.sides.sources, target) || holds(net.sides.destinations, target)) return [];
-    return [{ op: "sides", ref: net.ref, sides: { sources: net.sides.sources, destinations: [...net.sides.destinations, target] } }];
+    const sides = extendedSides(net.sides, target);
+    return sides === undefined ? [] : [{ op: "sides", ref: net.ref, sides }];
+}
+
+/**
+ * The pairs an Extend newly joins (SC10, #1394): each of the net's sources with the item it adds to its destinations —
+ * what the host's veto hears of it, whichever of its members the drag began at.
+ *
+ * @param sides - The net's sides as they stand
+ * @param target - The item it adds
+ * @returns The pairs, in its sources' order; none for an item the net holds already
+ */
+export function extendPairs(sides: SchematicSides, target: SchematicRef): ConnectPair[] {
+    const after = extendedSides(sides, target);
+    return after === undefined ? [] : joinedPairs(sides, after);
 }
 
 // ============================================================================
