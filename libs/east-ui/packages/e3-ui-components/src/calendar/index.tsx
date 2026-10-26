@@ -72,8 +72,8 @@ import { SortedMap, StringType, compareFor, equalFor, none, some } from "@elaraa
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
 import type { RecordTile } from "@elaraai/east-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, optimiseMessages, typedInto, useContainerBelow, useFormatters, usePersistedState,
-    useLanding, useLandingStyles, useTrackedEvaluation, type Formatters,
+    BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useFormatters,
+    usePersistedState, useLanding, useLandingStyles, useTrackedEvaluation, type Formatters,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, PAGED_LIBRARY_PAGE } from "@elaraai/east-ui-components/internal";
 import { useOptimise } from "../shared/func/use-optimise.js";
@@ -106,7 +106,7 @@ import { useCalendarWindow, type CalendarWindow } from "./window.js";
 import { createTravel, createVisibleDays, useOverlapsShown } from "./visible.js";
 import { CalendarViews, calendarHour, type CalendarAnchor } from "./views.js";
 import {
-    NOTHING_UNCOUNTED, calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, periodWords,
+    NOTHING_UNCOUNTED, calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, navigate, periodWords,
     type CalendarItem, type CalendarRange, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarUncounted, type CalendarValue,
     type CalendarView,
 } from "./model.js";
@@ -493,6 +493,9 @@ function CalendarFrame(props: HostProps) {
     const rangeLabel = timeline || displayRange.from.getTime() !== standardRange.from.getTime() || displayRange.to.getTime() !== standardRange.to.getTime()
         ? format.range(displayRange.from, new Date(displayRange.to.getTime() - 1)) : undefined;
     const navigationDate = view.date;
+    // A step of the period, as Previous and Next take it (#1398): on the timeline from the day under its middle as the key
+    // is pressed — what `[` and `]` do from anywhere in the frame, as the Roster's and the Allocation's do.
+    const step = (by: -1 | 1) => onNavigate(navigate({ ...view, date: (timeline ? visibleDays.get()?.center : undefined) ?? view.date }, by).date);
     const nouns = useMemo(() => calendarNouns(value, format.locale), [value, format.locale]);
     // Search Records (#1398): an event found by its key steps the view to its period, is selected and is brought into view.
     const found = (event: FoundEvent) => {
@@ -564,11 +567,15 @@ function CalendarFrame(props: HostProps) {
         <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={(!data.ready && data.loading && data.error === undefined) || cold} loadingPitch={pitch}
             busy={reading || resourcesBusy || pages?.reading === true} liveFooter toolbar={toolbar} start={start} end={end}
             onKeyDown={event => {
+                // The keys, never while typing; each the Calendar acts on goes no further than the Calendar (#1398), so a
+                // shortcut of the page around it on the same key — the showcase's `[`, which folds its sidebar — never hears
+                // it. An Esc with nothing to let go of goes on as it came.
                 if (event.defaultPrevented || typedInto(event.target)) return;
                 const action = historyShortcut(event);
-                if (action !== undefined && commands !== undefined && !locked) { event.preventDefault(); onAction(action); }
-                else if (event.key === "Escape") { setRefs([]); setError(undefined); }
-                else if ((event.key === "Delete" || event.key === "Backspace") && gestures !== undefined && selectedItems.length > 0) { event.preventDefault(); gestures.remove(selectedItems); }
+                if (action !== undefined && commands !== undefined && !locked) { takeKey(event); onAction(action); }
+                else if (event.key === "[" || event.key === "]") { takeKey(event); step(event.key === "[" ? -1 : 1); }
+                else if (event.key === "Escape" && (refs.length > 0 || error !== undefined)) { takeKey(event); setRefs([]); setError(undefined); }
+                else if ((event.key === "Delete" || event.key === "Backspace") && gestures !== undefined && selectedItems.length > 0) { takeKey(event); gestures.remove(selectedItems); }
             }} banners={<>
                 {parts.banner}
                 {editing?.sessions.map(held => <SessionBanners key={held.key} session={held.session} words={words} name={value.events.find(kind => kind.key === held.kind)?.name}
