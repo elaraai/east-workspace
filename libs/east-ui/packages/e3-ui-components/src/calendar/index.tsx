@@ -60,8 +60,11 @@
  * the dates on screen alone (`cells.ts`). Its source of the slice narrows its
  * windows themselves, so the frame follows no such source; a choice keeps the
  * last view standing, retained, until its windows land. Its Choosers search it
- * by key through its own paged read, and an event names its resource by the
- * windows held, else by the resource's key.
+ * by key through its own paged read, and an event — drawn, or a Backlog card —
+ * names its resource by the windows held, else by the resource's key. A new
+ * event takes the resource it is dropped on or chosen; with none, it lands on
+ * the first resource of the windows held that is free then, as on a kind read
+ * whole — free only where that resource's events are read.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
@@ -402,7 +405,16 @@ function CalendarFrame(props: HostProps) {
     // What it shows stands in for a read in flight: retained (CL8), aria-disabled in a busy pane, until it lands.
     const backlogRetained = data.apart.loading;
     const reading = data.loading || data.apart.loading;
-    const commands = useMemo(() => editing === undefined ? undefined : calendarCommands(value, editing, select, items, shown), [value, editing, select, items, shown]);
+    // Every resource names an event's place — a paged kind's, those of its windows held (#1424), which a creation with no
+    // resource may land on too; the ones the rail shows lay out the columns and rows, a paged kind's a window at a time
+    // beside them (`pages`).
+    const pagedWindows = pages?.windows;
+    const pagedRows = useMemo(() => heldRows(pagedWindows), [pagedWindows]);
+    // The paged kind's resources whose events are read, which alone a creation can find free: the cells reader's, where
+    // it reads them; every one held, where the window's read reads the kind's events.
+    const cellsDrawn = data.cells?.drawn;
+    const commands = useMemo(() => editing === undefined ? undefined : calendarCommands(value, editing, select, items, shown, { rows: pagedRows, known: cellsDrawn }),
+        [value, editing, select, items, shown, pagedRows, cellsDrawn]);
     // A paged kind's last view standing in for a new narrowing's is retained (CL8): no gesture until its windows land.
     const available = current && !reading && data.error === undefined && data.apart.error === undefined && !resourcesBusy && pages?.stale !== true;
     // The app's optimiser (#1409, #1417): one run over the window in view, its result landed on the events as one
@@ -446,16 +458,13 @@ function CalendarFrame(props: HostProps) {
     }, [pending, editing?.version, editing]);
     // While a run is out (R2) every gesture is refused, the session the views read kept.
     const gestures = !available ? undefined : locked && commands !== undefined ? lockCalendarCommands(commands, optimiseMessages.locked({ period: periodName })) : commands;
-    // Every resource names an event's place — a paged kind's, those of its windows held; the ones the rail shows lay out
-    // the columns and rows, a paged kind's a window at a time beside them (`pages`).
-    const pagedWindows = pages?.windows;
-    const rows = useMemo(() => [...resourceRows(value.resources), ...heldRows(pagedWindows), UNASSIGNED], [value.resources, pagedWindows]);
+    const rows = useMemo(() => [...resourceRows(value.resources), ...pagedRows, UNASSIGNED], [value.resources, pagedRows]);
     // The paged kind's Choosers search it by key (#1424, `chooser.tsx`), each resource named by a window held, else by its key.
     const chooser = useMemo((): CalendarChooser | undefined => {
         if (pagedValue === undefined || pagedKind === undefined) return undefined;
-        const names = new Map(heldRows(pagedWindows).flatMap(row => row.resource.type === "some" ? [[row.resource.value.key, row.label] as const] : []));
+        const names = new Map(pagedRows.flatMap(row => row.resource.type === "some" ? [[row.resource.value.key, row.label] as const] : []));
         return { paged: pagedValue, noun: pagedKind.name.toLocaleLowerCase(format.locale), nameOf: key => names.get(key) ?? key };
-    }, [pagedValue, pagedKind, pagedWindows, format.locale]);
+    }, [pagedValue, pagedKind, pagedRows, format.locale]);
     const shownRows = useMemo(() => [...resourceRows(shown), UNASSIGNED], [shown]);
     // As the window read, the selection's read reports from a component of its own (#1343).
     const [selection, setSelection] = useState<CalendarSelection>(NO_SELECTION);
@@ -469,7 +478,7 @@ function CalendarFrame(props: HostProps) {
     const [pickedTemplate, setTemplate] = useState<string>();
     const activeTemplate = pickedTemplate !== undefined && templates.shown.has(pickedTemplate) ? pickedTemplate : templates.shown.keys().next().value;
     const start = useCalendarLibrary({ value, backlog, backlogRead, backlogRetained, backlogPages, backlogCount, selection: selectedItems, key: storageKey, narrow, now,
-        day: dayStart(view.date), styles, commands: gestures, activeTemplate, onTemplate: setTemplate, templates, backlogNarrowing, followed, shown,
+        day: dayStart(view.date), styles, commands: gestures, activeTemplate, onTemplate: setTemplate, templates, backlogNarrowing, followed, shown, rows,
         backlogFlash: optimised?.backlogChanged === true && landing.lit, locked });
     const end = useCalendarInspector({ value, refs, range, commands: gestures, styles, storageKey, overlaps, visible: timeline ? visibleDays : undefined, select, selection, shown });
     const { acted } = parts;

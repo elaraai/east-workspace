@@ -22,6 +22,10 @@
  * Backlog is its kinds' events in hand, read apart once (#1398): only before
  * its first read, under the cold load's cover, does it count "…" and draw the
  * Library's pending rows, never "No backlog events" before its read (CL13).
+ *
+ * A backlog card names its event's resource as the views do
+ * (`resourceLabel`): its row's label — a paged resource kind's once a window
+ * the frame holds has it (#1424) — else its key.
  */
 import { useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
@@ -37,7 +41,7 @@ import { PlacementAction, type CalendarShownResources } from "./controls.js";
 import type { CalendarCommands, CalendarSource } from "./actions.js";
 import type { BacklogNarrowing } from "../shared/schedule/backlog.js";
 import type { CalendarEventPart } from "./window.js";
-import { eventKey, type CalendarItem, type CalendarKind, type CalendarStyles, type CalendarTemplate, type CalendarValue } from "./model.js";
+import { eventKey, resourceLabel, type CalendarItem, type CalendarKind, type CalendarRow, type CalendarStyles, type CalendarTemplate, type CalendarValue } from "./model.js";
 
 /** Library ids also name the shared drag grammar's sources. */
 export function calendarLibraryId(key: string, tab: string): string { return `${key}.library.${tab}`; }
@@ -100,6 +104,11 @@ interface LibraryArgs {
     backlogFlash?: boolean | undefined;
     /** Whether a run of the optimiser is out (#1409, R2): no card drags, and the pane's actions are held, while the pane stays live. */
     locked?: boolean | undefined;
+    /**
+     * Every resource row the frame holds — each kind's, a paged kind's of the windows held (#1424), and the unassigned
+     * one: what a backlog card names its event's resource by, as the views do.
+     */
+    rows: readonly CalendarRow[];
 }
 /**
  * What a tab is, as its pane takes it: its cards, its count (none while it is read), what it says empty, and whether its
@@ -113,7 +122,7 @@ interface TabFacts {
 /** The author-listed tabs, populated from the current bound reads. */
 export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefined {
     const { value, backlog, backlogRead, backlogRetained, backlogPages, backlogCount, key, narrow, day, now, styles, commands, selection, activeTemplate, onTemplate, templates,
-        backlogNarrowing, followed, shown } = args;
+        backlogNarrowing, followed, shown, rows } = args;
     const locked = args.locked === true;
     const format = useFormatters();
     const [chosen, setChosen] = useState<Record<string, string>>({});
@@ -123,12 +132,12 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
         key: id, label, sublabel: some(meta), icon: icon === undefined ? none : some(icon), status: none, trailing: none,
         draggable, filtered: false, placed, search: some(`${label} ${meta}`), groups: new Map([["group", group]]),
     });
-    // A backlog event's card: its kind, its hours, its resource and its due date, grouped by when it is due.
+    // A backlog event's card: its kind, its hours, its resource and its due date, grouped by when it is due. Its resource
+    // is named as the views name it: its row's label — a paged kind's, a window the frame holds (#1424) — else its key.
     const backlogCard = (item: CalendarItem, placed: boolean): LibraryItemValue => {
         const kind = value.events.find(kind => kind.key === item.kind)!;
         const id = eventKey({ kind: item.kind, key: item.key });
-        const ref = item.resource.type === "some" ? item.resource.value : undefined;
-        const resource = value.resources.find(kind => kind.key === ref?.kind)?.rows.find(row => row.key === ref?.key)?.label;
+        const resource = item.resource.type === "some" ? resourceLabel(item, rows) : undefined;
         const group = dueGroupOf(item.due.type === "some" ? item.due.value : undefined, now);
         const groups = { thisWeek: "Due this week", nextWeek: "Due next week", later: "Later", none: "No date" };
         return baseCard(id, item.title, `${kind.name} · ${Number(item.minutes) / 60} h${resource === undefined ? "" : ` · ${resource}`}${item.due.type === "some" ? ` · due ${format.weekdayDate(item.due.value)}` : ""}`,

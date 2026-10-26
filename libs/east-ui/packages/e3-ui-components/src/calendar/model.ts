@@ -177,6 +177,20 @@ export function onResource(item: CalendarItem, row: CalendarRow): boolean {
     return item.resource.type === "none" ? row.resource.type === "none"
         : row.resource.type === "some" && sameResource(item.resource.value, row.resource.value);
 }
+/**
+ * The resource an event is on, by name, wherever the Calendar names it — the views and a Backlog card: its row's label;
+ * a resource no row the frame holds names — a paged kind's whose window is not read (#1424) — by its key, never
+ * "Unassigned", which is an event on no resource's.
+ *
+ * @param item - The event
+ * @param rows - Every resource row the frame holds: each kind's, a paged kind's of the windows held, and the unassigned one
+ * @returns Its resource's name
+ */
+export function resourceLabel(item: CalendarItem, rows: readonly CalendarRow[]): string {
+    const row = rows.find(row => onResource(item, row));
+    if (row !== undefined) return row.label;
+    return item.resource.type === "some" ? item.resource.value.key : "Unassigned";
+}
 /** A UTC time, used in fixed-size grid labels and editable time fields. */
 export function clockText(date: Date): string { return date.toISOString().slice(11, 16); }
 /** A UTC date, used in date fields. */

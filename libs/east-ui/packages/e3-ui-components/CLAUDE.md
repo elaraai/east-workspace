@@ -1333,12 +1333,13 @@ at their pitch only where it meets the view, keyed by the places it stands for
 and their pitch (`run:<result>:<from>-<to>@<pitch>`, a failed window's
 `failed:…`), so a window landing inside one makes other items — and a view
 resting in one rests on the place there (`useRowAnchor`'s `runs`, which
-`VirtualRows` anchors its scroll on too). The Resources view makes each column as it draws it, by its place,
-and places it at its own offset (`--calendar-column-at`) in a content box as
-wide as every column, drawing those around the view alone. A window whose read
-failed is a run that says so in its first row in view, or a box at the grid's
-top-left, with Retry; and the footer's line reads the
-kind's windows (`pagedLoadingLine`, `Loading presses 401–600`). A count, a
+`VirtualRows` anchors its scroll on too). The Resources view makes each column
+as it draws it, by its place, and places it at its own offset
+(`--calendar-column-at`) in a content box as wide as every column, drawing
+those around the view alone. A window whose read failed is a run that says so
+in its first row in view, or a box at the grid's top-left, with Retry; and the
+footer's line reads the kind's windows (`pagedLoadingLine`, `Loading presses
+401–600`). A count, a
 revision or a narrowing of the kind that throws is the source's failure, as the
 Plan's and the Sheet's drivers take one: caught inside the reader's read, it
 ends the cold load and is said on the line with Retry (`Couldn't read
@@ -1360,8 +1361,13 @@ frame follows no such source (`followedSources`). The inspector's resource
 Chooser over the kind is the shared key search (`calendar/chooser.tsx`'s
 `PagedChooser`, through `FieldForm`'s `renderControl`): it seeks the kind
 through its paged read by key and lists the windows it lands in, each line the
-resource's name and its meta; an event names its resource by the windows held,
-else by its key.
+resource's name and its meta; an event — drawn, or its Backlog card — names
+its resource by the windows held, else by its key (`model.ts`'
+`resourceLabel`). A new event takes the resource it is dropped on or chosen;
+with none chosen it lands on the first resource of the windows held free then,
+as a kind read whole lands on its first free row (`actions.ts`'
+`firstResource`) — free only where its events are read: the cells reader's
+`drawn`, where it reads them.
 
 Bound the work, not only the CSS scroll box. Use Library's existing virtualizer
 for populated bounded panes; do not disable it in an adapter. People rows and
