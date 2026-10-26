@@ -14,8 +14,9 @@
  * edit (#1390, #1391); each Save's notice, the rows it took out of a source's
  * narrowing (`RecordSliceSaveNotice`); and where Find's last pick landed on
  * an item the canvas doesn't show as itself, why — the rail's filters, with
- * Clear filters; its layer; no position (#1404). With nothing live the rail is
- * empty. The drawing's counts and each record's last save are the
+ * Clear filters; its layer; no position (#1404) — while that pick stands: the
+ * search cleared, or a new query asked in its place, it goes. With nothing
+ * live the rail is empty. The drawing's counts and each record's last save are the
  * inspector's, in its Details with nothing selected (`counts.ts`), and the
  * changes waiting on Save the history's.
  *
