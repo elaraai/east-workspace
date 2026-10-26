@@ -15,7 +15,10 @@
  * form (`fields`: the `Fields` specs of the fields no role writes) — under the
  * shared inspector head: its kind's icon and name, its own name, where it
  * stands, its status, and a Pending or New chip while its drafts hold it
- * otherwise than its record:
+ * otherwise than its record. Its own name is the one the Schematic gives it
+ * everywhere (`inspect.ts`' `entityNames`), which the collapsed rail says too:
+ * a link's ends, its caption under them; a net's label, else its ends — never
+ * a key the Schematic minted for a new link or net:
  *
  * - **an item**: its kind's form — or its kind's own `inspector` in its place
  *   — its details record's form, or its details' own; its position, `x` and
@@ -91,7 +94,8 @@ import {
     type ConnectVetoOf, type DeleteSelection, type EditRefusal, type NetLeg, type SchematicEdit, type SchematicFieldWrite,
 } from "./edits.js";
 import { detailsKey, type SchematicEditing } from "./editing.js";
-import { joinsOf, type SchematicDrawnEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
+import { joinsOf, nameOfEntity, type SchematicDrawnEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
+import { captionText } from "./canvas/paint.js";
 import type { SchematicInspectedRows, SchematicRowRead } from "./inspector-rows.js";
 import type { SchematicIssue } from "./issues.js";
 import type { SchematicWords } from "./messages.js";
@@ -133,6 +137,11 @@ export interface SchematicInspectorProps {
     readonly rows: SchematicInspectedRows;
     /** What the canvas draws: the stored rows, the drafts in place. */
     readonly drawn: SchematicDrawn;
+    /**
+     * Each entity's name, by its id, as the Schematic says it everywhere (`inspect.ts`' `entityNames`): what the head, the
+     * collapsed rail and the lists name it — a link by its ends, a net by its label or its ends, never a key it minted.
+     */
+    readonly names: ReadonlyMap<string, string>;
     /** The drawing as its lists show it, what the rail's narrowing leaves out left out (#1392): what a Chooser offers, and what an item is joined to. */
     readonly listed: SchematicDrawn;
     /** The editing: each record's session and drafts, and how an edit is recorded. */
@@ -176,28 +185,14 @@ interface ViewProps extends SchematicInspectorProps {
     readonly styles: Styles;
 }
 
-/** An entity's name, as the inspector says it: an item's or a zone's label, a link's ends, a net's label or its key. */
-function nameOf(id: string, drawn: SchematicDrawn, words: SchematicWords): string {
-    const item = drawn.items.find((i) => stringEqual(i.key, id));
-    if (item !== undefined) return item.label;
-    const zone = drawn.zones.find((z) => stringEqual(z.key, id));
-    if (zone !== undefined) return zone.label;
-    const end = (member: string) => drawn.items.find((i) => stringEqual(i.key, member))?.label ?? refOfId(member)?.key ?? member;
-    const link = drawn.links.find((l) => stringEqual(l.key, id));
-    if (link !== undefined) return words.m.linkEnds({ from: end(link.from), to: end(link.to) });
-    const net = drawn.nets.find((n) => stringEqual(n.key, id));
-    if (net !== undefined) return getSomeorUndefined(net.label) ?? net.ref.key;
-    return refOfId(id)?.key ?? id;
-}
-
-/** What is selected, as the rail says it under its label. */
+/** What is selected, as the rail says it under its label: what the head titles it, by the one name the Schematic gives it. */
 function whatOf(props: SchematicInspectorProps): string | undefined {
-    const { inspected, drawn, words } = props;
+    const { inspected, names, words } = props;
     switch (inspected.view) {
         case "drawing": return undefined;
         case "several": return words.m.inspectorSeveral({ n: inspected.entities.length, count: words.number(inspected.entities.length) });
         case "entity":
-        case "leg": return nameOf(inspected.id, drawn, words);
+        case "leg": return nameOfEntity(names, inspected.id);
         case "unplaced": return inspected.label;
     }
 }
@@ -546,7 +541,7 @@ function SideBody({ styles, head, section, side, own, state, onField, writes, st
 
 /** An item: its head, its form or own Details, its details', its position and Unplace, Delete, and what it is joined to. */
 function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: SchematicValue["items"][number] }) {
-    const { item, kind, styles, words, value, drawn, listed, rows, zoneAt, reveal, storageKey } = props;
+    const { item, kind, styles, words, value, names: entityNames, listed, rows, zoneAt, reveal, storageKey } = props;
     const m = words.m;
     const unit = getSomeorUndefined(value.scaleUnit);
     // The item's own row, and its details row: each its record's side.
@@ -615,7 +610,7 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                         {joins.links.map((link) => (
                             <Box as="li" key={link.key}>
                                 <chakra.button type="button" css={styles.link} data-inspector-join={link.key} onClick={() => reveal(link.key)}>
-                                    <Box as="span" css={styles.linkText}>{nameOf(link.key, drawn, words)}</Box>
+                                    <Box as="span" css={styles.linkText}>{nameOfEntity(entityNames, link.key)}</Box>
                                     <Box as="span" css={styles.linkMeta}>{m.inspectorJoin({ kind: names.get(link.ref.kind) ?? link.ref.kind, end: undefined })}</Box>
                                 </chakra.button>
                             </Box>
@@ -623,7 +618,7 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                         {joins.nets.map(({ net, end }) => (
                             <Box as="li" key={net.key}>
                                 <chakra.button type="button" css={styles.link} data-inspector-join={net.key} onClick={() => reveal(net.key)}>
-                                    <Box as="span" css={styles.linkText}>{nameOf(net.key, drawn, words)}</Box>
+                                    <Box as="span" css={styles.linkText}>{nameOfEntity(entityNames, net.key)}</Box>
                                     <Box as="span" css={styles.linkMeta}>{m.inspectorJoin({ kind: names.get(net.ref.kind) ?? net.ref.kind, end })}</Box>
                                 </chakra.button>
                             </Box>
@@ -748,11 +743,14 @@ function itemChoices(drawn: SchematicDrawn, slots: readonly string[], names: Rea
     return out;
 }
 
-/** A link: its head, its ends as Choosers, its form or own Details, and Delete. */
+/**
+ * A link: its head — titled by its ends, as the rail names it, its caption under them — its ends as Choosers, its form
+ * or own Details, and Delete.
+ */
 function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: SchematicValue["links"][number] }) {
-    const { link, kind, styles, words, value, drawn, listed, rows, storageKey, veto, refuse: say } = props;
+    const { link, kind, styles, words, value, names: entityNames, listed, rows, storageKey, veto, refuse: say } = props;
     const m = words.m;
-    const name = nameOf(link.key, drawn, words);
+    const name = nameOfEntity(entityNames, link.key);
     const own = useSide(props, link.ref, name, kind, false);
     const { commit, remove } = useCommit(props);
     const [refused, refuse] = useRefused();
@@ -795,7 +793,7 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
     return (
         <Box css={styles.root} data-schematic-inspector="link">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: kind.icon === "" ? "link" : kind.icon }}
-                title={getSomeorUndefined(link.label) ?? link.ref.key} when={name} pending={own.state.chip} />
+                title={name} when={captionText(getSomeorUndefined(link.label), getSomeorUndefined(link.metric))} pending={own.state.chip} />
             <Edits styles={styles} available={own.available} actions={actions}>
                 <Form styles={styles} head={m.inspectorSection({ section: "ends", name: kind.name })} section="ends" specs={specs}
                     value={{ from: link.from, to: link.to }} baseline={baseline} options={options}
@@ -809,11 +807,11 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
 
 // ── A net, and its leg ──────────────────────────────────────────────────────
 
-/** A net: its head, its sides as tags, its form or own Details, and Delete. */
+/** A net: its head — titled by its label, else its ends, as the rail names it — its sides as tags, its form or own Details, and Delete. */
 function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: SchematicValue["nets"][number] }) {
-    const { net, kind, styles, words, drawn, listed, rows, storageKey, veto, refuse: say } = props;
+    const { net, kind, styles, words, names: entityNames, listed, rows, storageKey, veto, refuse: say } = props;
     const m = words.m;
-    const name = nameOf(net.key, drawn, words);
+    const name = nameOfEntity(entityNames, net.key);
     const own = useSide(props, net.ref, name, kind, false);
     const { commit, remove } = useCommit(props);
     const [refused, refuse] = useRefused();
@@ -876,10 +874,10 @@ function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
 
 /** A net's leg: its net's head, the item on it — a control that selects it — and Remove. */
 function LegView(props: ViewProps & { readonly net: DrawnNet; readonly kind: SchematicValue["nets"][number]; readonly leg: NetLeg }) {
-    const { net, kind, leg, styles, words, value, drawn, reveal } = props;
+    const { net, kind, leg, styles, words, value, names: entityNames, reveal } = props;
     const m = words.m;
-    const name = nameOf(net.key, drawn, words);
-    const member = nameOf(leg.item, drawn, words);
+    const name = nameOfEntity(entityNames, net.key);
+    const member = nameOfEntity(entityNames, leg.item);
     const { remove } = useCommit(props);
     const writes = kind.editable && !value.readOnly;
     const available = writes && props.editing.available(kind.key);

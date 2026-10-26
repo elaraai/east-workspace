@@ -20,14 +20,74 @@
  * An id the drawing no longer draws is left out: a selection the canvas holds
  * a moment longer than the drawing does shows what is left of it.
  *
+ * Each entity has one name, wherever the Schematic says it
+ * ({@link entityNames}): an item's or a zone's label; a link's ends; a net's
+ * label, else its ends — never a key the Schematic minted for a new link or net.
+ *
  * @packageDocumentation
  */
 
 import { StringType, equalFor } from "@elaraai/east";
-import type { DrawnLink, DrawnNet, SchematicDrawn, SchematicRef } from "./canvas/drawn.js";
+import { refOfId, type DrawnLink, type DrawnNet, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { NetLeg } from "./edits.js";
+import type { SchematicMembers, SchematicWords } from "./messages.js";
 
 const stringEqual = equalFor(StringType);
+
+/** How many of a net's members on a side its name lists by name, before it counts the rest. */
+const NAMED_MEMBERS = 3;
+
+/** A member's name, where a link or a net names it: its label as drawn, else the key its id names. */
+function memberName(id: string, labelOf: (id: string) => string | undefined): string {
+    return labelOf(id) ?? refOfId(id)?.key ?? id;
+}
+
+/** A link's name: its ends' items — `A04 → CORE-1`. */
+function linkName(link: DrawnLink, labelOf: (id: string) => string | undefined, words: SchematicWords): string {
+    return words.m.linkEnds({ from: memberName(link.from, labelOf), to: memberName(link.to, labelOf) });
+}
+
+/** A net's name: its label, else its ends — its sources, then its destinations, each side's first three and how many more. */
+function netName(net: DrawnNet, labelOf: (id: string) => string | undefined, words: SchematicWords): string {
+    if (net.label.type === "some") return net.label.value;
+    const side = (ids: readonly string[]): SchematicMembers => {
+        const names = ids.slice(0, NAMED_MEMBERS).map((id) => memberName(id, labelOf));
+        const more = ids.length - names.length;
+        return { names, more: more > 0 ? { n: more, count: words.number(more) } : undefined };
+    };
+    return words.m.netEnds({ sources: side(net.sources), destinations: side(net.destinations) });
+}
+
+/**
+ * Each entity's name, as the Schematic says it wherever it names one (#1391) — the inspector's head and its collapsed
+ * rail, what an item is joined to and a net's leg, a drop's words, an issue's row and a record's banners: an item's or a
+ * zone's label; a link's ends, by their items' labels (`A04 → CORE-1`); a net's label, else its ends, its sources then
+ * its destinations (`A03 → CORE-1, ODF-1`). Never a key the Schematic minted: a new link or net is named by what it joins.
+ *
+ * @param drawn - What the canvas draws
+ * @param words - The Schematic's words
+ * @returns Each entity's name, by its id
+ */
+export function entityNames(drawn: SchematicDrawn, words: SchematicWords): ReadonlyMap<string, string> {
+    const out = new Map<string, string>();
+    for (const item of drawn.items) out.set(item.key, item.label);
+    for (const zone of drawn.zones) out.set(zone.key, zone.label);
+    const labelOf = (id: string) => out.get(id);
+    for (const link of drawn.links) out.set(link.key, linkName(link, labelOf, words));
+    for (const net of drawn.nets) out.set(net.key, netName(net, labelOf, words));
+    return out;
+}
+
+/**
+ * An entity's name, as {@link entityNames} named it — or, for one the drawing doesn't draw, the key its id names.
+ *
+ * @param names - Each entity's name, by its id ({@link entityNames})
+ * @param id - The entity's id
+ * @returns Its name
+ */
+export function nameOfEntity(names: ReadonlyMap<string, string>, id: string): string {
+    return names.get(id) ?? refOfId(id)?.key ?? id;
+}
 
 /** What an entity is: an item, a zone, a link or a net. */
 export type SchematicSort = "item" | "zone" | "link" | "net";

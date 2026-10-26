@@ -49,6 +49,14 @@ export interface SchematicCount {
     readonly count: string;
 }
 
+/** A side of a net as its name lists it: its first members' names, and how many more it holds past them. */
+export interface SchematicMembers {
+    /** The first members' names, in the side's order. */
+    readonly names: readonly string[];
+    /** How many more members the side holds; `undefined` where the names are all of them. */
+    readonly more: SchematicCount | undefined;
+}
+
 /** The Schematic's message table: its own words, and the footer's loading line's over a kind's rows (`PagedLoadingMessages`). */
 export interface SchematicMessages extends PagedLoadingMessages {
     /** The frame's accessible name, and what its skeleton is the loading of. */
@@ -193,8 +201,10 @@ export interface SchematicMessages extends PagedLoadingMessages {
     dropAt: (p: { zone: string | undefined; x: string; y: string; unit: string | undefined }) => string;
     /** What a card dropped on an entity lands on, as the ghost says it — `onto A03`; `name` is the entity's. */
     dropOnto: (p: { name: string }) => string;
-    /** A link, as a drop's words name it: by its ends' items — `A01 → ODF-1`. */
+    /** A link, as the Schematic names it — its inspector's head and rail, a drop's words, an issue's row — by its ends' items: `A01 → ODF-1`. */
     linkEnds: (p: { from: string; to: string }) => string;
+    /** A net with no label of its own, as the Schematic names it: its sources, then its destinations — `A03 → CORE-1, ODF-1`, `A01, A02, A03 and 17 more → ODF-1`. */
+    netEnds: (p: { sources: SchematicMembers; destinations: SchematicMembers }) => string;
     /** The entities of a kind a card's ⏎ drops on, several of them — `3 racks`; `name` is the kind's, as running text writes it. */
     dropMany: (p: SchematicCount & { name: string }) => string;
     /** Why a drop is refused where the drag rests: red under the ghost, and for a card's ⏎ in the footer. */
@@ -277,6 +287,9 @@ export type SchematicLibraryTabWord = "templates" | "backlog" | "index" | "layer
 export type SchematicStep = "move" | "connect" | "net" | "retarget" | "extend" | "delete";
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
+
+/** A side of a net, as its name lists it: its first members, and how many more. */
+const membersOf = ({ names, more }: SchematicMembers): string => (more === undefined ? names.join(", ") : `${names.join(", ")} and ${more.count} more`);
 
 /** Words as a sentence starts them. */
 const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
@@ -430,6 +443,7 @@ export const schematicMessages: SchematicMessages = {
     dropAt: ({ zone, x, y, unit }) => `${zone === undefined ? "" : `${zone} · `}${x}, ${y}${unit === undefined ? "" : ` ${unit}`}`,
     dropOnto: ({ name }) => `onto ${name}`,
     linkEnds: ({ from, to }) => `${from} → ${to}`,
+    netEnds: ({ sources, destinations }) => `${membersOf(sources)} → ${membersOf(destinations)}`,
     dropMany: ({ n, count, name }) => `${count} ${plural(n, name, `${name}s`)}`,
     dropRefused,
     dropCanvas: () => "the canvas",

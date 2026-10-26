@@ -64,7 +64,7 @@ export interface SchematicIssue {
     readonly at: string | undefined;
     /** Whether it blocks — the app's check holds Save, or a Save was stopped — rather than warns. */
     readonly blocking: boolean;
-    /** What it names: its kind's name — `undefined` for a layer — and its own name, its label or its key. */
+    /** What it names: its kind's name — `undefined` for a layer — and its own name, as the Schematic names it everywhere. */
     readonly where: { readonly kind: string | undefined; readonly name: string };
     /** What it says. */
     readonly word: SchematicIssueWord;
@@ -78,6 +78,11 @@ export interface SchematicIssueArgs {
     readonly extent: { readonly width: number; readonly height: number };
     /** Each kind's name, by its slot. */
     readonly names: ReadonlyMap<string, string>;
+    /**
+     * Each entity's name, by its id, as the Schematic names it everywhere (`inspect.ts`' `entityNames`): what an issue's
+     * row names it — a link by its ends, a net by its label or its ends, never a key the Schematic minted.
+     */
+    readonly nameOf: (id: string) => string;
     /**
      * Whether an item is held: `false` for one of a slot no item kind has, or one an item kind read whole holds no row
      * of; `undefined` where it can't be said — a kind read through its source.
@@ -188,13 +193,13 @@ export function outsideBox(geometry: Geometry, width: number, height: number): b
  * @returns Its issues
  */
 export function drawingIssues(args: SchematicIssueArgs): SchematicIssue[] {
-    const { drawn, extent, names, holds, layers, colours } = args;
+    const { drawn, extent, names, nameOf, holds, layers, colours } = args;
     const out: SchematicIssue[] = [];
-    const nameOf = (slot: string) => names.get(slot) ?? slot;
+    const kindOf = (slot: string) => names.get(slot) ?? slot;
     const warn = (at: string | undefined, where: SchematicIssue["where"], word: SchematicIssueWord) => out.push({ at, blocking: false, where, word });
     const badColour = (colour: option<string>): string | undefined => (colour.type === "some" && !colours.has(colour.value) ? colour.value : undefined);
     for (const item of drawn.items) {
-        const where = { kind: nameOf(item.ref.kind), name: item.label };
+        const where = { kind: kindOf(item.ref.kind), name: nameOf(item.key) };
         if (item.x < -EPSILON || item.y < -EPSILON || item.x > extent.width + EPSILON || item.y > extent.height + EPSILON) warn(item.key, where, { issue: "outside" });
         if (item.footprint.type === "some" && item.width.type === "some" && item.height.type === "some"
             && outsideBox(item.footprint.value, item.width.value, item.height.value)) warn(item.key, where, { issue: "geometry" });
@@ -202,7 +207,7 @@ export function drawingIssues(args: SchematicIssueArgs): SchematicIssue[] {
         if (colour !== undefined) warn(item.key, where, { issue: "colour", colour });
     }
     for (const zone of drawn.zones) {
-        const where = { kind: nameOf(zone.ref.kind), name: zone.label };
+        const where = { kind: kindOf(zone.ref.kind), name: nameOf(zone.key) };
         if (zone.geometry.type === "some" && outsideBox(zone.geometry.value, zone.width, zone.height)) warn(zone.key, where, { issue: "geometry" });
         const colour = badColour(zone.color);
         if (colour !== undefined) warn(zone.key, where, { issue: "colour", colour });
@@ -211,15 +216,16 @@ export function drawingIssues(args: SchematicIssueArgs): SchematicIssue[] {
     const missing = (at: string, where: SchematicIssue["where"], member: string) => {
         const ref = refOfId(member);
         if (ref === undefined || holds(ref) !== false) return;
-        warn(at, where, { issue: "missing", kind: nameOf(ref.kind), key: ref.key });
+        warn(at, where, { issue: "missing", kind: kindOf(ref.kind), key: ref.key });
     };
+    // A link or a net named as the Schematic names it: by its ends, a net by its label first.
     for (const link of drawn.links) {
-        const where = { kind: nameOf(link.ref.kind), name: link.ref.key };
+        const where = { kind: kindOf(link.ref.kind), name: nameOf(link.key) };
         missing(link.key, where, link.from);
         if (!stringEqual(link.from, link.to)) missing(link.key, where, link.to);
     }
     for (const net of drawn.nets) {
-        const where = { kind: nameOf(net.ref.kind), name: net.label.type === "some" ? net.label.value : net.ref.key };
+        const where = { kind: kindOf(net.ref.kind), name: nameOf(net.key) };
         for (const member of [...net.sources, ...net.destinations]) missing(net.key, where, member);
     }
     for (const layer of layers) {

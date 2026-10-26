@@ -359,7 +359,7 @@ test("a run's ends and a trunk's sides are held to the host's veto as their gest
     expect(showing(container)).toBe("link");
     await choose(container, "ends", "from", "MMR-1 · Network frame");
     expect(footer(container, "data-schematic-refused")).toBe("Two frames are joined by a cross-connect");
-    expect(head(container).when).toBe("A03 → ODF-1");
+    expect(head(container).title).toBe("A03 → ODF-1");
     expect(unsaved(container)).toBe(false);
     // A trunk of A05 and A04 into ODF-1, grown as a Shift session grows one.
     await tool(container, "Connect");
