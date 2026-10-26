@@ -414,6 +414,37 @@ describe("a bounded view of the narrowed presses (#1344)", () => {
         await waitFor(() => expect(bar(c, "W-0003", "P-1002")?.getAttribute("aria-label")).toMatch(/^Museum guide, Oct 7, 2026, 06:00/));
     });
 
+    test("the view waits for the presses it shows once: from the window under it to the jobs' cells its rows are drawn from, main busy throughout — never idle between the two reads, so the line's reveal clock sees one wait (#1398, CL3)", async () => {
+        const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
+        await settle();
+        const main = slot(c, "main")!;
+        expect(main.getAttribute("aria-busy")).not.toBe("true");
+        // The presses' windows and the jobs' cells held on their way: a window the view shows, then the cells of its rows.
+        const windows = h.e3.hold((request) => request.dataset === PRESSES && request.kind === "page");
+        const cells = h.e3.hold(searchesCells);
+        // Every value main's busy takes from here on, each commit's: what each change left behind, then what it says last.
+        const said: (string | null)[] = [];
+        const observer = new MutationObserver((records) => { for (const record of records) said.push(record.oldValue); });
+        observer.observe(main, { attributes: true, attributeFilter: ["aria-busy"], attributeOldValue: true });
+        // Far down among presses the canvas has not read: once the scroll rests, the window under it is asked.
+        await scrollAndSettle(c, 1500 * ROW_PX);
+        await windows.holding;
+        expect(main.getAttribute("aria-busy")).toBe("true");
+        // The window lands: its presses drawn, their jobs' cells asked for the rows in view — and held.
+        await act(async () => { windows.release(); });
+        await settle();
+        await cells.holding;
+        expect(main.getAttribute("aria-busy")).toBe("true");
+        // The cells land: the presses in view drawn whole, and nothing waited for.
+        await act(async () => { cells.release(); });
+        await settle();
+        await waitFor(() => expect(main.getAttribute("aria-busy")).not.toBe("true"));
+        observer.disconnect();
+        said.push(main.getAttribute("aria-busy"));
+        // Idle, then busy from the window's read until its rows' cells landed, once — never idle between them — then idle.
+        expect(said.map((busy) => busy === "true").filter((busy, i, all) => i === 0 || busy !== all[i - 1])).toEqual([false, true, false]);
+    });
+
     test("the press at its top keeps its place by its key where the hall chosen holds it — the press and the px into it — and the view starts at the top where it does not", async () => {
         const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
         await settle();

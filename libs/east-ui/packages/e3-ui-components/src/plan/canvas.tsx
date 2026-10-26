@@ -190,6 +190,10 @@ const NO_RESOURCES: readonly PlanResourceKindValue[] = [];
 const NO_TABS: readonly PlanLibraryTabValue[] = [];
 /** No event kind has an event on the canvas. */
 const NO_KINDS_DRAWN: ReadonlySet<string> = new Set();
+/** The view waits for nothing: no run on its way, no row whose cells have not landed. */
+const NOTHING_AWAITED: { readonly run: boolean; readonly cells: boolean } = { run: false, cells: false };
+/** No row in view yet. */
+const NO_ROWS_IN_VIEW: readonly PlanRowValue[] = [];
 
 /** Default gutter width (px, desktop — the §8 sheet). */
 const GUTTER_W = 168;
@@ -504,6 +508,28 @@ export function usePlanCanvas({
         const kind = slot === undefined ? undefined : kinds.find((k) => stringEqual(k.key, slot));
         return kind === undefined ? undefined : words.m.saveNoticeNoun({ kind: kind.name.toLocaleLowerCase(words.locale), n: 2 });
     }, [eventParts, kinds, words]);
+    // A paged kind's resource whose cells have not landed, or are read again (#1398, CL2): its rows are unread, and draw
+    // the region wash under what they hold — never an empty row.
+    const drawnResources = cellsRead?.drawn;
+    const pagedSlot = events?.paged?.kind;
+    const unread = useMemo(() => (drawnResources === undefined || pagedSlot === undefined ? undefined : (row: PlanRowValue): boolean => {
+        if (row.id.type !== "entry" || row.id.value.path.length !== 1) return false;
+        const resource = row.id.value.path[0]!;
+        return row.id.value.series.startsWith(`${pagedSlot}.`) && !drawnResources.has(resource);
+    }), [drawnResources, pagedSlot]);
+    // What the view shows at rest that is not read yet, as its last report at rest said it (#1398, CL3): a run whose
+    // windows are on their way, or rows whose cells have not landed — what it still waits for once a window has landed and
+    // before the cells its rows are drawn from are asked, which they are only once the view has said which rows it shows.
+    // The line and the busy follow it, so a window and its rows' cells read one after the other are one wait on the
+    // builder's reveal clock, never two each too short to say.
+    const [viewAwaits, setViewAwaits] = useState(NOTHING_AWAITED);
+    const rowsInView = useRef<readonly PlanRowValue[]>(NO_ROWS_IN_VIEW);
+    useEffect(() => {
+        // Cells landing draw the rows in view: what they were waited for.
+        const cells = unread !== undefined && rowsInView.current.some(unread);
+        setViewAwaits((was) => (was.cells === cells ? was : { ...was, cells }));
+    }, [unread]);
+    const awaits = viewAwaits.run || viewAwaits.cells;
     const transport = useMemo<PlanTransport | undefined>(() => {
         if (!paged) return undefined;
         const failed = failures[0];
@@ -511,17 +537,19 @@ export function usePlanCanvas({
             : pagingError !== undefined ? { kind: "failed", from: undefined, to: undefined, reason: pagingError }
                 : paging.replacing ? { kind: "filtering" }
                     : waits ? { kind: "loading", from: paging.reading?.from, to: paging.reading?.to }
-                        : cellsReading ? { kind: "loading", from: undefined, to: undefined }
+                        : cellsReading || awaits ? { kind: "loading", from: undefined, to: undefined }
                             : undefined;
-        const noun = loading?.kind === "loading" && !waits && cellsReading ? cellsNoun : undefined;
+        // The events' noun while their cells are what the view waits for; the rows' while a run is.
+        const cellsWaited = cellsReading || (!viewAwaits.run && viewAwaits.cells);
+        const noun = loading?.kind === "loading" && !waits && cellsWaited ? cellsNoun : undefined;
         return { partial: !paging.complete, loading, retry: retryFailed, ...(noun === undefined ? {} : { noun }) };
-    }, [paged, failures, pagingError, paging.replacing, waits, paging.reading, paging.complete, retryFailed, cellsReading, cellsNoun]);
+    }, [paged, failures, pagingError, paging.replacing, waits, paging.reading, paging.complete, retryFailed, cellsReading, awaits, viewAwaits, cellsNoun]);
     const partial = transport?.partial;
     // Cold load (#1398, CL5): nothing of a paged source landed yet, and no failure to say — the frame's skeleton
     // covers the Plan. After it, a read the view waits for — a window, a resource kind's narrowing — leaves it live
     // and busy.
     const cold = paged ? paging.rows.length === 0 && paging.total === undefined && failures.length === 0 && pagingError === undefined : undefined;
-    const frameBusy = cold !== true && (busy || waits || cellsReading);
+    const frameBusy = cold !== true && (busy || waits || cellsReading || awaits);
     // What stands in while a narrowing is read is retained (#1398, CL8): a resource kind's narrowing resolving, or the
     // view the last narrowing of the paged rows drew while the new one's first window is read (#1344, #1354).
     const retained = busy || paging.replacing;
@@ -731,14 +759,23 @@ export function usePlanCanvas({
         reportRange(range, isScrolling, center);
         if (isScrolling) return;
         const inView: { key: string; path: readonly string[] }[] = [];
-        let unread = false;
+        const rows: PlanRowValue[] = [];
+        let notRead = false;
+        let run = false;
         for (let i = shown?.startIndex ?? 0; shown !== undefined && i <= shown.endIndex; i++) {
             const item = body.items[i];
+            if (item?.kind === "row") rows.push(item.row.row);
             if (item?.kind === "row" && item.row.row.id.type === "entry") inView.push({ key: item.row.row.key, path: item.row.row.id.value.path });
-            else if (item?.kind === "band" || item?.kind === "failed") unread = true;
+            else if (item?.kind === "band" || item?.kind === "failed") notRead = true;
+            // A run whose windows are on their way: the view waits for them.
+            if (item?.kind === "band" && item.band.loading !== undefined) run = true;
         }
-        cellSpans.set(shownCellSpan(inView, unread, cellSpans.get(), pagingOrigin, pagingNarrowing));
-    }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans]);
+        cellSpans.set(shownCellSpan(inView, notRead, cellSpans.get(), pagingOrigin, pagingNarrowing));
+        // What the view waits for now, as it rests (#1398, CL3): a run on its way, or rows whose cells have not landed.
+        rowsInView.current = rows;
+        const cells = unread !== undefined && rows.some(unread);
+        setViewAwaits((was) => (was.run === run && was.cells === cells ? was : { run, cells }));
+    }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans, unread]);
     // Scroll anchoring (#878): the row at the top of the view keeps its place
     // when rows above it change height or count — a window landing above at a
     // height its estimate missed. An unloaded band never anchors: rows landing
@@ -852,15 +889,6 @@ export function usePlanCanvas({
     const marks = editing.marks;
     // Where each open group ends (#949) — its last visible member's rule.
     const groupEnds = useMemo(() => groupEndsOf(body.items), [body.items]);
-    // A paged kind's resource whose cells have not landed, or are read again (#1398, CL2): its rows are unread, and draw
-    // the region wash under what they hold — never an empty row.
-    const drawnResources = cellsRead?.drawn;
-    const pagedSlot = events?.paged?.kind;
-    const unread = useMemo(() => (drawnResources === undefined || pagedSlot === undefined ? undefined : (row: PlanRowValue): boolean => {
-        if (row.id.type !== "entry" || row.id.value.path.length !== 1) return false;
-        const resource = row.id.value.path[0]!;
-        return row.id.value.series.startsWith(`${pagedSlot}.`) && !drawnResources.has(resource);
-    }), [drawnResources, pagedSlot]);
     const rowCtx = useMemo<PlanRowContext>(() => ({
         styles, gridTemplate, dense, storageKey, index, derived,
         dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkFamily, linkedKeys,
