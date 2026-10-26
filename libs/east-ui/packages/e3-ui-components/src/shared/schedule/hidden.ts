@@ -11,7 +11,7 @@
  * pick drops, and a pick of the row clears just them. The Sheet asks it of its
  * `rows` source's rows (#1376); the Allocation of the rows its bins stand on —
  * each bin's lane, its resource and its arrival, in the source of each that
- * hides it (#1398).
+ * hides it — and the Roster of its people's (#1398).
  *
  * - **A choice alone.** For each choice the index rules let stand alone
  *   (`recordChoiceWhere` from no narrowing), whether the narrowing of that
@@ -446,8 +446,8 @@ export interface SourceHidden {
  * The hidden pick over one source of a builder's `Slice.bindRecords`, read
  * through its part — never through a lens of its own, as the Sheet's is — its
  * rows keyed by String, as `recordSources` binds every source: its narrowing
- * followed as a choice moves it, its answers kept by its record's revision.
- * The Allocation's lanes, resources and arrivals, and the Roster's people.
+ * followed as a choice moves it, its answers kept by its record's revision:
+ * the Allocation's lanes, resources and arrivals, and the Roster's people.
  *
  * @param name - Who asks, as its console names it when a read fails
  * @param part - The source's part of the slice; `undefined` with none

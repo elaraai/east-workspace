@@ -12,7 +12,8 @@
  * writing its status. The duties' source of the slice holds the week's window,
  * which the Roster's own navigation writes. Search Records seeks the people by
  * their keys (`find.ts`, #1398): a pick selects the person, their People row
- * brought into view and the keyboard handed to their name; where the People
+ * brought into view — one the rail's narrowing hides once the choices that hide
+ * them are cleared — and the keyboard handed to their name; where the People
  * views rest is saved, and comes back as they mount. BuilderFrame stays an
  * internal React detail.
  *
@@ -28,6 +29,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, usePickHandOff } from "@elaraai/east-ui-components/internal";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
+import { clearHiding, useSourceHidden } from "../shared/schedule/hidden.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { DAY } from "../shared/schedule/window.js";
@@ -221,16 +223,38 @@ function RosterFrame(props: FrameProps) {
     const onAnchor = useCallback((next: Partial<RosterAnchor>) => setAnchor(was => ({ ...was, ...next })), [setAnchor]);
     const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView,
         styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read };
-    // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view,
-    // and a pick's person given the keyboard there, once the box has let it go: their name takes the focus as ↑ / ↓ give it.
+    // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view
+    // once the narrowing draws it, and a pick's person given the keyboard there, once the box has let it go: their name
+    // takes the focus as ↑ / ↓ give it. One the rail's narrowing hides is shown by clearing the choices of the people's
+    // source that hide them — those e3 named, else every one of its choices — a write of the rail like a chip's (the
+    // hidden pick).
     const handOff = usePickHandOff();
     const [picked, setPicked] = useState<PeoplePick>();
-    const found = useRosterFind({ people: value.people, visible: value.visiblePeople, groups: value.groups,
-        onPick: (person: FoundPerson) => {
+    // A pick's person waiting for the view to draw them: at once, or — a hidden pick — once the narrowing it leaves holds them.
+    const [landing, setLanding] = useState<string>();
+    const peopleHidden = useSourceHidden("Roster", useMemo(() => rosterPart(source, "people"), [source]));
+    const found = useRosterFind({ people: value.people, visible: value.visiblePeople, settled: !visibility.loading, groups: value.groups,
+        hidden: peopleHidden, words: format, onPick: (person: FoundPerson) => {
+            if (person.hidden !== undefined && peopleHidden.part !== undefined) {
+                try { clearHiding(peopleHidden.part, person.hidden.answer); }
+                catch (reason) {
+                    // Not drawn, so nothing takes the keyboard: it stays where it is.
+                    handOff.drop();
+                    setError(reason instanceof Error ? reason.message : "The filters hiding the person could not be cleared");
+                    return;
+                }
+            }
             select({ type: "person", key: person.person.key });
-            handOff.land(() => setPicked(was => ({ key: person.person.key, seq: (was?.seq ?? 0) + 1 })));
+            setLanding(person.person.key);
         } });
     const search = useMemo(() => (found === undefined ? undefined : handOff.search(found)), [found, handOff]);
+    const shownPeople = value.visiblePeople;
+    useEffect(() => {
+        if (landing === undefined || visibility.loading) return;
+        if (shownPeople.type === "some" && !shownPeople.value.has(landing)) return;
+        setLanding(undefined);
+        handOff.land(() => setPicked(was => ({ key: landing, seq: (was?.seq ?? 0) + 1 })));
+    }, [landing, visibility.loading, shownPeople, handOff]);
     const library = useRosterLibrary({ ...viewProps, storageKey: key, tab: libraryTab, onTab: setLibraryTab,
         find: find === undefined ? undefined : { need: find.need, shown: fit.shown, busy: finding }, onClearFind: () => setFind(undefined), shown: props.shown });
     const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },
