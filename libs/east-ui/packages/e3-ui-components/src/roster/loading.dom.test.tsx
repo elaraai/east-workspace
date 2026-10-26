@@ -120,6 +120,61 @@ test("a step to a week not read yet never covers the frame (#1398, CL5): the too
     expect(toolbar().querySelector("[data-roster-status]")!.hasAttribute("data-pending")).toBe(false);
 });
 
+test("a step to a week not read yet says so on the footer's line as its placeholders show — the two on the frame's one reveal clock, never one without the other — the line naming the week (#1398, CL3, CL4)", async () => {
+    const { container } = await h.mount(ex.rosterWindowed);
+    await settle();
+    const main = () => slot(container, "main");
+    const line = () => slot(container, "footer").querySelector<HTMLElement>("[data-footer-line]")!;
+    const seen = () => ({ placeholders: main().querySelector("[data-roster-unread] [data-shape]:not([data-unrevealed])") !== null, line: !line().hasAttribute("data-idle") });
+    // Every change the frame takes from the step on: what it showed of the placeholders and of the line, each time.
+    const states: { placeholders: boolean; line: boolean }[] = [];
+    const observer = new MutationObserver(() => { states.push(seen()); });
+    observer.observe(container, { subtree: true, childList: true, attributes: true, characterData: true });
+    const held = h.e3.hold(weekRead);
+    // Past the week read ahead, to one not read: two weeks on.
+    await step(container, "]");
+    await settle();
+    await step(container, "]");
+    await settle();
+    await waitFor(() => expect(seen()).toEqual({ placeholders: true, line: true }));
+    observer.disconnect();
+    expect(states.filter(state => state.placeholders !== state.line)).toEqual([]);
+    expect(line().getAttribute("data-loading-line")).toBe("loading");
+    expect(line().querySelector("[data-line-text]")!.textContent).toMatch(/^Loading Mar 26\s–\sApr 1, 2028$/u);
+    await act(async () => { held.release(); });
+    await settle();
+    await waitFor(() => expect(line().hasAttribute("data-idle")).toBe(true));
+});
+
+test("a week's figures are final once its read lands (#1398, CL13): each read after it — the weeks either side read ahead — moves no `Off · assign` of People", async () => {
+    const { container } = await h.mount(ex.rosterWindowed);
+    await settle();
+    const main = () => slot(container, "main");
+    await press(within(slot(container, "toolbar")).getByRole("radio", { name: "People" }));
+    const held = h.e3.hold(weekRead);
+    // Past the week read ahead, to one not read: two weeks on.
+    await step(container, "]");
+    await settle();
+    await step(container, "]");
+    await settle();
+    const offs = () => [...main().querySelectorAll("button")].filter(button => button.textContent === "Off · assign").length;
+    // Each read let go on to e3 in turn, the week's and those after it: what People shows as each lands.
+    const seen: { read: boolean; offs: number }[] = [];
+    while (held.held > 0 && seen.length < 200) {
+        await act(async () => { held.releaseOne(); });
+        await settle();
+        seen.push({ read: main().querySelector("[data-roster-unread]") === null, offs: offs() });
+    }
+    const landed = seen.findIndex(s => s.read);
+    // The week's read landed, and reads landed after it — the weeks either side, read ahead — moving nothing it shows.
+    expect(landed).toBeGreaterThanOrEqual(0);
+    expect(seen.length - 1 - landed).toBeGreaterThan(0);
+    expect(seen.slice(landed)).toEqual(seen.slice(landed).map(() => seen[landed]));
+    await act(async () => { held.release(); });
+    await settle();
+    expect(offs()).toBe(seen[landed]!.offs);
+});
+
 test("a week whose read fails once the Roster has shown keeps its people and dates, and says so once — across the first person's days in view, with Retry — and on the footer's line, never `Roster unavailable`; Retry, the fault gone, lands the week (#1398, CL11)", async () => {
     const { container } = await h.mount(ex.rosterWindowed);
     await settle();
