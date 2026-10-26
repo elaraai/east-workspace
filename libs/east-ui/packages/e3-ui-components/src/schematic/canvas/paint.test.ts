@@ -10,7 +10,9 @@
  * can't catch — that the arc bulges to the side the bulge sign dictates. A
  * drop's marks (#1390), the narrowing's context, emphasis and frame (#1392),
  * a marker whose status is unread and the words of what stands in while a new
- * narrowing is read (#1398), and the links' look (#1403) are
+ * narrowing is read (#1398), the links' look (#1403), and every dot's paper
+ * under every dot's colour, a zone's eyebrow over them (ruled 26 Oct 2026,
+ * "Legible dots") are
  * asserted over a 2D context that records what
  * each stroke and fill draws — its style, width, dash and alpha, and its path's
  * arcs — and each text; the links' routes, each end on an item's edge where it
@@ -25,7 +27,7 @@ import { drawnItem, drawnLink, drawnNet, drawnZone, type DrawnItem, type Schemat
 import { PIN_LEAD_PX, SCHEMATIC_CARD_MAX_PX } from "./model";
 import { MARKER_DOT_HIT_RADIUS, MARKER_DOT_RADIUS, markerHit, markerHitbox } from "./markers";
 import {
-    arcFromBulge, densityStep, hatchLineCount, hatchSpacing, hatchSweepBounds, type BulgeArc,
+    DOT_COLOUR_RADIUS, arcFromBulge, densityStep, hatchLineCount, hatchSpacing, hatchSweepBounds, type BulgeArc,
     paintSchematic, type LodTier, type PaintInput, type RGB, type SchematicPalette,
 } from "./paint";
 import { linkRoutes, netGeometry, netRoutes, parallelLanes, polylineMidpoint, routeEnv } from "./routes";
@@ -346,7 +348,7 @@ describe("the dots draw in batches (#1393)", () => {
     const tints = new Map(racks.map((rack, i): [string, RGB] => [rack.key, i % 2 === 0 ? RED : GREEN]));
     const PAPER = "rgb(8,8,8)", INK = "rgb(3,3,3)", RED_CSS = "rgb(200,0,0)", GREEN_CSS = "rgb(0,200,0)";
 
-    it("draws every dot not selected in a fill and a ring a look — its style, its width and its alpha — every ring over every fill, and the selected one last, on its own", () => {
+    it("draws every dot's paper, then every dot's colour, a look at a time — its style, its width and its alpha — so no dot's paper covers a neighbour's colour; and the selected one last, on its own (ruled 26 Oct 2026, \"Legible dots\")", () => {
         const { ctx, drawn } = recorder();
         paintSchematic({
             ctx, value: { items: racks, zones: [], links: [], nets: [] }, cam: { ppu: 20, tx: 10, ty: 10 }, width: 800, height: 500,
@@ -355,29 +357,57 @@ describe("the dots draw in batches (#1393)", () => {
             // R1 drawn as context, in its own colour: faded alone.
             effect: { excluded: new Set([racks[1]!.key]), excludedOpacity: 0.35, excludedDesaturate: false, matches: new Set(), emphasis: undefined, pulsePhase: 0, frame: undefined },
         });
-        const dots = drawn.filter((d) => d.arcs.length > 0 && d.arcs.every((r) => r.r === 5));
-        const fills = dots.filter((d) => d.op === "fill"), rings = dots.filter((d) => d.op === "stroke");
-        expect(fills.map((d) => [d.style, d.alpha, d.arcs.length])).toEqual([
-            [RED_CSS, 1, 499], [GREEN_CSS, 0.35, 1], [GREEN_CSS, 1, 498],
-            // R7's status is an open ring: the paper inside it.
-            [PAPER, 1, 1],
-            // R500, selected, after them all.
-            [RED_CSS, 1, 1],
+        const SELECTED = { x: (500 % 40) * 20 + 10, y: Math.floor(500 / 40) * 20 + 10 };
+        const isSelected = (d: Drawn) => d.arcs.some((r) => r.x === SELECTED.x && r.y === SELECTED.y);
+        const batched = drawn.filter((d) => d.arcs.length > 0 && !isSelected(d));
+        // Each look: what it draws, in what, how wide its line, at what alpha, each dot's radius, and how many dots.
+        expect(batched.map((d) => [d.op, d.style, d.op === "stroke" ? d.width : 0, d.alpha, d.arcs[0]!.r, d.arcs.length])).toEqual([
+            // The paper: R7's inside — its status an open ring — then every filled dot's ring, R1's faded as context.
+            ["fill", PAPER, 0, 1, 5, 1],
+            ["stroke", PAPER, 1.5, 1, 5, 997], ["stroke", PAPER, 1.5, 0.35, 5, 1],
+            // Then the colours, over all of it: each filled dot's within its ring, and R7's open ring.
+            ["fill", RED_CSS, 0, 1, DOT_COLOUR_RADIUS, 499], ["fill", GREEN_CSS, 0, 0.35, DOT_COLOUR_RADIUS, 1], ["fill", GREEN_CSS, 0, 1, DOT_COLOUR_RADIUS, 498],
+            ["stroke", GREEN_CSS, 2, 1, 5, 1],
         ]);
-        expect(rings.map((d) => [d.style, d.width, d.alpha, d.arcs.length])).toEqual([
-            [PAPER, 1.5, 1, 997], [PAPER, 1.5, 0.35, 1], [GREEN_CSS, 2, 1, 1],
-            [PAPER, 1.5, 1, 1],
-        ]);
-        // Every ring of the batches over every fill of them; the selected dot's own, then its ring, after both.
-        expect(drawn.indexOf(rings[0]!)).toBeGreaterThan(drawn.indexOf(fills[3]!));
-        expect(drawn.indexOf(fills[4]!)).toBeGreaterThan(drawn.indexOf(rings[2]!));
-        const selection = drawn.filter((d) => d.op === "stroke" && d.arcs.some((r) => r.r === 7.5));
-        expect(selection.map((d) => [d.style, d.arcs])).toEqual([[INK, [{ x: (500 % 40) * 20 + 10, y: Math.floor(500 / 40) * 20 + 10, r: 7.5 }]]]);
-        expect(drawn.indexOf(selection[0]!)).toBeGreaterThan(drawn.indexOf(rings[3]!));
-        // Each dot of the batches drawn once, at its rack.
-        const centres = [...fills.slice(0, 4), ...rings.slice(0, 3)].flatMap((d) => d.arcs.map((r) => `${r.x},${r.y}`));
-        expect(new Set(centres).size).toBe(999);
-        expect(centres.length).toBe(999 * 2);
+        // A filled dot's colour reaches its ring's inner edge: on its own, it draws as it did — its colour, then its ring.
+        expect(DOT_COLOUR_RADIUS).toBe(5 - 1.5 / 2);
+        // Each dot of the batches drawn once in the paper and once in its colour, at its rack.
+        const paper = batched.slice(0, 3).flatMap((d) => d.arcs.map((r) => `${r.x},${r.y}`));
+        const colour = batched.slice(3).flatMap((d) => d.arcs.map((r) => `${r.x},${r.y}`));
+        expect([new Set(paper).size, paper.length, new Set(colour).size, colour.length]).toEqual([999, 999, 999, 999]);
+        // R500, selected, after them all, on its own: its colour, its ring of paper, then the selection's ring in the ink.
+        const selection = drawn.filter(isSelected);
+        expect(selection.map((d) => [d.op, d.style, d.arcs[0]!.r])).toEqual([["fill", RED_CSS, 5], ["stroke", PAPER, 5], ["stroke", INK, 7.5]]);
+        expect(drawn.indexOf(selection[0]!)).toBeGreaterThan(drawn.indexOf(batched.at(-1)!));
+    });
+});
+
+describe("a zone's eyebrow over the dots (ruled 26 Oct 2026, \"Legible dots\")", () => {
+    const T = Schematic.Types;
+    const hall = drawnZone({ kind: "halls", key: "h2" }, {
+        ...defaultValue<typeof T.Zone>(T.Zone), x: 0, y: 0, width: 20, height: 10, label: "Hall 2", pattern: variant("outline", { tone: none }),
+    });
+    // A row of racks along the hall's front, packed as a hall's are at Fit — 0.2 m apart at 10 px a unit — under its eyebrow.
+    const racks = Array.from({ length: 50 }, (_, i) => drawnItem({ kind: "racks", key: `R${i}` }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x: 0.5 + i * 0.2, y: 0.4 }), label: `R${i}`,
+    }, undefined)!);
+    /** The palette's canvas paper (`bgCanvas`), and its third ink (`fgMuted`). */
+    const CANVAS = "rgb(9,9,9)", MUTED = "rgb(5,5,5)";
+
+    it("draws its knockout and its words after every dot, so racks packed under a hall's name never cover it", () => {
+        const { ctx, drawn, texts, textsAt } = recorder();
+        paintSchematic({
+            ctx, value: { items: racks, zones: [hall], links: [], nets: [] }, cam: { ppu: 10, tx: 20, ty: 20 }, width: 300, height: 200,
+            visibleItems: racks, tiers: new Map(racks.map((r) => [r.key, "dot" as const])), selected: new Set(), selectedZones: new Set(),
+            centers: new Map(racks.map((r) => [r.key, { x: r.x, y: r.y }])), palette: PALETTE, tints: new Map(),
+        });
+        const lastDot = drawn.reduce((last, d, i) => (d.arcs.some((r) => r.r === 5 || r.r === DOT_COLOUR_RADIUS) ? i : last), -1);
+        expect(lastDot, "the dots are drawn").toBeGreaterThan(0);
+        // Its knockout in the canvas's paper and its words in the third ink, at the hall's top-left, after the last dot.
+        const knockout = drawn.findIndex((d) => d.op === "fill" && d.style === CANVAS);
+        expect(knockout).toBeGreaterThan(lastDot);
+        expect(texts.map((t) => [t.text, t.style, t.x, t.y])).toEqual([["HALL 2", MUTED, 20 + 9, 20]]);
+        expect(textsAt).toEqual([knockout + 1]);
     });
 });
 
@@ -604,15 +634,20 @@ interface Text {
     readonly style: string;
 }
 
-/** A Canvas2D context that records each stroke and fill, and each text: what the paint layer drew, without pixels. */
-function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; texts: Text[] } {
+/**
+ * A Canvas2D context that records each stroke and fill, and each text: what the paint layer drew, without pixels — and,
+ * for each text, how many strokes and fills were drawn before it (`textsAt`).
+ */
+function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; texts: Text[]; textsAt: number[] } {
     const drawn: Drawn[] = [];
     const texts: Text[] = [];
+    const textsAt: number[] = [];
     let state = { strokeStyle: "", fillStyle: "", lineWidth: 1, globalAlpha: 1, dash: [] as number[] };
     const saved: (typeof state)[] = [];
     let arcs: { x: number; y: number; r: number }[] = [];
-    const record = (op: "stroke" | "fill") => drawn.push({
-        op, style: op === "stroke" ? state.strokeStyle : state.fillStyle, width: state.lineWidth, dash: [...state.dash], alpha: state.globalAlpha, arcs: [...arcs],
+    // A rect drawn straight — `fillRect`, `strokeRect` — draws no arc of the path.
+    const record = (op: "stroke" | "fill", of: readonly { x: number; y: number; r: number }[] = arcs) => drawn.push({
+        op, style: op === "stroke" ? state.strokeStyle : state.fillStyle, width: state.lineWidth, dash: [...state.dash], alpha: state.globalAlpha, arcs: [...of],
     });
     const ctx = {
         canvas: { width: 300, height: 200 },
@@ -630,12 +665,15 @@ function recorder(): { ctx: CanvasRenderingContext2D; drawn: Drawn[]; texts: Tex
         arc(x: number, y: number, r: number) { arcs.push({ x, y, r }); },
         stroke() { record("stroke"); },
         fill() { record("fill"); },
-        strokeRect() { record("stroke"); },
-        fillRect() { record("fill"); },
-        fillText(text: string, x: number, y: number) { texts.push({ text, x, y, style: state.fillStyle }); },
+        strokeRect() { record("stroke", []); },
+        fillRect() { record("fill", []); },
+        fillText(text: string, x: number, y: number) {
+            texts.push({ text, x, y, style: state.fillStyle });
+            textsAt.push(drawn.length);
+        },
         measureText(text: string) { return { width: text.length * 6 }; },
     };
-    return { ctx: ctx as unknown as CanvasRenderingContext2D, drawn, texts };
+    return { ctx: ctx as unknown as CanvasRenderingContext2D, drawn, texts, textsAt };
 }
 
 /** The links' look, each part a colour of its own (#1403). */
@@ -760,8 +798,8 @@ describe("the narrowing's context, emphasis and frame (#1392)", () => {
     const effect = (over: Partial<NonNullable<PaintInput["effect"]>>): NonNullable<PaintInput["effect"]> => ({
         excluded: new Set(), excludedOpacity: 0.35, excludedDesaturate: true, matches: new Set(), emphasis: undefined, pulsePhase: 0, frame: undefined, ...over,
     });
-    /** A dot's fill about a centre, in screen px. */
-    const dotAt = (drawn: Drawn[], x: number, y: number) => drawn.find((d) => d.op === "fill" && d.arcs.some((r) => r.x === x && r.y === y && r.r === 5))!;
+    /** A dot's colour about a centre, in screen px: its fill within its ring of paper. */
+    const dotAt = (drawn: Drawn[], x: number, y: number) => drawn.find((d) => d.op === "fill" && d.arcs.some((r) => r.x === x && r.y === y && r.r === DOT_COLOUR_RADIUS))!;
 
     it("what draws as context is faded and greyed — a rack's dot, a run, a zone's edge, and the feed's leg to it — and the rest draws as itself", () => {
         const drawn = paint(effect({ excluded: new Set([c.key, u2.key, cage.key]) }));
