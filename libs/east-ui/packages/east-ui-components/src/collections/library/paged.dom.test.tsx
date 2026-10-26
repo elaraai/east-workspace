@@ -149,6 +149,41 @@ describe("a new narrowing on its way never blinks (#1398, CL8; #1424)", () => {
         expect([busy(), skeletons()]).toEqual([null, 0]);
     });
 
+    test("a read again of the rows it showed — the same narrowing at the same revision, its windows let go meanwhile — keeps them, never the pending rows over them, until they land again", async () => {
+        getStore().write(GATE, gate("shut"));
+        let open = false;
+        const trees = cards();
+        const view = (source: LibraryPageSource<LibraryItemValue>) => <ChakraProvider value={system}><PagedLibrary source={source} id="trees" item={row => row} onOpen={() => {}} /></ChakraProvider>;
+        const { rerender } = render(view(live("all", trees, () => true)));
+        await waitFor(() => expect(keys()).toEqual(["a", "b"]));
+        // Its host makes it again over the same narrowing and revision, whose count and windows are read again.
+        rerender(view(live("all", trees, () => open)));
+        expect([keys(), skeletons(), busy()]).toEqual([["a", "b"], 0, null]);
+        open = true;
+        await act(async () => { getStore().write(GATE, gate("open")); });
+        await waitFor(() => expect(keys()).toEqual(["a", "b"]));
+        expect([skeletons(), busy()]).toEqual([0, null]);
+    });
+
+    test("a new count at the same revision — its host's drafts moving its rows, its windows let go meanwhile — keeps the rows that landed standing in, retained, never at places they no longer hold, until its own land", async () => {
+        getStore().write(GATE, gate("shut"));
+        let open = false;
+        const trees = cards();
+        const cedar: LibraryItemValue = { ...trees[0]!, key: "c", label: "Cedar" };
+        const view = (source: LibraryPageSource<LibraryItemValue>) => <ChakraProvider value={system}><PagedLibrary source={source} id="trees" item={row => row} onOpen={() => {}} /></ChakraProvider>;
+        const { rerender } = render(view(live("all", trees, () => true)));
+        await waitFor(() => expect(keys()).toEqual(["a", "b"]));
+        // A draft puts Cedar first: the same narrowing at the same revision, counted at once, its rows on their way.
+        const moved = [cedar, ...trees];
+        rerender(view({ ...live("all", moved, () => open), total: () => some(BigInt(moved.length)) }));
+        expect([keys(), skeletons()]).toEqual([["a", "b"], 0]);
+        expect([busy()?.getAttribute("aria-busy"), busy()?.getAttribute("aria-disabled")]).toEqual(["true", "true"]);
+        open = true;
+        await act(async () => { getStore().write(GATE, gate("open")); });
+        await waitFor(() => expect(keys()).toEqual(["c", "a", "b"]));
+        expect([skeletons(), busy()]).toEqual([0, null]);
+    });
+
     test("only the first read draws the pending rows: with nothing landed yet, a narrowing on its way shows them", async () => {
         getStore().write(GATE, gate("shut"));
         render(<ChakraProvider value={system}><PagedLibrary source={live("all", cards(), () => false)} id="trees" item={row => row} onOpen={() => {}} /></ChakraProvider>);

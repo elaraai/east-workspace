@@ -22,7 +22,11 @@
  * (#1398, CL8; #1424): the rows that last landed stand in, retained —
  * aria-disabled in a busy region, readable and taking no gesture that edits —
  * until the new narrowing's count and its first rows land, and are swapped
- * whole then, its view starting again at its start. Only the first read draws
+ * whole then, its view starting again at its start; a new revision's rows, or a
+ * new count's at the same revision — its host's drafts moving its rows — stand
+ * in the same way, the view kept. A read again of the rows it showed — the same
+ * narrowing, revision and count, its windows let go meanwhile — keeps them
+ * until they land again. Only the first read, and rows scrolled into view, draw
  * the pending rows.
  *
  * @packageDocumentation
@@ -234,7 +238,8 @@ function landedAt<T>(read: RowsRead<T>, range: { readonly start: number; readonl
 /**
  * The palette's rows: the source as the rail narrows it, or what the tab's own search finds within it. A new narrowing
  * reads from its start, the read that last landed standing in, retained, until its count and its first rows land; a
- * new revision of the same narrowing keeps its view, the last read standing in until the rows in view land at it.
+ * new revision of the same narrowing, or a new count at the same revision, keeps its view, the last read standing in
+ * until the rows in view land at it.
  */
 function PagedRows<T>({ identity, source, id, item, onOpen, onEnter, empty, narrowing, search, noMatch, query, styles, onShowAll }: PagedRowsProps<T>) {
     const words = useFormatters();
@@ -278,12 +283,14 @@ function PagedRows<T>({ identity, source, id, item, onOpen, onEnter, empty, narr
     }, [source, start, end, search, query]);
     const { result } = useTrackedEvaluation(read);
     // The read that last landed, and the narrowing it is of: while a new narrowing's count and first rows are read — or a
-    // new revision's of the rows in view — it stands in, retained (#1398, CL8), and is swapped whole once they land, never
-    // the pending rows again. Rows scrolled into view at the same revision are read as pending rows, the rest kept live.
+    // new revision's of the rows in view, or a new count's at the same revision, its host's drafts moving its rows — it
+    // stands in, retained (#1398, CL8), and is swapped whole once they land, never the pending rows again. Rows scrolled
+    // into view at the same revision and count are read as pending rows, the rest kept live.
     const landed = useRef<{ readonly identity: string; readonly read: RowsRead<T> } | undefined>(undefined);
     if (result.ok && landedAt(result.value, range)) landed.current = { identity, read: result.value };
     const last = landed.current;
-    const standing = result.ok && last !== undefined && (last.identity !== identity || last.read.revision !== result.value.revision);
+    const standing = result.ok && last !== undefined && (last.identity !== identity || last.read.revision !== result.value.revision
+        || (result.value.count !== undefined && result.value.count !== last.read.count));
     // The narrowing the rows shown are of: its view is its own, so the swap starts the new one's at its start.
     const shownIdentity = standing ? last.identity : identity;
     const onRangeChange = useCallback((next: { startIndex: number; endIndex: number }, scrolling: boolean) => {
@@ -292,7 +299,13 @@ function PagedRows<T>({ identity, source, id, item, onOpen, onEnter, empty, narr
             ? old : { identity: shownIdentity, start: next.startIndex, end: next.endIndex + 1 });
     }, [shownIdentity]);
     if (!result.ok) return <BannerView status="error" title={result.error instanceof Error ? result.error.message : "The list could not be read"} />;
-    const { count, rows, shown, searching, blocking, fields, query: searched } = standing ? last.read : result.value;
+    // A read again of the rows it showed — the same narrowing, revision and count, or its count not read yet, its windows
+    // let go meanwhile — keeps what landed of them until they land again: the same rows at the same places, never the
+    // pending rows over them; rows scrolled into view still read as pending rows.
+    const now = result.value;
+    const again = !standing && last !== undefined && last.read !== now;
+    const { count, rows, shown, searching, blocking, fields, query: searched } = standing ? last.read
+        : again ? { ...now, count: now.count ?? last.read.count, rows: new Map([...last.read.rows, ...now.rows]) } : now;
     // A search the rail's choices block says which; one that finds nothing says so; else the rail's words, or the host's.
     const said: LibraryEmpty = blocking !== undefined
         ? { title: "No search with these filters", description: `Clear the filters on ${listed(blocking.map((f) => f.label))} to search by ${listed(fields.map((f) => f.label))}.` }

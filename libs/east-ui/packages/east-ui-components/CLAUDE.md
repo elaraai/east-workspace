@@ -250,11 +250,14 @@ component, nothing in east-ui.
   source's `query()` moves, as for a new source; a reader that keeps windows
   keys them by `snapshotOf(source)`, the revision and the narrowing together.
   It never blinks (#1398, CL8; #1424): while a new narrowing's count and first
-  rows — the rail's, or its own search's — or a new revision's rows in view are
+  rows — the rail's, or its own search's — or a new revision's rows in view, or
+  a new count's at the same revision (its host's drafts moving its rows), are
   read, the rows that last landed stand in, retained (`aria-disabled` in an
   `aria-busy` region on its rows), and are swapped whole once they land, a new
-  narrowing's view starting at its start; only its first read draws pending
-  rows. Its page, `PAGED_LIBRARY_PAGE` (32), is what a host whose figures swap
+  narrowing's view starting at its start; a read again of rows it showed — the
+  same narrowing, revision and count, its windows let go meanwhile — keeps
+  them until they land again. Only its first read, and rows scrolled into view,
+  draw pending rows. Its page, `PAGED_LIBRARY_PAGE` (32), is what a host whose figures swap
   with its rows waits on: the Calendar's Backlog hands its tab's count on with
   the list's first page. A tab's count
   while a rail narrows it is `narrowedCount` over resident cards (`10 of 33`),
