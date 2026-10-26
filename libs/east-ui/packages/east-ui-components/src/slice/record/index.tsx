@@ -24,6 +24,7 @@ import { SliceEditPopover } from "../edit/index.js";
 import { useSliceRailItems, type SliceRailDescriptor } from "../rail/toolbar.js";
 import { SUMMARY_RANK } from "../rail/ranks.js";
 import { useSliceReactivity, useSlicesReactivity } from "../use-slice-reactivity.js";
+import { useSliceDensity } from "../density.js";
 import { PRESETS, presetAnchor, presetWindow } from "../range/presets.js";
 import { printRecordChoice, readRecordChoice, recordChoiceLabel, recordValueLabel } from "./value.js";
 
@@ -115,6 +116,8 @@ export function RecordSlicesSummary({ slices, nouns, except }: {
 }) {
     const styles = useSlotRecipe({ key: "sliceEdit" })();
     const { locale } = useFormatters();
+    // Where it is drawn: in the Filters editor its line wraps within the panel; in the toolbar it is one line, whole.
+    const density = useSliceDensity();
     // The sources it counts, kept while the product and the sources skipped are the same: `except` is keyed by its names.
     const skipped = except?.join("\u0000") ?? "";
     const parts = useMemo(() => {
@@ -139,7 +142,7 @@ export function RecordSlicesSummary({ slices, nouns, except }: {
         });
     }
     if (named.length === 0) return null;
-    return <Box as="span" css={styles.choiceCounts} data-record-slices-summary="">
+    return <Box as="span" css={styles.choiceCounts} data-record-slices-summary="" data-density={density}>
         {named.map((shown, i) => <Fragment key={shown.part.source}>
             {i > 0 && <Box as="span" css={styles.choiceCountsGap} aria-hidden="true">·</Box>}
             <span data-record-slice-source={shown.part.source}>{shown.failed
