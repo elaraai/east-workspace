@@ -54,7 +54,7 @@ type Answer = () => ReturnType<PlanEventKindValue["planItems"]>;
  * An event kind, as the payload carries it: the seams the footer reads, each
  * answering what it is given — its overlaps allowed unless it warns of them,
  * so its items need no times. Every kind is counted before it is read
- * (`planCount`): by `count`, or as holding none, each range it is counted over
+ * (its `count`): by `count`, or as holding none, each range it is counted over
  * kept in `counts`; `exact` false for a kind counted through its day index.
  */
 function kind(k: {
@@ -74,11 +74,11 @@ function kind(k: {
         planUnscheduled: () => k.backlog!(),
         history: () => some((k.commits ?? []).map((at) => ({ at }))),
         overlaps: variant(k.warns === true ? "warn" : "allow", null),
-        planCount: (from: Date, to: Date) => {
+        count: (from: Date, to: Date) => {
             k.counts?.push([from, to]);
             return count();
         },
-        planCountExact: k.exact ?? true,
+        countExact: k.exact ?? true,
     } as unknown as PlanEventKindValue;
 }
 

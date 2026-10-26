@@ -308,8 +308,8 @@ describe("Schedule.events — the Calendar's kind with Plan's options present (P
             assert.ok(equalFor(fields[f])(plain[f] as never, withPlan[f] as never), `the kind's ${f}`);
         }
         const items = equalFor(OptionType(ArrayType(Schedule.Types.Item)));
-        assert.ok(items(plain.items(at(DAY[0]), at(DAY[1]), NO_DRAFTS), withPlan.items(at(DAY[0]), at(DAY[1]), NO_DRAFTS)));
-        assert.ok(items(plain.unscheduled(...RANGE, NO_DRAFTS), withPlan.unscheduled(...RANGE, NO_DRAFTS)));
+        assert.ok(items(plain.items(at(DAY[0]), at(DAY[1]), NO_DRAFTS, none), withPlan.items(at(DAY[0]), at(DAY[1]), NO_DRAFTS, none)));
+        assert.ok(items(plain.unscheduled(...RANGE, NO_DRAFTS, none), withPlan.unscheduled(...RANGE, NO_DRAFTS, none)));
         const j1 = encodeBeast2For(sx.SchedulePrintJob)((await h.read(sx.schedulePrintJobs)).get("j1")!);
         const request = [{ id: "j1", entry: j1, gesture: variant("place", {
             start: at("2026-10-05T08:00:00Z"), end: at("2026-10-05T14:00:00Z"), resource: some({ kind: "presses", key: "pb" }),

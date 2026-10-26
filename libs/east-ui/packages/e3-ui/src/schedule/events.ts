@@ -47,13 +47,17 @@
  * through the same choices with an Unset start. It requires `entries` for
  * original-key inspection and Save. Existing drafts outside a new narrowing
  * remain in the session; Save includes them. A kind narrowed so takes no
- * `window` or `backlogWindow`. Plan's build counts its events first (#1039):
- * its window — through its source, the count its read asks first; through its
- * day index, the days' entries the search its read asks first answers; its
- * record read whole, in memory — is counted and read only within
- * `SCHEDULE_EVENT_CAP`, and `planCount` counts it before one is read, as its
- * window does. A day index files an event under each day it runs on, so its
- * count is an upper bound on the events, never their number (`planCountExact`).
+ * `window` or `backlogWindow`. Every kind counts its events before one is read
+ * (`count`, #1039) — through its source, the count its window's read asks
+ * first; through its day index, the days' entries the search its read asks
+ * first answers; its record read whole, in memory — and the Calendar's and the
+ * Plan's builds read its window only within `SCHEDULE_EVENT_CAP`, counted
+ * first (#1424). A day index files an event under each day it runs on, so its
+ * count is an upper bound on the events, never their number (`countExact`).
+ * A builder over resources read a window at a time reads a kind placed on them
+ * a cell at a time through the shared schedule reader, which hands each read
+ * seam — the events over a window, the backlog, one event by key — what it
+ * read of the kind's series index's cells (`cellsType`, `seriesKey`).
  *
  * A large record may also be read a window at a time (#1199, `window.ts`): given
  * `window`, a paged read of a day index keyed by `Schedule.days`, the kind's
@@ -519,8 +523,8 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * Calendar's kind with how it draws, its roles, and its events as Plan
      * draws them — its window, through its source, through its day index or in
      * memory, its record read whole, counted first and read only within
-     * {@link SCHEDULE_EVENT_CAP}, and its events counted before one is read
-     * (`planCount`), a day index's count an upper bound (`planCountExact`).
+     * {@link SCHEDULE_EVENT_CAP}, its events counted before one is read
+     * (`count`), a day index's count an upper bound (`countExact`).
      *
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
@@ -1339,9 +1343,67 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     });
 
     /**
+     * A kind's three read seams over its events as `itemFn` makes them (#1039): its events over a window, its backlog,
+     * and one event by its key — each from what a reader read by its series index's cells when it is given that, and
+     * never the window then; else over the window, as `reads` reads it.
+     */
+    const readSeams = (itemType: EastType, itemFn: ExprType<FunctionType<[EastType], EastType>>, readType: StructType, reads: Reads) => {
+        const window = windowOf(itemType, itemFn, reads);
+        const cells = cellsOf(itemType, itemFn);
+        const items = East.function(
+            [DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(itemType)),
+            ($, from, to, drafts, read) => {
+                const overWindow = $.const(window);
+                const fromCells = $.const(cells);
+                return read.match({
+                    none: (_$2) => overWindow(from, to, drafts),
+                    some: (_$2, bytes) => East.value(some(fromCells(bytes, from, to, drafts)) as never, OptionType(ArrayType(itemType))),
+                });
+            });
+        const backlog = backlogOf(itemType, itemFn, reads);
+        const besideCells = backlogBeside(itemType, itemFn, reads);
+        const unscheduled = East.function(
+            [DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(itemType)),
+            ($, from, to, drafts, read) => {
+                const overWindow = $.const(backlog);
+                const beside = $.const(besideCells);
+                return read.match({
+                    none: (_$2) => overWindow(from, to, drafts),
+                    some: (_$2, bytes) => beside(bytes, from, to, drafts),
+                });
+            });
+        const windowed = readEvent(itemFn, readType, reads);
+        const besideRead = readBeside(itemFn, readType, reads);
+        const event = East.function(
+            [StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(OptionType(BlobType))], OptionType(readType),
+            ($, id, drafts, from, to, held) => {
+                const overWindow = $.const(windowed);
+                const byCells = $.const(besideRead);
+                return held.match({
+                    none: (_$2) => overWindow(id, drafts, from, to),
+                    some: (_$2, row) => byCells(id, drafts, from, to, row),
+                });
+            });
+        return { items, unscheduled, event };
+    };
+    // The `.east` text of the value the resource field holds for a resource, or for none: what a series or a summary
+    // index of the record files the resource's events under (#1039), the key a reader's cells search for.
+    const seriesKey = East.function([RefOption], OptionType(StringType), ($, ref) => {
+        const result = $.let(none, OptionType(StringType));
+        if (resourceValue !== undefined) {
+            const resolve = $.const(resourceValue);
+            $.match(resolve(ref), { some: ($2, value) => { $2.assign(result, some(East.print(value))); } });
+        }
+        return result;
+    });
+
+    /**
      * The Calendar's kind, part by part, under its slot and through its source's part, its form `form` — and the
-     * function that makes one of its events. Given `cap`, its window through its source is counted first and read only
-     * within it (#1039): the Plan's.
+     * function that makes one of its events. Given `cap`, its window — through its source, through its day index or in
+     * memory, its record read whole — is counted first and read only within it (#1039, #1424): the Calendar's and the
+     * Plan's. Every kind is counted before one of its events is read (`count`), through its source's interval index —
+     * the count its window's read asks first, so none of its own — through its day index, the days' entries the search
+     * its window's read asks first answers (an upper bound, never their number: `countExact` false), or in memory.
      */
     const kindParts = (slot: string, part: ScheduleKindPart | undefined, form: typeof formSpecs, cap?: number) => {
         const reads = readsOf(slot, part, cap);
@@ -1390,8 +1452,13 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 due,
             } as never, ScheduleItemType);
         });
-        const items = windowOf(ScheduleItemType, itemOf as unknown as ExprType<FunctionType<[EastType], EastType>>, reads);
-        const unscheduled = backlogOf(ScheduleItemType, itemOf as unknown as ExprType<FunctionType<[EastType], EastType>>, reads);
+        const seams = readSeams(ScheduleItemType, itemOf as unknown as ExprType<FunctionType<[EastType], EastType>>, ScheduleReadType, reads);
+        // How many of its stored events overlap [from, to), counted before one is read (#1039): through its source's
+        // interval index — the count its window's read asks first, so none of its own; through its day index, the days'
+        // entries the search its window's read asks first answers — an event under each day it runs on, so an upper
+        // bound on them, never their number; or, its record read whole, in memory, by the views' rule.
+        const count = part !== undefined ? scheduleRecordCount(part, slot, keyType, rowType, startField, endField, optional, where)
+            : dayWindow !== undefined ? scheduleDayCount(dayWindow, where) : countWhole;
         // Each template's values, by key, as the templates on the wire carry them.
         const templateRows = boundTemplates ?? East.value(templates.map((t) => ({
             key: t.key, name: t.name, group: t.group === undefined ? none : some(t.group),
@@ -1483,20 +1550,25 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             templates: templateRows,
             templatesSource: templatesSource === undefined ? none : some(templatesSource),
             fields: East.value(form, ArrayType(FieldSpecType)),
-            items,
-            unscheduled,
+            items: seams.items,
+            unscheduled: seams.unscheduled,
             write,
             ready: ready === undefined ? none : some(ready),
             editing,
             entries: entriesSeam,
             history: session.history,
-            event: readEvent(itemOf as unknown as ExprType<FunctionType<[EastType], EastType>>, ScheduleReadType, reads),
+            event: seams.event,
             // A kind with no title names none: the Calendar and Plan, whose inspectors draw it, refuse one.
             schedule: { title: titleField ?? "", start: startField, end: endField,
                 resource: resource === undefined ? none : some(resource.field),
                 status: config.status === undefined ? none : some(config.status.field) },
             overlaps: variant(overlaps, null),
             inspector: inspector === undefined ? none : some(inspector),
+            seriesKey,
+            cellsType: toEastTypeValue(CellsType),
+            count,
+            // Every count but a day index's counts the events themselves.
+            countExact: part !== undefined || dayWindow === undefined,
         };
         return { fields: fieldsOfKind, itemOf, reads };
     };
@@ -1766,82 +1838,21 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     lane: laneField === undefined ? none : some(fieldOf(row, laneField)),
                 } as never, PlanEventItemType);
             }) as unknown as ExprType<FunctionType<[EastType], EastType>>;
-            // One event by its id, the drafts in place: as Plan draws it, and its row as bytes. A draft holds its
-            // event as drafted, or says it was deleted; an event never drafted — or one whose draft can't be read —
-            // is the record's: read whole, or for a kind read a window at a time (#1199) looked for first among the
-            // rows its windows hold over [from, to) and its backlog's, where a gesture's event is drawn, then read
-            // by its key.
-            // A kind a reader reads by its series index's cells (#1039) is given what it read, and never reads the
-            // window: its events from the entries, its backlog read alone beside them, one event from the row the
-            // reader holds of it.
-            const windowed = readEvent(planItemOf, PlanEventReadType, parts.reads);
-            const beside = readBeside(planItemOf, PlanEventReadType, parts.reads);
-            const planEvent = East.function(
-                [StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(OptionType(BlobType))], OptionType(PlanEventReadType),
-                ($, id, drafts, from, to, held) => {
-                    const overWindow = $.const(windowed);
-                    const byCells = $.const(beside);
-                    return held.match({
-                        none: (_$2) => overWindow(id, drafts, from, to),
-                        some: (_$2, row) => byCells(id, drafts, from, to, row),
-                    });
-                });
-            const window = windowOf(PlanEventItemType, planItemOf, parts.reads);
-            const cells = cellsOf(PlanEventItemType, planItemOf);
-            const planItems = East.function(
-                [DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType)),
-                ($, from, to, drafts, read) => {
-                    const overWindow = $.const(window);
-                    const fromCells = $.const(cells);
-                    return read.match({
-                        none: (_$2) => overWindow(from, to, drafts),
-                        some: (_$2, bytes) => East.value(some(fromCells(bytes, from, to, drafts)) as never, OptionType(ArrayType(PlanEventItemType))),
-                    });
-                });
-            const backlog = backlogOf(PlanEventItemType, planItemOf, parts.reads);
-            const backlogByCells = backlogBeside(PlanEventItemType, planItemOf, parts.reads);
-            const planUnscheduled = East.function(
-                [DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType)),
-                ($, from, to, drafts, read) => {
-                    const overWindow = $.const(backlog);
-                    const besideCells = $.const(backlogByCells);
-                    return read.match({
-                        none: (_$2) => overWindow(from, to, drafts),
-                        some: (_$2, bytes) => besideCells(bytes, from, to, drafts),
-                    });
-                });
+            // One event by its id, the drafts in place, as Plan draws it, and its events and its backlog as Plan draws
+            // them: the kind's three read seams over its own item (`readSeams`) — a kind a reader reads by its series
+            // index's cells (#1039) given what it read, and never reading the window.
+            const plan = readSeams(PlanEventItemType, planItemOf, PlanEventReadType, parts.reads);
             const name = (field: string | undefined) => (field === undefined ? none : some(field));
-            // The `.east` text of the value the resource field holds for a resource, or for none: what a series or a
-            // summary index of the record files the resource's events under (#1039), the key a reader's cells search for.
-            const seriesKey = East.function([RefOption], OptionType(StringType), ($, ref) => {
-                const result = $.let(none, OptionType(StringType));
-                if (resourceValue !== undefined) {
-                    const resolve = $.const(resourceValue);
-                    $.match(resolve(ref), { some: ($2, value) => { $2.assign(result, some(East.print(value))); } });
-                }
-                return result;
-            });
-            // How many of its stored events overlap [from, to), counted before one is read (#1039): through its source's
-            // interval index — the count its window's read asks first, so none of its own; through its day index, the
-            // days' entries the search its window's read asks first answers — an event under each day it runs on, so an
-            // upper bound on them, never their number; or, its record read whole, in memory, by the views' rule.
-            const planCount = part !== undefined ? scheduleRecordCount(part, slot, keyType, rowType, startField, endField, optional, where)
-                : dayWindow !== undefined ? scheduleDayCount(dayWindow, where) : countWhole;
             return East.value({
                 ...parts.fields,
                 draw: variant(draw, null),
                 instant: instantKind,
                 overlaps: variant(overlaps, null),
                 roles: { state: name(stateField), quantity: name(quantityField), lane: name(laneField) },
-                planItems,
-                planUnscheduled,
-                planEvent,
+                planItems: plan.items,
+                planUnscheduled: plan.unscheduled,
+                planEvent: plan.event,
                 inspector: inspector === undefined ? East.value(none, OptionType(RowInspectorType)) : East.value(some(inspector), OptionType(RowInspectorType)),
-                seriesKey,
-                cellsType: toEastTypeValue(CellsType),
-                planCount,
-                // Every count but a day index's counts the events themselves.
-                planCountExact: part !== undefined || dayWindow === undefined,
             } as never, PlanEventKindType);
         },
     };

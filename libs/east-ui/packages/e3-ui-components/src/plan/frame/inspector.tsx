@@ -82,7 +82,8 @@ import {
     BannerView, EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, useTrackedEvaluation, type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
 import { PlaceholderShape } from "@elaraai/east-ui-components/internal";
-import { heldRowOf, removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
+import { heldRowOf } from "../../shared/schedule/editing.js";
+import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
 import { usePlanResourceRows, type PlanResourceLookup, type PlanResourceRefValue } from "./resources.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 import { stateText } from "../a11y.js";
@@ -987,7 +988,7 @@ function useWindowFacts(
             if (held !== undefined && target.kind === "resource" && cells!.drawn !== undefined && !cells!.drawn.has(target.key)) return ROW_LOADING;
             // Every kind is counted before it is read: given no cells, it is read over the window once it is within the cap.
             if (held === undefined) {
-                const within = scheduleWithinCap(kind.planCount, new Date(readFrom), new Date(readTo));
+                const within = scheduleWithinCap(kind.count, new Date(readFrom), new Date(readTo));
                 if (within.type !== "some" || !within.value) return READING;
             }
             const kindDrafts = (held === undefined ? drafts : cells!.drafts).get(kind.key) ?? NO_DRAFTS;

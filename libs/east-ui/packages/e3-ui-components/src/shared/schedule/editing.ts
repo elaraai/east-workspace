@@ -29,10 +29,34 @@ import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 type Item = ValueTypeOf<typeof ScheduleItemType>;
 /** An event's projected facts and its full record row. */
 export type ScheduleRead<I extends Item = Item> = Omit<ValueTypeOf<typeof ScheduleReadType>, "item"> & { readonly item: I };
-/** The common kind, with a renderer's richer projection when it has one. */
+/**
+ * The common kind, with a renderer's richer projection when it has one: one event by its key's text, the drafts in
+ * place, its row as a reader of the kind's cells holds it given (#1039) — `none` for a kind given no cells, which reads
+ * the window; `some(none)` for an event they do not hold, read by its key ({@link heldRowOf}).
+ */
 export type ScheduleEditingKind<I extends Item = Item> = Omit<ValueTypeOf<typeof ScheduleKindType>, "event"> & {
-    readonly event: (id: string, drafts: ScheduleKindDraftsValue, from: Date, to: Date) => option<ScheduleRead<I>>;
+    readonly event: (id: string, drafts: ScheduleKindDraftsValue, from: Date, to: Date, held: option<option<Uint8Array>>) => option<ScheduleRead<I>>;
 };
+/**
+ * The rows each kind a reader reads by its cells holds (#1039), by the kind's slot, then by the event's key's text: where
+ * a gesture, the inspector and a banner find one of its events, with no read of its own.
+ */
+export type ScheduleHeldRows = ReadonlyMap<string, ReadonlyMap<string, { readonly row: Uint8Array }>>;
+/**
+ * What the cells' reader holds of one event of a kind (#1039), as the kind's `event` takes it: `none` for a kind it gives
+ * no cells, which reads the window; `some(none)` for an event they do not hold, read by its key; else the event's row.
+ *
+ * @param held - The rows each kind given cells holds, by its slot
+ * @param kind - The event's kind's slot
+ * @param id - The event's key's text
+ * @returns What its `event` is given
+ */
+export function heldRowOf(held: ScheduleHeldRows | undefined, kind: string, id: string): option<option<Uint8Array>> {
+    const rows = held?.get(kind);
+    if (rows === undefined) return none;
+    const row = rows.get(id);
+    return some(row === undefined ? none : some(row.row));
+}
 /** One event entry's identity in the shared session. */
 export interface ScheduleEntryRef { readonly id: string }
 /** The time range the renderer reads. */
@@ -202,6 +226,12 @@ export interface ScheduleEditingArgs<I extends Item = Item> {
      * over its record (`sourceId`) — the Calendar's, its slice's part named after the kind (#1343).
      */
     recordSlices?: readonly ValueTypeOf<RecordSliceBindType>[] | undefined;
+    /**
+     * The rows each kind read by its cells holds (#1039), by the kind's slot, then by the event's key's text: where a
+     * gesture, the inspector and a banner find one of its events, with no read of its own; one they do not hold is read
+     * by its key, never over the window. Read as each read runs, so new cells make no new kinds.
+     */
+    held?: ScheduleHeldRows | undefined;
 }
 
 /** An event kind or a record, as the history holds its session. */
@@ -287,9 +317,12 @@ function sameDrafts(a: ScheduleEventDraftsValue, b: ScheduleEventDraftsValue): b
  * @param args - The kinds, the records beside them, when their drafts go, the canvas's storage key, the sessions that join, and the range the canvas reads
  * @returns The history, the kinds' and the records' sessions and drafts, how an event is read, and how a gesture is recorded
  */
-export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_RECORDS, reads, applyMode, storageKey, joined, range, recordSlices }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
+export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_RECORDS, reads, applyMode, storageKey, joined, range, recordSlices, held: cellRows }: ScheduleEditingArgs<I>): ScheduleEditing<I> {
     // The history, as the kinds' checks read their originals through it.
     const historyRef = useRef<EditHistory<ScheduleEntryRef> | undefined>(undefined);
+    // The latest rows the kinds' cells hold: the kinds' reads read them as they run, so new cells make no new kinds.
+    const heldRef = useRef(cellRows);
+    heldRef.current = cellRows;
     // Each kind, then each record: a session each, in that order.
     const parts = useMemo((): EditedPart<I>[] => [
         ...kinds.map((kind) => ({ key: kind.key, name: kind.name, editing: kind.editing, entries: kind.entries, ready: kind.ready, kind, read: reads?.[kind.key] })),
@@ -447,7 +480,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
         const at = rangeRef.current ?? NO_RANGE;
         let got: ReturnType<ScheduleEditingKind<I>["event"]>;
         try {
-            got = kind.event(change.id, EMPTY_SCHEDULE_DRAFTS, at.from, at.to);
+            got = kind.event(change.id, EMPTY_SCHEDULE_DRAFTS, at.from, at.to, heldRowOf(heldRef.current, kind.key, change.id));
         } catch (err) {
             console.error(`[Schedule] ${kind.name}'s event ${change.id} could not be read:`, err);
             return undefined;
@@ -481,7 +514,7 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
             // A record beside the kinds holds rows, not events: its builder reads them itself.
             if (event === undefined) return undefined;
             const at = rangeRef.current ?? NO_RANGE;
-            const got = event.event(id, drafts.drafts.get(kind) ?? EMPTY_SCHEDULE_DRAFTS, at.from, at.to);
+            const got = event.event(id, drafts.drafts.get(kind) ?? EMPTY_SCHEDULE_DRAFTS, at.from, at.to, heldRowOf(heldRef.current, kind, id));
             return got.type === "some" ? got.value : undefined;
         },
         mint(kind: string, from: string, minted: ReadonlySet<string>): string | undefined {

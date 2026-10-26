@@ -65,12 +65,13 @@ test("the payload contains bound kinds and preferences, with no authored frame t
 
 test("the window and backlog project one record, and a shared by-key read retains all its typed fields", async () => {
     const kind = (await payload()).events[0]!;
-    const scheduled = kind.items(from, to, drafts()); const backlog = kind.unscheduled(from, to, drafts());
+    // No reader's cells: the window and the backlog are read over the window, the event by its key.
+    const scheduled = kind.items(from, to, drafts(), none); const backlog = kind.unscheduled(from, to, drafts(), none);
     assert.equal(scheduled.type, "some"); assert.equal(backlog.type, "some");
     if (scheduled.type !== "some" || backlog.type !== "some") assert.fail("expected loaded records");
     assert.deepEqual(scheduled.value.map(item => item.key), ["job1", "job2", "job3", "job5"]);
     assert.equal(backlog.value.length, 4); assert.equal(backlog.value[0]!.minutes, 120n);
-    const read = kind.event("job1", drafts(), from, to); if (read.type !== "some") assert.fail("missing event");
+    const read = kind.event("job1", drafts(), from, to, none); if (read.type !== "some") assert.fail("missing event");
     assert.equal(decodeBeast2For(ex.CalendarJob)(read.value.row).customer, "Alder Works");
 });
 
@@ -102,7 +103,7 @@ test("templates are reevaluated from their record, including their initial value
 
 test("a schedule and a return to backlog preserve the other fields", async () => {
     const kind = (await payload()).events[0]!;
-    const read = kind.event("backlog1", drafts(), from, to); if (read.type !== "some") assert.fail("missing backlog");
+    const read = kind.event("backlog1", drafts(), from, to, none); if (read.type !== "some") assert.fail("missing backlog");
     const placed = kind.write([{ id: "backlog1", entry: read.value.row, gesture: variant("place", { start: from, end: to, resource: some({ kind: "machines", key: "lathe1" }) }) }])[0]!;
     if (placed.type !== "some") assert.fail("schedule refused");
     const returned = kind.write([{ id: "backlog1", entry: placed.value, gesture: variant("unplace", null) }])[0]!;

@@ -29,7 +29,7 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StringType, compareFor, equalFor, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, compareFor, equalFor, none, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
 import { findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type Formatters, type KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked, recordSlicePage, recordSliceRevision, recordSliceSeek, toSeekQuery } from "@elaraai/east-ui-components/internal";
@@ -155,8 +155,8 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick }
             // A kind read a window at a time with no source of the slice has no index to seek: it lists nothing.
             if (kind.entries.type === "some") return [];
             const drafts = draftsOf(kind);
-            return [Promise.all([awaitTracked(() => kind.items(EVER.from, EVER.to, drafts)),
-                kind.backlog ? awaitTracked(() => kind.unscheduled(EVER.from, EVER.to, drafts)) : Promise.resolve([] as CalendarItem[])])
+            return [Promise.all([awaitTracked(() => kind.items(EVER.from, EVER.to, drafts, none)),
+                kind.backlog ? awaitTracked(() => kind.unscheduled(EVER.from, EVER.to, drafts, none)) : Promise.resolve([] as CalendarItem[])])
                 .then(([scheduled, backlog]): FindRun => {
                     const items = wholeEventMatches([...scheduled, ...backlog], query);
                     return { kind, part: undefined, start: 0, count: items.length, items };
@@ -174,7 +174,7 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick }
             const entries = await awaitTracked(() => recordSlicePage(part, WHOLE, BigInt(run.start + offset), BigInt(n))) as readonly RecordEntry[];
             const { range: window } = latest.current;
             const drafts = draftsOf(run.kind);
-            const read = await Promise.all(entries.map(entry => awaitTracked(() => run.kind.event(entry.key, drafts, window.from, window.to))));
+            const read = await Promise.all(entries.map(entry => awaitTracked(() => run.kind.event(entry.key, drafts, window.from, window.to, none))));
             return read.map((event, i) => ({ at: at + i, found: { item: event.item, kind: run.kind.name } }));
         }));
         return parts.flat();
