@@ -96,7 +96,7 @@ import { StringType, StructType, equalFor, fromEastTypeValue, none, parseFor, pr
 import { Sheet, SheetBatchReadinessType, SheetDraftFieldType } from "@elaraai/e3-ui/internal";
 import {
     focusKeySearch, getSomeorUndefined, useCoarsePointer, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional, useDragTarget, useTrackedEvaluation,
-    type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, type ToolbarItem,
+    type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, takeKey, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type RowsViewport, usePickHandOff, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
@@ -2026,16 +2026,18 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const onProposalPick = useCallback((i: number) => dispatch({ t: "proposal.pick", i }), [dispatch]);
     const onProposalAccept = useCallback((i: number) => dispatch({ t: "proposal.take", i }), [dispatch]);
     const onProposalReject = useCallback((i: number) => dispatch({ t: "proposal.reject", i }), [dispatch]);
+    // Every key the grid acts on goes no further than the Sheet (#1398): a printable key that starts an edit — `[` among
+    // them — never reaches a shortcut of the page around it.
     const onKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
         if (store.ui.edit !== null) return;
         if (e.altKey && e.key === "Insert") {
-            e.preventDefault(); ringMoves.current += 1; onInsert("row", store.ui.sel.r, e.shiftKey ? "before" : "after"); return;
+            takeKey(e); ringMoves.current += 1; onInsert("row", store.ui.sel.r, e.shiftKey ? "before" : "after"); return;
         }
         const meta = e.metaKey || e.ctrlKey;
         // The history keys every collection shares (#988).
         const historyKey = historyShortcut(e);
         if (historyKey !== undefined) {
-            e.preventDefault();
+            takeKey(e);
             ringMoves.current += 1;
             onHistoryAction(historyKey);
             return;
@@ -2054,7 +2056,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             const probe = sheetReducer(uiRef.current, { t: "key", key: "Tab", shift: e.shiftKey, meta, alt: e.altKey }, ctxRef.current);
             if (probe.state === uiRef.current && probe.effects.length === 0) return;
         }
-        e.preventDefault();
+        takeKey(e);
         ringMoves.current += 1;
         dispatch({ t: "key", key: e.key, shift: e.shiftKey, meta, alt: e.altKey });
     }, [dispatch, store.ui.edit, store.ui.sel.r, onHistoryAction, onInsert]);

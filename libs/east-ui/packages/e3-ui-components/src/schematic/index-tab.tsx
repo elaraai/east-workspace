@@ -28,7 +28,8 @@
  *   (`aria-activedescendant`, as the Sheet's grid does): ↑ and ↓ move between
  *   the rows, Home and End to the first and the last, → opens a zone or goes
  *   into it, ← closes it or goes up to its zone, and Enter or Space does a
- *   row's click — each move bringing its row into view.
+ *   row's click — each move bringing its row into view, and each key the
+ *   tree acts on going no further than the Schematic (#1398).
  *
  * The rows are the shared virtual rows (`VirtualRows`): only those in view are
  * mounted, however many the drawing holds, and each says where it stands among
@@ -44,7 +45,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faAngleRight } from "@fortawesome/free-solid-svg-icons";
 import { StringType, equalFor } from "@elaraai/east";
 import { SCHEMATIC_WINDOW_READ_ROWS } from "@elaraai/e3-ui/internal";
-import { getSomeorUndefined, useSlicesReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { getSomeorUndefined, takeKey, useSlicesReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { LibraryEmptyState, LibrarySearchBox, SEARCH_DELAY_MS, VirtualRows } from "@elaraai/east-ui-components/internal";
 import { READING } from "./area.js";
 import type { DrawnItem, DrawnZone } from "./canvas/drawn.js";
@@ -200,12 +201,13 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
         setActive(rowKey(row));
         setShown((was) => ({ index, nonce: (was?.nonce ?? 0) + 1 }));
     }, [rows]);
+    // Each key the tree acts on goes no further than the Schematic (#1398).
     const onKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
         if (activeIndex === undefined) return;
         const row = rows[activeIndex]!;
         const go = (to: number) => {
             if (rows[to] === undefined) return;
-            e.preventDefault();
+            takeKey(e);
             moveTo(to);
         };
         if (e.key === "ArrowDown") go(activeIndex + 1);
@@ -213,10 +215,10 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
         else if (e.key === "Home") go(0);
         else if (e.key === "End") go(rows.length - 1);
         else if (e.key === "ArrowRight" && row.kind === "zone" && row.branch) {
-            e.preventDefault();
+            takeKey(e);
             if (!row.open) setZone(row.zone.key, true); else go(activeIndex + 1);
         } else if (e.key === "ArrowLeft") {
-            e.preventDefault();
+            takeKey(e);
             if (row.kind === "zone" && row.open && row.branch && query === "") { setZone(row.zone.key, false); return; }
             // Up to the zone it is in: the nearest row above, one level up.
             for (let i = activeIndex - 1; i >= 0; i--) {
@@ -224,7 +226,7 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
                 if (above.kind === "zone" && above.depth < row.depth) { moveTo(i); return; }
             }
         } else if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
+            takeKey(e);
             activate(row);
         }
     }, [rows, activeIndex, moveTo, setZone, activate, query]);

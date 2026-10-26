@@ -97,7 +97,7 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { SortedMap, StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
 import { Plan, PlanComponent, PlanEventBlocksType, PlanEventPagedType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, useDataStable, usePersistedState,
+    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useDataStable, usePersistedState,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
@@ -401,16 +401,17 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const selectedEvents = usePlanSelector(snapshot => snapshot.store.ui.elements);
     const eventEditing = chrome?.events;
     const selectEvents = chrome?.selectEvents;
-    // The frame owns shortcuts even when no inspector is declared or its pane is collapsed.
+    // The frame owns shortcuts even when no inspector is declared or its pane is collapsed; a key it acts on goes no
+    // further than the Plan (#1398).
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
         if (event.defaultPrevented || event.nativeEvent.isComposing || typedInto(event.target)) return;
         const action = historyShortcut(event);
         if (action !== undefined && onAction !== undefined) {
-            event.preventDefault();
+            takeKey(event);
             onAction(action);
         } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === "Delete" || event.key === "Backspace")
             && removePlanEvents(selectedEvents, eventEditing)) {
-            event.preventDefault();
+            takeKey(event);
             selectEvents?.([]);
         }
     }, [onAction, selectedEvents, eventEditing, selectEvents]);

@@ -589,7 +589,8 @@ export {
 // edit through it themselves, as the query builder does (#935): the session and
 // its React hook, a draft lifted from an entry, the history item for their one
 // toolbar and its keys, heard anywhere in a builder's frame but a field typed
-// into (#1185), the banners a builder shows its error in instead (#1184), and
+// into (#1185) — a key the builder acts on taken there, going no further
+// (`takeKey`, #1398) — the banners a builder shows its error in instead (#1184), and
 // the session's words — its error, too, in the surface's (#936). A builder
 // whose entries live in several sources keeps a session per source and one
 // history over them (#1194): the Plan's event kinds, the Calendar's.
@@ -603,6 +604,7 @@ export {
     historyToolbarItem,
     historyShortcut,
     typedInto,
+    takeKey,
     SessionBanners,
     editingMessages,
     sessionErrorText,
@@ -626,4 +628,5 @@ export {
     type Origin,
     type Placement,
     type SessionBannersProps,
+    type TakenKey,
 } from "./editing/index.js";

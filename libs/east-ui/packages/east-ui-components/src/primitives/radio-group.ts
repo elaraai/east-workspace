@@ -15,13 +15,15 @@
  */
 
 import type { KeyboardEvent } from "react";
+import { takeKey } from "../editing/shortcuts.js";
 
 /**
  * Move a radio group to the radio a key names, focus it, and pick it.
  *
  * @param e - The group's keydown: its `currentTarget` holds the radios (`role="radio"`), its `target` the focused one
  * @param pick - Picks the radio at an index, in the group's DOM order
- * @returns Whether the key was the group's — it is then handled, so the page does not scroll
+ * @returns Whether the key was the group's — it is then taken (`takeKey`, #1398): the page does not scroll, and the key
+ *   goes no further than the group
  */
 export function radioGroupKey(e: KeyboardEvent<HTMLElement>, pick: (index: number) => void): boolean {
     const all = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[role='radio']"));
@@ -37,7 +39,7 @@ export function radioGroupKey(e: KeyboardEvent<HTMLElement>, pick: (index: numbe
         case "End": j = last; break;
         default: return false;
     }
-    e.preventDefault();
+    takeKey(e);
     radios[j]!.focus();
     pick(all.indexOf(radios[j]!));
     return true;

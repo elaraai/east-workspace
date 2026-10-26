@@ -6,7 +6,8 @@
 /**
  * The history shortcuts (#988) — one reading of a key press for every
  * editable collection, so Undo and Redo take the same keys on the Sheet, the
- * Plan and the SnapGrid.
+ * Plan and the SnapGrid — and what a builder does with a key it acts on
+ * ({@link takeKey}, #1398): it goes no further than the builder.
  *
  * @packageDocumentation
  */
@@ -56,4 +57,25 @@ export function typedInto(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
     if (target.isContentEditable || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return true;
     return target instanceof HTMLInputElement && !UNTYPED_INPUTS.has(target.type);
+}
+
+/** A key press a handler takes: a React or a DOM keyboard event. */
+export interface TakenKey {
+    /** Keeps the browser from the key's own action — a scroll, a click. */
+    preventDefault(): void;
+    /** Keeps the key from every listener past the handler's element. */
+    stopPropagation(): void;
+}
+
+/**
+ * Takes a key press a builder acts on (#1398): its default is prevented, and
+ * it goes no further than the builder — a shortcut of the page around it on
+ * the same key, the showcase's `[` that folds its sidebar, never hears it. A
+ * handler takes only a key it acts on; one it leaves goes on as it came.
+ *
+ * @param e - The key press
+ */
+export function takeKey(e: TakenKey): void {
+    e.preventDefault();
+    e.stopPropagation();
 }

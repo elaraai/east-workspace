@@ -83,7 +83,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
+import { memo, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from "react";
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import RBush from "rbush";
 import { StringType, equalFor, type option } from "@elaraai/east";
@@ -197,6 +197,11 @@ export interface SchematicCanvasHandle {
      * pick lands on an item the canvas doesn't draw as itself — the rail's filters hide it, or its layer does (#1404).
      */
     look(x: number, y: number): void;
+    /**
+     * Hears a key from inside the frame as it leaves it — the frame's own keys first (#1398): Space, Ctrl, Del and Esc,
+     * the canvas's while the pointer is over it (invariant 16), each it acts on taken there, going no further.
+     */
+    key(event: KeyboardEvent<HTMLElement>): void;
 }
 
 /** Props of {@link SchematicCanvas}. */
@@ -557,8 +562,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     const { clearZoneSelection, flyToItem, stepSelection, pendingSelectRef, setSelectAsked } = selectionSteps;
     // The gestures' handlers (`use-gestures.ts`): the pointer's over the mode machine, the keys and the taps.
     const {
-        hoveredRef, onCanvasKeyDown, itemKeyAt, zoneKeyAt, linkKeyAt, onCanvasPointerDown, onCanvasPointerMove, onCanvasPointerUp, onCanvasPointerCancel,
-        onCanvasDoubleClick,
+        hoveredRef, onCanvasKeyDown, onFrameKeyDown, itemKeyAt, zoneKeyAt, linkKeyAt, onCanvasPointerDown, onCanvasPointerMove, onCanvasPointerUp,
+        onCanvasPointerCancel, onCanvasDoubleClick,
     } = useGestures({
         value, data, layers, tool, linkKind, words, editing, onRefused, onOpen, connectValues, W, H, canvasRef, refById, labelById, inertKeys, narrowedOut,
         shownZones, visibleItems, tiers, lod, index, itemById, lanes, linkTree, linkById, netById, dragging, canvasSelection, selectionSteps, camera,
@@ -635,8 +640,9 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             return dropPoint({ x: (snap.size.w / 2 - cam.tx) / ppuLive, y: (snap.size.h / 2 - cam.ty) / ppuLive }, ppuLive);
         },
         look: (x, y) => flyTo(pointFrame({ x, y })),
+        key: onFrameKeyDown,
     }), [zoomBy, resetView, stepSelection, items, inertKeys, flyToItem, shownZones, flyTo, commitSelection, commitLinkSelection, commitZoneSelection,
-        clearZoneSelection, data.links, data.nets, centers, layerHiddenKeys, renderSnapRef, cameraRef, pendingSelectRef, setSelectAsked]);
+        clearZoneSelection, data.links, data.nets, centers, layerHiddenKeys, renderSnapRef, cameraRef, pendingSelectRef, setSelectAsked, onFrameKeyDown]);
 
     return (
         <Box
