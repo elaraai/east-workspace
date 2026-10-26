@@ -409,7 +409,8 @@ wherever they are — read through the source by their place, never only what is
 drawn — and the Roster's marks a row the rail's narrowing hides `· hidden by
 the filters`. The Sheet's names the choices of its `rows` source that hide it,
 as the rail words them — `· hidden by Status: Ready — picking it clears that
-filter` — asked of e3 through the record's indexes (`sheet/hidden.ts`): each
+filter` — asked of e3 through the record's indexes (the hidden pick,
+`shared/schedule/hidden.ts`, which words them too): each
 choice alone where an index serves it, else with the choices before it on the
 narrowing's index, as the rail plans them, one request a choice for the hidden
 rows the box lists and no others, kept by the revision and the narrowing, the
