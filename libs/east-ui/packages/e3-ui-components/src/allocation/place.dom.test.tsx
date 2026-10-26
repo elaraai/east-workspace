@@ -79,6 +79,19 @@ test("in the Table, a pick's bin's row takes the keyboard — its row selected, 
     await waitFor(() => expect(document.activeElement).toBe(row()));
 });
 
+test("Search Records says what it searches — its box `Search bins by key` — and a query no bin's key matches, whatever is typed of what the board shows, says so and where a bin's key is (#1398)", async () => {
+    const { container } = await open(ex.allocationTable);
+    await waitFor(() => expect(searchBox(container)).not.toBeNull());
+    await settle();
+    expect(searchBox(container).querySelector("input")!.placeholder).toBe("Search bins by key");
+    // A lane, a time and a load's code, each as the Table shows it: none is a bin's key.
+    for (const typed of ["B-3", "03:55", "LD-2201"]) {
+        await typeIntoSearch(container, typed);
+        await waitFor(() => expect(within(document.body).getByText("No bin's key matches. Select a bin to see its key in Details.")).toBeTruthy(), { timeout: 5_000 });
+        await act(async () => { fireEvent.click(searchBox(container).querySelector("button[aria-label='Clear search']")!); });
+    }
+});
+
 /** The Table's scroll box. */
 const scroller = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-allocation-table] [data-virtual-rows]")!;
 /** Where the Table's view rests, as the board saves it: its top line's key and the px into it. */
