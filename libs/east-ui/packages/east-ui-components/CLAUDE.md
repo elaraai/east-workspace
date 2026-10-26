@@ -369,7 +369,10 @@ component, nothing in east-ui.
   the Filters editor
   heads each source's fields with its count, as a Library tab counts (`6`,
   `2 of 30`), and keeps a line under them only for the sources no heading
-  counts (ruled 19 Oct 2026, #1358). Controls
+  counts (ruled 19 Oct 2026, #1358). Its head counts the rail's own choices,
+  each field it lists that holds one (`2 active`) — never a narrowing it
+  leaves out: a source's date window, which a builder's navigation writes,
+  or a field it does not offer. Controls
   that fold into one chip (#1229) fold into the shared `ChipMenu`, whose menu
   does what they do: their steps and the chip's share a `bundle`, so the chip
   draws in the step that hides them, and a popover one of them opens hangs

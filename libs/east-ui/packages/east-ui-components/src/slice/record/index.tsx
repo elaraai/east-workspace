@@ -388,7 +388,8 @@ export function useRecordSliceToolbarItems(slice: Bind | undefined, options: { p
         const kinds = [...byKind.keys(), ...(presets ? ["presets"] : []), ...(resolution && resolutions.length > 0 ? ["resolution"] : [])];
         const summary = slice !== undefined && affordances.includes("summary") ? <RecordSliceSummary slice={slice} {...(noun === undefined ? {} : { noun })} /> : undefined;
         const model = slice === undefined || state === undefined ? undefined : {
-            version, activeCount: state.where.size, clear: () => { slice.clearAll(); },
+            // The rail's own choices: each field it offers that holds one — never a field it leaves out, a window among them.
+            version, activeCount: fields.filter(field => state.where.has(field.fieldId)).length, clear: () => { slice.clearAll(); },
             status: summary,
             describe: (kind: string): SliceRailDescriptor => {
                 if (kind === "resolution") return { kind, label: "Resolution", icon: faCalendar, text: state.resolution.type === "some" ? `Resolution: ${state.resolution.value.type}` : "Auto", active: state.resolution.type === "some", rank: 2 };
@@ -481,7 +482,9 @@ export function useRecordSlicesToolbarItems(slices: Product | undefined, options
         const summary = counted ? <RecordSlicesSummary slices={slices} nouns={nouns} /> : undefined;
         const status = counted ? <RecordSlicesSummary slices={slices} nouns={nouns} except={headed ? headings : []} /> : undefined;
         const model = slices === undefined ? undefined : {
-            version, activeCount: slices.parts.reduce((count, part) => count + part.slice.read().where.size, 0),
+            // The rail's own choices: each field it lists that holds one — never a source's window, which the host's
+            // navigation writes and the rail leaves out (`excludeFields`), nor any other field it does not offer.
+            version, activeCount: entries.filter(entry => entry.part.slice.read().where.has(entry.field.fieldId)).length,
             clear: () => { slices.clearAll(); },
             status,
             describe: (kind: string): SliceRailDescriptor => {

@@ -346,6 +346,28 @@ test("fields from one source are not headed: the line under them names each sour
     await waitFor(() => expect(dialog.querySelector("[data-record-slices-summary]")?.textContent).toBe("7 of 20 lanes"));
 });
 
+/** The editor's head's count of what narrows: `2 active`. */
+const activeCount = (dialog: HTMLElement) => within(dialog).getByText(/^\d+ active$/).textContent;
+
+test("the editor's head counts the rail's own choices — each field it lists that holds one — never a narrowing it leaves out, a source's window or a field it does not offer, which Clear all leaves no count of either", async () => {
+    const f = fixture(new UIStore(), {}, true);
+    // The crews narrowed as a host's window narrows a Plan's shifts, the kilns on a field the rail does not offer: neither is the rail's.
+    act(() => {
+        f.shifts.write({ where: new Map([["start", variant("values", ['"Night"'])]]), preset: none, resolution: none });
+        f.kilns.choose("group", ['"Bulk"']);
+        f.lanes.choose("area", ['"North"']);
+    });
+    show(f.product, { folded: true, excludeFields: ["resources.group"] });
+    const dialog = await openEditor();
+    expect(activeCount(dialog)).toBe("1 active");
+    // The fields it lists, each holding a choice: Area, and the kilns' group once offered again.
+    cleanup();
+    show(f.product, { folded: true });
+    expect(activeCount(await openEditor())).toBe("2 active");
+    await userEvent.setup().click(within(screen.getByRole("dialog")).getByRole("button", { name: "Clear all" }));
+    await waitFor(() => expect(activeCount(screen.getByRole("dialog"))).toBe("0 active"));
+});
+
 test("the summary counts a source in the host's noun, else its label as running text writes it, else its name", () => {
     const named = fixture(new UIStore(), { lanes: { label: "Bays" }, resources: { label: "SKU" } });
     narrowBoth(named);
