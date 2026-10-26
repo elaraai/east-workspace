@@ -4,11 +4,15 @@
  */
 
 /** One command path for desktop gestures and explicit agenda actions. */
-import { encodeBeast2For, fromEastTypeValue, none, some, variant, type StructType } from "@elaraai/east";
+import { DateTimeType, compareFor, encodeBeast2For, fromEastTypeValue, none, some, variant, type StructType } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange, ScheduleEditing } from "../shared/schedule/editing.js";
 import { durationMinutes } from "../shared/schedule/due.js";
-import { QUARTER, sameResource, type CalendarItem, type CalendarKind, type CalendarRef, type CalendarTemplate, type CalendarValue } from "./model.js";
+import {
+    QUARTER, sameResource, type CalendarItem, type CalendarKind, type CalendarRef, type CalendarResource, type CalendarRow, type CalendarTemplate, type CalendarValue,
+} from "./model.js";
+
+const compareDate = compareFor(DateTimeType);
 
 /** A placement proposed by a form, a drop or a draw gesture. */
 export interface CalendarPlacement {
@@ -45,11 +49,24 @@ export function initialPlacement(source: CalendarSource, day: Date): CalendarPla
 }
 
 /**
+ * The paged resource kind's resources the frame holds (#1424), as a creation with no resource may land on one: the rows
+ * of the windows held, in the kind's order, and the resources among them whose events are read, which alone can be said
+ * to be free — every one where the kind's events are read over the window (`known` undefined).
+ */
+export interface CalendarPagedRows {
+    readonly rows: readonly CalendarRow[];
+    readonly known: ReadonlySet<string> | undefined;
+}
+/** No paged kind's resource held. */
+const NO_PAGED_ROWS: CalendarPagedRows = { rows: [], known: undefined };
+
+/**
  * Commands write through the shared Schedule seams and one EditHistory. Their checks read every resource, whatever
- * the rail hides; a creation with no resource lands on one the rail shows (`shown`, #1343).
+ * the rail hides; a creation with no resource lands on one the rail shows (`shown`, #1343) — of a paged kind, one of the
+ * windows the frame holds (`paged`, #1424).
  */
 export function calendarCommands(value: CalendarValue, editing: ScheduleEditing, select: (refs: CalendarRef[]) => void, scheduled: readonly CalendarItem[] = [],
-    shown: CalendarValue["resources"] = value.resources): CalendarCommands {
+    shown: CalendarValue["resources"] = value.resources, paged: CalendarPagedRows = NO_PAGED_ROWS): CalendarCommands {
     const kindOf = (item: CalendarItem) => value.events.find(kind => kind.key === item.kind);
     const validate = (source: CalendarSource, at: CalendarPlacement): string | undefined => {
         const { kind } = source;
@@ -83,7 +100,7 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
         editing,
         place(source, given, origin = "typed", checkOnly = false) {
             const at = given.resource.type === "none" && ("template" in source || source.item.start.type === "none")
-                ? { ...given, resource: firstResource({ ...value, resources: shown }, source.kind, given, scheduled) } : given;
+                ? { ...given, resource: firstResource({ ...value, resources: shown }, source.kind, given, scheduled, paged) } : given;
             const refusal = validate(source, at); if (refusal !== undefined) return refusal;
             const creating = "template" in source;
             const id = creating ? editing.mint(source.kind.key, source.template.key, new Set()) : source.item.key;
@@ -176,11 +193,28 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
     };
 }
 
-/** A creation without a resource uses the first compatible free row, then the first compatible row. */
-export function firstResource(value: CalendarValue, kind: CalendarKind, at: Pick<CalendarPlacement, "start" | "end">, items: readonly CalendarItem[]): CalendarItem["resource"] {
-    const resources = value.resources.filter(resource => kind.takes.includes(resource.key)).flatMap(resource => resource.rows.map(row => ({ kind: resource.key, key: row.key })));
-    const free = resources.find(resource => !items.some(item => item.resource.type === "some" && sameResource(resource, item.resource.value)
-        && item.start.type === "some" && item.end.type === "some" && item.start.value < at.end && item.end.value > at.start));
+/**
+ * A creation without a resource uses the first compatible free row, then the first compatible row — of a paged kind
+ * (#1424), whose rows come a window at a time, those of the windows the frame holds, free only where their events are
+ * read.
+ *
+ * @param value - The payload, each kind's rows those a creation may land on
+ * @param kind - The event kind created
+ * @param at - When the event is
+ * @param items - The events read: what makes a row busy then
+ * @param paged - The paged kind's rows the frame holds, and those whose events are read
+ * @returns The resource it lands on; none where no row is compatible
+ */
+export function firstResource(value: CalendarValue, kind: CalendarKind, at: Pick<CalendarPlacement, "start" | "end">, items: readonly CalendarItem[],
+    paged: CalendarPagedRows = NO_PAGED_ROWS): CalendarItem["resource"] {
+    const pagedKind = value.paged.type === "some" ? value.paged.value.kind : undefined;
+    const resources = value.resources.filter(resource => kind.takes.includes(resource.key)).flatMap((resource): CalendarResource[] => resource.key === pagedKind
+        ? paged.rows.flatMap(row => row.resource.type === "some" && row.resource.value.kind === pagedKind ? [row.resource.value] : [])
+        : resource.rows.map(row => ({ kind: resource.key, key: row.key })));
+    // A row is free when no event read is on it then — a paged kind's only where its events are read.
+    const known = (resource: CalendarResource) => resource.kind !== pagedKind || paged.known === undefined || paged.known.has(resource.key);
+    const free = resources.find(resource => known(resource) && !items.some(item => item.resource.type === "some" && sameResource(resource, item.resource.value)
+        && item.start.type === "some" && item.end.type === "some" && compareDate(item.start.value, at.end) < 0 && compareDate(item.end.value, at.start) > 0));
     const selected = free ?? resources[0];
     return selected === undefined ? none : some(selected);
 }

@@ -79,7 +79,7 @@ import { calendarOpOf, type CalendarOptimised } from "./optimise.js";
 import { opKey } from "../shared/func/optimise-diff.js";
 import type { CalendarCommands, CalendarPlacement } from "./actions.js";
 import { CALENDAR_PAGE_SIZE, pagedFailureAt, pagedPlaces, pagedRowAt, pagedSegments, type CalendarPagedDemand, type CalendarPages } from "./pages.js";
-import { DAY, NOTHING_UNCOUNTED, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, onResource, resourceKey,
+import { DAY, NOTHING_UNCOUNTED, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, onResource, resourceKey, resourceLabel,
     type CalendarItem, type CalendarRange, type CalendarRow, type CalendarStyles, type CalendarUncounted, type CalendarValue, type CalendarView } from "./model.js";
 
 /**
@@ -300,19 +300,6 @@ function useFailureCorner(scroll: RefObject<HTMLElement | null>, failed: boolean
 function FailureBox({ props, at }: { props: CalendarViewsProps; at: { top: number; left: number } | undefined }) {
     if (props.read.state !== "failed" || at === undefined) return null;
     return <LoadingFailedBox message={props.read.message} retry={{ onRetry: props.read.retry }} at={at} />;
-}
-/**
- * The resource an event is on, by name: its row's label; a resource no row the frame holds names — a paged kind's
- * whose window is not read (#1424) — by its key, never "Unassigned", which is an event on no resource's.
- *
- * @param item - The event
- * @param rows - Every resource row the frame holds
- * @returns Its resource's name
- */
-function resourceLabel(item: CalendarItem, rows: readonly CalendarRow[]): string {
-    const row = rows.find(row => onResource(item, row));
-    if (row !== undefined) return row.label;
-    return item.resource.type === "some" ? item.resource.value.key : "Unassigned";
 }
 /** Whether a resource's row or column draws what is known of its events (#1424): a paged kind's, once its cells land. */
 function rowDrawn(row: CalendarRow, pagedKind: string | undefined, drawnRows: ReadonlySet<string> | undefined): boolean {

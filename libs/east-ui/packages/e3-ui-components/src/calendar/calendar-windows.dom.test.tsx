@@ -34,19 +34,28 @@
  *   index, and reads the cells of those presses alone.
  * - The Backlog pages the jobs waiting through their source, a page a request:
  *   its first pages as it opens, its last as it scrolls to its end, never
- *   every job waiting; its count the index's.
+ *   every job waiting; its count the index's. A job waiting on a press names
+ *   it on its card: its row's name once a window the frame holds has it, else
+ *   its key.
+ * - A job made on a paged press from one of the print works' templates —
+ *   dropped on the press's row, or created from the Library's form — is made
+ *   on the press it is dropped on or the form's Chooser finds; with none
+ *   chosen, on the first press the frame holds that is free then.
  */
 import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
-    DateTimeType, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, parseFor, printFor, some, variant, type ValueTypeOf,
+    DateTimeType, East, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, parseFor, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { RecordSliceStateType } from "@elaraai/east-ui/internal";
+import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
+import { editingMessages } from "@elaraai/east-ui-components";
 import { PAGED_LIBRARY_PAGE, getStore } from "@elaraai/east-ui-components/internal";
+import { layOut } from "@elaraai/east-ui-components/testing";
+import { Calendar, Data, Record } from "@elaraai/e3-ui";
 import * as cw from "@elaraai/e3-ui/examples/calendar/calendar-windows";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
-import type { PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
+import * as pe from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
@@ -54,9 +63,10 @@ import { eventKey, resourceKey, DAY } from "./model.js";
 import { TIMELINE_GUTTER, timelinePixels } from "./timeline.js";
 import "./index.js";
 
-const h = e3Harness({ "calendar/calendar-windows": cw, "plan/plan-windows": ex }, { main: "data-calendar-main" });
+// The print works' module beside the windows': its job templates are what a job made on a paged press is made from.
+const h = e3Harness({ "calendar/calendar-windows": cw, "plan/plan-windows": ex, "plan/plan-events": pe }, { main: "data-calendar-main" });
 
-type Job = ValueTypeOf<typeof PrintJob>;
+type Job = ValueTypeOf<typeof pe.PrintJob>;
 
 /** Monday 5 October 2026: the day the timeline opens on, and the day the proofs are booked on. */
 const MONDAY = new Date("2026-10-05T00:00:00Z");
@@ -552,6 +562,21 @@ describe("the Backlog a page at a time, through the jobs' source (#1424)", () =>
         expect(pagesRead(grid).length).toBeGreaterThan(0);
         expect(pagesRead(grid).filter((page) => page.offset < first + 304 && page.offset + page.limit > first)).toEqual([]);
     });
+
+    test("a job waiting on a press names it on its card — its row's name once a window the frame holds has it, else its key — and reads no window for a name", async () => {
+        // Two of the jobs waiting put on presses: one of the presses' first window, which the timeline opens on, and one of
+        // their tenth, which nothing reads.
+        const jobs = new Map(await readJobs());
+        jobs.set("B-0000", { ...jobs.get("B-0000")!, press: some("P-1001") });
+        jobs.set("B-0001", { ...jobs.get("B-0001")!, press: some("P-2900") });
+        await h.patch(ex.planWindowJobs, jobs);
+        const { container: c } = await h.mount(cw.calendarWindows, { storageKey: "windows-backlog-names" });
+        await settle();
+        const cardOf = (key: string) => backlogOf(c).querySelector<HTMLElement>(`[data-library-item=${JSON.stringify(eventKey({ kind: "job", key }))}]`)?.textContent ?? "";
+        await waitFor(() => expect(cardOf("B-0000")).toContain("· Press 1001 ·"), { timeout: 10_000 });
+        expect(cardOf("B-0001")).toContain("· P-2900 ·");
+        expect(askedOf(PRESSES)).toEqual(["page own 0+200", "page own 200+200"]);
+    });
 });
 
 // ============================================================================
@@ -580,5 +605,114 @@ describe("the presses narrowed by hall through their source of the rail (#1424)"
         const hall = new Set(Array.from({ length: 50 }, (_, i) => pressAt(1 + 8 * i)));
         await waitFor(() => expect(searchedPresses(since).length).toBeGreaterThan(0), { timeout: 10_000 });
         expect(searchedPresses(since).filter((key) => !hall.has(key))).toEqual([]);
+    });
+});
+
+// ============================================================================
+// A job made on a paged press (#1424)
+// ============================================================================
+
+/**
+ * The Calendar of `calendarWindows` with the print works' job templates in its Library beside its Backlog: a template —
+ * a record of its own, following its source of the rail — is what a job made on a paged press is made from.
+ */
+const windowsTemplates = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const presses = $.let(Data.bindPaged(ex.planWindowPresses));
+    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const entries = $.let(Data.bindPaged(ex.planWindowJobs));
+    const jobTemplates = $.let(Data.bind(pe.planPrintJobTemplates));
+    const slice = $.let(Slice.bindRecords("test.calendarWindowsTemplates", {
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [BY_TIME, SERIES, SUMMARY] }), range: "start" },
+        jobTemplates: { source: Data.bindPaged(pe.planPrintJobTemplates, { indexes: [pe.planPrintJobTemplatesByGroup] }) },
+    }));
+    return Calendar({
+        id: "windowsTemplates", inspector: true, slice: { slice },
+        view: { layout: "timeline", period: "week", date: MONDAY }, now: new Date("2026-10-14T09:00:00Z"),
+        resources: { presses: Calendar.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, meta: (p, key) => some(East.str`${key} · ${p.hall}`) }) },
+        events: {
+            job: Calendar.events(jobs, {
+                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" },
+                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+                templates: Calendar.templates(jobTemplates.read(), {
+                    name: (t) => t.name, group: (t) => some(t.group), duration: (t) => variant("hours", t.hours), values: (t) => t.values, source: "jobTemplates",
+                }),
+                entries,
+            }),
+        },
+        library: [Calendar.library.templates(), Calendar.library.backlog()],
+    });
+}))) };
+
+describe("a job made on a paged press from a template (#1424)", () => {
+    /** The Library's form for the template its Templates tab shows first — the board run, eight hours from nine on the view's Monday — open. */
+    async function openCreate(c: HTMLElement): Promise<HTMLElement> {
+        await act(async () => { fireEvent.click(within(slot(c, "start")).getByRole("button", { name: "Create" })); });
+        await settle();
+        return within(document.body).getByRole("dialog");
+    }
+    const byTitle = compareFor(StringType);
+    /** Saves, and reads back each job the Save made: its title, its press and its start, by title. */
+    async function saved(c: HTMLElement, before: ReadonlyMap<string, Job>) {
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
+        await settle();
+        return [...await readJobs()].filter(([key]) => !before.has(key)).map(([, job]) => ({ title: job.title, press: job.press, start: job.start }))
+            .sort((a, b) => byTitle(a.title, b.title));
+    }
+
+    test("a template created with no press chosen is made on the first press the frame holds that is free then, as on a kind read whole — never on none", async () => {
+        const before = await readJobs();
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-create" });
+        await settle();
+        const form = await openCreate(c);
+        await act(async () => { fireEvent.click(within(form).getByRole("button", { name: "Create" })); });
+        await settle();
+        // Press 1001 is busy then — the brochure run (W-0001) is on it from six to two — and Press 1002 free: made there.
+        expect(await saved(c, before)).toEqual([{ title: "Board run", press: some("P-1002"), start: some(new Date("2026-10-05T09:00:00Z")) }]);
+    });
+
+    test("a template dropped on a paged press's row, and one created with the press its form's Chooser finds by key, are each made on that press", async () => {
+        const before = await readJobs();
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-drop" });
+        await settle();
+        // The brochure run's card carried onto Press 1004's row at six on Thursday — the card laid out below the timeline,
+        // the row's plot across the window, a day 100px — and let go there.
+        const card = slot(c, "start").querySelector<HTMLElement>(`[data-library-item=${JSON.stringify(eventKey({ kind: "job", key: "brochure" }))}]`)!;
+        const plot = pressRow(c, "P-1004")!.querySelector<HTMLElement>("[data-calendar-cell]")!;
+        const from = Number(plot.dataset["calendarFrom"]), to = Number(plot.dataset["calendarTo"]);
+        const lane = { left: 0, top: 100, width: (to - from) / DAY * 100, height: 40 };
+        layOut(new Map([[card, { left: 0, top: 880, width: 240, height: 40 }], [plot, lane]]));
+        const x = lane.left + (new Date("2026-10-08T06:00:00Z").getTime() - from) / (to - from) * lane.width + 1;
+        const pointer = { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1 };
+        await act(async () => {
+            fireEvent.pointerDown(card, { ...pointer, clientX: 10, clientY: 900 });
+            fireEvent.pointerMove(document, { ...pointer, clientX: 20, clientY: 900 });
+        });
+        await settle();
+        await act(async () => { fireEvent.pointerMove(document, { ...pointer, clientX: x, clientY: 120 }); });
+        await settle();
+        expect(document.querySelector("[data-drag-caption]")?.textContent).toBe("Brochure run · 2026-10-08 06:00 UTC");
+        await act(async () => { fireEvent.pointerUp(document, { ...pointer, buttons: 0, clientX: x, clientY: 120 }); });
+        await settle();
+        // The form's Chooser: `P-146` typed, a key at a time, and the first press it finds picked — Press 1460, whose window
+        // the frame does not hold, so the Chooser names it by its key.
+        const form = await openCreate(c);
+        const input = form.querySelector<HTMLInputElement>("[data-calendar-chooser] [data-part='dataset-key-search'] input")!;
+        for (const key of "P-146") {
+            const typed = input.value + key;
+            await userEvent.type(input, key);
+            await waitFor(() => expect(input.value).toBe(typed));
+        }
+        const lines = () => [...document.getElementById(input.getAttribute("aria-controls") ?? "")?.querySelectorAll('[role="option"]') ?? []].map((option) => option.textContent);
+        await waitFor(() => expect(lines()[0]).toBe("Press 1460 · P-1460 · Hall 4"), { timeout: 5_000 });
+        await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
+        await settle();
+        const named = () => form.querySelector("[data-calendar-chooser] input")?.getAttribute("aria-label") ?? form.querySelector("[data-calendar-chooser] input")?.getAttribute("placeholder");
+        await waitFor(() => expect(named()).toContain("P-1460"));
+        await act(async () => { fireEvent.click(within(form).getByRole("button", { name: "Create" })); });
+        await settle();
+        expect(await saved(c, before)).toEqual([
+            { title: "Board run", press: some("P-1460"), start: some(new Date("2026-10-05T09:00:00Z")) },
+            { title: "Brochure run", press: some("P-1004"), start: some(new Date("2026-10-08T06:00:00Z")) },
+        ]);
     });
 });
