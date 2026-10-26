@@ -1361,7 +1361,12 @@ landed — before the first read, or scrolled into view — or are on their way 
 a range they were not read over, a window moved, draws the shared wash under what
 it holds, busy, on the Plan's one reveal clock, and the footer's line reads the
 kind (`Loading print job events…`); a read again over the same range, a commit's
-or another narrowing's, leaves the cells standing in, retained.
+or another narrowing's, leaves the cells standing in, retained. A window the view
+shows and then its rows' cells are one wait: what the view showed at its last rest
+that is not read yet — a run on its way, rows whose cells have not landed — keeps
+the line and main busy between the two reads (the canvas's `viewAwaits`), which
+the cells are asked only once the view has said which rows it shows, so the
+reveal clock never sees two waits each too short to say.
 
 ## See also
 
