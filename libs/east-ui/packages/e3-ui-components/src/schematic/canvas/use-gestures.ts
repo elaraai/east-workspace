@@ -31,7 +31,7 @@ import { getSomeorUndefined, typedInto, type Origin } from "@elaraai/east-ui-com
 import { densityInView } from "../area.js";
 import type { SchematicValue } from "../data.js";
 import {
-    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, linkRefusal, moveEdits, retargetEdits,
+    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, extendPairs, linkRefusal, moveEdits, retargetEdits, vetoOfPairs,
     type ConnectDragArgs, type ConnectSession, type EditRefusal, type Mover, type NetLeg, type SchematicEdit, type SessionDrawn,
 } from "../edits.js";
 import type { SchematicStep, SchematicWords } from "../messages.js";
@@ -379,11 +379,13 @@ export function useGestures({
         };
     }, [itemOf, linkKind, sessionDrawn, labelById]);
     // Why a connect drag can't land on a target (SC9, #1401 D34): the end of its
-    // kind that holds no item of the target's slot, else the veto's words. A
-    // re-target writes its link, vetted in the link's REAL direction — the fixed
-    // end may be either side; an Extend its net; a Shift session the net it grows
-    // into, when a net kind holds its items; any other drag a link of the Connect
-    // tool's kind. `undefined` when it may land.
+    // kind that holds no item of the target's slot, else the veto's words of a
+    // pair the drag newly joins. A re-target writes its link, vetted in the
+    // link's REAL direction — the fixed end may be either side; an Extend its net,
+    // each source with the item it adds, whichever member the drag began at; a
+    // Shift session the net it grows into, when a net kind holds its items —
+    // every pair the net newly joins, each run it gathers among them; any other
+    // drag a link of the Connect tool's kind. `undefined` when it may land.
     const candidateRefusal = useCallback((cd: ConnectDrag, target: string): string | undefined => {
         const fixed = itemOf(cd.from), moving = itemOf(target);
         if (fixed === undefined || moving === undefined) return undefined;
@@ -397,18 +399,19 @@ export function useGestures({
             return toFrom ? connectRefusal(slot, target, cd.from) : connectRefusal(slot, cd.from, target);
         }
         if (cd.netExtend !== undefined) {
-            const slot = refById.get(cd.netExtend)?.kind;
-            const net = slot === undefined ? undefined : kinds.nets.get(slot);
-            if (slot === undefined || net === undefined) return undefined;
-            if (!stringEqual(moving.ref.kind, net.destinations)) return refusalWords({ why: "end", kind: net.name, end: "end", item: moving.label });
-            return connectRefusal(slot, cd.from, target);
+            const net = netById.get(cd.netExtend);
+            const kind = net === undefined ? undefined : kinds.nets.get(net.ref.kind);
+            const sides = net === undefined ? undefined : sessionDrawn.sides(net.ref);
+            if (net === undefined || kind === undefined || sides === undefined) return undefined;
+            if (!stringEqual(moving.ref.kind, kind.destinations)) return refusalWords({ why: "end", kind: kind.name, end: "end", item: moving.label });
+            return vetoOfPairs(connectRefusal, net.ref.kind, extendPairs(sides, moving.ref));
         }
         const args = dragArgs(cd, target);
         if (args === undefined) return undefined;
         const candidate = connectCandidate(kinds, args);
         if (candidate.refusal !== undefined) return refusalWords(candidate.refusal);
-        return candidate.kind === undefined ? undefined : connectRefusal(candidate.kind, cd.from, target);
-    }, [itemOf, refById, kinds, refusalWords, connectRefusal, dragArgs]);
+        return candidate.kind === undefined ? undefined : vetoOfPairs(connectRefusal, candidate.kind, candidate.pairs);
+    }, [itemOf, refById, kinds, refusalWords, connectRefusal, dragArgs, netById, sessionDrawn]);
     const selStartRef = useRef<{ sx: number; sy: number; mode: "zoom" | "marquee"; additive: boolean } | null>(null);
     // Marquee-hit recompute coalescing (#183 WS6): the box rect tracks every
     // pointermove; the HITS (r-tree + footprint tests) recompute at most once

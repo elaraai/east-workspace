@@ -10,10 +10,11 @@
  * names one (SC5, D7); and the refusals of an end no kind's field holds; and
  * a new link's or net's values, the selected template's of its kind (§4.3,
  * #1390); and the host's veto as every route asks it — its verdicts kept, a
- * veto that throws allowing — and the pairs a change of a net's sides newly
- * joins, which it hears (#1394). Fixtures are real East values typed from the
- * Schematic's East types; each gesture's edits are compared as East prints
- * them.
+ * veto that throws allowing — of every pair a gesture newly joins: a link's
+ * one, a session's net's every pair, the run it gathers among them, and the
+ * pairs a change of a net's sides newly joins — an open net's new member's, an
+ * Extend's (#1394). Fixtures are real East values typed from the Schematic's
+ * East types; each gesture's edits are compared as East prints them.
  */
 
 import { describe, expect, test, vi } from "vitest";
@@ -21,9 +22,9 @@ import { ArrayType, BlobType, East, OptionType, StringType, StructType, defaultV
 import { Schematic } from "@elaraai/e3-ui/internal";
 import { drawnItem, drawnLink, drawnNet, entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import {
-    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, foldPair, foldSession, joinedPairs, linkRefusal, moveEdits,
-    netKindFor, netRefusal, retargetEdits, type ConnectDragArgs, type ConnectPair, type ConnectSession, type EditKinds, type SchematicEdit,
-    type SessionDrawn,
+    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, extendPairs, foldPair, foldSession, joinedPairs, linkRefusal,
+    moveEdits, netKindFor, netRefusal, retargetEdits, vetoOfPairs, type ConnectCandidate, type ConnectDragArgs, type ConnectPair, type ConnectSession,
+    type EditKinds, type SchematicEdit, type SessionDrawn,
 } from "./edits.js";
 
 const T = Schematic.Types;
@@ -59,8 +60,14 @@ const DEFAULTS = (_slot: string): option<Uint8Array> => none;
 
 const ref = (kind: string, key: string): SchematicRef => ({ kind, key });
 const A01 = ref("racks", "A01"), A02 = ref("racks", "A02"), A03 = ref("racks", "A03");
-const ODF = ref("network", "ODF-1"), MMR = ref("network", "MMR-1");
+const ODF = ref("network", "ODF-1"), MMR = ref("network", "MMR-1"), CORE = ref("network", "CORE-1");
 const PDU = ref("pdus", "PDU-A");
+
+/** Pairs as East prints their items: `from → to` each. */
+const printPairs = (pairs: readonly ConnectPair[]) => pairs.map((pair) => `${printRef(pair.from)} → ${printRef(pair.to)}`);
+
+/** A candidate as the tests read it: its kind, its refusal, and its pairs as East prints them. */
+const read = (candidate: ConnectCandidate) => ({ kind: candidate.kind, refusal: candidate.refusal, pairs: printPairs(candidate.pairs) });
 
 /** A data centre's kinds: racks and cooling written, frames and power units read only; fibre runs written, between racks and frames; trunks of racks into a frame, and power feeds, written. */
 const KINDS: EditKinds = {
@@ -87,9 +94,9 @@ function net(at: SchematicRef, sources: readonly SchematicRef[], destinations: r
     return drawnNet(at, { ...defaultValue<typeof T.Net>(T.Net), sources: [...sources], destinations: [...destinations] });
 }
 
-/** A drawing of the data centre: three racks, two frames and a power unit; u1 from A01 to ODF-1; feed-a from PDU-A to A01 and A02. */
+/** A drawing of the data centre: three racks, three frames and a power unit; u1 from A01 to ODF-1; feed-a from PDU-A to A01 and A02. */
 const DRAWN: Pick<SchematicDrawn, "items" | "links" | "nets"> = {
-    items: [item(A01, 2, 3), item(A02, 6, 3), item(A03, 9, 3), item(ODF, 8, 9), item(MMR, 24, 3), item(PDU, 1, 4)],
+    items: [item(A01, 2, 3), item(A02, 6, 3), item(A03, 9, 3), item(ODF, 8, 9), item(MMR, 24, 3), item(CORE, 23, 10), item(PDU, 1, 4)],
     links: [link(ref("fibre", "u1"), A01, ODF)],
     nets: [net(ref("feeds", "feed-a"), [PDU], [A01, A02])],
 };
@@ -207,7 +214,9 @@ describe("Connect and its Shift session (SC9)", () => {
     });
 
     test("its kind's end holding no item of the target's slot refuses it, naming the end — nothing is recorded", () => {
-        expect(connectCandidate(KINDS, drag(A01, PDU))).toEqual({ kind: "fibre", refusal: { why: "end", kind: "Fibre run", end: "end", item: "PDU-A" } });
+        expect(read(connectCandidate(KINDS, drag(A01, PDU)))).toEqual({
+            kind: "fibre", refusal: { why: "end", kind: "Fibre run", end: "end", item: "PDU-A" }, pairs: printPairs([{ from: A01, to: PDU }]),
+        });
         expect(connectCandidate(KINDS, drag(PDU, A01)).refusal).toEqual({ why: "end", kind: "Fibre run", end: "start", item: "PDU-A" });
         expect(connectStep(KINDS, drag(A01, PDU), minter(), DEFAULTS)).toBeUndefined();
         expect(linkRefusal(KINDS.links.get("fibre")!, { ref: A01, label: "A01" }, { ref: ODF, label: "ODF-1" })).toBeUndefined();
@@ -219,7 +228,8 @@ describe("Connect and its Shift session (SC9)", () => {
         const drawn = { links: [...DRAWN.links, link(first.session.links[0]!, A02, ODF)], nets: DRAWN.nets };
         const mint = minter();
         const args = drag(A03, ODF, { session: first.session, shift: true, drawn });
-        expect(connectCandidate(KINDS, args)).toEqual({ kind: "trunks", refusal: undefined });
+        // The veto hears each of the trunk's legs: the run it gathers, a leg of the trunk now, and the new one.
+        expect(read(connectCandidate(KINDS, args))).toEqual({ kind: "trunks", refusal: undefined, pairs: printPairs([{ from: A02, to: ODF }, { from: A03, to: ODF }]) });
         const grown = connectStep(KINDS, args, mint, DEFAULTS)!;
         expect(grown.edits.map(printed)).toEqual([
             `remove ${printRef(first.session.links[0]!)}`,
@@ -254,7 +264,7 @@ describe("Connect and its Shift session (SC9)", () => {
 
     test("a session the drawing no longer holds — taken back by Undo — is over: the drag records a plain link", () => {
         const session: ConnectSession = { links: [ref("fibre", "gone")], net: undefined };
-        expect(connectCandidate(KINDS, drag(A03, ODF, { session, shift: true }))).toEqual({ kind: "fibre", refusal: undefined });
+        expect(read(connectCandidate(KINDS, drag(A03, ODF, { session, shift: true })))).toEqual({ kind: "fibre", refusal: undefined, pairs: printPairs([{ from: A03, to: ODF }]) });
         const step = connectStep(KINDS, drag(A03, ODF, { session, shift: true }), minter(), DEFAULTS)!;
         expect(step.edits.map((edit) => edit.op)).toEqual(["link"]);
     });
@@ -285,6 +295,13 @@ describe("Retarget and Extend (SC10)", () => {
         const feed = { ref: ref("feeds", "feed-a"), sides: { sources: [PDU], destinations: [A01, A02] } };
         expect(extendEdits(feed, A03).map(printed)).toEqual([`sides ${printRef(feed.ref)} ${printSides({ sources: [PDU], destinations: [A01, A02, A03] })}`]);
         expect(extendEdits(feed, A02)).toEqual([]);
+    });
+
+    test("an Extend joins each of the net's sources to the item it adds, whichever member the drag began at; a member already, none", () => {
+        const trunk = { sources: [A01, A02], destinations: [ODF] };
+        expect(printPairs(extendPairs(trunk, MMR))).toEqual(printPairs([{ from: A01, to: MMR }, { from: A02, to: MMR }]));
+        expect(extendPairs(trunk, ODF)).toEqual([]);
+        expect(extendPairs(trunk, A01)).toEqual([]);
     });
 });
 
@@ -329,14 +346,52 @@ describe("the host's veto (#1401, D34, #1394)", () => {
     });
 
     test("a change of a net's sides joins each source with each destination one of the two is new to: a destination added, a source added; members taken off join none", () => {
-        const print = (pairs: readonly ConnectPair[]) => pairs.map((pair) => `${printRef(pair.from)} → ${printRef(pair.to)}`);
         const PDU_B = ref("pdus", "PDU-B");
         const feed = { sources: [PDU], destinations: [A01, A02] };
-        expect(print(joinedPairs(feed, { sources: [PDU], destinations: [A01, A02, A03] }))).toEqual([`${printRef(PDU)} → ${printRef(A03)}`]);
-        expect(print(joinedPairs(feed, { sources: [PDU, PDU_B], destinations: [A01, A02] })))
+        expect(printPairs(joinedPairs(feed, { sources: [PDU], destinations: [A01, A02, A03] }))).toEqual([`${printRef(PDU)} → ${printRef(A03)}`]);
+        expect(printPairs(joinedPairs(feed, { sources: [PDU, PDU_B], destinations: [A01, A02] })))
             .toEqual([`${printRef(PDU_B)} → ${printRef(A01)}`, `${printRef(PDU_B)} → ${printRef(A02)}`]);
         expect(joinedPairs(feed, { sources: [PDU], destinations: [A02] })).toEqual([]);
         expect(joinedPairs(feed, feed)).toEqual([]);
+    });
+
+    /** The data centre's whole veto: two frames are joined by a cross-connect, and a trunk lands on a fibre frame, never the core. */
+    const dataCentre = East.compile(East.function([T.Candidate], OptionType(StringType), ($, candidate) => {
+        const reason = $.let(none, OptionType(StringType));
+        $.if(candidate.from.kind.equal("network").and(() => candidate.to.kind.equal("network")), ($2) => {
+            $2.assign(reason, some("Two frames are joined by a cross-connect"));
+        });
+        $.if(candidate.kind.equal("trunks").and(() => candidate.to.key.equal("CORE-1")), ($2) => {
+            $2.assign(reason, some("A trunk lands on a fibre frame, never the core"));
+        });
+        return reason;
+    }), []);
+
+    test("a session's net is asked of every leg it would leave: a run onto the core gathered into a trunk is refused in the veto's words, though the pair dragged lands", () => {
+        const veto = connectVeto(dataCentre, refOfId);
+        // A03 to the core: a run, which the veto allows.
+        const first = connectStep(KINDS, drag(A03, CORE), minter(), DEFAULTS)!;
+        expect(vetoOfPairs(veto, "fibre", [{ from: A03, to: CORE }])).toBeUndefined();
+        // Shift-dragged on to the fibre frame: the trunk it grows into would land on the core — refused, though A03 → ODF-1
+        // alone would land.
+        const drawn = { links: [...DRAWN.links, link(first.session.links[0]!, A03, CORE)], nets: DRAWN.nets };
+        const candidate = connectCandidate(KINDS, drag(A03, ODF, { session: first.session, shift: true, drawn }));
+        expect(read(candidate)).toEqual({ kind: "trunks", refusal: undefined, pairs: printPairs([{ from: A03, to: CORE }, { from: A03, to: ODF }]) });
+        expect(vetoOfPairs(veto, candidate.kind!, candidate.pairs)).toBe("A trunk lands on a fibre frame, never the core");
+        expect(vetoOfPairs(veto, "trunks", [{ from: A03, to: ODF }])).toBeUndefined();
+    });
+
+    test("an open net is asked of each pair a drag newly joins: a frame it holds dragged to another joins each of its racks to it, never the two frames to each other", () => {
+        const veto = connectVeto(dataCentre, refOfId);
+        const trunk = ref("trunks", "t1");
+        const session: ConnectSession = { links: [], net: trunk };
+        const drawn = { links: DRAWN.links, nets: [...DRAWN.nets, net(trunk, [A02, A03], [ODF])] };
+        const candidate = connectCandidate(KINDS, drag(ODF, MMR, { session, shift: true, drawn }));
+        expect(read(candidate)).toEqual({ kind: "trunks", refusal: undefined, pairs: printPairs([{ from: A02, to: MMR }, { from: A03, to: MMR }]) });
+        expect(vetoOfPairs(veto, "trunks", candidate.pairs)).toBeUndefined();
+        // Onto the core instead: each of its racks would land there — refused.
+        expect(vetoOfPairs(veto, "trunks", connectCandidate(KINDS, drag(ODF, CORE, { session, shift: true, drawn })).pairs))
+            .toBe("A trunk lands on a fibre frame, never the core");
     });
 });
 
