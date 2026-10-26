@@ -2,17 +2,25 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
+ *
+ * The Roster's weeks on e3 itself: Copy previous week, drafts across weeks and
+ * remounts, Discard, Publish, a failed or a racing Save, a lost Publish, the
+ * windowed roster's reads, and proposals. The week is the page's own (#1398):
+ * another page keeping a view moves neither it nor the window it writes into
+ * its source, and a reload opens on the view kept last.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, East, FloatType, IntegerType, StringType, StructType, compareFor, printFor, variant } from "@elaraai/east";
+import { DateTimeType, East, FloatType, IntegerType, StringType, StructType, compareFor, decodeBeast2For, printFor, variant } from "@elaraai/east";
+import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { Schedule } from "@elaraai/e3-ui/internal";
-import { editingMessages } from "@elaraai/east-ui-components";
+import { editingMessages, type UIStore } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import {
     act, assignment, at, card, history, narrow, NEXT, open, press, rosterHarness, searched, settle, slot, START, warehouseRoster, weekDuties, width,
     type Choice,
 } from "./harness.test-utils.js";
+import { DAY } from "./model.js";
 const h = rosterHarness();
 async function weekKey(c: HTMLElement, key: "[" | "]") { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key }); }); await settle(); }
 /** The weeks' record, as the request log names its dataset. */
@@ -203,5 +211,48 @@ describe("Roster week lifecycle", () => {
         await press(within(card(container, "s37")).getByRole("button", { name: "Remove" }));
         await press(within(card(container, "s37")).getByRole("button", { name: "Restore" }));
         expect(within(card(container, "s37")).getByRole("button", { name: "Remove" })).not.toBeNull();
+    });
+});
+
+/** The view the Roster keeps for a reload, as storage holds it: its key, and what it keeps. */
+function keptView(): { key: string; view: { layout: string; period: string; date: number } } {
+    const key = Object.keys(localStorage).find(name => name.endsWith(".view"))!;
+    return { key, view: JSON.parse(localStorage.getItem(key)!) as { layout: string; period: string; date: number } };
+}
+/** The day the toolbar's navigator steps from: the view's. */
+const anchorOf = (c: HTMLElement) => slot(c, "toolbar").querySelector("[data-time-navigation=roster]")?.getAttribute("data-time-anchor");
+const printState = printFor(RecordSliceStateType);
+const decodeState = decodeBeast2For(RecordSliceStateType);
+/** The duties' source as the page's store holds it: the window the Roster writes into it, beside its narrowing. */
+const dutySource = (store: UIStore) => printState(decodeState(store.read("ex.rosterWarehouse.duty")!));
+/** A read of a record or a dataset: whole, by its pages, its keys or its runs (#1351). */
+const READS = new Set(["read", "page", "find", "runs", "rows"]);
+/** How many reads the Roster has asked of e3. */
+const readsAsked = () => h.requests().filter(request => READS.has(request.kind)).length;
+
+describe("the week is the page's own (#1398)", () => {
+    test("another page keeping a view — a second tab on the same Roster — moves neither this page's week nor the window it writes into its source, and reads nothing for it; a reload opens on the view kept last", async () => {
+        const { container, store, unmount } = await open(ex.rosterWarehouse);
+        // A step keeps the view for a reload: the week after, its window written into the duties' source.
+        await weekKey(container, "]");
+        const before = { anchor: anchorOf(container), source: dutySource(store) };
+        const { key, view } = keptView();
+        expect(String(view.date)).toBe(before.anchor);
+        // Another page keeps a view three weeks on, and this page hears it as a browser tells it.
+        const theirs = JSON.stringify({ ...view, date: view.date + 21 * DAY });
+        const reads = readsAsked();
+        await act(async () => {
+            const was = localStorage.getItem(key);
+            localStorage.setItem(key, theirs);
+            window.dispatchEvent(new StorageEvent("storage", { key, oldValue: was, newValue: theirs, storageArea: localStorage }));
+        });
+        await settle();
+        expect({ anchor: anchorOf(container), source: dutySource(store) }).toEqual(before);
+        expect(readsAsked(), "nothing read for it").toBe(reads);
+        expect(localStorage.getItem(key), "nothing written back over it").toBe(theirs);
+        // A reload — a page of its own — opens on the view kept last.
+        unmount();
+        const reloaded = await open(ex.rosterWarehouse);
+        expect(anchorOf(reloaded.container)).toBe(String(view.date + 21 * DAY));
     });
 });
