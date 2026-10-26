@@ -23,7 +23,9 @@
  * the frame. That no function holds the
  * whole slice is e3-ui's one guard over every builder's examples (#1356). A
  * filter change builds nothing again: the Plan's body runs no more, and no
- * payload is decoded (#1354).
+ * payload is decoded (#1354). The Backlog never blinks (#1398, ruled 25 Oct
+ * 2026): a narrowing keeps its cards and its count as one, retained while
+ * either is read again, and swaps them whole once both have landed.
  */
 
 import { describe, expect, test } from "vitest";
@@ -469,6 +471,73 @@ describe("a filter change rebuilds no builder (#1354)", () => {
             expect([builds.runs, builds.decodes], "no choice and no navigation runs the body again or decodes a payload").toEqual(mounted);
         } finally {
             builds.restore();
+        }
+    });
+});
+
+// ============================================================================
+// The Backlog never blinks (#1398, ruled 25 Oct 2026)
+// ============================================================================
+
+/** The jobs' key searches through their indexes: what a narrowing's count, and its cards' and its window's reads, ask first. */
+const searchesJobs = (request: E3Request) => request.kind === "find" && request.dataset === JOBS;
+/** The jobs' pages and rows, by their indexes or their keys: what the cards and the window read once their searches land. */
+const readsJobRows = (request: E3Request) => (request.kind === "page" || request.kind === "rows" || request.kind === "runs") && request.dataset === JOBS;
+/**
+ * The Backlog as it reads: its tab's name and count, its cards' names in order, and whether its pane is busy and its
+ * cards retained (CL8) — `true true` while they stand in for a read, `- -` as read.
+ */
+function backlogShown(c: HTMLElement): string {
+    const tab = [...pane(c).querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Backlog"))!;
+    const body = pane(c).querySelector<HTMLElement>('[data-plan-library="backlog"]')!;
+    const cards = [...body.querySelectorAll<HTMLElement>("[data-library-item]")].map((card) => bodyOf(card).children[0]!.textContent);
+    return `${tab.textContent} · ${cards.join(", ")} · ${body.getAttribute("aria-busy") ?? "-"} ${body.getAttribute("aria-disabled") ?? "-"}`;
+}
+/** Every state the Backlog is drawn in from now until `stop`, as each change to the pane leaves it — none twice running. */
+function watchBacklog(c: HTMLElement): { seen: string[]; stop: () => void } {
+    const seen: string[] = [];
+    const note = () => {
+        const now = backlogShown(c);
+        if (seen.at(-1) !== now) seen.push(now);
+    };
+    const observer = new MutationObserver(note);
+    observer.observe(pane(c), { subtree: true, childList: true, characterData: true, attributes: true });
+    note();
+    return { seen, stop: () => observer.disconnect() };
+}
+
+describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
+    test("a narrowing keeps the Backlog's cards and its count as one, retained while either is read again — its count landing before its cards — and swaps them whole once both have: never a count dropped, never a count over another read's cards", async () => {
+        const { container } = await h.mount(ex.planPrintWorks);
+        await settle();
+        const start = narrowing("job").get("start")!;
+        await narrow("job", where(["start", start], ["stock", values(stockOf(variant("board", null)))]));
+        await openTab(container, "Backlog");
+        const board = "Backlog 1 of 8 · Spare covers · - -";
+        expect(backlogShown(container)).toBe(board);
+        const states = watchBacklog(container);
+        try {
+            // The coated jobs chosen in the board's place, every read of the jobs held: their searches, then their rows.
+            const searches = h.e3.hold(searchesJobs);
+            const rows = h.e3.hold(readsJobRows);
+            await narrow("job", where(["start", start], ["stock", values(stockOf(variant("coated", null)))]));
+            expect(searches.held).toBeGreaterThan(0);
+            const held = "Backlog 1 of 8 · Spare covers · true true";
+            expect(backlogShown(container), "the count and the cards read again").toBe(held);
+            // The searches land: what the choice hides is counted, while the cards' rows are still on their way.
+            await act(async () => { searches.release(); });
+            await settle();
+            expect(rows.held).toBeGreaterThan(0);
+            expect(backlogShown(container), "the count landed, the cards not").toBe(held);
+            await act(async () => { rows.release(); });
+            await settle();
+            // The coated jobs waiting, soonest due first.
+            const coated = "Backlog 4 of 8 · Guide reprint, Winter brochure, Wall calendars, Prospectus · - -";
+            expect(backlogShown(container), "both landed").toBe(coated);
+            // From the board's jobs to the coated, through the board's held: nothing between.
+            expect(states.seen).toEqual([board, held, coated]);
+        } finally {
+            states.stop();
         }
     });
 });

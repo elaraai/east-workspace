@@ -286,6 +286,11 @@ query and its focus (east-ui-components' `EastChakraLibrary`'s `pending`).
 Its Backlog tab counts `N of M`, what its kinds' narrowing shows beside
 the stored events their choices hide, and its Clear filters keeps each window
 (`shared/schedule/backlog.ts`, the Calendar's and the Plan's). The Plan's
+Backlog holds its cards and their count as one too (`plan/frame/counts.ts`'
+`PlanKindsReader`): retained while a narrowing's, a window's or a revision's
+read of either is in flight, swapped whole once both have landed, and every
+figure of the backlog — the tab's, the rail's badge, the footer's and the
+inspector's — is the held read's. The Plan's
 window is its sources' one range too (#1344, `src/plan/root/window.ts`): every
 source holding a range of the axis's arm holds it — an event kind's, a tab's —
 the first leading, and the date navigator, the horizon brush, the keys and the

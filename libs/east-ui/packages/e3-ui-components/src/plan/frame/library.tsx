@@ -38,7 +38,12 @@
  *   pane is a rail with the backlog's count, or the first tab's when the
  *   library lists no Backlog tab (PB26). Until its kinds' first read lands the
  *   Backlog tab — and the rail — counts "…", over placeholder cards: never
- *   "Backlog clear", never 0 (#1398, CL13).
+ *   "Backlog clear", never 0 (#1398, CL13). After it, the Backlog never
+ *   blinks (ruled 25 Oct 2026): its cards and its count are the last complete
+ *   read's, held as one (`counts.ts`' `PlanKindsReader`), and while a
+ *   narrowing's, a window's or a revision's read of either is in flight they
+ *   stand in, retained — its pane busy and `aria-disabled` (CL8) — until both
+ *   have landed and are swapped whole.
  *
  * Each tab follows its source of the Plan's slice (#1344), as the Calendar's
  * do: the Events tab each templates list's, by template key; the Backlog its
@@ -167,7 +172,15 @@ export interface PlanLibraryProps {
     followed?: FollowedSources | undefined;
     /** What the rail hides of the backlog (#1344): the Backlog tab's `N of M`, and its Clear filters. */
     backlogNarrowing?: BacklogNarrowing<PlanEventPart> | undefined;
+    /** Whether the backlog's cards and count stand in for a read in flight (#1398, CL8): its pane busy, and retained. */
+    backlogRetained?: boolean | undefined;
 }
+
+/** A pane whose cards stand in for a read in flight (#1398, CL8): busy, and retained. */
+const RETAINED_PANE = { "aria-busy": true, "aria-disabled": true } as const;
+
+/** A pane whose cards are as read. */
+const READ_PANE = {} as const;
 
 /** No event kind has an event on the canvas. */
 const NO_PATCH_KINDS: ReadonlySet<string> = new Set();
@@ -302,12 +315,13 @@ function tabBody(styles: Record<string, Record<string, unknown>>, tab: string, p
 /**
  * The library pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The library's tabs, the event and resource kinds, the canvas's pick, the Plan's keys, the viewer's hidden set and its setter, the backlog's now, the words, whether a row takes an author's card, the kinds' unscheduled events, whether the canvas takes the event kinds' cards, the kinds with an event on it, what each source the tabs follow shows, and what the rail hides of the backlog
+ * @param props - The library's tabs, the event and resource kinds, the canvas's pick, the Plan's keys, the viewer's hidden set and its setter, the backlog's now, the words, whether a row takes an author's card, the kinds' unscheduled events, whether the canvas takes the event kinds' cards, the kinds with an event on it, what each source the tabs follow shows, what the rail hides of the backlog, and whether the backlog stands in for a read in flight
  * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer — or `undefined`, no pane, when `library` lists none
  */
 export function usePlanLibrary({
     library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards,
     unscheduled: read, takesEvents = false, patchKinds = NO_PATCH_KINDS, followed = NONE_FOLLOWED, backlogNarrowing = NO_BACKLOG_NARROWING,
+    backlogRetained = false,
 }: PlanLibraryProps): BuilderFrameDock | undefined {
     const { m } = words;
     // The kinds' unscheduled events once their first read lands (#1398, CL13): until then the tab knows nothing.
@@ -512,8 +526,9 @@ export function usePlanLibrary({
                                 </Box>
                             )) };
                     }
+                    // The last complete read's cards and count, held as one; retained while either is read again (#1398, CL8).
                     return { key: "backlog", label: m.libraryTab({ tab: "backlog" }), count: backlogFollow.count, shown: backlog.items.length,
-                        body: tabBody(styles, "backlog", {}, (
+                        body: tabBody(styles, "backlog", backlogRetained ? RETAINED_PANE : READ_PANE, (
                             <EastChakraLibrary value={backlog} storageKey={`${keys.library}.backlog`} empty={empty("backlog", "")} narrowing={backlogFollow.narrowing} />
                         )) };
                 case "series": {
@@ -552,5 +567,5 @@ export function usePlanLibrary({
             persist: "local",
             tabs: tabs.map(({ shown: _shown, ...pane }) => pane),
         };
-    }, [library, m, words, templates, templatesFollow, backlog, backlogFollow, backlogRead, seriesPick, authorLibraries, authorFollows, keys, empty, listsBacklog, styles]);
+    }, [library, m, words, templates, templatesFollow, backlog, backlogFollow, backlogRead, backlogRetained, seriesPick, authorLibraries, authorFollows, keys, empty, listsBacklog, styles]);
 }

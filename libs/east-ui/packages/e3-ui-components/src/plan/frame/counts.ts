@@ -21,6 +21,15 @@
  * otherwise render the whole frame. It hands the frame what it read only when
  * that moves.
  *
+ * The backlog never blinks (#1398, ruled 25 Oct 2026): its last complete read
+ * and what the rail hides of it, counted with it, are held as one, as the
+ * Calendar's are. While a narrowing's, a window's or a revision's read of
+ * either is in flight they stand in, retained (CL8), and once both have landed
+ * they are swapped whole — never a count dropped, never a count shown over
+ * another read's cards. Every figure of the backlog is the held read's: the
+ * Backlog tab's cards and count, the rail's badge, the footer's and the
+ * inspector's.
+ *
  * A kind the viewer hides in the Series tab is no part of what the canvas
  * shows: it is in none of the window's figures — its events, their hours,
  * their overlaps — and nothing says so; its backlog is the Backlog tab's
@@ -96,6 +105,14 @@ export interface PlanEventCounts {
     readonly unscheduled: readonly PlanBacklogEntry[];
 }
 
+/** The event kinds' counts as {@link usePlanEventCounts} reads them, and whether a read of them is in flight. */
+export interface PlanEventCountsRead {
+    /** The counts — the last read's while a read is in flight or failed; `undefined` for a Plan without event kinds, or before the first read answers. */
+    readonly counts: PlanEventCounts | undefined;
+    /** Whether a read is in flight: `counts` stands in for it meanwhile. */
+    readonly reading: boolean;
+}
+
 /** One kind's drafts, by entry id, as its seams take them. */
 type KindDrafts = Parameters<PlanEventKindValue["planItems"]>[2];
 
@@ -141,12 +158,12 @@ function timeMs(t: PlanScale["window"]["min"]): number | undefined {
  * @param cells - The kinds' cells and counts, when the reader decides a kind: what it draws from, its drafts as the seams take them, which counted kinds are read over the window, and which are past the cap
  * @param parts - Each event kind narrowed through its source of the slice: what a kind given cells is counted through
  * @param hidden - The ids the viewer hides in the Series tab: a kind hidden there is in no figure of the window
- * @returns The counts — the last read's while a read is in flight or fails; `undefined` for a Plan without event kinds, or before the first read answers
+ * @returns The counts — the last read's while a read is in flight or fails; `undefined` for a Plan without event kinds, or before the first read answers — and whether a read is in flight
  */
 export function usePlanEventCounts(
     kinds: readonly PlanEventKindValue[] | undefined, scale: PlanScale | undefined, drafts: EventDrafts = NONE_DRAFTED,
     cells?: ScheduleCellsRead | undefined, parts: readonly PlanEventPart[] = NO_PARTS, hidden: readonly string[] = NONE_HIDDEN,
-): PlanEventCounts | undefined {
+): PlanEventCountsRead {
     const from = scale !== undefined ? timeMs(scale.window.min) : undefined;
     const to = scale !== undefined ? timeMs(scale.window.max) : undefined;
     // The range the canvas reads, the window's and the periods it lays out beyond each edge: what a kind is capped over.
@@ -235,7 +252,7 @@ export function usePlanEventCounts(
     const { result } = useTrackedEvaluation(read);
     // The last counts read, held while a read is in flight or failed.
     const held = useRef<PlanEventCounts | undefined>(undefined);
-    return useMemo(() => {
+    const counts = useMemo(() => {
         if (!active) {
             held.current = undefined;
             return undefined;
@@ -248,14 +265,31 @@ export function usePlanEventCounts(
         held.current = result.value;
         return result.value;
     }, [active, result]);
+    const reading = active && result.ok && result.value === READING;
+    return useMemo(() => ({ counts, reading }), [counts, reading]);
 }
 
-/** What {@link PlanKindsReader} reads: the counts, and what the rail hides of the backlog. */
+/** What {@link PlanKindsReader} reads: the counts, and what the rail hides of the backlog — the backlog's held as one. */
 export interface PlanKindsRead {
-    /** The event kinds' counts over the window; `undefined` before the first read answers. */
+    /**
+     * The event kinds' counts over the window; `undefined` before the first read answers. Their backlog — its cards
+     * and how many there are — is the held read's, swapped together with what the rail hides of it (`backlog`).
+     */
     readonly counts: PlanEventCounts | undefined;
-    /** What the rail hides of the backlog (#1344). */
+    /** What the rail hides of the backlog (#1344): the held read's, counted with its cards. */
     readonly backlog: BacklogNarrowing<PlanEventPart>;
+    /** Whether the backlog stands in for a read in flight (#1398, CL8) — its cards' or its count's: retained. */
+    readonly retained: boolean;
+}
+
+/**
+ * The backlog's last complete read (#1398): its cards, how many there are, and what the rail hides of them, counted
+ * then — held as one, so the cards and the count are swapped together.
+ */
+interface HeldBacklog {
+    readonly unscheduled: readonly PlanBacklogEntry[];
+    readonly backlog: number | undefined;
+    readonly narrowing: BacklogNarrowing<PlanEventPart>;
 }
 
 /** Props of {@link PlanKindsReader}. */
@@ -284,16 +318,33 @@ export interface PlanKindsReaderProps {
  * @returns Nothing: it reads
  */
 export function PlanKindsReader({ kinds, scale, drafts, parts, cells, hidden, onRead }: PlanKindsReaderProps): null {
-    const counts = usePlanEventCounts(kinds, scale, drafts, cells, parts, hidden);
-    const backlog = useBacklogNarrowing(parts);
+    const { counts: read, reading } = usePlanEventCounts(kinds, scale, drafts, cells, parts, hidden);
+    const narrowing = useBacklogNarrowing(parts);
+    // The backlog never blinks (#1398, ruled 25 Oct 2026): its cards, read with the counts, and what the rail hides of
+    // them, held as one — taken as both land: the first read's at once, its count to follow, as the Calendar's are.
+    const held = useRef<HeldBacklog | undefined>(undefined);
+    const last = held.current;
+    if (read !== undefined && !reading && (!narrowing.counting || last === undefined)
+        && (last === undefined || last.unscheduled !== read.unscheduled || last.narrowing !== narrowing)) {
+        held.current = { unscheduled: read.unscheduled, backlog: read.backlog, narrowing };
+    }
+    const shown = held.current;
+    // A backlog kind read through its source reads its backlog again with its window and its choices: what stands in
+    // meanwhile is retained (CL8).
+    const rereads = useMemo(() => parts.some(({ kind }) => kind.backlog), [parts]);
+    const retained = shown !== undefined && rereads && (reading || narrowing.counting);
+    // Every figure of the backlog is the held read's: the tab's, the rail's badge, the footer's and the inspector's.
+    const counts = useMemo(() => (read === undefined || shown === undefined || read.unscheduled === shown.unscheduled ? read
+        : { ...read, unscheduled: shown.unscheduled, backlog: shown.backlog }), [read, shown]);
+    const backlog = shown?.narrowing ?? narrowing;
     const reported = useRef<PlanKindsRead | undefined>(undefined);
     useLayoutEffect(() => {
         const was = reported.current;
-        // The same counts and the same narrowing, by identity — each holds while what it read holds.
-        if (was !== undefined && Object.is(was.counts, counts) && Object.is(was.backlog, backlog)) return;
-        const read = { counts, backlog };
-        reported.current = read;
-        onRead(read);
+        // The same counts, the same narrowing and the same standing, by identity — each holds while what it read holds.
+        if (was !== undefined && Object.is(was.counts, counts) && Object.is(was.backlog, backlog) && was.retained === retained) return;
+        const next = { counts, backlog, retained };
+        reported.current = next;
+        onRead(next);
     });
     return null;
 }

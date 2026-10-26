@@ -194,7 +194,7 @@ const NO_PARTS: readonly PlanEventPart[] = [];
 const NO_NOTICES: readonly PlanSaveNotice[] = [];
 
 /** What the event kinds read before their first read answers: no counts, and the rail hides nothing of the backlog. */
-const NOTHING_READ: PlanKindsRead = { counts: undefined, backlog: { narrowing: [], hidden: undefined, counting: false, clear: undefined } };
+const NOTHING_READ: PlanKindsRead = { counts: undefined, backlog: { narrowing: [], hidden: undefined, counting: false, clear: undefined }, retained: false };
 
 /** No unscheduled event: a Plan with no event kinds. */
 const NO_UNSCHEDULED: readonly PlanBacklogEntry[] = [];
@@ -375,7 +375,8 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const now = root.axis.type === "time" ? getSomeorUndefined(root.axis.value.now) ?? mounted : mounted;
     const pick = useMemo((): PlanPickValue | undefined => getSomeorUndefined(root.pick), [root.pick]);
     // What the event kinds read, counted with every kind's drafts in place (#1194) — the counts, the overlaps, the
-    // backlog — and what the rail hides of the backlog (#1344), reported by a component of its own.
+    // backlog — and what the rail hides of the backlog (#1344), held with its cards (#1398), reported by a component of
+    // its own.
     const [kindsRead, setKindsRead] = useState<PlanKindsRead>(NOTHING_READ);
     const counts = kinds.length > 0 ? kindsRead.counts : undefined;
     const start = usePlanLibrary({
@@ -383,7 +384,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
         // A Plan with no event kinds reads no backlog: there is nothing to wait for.
         unscheduled: kinds.length === 0 ? NO_UNSCHEDULED : counts?.unscheduled,
         takesEvents: chrome?.takesEvents === true, patchKinds: chrome?.patchKinds ?? NO_PATCH_KINDS,
-        followed, backlogNarrowing: kindsRead.backlog,
+        followed, backlogNarrowing: kindsRead.backlog, backlogRetained: kinds.length > 0 && kindsRead.retained,
     });
     // The overlaps (#1198): the toolbar's chip, the warn rings, the inspector's banner.
     const overlaps = counts?.overlaps;
