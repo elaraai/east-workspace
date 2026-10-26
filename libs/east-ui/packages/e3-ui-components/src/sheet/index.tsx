@@ -38,7 +38,7 @@
  * source's narrowing, by the source's name, with a grouped sheet's folds.
  *
  * A row the narrowing hides is reached by clearing the filters that hide it
- * (the hidden pick, `hidden.ts`): Search Records' line for it, and an issue's
+ * (the hidden pick, `shared/schedule/hidden.ts`): Search Records' line for it, and an issue's
  * line in the Issues tab, name the `rows` source's choices that hide it, as
  * the rail words them — asked of e3 through the record's indexes, and
  * `· hidden by the filters` until it has said — and a pick of it, or Go to
@@ -98,7 +98,7 @@ import {
     focusKeySearch, getSomeorUndefined, useCoarsePointer, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional, useDragTarget, useTrackedEvaluation,
     type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, type ToolbarItem,
 } from "@elaraai/east-ui-components";
-import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, recordChoiceLabel, recordSliceNoun, recordSliceWithinAt, type RowsViewport, usePickHandOff, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type RowsViewport, usePickHandOff, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import {
@@ -114,7 +114,7 @@ import { clearNarrowing, narrowingEqual, narrowingOf, narrowingQuery, narrowingS
 import { useRecordViewCounts } from "./use-record-view-counts.js";
 import { NOT_PERSISTED, persistedOf, sameAnchor, sameFolds, type SheetAnchor, type SheetPersisted } from "./persisted.js";
 import { useSheetSeek, type SheetSeekNarrowing } from "./use-seek.js";
-import { useHiddenRows, type HiddenAnswer } from "./hidden.js";
+import { hidingWords, useHiddenRows, type HiddenAnswer, type HidingWords } from "../shared/schedule/hidden.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { lensCount } from "./lens.js";
 import { lensBodyItems, type LensGeometry, type LensWords } from "./lens-layout.js";
@@ -182,6 +182,8 @@ interface SheetReveal {
 
 /** The `rows` source's narrowing, as East prints it: what names a narrowing of the rows apart from another (#1349). */
 const printRowsWhere = printFor(RecordSliceWhereType);
+/** No narrowing of the rows. */
+const NO_ROWS_WHERE: RowsWhere = new Map();
 
 /**
  * The record's rows a body item stands for under the lens (#1349): a row's
@@ -2231,7 +2233,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // rows, as it did while they were the narrowing's alone (#1345): its source's id names the narrowing too.
     const seekSource = useMemo(() => (recordRows && recordSeek !== undefined && pagedSource !== undefined && pagedSource.seek.type === "none"
         ? { ...pagedSource, id: rowsQuery, seek: some(recordSeek) } : pagedSource), [recordRows, recordSeek, pagedSource, rowsQuery]);
-    // ── The hidden pick (`hidden.ts`): a row the narrowing hides, named and gone to ──
+    // ── The hidden pick (`shared/schedule/hidden.ts`): a row the narrowing hides, named and gone to ──
     // Which of the `rows` source's choices hide a row its narrowing hides, asked of e3 through the record's indexes for
     // the rows the box lists and for the issues' rows — never worked out here — and kept by the revision and the
     // narrowing. A row's record key by its id, and its id by its key: a String key's id is the String itself, any other
@@ -2251,18 +2253,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         };
     }, [value.editing.keyType]);
     const hiddenRows = useHiddenRows({
-        part: lensWanted ? rowsPart : undefined, where: lensWanted ? rowsWhere : undefined, revision: lens.revision,
+        name: "Sheet", part: lensWanted ? rowsPart : undefined, where: lensWanted ? rowsWhere : undefined, revision: lens.revision,
         keyOf: recordKeys.keyOf, idOf: recordKeys.idOf,
     });
     // What hides a row and what a pick of it clears besides, each choice as the rail words it — `Status: Ready`.
-    const hiddenWords = useCallback((answer: HiddenAnswer): { filters: string[]; also: string[] } => {
-        const fields = rowsPart?.config.fields ?? [];
-        const label = (fieldId: string): string => {
-            const field = fields.find((f) => stringEqual(f.fieldId, fieldId));
-            return field === undefined ? fieldId : recordChoiceLabel(field, rowsWhere?.get(fieldId), words);
-        };
-        return { filters: answer.by.map(label), also: answer.also.map(label) };
-    }, [rowsPart, rowsWhere, words]);
+    const hiddenWords = useCallback((answer: HiddenAnswer): HidingWords =>
+        hidingWords(rowsPart?.config.fields ?? [], rowsWhere ?? NO_ROWS_WHERE, answer, words), [rowsPart, rowsWhere, words]);
     // A pick of a row the narrowing hides — the box's, or Go to issue's — clears the filters hiding it and goes to it.
     const [reveal, setReveal] = useState<SheetReveal | undefined>(undefined);
     // The rows' narrowing a reveal wrote: it places the view itself, so a narrowing keeping the row at the view's top

@@ -31,6 +31,7 @@ import { createContext, createElement, useContext, useMemo, type ReactNode } fro
 import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
 import { type EditHistoryWord } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
+import { hiddenByText } from "../shared/schedule/hidden.js";
 import { pluralKind } from "./link/grammar.js";
 import type { SheetKind } from "./model.js";
 
@@ -596,12 +597,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 
-/** A row the rail's narrowing hides, by the choices that do — joined as the rail's `Replaces …` joins them — and what a pick of it clears. */
-const hiddenBy = (filters: readonly string[], also: readonly string[]): string => {
-    const one = filters.length === 1;
-    const extra = also.length === 0 ? "" : `, and ${also.join("; ")} with ${one ? "it" : "them"}`;
-    return `hidden by ${filters.join("; ")} — picking it clears ${one ? "that filter" : "those filters"}${extra}`;
-};
+/** A row the rail's narrowing hides, by the choices that do — joined as the rail's `Replaces …` joins them — and what a pick of it clears: the hidden pick's English. */
+const hiddenBy = hiddenByText;
 
 /** The English table — the default: the editing session's words, then the sheet's own. */
 export const sheetMessages: SheetMessages = {
