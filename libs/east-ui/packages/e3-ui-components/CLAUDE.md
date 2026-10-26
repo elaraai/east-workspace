@@ -902,8 +902,10 @@ overtime is the app's pay's to say) — Calendar its configured event kinds
 (`calendar/footer.tsx`) and Allocation its layout's marks (`allocation/footer.tsx`),
 using the existing marks/icons and the
 shared footer rail; the line says the period being read (`Loading 12–18 Mar`),
-a source's new narrowing (`Filtering people…`) or a read that failed, with
-Retry, and nothing while nothing is in flight. Do not repeat status, pending
+a source's new narrowing (`Filtering people…`; the Allocation's, whichever
+source it narrows, `Filtering bins…`: the board waits for which of its bins
+show) or a read that failed, with Retry, and nothing while nothing is in
+flight. Do not repeat status, pending
 edits, counts, costs or hours there: shared history/toolbar controls and the
 inspector already own them. The legend stays whole and in place as the line
 comes and goes; measure that it stays one line at narrow widths. (The Sheet's

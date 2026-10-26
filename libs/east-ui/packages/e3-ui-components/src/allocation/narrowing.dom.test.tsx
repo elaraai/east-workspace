@@ -296,6 +296,26 @@ describe("the Timeline, narrowed", () => {
         expect(cards(c)).not.toContain("3103");
     });
 
+    test("whatever source's narrowing is read — the lanes', the resources' or the arrivals' — the footer's line says the board's bins are being filtered, `Filtering bins…`, until it lands (#1398, CL3)", async () => {
+        const { c, store } = await open(ex.allocationKilnYard);
+        await waitFor(() => expect(cards(c)).toHaveLength(26));
+        const line = () => slot(c, "footer").querySelector<HTMLElement>("[data-footer-line]")!;
+        const reads: readonly { source: "bays" | "kilns" | "arrivals"; field: string; values: readonly string[]; dataset: string }[] = [
+            { source: "bays", field: "area", values: ["North"], dataset: "records.yard_bays" },
+            { source: "kilns", field: "group", values: ["Bulk"], dataset: "records.kilns" },
+            { source: "arrivals", field: "spec", values: ["MC14"], dataset: "records.arrivals" },
+        ];
+        for (const read of reads) {
+            // The source's reads held on their way to e3: its new membership is in flight, the last standing in.
+            const held = h.e3.hold(request => request.dataset === read.dataset);
+            await narrow(store, "allocationKilnYard", read.source, read.field, read.values);
+            await waitFor(() => expect(line().querySelector("[data-line-text]")?.textContent, read.source).toBe("Filtering bins…"));
+            await act(async () => { held.release(); });
+            await settle();
+            await waitFor(() => expect(line().hasAttribute("data-idle"), read.source).toBe(true));
+        }
+    });
+
     test("a failed lane read keeps the last lanes, says `Lane results unavailable`, and Retry reads the lanes again", async () => {
         const { c, store } = await open(ex.allocationKilnYard);
         await waitFor(() => expect(cards(c)).toHaveLength(26));
