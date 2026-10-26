@@ -595,7 +595,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(row.getAttribute("aria-selected")).toBe("true");
     });
 
-    test("↓ past the loaded rows asks the source for more, and focus goes on to the first row that lands", async () => {
+    test("↓ past the loaded rows asks the source for more — the focus waiting on the last row read, never on the run — and goes on to the first row that lands (#1398, CL10)", async () => {
         // A hundred windows: the band's run is long, and the demand for its
         // first windows leaves the rest of it a band.
         const held = heldSource(100, 16, 2);
@@ -604,9 +604,9 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         act(() => gridOf(container).focus());
         for (let i = 0; i < 47; i++) press("ArrowDown");
         expect(focusedItem()).toBe("r:w2r15");
-        // Onto the band: it holds focus while the windows beside it are asked for.
+        // Past the rows read: the windows beside the run are asked for, and the focus waits where it is.
         press("ArrowDown");
-        expect(focusedItem()).toBe("b:0:tail");
+        expect(focusedItem()).toBe("r:w2r15");
         act(() => {
             held.state.openUpTo = 5;
             held.fire("w3");
@@ -618,7 +618,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(announced(container)).not.toMatch(/load/i);
     });
 
-    test("past the last loaded row, the band stands for the windows still in flight (#876) — focus waits on it, then moves on to the first row that lands", async () => {
+    test("past the last loaded row, the band stands for the windows still in flight (#876) — the focus waits on the row, then moves on to the first row that lands (#1398, CL10)", async () => {
         const held = heldSource(5, 16);
         const { container } = renderPlan(planRoot([], { source: held.source }), "plan-819-inflight");
         await waitFor(() => expect(item(container, "r:w0r15")).toBeTruthy());
@@ -626,9 +626,9 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         for (let i = 0; i < 15; i++) press("ArrowDown");
         expect(focusedItem()).toBe("r:w0r15");
         // Windows 1 and 2 are on the wire, and the move asks for window 3 too:
-        // the band stands for all of them, so focus lands on it and waits.
+        // the band stands for all of them, and the focus waits on the last row read.
         press("ArrowDown");
-        expect(focusedItem()).toBe("b:0:tail");
+        expect(focusedItem()).toBe("r:w0r15");
         expect(item(container, "b:0:tail").getAttribute("data-plan-elements")).toBe("800");
         expect(item(container, "b:0:tail").getAttribute("aria-busy")).toBe("true");
         act(() => {

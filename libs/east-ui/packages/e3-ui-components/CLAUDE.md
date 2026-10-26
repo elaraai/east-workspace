@@ -1342,9 +1342,18 @@ PageUp and PageDown cross a run not read in the Sheet and the Plan: fetch, then
 move — the window a page on asked for and the ring, or the focus, landing a page
 on once it is in (the Sheet's `seek.step` with its `page`, the Plan's `page`
 intent), never at the loaded edge — as Home and End do for the source's first
-and last rows. ↑ and ↓ on a person's name in the People grid step to the next
-person or the one before, past the groups' bands and their agency requests,
-selecting them and focusing their name, its ring drawn.
+and last rows. In the Plan the focus waits on the row it set out from, never on
+the run, and the view where it is (`root/keyboard.ts`' `fetch` and `edge`
+moves), ↑ and ↓ past the rows read the same; Home and End read the far window
+where the view is, pinned as a key search's jump is (the controller's
+`jumpToEdge`). A run that holds the focus — a click into it — hands it, as its
+rows land, to the first of them the view shows whole, and a key pressed on it
+waits for them and goes on from there (`wait`); an item a landing takes off the
+canvas leaves the focus on the canvas's surface, never the page's body, until a
+row takes it. ↑ and ↓ on a person's name in the
+People grid step to the next person or the one before, past the groups' bands
+and their agency requests, selecting them and focusing their name, its ring
+drawn.
 
 A scroll draws only what it brings into view: `VirtualRows` draws a mounted row
 again only as its index or `renderRow` moves, so a builder keeps `renderRow` the
