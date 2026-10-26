@@ -1312,7 +1312,10 @@ over `VirtualRows`' `onAnchorChange` and `restoreAnchor`): the Roster's People
 rows and cards, the Calendar's timeline and the Allocation's Table, as the
 Sheet's and the Plan's are kept. A narrowing keeps the Sheet's anchor row by its
 key where the narrowing holds it — drawn already, or sought where it is as a key
-search's jump is, and put back once drawn — and else starts at the top. A
+search's jump is, and put back once drawn — and else starts at the top; the
+Allocation's Table keeps the line its view rested on so too, once the
+narrowing's rows are in (`useRowAnchor`'s `narrowing`: the board's narrowing as
+text, the bins' own choices and its lanes', resources' and arrivals'). A
 bounded Plan keeps the row at the top of its view across a new narrowing of its
 paged rows — the `rows` source's or a paged resource kind's (#1344) — by its key
 and the px into it where the new rows' first windows draw it, and else starts
