@@ -11,7 +11,7 @@
  * events in the window the canvas shows and how long they run (#1197), the
  * backlog of the kinds that keep one — its events the Backlog tab's cards
  * (#1344) — and the newest commit to any kind's record; the last counts while
- * a read is in flight or has failed. The same read finds the overlaps among
+ * a read is in flight, saying so, or has failed. The same read finds the overlaps among
  * the window's events of the kinds that warn of them (#1198). A kind read by
  * its cells (#1039) counts its window's events exactly from its source, as the
  * rail counts them, and its hours over the rows drawn — once its cells have
@@ -121,39 +121,42 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         ];
         const { result } = renderHook(() => usePlanEventCounts(kinds, scale));
         // The backlog's events are the Backlog tab's cards, each with its kind, in the kinds' order (#1344).
-        expect(result.current).toEqual({
+        expect(result.current.counts).toEqual({
             events: 5, uncounted: [], hoursNotCounted: [], minutes: 300, drawn: false, backlog: 2, saved: utcAt("2026-10-12T08:30:00"), overlaps: NO_OVERLAPS,
             unscheduled: [{ kind: kinds[0], item: item() }, { kind: kinds[0], item: item() }],
         });
-        expect(result.current!.unscheduled[0]!.kind).toBe(kinds[0]);
+        expect(result.current.counts!.unscheduled[0]!.kind).toBe(kinds[0]);
         // Read over the window the canvas shows.
         expect(asked[0]).toEqual([utcAt("2026-10-05T00:00:00"), utcAt("2026-11-02T00:00:00")]);
     });
 
     test("no kind keeps a backlog: none is counted; no commit, no last save; no kinds, no counts", () => {
         const plain = renderHook(() => usePlanEventCounts([kind({ items: () => some([item()]) as never })], scale));
-        expect(plain.result.current).toEqual({ events: 1, uncounted: [], hoursNotCounted: [], minutes: 60, drawn: false, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
+        expect(plain.result.current.counts).toEqual({ events: 1, uncounted: [], hoursNotCounted: [], minutes: 60, drawn: false, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
         const bare = renderHook(() => usePlanEventCounts([], scale));
-        expect(bare.result.current).toBeUndefined();
+        expect(bare.result.current.counts).toBeUndefined();
     });
 
-    test("a read in flight keeps the last counts; one that fails keeps them and says why; a Plan without event kinds counts nothing", () => {
+    test("a read in flight keeps the last counts, and says it is in flight; one that fails keeps them and says why; a Plan without event kinds counts nothing", () => {
         let answer: Answer = () => some([item()]) as never;
         // A new list each time, so the counts are read again.
         const kindsNow = () => [kind({ items: () => answer() })];
         const { result, rerender } = renderHook(({ kinds }) => usePlanEventCounts(kinds, scale), { initialProps: { kinds: kindsNow() } });
-        const first = result.current;
+        const first = result.current.counts;
         expect(first).toEqual({ events: 1, uncounted: [], hoursNotCounted: [], minutes: 60, drawn: false, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
-        // In flight: the last counts stand.
+        expect(result.current.reading).toBe(false);
+        // In flight: the last counts stand in for it.
         answer = () => none;
         rerender({ kinds: kindsNow() });
-        expect(result.current).toBe(first);
-        // Failed: they stand still, and the console says why.
+        expect(result.current.counts).toBe(first);
+        expect(result.current.reading).toBe(true);
+        // Failed: they stand still, nothing is in flight, and the console says why.
         const errors = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
             answer = () => { throw new Error("the record could not be read"); };
             rerender({ kinds: kindsNow() });
-            expect(result.current).toBe(first);
+            expect(result.current.counts).toBe(first);
+            expect(result.current.reading).toBe(false);
             expect(errors).toHaveBeenCalled();
         } finally {
             errors.mockRestore();
@@ -161,10 +164,13 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         // An answer moves them.
         answer = () => some([item(), item()]) as never;
         rerender({ kinds: kindsNow() });
-        expect(result.current).toEqual({ events: 2, uncounted: [], hoursNotCounted: [], minutes: 120, drawn: false, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
+        expect(result.current).toEqual({
+            counts: { events: 2, uncounted: [], hoursNotCounted: [], minutes: 120, drawn: false, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] },
+            reading: false,
+        });
         // No event kinds: nothing to count, and nothing held.
         rerender({ kinds: [] });
-        expect(result.current).toBeUndefined();
+        expect(result.current).toEqual({ counts: undefined, reading: false });
     });
 
     test("a kind read by its cells counts its window's events exactly, from its source as the rail does — its hours over the rows drawn, read from its cells (#1039)", () => {
@@ -177,17 +183,17 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         // A new list each time, so the counts are read again.
         const partsNow = () => [{ kind: jobs, part: { count: () => counted } }] as unknown as PlanEventPart[];
         const { result, rerender } = renderHook(({ parts }) => usePlanEventCounts([jobs], scale, undefined, cells, parts), { initialProps: { parts: partsNow() } });
-        expect(result.current).toEqual({ events: 42, uncounted: [], hoursNotCounted: [], minutes: 120, drawn: true, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
+        expect(result.current.counts).toEqual({ events: 42, uncounted: [], hoursNotCounted: [], minutes: 120, drawn: true, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
         expect(reads.length).toBeGreaterThan(0);
         expect(reads.every((read) => equalFor(OptionType(BlobType))(read as never, some(cellsOfJobs)))).toBe(true);
         // Its count in flight: the last counts stand; counted again, they move.
-        const first = result.current;
+        const first = result.current.counts;
         counted = none;
         rerender({ parts: partsNow() });
-        expect(result.current).toBe(first);
+        expect(result.current.counts).toBe(first);
         counted = some(43n);
         rerender({ parts: partsNow() });
-        expect(result.current!.events).toBe(43);
+        expect(result.current.counts!.events).toBe(43);
     });
 
     test("a kind counted before it is read is read over the window only once its count over the range the canvas reads is within the cap (#1039)", () => {
@@ -198,19 +204,19 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         const kindsNow = () => [kind({ items: () => some([item(), item()]) as never, asked, count: () => count, counts })];
         const { result, rerender } = renderHook(({ kinds }) => usePlanEventCounts(kinds, scale), { initialProps: { kinds: kindsNow() } });
         // Its count in flight: nothing of it is read, and there are no counts yet.
-        expect(result.current).toBeUndefined();
+        expect(result.current.counts).toBeUndefined();
         expect(asked).toEqual([]);
         // Counted over the range the canvas reads — the window and the two days it lays out beyond each edge.
         expect(counts[0]).toEqual([utcAt("2026-10-03T00:00:00"), utcAt("2026-11-04T00:00:00")]);
         // Past the cap: still nothing read — the reader gives it no cells, and it is counted then.
         count = some(10_001n);
         rerender({ kinds: kindsNow() });
-        expect(result.current).toBeUndefined();
+        expect(result.current.counts).toBeUndefined();
         expect(asked).toEqual([]);
         // Within it: read over the window the canvas shows.
         count = some(10_000n);
         rerender({ kinds: kindsNow() });
-        expect(result.current).toEqual({ events: 2, uncounted: [], hoursNotCounted: [], minutes: 120, drawn: false, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
+        expect(result.current.counts).toEqual({ events: 2, uncounted: [], hoursNotCounted: [], minutes: 120, drawn: false, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS, unscheduled: [] });
         expect(asked).toEqual([[utcAt("2026-10-05T00:00:00"), utcAt("2026-11-02T00:00:00")]]);
     });
 
@@ -222,7 +228,7 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         // The reader gives it no cells: none of its events is read or drawn.
         const cells = cellsOf([["job", empty]], ["job"]);
         const { result } = renderHook(() => usePlanEventCounts([jobs], scale, undefined, cells));
-        expect(result.current).toEqual({
+        expect(result.current.counts).toEqual({
             events: 25_000, uncounted: [], hoursNotCounted: [jobs], minutes: undefined, drawn: false, backlog: undefined, saved: undefined,
             overlaps: NO_OVERLAPS, unscheduled: [],
         });
@@ -240,7 +246,7 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         const jobs = kind({ key: "job", items: () => some([item(), item()]) as never });
         const cells = cellsOf([["run", empty]], ["run"]);
         const both = renderHook(() => usePlanEventCounts([days, jobs], scale, undefined, cells));
-        expect(both.result.current).toEqual({
+        expect(both.result.current.counts).toEqual({
             events: 2, uncounted: [days], hoursNotCounted: [], minutes: 120, drawn: false, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS,
             unscheduled: [],
         });
@@ -248,9 +254,9 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         expect(dayCounts).toEqual([]);
         // Alone, no kind's events are counted, nor its hours: no count, never 0.
         const alone = renderHook(() => usePlanEventCounts([days], scale, undefined, cells));
-        expect(alone.result.current!.events).toBeUndefined();
-        expect(alone.result.current!.minutes).toBeUndefined();
-        expect(alone.result.current!.uncounted).toEqual([days]);
+        expect(alone.result.current.counts!.events).toBeUndefined();
+        expect(alone.result.current.counts!.minutes).toBeUndefined();
+        expect(alone.result.current.counts!.uncounted).toEqual([days]);
     });
 
     test("past the cap a kind's events are counted but not its hours — named among the kinds whose hours are not — beside the hours of the kinds read (#1039)", () => {
@@ -259,7 +265,7 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         const checks = kind({ key: "check", name: "Press check", items: () => some([item(), item()]) as never });
         const cells = cellsOf([["job", empty]], ["job"]);
         const { result } = renderHook(() => usePlanEventCounts([jobs, checks], scale, undefined, cells));
-        expect(result.current).toEqual({
+        expect(result.current.counts).toEqual({
             events: 25_002, uncounted: [], hoursNotCounted: [jobs], minutes: 120, drawn: false, backlog: undefined, saved: undefined,
             overlaps: NO_OVERLAPS, unscheduled: [],
         });
@@ -274,11 +280,11 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         // The reader's opening: the kind's cells, holding nothing yet — no read of them has landed.
         const { result, rerender } = renderHook(({ cells }) => usePlanEventCounts([jobs], scale, undefined, cells, parts),
             { initialProps: { cells: cellsOf([["job", new Uint8Array([0])]], [], false) } });
-        expect(result.current).toBeUndefined();
+        expect(result.current.counts).toBeUndefined();
         // Landed: its events from its source, its hours over the rows drawn.
         landed = true;
         rerender({ cells: cellsOf([["job", cellsOfJobs]]) });
-        expect(result.current).toEqual({
+        expect(result.current.counts).toEqual({
             events: 13, uncounted: [], hoursNotCounted: [], minutes: 60, drawn: true, backlog: undefined, saved: undefined, overlaps: NO_OVERLAPS,
             unscheduled: [],
         });
@@ -290,7 +296,7 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         const jobs = kind({ key: "job", items: () => some([item(), item(), item()]) as never, backlog: () => some([item()]) as never, asked, counts });
         const crews = kind({ key: "crew", name: "Crew shift", items: () => some([item(), item()]) as never });
         const { result } = renderHook(() => usePlanEventCounts([jobs, crews], scale, undefined, undefined, undefined, JOBS_HIDDEN));
-        expect(result.current).toEqual({
+        expect(result.current.counts).toEqual({
             events: 2, uncounted: [], hoursNotCounted: [], minutes: 120, drawn: false, backlog: 1, saved: undefined, overlaps: NO_OVERLAPS,
             unscheduled: [{ kind: jobs, item: item() }],
         });
@@ -301,11 +307,11 @@ describe("the footer's counts of the event kinds (#1193, PB23)", () => {
         let partCounts = 0;
         const parts = [{ kind: jobs, part: { count: () => { partCounts += 1; return some(13n); } } }] as unknown as PlanEventPart[];
         const byCells = renderHook(() => usePlanEventCounts([jobs, crews], scale, undefined, cellsOf([["job", new Uint8Array([7, 1])]]), parts, JOBS_HIDDEN));
-        expect(byCells.result.current!.events).toBe(2);
+        expect(byCells.result.current.counts!.events).toBe(2);
         expect(partCounts).toBe(0);
         // Every kind hidden: no figure at all — no events, no hours, nothing said not counted — and the backlog still.
         const alone = renderHook(() => usePlanEventCounts([jobs], scale, undefined, undefined, undefined, JOBS_HIDDEN));
-        expect(alone.result.current).toEqual({
+        expect(alone.result.current.counts).toEqual({
             events: undefined, uncounted: [], hoursNotCounted: [], minutes: undefined, drawn: false, backlog: 1, saved: undefined, overlaps: NO_OVERLAPS,
             unscheduled: [{ kind: jobs, item: item() }],
         });
@@ -323,10 +329,10 @@ describe("the overlaps among the window's events (#1198, PB51)", () => {
             kind({ items: () => some([event("crew", "C-1", "06:00", "14:00", "b2"), event("crew", "C-2", "08:00", "16:00", "b2")]) }),
         ];
         const { result } = renderHook(() => usePlanEventCounts(kinds, scale));
-        const overlaps = result.current!.overlaps;
+        const overlaps = result.current.counts!.overlaps;
         expect(overlaps.pairs).toEqual([{ first: morning, second: noon, from: utcAt("2026-10-20T10:00:00"), to: utcAt("2026-10-20T12:00:00") }]);
         expect([...overlaps.peers.keys()]).toHaveLength(2);
         // Counted as events all the same.
-        expect(result.current!.events).toBe(5);
+        expect(result.current.counts!.events).toBe(5);
     });
 });
