@@ -9,8 +9,9 @@
  * through their series index, and past 10,000 of them shaded from their
  * summary. What each request asked is read from the harness's request log;
  * another planner's write is a real commit. The timeline's scroll box is laid
- * out as a browser lays it — 400px tall, each line 42px, 900px wide — which
- * jsdom does not.
+ * out as a browser lays it — 400px tall, each line 42px and a run of places not
+ * read as tall as its rows, 900px wide — and the Resources view's 900px wide,
+ * its content as wide as its columns, which jsdom does not.
  *
  * - The timeline opens on the presses' first windows, never the presses
  *   whole, and reads the jobs of the first block of fifty presses alone, by the
@@ -20,6 +21,12 @@
  * - A scroll down reads the presses' windows and the cells it brings into
  *   view alone; a scroll on to the window's end re-centres, and reads the cells
  *   of the weeks it brings in alone.
+ * - Fifty thousand presses: the timeline lays them out in as many lines as the
+ *   windows it holds, the places between one run each, and the Resources view
+ *   places the columns it draws at their own offsets — no line, column or grid
+ *   track a press.
+ * - A narrowed kind whose count cannot be read ends the cold load and says
+ *   why, on the footer's line and where the presses would be, with Retry.
  * - Past 10,000 jobs in the cells wanted, none is read: the series index counts
  *   them, the summary shades each press's months, the timeline at Week, which
  *   no summary divides, hatches its rows and says how many.
@@ -128,8 +135,12 @@ let errors: MockInstance<typeof console.error>;
 const VIEW_HEIGHT = 400;
 const VIEW_WIDTH = 900;
 const LINE = 42;
+/** The Resources view's hour column, and the least width of each column beside it, px. */
+const HOUR_COLUMN = 56;
+const RESOURCE_COLUMN = 104;
 const isFrame = (node: Element) => node.getAttribute("data-virtual-rows") === "bounded";
 const isLine = (node: Element) => node.hasAttribute("data-index") && node.closest("[data-calendar-timeline]") !== null;
+const isGrid = (node: Element) => node.hasAttribute("data-calendar-time-grid");
 const saved = {
     offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!,
     clientHeight: Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!,
@@ -137,28 +148,43 @@ const saved = {
     clientWidth: Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!,
     scrollWidth: Object.getOwnPropertyDescriptor(Element.prototype, "scrollWidth")!,
 };
+/** The harness's measure of an element, which the timeline's lines are laid out over. */
+let harnessRect: Element["getBoundingClientRect"];
 /** The window a timeline shows, as its rows' plots carry it. */
 function windowOf(timeline: Element): { from: Date; to: Date } {
     const cell = timeline.querySelector<HTMLElement>("[data-calendar-cell]")!;
     return { from: new Date(Number(cell.dataset["calendarFrom"])), to: new Date(Number(cell.dataset["calendarTo"])) };
 }
+/** How many columns the Resources view lays out: its content's count. */
+const gridColumns = (grid: Element) => Number((grid.firstElementChild as HTMLElement | null)?.style.getPropertyValue("--calendar-columns") ?? 0);
 
 beforeEach(() => {
     errors = vi.spyOn(console, "error");
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get(this: HTMLElement) { return isFrame(this) ? VIEW_HEIGHT : isLine(this) ? LINE : 0; } });
     Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get(this: Element) { return isFrame(this) ? VIEW_HEIGHT : 0; } });
     Object.defineProperty(Element.prototype, "scrollHeight", { configurable: true, get(this: Element) { return isFrame(this) ? 10_000_000 : 0; } });
-    Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get(this: Element) { return this.hasAttribute("data-calendar-timeline") ? VIEW_WIDTH : 0; } });
+    Object.defineProperty(Element.prototype, "clientWidth", { configurable: true, get(this: Element) { return this.hasAttribute("data-calendar-timeline") || isGrid(this) ? VIEW_WIDTH : 0; } });
     Object.defineProperty(Element.prototype, "scrollWidth", {
         configurable: true,
         get(this: Element) {
+            // The Resources view: as wide as its columns at their least width, beside the hour column.
+            if (isGrid(this)) return HOUR_COLUMN + gridColumns(this) * RESOURCE_COLUMN;
             if (!this.hasAttribute("data-calendar-timeline")) return 0;
             const shown = windowOf(this);
             return (shown.to.getTime() - shown.from.getTime()) / DAY * timelinePixels("week") + TIMELINE_GUTTER;
         },
     });
+    // Each line of the timeline as a browser lays it: 42px — and a run of places not read as tall as its rows.
+    harnessRect = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
+        if (!isLine(this)) return harnessRect.call(this);
+        const run = this.querySelector<HTMLElement>("[data-unloaded-run]");
+        const height = run === null ? LINE : Number.parseFloat(run.style.height);
+        return { x: 0, y: 0, top: 0, left: 0, right: VIEW_WIDTH, bottom: height, width: VIEW_WIDTH, height, toJSON() { return {}; } } as DOMRect;
+    };
 });
 afterEach(() => {
+    Element.prototype.getBoundingClientRect = harnessRect;
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", saved.offsetHeight);
     Object.defineProperty(Element.prototype, "clientHeight", saved.clientHeight);
     Object.defineProperty(Element.prototype, "scrollHeight", saved.scrollHeight);
@@ -260,13 +286,13 @@ describe("a Calendar over 2,000 presses paged, the jobs on them read a cell at a
 });
 
 describe("the Resources view's columns of the paged presses (#1424)", () => {
-    test("a column each press, drawn only around the view — every other an empty track — and the jobs of the first block's presses that day read a cell at a time", async () => {
+    test("a column each press, drawn only around the view — every other no element at all — and the jobs of the first block's presses that day read a cell at a time", async () => {
         const { container: c } = await h.mount(cw.calendarWindows, { storageKey: "windows-resources" });
         await settle();
         const since = h.requests().length;
         await press(c, "radio", "Resources");
         const grid = c.querySelector<HTMLElement>("[data-calendar-time-grid]")!;
-        // Two thousand tracks, a few dozen columns drawn: the first presses, in their key order.
+        // Two thousand columns laid out, a few dozen drawn: the first presses, in their key order.
         expect(grid.querySelector<HTMLElement>("[data-calendar-header]")!.hasAttribute("data-paged")).toBe(true);
         const heads = [...grid.querySelectorAll<HTMLElement>("[data-calendar-header] [data-calendar-resource-title]")].map((head) => head.textContent!.trim());
         expect(heads.slice(0, 3)).toEqual(["Press 1001", "Press 1002", "Press 1003"]);
@@ -276,6 +302,63 @@ describe("the Resources view's columns of the paged presses (#1424)", () => {
         expect(askedOf(PRESSES, since)).toEqual([]);
         expect(searchedPresses(since).every((key) => pressesFrom(0, 49).includes(key))).toBe(true);
         expect(windowReads(since)).toEqual([]);
+    });
+});
+
+// ============================================================================
+// Fifty thousand presses: a window at a time, never a line or a column a press (#1424)
+// ============================================================================
+
+describe("fifty thousand presses laid out a window at a time (#1424)", () => {
+    /** The works' presses, grown: their count written, their task run again. */
+    const AT_SCALE = 50_000;
+    beforeEach(async () => {
+        await h.write(ex.planWindowPressCount, BigInt(AT_SCALE));
+        await h.run();
+    });
+    /** The last press in the presses' key order — the order their windows hold them in. */
+    const lastPress = () => Array.from({ length: AT_SCALE }, (_, n) => pressAt(n)).sort(compareFor(StringType)).at(-1)!;
+    /** Each line the timeline has mounted, by its place among the lines its virtualizer holds. */
+    const linesMounted = (c: HTMLElement) => [...timelineOf(c).querySelectorAll<HTMLElement>("[data-index]")].map((line) => Number(line.dataset["index"]));
+    /** Each column the Resources view draws: its place among the columns, the offset it is placed at, any grid line it takes, and its name. */
+    const columnsDrawn = (grid: HTMLElement) => [...grid.querySelectorAll<HTMLElement>("[data-calendar-header] [data-calendar-column]")].map((head) => ({
+        at: Number(head.dataset["calendarColumn"]), placed: head.style.getPropertyValue("--calendar-column-at"), gridColumn: head.style.gridColumn,
+        name: head.querySelector("[data-calendar-resource-title]")?.textContent?.trim(),
+    }));
+
+    test("the timeline holds a line for each press read and one run for the places between — never a line a press — as tall as every press; a scroll to the end reads the last windows", async () => {
+        const { container: c } = await h.mount(cw.calendarWindows, { storageKey: "windows-scale" });
+        await settle();
+        expect(timelineOf(c).textContent).toContain("50,000 resources");
+        // The extent is every press's, a row's pitch each: the presses' band, the presses, and the Unassigned band and row.
+        const extent = Number(timelineOf(c).querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"));
+        expect(extent).toBe((1 + AT_SCALE + 2) * LINE);
+        // To the end: the view rests on the run there, which reads the last windows, their rows drawn where it stood.
+        await scrollTimeline(c, { top: extent - VIEW_HEIGHT });
+        await waitFor(() => expect(pressRow(c, lastPress())).not.toBeNull(), { timeout: 10_000 });
+        // The lines the virtualizer holds are the bands, the rows of the windows held and a run for the places between: a
+        // few hundred, however many presses — the last of them mounted here, at the end of the extent, which holds still.
+        expect(Math.max(...linesMounted(c))).toBeLessThan(1_000);
+        expect(Number(timelineOf(c).querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"))).toBe(extent);
+    });
+
+    test("the Resources view places each column it draws at its own offset, in a content box as wide as every column — never a grid track a column — drawing only those around the view", async () => {
+        const { container: c } = await h.mount(cw.calendarWindows, { storageKey: "windows-scale-columns" });
+        await settle();
+        await press(c, "radio", "Resources");
+        const grid = c.querySelector<HTMLElement>("[data-calendar-time-grid]")!;
+        // Every press a column, and the Unassigned one after them.
+        expect(gridColumns(grid)).toBe(AT_SCALE + 1);
+        // To the far end: the columns there drawn, each at its own place — the Unassigned last — and the last presses'
+        // names once their window, which the view reads as it rests, lands.
+        await act(async () => { grid.scrollLeft = grid.scrollWidth - VIEW_WIDTH; fireEvent.scroll(grid); });
+        await waitFor(() => expect(columnsDrawn(grid).at(-1)?.name).toBe("Unassigned"), { timeout: 10_000 });
+        await waitFor(() => expect(columnsDrawn(grid).map((column) => column.name)).toContain(`Press ${lastPress().slice(2)}`), { timeout: 10_000 });
+        const drawn = columnsDrawn(grid);
+        expect(drawn.length).toBeLessThan(40);
+        expect(drawn.at(-1)!.at).toBe(AT_SCALE);
+        expect(drawn.map((column) => column.placed)).toEqual(drawn.map((column) => String(column.at)));
+        expect(drawn.filter((column) => column.gridColumn !== "")).toEqual([]);
     });
 });
 
@@ -319,7 +402,7 @@ describe("the narrowed presses' count failing to read (#1424)", () => {
         // Said where the presses would be, once — their first row in view — with its Retry; no press drawn.
         const said = [...timelineOf(c).querySelectorAll<HTMLElement>("[data-loading-failed]")];
         expect(said.map((line) => line.textContent)).toEqual(["Couldn't read presses 1–200Retry"]);
-        expect(pressRows(c)).toEqual([]);
+        expect(timelineOf(c).querySelector('[data-calendar-row-group="Presses"]')).toBeNull();
         // Retry, the fault gone: the hall's presses counted and read, drawn in the index's order, and the line idle.
         stop();
         await act(async () => { fireEvent.click(loadingLine(c).querySelector("[data-line-retry]")!); });

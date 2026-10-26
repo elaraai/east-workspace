@@ -30,6 +30,12 @@
  * snapshot it serves fails its windows too, each said where its places would
  * be.
  *
+ * The views lay the kind's places out as stretches ({@link pagedSegments}):
+ * each window held, its rows; each window whose read failed; and the places
+ * between not read yet, one run each — never a line, a column or an object a
+ * place, so a kind of a million resources costs a view what its windows held
+ * do.
+ *
  * @packageDocumentation
  */
 
@@ -183,6 +189,51 @@ export function pagedPlaces(pages: CalendarPages): number {
         else if (pages.failed.has(w)) n += CALENDAR_PAGE_SIZE;
         else return n;
     }
+}
+
+/**
+ * A stretch of the paged kind's places, as the views lay them out (#1424): a
+ * window held, its rows from its first place on; a window whose read failed,
+ * its places; or places not read yet, one run however many.
+ */
+export type CalendarPagedSegment =
+    | { readonly kind: "held"; readonly from: number; readonly rows: readonly CalendarRow[] }
+    | { readonly kind: "failed"; readonly from: number; readonly to: number }
+    | { readonly kind: "unread"; readonly from: number; readonly to: number };
+
+/**
+ * The paged kind's places in their order as stretches (see
+ * {@link CalendarPagedSegment}): each window the frame holds or whose read
+ * failed, and one run for each stretch of places between them not read yet —
+ * as many stretches as the windows held, however many places the kind has,
+ * never one a place.
+ *
+ * @param pages - The windows the frame holds of the paged kind, and those whose read failed
+ * @param places - How many places it lays out ({@link pagedPlaces})
+ * @returns The stretches, in the kind's order, covering every place once
+ */
+export function pagedSegments(pages: Pick<CalendarPages, "windows" | "failed">, places: number): CalendarPagedSegment[] {
+    const windows = [...new Set([...pages.windows.keys(), ...pages.failed.keys()])].sort((a, b) => a - b);
+    const out: CalendarPagedSegment[] = [];
+    let at = 0;
+    for (const w of windows) {
+        const from = w * CALENDAR_PAGE_SIZE;
+        if (from >= places) break;
+        if (from > at) out.push({ kind: "unread", from: at, to: from - 1 });
+        const held = pages.windows.get(w);
+        if (held !== undefined) {
+            // A window as held: its rows, as many as the places reach — a window the count has since cut, its first.
+            const rows = held.length > places - from ? held.slice(0, places - from) : held;
+            if (rows.length > 0) out.push({ kind: "held", from, rows });
+            at = from + rows.length;
+            continue;
+        }
+        const to = Math.min(places, from + CALENDAR_PAGE_SIZE) - 1;
+        out.push({ kind: "failed", from, to });
+        at = to + 1;
+    }
+    if (at < places) out.push({ kind: "unread", from: at, to: places - 1 });
+    return out;
 }
 
 /**
