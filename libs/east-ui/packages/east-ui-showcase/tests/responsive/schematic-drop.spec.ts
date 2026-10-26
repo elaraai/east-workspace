@@ -28,6 +28,10 @@
  *   that starts under it — and on the run's line it names the run; dropped,
  *   one change waits on Save (SC11). **A backlog row** dropped on the floor is
  *   placed there, selected, the Backlog counting one fewer (SC4).
+ * - **At every zoom an owner's card lands where a click selects the rack**: on
+ *   its dot, on its pin's name, anywhere on its card — and past a dot's rim,
+ *   where a click selects nothing, it is refused — from a box whose Fit draws
+ *   the racks as dots, zoomed in through their pins to their cards.
  *
  * On a phone, 390px and 360px wide and in a 294px parent, the library opened
  * from its rail: a tap selects an owner's card, and a tap on the selected card
@@ -184,6 +188,61 @@ test.describe("The Schematic's drag and drop (#1390)", () => {
             expect(await looks(a03)).toEqual(plain);
         });
     }
+
+    test("at every zoom an owner's card lands on a rack where a click selects it — its dot, its pin's name, anywhere on its card — and is refused past a dot's rim, where a click selects nothing (#1390)", async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        const root = await openSchematic(page, DATA_CENTRE);
+        // A box whose Fit draws the racks as their dots: the library pinned beside a main of 480px or more, the inspector
+        // collapsed to its rail.
+        await sizeTo(page, root, 800);
+        await collapseInspector(page, root);
+        await openTab(page, root, "Owners");
+        const canvas = root.locator("[data-schematic-canvas]");
+        const zoomIn = root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Zoom in" });
+        /** What a click at a point selects, as the inspector's rail names it; `null` for nothing. */
+        const clicked = async (at: Point): Promise<string | null> => {
+            await page.mouse.click(at.x, at.y);
+            await settled(page);
+            const said = await root.evaluate((el) => el.querySelector("[data-frame-slot='end'] [data-dock-detail]")?.textContent ?? null);
+            // Let go of it again: Esc with the pointer over the canvas.
+            await page.keyboard.press("Escape");
+            await settled(page);
+            return said;
+        };
+        /** Whether the owner's card, carried to a point and resting there, lands on A03: let go over the toolbar, it drops nowhere. */
+        const lands = async (at: Point): Promise<boolean> => {
+            await pickUp(page, libraryCard(root, "harbour"));
+            await carryTo(page, root, at);
+            await expect.poll(() => captionOf(page)).not.toBeNull();
+            const caption = await captionOf(page);
+            const toolbar = (await root.locator("[data-frame-slot='toolbar']").boundingBox())!;
+            await page.mouse.move(toolbar.x + toolbar.width / 2, toolbar.y + toolbar.height / 2, { steps: 4 });
+            await page.mouse.up();
+            await expect.poll(() => captionOf(page)).toBeNull();
+            return caption?.text === "onto A03";
+        };
+        const bands: string[] = [];
+        for (const band of ["dot", "label", "card"] as const) {
+            await expect(canvas).toHaveAttribute("data-lod", band);
+            bands.push(band);
+            const a03 = await screenPoint(root, 9.6, 2.9);
+            for (const dx of [0, 8, 14, 22]) {
+                const at = { x: a03.x + dx, y: a03.y };
+                const selects = (await clicked(at)) === "A03";
+                expect({ band, dx, lands: await lands(at) }, `${band}: a click ${dx}px right of A03's centre ${selects ? "selects it" : "does not"}`)
+                    .toEqual({ band, dx, lands: selects });
+                // Its dot and the slop round it always do; past the rim only its pin's name — the case at the pins' Fit —
+                // or its card.
+                expect(selects, `${band}: a click ${dx}px right of A03's centre`).toBe(band !== "dot" || dx <= 8);
+            }
+            if (band !== "card") {
+                await zoomIn.click();
+                await settled(page);
+            }
+        }
+        expect(bands).toEqual(["dot", "label", "card"]);
+        await expect(discard(root)).toBeDisabled();
+    });
 
     test("a fibre template over a rack's card is refused — the card covers the run that starts under it — and on the run's line names the run; dropped, one change waits on Save (SC11); a backlog row dropped on the floor is placed there, selected, the Backlog counting one fewer (SC4)", async ({ page }) => {
         const root = await openWide(page, "light");
