@@ -22,7 +22,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DateTimeType, OptionType, decodeBeast2For, encodeBeast2For, none, printFor, some, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
-import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
+import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
 import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
@@ -729,5 +729,40 @@ describe("the Backlog's drafts, paged through the source (#1424)", () => {
         const card = backlogCard(container, "backlog")!;
         expect([card.hasAttribute("data-filtered"), card.hasAttribute("data-draggable")]).toEqual([true, false]);
         expect((await h.read(ex.indexedCalendarEvents)).get("backlog")!.start.type).toBe("none");
+    });
+
+    test("a card chosen keeps its Schedule as the drafts move — the list they make again finds what the card is before its pages are read — and its Schedule places the card's event", async () => {
+        StateRuntime.initializeStore(new UIStore());
+        const { container } = await h.mount(ex.calendarRecordIndexes, { storageKey: "backlog-chosen-draft" });
+        await waitFor(() => expect(event(container, "job")).not.toBeNull());
+        await settle();
+        const schedule = () => within(slot(container, "start")).queryByRole("button", { name: "Schedule" });
+        // Another event drafted, from the inspector — the brochures' customer — and then nothing selected.
+        await act(async () => { fireEvent.click(event(container, "job")!); });
+        await settle();
+        const user = userEvent.setup();
+        const customer = slot(container, "end").querySelector<HTMLInputElement>('[data-field="customer"] input')!;
+        await user.clear(customer); await user.type(customer, "Another customer{Enter}"); await settle();
+        expect(event(container, "job")?.hasAttribute("data-drafted")).toBe(true);
+        await act(async () => { fireEvent.keyDown(container.querySelector("[data-calendar-main]")!, { key: "Escape" }); });
+        await settle();
+        expect(event(container, "job")?.getAttribute("aria-pressed")).toBe("false");
+        // The posters' card chosen: its Schedule.
+        await act(async () => { fireEvent.click(backlogCard(container, "backlog")!); });
+        await settle();
+        const chosen = schedule();
+        expect(chosen).not.toBeNull();
+        // The brochures' draft undone: the drafts move, and the list is made again.
+        await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: editingMessages.undo() })); });
+        await settle();
+        expect(event(container, "job")?.hasAttribute("data-drafted")).toBe(false);
+        // The posters' card still chosen, its Schedule the same control all the while — never gone while the new list's
+        // pages were read — and it places the posters on the day.
+        expect(schedule()).toBe(chosen);
+        await act(async () => { fireEvent.click(schedule()!); });
+        await settle();
+        await act(async () => { fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Schedule" })); });
+        await settle();
+        expect(event(container, "backlog")?.hasAttribute("data-drafted")).toBe(true);
     });
 });
