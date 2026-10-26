@@ -33,7 +33,7 @@ import { StringType, compareFor, equalFor, none, toEastTypeValue, type EastTypeV
 import { findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type Formatters, type KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked, recordSlicePage, recordSliceRevision, recordSliceSeek, toSeekQuery } from "@elaraai/east-ui-components/internal";
-import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEditing } from "../shared/schedule/editing.js";
+import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleEditing, type ScheduleHeldRows } from "../shared/schedule/editing.js";
 import type { CalendarEventPart } from "./window.js";
 import type { CalendarItem, CalendarKind, CalendarRange } from "./model.js";
 
@@ -127,6 +127,8 @@ export interface CalendarFindProps {
     readonly format: Pick<Formatters, "weekdayDate" | "time">;
     /** Told the event a pick lands on. */
     readonly onPick: (found: FoundEvent) => void;
+    /** The rows a kind read by its cells holds (#1424): a found event of such a kind is read from them, else by its key — never over the window. */
+    readonly held?: ScheduleHeldRows | undefined;
 }
 
 /**
@@ -135,9 +137,9 @@ export interface CalendarFindProps {
  * @param props - The kinds and their parts, the editing, the window, the words and the pick
  * @returns The source; `undefined` with no event kind to seek
  */
-export function useCalendarFind({ kinds, parts, editing, range, format, onPick }: CalendarFindProps): KeySearchSource | undefined {
-    const latest = useRef({ kinds, parts, editing, range, format, onPick });
-    useLayoutEffect(() => { latest.current = { kinds, parts, editing, range, format, onPick }; });
+export function useCalendarFind({ kinds, parts, editing, range, format, onPick, held }: CalendarFindProps): KeySearchSource | undefined {
+    const latest = useRef({ kinds, parts, editing, range, format, onPick, held });
+    useLayoutEffect(() => { latest.current = { kinds, parts, editing, range, format, onPick, held }; });
     const partOf = useCallback((kind: CalendarKind) => latest.current.parts.find(p => keyEqual(p.kind.key, kind.key))?.part, []);
     const draftsOf = useCallback((kind: CalendarKind) => latest.current.editing?.drafts.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS, []);
     // What the last find found, each kind's run; a find answered after a newer one asked finds nothing here.
@@ -172,9 +174,9 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick }
             if (run.items !== undefined) return run.items.slice(offset, offset + n).map((item, i) => ({ at: at + i, found: { item, kind: run.kind.name } }));
             const part = run.part!;
             const entries = await awaitTracked(() => recordSlicePage(part, WHOLE, BigInt(run.start + offset), BigInt(n))) as readonly RecordEntry[];
-            const { range: window } = latest.current;
+            const { range: window, held } = latest.current;
             const drafts = draftsOf(run.kind);
-            const read = await Promise.all(entries.map(entry => awaitTracked(() => run.kind.event(entry.key, drafts, window.from, window.to, none))));
+            const read = await Promise.all(entries.map(entry => awaitTracked(() => run.kind.event(entry.key, drafts, window.from, window.to, heldRowOf(held, run.kind.key, entry.key)))));
             return read.map((event, i) => ({ at: at + i, found: { item: event.item, kind: run.kind.name } }));
         }));
         return parts.flat();

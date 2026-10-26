@@ -30,18 +30,22 @@
  * read reads it — once its count there says so, never by what the reader last
  * decided, which a new narrowing outruns; past it, none of its events is read
  * or drawn (`capped`), its drafts alone drawn where they place their events,
- * and its backlog read alone, beside them.
+ * and its backlog read alone, beside them. Where the view lays out the paged
+ * resource kind's resources (`pages.ts`), a kind placed on it is read a cell
+ * at a time instead, around the rows the views say they show, and the window's
+ * read takes its events from the cells — never over the window.
  *
  * @packageDocumentation
  */
-import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { DateTimeType, SortedMap, StringType, compareFor, none, some } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { scheduleWithinCap, type ScheduleCellResources, type ScheduleCellsRead } from "../shared/schedule/cells.js";
+import { scheduleWithinCap, type ScheduleCellResources, type ScheduleCellSpan, type ScheduleCellsRead } from "../shared/schedule/cells.js";
 import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEditing, type ScheduleEventDraftsValue } from "../shared/schedule/editing.js";
 import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
-import { useCalendarCells, type CalendarBucket } from "./cells.js";
+import { calendarCellSpan, calendarCellsPaged, useCalendarCells, type CalendarBucket } from "./cells.js";
 import { calendarAhead, chronological, resourceKey, type CalendarItem, type CalendarRange, type CalendarRow, type CalendarValue, type CalendarView } from "./model.js";
+import type { CalendarPagedDemand, CalendarPagedView, CalendarPages } from "./pages.js";
 import { timelineAhead } from "./timeline.js";
 import { useTravel, type TravelStore } from "./visible.js";
 import { calendarEventParts } from "./window.js";
@@ -233,25 +237,40 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
     [first, complete, completeRange, loading, error, apart]);
 }
 
+/** Nothing to hear: no paged resource kind. */
+const NOTHING = () => () => {};
+/** No places in view: no paged resource kind. */
+const NO_VIEW = (): CalendarPagedView | undefined => undefined;
+
 /**
  * The window read, in a component of its own (#1343): each search that lands re-runs it alone, and it hands the frame
  * its data only when what the frame shows moves. A kind narrowed through an interval index lands some fifty-five
  * searches before its count is known, and each would otherwise re-render the whole frame. The kinds' counts, and past
- * the cap their shading and their notices, are read here too, by the shared reader (#1424).
+ * the cap their shading and their notices, are read here too, by the shared reader (#1424) — and where the view lays out
+ * the paged resource kind's resources, the cells of a kind placed on it, around the rows the views say they show, which
+ * they report to a store this component alone hears: a scroll renders nothing of the frame.
  *
  * @param props - The payload, the range read, the editing whose drafts the read holds, the view and, on the timeline,
  *   which way its view travels (what is read ahead once the window lands); the resource kinds the view lays out, each its
- *   rows the rail shows, and the periods a resource's shading is cut into — none in a view with no resource axis; and
- *   where the data goes
+ *   rows the rail shows, and the periods a resource's shading is cut into — none in a view with no resource axis; what
+ *   the frame holds of the paged resource kind and where the views report its places they show; and where the data goes
  * @returns Nothing: it reads
  */
-export function CalendarDataReader({ value, range, editing, view, travel, resources, bucket, onData }: {
+export function CalendarDataReader({ value, range, editing, view, travel, resources, bucket, pages, demand, onData }: {
     value: CalendarValue; range: CalendarRange; editing: ScheduleEditing | undefined; view: CalendarView; travel?: TravelStore | undefined;
     resources: readonly ScheduleCellResources[]; bucket: CalendarBucket | undefined;
+    pages: CalendarPages | undefined; demand: CalendarPagedDemand | undefined;
     onData: (data: CalendarDataState) => void;
 }): null {
     const parts = useMemo(() => calendarEventParts(value), [value]);
-    const cells = useCalendarCells({ kinds: value.events, parts, resources, range, bucket, drafts: editing?.drafts ?? NO_DRAFTS });
+    // The paged kind, where the view lays its resources out: a kind placed on it is read a cell at a time, around the
+    // rows the views say they show. A view that lays no resource out counts such a kind over the window, as any other.
+    const paged = useMemo(() => (value.paged.type === "some" && bucket !== undefined ? calendarCellsPaged(value.paged.value) : undefined), [value.paged, bucket]);
+    const places = useSyncExternalStore(demand?.subscribe ?? NOTHING, demand?.get ?? NO_VIEW, demand?.get ?? NO_VIEW);
+    const standing = useRef<ScheduleCellSpan | undefined>(undefined);
+    const span = calendarCellSpan(places, pages, standing.current);
+    standing.current = span;
+    const cells = useCalendarCells({ kinds: value.events, parts, resources, range, bucket, drafts: editing?.drafts ?? NO_DRAFTS, paged, span: paged === undefined ? undefined : span });
     const data = useCalendarData(value, range, editing, view, cells, travel);
     const reported = useRef<CalendarDataState | undefined>(undefined);
     useLayoutEffect(() => {

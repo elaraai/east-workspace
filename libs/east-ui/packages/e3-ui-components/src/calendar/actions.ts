@@ -58,7 +58,9 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
         if (at.resource.type === "some") {
             const ref = at.resource.value;
             if (!kind.takes.includes(ref.kind)) return `Needs ${kind.takes.map(key => value.resources.find(resource => resource.key === key)?.name ?? key).join(" or ")}`;
-            if (!value.resources.some(resource => resource.key === ref.kind && resource.rows.some(row => row.key === ref.key))) return "This resource is no longer available";
+            // A paged kind's resources come a window at a time (#1424): one is chosen from a window held, or by its key.
+            const paged = value.paged.type === "some" && value.paged.value.kind === ref.kind;
+            if (!paged && !value.resources.some(resource => resource.key === ref.kind && resource.rows.some(row => row.key === ref.key))) return "This resource is no longer available";
         }
         if (value.canDrop.type === "some") {
             const from = "template" in source ? variant("template", source.template.key)
