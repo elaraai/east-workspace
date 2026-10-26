@@ -13,8 +13,10 @@
  *   its hour rules drawn over the wash; each day's count an 8px bar on its
  *   line's middle (CL2, CL13). A month's cell is washed below its date, the
  *   date line clear, and says no "+N more". The Backlog never blinks (ruled 25
- *   Oct 2026): its count and its cards as they were, retained (CL8) — never
- *   "…", never the Library's pending rows, never "No backlog events".
+ *   Oct 2026): it pages each kind's unscheduled events through its source
+ *   (#1424), so a step reads nothing of it — its count and its cards as they
+ *   were, never busy, never "…", never the Library's pending rows, never "No
+ *   backlog events".
  * - A period whose read failed keeps its grid and says so once (CL11): in a
  *   box just inside its body's top-left in view — under the sticky head,
  *   beside the hour column — its Retry whole inside it.
@@ -104,8 +106,8 @@ for (const theme of ["light", "dark"] as const) {
             expect(unread.washes.every((wash) => wash !== null && wash.under && wash.sides.every((side) => side === 0)), `each column washed edge to edge, under its rules: ${JSON.stringify(unread.washes)}`).toBe(true);
             expect(unread.ink).toBe(await washInk(page));
             expect(unread.counts.every((count) => count !== null && count.height === 8 && Math.abs(count.offset) <= 1), `each day's count: ${JSON.stringify(unread.counts)}`).toBe(true);
-            // The Backlog never blinks: its count and its cards as they were, retained while the week is read — never "…".
-            expect(await backlog(), "the Backlog, the week read").toEqual({ ...shown, retained: ["true", "true"] });
+            // The Backlog never blinks: paged through its source, a step reads none of it, so its count and its cards are as they were, never busy — never "…".
+            expect(await backlog(), "the Backlog, the week read").toEqual(shown);
             await expect(start).not.toContainText("No backlog events");
             // A month not read yet: each cell washed below its date, the date line clear; no "+N more".
             await toolbar.getByRole("radio", { name: "Month", exact: true }).click();
