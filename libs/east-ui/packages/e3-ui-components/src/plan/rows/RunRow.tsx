@@ -20,9 +20,11 @@
  * anything below, and eviction puts the run back with nothing shifting either.
  *
  * In the treegrid (#819) each run is ONE row, and its one cell — the grid's
- * row count says only what is known, and a keyboard move onto it asks the
- * source for the window beside it. Its placeholders are `aria-hidden` (CL12),
- * and it is busy while its own windows are in flight. A failed window says so once, in its first
+ * row count says only what is known. A keyboard move past the rows read asks
+ * the source for the window beside it and never lands on it (#1398, CL10); a
+ * click into it gives it the focus, which it hands to its rows as they land.
+ * Its placeholders are `aria-hidden` (CL12), and it is busy while its own
+ * windows are in flight. A failed window says so once, in its first
  * row in view: the reason and Retry across its plot, its gutter kept; its
  * other rows keep the gutter column, the grid and the rules, their plots bare
  * (CL11). Its Retry is out of the tab order — the row's Tab walk reaches it.
