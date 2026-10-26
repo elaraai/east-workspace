@@ -38,7 +38,9 @@
  *   pane is a rail with the backlog's count, or the first tab's when the
  *   library lists no Backlog tab (PB26). Until its kinds' first read lands the
  *   Backlog tab — and the rail — counts "…", over placeholder cards: never
- *   "Backlog clear", never 0 (#1398, CL13). After it, the Backlog never
+ *   "Backlog clear", never 0 (#1398, CL13); and while what a narrowing hides of
+ *   it is counted — a cold load with a narrowing restored — its count's slot
+ *   says "…" still, never a bare "Backlog" (#1424). After it, the Backlog never
  *   blinks (ruled 25 Oct 2026): its cards and its count are the last complete
  *   read's, held as one (`counts.ts`' `PlanKindsReader`), and while a
  *   narrowing's, a window's or a revision's read of either is in flight they
@@ -429,15 +431,16 @@ export function usePlanLibrary({
         });
     }, [listed, now, keys, words, m, resourceName, noun, takesEvents]);
     // The backlog is each kind's own narrowing (#1344): it shows what its kinds read, and counts beside it the
-    // stored events their choices hide — `3 of 5` — its Clear filters keeping each window.
-    const backlogFollow = useMemo((): { count: string | number | undefined; narrowing: LibraryNarrowing | undefined } => {
+    // stored events their choices hide — `3 of 5` — its Clear filters keeping each window. Until what they hide is
+    // counted — a cold load with a narrowing restored — its count's slot says "…", never a bare "Backlog" (CL13).
+    const backlogFollow = useMemo((): { count: string | number; narrowing: LibraryNarrowing | undefined } => {
         const { narrowing, hidden: hiddenByRail, clear } = backlogNarrowing;
         const shown = backlog.items.length;
         if (narrowing.length === 0 || clear === undefined) return { count: shown, narrowing: undefined };
         const held = listed.filter(({ kind }) => narrowing.some((part) => stringEqual(part.kind.key, kind.key))).length;
         const said: LibraryEmpty = { title: m.libraryNarrowed({ tab: "backlog", name: "" }), description: m.libraryNarrowedHint({ tab: "backlog", name: "" }) };
         return {
-            count: hiddenByRail === undefined ? undefined : narrowedCount(words, shown, shown + hiddenByRail, true),
+            count: hiddenByRail === undefined ? "…" : narrowedCount(words, shown, shown + hiddenByRail, true),
             narrowing: { empty: said, onClear: clear, emptied: held === 0 },
         };
     }, [backlogNarrowing, backlog, listed, words, m]);

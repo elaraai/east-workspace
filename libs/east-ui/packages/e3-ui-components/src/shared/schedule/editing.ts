@@ -167,10 +167,12 @@ export interface ScheduleEditing<I extends Item = Item> {
     held(kind: string, id: string): unknown;
     /**
      * One event as its kind reads it now, its drafts in place (#1197, #1199):
-     * what a gesture, the inspector and a banner read of it. A kind read a
-     * window at a time looks for it among the rows its windows hold over the
-     * range the canvas reads, then reads it by its key — tracked, inside a
-     * tracked evaluation, so the read lands there.
+     * what a gesture, the inspector and a banner read of it. Where the
+     * builder's own reads hold its row (`reads`: a page of the Calendar's
+     * Backlog, #1424), it is read from that row; else a kind read a window at
+     * a time looks for it among the rows its windows hold over the range the
+     * canvas reads, then reads it by its key — tracked, inside a tracked
+     * evaluation, so the read lands there.
      *
      * @param kind - The kind's slot
      * @param id - The event's key's text
@@ -514,7 +516,10 @@ export function useScheduleEditing<I extends Item = Item>({ kinds, records = NO_
             // A record beside the kinds holds rows, not events: its builder reads them itself.
             if (event === undefined) return undefined;
             const at = rangeRef.current ?? NO_RANGE;
-            const got = event.event(id, drafts.drafts.get(kind) ?? EMPTY_SCHEDULE_DRAFTS, at.from, at.to, heldRowOf(heldRef.current, kind, id));
+            // Where the builder's own reads hold its row — a page of the Calendar's Backlog (#1424) — from them, read no more.
+            const own = parts[i]!.read?.(id);
+            const held = own !== undefined && own.type === "some" && own.value.type === "some" ? some(own.value) : heldRowOf(heldRef.current, kind, id);
+            const got = event.event(id, drafts.drafts.get(kind) ?? EMPTY_SCHEDULE_DRAFTS, at.from, at.to, held);
             return got.type === "some" ? got.value : undefined;
         },
         mint(kind: string, from: string, minted: ReadonlySet<string>): string | undefined {

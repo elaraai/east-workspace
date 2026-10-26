@@ -39,6 +39,15 @@
  * month, the agenda — reads such a kind as it reads any other: counted over the
  * window first.
  *
+ * A kind with a backlog narrowed through its source reads its window's rows
+ * alone (#1424): the Backlog tab pages its backlog through the source itself
+ * (`backlog-pages.ts`), so nothing reads it whole, and every draft the kind's
+ * seams are given draws where it places its event. The reader asks the
+ * narrowing — but the window — of the stored rows of its drafted events
+ * (`windowField`), and leaves out the drafts of those it does not hold, as it
+ * leaves out a cells kind's: a backlog event a gesture scheduled draws where it
+ * is placed, and a draft of an event another narrowing holds draws nowhere.
+ *
  * @packageDocumentation
  */
 
@@ -184,6 +193,10 @@ export function useCalendarCells(args: CalendarCellsArgs): ScheduleCellsRead {
         part: parts.find((p) => stringEqual(p.kind.key, kind.key))?.part,
         hidden: false,
         wanted: NO_WANTED,
+        // A kind with a backlog narrowed through its source reads its window's rows alone, its backlog paged by the Backlog
+        // tab (#1424): the reader asks the narrowing but the window of its drafted events, so a backlog event a gesture
+        // scheduled draws where it is placed, and a draft of an event the narrowing does not hold draws nowhere.
+        windowField: kind.backlog && parts.some((p) => stringEqual(p.kind.key, kind.key)) ? kind.schedule.start : undefined,
     })), [kinds, parts]);
     const from = range.from.getTime();
     const to = range.to.getTime();

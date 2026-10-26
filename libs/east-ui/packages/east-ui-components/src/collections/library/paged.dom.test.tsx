@@ -91,6 +91,72 @@ describe("a paged palette with no row (#1341)", () => {
     });
 });
 
+// ── A new narrowing on its way (#1398, CL8; #1424) ──────────────────────────
+
+describe("a new narrowing on its way never blinks (#1398, CL8; #1424)", () => {
+    const GATE = "trees.gate";
+    const gate = encodeBeast2For(StringType);
+    /**
+     * A live source — one id under every narrowing — whose narrowing `query` is read at `revision` once the gate opens:
+     * until then its count and its pages are on their way.
+     */
+    function live(query: string, rows: readonly LibraryItemValue[], open: () => boolean, revision = "r1"): LibraryPageSource<LibraryItemValue> {
+        const landed = () => { trackKey(GATE); return open(); };
+        return {
+            id: "trees", query: () => query, revision: () => some(revision),
+            total: () => (landed() ? some(BigInt(rows.length)) : none),
+            page: (offset, limit) => (landed() ? some(rows.slice(Number(offset), Number(offset + limit))) : none),
+        };
+    }
+    const keys = () => [...document.querySelectorAll<HTMLElement>("[data-library-paged] [data-library-item]")].map(card => card.dataset.libraryItem);
+    const busy = () => document.querySelector<HTMLElement>("[data-library-paged] [aria-busy]");
+    const skeletons = () => document.querySelectorAll('[data-library-paged] [aria-label="Loading record"]').length;
+
+    test("the rows that last landed stand in, retained — aria-disabled in a busy region, no pending rows — until the new narrowing's count and first rows land, then its own, swapped whole", async () => {
+        getStore().write(GATE, gate("shut"));
+        let open = false;
+        const trees = cards();
+        const view = (source: LibraryPageSource<LibraryItemValue>) => <ChakraProvider value={system}><PagedLibrary source={source} id="trees" item={row => row} onOpen={() => {}} /></ChakraProvider>;
+        const { rerender } = render(view(live("all", trees, () => true)));
+        await waitFor(() => expect(keys()).toEqual(["a", "b"]));
+        expect(busy()).toBeNull();
+        // The rail chooses Birch: its count and its rows on their way, Alder and Birch stand in, retained.
+        rerender(view(live("birch", [trees[1]!], () => open)));
+        expect(keys()).toEqual(["a", "b"]);
+        expect([busy()?.getAttribute("aria-busy"), busy()?.getAttribute("aria-disabled")]).toEqual(["true", "true"]);
+        expect(skeletons()).toBe(0);
+        // Landed: Birch alone, its own, nothing retained.
+        open = true;
+        await act(async () => { getStore().write(GATE, gate("open")); });
+        await waitFor(() => expect(keys()).toEqual(["b"]));
+        expect([busy(), skeletons()]).toEqual([null, 0]);
+    });
+
+    test("a new revision of the same narrowing — a commit's — keeps the rows that landed standing in, retained, until its own land, then shows them", async () => {
+        getStore().write(GATE, gate("shut"));
+        let open = false;
+        const trees = cards();
+        const view = (source: LibraryPageSource<LibraryItemValue>) => <ChakraProvider value={system}><PagedLibrary source={source} id="trees" item={row => row} onOpen={() => {}} /></ChakraProvider>;
+        const { rerender } = render(view(live("all", trees, () => true)));
+        await waitFor(() => expect(keys()).toEqual(["a", "b"]));
+        // A commit: the same narrowing at a new revision, Alder gone, its rows on their way.
+        rerender(view(live("all", [trees[1]!], () => open, "r2")));
+        expect(keys()).toEqual(["a", "b"]);
+        expect([busy()?.getAttribute("aria-busy"), busy()?.getAttribute("aria-disabled"), skeletons()]).toEqual(["true", "true", 0]);
+        open = true;
+        await act(async () => { getStore().write(GATE, gate("open")); });
+        await waitFor(() => expect(keys()).toEqual(["b"]));
+        expect([busy(), skeletons()]).toEqual([null, 0]);
+    });
+
+    test("only the first read draws the pending rows: with nothing landed yet, a narrowing on its way shows them", async () => {
+        getStore().write(GATE, gate("shut"));
+        render(<ChakraProvider value={system}><PagedLibrary source={live("all", cards(), () => false)} id="trees" item={row => row} onOpen={() => {}} /></ChakraProvider>);
+        expect(skeletons()).toBeGreaterThan(0);
+        expect([keys(), busy()]).toEqual([[], null]);
+    });
+});
+
 // ── Its own search (#1340, ruling 11) ───────────────────────────────────────
 
 type Bind = ValueTypeOf<RecordSliceBindType>;

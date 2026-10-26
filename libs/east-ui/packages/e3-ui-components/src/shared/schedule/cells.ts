@@ -87,7 +87,13 @@
  * rows of the drafted events the cells do not hold are read by their keys, in
  * one read, and asked of the narrowing in the same read as the cells' events.
  * An event whose row the host wants though no cell holds it — a link's end
- * ({@link ScheduleCellKind.wanted}) — is read by its key in that read.
+ * ({@link ScheduleCellKind.wanted}) — is read by its key in that read. A kind
+ * its host reads over the window's rows alone, every draft it is given drawing
+ * where it places its event ({@link ScheduleCellKind.windowField}: the
+ * Calendar's, whose backlog it pages itself, #1424), has its drafts asked of
+ * the narrowing the same way — but the window's range — so a draft of an event
+ * the narrowing does not hold draws nowhere, and a backlog event a gesture
+ * scheduled draws where it is placed.
  *
  * @packageDocumentation
  */
@@ -188,6 +194,14 @@ export interface ScheduleCellKind {
     readonly hidden: boolean;
     /** The keys' texts of its events whose rows its host wants though no cell holds them — a link's ends — read by their keys. */
     readonly wanted: readonly string[];
+    /**
+     * The field its host's window narrows, for a kind its host reads over the window's rows alone, every draft it gives
+     * drawing where it places its event (#1424: the Calendar's kinds whose backlog it pages itself): the reader asks the
+     * narrowing — but that field's range — of the stored rows of the kind's drafted events, read by their keys in one
+     * read, and leaves out the drafts of those it does not hold, as it does for a kind read by its cells; a new event,
+     * which no stored row names, keeps its draft. `undefined` leaves the drafts to the host's seams.
+     */
+    readonly windowField?: string | undefined;
 }
 
 /** A resource kind read whole, as the reader hatches and shades its rows: its slot, and its resources' keys' texts in order. */
@@ -302,7 +316,10 @@ export interface ScheduleCellsRead {
     readonly reads: ScheduleCellReads;
     /** The resources' shading. */
     readonly shading: ScheduleCellShading;
-    /** Every kind's drafts as the seams take them: a kind read by its cells, those of events its narrowing does not hold left out. */
+    /**
+     * Every kind's drafts as the seams take them: a kind read by its cells, or by its host over the window's rows alone
+     * ({@link ScheduleCellKind.windowField}), those of events its narrowing does not hold left out.
+     */
     readonly drafts: ScheduleEventDraftsValue;
     /**
      * Each kind it gives cells, by its slot: the rows they hold, by the event's key's text — where a gesture finds an
@@ -513,6 +530,8 @@ const NO_RESOURCES: ReadonlySet<string> = new Set();
 const NONE_CAPPED: ReadonlySet<string> = new Set();
 /** No rows: what a kind given no cells holds — a gesture reads one of its events by its key, never over the range. */
 const NO_ROWS: HeldRows = new Map();
+/** No drafted event left out. */
+const NO_IDS: ReadonlySet<string> = new Set();
 
 /** Whether two sets of resource keys hold the same keys. */
 function sameKeys(a: ReadonlySet<string> | undefined, b: ReadonlySet<string> | undefined): boolean {
@@ -753,6 +772,13 @@ class CellsReader {
                 }
             } else {
                 read = this.countedKind(kind, range, buckets, resolution, totals, blocksOf);
+                // A kind its host reads over the window's rows alone (#1424): the drafts of events its narrowing does not
+                // hold left out, as a kind read by its cells leaves them.
+                if (read !== READING && kind.windowField !== undefined && kind.part !== undefined && !kind.hidden) {
+                    const outside = this.draftsOutside(kind, kind.part, kind.windowField, drafts);
+                    if (outside === READING) return READING;
+                    if (outside.size > 0) dropped.set(kind.key, outside);
+                }
             }
             if (read === READING) return READING;
             switch (read.mode) {
@@ -839,6 +865,40 @@ class CellsReader {
         if (blocks === READING) return READING;
         const where = kind.part === undefined ? new Map() : kind.part.read().where;
         return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, this.eventsOf(kind, range), false);
+    }
+
+    /**
+     * The drafted events of a kind its host reads over the window's rows alone
+     * (#1424) that its narrowing — but the window's range of `field` — does not
+     * hold: their stored rows read by their keys in one read, and asked of the
+     * narrowing in one more, as a kind read by its cells asks of the events its
+     * cells do not hold. A new event, which no stored row names, keeps its draft.
+     *
+     * @returns Their keys' texts; {@link READING} while a row or the narrowing's answer is in flight
+     */
+    private draftsOutside(kind: ScheduleCellKind, part: ScheduleCellPart, field: string, drafts: ScheduleEventDraftsValue): ReadonlySet<string> | typeof READING {
+        const kindDrafts = drafts.get(kind.key);
+        if (kindDrafts === undefined || kindDrafts.size === 0) return NO_IDS;
+        const narrowing = withoutTiled(part.read().where, field);
+        // No narrowing holds every event: each draft draws.
+        if (narrowing.size === 0) return NO_IDS;
+        const codec = this.codecOf(kind);
+        const asked: { id: string; key: unknown }[] = [];
+        for (const id of kindDrafts.keys()) {
+            const key = codec.keyOf(id);
+            if (key !== undefined) asked.push({ id, key });
+        }
+        if (asked.length === 0) return NO_IDS;
+        const stored = recordSliceRows(part, asked.map((a) => a.key));
+        if (stored.type !== "some") return READING;
+        const rows: { id: string; key: unknown; row: unknown }[] = [];
+        stored.value.forEach((row, i) => { if (row.type === "some") rows.push({ ...asked[i]!, row: row.value }); });
+        if (rows.length === 0) return NO_IDS;
+        const within = recordSliceWithin(part, narrowing, rows);
+        if (within.type !== "some") return READING;
+        const outside = new Set<string>();
+        rows.forEach(({ id }, i) => { if (within.value[i] !== true) outside.add(id); });
+        return outside.size === 0 ? NO_IDS : outside;
     }
 
     /**

@@ -48,11 +48,27 @@ export interface BacklogNarrowing<P extends BacklogPart = BacklogPart> {
     readonly clear: (() => void) | undefined;
 }
 
-/** A source's choices but its start's: what narrows its backlog. */
-function backlogWhere(where: ValueTypeOf<RecordSliceWhereType>, start: string): SortedMap<string, ValueTypeOf<RecordSliceChoiceType>> {
+/**
+ * A source's choices but its start's, its start Unset: what lists its backlog.
+ *
+ * @param where - The source's narrowing
+ * @param start - The kind's start field
+ * @returns The narrowing its backlog is read under
+ */
+export function backlogWhere(where: ValueTypeOf<RecordSliceWhereType>, start: string): SortedMap<string, ValueTypeOf<RecordSliceChoiceType>> {
     const kept = new SortedMap([...where].filter(([field]) => !stringEqual(field, start)), compareString);
     kept.set(start, UNSET);
     return kept;
+}
+
+/**
+ * A kind's start Unset alone: every unscheduled event its record holds, whatever its source's choices.
+ *
+ * @param start - The kind's start field
+ * @returns The narrowing
+ */
+export function backlogWhole(start: string): SortedMap<string, ValueTypeOf<RecordSliceChoiceType>> {
+    return new SortedMap([[start, UNSET]], compareString);
 }
 
 /**
@@ -72,7 +88,7 @@ export function useBacklogNarrowing<P extends BacklogPart>(eventParts: readonly 
         let hidden = 0n;
         for (const { kind, part } of narrowing) {
             const start = kind.schedule.start;
-            const all = part.countWhere(new SortedMap([[start, UNSET]], compareString));
+            const all = part.countWhere(backlogWhole(start));
             const shown = part.countWhere(backlogWhere(part.read().where, start));
             if (all.type === "none" || shown.type === "none") return none;
             hidden += all.value - shown.value;

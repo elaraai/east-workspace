@@ -261,12 +261,13 @@ describe("a window read through interval indexes re-renders its reader, never th
      * Each batch of key searches through an event kind's interval index —
      * what a window's searches are asked in — held on its way to e3 until it
      * is let land, in the order asked. A single search, such as a selected
-     * event's membership, goes on.
+     * event's membership or the Backlog tab's count of a kind's backlog
+     * (#1424), goes on; every one is counted.
      */
     function holdIntervalSearches() {
         const intervals = new Set<string>([ex.calendarJobsByTime.name, ex.calendarServicesByTime.name, ex.calendarShiftsByTime.name]);
         const searching = (request: E3Request) => request.kind === "find" && request.method === "POST" && intervals.has(request.query.get("index") ?? "");
-        const held = h.e3.hold(searching);
+        const held = h.e3.hold(request => searching(request) && request.searches.length > 1);
         /** Lets every held request but the last land, one at a time, then the rest. */
         return {
             get held() { return held.held; },
@@ -295,13 +296,13 @@ describe("a window read through interval indexes re-renders its reader, never th
             await searches.landAll();
             expect(renders).toBeGreaterThan(0);
             expect(event(container, "job", "job1")).not.toBeNull();
-            // The jobs' backlog, read once their window has landed: a batch of its one search. The week whole, the weeks
-            // either side are read ahead: each kind's window, a batch each — the backlog's search, the same whatever the
-            // week, is not asked again.
+            // The week whole, the weeks either side are read ahead — each kind's window, a batch each — and the Backlog tab
+            // counts the jobs' backlog through their source, never with a window (#1424): a batch of its one search, the
+            // same whatever the week, never asked again.
             const after = searches.asked().slice(3);
-            expect(after[0]).toBe(1);
-            expect(after.slice(1)).toHaveLength(6);
-            expect(after.slice(1).every(count => count > 50)).toBe(true);
+            expect(after).toHaveLength(7);
+            expect(after.filter(count => count > 50)).toHaveLength(6);
+            expect(after.filter(count => count === 1)).toHaveLength(1);
             // With an event selected, a step to the next week, read ahead, shows it at once: nothing is asked for it, nothing is busy.
             await press(event(container, "job", "job1"));
             const before = searches.asked().length;
@@ -334,10 +335,8 @@ describe("a window read through interval indexes re-renders its reader, never th
         setCalendarFrameRenderProbe(() => { renders += 1; });
         try {
             const { container } = await open(ex.calendarOperations);
-            // The week: each kind's window, then the jobs' backlog, each let land as it is asked.
+            // The week: each kind's window, let land as it is asked — the jobs' backlog read with none of them (#1424).
             expect(searches.held).toBe(3);
-            await searches.landHeld();
-            expect(searches.held).toBe(1);
             await searches.landHeld();
             expect(event(container, "job", "job1")).not.toBeNull();
             expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");

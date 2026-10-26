@@ -44,7 +44,9 @@
  * part)`, and the kind reads overlap queries through its declared interval
  * indexes (the source's `range` naming the start field). It shares the
  * toolbar's filters and window, counts original events once, and reads backlog
- * through the same choices with an Unset start. It requires `entries` for
+ * through the same choices with an Unset start — the Plan's with its window, as
+ * one; the Calendar's never, as it pages the backlog through the source itself
+ * (#1424), its window reading the window's rows alone. It requires `entries` for
  * original-key inspection and Save. Existing drafts outside a new narrowing
  * remain in the session; Save includes them. A kind narrowed so takes no
  * `window` or `backlogWindow`. Every kind counts its events before one is read
@@ -513,7 +515,9 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      * notice of Plan's options — its window, through its source, through its day
      * index or in memory, its record read whole, counted first and read only
      * within {@link SCHEDULE_EVENT_CAP} (#1424), its events counted before one is
-     * read (`count`), a day index's count an upper bound (`countExact`).
+     * read (`count`), a day index's count an upper bound (`countExact`). Narrowed through its source, a kind with a
+     * backlog reads its window's rows alone (#1424): the Calendar pages the backlog through the source itself, every
+     * draft it gives draws where it places its event, and one event is read by its key, never sought in the backlog.
      *
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, the source named after its slot, when the slice has one (#1343): its typed handle, bound once in the builder's payload (`recordSources(…).bind($)`, #1356)
@@ -1046,15 +1050,26 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
          * them; `undefined`, the record whole.
          */
         readonly alone: ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<EastType, EastType>>>> | undefined;
-        /** The rows with the drafts in place: a narrowed kind's leave out drafts its narrowing does not hold. */
+        /**
+         * The rows with the drafts in place: a narrowed kind's leave out drafts its narrowing does not hold — but one whose
+         * builder pages its backlog itself, whose host gives only the drafts its narrowing holds.
+         */
         readonly withDrafts: ExprType<FunctionType<[EastType, EastType], EastType>>;
+        /**
+         * Whether its builder pages its backlog itself (#1424, the Calendar's): its window's rows are the window's alone,
+         * never its backlog's, and every draft its host gives draws where it places its event — the host leaving out the
+         * drafts of events its narrowing does not hold, asked of e3 as a reader of cells asks it — and one event by its
+         * key is read by its key, never sought among the backlog's rows: nothing reads the backlog whole.
+         */
+        readonly pagedBacklog: boolean;
     }
     /**
      * The reads, through the kind's source of its builder's slice when it has one — given `cap` (#1039, #1424), the
      * Calendar's and the Plan's, its window counted first, through the source, through its day index or in memory, and
-     * read only within `cap`, its backlog whole.
+     * read only within `cap`, its backlog whole. Given `pagedBacklog` (#1424, the Calendar's), a kind with a backlog
+     * narrowed through its source reads its window's rows alone: its builder pages the backlog through the source itself.
      */
-    const readsOf = (slot: string, part: ScheduleKindPart | undefined, cap?: number): Reads => {
+    const readsOf = (slot: string, part: ScheduleKindPart | undefined, cap?: number, pagedBacklog = false): Reads => {
         if (part === undefined) {
             if (entries !== undefined && dayWindow === undefined) {
                 throw new Error(`${where}: \`entries\` reads one event by its key beside \`window\`, or beside the kind's source of its builder's ` +
@@ -1085,6 +1100,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 backlog,
                 alone: backlog,
                 withDrafts: withDraftsFor(false) as never,
+                pagedBacklog: false,
             };
         }
         if (dayWindow !== undefined || backlogWindow !== undefined) {
@@ -1095,11 +1111,18 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 "or its editing's, is read by its key: give `entries` beside it, Data.bindPaged(record), the record's own entries");
         }
         const scheduled = scheduleRecordWindow(part, slot, keyType, rowType, startField, endField, optional, false, where, cap);
-        if (!optional) return { days: scheduled, backlog: undefined, alone: undefined, withDrafts: withDraftsFor(true) as never };
+        if (!optional) return { days: scheduled, backlog: undefined, alone: undefined, withDrafts: withDraftsFor(true) as never, pagedBacklog: false };
+        const backlogged = scheduleRecordWindow(part, slot, keyType, rowType, startField, endField, optional, true, where);
+        if (pagedBacklog) {
+            // Its builder pages its backlog through the source itself (#1424): the window is its rows alone, and a draft
+            // its host gives draws where it places its event — a backlog event scheduled into the window among them — the
+            // host having left out those of events the narrowing does not hold. Its backlog whole is `unscheduled`'s
+            // alone, which such a builder never asks.
+            return { days: scheduled, backlog: backlogged, alone: backlogged, withDrafts: withDraftsFor(false) as never, pagedBacklog: true };
+        }
         // A kind with a backlog reads both through its source as one: what its narrowing holds over the window and in
         // its backlog. A draft then moves an event between the two by its times alone, and a draft the narrowing does
         // not hold never shows in either (#1343).
-        const backlogged = scheduleRecordWindow(part, slot, keyType, rowType, startField, endField, optional, true, where);
         const both = East.function([DateTimeType, DateTimeType], OptionType(HeldType), ($, from, to) => {
             const inWindow = $.const(scheduled);
             const inBacklog = $.const(backlogged);
@@ -1117,7 +1140,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             });
             return result;
         });
-        return { days: both, backlog: both, alone: backlogged, withDrafts: withDraftsFor(true) as never };
+        return { days: both, backlog: both, alone: backlogged, withDrafts: withDraftsFor(true) as never, pagedBacklog: false };
     };
 
     /** An item seam over a window: the events whose items `itemFn` makes that overlap `[from, to)`. */
@@ -1262,8 +1285,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         });
     /**
      * One event by its key's text, the drafts in place, of a kind a reader reads by cells: the drafts, then its row as
-     * the reader holds it (`held`, none for one it does not), then the backlog read alone, then its key — never the
-     * window.
+     * the reader holds it (`held`, none for one it does not), then the backlog read alone — but where its builder pages
+     * the backlog itself (#1424) — then its key; never the window.
      */
     const readBeside = (makeItem: ExprType<FunctionType<[EastType], EastType>>, readType: StructType, reads: Reads) =>
         East.function([StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(BlobType)], OptionType(readType), ($, id, drafts, from, to, held) => {
@@ -1283,7 +1306,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             });
             $.if(unread, ($2) => {
                 $2.match(held, { some: ($3, bytes) => { $3.assign(row, East.value(some(bytes.decodeBeast(rowType, "v2")), OptionType(rowType)) as never); } });
-                if (reads.alone !== undefined) {
+                // A builder that pages the backlog itself never has it read whole (#1424): its key reads one event.
+                if (reads.alone !== undefined && !reads.pagedBacklog) {
                     const alone = $2.const(reads.alone);
                     $2.if(row.hasTag("none"), ($3) => {
                         $3.match(alone(from, to), { some: ($4, rows) => { $4.assign(row, rows.tryGet(key) as never); } });
@@ -1328,7 +1352,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             }
             const days = $2.const(reads.days);
             $2.match(days(from, to), { some: ($3, held) => { $3.assign(row, held.tryGet(key) as never); } });
-            if (reads.backlog !== undefined) {
+            // A builder that pages the backlog itself never has it read whole (#1424): its key reads one event.
+            if (reads.backlog !== undefined && !reads.pagedBacklog) {
                 const backlog = $2.const(reads.backlog);
                 $2.if(row.hasTag("none"), ($3) => {
                     $3.match(backlog(from, to), { some: ($4, held) => { $4.assign(row, held.tryGet(key) as never); } });
@@ -1406,10 +1431,12 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
      * memory, its record read whole — is counted first and read only within it (#1039, #1424): the Calendar's and the
      * Plan's. Every kind is counted before one of its events is read (`count`), through its source's interval index —
      * the count its window's read asks first, so none of its own — through its day index, the days' entries the search
-     * its window's read asks first answers (an upper bound, never their number: `countExact` false), or in memory.
+     * its window's read asks first answers (an upper bound, never their number: `countExact` false), or in memory. Given
+     * `pagedBacklog` (#1424, the Calendar's), a kind with a backlog narrowed through its source reads its window's rows
+     * alone, its builder paging the backlog through the source itself.
      */
-    const kindParts = (slot: string, part: ScheduleKindPart | undefined, form: typeof formSpecs, cap?: number) => {
-        const reads = readsOf(slot, part, cap);
+    const kindParts = (slot: string, part: ScheduleKindPart | undefined, form: typeof formSpecs, cap?: number, pagedBacklog = false) => {
+        const reads = readsOf(slot, part, cap, pagedBacklog);
         // One event, as every view draws it.
         const itemOf = East.function([EntryRowType], ScheduleItemType, ($, entry) => {
             const row = entry.row;
@@ -1645,8 +1672,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         resourceField: resource?.field,
         windowed: dayWindow !== undefined,
         build(slot: string, part?: ScheduleKindPart): ExprType<ScheduleKindType> {
-            // Its window counted first, and read only within the cap (#1424): past it, no page is read.
-            return East.value(kindParts(slot, part, formSpecs, SCHEDULE_EVENT_CAP).fields as never, ScheduleKindType);
+            // Its window counted first, and read only within the cap (#1424): past it, no page is read. The Calendar pages
+            // a narrowed kind's backlog through its source itself, so its window reads the window's rows alone.
+            return East.value(kindParts(slot, part, formSpecs, SCHEDULE_EVENT_CAP, true).fields as never, ScheduleKindType);
         },
         buildRoster(slot: string, part?: ScheduleKindPart): ExprType<ScheduleRosterKindType> {
             // A duty runs from its start to its end, keyed by String, on its slot's shift and group, rostered to someone.
