@@ -10,8 +10,10 @@
  * on the screen, the cards that overlap and those standing in a box, a box of
  * the drawing zoomed into, the box the canvas shows and its camera at rest on
  * one, its library's tabs and cards, a card picked up from it and carried onto the
- * canvas, with what the drag's ghost says, the history's Discard and Save, and
- * the drawing's counts as the inspector says them.
+ * canvas, with what the drag's ghost says, the history's Discard and Save — and
+ * whether each of its buttons stays inside the toolbar and takes a click — an
+ * item found by Find and picked, and the drawing's counts as the inspector says
+ * them.
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
@@ -356,6 +358,67 @@ export function discard(root: Locator): Locator {
  */
 export function save(root: Locator): Locator {
     return root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: editingMessages.apply(), exact: true });
+}
+
+/**
+ * What is wrong with the history's reach (#1404): each of Undo, Redo, Discard and Save not wholly inside the toolbar's
+ * band, or not the element a click at its centre lands on — the page scrolled to bring it into the window first, as a
+ * box wider than the window leaves the row's end past its edge; the row clips what lies past its own.
+ *
+ * @param root - The Schematic's root: one that edits, its history in the row
+ * @returns Each fault, in words; none while every button is inside and takes its click
+ */
+export function historyFaults(root: Locator): Promise<string[]> {
+    const names = [editingMessages.undo(), editingMessages.redo(), editingMessages.discard(), editingMessages.apply()];
+    return root.evaluate((el, wanted) => {
+        const buttons = [...el.querySelectorAll<HTMLElement>("[data-frame-slot='toolbar'] [data-toolbar-item='history'] button")];
+        return wanted.flatMap((name) => {
+            const button = buttons.find((b) => (b.getAttribute("aria-label") ?? b.textContent ?? "").trim() === name);
+            if (button === undefined) return [`${name}: not in the row`];
+            button.scrollIntoView({ block: "nearest", inline: "nearest" });
+            const band = el.querySelector("[data-frame-slot='toolbar']")!.getBoundingClientRect();
+            const b = button.getBoundingClientRect();
+            const faults: string[] = [];
+            if (b.left < band.left - 0.5 || b.right > band.right + 0.5 || b.top < band.top - 0.5 || b.bottom > band.bottom + 0.5) {
+                faults.push(`${name}: ${b.left.toFixed(1)}–${b.right.toFixed(1)}, past the toolbar's ${band.left.toFixed(1)}–${band.right.toFixed(1)}`);
+            }
+            const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+            if (hit === null || !button.contains(hit)) faults.push(`${name}: a click at its centre lands on ${hit === null ? "nothing" : hit.tagName.toLowerCase()}`);
+            return faults;
+        });
+    }, names);
+}
+
+/**
+ * Finds an item by Find and picks it, as a viewer does: its box typed into — in the row, or, where the row folds it into
+ * the View, in the View's popover, closed again once the pick lands — and its line picked from the list; the rack it
+ * lands on selected once the canvas draws it.
+ *
+ * @param page - The page
+ * @param root - The Schematic's root
+ * @param query - What is typed
+ * @param line - The line picked, as the list words it (`A01 · Rack`)
+ * @param touch - Whether the pointer is a finger: taps, not clicks
+ */
+export async function findAndPick(page: Page, root: Locator, query: string, line: string, touch = false): Promise<void> {
+    const press = (target: Locator) => (touch ? target.tap() : target.click());
+    const inRow = root.locator("[data-toolbar-item='seek'] [data-part='dataset-key-search'] input");
+    const view = root.locator("[data-toolbar-item='seek'] [data-key-search='icon']");
+    const folded = await inRow.count() === 0;
+    if (folded) await press(view);
+    const box = folded ? page.locator("[data-key-search='popover'] input") : inRow;
+    await press(box);
+    await box.fill(query);
+    await press(page.getByRole("option", { name: line, exact: true }));
+    await expect(box).toHaveValue(line.split(" · ")[0]!);
+    if (folded) {
+        await page.keyboard.press("Escape");
+        await expect(view).toHaveAttribute("data-state", "closed");
+    }
+    // Selected once it draws: the steps join the row (in the View, where the row folds it there).
+    await expect.poll(() => root.locator("[data-frame-slot='toolbar'] [data-toolbar]").getAttribute("data-toolbar-state"), { message: `${line} selected` })
+        .toMatch(/(^|;)step=/u);
+    await settled(page);
 }
 
 /**

@@ -41,19 +41,24 @@
  *
  * Steps of several items can make one BUNDLE (#1229), given as `rank` is: they
  * apply together, so a chip that takes the place of other controls draws in
- * the step that hides them (`./fold.ts`). A held item holds its bundles: every
- * item sharing one with it keeps its form too, so the controls a chip's open
- * menu holds never unfold beside it. An item that joins the row while its
- * bundle is held takes the bundle as it stands — folded where the bundle
- * applies — so a control appearing beside a held chip (the Schematic's steps,
- * shown with a selection beside the View its Find's query holds, on a phone,
- * #1395) joins it folded, never pushing the row past its end.
+ * the step that hides them (`./fold.ts`). A held item holds its bundles as they
+ * stand — applied, or not — so the controls a chip's open menu holds never
+ * unfold beside it: every other item sharing one keeps to the side of its step
+ * of it the bundle stands on, and takes its other steps as the row's width
+ * says, so the row folds what is left around the held one (the Schematic's
+ * tools fold to their chip beside the box its Find's query holds, its View
+ * held off, #1404). An item that joins the row while its bundle is held takes
+ * the bundle as it stands — folded where the bundle applies — so a control
+ * appearing beside a held chip (the Schematic's steps, shown with a selection
+ * beside the View its Find's query holds, on a phone, #1395) joins it folded,
+ * never pushing the row past its end. A bundle a held range keeps from its
+ * step is held too, so none is ever split.
  */
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { chooseFolds, estimateWidth, foldSequence, formsAt, type FoldItem } from "./fold.js";
+import { chooseFolds, estimateWidth, foldSequence, formsAt, type FoldItem, type FoldRange } from "./fold.js";
 
 /** A rank past every slice-rail step (0–7): what an item's steps take unless it names its own. */
 export const DEFAULT_RANK = 100;
@@ -140,8 +145,8 @@ function bundlesOf(it: ToolbarItem): (string | undefined)[] {
     return Array.from({ length: steps }, (_s, i) => b[i]);
 }
 
-/** An item as the fold model sees it — keeping the form `held`, when it holds one. */
-function foldItemOf(it: ToolbarItem, held: number | undefined): FoldItem {
+/** An item as the fold model sees it — held to the range of its forms `held`, when something holds it. */
+function foldItemOf(it: ToolbarItem, held: FoldRange | undefined): FoldItem {
     return { forms: it.forms.length, ranks: ranksOf(it), empty: it.forms.map(isEmptyForm), held, bundles: bundlesOf(it) };
 }
 
@@ -234,7 +239,8 @@ export function Toolbar({ items, gap }: ToolbarProps) {
                 m.version = it.version;
             }
         }
-        const held = new Map<string, number>();
+        // The forms each item is held to: an item holding an open overlay, or marked held, keeps its form.
+        const held = new Map<string, FoldRange>();
         const onScreen = new Set<Element>();
         for (const el of row.children) {
             if (!(el instanceof HTMLElement)) continue;
@@ -247,30 +253,44 @@ export function Toolbar({ items, gap }: ToolbarProps) {
             // Its content moved: what the other forms measured is not known any more.
             if (was !== undefined && Math.abs(was - px) > MOVED_PX) m.widths.clear();
             m.widths.set(form, px);
-            if (el.querySelector(OPEN_OVERLAY) !== null) held.set(key, form);
+            if (el.querySelector(OPEN_OVERLAY) !== null) held.set(key, { least: form, most: form });
             onScreen.add(el);
             observer.current?.observe(el);
         }
         for (const el of observed.current) if (!onScreen.has(el)) observer.current?.unobserve(el);
         observed.current = onScreen;
-        for (const it of list) if (it.held === true) held.set(it.key, formOf(it));
+        for (const it of list) if (it.held === true) held.set(it.key, { least: formOf(it), most: formOf(it) });
         // Whether a bundle applies as the row stands: its members the toolbar has placed stand past their steps of it.
         const applies = (bundle: string) => list.some((it) => chosen.has(it.key) && bundlesOf(it).some((b, i) => b === bundle && formOf(it) > i));
-        // The form a held bundle keeps a member at: its own, once placed; one joining the row as it is held, the bundle's
-        // as it stands — past each of its steps of a bundle that applies — so it never unfolds beside the chip holding it.
-        const keptForm = (it: ToolbarItem) => {
-            if (chosen.has(it.key)) return formOf(it);
-            let kept = 0;
-            bundlesOf(it).forEach((b, i) => { if (b !== undefined && applies(b)) kept = i + 1; });
-            return kept;
-        };
-        // A held item holds its bundles: each item sharing one keeps its form too.
+        // A held item holds its bundles as they stand: each member keeps to the side of its step of one the bundle stands
+        // on — past it where the bundle applies, so a member joining the row as it is held joins folded, never unfolding
+        // beside the chip holding it; short of it where it does not — and takes its other steps as the row's width says. A
+        // bundle a member's range keeps from its step is held in turn, so none is ever split.
+        const holding = new Set<string>();
         for (let grew = true; grew;) {
             grew = false;
-            const holding = new Set(list.filter((it) => held.has(it.key)).flatMap(bundlesOf).filter((b): b is string => b !== undefined));
             for (const it of list) {
-                if (held.has(it.key) || !bundlesOf(it).some((b) => b !== undefined && holding.has(b))) continue;
-                held.set(it.key, keptForm(it));
+                const range = held.get(it.key);
+                if (range === undefined) continue;
+                bundlesOf(it).forEach((b, i) => {
+                    // Its step `i` takes it from form `i` to `i + 1`: kept from it while its range lies on one side.
+                    if (b === undefined || holding.has(b) || (range.most > i && range.least <= i)) return;
+                    holding.add(b);
+                    grew = true;
+                });
+            }
+            for (const it of list) {
+                const was = held.get(it.key) ?? { least: 0, most: it.forms.length - 1 };
+                let { least, most } = was;
+                bundlesOf(it).forEach((b, i) => {
+                    if (b === undefined || !holding.has(b)) return;
+                    if (applies(b)) least = Math.max(least, i + 1);
+                    else most = Math.min(most, i);
+                });
+                // A member placed astride two bundles that disagree keeps the form it has.
+                if (least > most) least = most = formOf(it);
+                if (least === was.least && most === was.most) continue;
+                held.set(it.key, { least, most });
                 grew = true;
             }
         }

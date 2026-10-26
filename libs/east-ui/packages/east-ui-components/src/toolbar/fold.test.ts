@@ -8,20 +8,24 @@
  * item's steps merge into, the forms a prefix of it gives, the width of a row
  * in them, the fewest steps whose row fits, and the width estimates that let
  * the toolbar settle without trying on screen; and the steps of several items
- * that apply together, as one bundle (#1229).
+ * that apply together, as one bundle (#1229); and an item held to a range of
+ * its forms, taking only the steps inside it.
  */
 
 import { describe, test, expect } from "vitest";
-import { chooseFolds, estimateWidth, foldSequence, formsAt, rowWidth, splitsBundle, type FoldItem } from "./fold.js";
+import { chooseFolds, estimateWidth, foldSequence, formsAt, rowWidth, splitsBundle, type FoldItem, type FoldRange } from "./fold.js";
 
-/** An item with `widths.length` forms (widest first), its steps ranked by `ranks`. */
-function item(widths: readonly (number | null)[], ranks: readonly number[] | number = 0, held?: number): FoldItem & { widths: readonly (number | null)[] } {
+/**
+ * An item with `widths.length` forms (widest first), its steps ranked by `ranks`; held, when `held` says so, to one form
+ * or to a range of them.
+ */
+function item(widths: readonly (number | null)[], ranks: readonly number[] | number = 0, held?: number | FoldRange): FoldItem & { widths: readonly (number | null)[] } {
     const steps = Math.max(0, widths.length - 1);
     return {
         forms: widths.length,
         ranks: typeof ranks === "number" ? Array.from({ length: steps }, () => ranks) : ranks,
         empty: widths.map((w) => w === null),
-        held,
+        held: typeof held === "number" ? { least: held, most: held } : held,
         widths,
     };
 }
@@ -46,6 +50,15 @@ describe("foldSequence — one ladder over every item's steps", () => {
         const items = [item([100, 60], 1, 0), item([40]), item([80, 30], 2)];
         expect(foldSequence(items).map((s) => [s.item, s.to])).toEqual([[2, 1]]);
     });
+
+    test("an item held to a range takes only the steps inside it, in order, ranked among themselves", () => {
+        // Four forms; held to the first three — its last step, past them, is not its to take.
+        const items = [item([300, 120, 60, null], [1, 7, 9], { least: 0, most: 2 }), item([80, 30], 3)];
+        expect(foldSequence(items).map((s) => [s.item, s.to, s.rank])).toEqual([[0, 1, 1], [1, 1, 3], [0, 2, 7]]);
+        // Held past its first step, it takes the ones after it: a step it stands past is no wait for the next.
+        const past = [item([300, 120, 60, null], [9, 2, 5], { least: 1, most: 3 }), item([80, 30], 3)];
+        expect(foldSequence(past).map((s) => [s.item, s.to, s.rank])).toEqual([[0, 2, 2], [1, 1, 3], [0, 3, 5]]);
+    });
 });
 
 describe("formsAt — the forms a prefix of the sequence gives", () => {
@@ -57,6 +70,13 @@ describe("formsAt — the forms a prefix of the sequence gives", () => {
         expect(formsAt(items, seq, 2)).toEqual([1, 1, 1]);
         expect(formsAt(items, seq, 3)).toEqual([2, 1, 1]);
         expect(formsAt(items, seq, 99)).toEqual([2, 1, 1]);
+    });
+
+    test("an item held to a range starts at its least form, and folds no further than its most", () => {
+        const items = [item([300, 120, 60, null], 1, { least: 1, most: 2 })];
+        const seq = foldSequence(items);
+        expect(formsAt(items, seq, 0)).toEqual([1]);
+        expect(formsAt(items, seq, 99)).toEqual([2]);
     });
 });
 
@@ -209,7 +229,20 @@ describe("bundles — the steps of several items that apply together (#1229)", (
 
     test("a held member's bundle takes the steps its other members have; the toolbar holds them too (index.tsx)", () => {
         // The fold model sees a held item take no steps: the bundle is the rest of its members.
-        const items = bundled().map((it, i) => (i === 1 ? { ...it, held: 0 } : it));
+        const items = bundled().map((it, i) => (i === 1 ? { ...it, held: { least: 0, most: 0 } } : it));
         expect(foldSequence(items).map((s) => [s.item, s.to])).toEqual([[0, 1], [2, 1], [2, 2], [3, 1]]);
+    });
+
+    test("a member held short of its bundle's step still takes the steps before it: the row folds what is left around the held item", () => {
+        // The toolbar holds the bundle off for the segments (index.tsx): they keep to their icons at most, never hiding.
+        const items = bundled().map((it, i) => (i === 1 ? { ...it, held: { least: 0, most: 0 } } : i === 2 ? { ...it, held: { least: 0, most: 1 } } : it));
+        const seq = foldSequence(items);
+        expect(seq.map((s) => [s.item, s.to])).toEqual([[0, 1], [2, 1], [3, 1]]);
+        const pick = (available: number) => formsAt(items, seq, chooseFolds(items, seq, widthsOf(items), available, 10));
+        // 60 + 100 + 140 + 220 + 30 = 550 overflows 540: the chip hides (480), then the segments fold to their icons (412),
+        // the history last (328) — the zoom, held, takes none.
+        expect(pick(540)).toEqual([1, 0, 0, 0]);
+        expect(pick(470)).toEqual([1, 0, 1, 0]);
+        expect(pick(400)).toEqual([1, 0, 1, 1]);
     });
 });
