@@ -372,7 +372,10 @@ component, nothing in east-ui.
   counts (ruled 19 Oct 2026, #1358). Its head counts the rail's own choices,
   each field it lists that holds one (`2 active`) — never a narrowing it
   leaves out: a source's date window, which a builder's navigation writes,
-  or a field it does not offer. Controls
+  or a field it does not offer. Every line of the editor wraps within it at
+  its spaces — the summary's in the slice's `editor` density
+  (`data-density`), where the toolbar's stays one line — never a word cut
+  nor a sideways scroll (the showcase's `plan-filters.spec.ts`). Controls
   that fold into one chip (#1229) fold into the shared `ChipMenu`, whose menu
   does what they do: their steps and the chip's share a `bundle`, so the chip
   draws in the step that hides them, and a popover one of them opens hangs

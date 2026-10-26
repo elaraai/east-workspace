@@ -54,8 +54,15 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         choiceLabel: { flex: "1", minWidth: "0", overflowWrap: "anywhere" },
         choiceCount: { textStyle: "mono.sm", color: "fg.muted", fontVariantNumeric: "tabular-nums", flexShrink: "0" },
         // A narrowing over several records counts each source on one line:
-        // `2 of 3 lanes · 21 of 33 resources`.
-        choiceCounts: { display: "inline-flex", alignItems: "baseline", gap: "{spacing.1.5}", minWidth: "0", whiteSpace: "nowrap" },
+        // `2 of 3 lanes · 21 of 33 resources` — whole in the toolbar, whose
+        // row fits its items at their widths; in the Filters editor (the
+        // slice's `editor` density) a line that wraps within the panel at its
+        // spaces, each source's count shrinking to wrap its own, never a word
+        // cut and never a sideways scroll.
+        choiceCounts: {
+            display: "inline-flex", alignItems: "baseline", gap: "{spacing.1.5}", minWidth: "0", whiteSpace: "nowrap",
+            "&[data-density=editor]": { display: "flex", flexWrap: "wrap", rowGap: "0", whiteSpace: "normal", "& > *": { minWidth: "0" } },
+        },
         choiceCountsGap: { textStyle: "mono.sm", color: "fg.subtle", flexShrink: "0" },
         choicePending: { display: "inline-block", verticalAlign: "middle", height: "{sizes.3}", width: "{sizes.6}", flexShrink: "0" },
         controlRow: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "{spacing.2}", minWidth: "0" },
