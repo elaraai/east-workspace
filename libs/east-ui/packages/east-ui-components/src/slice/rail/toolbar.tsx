@@ -47,6 +47,10 @@ export interface SliceRailGroup {
 export interface SliceRailModel {
     /** The version that invalidates measured forms. */
     version: unknown;
+    /**
+     * What the editor's head counts as narrowing (`2 active`): the rail's own choices, those it lists and its Clear all
+     * clears — never a narrowing it does not list, such as a source's date window a host's navigation writes.
+     */
     activeCount: number;
     /** Only the local predicate builder has separately folding clause chips. */
     filterChips?: number;
