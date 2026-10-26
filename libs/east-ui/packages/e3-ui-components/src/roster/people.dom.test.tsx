@@ -7,16 +7,21 @@
  * it is picked, scrolled and folded; ↑ and ↓ on a person's name step to the
  * next person, past a group's band and its agency requests; Search Records
  * finds the staff by their keys, a person far down the rows brought into
- * view; and where the rows rest comes back after a remount.
+ * view, and one the rail hides named by the choice that hides them, which a
+ * pick clears (the hidden pick); and where the rows rest comes back after a
+ * remount.
  */
 import { afterEach, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StringType, printFor, variant } from "@elaraai/east";
+import { StringType, decodeBeast2For, equalFor, printFor, variant } from "@elaraai/east";
+import { RecordSliceStateType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import type { UIStore } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
+import type { E3Request } from "../e3-web.test-utils.js";
 import { setRosterPeopleCardsProbe } from "./library.js";
 import { setPeopleDrawProbe } from "./views.js";
-import { act, narrow, open, press, rosterHarness, settle, slot, type Choice } from "./harness.test-utils.js";
+import { act, narrow, narrowing, open, press, rosterHarness, settle, slot, type Choice } from "./harness.test-utils.js";
 const h = rosterHarness();
 const text = printFor(StringType);
 
@@ -164,10 +169,7 @@ const lines = (c: HTMLElement) => {
 };
 const inspected = (c: HTMLElement) => slot(c, "end").querySelector("[data-inspector-title]")?.textContent;
 
-/** Two animation frames: the box gives the focus back to its input a frame after a pick, as its combobox does. */
-const frames = () => act(() => new Promise<void>(resolve => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
-
-test("Search Records seeks the staff by key (#1398): one on screen is selected and their name given the keyboard; a far one, their row not mounted, is selected, brought into view and given it there; one the rail hides says so, and keeps the keyboard in the box", async () => {
+test("Search Records seeks the staff by key (#1398): one on screen is selected and their name given the keyboard; a far one, their row not mounted, is selected, brought into view and given it there; one the rail hides says which choice hides them", async () => {
     scrollsAsAPageDoes();
     const { container, store } = await open(ex.rosterWarehouse);
     await press(within(slot(container, "toolbar")).getByRole("radio", { name: "People" }));
@@ -187,17 +189,65 @@ test("Search Records seeks the staff by key (#1398): one on screen is selected a
     expect(inspected(container)).toBe("T. Kelp");
     await waitFor(() => expect(slot(container, "main").querySelector('[data-roster-person-row="tkelp"]')).not.toBeNull());
     await waitFor(() => expect(focusedPerson()).toBe("tkelp"));
-    // The rail narrowed to picking: T. Kelp is found, and said to be hidden — and picked, the People view has no row of
-    // theirs to give the keyboard to: it stays in the box.
+    // The rail narrowed to picking: T. Kelp is found, and said to be hidden by it.
     await narrow(store, "rosterWarehouse", "people", new Map<string, Choice>([["team", variant("values", [text("picking")])]]));
     await act(async () => { fireEvent.click(searchBox(container).querySelector("button[aria-label='Clear search']")!); });
     await typeIntoSearch(container, "tkelp");
+    await waitFor(() => expect(lines(container)).toEqual([`tkelp · T. Kelp · Dispatch · ${BY_PICKING}`]));
+});
+
+/** The staff's record, as its dataset's requests name it. */
+const STAFF = "records.roster_staff";
+/** A membership read's body: the index whose runs it asks of, and the entry keys `(ik=…, k=…)` it asks. */
+const withinOf = (request: E3Request) => JSON.parse(new TextDecoder().decode(request.body)) as { index: string; keys: string[] };
+/** The row an entry key names: its record key. */
+const rowOf = (entry: string) => /k="([^"]+)"\)$/.exec(entry)![1]!;
+/** People of the picking group the box's first listing holds — A. Osier, D. Quarry — whom the rail's choice of picking shows: never asked of. */
+const PICKING: ReadonlySet<string> = new Set(["aosier", "dquarry"]);
+/** What hides a person of another group while the rail shows picking's, as the rail words the choice. */
+const BY_PICKING = "hidden by Group: picking — picking it clears that filter";
+const whereEqual = equalFor(RecordSliceWhereType);
+/** The duties' narrowing — the week's window the Roster writes into it — as the store keeps it. */
+const dutyWhere = (store: UIStore) => decodeBeast2For(RecordSliceStateType)(store.read("ex.rosterWarehouse.duty")!).where;
+
+test("a person the rail's narrowing hides is named by the people's choice that hides them, asked of e3 in one request — `hidden by the filters` until it has said — and a pick clears just it, the week's window kept, and selects them, their row brought into view and their name given the keyboard once the narrowing it leaves draws it (#1398)", async () => {
+    scrollsAsAPageDoes();
+    const { container, store } = await open(ex.rosterWarehouse);
+    await press(within(slot(container, "toolbar")).getByRole("radio", { name: "People" }));
+    await narrow(store, "rosterWarehouse", "people", new Map<string, Choice>([["team", variant("values", [text("picking")])]]));
+    const week = dutyWhere(store);
+    // Which of the people's choices hide T. Kelp, held on the wire: the line says the filters do.
+    const asking = h.e3.hold(request => request.kind === "within" && request.dataset === STAFF);
+    const before = h.requests("within", STAFF).length;
+    await typeIntoSearch(container, "tkelp");
+    await waitFor(() => expect(asking.held).toBeGreaterThan(0));
     await waitFor(() => expect(lines(container)).toEqual(["tkelp · T. Kelp · Dispatch · hidden by the filters"]));
-    const input = searchBox(container).querySelector("input")!;
-    fireEvent.keyDown(input, { key: "Enter" });
+    // Told: the group's choice, through the staff's index by group — a request a listing, for the people it lists that
+    // the narrowing hides and no others, T. Kelp asked of once.
+    await act(async () => { asking.release(); });
+    await waitFor(() => expect(lines(container)).toEqual([`tkelp · T. Kelp · Dispatch · ${BY_PICKING}`]));
     await settle();
-    await frames();
-    expect(document.activeElement).toBe(input);
+    const reads = h.requests("within", STAFF).slice(before).map(withinOf);
+    expect(new Set(reads.map(read => read.index))).toEqual(new Set(["roster_staff_by_team_name"]));
+    const asked = reads.flatMap(read => read.keys.map(rowOf));
+    expect(asked.filter(key => key === "tkelp")).toEqual(["tkelp"]);
+    expect(asked.filter(key => PICKING.has(key))).toEqual([]);
+    // Listed again: named at once, nothing asked again.
+    const listed = h.requests("within", STAFF).length;
+    await act(async () => { fireEvent.click(searchBox(container).querySelector("button[aria-label='Clear search']")!); });
+    await typeIntoSearch(container, "tkelp");
+    await waitFor(() => expect(lines(container)).toEqual([`tkelp · T. Kelp · Dispatch · ${BY_PICKING}`]));
+    await settle();
+    expect(h.requests("within", STAFF).length).toBe(listed);
+    // Picked: the group's choice cleared, the week's window as it was, T. Kelp selected, their row drawn, and their name
+    // given the keyboard once the narrowing the pick leaves draws it.
+    fireEvent.keyDown(searchBox(container).querySelector("input")!, { key: "Enter" });
+    await settle();
+    expect(narrowing(store, "rosterWarehouse", "people").size).toBe(0);
+    expect(whereEqual(dutyWhere(store), week)).toBe(true);
+    expect(inspected(container)).toBe("T. Kelp");
+    await waitFor(() => expect(slot(container, "main").querySelector('[data-roster-person-row="tkelp"]')).not.toBeNull());
+    await waitFor(() => expect(focusedPerson()).toBe("tkelp"));
 });
 
 /** The row at the top of the People grid's view — the mounted row its scroll offset falls in — and the px scrolled into it. */

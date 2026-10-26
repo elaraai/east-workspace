@@ -407,8 +407,7 @@ bins' (each one's `find.ts`, #1398, CL10) — whose keys the board draws only in
 a bin's Details, so its box says what it searches (`Search bins by key`) and,
 where nothing matches, where a bin's key is. It lists the rows a query finds
 wherever they are — read through the source by their place, never only what is
-drawn — and the Roster's marks a row the rail's narrowing hides `· hidden by
-the filters`. The Sheet's names the choices of its `rows` source that hide it,
+drawn. The Sheet's names the choices of its `rows` source that hide it,
 as the rail words them — `· hidden by Status: Ready — picking it clears that
 filter` — asked of e3 through the record's indexes (the hidden pick,
 `shared/schedule/hidden.ts`, which words them too): each
@@ -429,19 +428,23 @@ hides it, in the rail's order, asked of e3 through each source's part
 (`useSourceHidden`) for the rows the listed bins stand on — their lanes,
 arrivals and the resources they are shown on — and a pick clears them
 (`clearHiding`), steps to the bin's day and selects it once the narrowing they
-leave draws it, the Table following it into view at its time. Its count shows
-and Enter jumps once the query is found, the lines following. A pick — a match
-chosen from the list, or Enter in the box — hands the keyboard to the builder's
-view, where the selection's ring lands, once the match is drawn and the box has
-let it go, and a step leaves it in the box (east-ui-components'
-`usePickHandOff`): the Sheet's grid, its focus on the ring's cell — a hidden
-pick's once the narrowing it leaves draws the row — the Plan's row, the
-Roster's person's name in People, their row's or their card's, and the
-Allocation's bin, its Timeline card, its Table row (focusable for it, no tab
-stop) or its narrow card (`allocation/bin-focus.ts`) — a hidden bin's once the
-narrowing its pick leaves draws it. Where the view draws no element for the
-match — a person in Shifts — or the viewer has moved on, the keyboard stays
-where it is. In the Roster's, the Calendar's and the
+leave draws it, the Table following it into view at its time. The Roster's
+does the same for a person its people's source hides (`roster/find.ts`): the
+line names the choices that hide them, asked of e3 through the source's part
+for the people the box lists that its shown people leave out, and a pick
+clears them and selects the person, their People row brought into view once
+the narrowing draws it. Its count shows and Enter jumps once the query is
+found, the lines following. A pick — a match chosen from the list, or Enter in
+the box — hands the keyboard to the builder's view, where the selection's ring
+lands, once the match is drawn and the box has let it go, and a step leaves it
+in the box (east-ui-components' `usePickHandOff`): the Sheet's grid, its focus
+on the ring's cell, the Plan's row, the Roster's person's name in People, their
+row's or their card's, and the Allocation's bin, its Timeline card, its Table
+row (focusable for it, no tab stop) or its narrow card
+(`allocation/bin-focus.ts`) — a hidden pick's once the narrowing it leaves
+draws it. Where the view draws no element for the match — a person in Shifts,
+or in a folded group — or the viewer has moved on, the keyboard stays where it
+is. In the Roster's, the Calendar's and the
 Allocation's rows its box is the first thing the row folds, to its icon,
 before every step of the rail and of the builder's own items, so a row short
 of room keeps the rail's chips and the period's steps live; its icon goes into
