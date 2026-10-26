@@ -98,7 +98,7 @@ import {
     focusKeySearch, getSomeorUndefined, useCoarsePointer, useSlicesReactivity, useDataStable, usePersistedState, useDragLayerOptional, useDragTarget, useTrackedEvaluation,
     type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, historyToolbarItem, historyShortcut, type ToolbarItem,
 } from "@elaraai/east-ui-components";
-import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, recordChoiceLabel, recordSliceNoun, recordSliceWithinAt, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, recordChoiceLabel, recordSliceNoun, recordSliceWithinAt, type RowsViewport, usePickHandOff, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import {
@@ -2307,6 +2307,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         version: hiddenRows.version,
     } : undefined), [lensWanted, rowsPart, rowsWhere, hiddenRows, hiddenWords, words.m]);
     const seek = useSheetSeek(seekSource, searchJump, searchClearJump, seekNarrowing);
+    // A pick in the key search hands the keyboard to the grid (#1398): the grid's focus lands with the ring, on the picked
+    // row's cell, once the row is drawn and the box has let the keyboard go — a hidden pick's once the narrowing it
+    // leaves draws the row; a step leaves it in the box.
+    const handOff = usePickHandOff();
+    const pickSearch = useMemo(() => (seek.search === undefined ? undefined : handOff.search(seek.search)), [seek.search, handOff]);
+    const focusGrid = useCallback(() => { cardRef.current?.focus({ preventScroll: true }); }, []);
     // A jump's target is shown once its window settles (#854): the ring goes
     // to the sought row (no echo — the host hears the move through onSelect),
     // or the view to the band of the window that could not be read (#853).
@@ -2341,17 +2347,23 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const target = seek.target;
         if (target === undefined || jumpInFlight) return;
         seek.clearTarget();
-        if (landJump(target, true)) return;
+        if (landJump(target, true)) {
+            handOff.land(focusGrid);
+            return;
+        }
         // Nothing to show: the viewport is the viewer's again. Under the lens the narrowing hides the row (the hidden
         // pick): the filters hiding it are cleared — those e3 named, else every choice of the `rows` source — and the
         // row gone to once the narrowing they leave draws it; the issue's cell, when an issue sought it.
         clearJump();
-        if (!lensDrawn) return;
+        if (!lensDrawn) {
+            handOff.drop();
+            return;
+        }
         const sought = issueSought.current;
         issueSought.current = undefined;
         const issue = sought !== undefined && sought.row === target ? sought : undefined;
         revealRef.current(target, issue?.entry, issue !== undefined);
-    }, [seek, jumpInFlight, landJump, clearJump, lensDrawn]);
+    }, [seek, jumpInFlight, landJump, clearJump, lensDrawn, handOff, focusGrid]);
     // The frame's own effects run first, so by now it has asked for the scroll.
     useEffect(() => {
         if (!handBack.current) return;
@@ -2378,9 +2390,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const jump = lensWanted ? lens.jump : paging.jump;
         if (jump === undefined || !jump.settled) return;
         setReveal(undefined);
-        // An issue's cell takes the ring as its row lands (`pendingIssue`); a pick's row takes it here.
-        if (!landJump(going.element, !going.issue)) clearJump();
-    }, [reveal, rowsQuery, lensWanted, lensJumpTo, jumpToElement, lens.jump, paging.jump, landJump, clearJump]);
+        // An issue's cell takes the ring and the keyboard as its row lands (`pendingIssue`); a pick's row takes them here.
+        if (!landJump(going.element, !going.issue)) {
+            clearJump();
+            handOff.drop();
+            return;
+        }
+        if (!going.issue) handOff.land(focusGrid);
+    }, [reveal, rowsQuery, lensWanted, lensJumpTo, jumpToElement, lens.jump, paging.jump, landJump, clearJump, handOff, focusGrid]);
     // A key's move across an unloaded run (#860) lands once its window is in
     // the run: the ring goes to the first row at or past the element it was
     // headed for (↓, ⌘Home), the last at or before it (↑), or the last there
@@ -3958,7 +3975,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         // Loaded rows only, while nothing narrows them: a `rows` source pages the record's own narrowing.
         partial: pagedSource !== undefined && !exhausted && rowsPart === undefined,
         tabs,
-        search: seek.search,
+        search: pickSearch,
         // The session's error is the frame's banner (#1184), never a line under the item. Its issues button goes to the
         // first issue as the Issues tab's lines do: sought where its row is not drawn, its filters cleared where they hide it.
         history: !readOnly ? historyToolbarItem({ session, words, editing: ui.edit !== null, onAction: onHistoryAction, onIssue: goToIssue, showError: false }) : undefined,

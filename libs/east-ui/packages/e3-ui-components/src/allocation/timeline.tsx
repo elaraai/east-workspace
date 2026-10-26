@@ -43,6 +43,7 @@ import { isoWeekUTC, timeScale, timeWords } from "../shared/time/scale.js";
 import { shadeBands } from "../shared/time/shading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { remainderOf } from "./actions.js";
+import { useBinFocusTarget } from "./bin-focus.js";
 import { currentOf, dropTarget, gripCoord, laneCoord, movedLinkOf, rowCoord, type AllocationDrag, type BoardGrip, type Target } from "./drag.js";
 import { cardEnd, dragFamilies, dragLine, familyOf, guideLines, layoutLinks, linkIds, type DragTarget, type FamilyLink, type LinkIds, type LinkView } from "./links.js";
 import { NarrowedEmpty } from "./narrowed.js";
@@ -722,8 +723,10 @@ function Card(args: CardProps) {
     // A card is its lane hour's drop target too, and a reservation's a bin fills (A38).
     const { veto, options } = dropTarget(drag, { kind: "lane", lane: bin.lane, at: card.slotAt, card: id });
     const drop = useDropCell(drag.enabled ? laneCoord(drag.surface, bin.lane, card.slotAt, id) : null, false, veto, undefined, options);
+    // The card takes the keyboard a pick in Search Records gives its bin (#1398).
+    const given = useBinFocusTarget<HTMLElement>(id);
     const bodyRef = body?.ref;
-    const attach = useCallback((el: HTMLElement | null) => { bodyRef?.(el); drop(el); }, [bodyRef, drop]);
+    const attach = useCallback((el: HTMLElement | null) => { bodyRef?.(el); drop(el); given.current = el; }, [bodyRef, drop, given]);
     return <CardBody {...args} body={body} port={port} attach={attach} />;
 }
 

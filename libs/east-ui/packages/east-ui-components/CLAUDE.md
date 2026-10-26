@@ -350,7 +350,14 @@ component, nothing in east-ui.
   in place; found, its count shows and Enter jumps at once, the popup saying
   `Searching…` until its lines land — a far match's read through its host — or
   why they could not be read, never `No matches` over a range found (#1398,
-  CL10); the box folds to its icon, which opens it in the edit
+  CL10); a pick — a match chosen, or Enter in the box — hands the keyboard
+  to its host's view, and a step — Previous or Next match — leaves it in the
+  box (`KeySearchJump`): the host wraps its source in `usePickHandOff`'s
+  `search` (`./internal`) and lands it where its ring lands, once the match
+  has landed and the box has let it go — the combobox gives the focus back
+  to its input in the frame after a pick — unless the viewer has moved on,
+  a key pressed in a control or the focus taken elsewhere; the box folds to
+  its icon, which opens it in the edit
   popover, and keeps its form while a query is typed; `focusKeySearch` brings
   a host's key for it, the Sheet's ⌘F, to it in either form). A record
   rail's summary (`12 of 69 people`) folds after every step of the rail and

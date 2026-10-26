@@ -412,7 +412,17 @@ Until it lands the line says `· hidden by the filters`. A pick of such a row �
 and Go to issue on an issue of one — clears just those choices, every choice
 while e3 has not said, a write of the rail like a chip's, and goes to the row
 once the narrowing they leave draws it. Its count shows and Enter jumps once
-the query is found, the lines following. In the Roster's, the Calendar's and the
+the query is found, the lines following. A pick — a match chosen from the list,
+or Enter in the box — hands the keyboard to the builder's view, where the
+selection's ring lands, once the match is drawn and the box has let it go, and
+a step leaves it in the box (east-ui-components' `usePickHandOff`): the Sheet's
+grid, its focus on the ring's cell — a hidden pick's once the narrowing it
+leaves draws the row — the Plan's row, the Roster's person's name in People,
+their row's or their card's, and the Allocation's bin, its Timeline card, its
+Table row (focusable for it, no tab stop) or its narrow card
+(`allocation/bin-focus.ts`). Where the view draws no element for the match — a
+person in Shifts, one the rail hides — or the viewer has moved on, the keyboard
+stays where it is. In the Roster's, the Calendar's and the
 Allocation's rows its box is the first thing the row folds, to its icon,
 before every step of the rail and of the builder's own items, so a row short
 of room keeps the rail's chips and the period's steps live; its icon goes into

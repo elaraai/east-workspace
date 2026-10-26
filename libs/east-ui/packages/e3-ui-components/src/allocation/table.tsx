@@ -39,6 +39,7 @@ import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { useRowAnchor, type RowAnchor, type RowNarrowing } from "../shared/schedule/row-anchor.js";
 import { linkedQuantity, remainderOf, type AllocationCommands } from "./actions.js";
+import { useBinFocusTarget } from "./bin-focus.js";
 import { arrivalChoices, resourceChoices, type ChoiceWords } from "./choices.js";
 import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
@@ -391,6 +392,8 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     const check = parts.some(part => { const l = lines.get(part.key); return l !== undefined && (l.over || l.overlap); });
     const status = rowStatus(row.kind, parts.length > 0, check, draft);
     const select = () => props.select(row.bin !== undefined ? { type: "bin", id: row.bin } : { type: "slot", lane: row.lane, at: row.slotAt.getTime() });
+    // A bin's row takes the keyboard a pick in Search Records gives its bin (#1398): focusable for that, no tab stop of its own.
+    const given = useBinFocusTarget<HTMLDivElement>(row.bin);
     const loadText = resource !== undefined && load !== undefined ? board.load(load.fill, resource, unit) : undefined;
     const into = line?.overlap === true && line.next.type === "some" && load?.hold.type === "some"
         ? (load.hold.value.to.getTime() - line.next.value.start.getTime()) / 86_400_000 : undefined;
@@ -439,8 +442,8 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     </>;
     const remainderTrigger = (isOpen: boolean) => <chakra.button type="button" css={styles.tablePlaceholder} data-allocation-placeholder="remainder" data-open={isOpen ? "" : undefined}
         title={remainderWords} aria-label={remainderWords} aria-haspopup="listbox" onPointerDown={event => event.stopPropagation()}>{remainderInside}</chakra.button>;
-    return <Box css={styles.tableRow} role="row" data-allocation-row={row.key} data-kind={row.kind} data-columns={shown === 0 ? "none" : undefined}
-        data-selected={marked !== undefined ? "" : undefined} data-draft={draft ? "" : undefined} onClick={select}>
+    return <Box ref={given} css={styles.tableRow} role="row" tabIndex={row.bin !== undefined ? -1 : undefined} data-allocation-row={row.key} data-kind={row.kind}
+        data-columns={shown === 0 ? "none" : undefined} data-selected={marked !== undefined ? "" : undefined} data-draft={draft ? "" : undefined} onClick={select}>
         <Box as="span" css={styles.tableTime} data-holds={bin !== undefined ? "" : undefined}>{time}</Box>
         <Box as="span" css={styles.tableLane}>{lane}</Box>
         {row.kind === "bin" && bin !== undefined ? <>

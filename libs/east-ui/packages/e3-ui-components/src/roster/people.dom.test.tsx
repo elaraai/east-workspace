@@ -164,7 +164,10 @@ const lines = (c: HTMLElement) => {
 };
 const inspected = (c: HTMLElement) => slot(c, "end").querySelector("[data-inspector-title]")?.textContent;
 
-test("Search Records seeks the staff by key (#1398): one on screen is selected; a far one, their row not mounted, is selected and brought into view; one the rail hides says so", async () => {
+/** Two animation frames: the box gives the focus back to its input a frame after a pick, as its combobox does. */
+const frames = () => act(() => new Promise<void>(resolve => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
+
+test("Search Records seeks the staff by key (#1398): one on screen is selected and their name given the keyboard; a far one, their row not mounted, is selected, brought into view and given it there; one the rail hides says so, and keeps the keyboard in the box", async () => {
     scrollsAsAPageDoes();
     const { container, store } = await open(ex.rosterWarehouse);
     await press(within(slot(container, "toolbar")).getByRole("radio", { name: "People" }));
@@ -173,6 +176,7 @@ test("Search Records seeks the staff by key (#1398): one on screen is selected; 
     fireEvent.keyDown(searchBox(container).querySelector("input")!, { key: "Enter" });
     await settle();
     expect(inspected(container)).toBe("A. Alder");
+    await waitFor(() => expect(focusedPerson()).toBe("aalder"));
     // T. Kelp, of the last group, far below the rows mounted.
     expect(slot(container, "main").querySelector('[data-roster-person-row="tkelp"]')).toBeNull();
     await act(async () => { fireEvent.click(searchBox(container).querySelector("button[aria-label='Clear search']")!); });
@@ -182,11 +186,18 @@ test("Search Records seeks the staff by key (#1398): one on screen is selected; 
     await settle();
     expect(inspected(container)).toBe("T. Kelp");
     await waitFor(() => expect(slot(container, "main").querySelector('[data-roster-person-row="tkelp"]')).not.toBeNull());
-    // The rail narrowed to picking: T. Kelp is found, and said to be hidden.
+    await waitFor(() => expect(focusedPerson()).toBe("tkelp"));
+    // The rail narrowed to picking: T. Kelp is found, and said to be hidden — and picked, the People view has no row of
+    // theirs to give the keyboard to: it stays in the box.
     await narrow(store, "rosterWarehouse", "people", new Map<string, Choice>([["team", variant("values", [text("picking")])]]));
     await act(async () => { fireEvent.click(searchBox(container).querySelector("button[aria-label='Clear search']")!); });
     await typeIntoSearch(container, "tkelp");
     await waitFor(() => expect(lines(container)).toEqual(["tkelp · T. Kelp · Dispatch · hidden by the filters"]));
+    const input = searchBox(container).querySelector("input")!;
+    fireEvent.keyDown(input, { key: "Enter" });
+    await settle();
+    await frames();
+    expect(document.activeElement).toBe(input);
 });
 
 /** The row at the top of the People grid's view — the mounted row its scroll offset falls in — and the px scrolled into it. */

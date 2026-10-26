@@ -17,11 +17,13 @@
  * into view only grows, below the row in view, and the rows anchor. Where the
  * rows' view rests is saved by its top row's key, and brought back as they
  * mount; ↑ and ↓ on a person's name step to the next person, or the one
- * before, selecting them and bringing their row into view.
+ * before, selecting them and bringing their row into view. A pick in Search
+ * Records gives its person's name the keyboard the same way (#1398) — their
+ * row's, or on a phone their card's — where the view shows them.
  *
  * @packageDocumentation
  */
-import { Fragment, createContext, memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faGripVertical, faRotateLeft, faXmark } from "@fortawesome/free-solid-svg-icons";
@@ -62,6 +64,14 @@ export interface RosterViewsProps {
     anchor?: RosterAnchor | undefined;
     /** Told where a People view rests as its scroll settles. */
     onAnchor?: ((next: Partial<RosterAnchor>) => void) | undefined;
+    /** The person the last pick in Search Records gives the keyboard to (#1398): their name in the People view, once. */
+    picked?: PeoplePick | undefined;
+}
+
+/** A pick in Search Records, handing its person the keyboard (#1398): their key, and which pick it is. */
+export interface PeoplePick {
+    readonly key: string;
+    readonly seq: number;
 }
 
 /** Where the People views rest (#1398): the desktop rows', and the phone's cards', each by its top row's key — brought
@@ -71,8 +81,31 @@ export interface RosterAnchor {
     readonly cards?: RowAnchor | undefined;
 }
 
-/** The person whose name the keyboard last stepped to (#1398): their row's name takes the focus as it mounts. */
+/** The person whose name the keyboard last stepped to, or a pick gave it to (#1398): their row's or card's name takes the focus as it mounts. */
 const PeopleFocusContext = createContext<{ readonly key: string | undefined; readonly done: () => void }>({ key: undefined, done: () => {} });
+
+/**
+ * The person a People view gives the keyboard to: whom ↑ / ↓ step to, and whom a pick in Search Records gives it to —
+ * each pick once, and only a person the view shows, never one narrowed out or in a folded group; a pick made before the
+ * view mounted is not taken (#1398).
+ *
+ * @param rows - The view's rows
+ * @param picked - The last pick
+ * @returns The focus the view's names read, and the step the keys take
+ */
+function usePeopleFocus(rows: readonly PeopleRow[], picked: PeoplePick | undefined): {
+    focus: { readonly key: string | undefined; readonly done: () => void }; stepTo: (key: string) => void;
+} {
+    const [key, setKey] = useState<string>();
+    const focus = useMemo(() => ({ key, done: () => setKey(undefined) }), [key]);
+    const taken = useRef(picked?.seq);
+    useEffect(() => {
+        if (picked === undefined || picked.seq === taken.current) return;
+        taken.current = picked.seq;
+        if (rows.some(row => row.kind === "person" && row.person?.key === picked.key)) setKey(picked.key);
+    }, [picked, rows]);
+    return { focus, stepTo: setKey };
+}
 
 /**
  * What a chip and a People row read of the views' props, kept while what they show holds (#1398, CL9): a row, a day
@@ -632,9 +665,9 @@ function People({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
     const save = useCallback((at: RowAnchor) => onAnchor?.({ people: at }), [onAnchor]);
     const { restore, onAnchorChange } = useRowAnchor(rows, props.anchor?.people, save, measured);
     // ↑ / ↓ on a person's name: the next person, or the one before — the groups' bands and their agency requests passed
-    // over, a folded group's people not among them — selected, their row brought into view and their name focused.
-    const [stepTo, setStepTo] = useState<string>();
-    const focus = useMemo(() => ({ key: stepTo, done: () => setStepTo(undefined) }), [stepTo]);
+    // over, a folded group's people not among them — selected, their row brought into view and their name focused, as a
+    // pick in Search Records focuses its person's.
+    const { focus, stepTo } = usePeopleFocus(rows, props.picked);
     const { select } = props;
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
         if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
@@ -645,11 +678,11 @@ function People({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
         for (let i = rows.findIndex(row => row.kind === "person" && row.person?.key === from) + by; i >= 0 && i < rows.length; i += by) {
             const row = rows[i]!;
             if (row.kind !== "person" || row.person === undefined) continue;
-            setStepTo(row.person.key);
+            stepTo(row.person.key);
             select({ type: "person", key: row.person.key });
             return;
         }
-    }, [rows, select]);
+    }, [rows, select, stepTo]);
     return <Box css={props.styles.main} data-roster-grid="people" onKeyDown={onKeyDown}>
         <PeopleFocusContext.Provider value={focus}>
             <VirtualRows fillParent height={undefined} maxHeight={undefined} minWidth="var(--roster-people-width)" rootCss={props.styles.scroll}
@@ -681,6 +714,11 @@ const PersonCard = memo(function PersonCard({ ctx, row, index, rows, days, reque
 }) {
     const { styles, format, start, value, commands } = ctx;
     const person = row.person;
+    // The name a pick in Search Records gave the keyboard to takes the focus as its card is drawn, as a row's name does (#1398).
+    const focus = useContext(PeopleFocusContext);
+    const head = useRef<HTMLButtonElement>(null);
+    const given = person !== undefined && focus.key === person.key && ctx.read.state === "held";
+    useLayoutEffect(() => { if (given && head.current !== null) { head.current.focus({ preventScroll: true }); focus.done(); } }, [given, focus]);
     // A week not read, or whose read failed (#1398): each person's card, their name and contract known without it, a
     // placeholder where each day's duties go, never "Off · assign"; the failure said once, in the first card in view.
     if (ctx.read.state === "failed") return <FailedPersonCard ctx={ctx} read={ctx.read} row={row} index={index} rows={rows} measure={measure} />;
@@ -693,7 +731,7 @@ const PersonCard = memo(function PersonCard({ ctx, row, index, rows, days, reque
     </Box>;
     return <Box ref={measure} css={styles.card} data-roster-person-card={person?.key ?? row.key}>
         {person === undefined ? <><Box css={styles.cardHead}><Box css={styles.cardTitle}>Agency requests</Box></Box>{requests.map(({ id, a, removed }) => <AssignmentCard key={id} ctx={ctx} id={id} assignment={a} removed={removed} />)}</> : <>
-            <chakra.button type="button" css={styles.cardHead} onClick={() => ctx.select({ type: "person", key: person.key })}><Box css={styles.cardTitle}>{person.name} · {format.number(ctx.hours.get(person.key) ?? 0)} / {format.number(person.contract)} h</Box></chakra.button>
+            <chakra.button ref={head} type="button" css={styles.cardHead} data-roster-person-head={person.key} onClick={() => ctx.select({ type: "person", key: person.key })}><Box css={styles.cardTitle}>{person.name} · {format.number(ctx.hours.get(person.key) ?? 0)} / {format.number(person.contract)} h</Box></chakra.button>
             {SEVEN_DAYS.map(day => {
                 const duties = days[day] ?? NO_DUTIES;
                 return <Box key={day} css={styles.agendaGroup}><Box css={styles.detail}>{format.weekday(new Date(start.getTime() + day * DAY))}</Box>
@@ -739,11 +777,15 @@ function PeopleAgenda({ props, ctx }: { props: RosterViewsProps; ctx: ViewContex
     const { onAnchor } = props;
     const save = useCallback((at: RowAnchor) => onAnchor?.({ cards: at }), [onAnchor]);
     const { restore, onAnchorChange } = useRowAnchor(rows, props.anchor?.cards, save, measured);
+    // A pick in Search Records gives its person's card's name the keyboard (#1398).
+    const { focus } = usePeopleFocus(rows, props.picked);
     return <Box css={props.styles.main} data-roster-agenda="people">
-        <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={props.styles.agenda} count={rows.length}
-            getItemKey={getItemKey} estimateSize={estimateSize} anchorable={ANCHOR_EVERY_ROW} overscan={1}
-            scrollToIndex={selectedPeopleRow(props, rows)} scrollAlign="auto" renderRow={renderRow}
-            onAnchorChange={onAnchorChange} restoreAnchor={restore} />
+        <PeopleFocusContext.Provider value={focus}>
+            <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={props.styles.agenda} count={rows.length}
+                getItemKey={getItemKey} estimateSize={estimateSize} anchorable={ANCHOR_EVERY_ROW} overscan={1}
+                scrollToIndex={selectedPeopleRow(props, rows)} scrollAlign="auto" renderRow={renderRow}
+                onAnchorChange={onAnchorChange} restoreAnchor={restore} />
+        </PeopleFocusContext.Provider>
     </Box>;
 }
 /** Narrow cards retain explicit operations even with both BuilderFrame panes collapsed. */
