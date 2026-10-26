@@ -532,14 +532,22 @@ export function usePlanCanvas({
     // windows are on their way, or rows whose cells have not landed — what it still waits for once a window has landed and
     // before the cells its rows are drawn from are asked, which they are only once the view has said which rows it shows.
     // The line and the busy follow it, so a window and its rows' cells read one after the other are one wait on the
-    // builder's reveal clock, never two each too short to say.
+    // builder's reveal clock, never two each too short to say. A Plan with no cells to read waits on its windows alone,
+    // as its driver says them.
     const [viewAwaits, setViewAwaits] = useState(NOTHING_AWAITED);
+    // What it is now, so a report that moves nothing sets nothing: a state set again as it was can still draw once more.
+    const awaited = useRef(NOTHING_AWAITED);
+    const awaitInView = useCallback((run: boolean, cells: boolean) => {
+        const was = awaited.current;
+        if (was.run === run && was.cells === cells) return;
+        awaited.current = { run, cells };
+        setViewAwaits(awaited.current);
+    }, []);
     const rowsInView = useRef<readonly PlanRowValue[]>(NO_ROWS_IN_VIEW);
     useEffect(() => {
         // Cells landing draw the rows in view: what they were waited for.
-        const cells = unread !== undefined && rowsInView.current.some(unread);
-        setViewAwaits((was) => (was.cells === cells ? was : { ...was, cells }));
-    }, [unread]);
+        awaitInView(awaited.current.run, unread !== undefined && rowsInView.current.some(unread));
+    }, [unread, awaitInView]);
     const awaits = viewAwaits.run || viewAwaits.cells;
     const transport = useMemo<PlanTransport | undefined>(() => {
         if (!paged) return undefined;
@@ -802,11 +810,12 @@ export function usePlanCanvas({
             if (item?.kind === "band" && item.band.loading !== undefined) run = true;
         }
         cellSpans.set(shownCellSpan(inView, notRead, cellSpans.get(), pagingOrigin, pagingNarrowing));
-        // What the view waits for now, as it rests (#1398, CL3): a run on its way, or rows whose cells have not landed.
+        // What the view waits for now, as it rests (#1398, CL3): a run on its way, or rows whose cells have not landed. A
+        // run is held here only where its rows' cells are read after it; elsewhere the driver's own `viewLoading` says it,
+        // in the commit that lands it, so a window landing stays one commit.
         rowsInView.current = rows;
-        const cells = unread !== undefined && rows.some(unread);
-        setViewAwaits((was) => (was.run === run && was.cells === cells ? was : { run, cells }));
-    }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans, unread]);
+        awaitInView(unread !== undefined && run, unread !== undefined && rows.some(unread));
+    }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans, unread, awaitInView]);
     // Scroll anchoring (#878): the row at the top of the view keeps its place
     // when rows above it change height or count — a window landing above at a
     // height its estimate missed. An unloaded band never anchors: rows landing
