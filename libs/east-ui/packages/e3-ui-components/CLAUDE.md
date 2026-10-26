@@ -29,7 +29,13 @@ default — Details through `FieldForm`, or a state's or a transition's own,
 and Issues; what is selected, per open flow, `selection.ts`; the open flow's
 issues, `issues.ts`, pure) and its words (`messages.ts`) — builds on the same
 parts, and
-keeps its slot recipes there too, the canvas's and the inspector's. The
+keeps its slot recipes there too, the canvas's and the inspector's. Its
+canvas hears its Esc from inside its frame as the key leaves the frame (the
+canvas's handle) and from the page itself, nothing focused, only while the
+pointer is over it — never one typed elsewhere on the page, nor one from a
+layer portaled out of the frame (`shared/frame-keys.ts`, the Schematic's rule)
+— and every key its canvas, its editors in place and its frame's history act
+on goes no further than the Flowchart (`takeKey`, #1398). The
 Schematic's renderer (`src/schematic/`, #1384) registers against its
 `Schematic` extension the same way, its slot recipe in the theme too, and
 renders in its `BuilderFrame` (#1387): its frame (`index.tsx`) over its reads

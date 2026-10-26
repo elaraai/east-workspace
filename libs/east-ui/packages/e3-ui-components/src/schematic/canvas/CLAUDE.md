@@ -268,9 +268,10 @@ goes in a pure module with unit tests, not in the component.
     Esc closing a Chooser keeps the selection. A key from inside the frame is
     heard as it leaves it (the handle's `key`, after the frame's own and every
     part's), and one from the page, nothing focused, at the window
-    (`hoverKey`). Every key the canvas, its frame or its Index acts on goes no
-    further than the Schematic (`takeKey`, #1398); Ctrl, a modifier held, goes
-    on.
+    (`hoverKey`; where a key comes from, `../../shared/frame-keys.ts`, the
+    Flowchart's canvas's rule too). Every key the canvas, its frame or its
+    Index acts on goes no further than the Schematic (`takeKey`, #1398); Ctrl,
+    a modifier held, goes on.
 
 **Drops (#1390)**
 17. **The canvas is the drop's one cell**, registered on the Schematic's

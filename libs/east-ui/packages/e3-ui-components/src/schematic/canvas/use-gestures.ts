@@ -29,6 +29,7 @@ import type RBush from "rbush";
 import { StringType, equalFor, type option } from "@elaraai/east";
 import { SCHEMATIC_WINDOW_ROWS } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, takeKey, typedInto, type Origin } from "@elaraai/east-ui-components";
+import { keyFromPage, keyInFrame } from "../../shared/frame-keys.js";
 import { densityInView } from "../area.js";
 import type { SchematicValue } from "../data.js";
 import {
@@ -69,32 +70,16 @@ const DRAG_THRESHOLD_PX = 4;
 
 /**
  * Whether a key the window hears is the canvas's to take while the pointer is over it: one from nowhere in particular
- * — the page, its body — or from inside the canvas's own frame. A key from a layer portaled out of the frame — a
- * popover, a menu, a Chooser's list — is that layer's, as the frame leaves such a layer its Esc (`BuilderFrame`); so
- * is one from another frame on the page.
+ * — the page, its body — or from inside the canvas's own frame (`../../shared/frame-keys.ts`). A key from a layer
+ * portaled out of the frame — a popover, a menu, a Chooser's list — is that layer's, as the frame leaves such a layer
+ * its Esc (`BuilderFrame`); so is one from another frame on the page.
  *
  * @param canvas - The canvas's element
  * @param target - The key's target
  * @returns Whether the key is the canvas's
  */
 function keyIsCanvas(canvas: Element | null, target: EventTarget | null): boolean {
-    if (keyFromPage(target)) return true;
-    const frame = canvas?.closest("[data-builder-frame]") ?? canvas;
-    return frame !== null && frame !== undefined && frame.contains(target as Element);
-}
-
-/**
- * Whether a key comes from nowhere in particular — the page, its body, with nothing focused — and so passed through no
- * element of the frame: the window hears it for the canvas. One from inside the frame the frame hears as it leaves it,
- * and takes there (#1398).
- *
- * @param target - The key's target
- * @returns Whether it is the page's
- */
-function keyFromPage(target: EventTarget | null): boolean {
-    if (!(target instanceof Element)) return true;
-    const doc = target.ownerDocument;
-    return target === doc.body || target === doc.documentElement;
+    return keyFromPage(target) || keyInFrame(canvas, target);
 }
 
 /**

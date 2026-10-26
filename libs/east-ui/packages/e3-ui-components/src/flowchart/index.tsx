@@ -32,8 +32,10 @@
  *   or read only, the flowchart edits nothing. Every gesture on the canvas,
  *   and every edit the inspector makes, is one transaction of the open flow's
  *   session (`edits.ts`); its history item ends the toolbar — ⌘Z undoing and
- *   ⇧⌘Z or ⌘Y redoing from anywhere in the frame but a field being typed into
- *   — and its banners sit under it. Save sends the open flow's drafts as one
+ *   ⇧⌘Z or ⌘Y redoing from anywhere in the frame but a field being typed into,
+ *   each key going no further than the Flowchart (`takeKey`, #1398), and the
+ *   canvas hearing its Esc as the key leaves the frame — and its banners sit
+ *   under it. Save sends the open flow's drafts as one
  *   commit: the payload's `apply`, through the record's patch mutation or the
  *   host's `onApply`;
  * - **what is selected** (#1250, `selection.ts`): the frame's, per open flow
@@ -105,6 +107,7 @@ import {
     historyShortcut,
     historyToolbarItem,
     implementUIComponent,
+    takeKey,
     typedInto,
     useDataStable,
     useFormatters,
@@ -116,7 +119,7 @@ import { awaitTracked, narrowedCount } from "@elaraai/east-ui-components/interna
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibility.js";
 import { buildModel, type FlowchartCanvasValue, type FlowchartFlowValue, type FlowchartValue } from "./model.js";
-import { FlowchartCanvasView, type FlowchartCanvasEdit, type FlowchartReveal } from "./canvas.js";
+import { FlowchartCanvasView, type FlowchartCanvasEdit, type FlowchartCanvasHandle, type FlowchartReveal } from "./canvas.js";
 import * as flowEdits from "./edits.js";
 import { useFindState } from "./find.js";
 import { FlowchartFooter, useLastSave } from "./footer.js";
@@ -530,13 +533,18 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
         if (held.many && !nameEqual(issue.entry, "")) openStored(issue.entry);
     }, [currentEntry, entry, held.many, openStored, revealSelection]);
     const history = edits ? historyToolbarItem({ session, words, editing: false, onIssue, onAction, showError: false }) : undefined;
-    // The history keys from anywhere in the frame (FB21): never a field being typed into, which keeps its own undo.
+    // The history keys from anywhere in the frame (FB21): never a field being typed into, which keeps its own undo; and
+    // the canvas's keys, Esc, as they leave the frame. Each key acted on goes no further than the Flowchart (#1398).
+    const canvasRef = useRef<FlowchartCanvasHandle>(null);
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
-        if (!edits || event.defaultPrevented || typedInto(event.target)) return;
+        if (event.defaultPrevented) return;
         const action = historyShortcut(event);
-        if (action === undefined) return;
-        event.preventDefault();
-        onAction(action);
+        if (action !== undefined && edits && !typedInto(event.target)) {
+            takeKey(event);
+            onAction(action);
+            return;
+        }
+        canvasRef.current?.key(event);
     }, [edits, onAction]);
     // The rail (#1346): each source counted in its noun on the rail's summary.
     const railNouns = useMemo(() => Object.fromEntries(nouns), [nouns]);
@@ -691,7 +699,7 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
                         description={words.m.flowDeleted({ part: "hint", name: shownName ?? openName ?? "" })} />
                 </Box>
             )
-            : <FlowchartCanvasView canvas={canvas} model={model} orientation={orientation} reveal={reveal}
+            : <FlowchartCanvasView ref={canvasRef} canvas={canvas} model={model} orientation={orientation} reveal={reveal}
                 edit={canvasEdit} drop={drop.canvas} selection={selection} onSelect={setSelected} words={words} storageKey={storageKey} />;
 
     return (
