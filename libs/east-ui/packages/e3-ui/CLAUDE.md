@@ -143,7 +143,7 @@ or a summary and no series, or placed beside another resource kind — it is
 refused, naming both declarations over the kind's own fields. Every other kind
 is counted before one of its events is read — through its source's interval
 index; through its day index, by the days its events run on (an event once a
-day, so an upper bound, never their number: `planCountExact` false); or in
+day, so an upper bound, never their number: `countExact` false); or in
 memory, its record read whole — and past 10,000 in the range the canvas reads
 none is read or drawn: its rows shade from its source's summary, else they
 are hatched and the banner says how many events there are, or, for a day

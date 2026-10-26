@@ -544,8 +544,8 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
         await h.patch(ex.planWindowJobs, jobs);
     }
 
-    /** A kind's count, the payload's `planCount` — every kind's: how many of its stored events overlap a range, before one is read. */
-    const counted = (kind: EventKind, [from, to]: readonly [string, string]) => kind.planCount(at(from), at(to));
+    /** A kind's count, the kind's `count` — every kind's: how many of its stored events overlap a range, before one is read. */
+    const counted = (kind: EventKind, [from, to]: readonly [string, string]) => kind.count(at(from), at(to));
 
     /** The jobs on the presses read whole, narrowed through the rail's `job` source over their interval index alone. */
     const narrowed = East.function([], PlanPayloadType, ($) => {
@@ -571,7 +571,7 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
 
     test("a kind read whole is counted in memory: its window answers its events within the cap, and none past it", async () => {
         const within = await kindOf(wholeJobs);
-        assert.equal(within.planCountExact, true, "its count is its events'");
+        assert.equal(within.countExact, true, "its count is its events'");
         assert.ok(countEqual(counted(within, FORTNIGHT), some(13n)));
         assert.equal((await itemsIn(within, ...FORTNIGHT)).length, 13);
         await bookProofs();
@@ -586,7 +586,7 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
     test("a kind read through its source is counted through its interval index, and past the cap no page of its window is read; within it, its events are", async () => {
         await bookProofs();
         const jobs = await narrowedJobs();
-        assert.equal(jobs.planCountExact, true, "its count is its events'");
+        assert.equal(jobs.countExact, true, "its count is its events'");
         assert.equal(await h.ready(() => counted(jobs, FORTNIGHT)), 10_014n);
         const fortnight = () => jobs.planItems(at(FORTNIGHT[0]), at(FORTNIGHT[1]), NO_DRAFTS, none);
         assert.equal(fortnight().type, "none");
@@ -603,7 +603,7 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
 
     test("a kind read through its day index is counted through it — the days its events run on, the search its read asks first, an upper bound — and past the cap no page of the day index is read; within it, its days are", async () => {
         const days = await kindOf(windowedJobs);
-        assert.equal(days.planCountExact, false, "its count is the days its events run on, no number of them");
+        assert.equal(days.countExact, false, "its count is the days its events run on, no number of them");
         // The fortnight's thirteen jobs are filed under seventeen days: the three-day run three times, the night catalogue and
         // the magazine run twice each.
         assert.equal(await h.ready(() => counted(days, FORTNIGHT)), 17n);

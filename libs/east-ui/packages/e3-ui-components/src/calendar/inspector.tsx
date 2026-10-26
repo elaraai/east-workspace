@@ -66,7 +66,7 @@ export function useCalendarSelection(args: Pick<InspectorArgs, "value" | "refs" 
     const read = useCallback((): Inspected[] => {
         return refs.flatMap(ref => {
             const kind = value.events.find(kind => kind.key === ref.kind); if (kind === undefined) return [];
-            const event = kind.event(ref.key, commands?.editing.draftsOf(kind.key) ?? EMPTY_SCHEDULE_DRAFTS, range.from, range.to);
+            const event = kind.event(ref.key, commands?.editing.draftsOf(kind.key) ?? EMPTY_SCHEDULE_DRAFTS, range.from, range.to, none);
             return event.type === "some" ? [{ kind, ...event.value }] : [];
         });
     }, [value.events, refs, commands, range.from, range.to]);

@@ -322,6 +322,13 @@ export const ScheduleRolesType = StructType({
  * One event kind, closed: every row crosses as bytes at the record's own entry
  * type, so a builder's payload is one type whatever the records hold.
  *
+ * A builder over resources read a window at a time reads a kind placed on them
+ * a cell at a time (#1039, #1424): the shared schedule reader reads the kind's
+ * series index's cells — the events of a block of resources in one time tile —
+ * and hands what it read to the kind's seams as beast2 of `cellsType`. Every
+ * other kind is counted first (`count`), and read over the window only within
+ * the builder's cap.
+ *
  * @property key - The kind's slot name
  * @property name - Its name
  * @property icon - Its Font Awesome icon
@@ -331,15 +338,33 @@ export const ScheduleRolesType = StructType({
  * @property templates - Its templates, for the library
  * @property templatesSource - The builder's Slice source whose shown keys filter its templates, the source its templates list names; none, every template shows (#1343)
  * @property fields - The inspector's form over its other fields (`Fields`)
- * @property items - Its events overlapping `[from, to)`, the drafts in place; `none` while a read is in flight
+ * @property items - Its events overlapping `[from, to)`, the drafts in place; `none` while a read is in flight. Given the
+ *   entries a reader read by the kind's series index's cells (#1039) — beast2 of `cellsType`, a key given twice held once
+ *   — it draws those and never reads the window: every draft given in place, one of an entry not given drawn as drafted,
+ *   for the reader gives a draft of an entry it did not read only where its narrowing holds the entry, or the record
+ *   does not. A builder that caps its kinds (the Calendar's and the Plan's) reads the window only within the cap
+ *   (`SCHEDULE_EVENT_CAP`), counted first: past it, the window answers `none` and reads no page
  * @property unscheduled - Its backlog: the rows with no time, the drafts in place. It takes the window `[from, to)`
  *   the canvas reads: a kind narrowed by its builder's slice holds the events its narrowing holds there and in its
- *   backlog alike, so a draft moves one between them by its times (#1343)
+ *   backlog alike, so a draft moves one between them by its times (#1343). Given the entries a reader read by its cells
+ *   (#1039), it reads its backlog alone, never the window, those entries held beside it
  * @property write - Each gesture into its entry's new bytes; `none` for a gesture the kind refuses
  * @property ready - The author's check over drafted entries, one result each
  * @property editing - The shared session over the record: its entry and key types, and its patch door — its base the record's snapshot, or for a kind read a window at a time (#1199) its revision
  * @property entries - The record read by key, for a kind read a window at a time (#1199); `none` for a kind read whole
  * @property history - The record's commits, newest first
+ * @property event - One event by its key's text, the drafts in place, and its row: `none` when there is no such event. A
+ *   kind read a window at a time (#1199) looks for it first among the rows its windows hold over `[from, to)` and its
+ *   backlog's, then reads it by its key, `none` while that read is in flight; a kind read whole takes no notice of the
+ *   range. Given the event's row as a reader of its cells holds it (#1039), or `some(none)` for one it does not hold, it
+ *   looks there, then in its backlog, then reads it by its key, and never reads the window
+ * @property schedule - The inspector's schedule fields
+ * @property overlaps - Whether two of its events on one resource at once are a conflict
+ * @property inspector - The author's form in place of the default fields
+ * @property seriesKey - The `.east` text of the value its resource field holds for a resource, or for no resource (#1039): what a series or a summary index of its record files that resource's events under, the key a reader's cells search for; `none` where the field cannot hold it — a resource of a kind it does not take, or no resource for a field that must name one
+ * @property cellsType - What a reader encodes the entries it read by cells in for `items`, `unscheduled` and `event` (#1039): an Array of `{ key, row }`, at the record's key and row types
+ * @property count - How many of its stored events overlap `[from, to)`, counted before one is read (#1039) — every kind's are: a kind read through its source of the slice counted through the source's interval index — the count its window's read asks first, so asking it costs no request of its own; a kind read through its day index (`window`) by the entries it files under the days of `[from, to)`, the search its window's read asks first — an event under each day it runs on, so an upper bound on the events, never their number (`countExact`); and a kind whose record is read whole counted in memory. `none` while the count is in flight
+ * @property countExact - Whether `count` counts its events themselves (#1039): `false` for a kind read through its day index, whose count is the days its events run on — what a builder's figures never take for its events, saying they are not counted
  */
 export const ScheduleKindType = StructType({
     key: StringType,
@@ -351,21 +376,21 @@ export const ScheduleKindType = StructType({
     templates: ArrayType(ScheduleTemplateType),
     templatesSource: OptionType(StringType),
     fields: ArrayType(FieldSpecType),
-    items: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(ScheduleItemType))),
-    unscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(ScheduleItemType))),
+    items: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(ScheduleItemType))),
+    unscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(ScheduleItemType))),
     write: FunctionType([ArrayType(ScheduleWriteType)], ArrayType(OptionType(BlobType))),
     ready: OptionType(FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(EditingReadinessType))),
     editing: EditingType,
     entries: OptionType(ScheduleEntriesType),
     history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
-    /** One event and its row, read from the window or by key, with drafts applied. */
-    event: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType], OptionType(ScheduleReadType)),
-    /** The inspector's schedule fields. */
+    event: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(OptionType(BlobType))], OptionType(ScheduleReadType)),
     schedule: ScheduleRolesType,
-    /** Whether this kind participates in overlap warnings. */
     overlaps: ScheduleOverlapsType,
-    /** The author's form in place of the default fields. */
     inspector: OptionType(RowInspectorType),
+    seriesKey: FunctionType([OptionType(ScheduleResourceRefType)], OptionType(StringType)),
+    cellsType: EastTypeType,
+    count: FunctionType([DateTimeType, DateTimeType], OptionType(IntegerType)),
+    countExact: BooleanType,
 });
 
 /** Type representing {@link ScheduleKindType}. */
@@ -454,21 +479,18 @@ export type PlanEventRolesType = typeof PlanEventRolesType;
 
 /**
  * One event kind as Plan's builder takes it: the Calendar's closed kind
- * ({@link ScheduleKindType}), field for field, with how the kind draws and its
- * roles, its events as Plan draws them, and its own inspector.
+ * ({@link ScheduleKindType}), field for field — its cells' seams and its count
+ * among them (#1039) — with how the kind draws and its roles, its events as
+ * Plan draws them, and its own inspector.
  *
  * @property draw - How it draws: bars, tiles, chips or marks
  * @property instant - Whether each of its events is one instant (`at`), its start and its end the same
  * @property overlaps - Whether two of its events on one resource at once are a conflict
  * @property roles - The fields its roles read
- * @property planItems - Its events overlapping `[from, to)` as Plan draws them, the drafts in place; `none` while a read is in flight. Given the entries a reader read by the kind's series index's cells (#1039) — beast2 of `cellsType`, a key given twice held once — it draws those and never reads the window: every draft given in place, one of an entry not given drawn as drafted, for the reader gives a draft of an entry it did not read only where its narrowing holds the entry, or the record does not
- * @property planUnscheduled - Its backlog as Plan draws it, the drafts in place, over the window `[from, to)` the canvas reads, as `unscheduled` takes it. Given the entries a reader read by its cells (#1039), it reads its backlog alone, never the window, those entries held beside it: a draft moves an event between them by its times alone, and every draft given shows, as `planItems`' do
- * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row; `none` when there is no such event. A kind read a window at a time (#1199) looks for it first among the rows its windows hold over `[from, to)` — the range the canvas reads, where a gesture's event is drawn — and its backlog's, then reads it by its key, `none` while that read is in flight; a kind read whole takes no notice of the range. A kind a reader reads by its cells (#1039) is given the event's row as the reader holds it, or `some(none)` for one it does not hold: it looks there, then in its backlog, then reads it by its key, and never reads the window
+ * @property planItems - Its events overlapping `[from, to)` as Plan draws them, as `items` reads them: the drafts in place, from the entries a reader read by its cells when it is given them, else over the window; `none` while a read is in flight
+ * @property planUnscheduled - Its backlog as Plan draws it, as `unscheduled` reads it
+ * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row, as `event` reads it; `none` when there is no such event
  * @property inspector - Its own inspector for one event (PB60, #1197): the event's row and a writer of the edited row, as bytes, to what the inspector shows in place of the kind's form; `none`, the form
- * @property seriesKey - The `.east` text of the value its resource field holds for a resource, or for no resource (#1039): what a series or a summary index of its record files that resource's events under, the key a reader's cells search for; `none` where the field cannot hold it — a resource of a kind it does not take, or no resource for a field that must name one
- * @property cellsType - What a reader encodes the entries it read by cells in for `planItems` and `planUnscheduled` (#1039): an Array of `{ key, row }`, at the record's key and row types
- * @property planCount - How many of its stored events overlap `[from, to)`, counted before one is read (#1039) — every kind's are: a kind read through its source of the slice counted through the source's interval index — the count its window's read asks first, so asking it costs no request of its own, and past `SCHEDULE_EVENT_CAP` its window reads no page; a kind read through its day index (`window`) by the entries it files under the days of `[from, to)`, the search its window's read asks first — an event under each day it runs on, so an upper bound on the events, never their number (`planCountExact`), and past the cap its window reads no page; and a kind whose record is read whole counted in memory, past the cap its window drawing none. `none` while the count is in flight
- * @property planCountExact - Whether `planCount` counts its events themselves (#1039): `false` for a kind read through its day index, whose count is the days its events run on — what a builder's figures never take for its events, saying they are not counted
  */
 export const PlanEventKindType = StructType({
     ...ScheduleKindType.fields,
@@ -480,10 +502,6 @@ export const PlanEventKindType = StructType({
     planUnscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType))),
     planEvent: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(OptionType(BlobType))], OptionType(PlanEventReadType)),
     inspector: OptionType(RowInspectorType),
-    seriesKey: FunctionType([OptionType(ScheduleResourceRefType)], OptionType(StringType)),
-    cellsType: EastTypeType,
-    planCount: FunctionType([DateTimeType, DateTimeType], OptionType(IntegerType)),
-    planCountExact: BooleanType,
 });
 
 /** Type representing {@link PlanEventKindType}. */

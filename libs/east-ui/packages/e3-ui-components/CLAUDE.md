@@ -329,11 +329,11 @@ failed — the paging runtime throws its `PagedReadError`
 (`platform/paged-read-error.ts`) — gives the reader no block: its band says so,
 with Retry; anything else a window's read throws is thrown on
 (`scheduleWindowKeys`). Every other kind the same reader counts before one of
-its events is read (the payload's `planCount`, which every kind has): through
+its events is read (the kind's `count`, which every kind has): through
 its source's interval index over the range the canvas reads — the count its
 window's read asks first — through its day index by the days its events run
 on, in the search its read asks first (an upper bound, never their number:
-`planCountExact` false), or in memory, its record read whole. Past 10,000 none
+`countExact` false), or in memory, its record read whole. Past 10,000 none
 is read or drawn, and the reader names it among the kinds past the cap
 (`capped`): its rows shade from its source's summary, else they are hatched
 and the banner says how many events there are — or, for a day index's count,

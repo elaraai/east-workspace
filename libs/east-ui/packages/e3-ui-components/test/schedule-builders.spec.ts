@@ -263,7 +263,7 @@ describe("Schedule.events — `title` is optional (B3)", () => {
         });
         const { platform } = await h.platform(program);
         const kind: Kind = East.compile(program, platform)();
-        const items = kind.items(at("2027-03-08T00:00:00Z"), at("2027-03-09T00:00:00Z"), new SortedMap([], byString));
+        const items = kind.items(at("2027-03-08T00:00:00Z"), at("2027-03-09T00:00:00Z"), new SortedMap([], byString), none);
         if (items.type !== "some") assert.fail("expected the items");
         assert.deepEqual(items.value.map((i) => [i.key, i.title]), [["p1", ""]]);
     });

@@ -193,7 +193,7 @@ export function usePlanEventCounts(
             // Every kind is counted before it is read: given no cells, it is read over the window once its count over the
             // range the canvas reads is within the cap — past it, or in flight, the last counts stand.
             if (shown && held === undefined) {
-                const within = scheduleWithinCap(kind.planCount, new Date(readFrom), new Date(readTo));
+                const within = scheduleWithinCap(kind.count, new Date(readFrom), new Date(readTo));
                 if (within.type !== "some" || !within.value) return READING;
             }
             const read = held === undefined ? none : some(held);
@@ -213,13 +213,13 @@ export function usePlanEventCounts(
                     const capped = cells!.capped.has(kind.key);
                     // Read by its cells, before they have landed once: its hours are not known yet, never 0 (#1398, CL13).
                     if (!capped && !cells!.held.has(kind.key)) return READING;
-                    if (capped && part === undefined && !kind.planCountExact) {
+                    if (capped && part === undefined && !kind.countExact) {
                         // Counted through its day index: the days its events run on are no number of them — not counted.
                         uncounted.push(kind);
                     } else {
                         // Its events in the window, exactly: its source's count, as the rail counts it — its record read
                         // whole, counted in memory.
-                        const inWindow = part !== undefined ? part.count() : kind.planCount(new Date(from), new Date(to));
+                        const inWindow = part !== undefined ? part.count() : kind.count(new Date(from), new Date(to));
                         if (inWindow.type !== "some") return READING;
                         events += Number(inWindow.value);
                         counted = true;

@@ -27,7 +27,7 @@
  * @packageDocumentation
  */
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import { DateTimeType, compareFor, some } from "@elaraai/east";
+import { DateTimeType, compareFor, none, some } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEditing } from "../shared/schedule/editing.js";
 import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
@@ -122,13 +122,13 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
         let saved: Date | undefined;
         for (const kind of value.events) {
             const changes = drafts?.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS;
-            const scheduled = kind.items(range.from, range.to, changes);
+            const scheduled = kind.items(range.from, range.to, changes, none);
             if (scheduled.type === "some") { for (const item of scheduled.value) items.push(item); } else loading = true;
             const history = kind.history();
             const latest = history.type === "some" ? history.value[0]?.at : undefined;
             if (latest !== undefined && (saved === undefined || compareDate(latest, saved) > 0)) saved = latest;
             if (kind.backlog && windowed.has(kind.key)) {
-                const unscheduled = kind.unscheduled(range.from, range.to, changes);
+                const unscheduled = kind.unscheduled(range.from, range.to, changes, none);
                 if (unscheduled.type === "some") { for (const item of unscheduled.value) backlog.push(item); } else loading = true;
             }
         }
@@ -141,7 +141,7 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
         let loading = false;
         for (const kind of value.events) {
             if (!kind.backlog || windowed.has(kind.key)) continue;
-            const unscheduled = kind.unscheduled(EVER.from, EVER.to, drafts?.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS);
+            const unscheduled = kind.unscheduled(EVER.from, EVER.to, drafts?.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS, none);
             if (unscheduled.type === "some") { for (const item of unscheduled.value) items.push(item); } else loading = true;
         }
         return { items, loading };
@@ -155,8 +155,8 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
     const readNext = useCallback((next: CalendarRange) => {
         for (const kind of value.events) {
             const changes = drafts?.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS;
-            kind.items(next.from, next.to, changes);
-            if (kind.backlog && windowed.has(kind.key)) kind.unscheduled(next.from, next.to, changes);
+            kind.items(next.from, next.to, changes, none);
+            if (kind.backlog && windowed.has(kind.key)) kind.unscheduled(next.from, next.to, changes, none);
         }
     }, [value.events, drafts, windowed]);
     useReadAhead(result.ok && !result.value.loading, ahead, readNext);
