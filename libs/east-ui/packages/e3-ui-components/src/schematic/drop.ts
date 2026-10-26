@@ -29,8 +29,10 @@
  *   card's kind under it, its kind read only, or its kind's session taking no
  *   edit now.
  * - **⏎ on a card** ({@link planEnter}, SC13): a card that adds or places an
- *   item lands at the view's centre; one that lands on an entity, on the
- *   selection — every selected entity of its kind, as one step.
+ *   item lands at the view's centre — and Details' Place there too (#1394) —
+ *   refused where that is off the drawing in words that say what brings the
+ *   drawing to it; one that lands on an entity, on the selection — every
+ *   selected entity of its kind, as one step.
  * - **Its words** ({@link dropCaption}, {@link dropName}, {@link dropRefusal},
  *   {@link dropLabel}) and **its marks** ({@link markOf}): the point a card
  *   lands at and the zone holding it, or the entity it lands on.
@@ -350,11 +352,14 @@ export function planDrop(card: SchematicDropCard, at: SchematicDropAt, ctx: Sche
 }
 
 /**
- * What ⏎ on a card does (SC13): a card that adds or places an item lands at
- * the view's centre; a template of a link or a net kind, on the selected link
- * or net of its kind; an author's card, on every selected entity of its kind,
- * as one step. A card the selection holds nothing of its kind for is refused,
- * naming where it lands, as a drag over nothing of its kind is.
+ * What ⏎ on a card does (SC13) — and Details' Place, below 480px of main
+ * (#1394): a card that adds or places an item lands at the view's centre, and
+ * where that is off the drawing it is refused in words that say what brings the
+ * drawing there — pan it into view, or Fit — as no pointer can be moved there;
+ * a template of a link or a net kind, on the selected link or net of its kind;
+ * an author's card, on every selected entity of its kind, as one step. A card
+ * the selection holds nothing of its kind for is refused, naming where it
+ * lands, as a drag over nothing of its kind is.
  *
  * @param card - The card
  * @param selection - What the canvas has selected, each entity by its reference
@@ -364,7 +369,11 @@ export function planDrop(card: SchematicDropCard, at: SchematicDropAt, ctx: Sche
  */
 export function planEnter(card: SchematicDropCard, selection: readonly SchematicRef[], centre: SchematicDropPoint | undefined,
     ctx: SchematicDropContext): SchematicDropPlan {
-    if (landsAtPoint(card)) return planDrop(card, centre === undefined ? NOWHERE : variant("point", centre), ctx);
+    if (landsAtPoint(card)) {
+        const plan = planDrop(card, centre === undefined ? NOWHERE : variant("point", centre), ctx);
+        // No pointer to move: off the drawing, the refusal says what brings the drawing to the view's centre.
+        return plan.kind === "refused" && plan.why.why === "outside" ? refused({ why: "offView" }) : plan;
+    }
     const slot = cardKind(card);
     const picked = selection.filter((ref) => stringEqual(ref.kind, slot));
     if (card.does !== "set" || picked.length <= 1) return planDrop(card, picked.length === 0 ? NOWHERE : variant("entity", picked[0]!), ctx);
@@ -475,7 +484,7 @@ function whereWords(plan: Exclude<SchematicDropPlan, { kind: "refused" }>, words
  */
 function refusalWords(why: SchematicDropRefusal, words: SchematicWords): string | undefined {
     if (why.why === "gone") return undefined;
-    return words.m.dropRefused(why.why === "outside" ? why : { why: why.why, kind: why.kind.toLocaleLowerCase(words.locale) });
+    return words.m.dropRefused(why.why === "outside" || why.why === "offView" ? why : { why: why.why, kind: why.kind.toLocaleLowerCase(words.locale) });
 }
 
 /**

@@ -15,8 +15,11 @@
  * inside the window; nothing scrolls the page sideways. One finger pans the
  * canvas and two pinch it about their midpoint. The inspector's actions go
  * through Save and a remount: a run Connect to… records and a Backlog card's
- * Place, each read back from e3. In a wide window a box narrowed to 294px is
- * narrow too, and widened again keeps the selection and the drafts.
+ * Place, each read back from e3; and Place with the view's centre panned off
+ * the drawing is refused in the footer, in words that say what brings the
+ * drawing there, in view beside the open inspector, until Fit. In a wide
+ * window a box narrowed to 294px is narrow too, and widened again keeps the
+ * selection and the drafts.
  *
  * Every wait is a poll on the page's state, never a fixed pause; nothing reads
  * a screenshot.
@@ -27,7 +30,7 @@
 
 import { test, expect, type Locator, type Page } from "playwright/test";
 import { leaveBuilder } from "./builder-page";
-import { DATA_CENTRE, centred, discard, libraryCard, openSchematic, openTab, pane, printedRef, save, screenPoint, sizeTo, type Point } from "./schematic-page";
+import { DATA_CENTRE, centred, discard, libraryCard, openSchematic, openTab, pane, printedRef, restsOn, save, screenPoint, sizeTo, type Point } from "./schematic-page";
 import { settled } from "./settle";
 
 /** What nothing on a narrow main may carry: a drag source or a drop target. */
@@ -284,6 +287,51 @@ test.describe("The Schematic on a phone (#1394)", () => {
         await expand(page, pane(root), "Library");
         await expect(pane(root).getByRole("tab", { name: /^Backlog/ })).toHaveText("Backlog 1");
         expect(await pageOverflow(page)).toBeLessThanOrEqual(0);
+    });
+
+    test("Place with the view's centre panned off the drawing is refused in the footer, in words that say what brings the drawing there — in view beside the open inspector — recording nothing; after Fit from the View it lands at the view's centre (#1394)", async ({ page }) => {
+        await page.setViewportSize({ width: 390, height: 844 });
+        const root = await openSchematic(page, DATA_CENTRE);
+        await centred(page, root);
+        // A drag over the bare floor pans the drawing 120px to the left: the view's centre, 14 m in at Fit, past its 28 m. By
+        // the mouse: a finger's flick leaves the browser's fling running, which takes the next tap as its stop, never a click.
+        const from = await screenPoint(root, 26.0, 13.3);
+        await page.mouse.move(from.x, from.y);
+        await page.mouse.down();
+        await page.mouse.move(from.x - 120, from.y, { steps: 8 });
+        await page.mouse.up();
+        await settled(page);
+        // A06, from the Backlog: its Place refused, the footer saying what to do; A06 still Details', nothing recorded.
+        await expand(page, pane(root), "Library");
+        await openTab(page, root, "Backlog");
+        await libraryCard(root, printedRef("racks", "A06")).tap();
+        await expand(page, inspector(root), "Inspector");
+        await expect(details(root).locator("[data-inspector-title]")).toHaveText("A06");
+        const place = details(root).locator("[data-inspector-action='place']");
+        await place.tap();
+        const refused = root.locator("[data-frame-slot='footer'] [data-schematic-refused]");
+        await expect(refused).toHaveText("The middle of the view is off the drawing: pan the drawing into view, or Fit");
+        // In view: inside the window, the element at its middle its own — the inspector floats over main, never the footer.
+        expect(await refused.evaluate((el) => {
+            const b = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+            return [b.left >= -0.5 && b.right <= window.innerWidth + 0.5, hit !== null && el.contains(hit)];
+        })).toEqual([true, true]);
+        await expect(details(root)).toHaveAttribute("data-schematic-inspector", "unplaced");
+        await expect(discard(root)).toBeDisabled();
+        // Fit, from the View, the inspector open still: the camera home, and Place lands at the view's centre, the words gone.
+        const view = root.locator("[data-toolbar-item='seek'] [data-key-search='icon']");
+        await view.tap();
+        await page.locator("[data-schematic-view] [data-schematic-zoom]").getByRole("button", { name: "Fit" }).tap();
+        await page.keyboard.press("Escape");
+        await expect(view).toHaveAttribute("data-state", "closed");
+        await restsOn(root, { minX: 0, minY: 0, maxX: 28, maxY: 14 });
+        await expect(details(root).locator("[data-inspector-title]")).toHaveText("A06");
+        await place.tap();
+        await expect(details(root)).toHaveAttribute("data-schematic-inspector", "item");
+        await expect(refused).toHaveCount(0);
+        await expect(details(root).locator("[data-inspector-when]")).toHaveText(/14\.00, 7\.00 m$/u);
+        await expect(discard(root)).toBeEnabled();
     });
 });
 
