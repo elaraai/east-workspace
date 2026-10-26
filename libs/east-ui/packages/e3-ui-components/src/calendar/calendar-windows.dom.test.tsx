@@ -280,6 +280,62 @@ describe("the Resources view's columns of the paged presses (#1424)", () => {
 });
 
 // ============================================================================
+// The presses narrowed by hall: the rail's choice, and the count failing (#1424)
+// ============================================================================
+
+/** The hall rail's key: each source's state kept under `${HALL_KEY}.${source}`. */
+const HALL_KEY = "ex.calendarWindowsByHall";
+const decodeState = decodeBeast2For(RecordSliceStateType);
+const encodeState = encodeBeast2For(RecordSliceStateType);
+const text = printFor(StringType);
+/** The presses' source narrowed to a hall, written as the rail writes it — under a mounted Calendar, or for the next to open. */
+async function chooseHall(hall: string) {
+    const state = decodeState(getStore().read(`${HALL_KEY}.presses`)!);
+    await act(async () => {
+        getStore().write(`${HALL_KEY}.presses`, encodeState({ ...state, preset: none, where: new SortedMap([["hall", variant("values", [text(hall)])]], compareFor(StringType)) }));
+    });
+    await settle();
+}
+/** The footer's loading line. */
+const loadingLine = (c: HTMLElement) => slot(c, "footer").querySelector<HTMLElement>("[data-footer-line]")!;
+
+describe("the narrowed presses' count failing to read (#1424)", () => {
+    test("a Calendar opening on a hall whose presses cannot be counted leaves its cold load and says why — on the footer's line and in the presses' first row in view — with Retry; Retry, the fault gone, reads them", async () => {
+        // The rail keeps a choice of Hall 2 for the next Calendar to open, which reads the hall's presses counted through
+        // the hall index — a search of it, which e3 refuses for a reason a retry can fix.
+        const first = await h.mount(cw.calendarWindowsByHall, { storageKey: "windows-count" });
+        await settle();
+        first.unmount();
+        const stop = h.e3.fail((request) => request.dataset === HALL_PRESSES && request.kind === "find" && request.query.get("index") === BY_HALL.name,
+            { status: 500, type: "internal", message: "the store is down" });
+        await chooseHall("Hall 2");
+        const { container: c } = await h.mount(cw.calendarWindowsByHall, { storageKey: "windows-count" });
+        await settle();
+        // The cold load's cover goes: the frame is live, and says why on its line, with Retry.
+        await waitFor(() => expect(loadingLine(c).hasAttribute("data-failed")).toBe(true), { timeout: 15_000 });
+        expect(c.querySelector("[data-builder-loading]")).toBeNull();
+        expect(loadingLine(c).textContent).toMatch(/^Couldn't read presses/);
+        expect(loadingLine(c).getAttribute("title")).toContain("the store is down");
+        // Said where the presses would be, once — their first row in view — with its Retry; no press drawn.
+        const said = [...timelineOf(c).querySelectorAll<HTMLElement>("[data-loading-failed]")];
+        expect(said.map((line) => line.textContent)).toEqual(["Couldn't read presses 1–200Retry"]);
+        expect(pressRows(c)).toEqual([]);
+        // Retry, the fault gone: the hall's presses counted and read, drawn in the index's order, and the line idle.
+        stop();
+        await act(async () => { fireEvent.click(loadingLine(c).querySelector("[data-line-retry]")!); });
+        await settle();
+        await waitFor(() => expect(pressRows(c).slice(0, 3)).toEqual(["Press 1002", "Press 1010", "Press 1018"]), { timeout: 15_000 });
+        await waitFor(() => expect(loadingLine(c).hasAttribute("data-idle")).toBe(true), { timeout: 15_000 });
+        expect(timelineOf(c).querySelector("[data-loading-failed]")).toBeNull();
+        // What the console said is the presses' record failing to read, each time e3 refused it — and nothing else.
+        const logged = errors.mock.calls.map((call) => call.map(String).join(" ")).filter((line) => line.startsWith("[Calendar]") || line.startsWith("Data.bindPaged"));
+        expect(logged.length).toBeGreaterThan(0);
+        expect(logged.filter((line) => !line.includes(HALL_PRESSES))).toEqual([]);
+        errors.mockClear();
+    });
+});
+
+// ============================================================================
 // A Chooser of the paged presses (#1424)
 // ============================================================================
 
@@ -420,20 +476,6 @@ describe("the Backlog a page at a time, through the jobs' source (#1424)", () =>
 // ============================================================================
 
 describe("the presses narrowed by hall through their source of the rail (#1424)", () => {
-    /** The rail's key: each source's state kept under `${KEY}.${source}`. */
-    const KEY = "ex.calendarWindowsByHall";
-    const decodeState = decodeBeast2For(RecordSliceStateType);
-    const encodeState = encodeBeast2For(RecordSliceStateType);
-    const text = printFor(StringType);
-    /** The presses' source narrowed to a hall, written as the rail writes it. */
-    async function chooseHall(hall: string) {
-        const state = decodeState(getStore().read(`${KEY}.presses`)!);
-        await act(async () => {
-            getStore().write(`${KEY}.presses`, encodeState({ ...state, preset: none, where: new SortedMap([["hall", variant("values", [text(hall)])]], compareFor(StringType)) }));
-        });
-        await settle();
-    }
-
     test("a choice pages the narrowing's presses through the hall index alone, and reads the cells of those presses alone", async () => {
         const { container: c } = await h.mount(cw.calendarWindowsByHall, { storageKey: "windows-hall" });
         await settle();
