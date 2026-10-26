@@ -277,6 +277,12 @@ export interface PlanController {
     refreshSource(): void;
     /** Where the viewport is — the paged source's demand (#577). */
     reportViewport(at: PlanViewport, scrolling: boolean): void;
+    /**
+     * Home or End past a run not read (#1398, CL10): the source's first or last window read where it is — pinned as a
+     * key search's jump is, so the view's reports leave it be — and the view kept where it is until it lands; the
+     * keyboard's intent lands on its row. A source that has not counted itself has no last window to ask for.
+     */
+    jumpToEdge(edge: "first" | "last"): void;
     /** The canvas committed a render of `paging` (the paging driver's
      *  `committed`). Call it after every commit: a jump hands the viewport back
      *  only once the canvas has shown — and scrolled to — its target (#812). */
@@ -1154,6 +1160,13 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                 return;
             }
             batch(() => paging.reportViewport(at, scrolling));
+        },
+        jumpToEdge(edge) {
+            batch(() => {
+                const total = paging.getSnapshot().total;
+                if (edge === "first") paging.jumpToElement(0);
+                else if (total !== undefined) paging.jumpToElement(Math.max(0, total - 1));
+            });
         },
         committed(rendered) {
             batch(() => {

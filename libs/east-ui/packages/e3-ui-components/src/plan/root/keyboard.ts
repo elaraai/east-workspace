@@ -19,15 +19,21 @@
  * # Bands
  *
  * An unloaded run is ONE grid item (its row count is unknowable — see
- * `window-ledger.ts`), so stepping onto it cannot land on a row that is not
- * there yet. The move asks the source for the window next to the run, lands
- * on the band — which stands for its windows while they are in flight (#876)
- * — and leaves an INTENT: once the rows land, focus moves on to the row the
- * key was headed for. Home and End onto a band do the same for the source's
- * first and last rows; a page onto one goes on the rest of its way once the
- * rows past it land (#1398, CL10) — fetch, then move — never stopping at the
- * loaded edge. A source that reports no total has no bands: there the move
- * waits on the item it started from while a window loads.
+ * `window-ledger.ts`), so a key cannot land on a row that is not there yet.
+ * Fetch, then move (#1398, CL10): a step or a page past the rows read asks
+ * the source for the window beside the run, and leaves an INTENT — the focus
+ * waits on the item it set out from, never on the run, and once the rows land
+ * it moves on to the row the key was headed for: the next row, or the row a
+ * page on, never the last row before the run. Home and End past a run read
+ * the source's first or last window where it is, the view staying put, and
+ * the focus lands on its first or last row once that is in. A source that
+ * reports no total has no bands: there the move waits on the item it started
+ * from while a window loads.
+ *
+ * A run takes the focus only from a click into it (or as the grid's stop): it
+ * stands for the rows the view shows there, and a key that moves through them
+ * — ↑ ↓ PgUp PgDn — waits for them (`wait`): once they land the focus goes to
+ * the first of them in view, and a page goes on from there.
  *
  * # Widgets
  *
@@ -149,12 +155,22 @@ export type PlanNavIntent =
     | { t: "first" }
     | { t: "last" };
 
+/** A key that moves through the rows a run stands for, pressed while the run holds the focus. */
+export type PlanWaitKey = "ArrowDown" | "ArrowUp" | "PageDown" | "PageUp";
+
 /** What a key does. */
 export type PlanNavMove =
     /** Move focus onto an item — scrolled into view as `align` says, or not at all. */
     | { t: "focus"; key: string; align: PlanNavAlign | undefined }
-    /** Move focus onto a band, ask the source for its window, and leave an intent. */
-    | { t: "band"; key: string; align: PlanNavAlign | undefined; demand: PlanViewport; intent: PlanNavIntent }
+    /**
+     * Fetch, then move (#1398, CL10): ask the source for the window beside a run, and leave an intent — the focus
+     * waiting on the item it set out from, never on the run, and the view where it is, until the rows land.
+     */
+    | { t: "fetch"; demand: PlanViewport; intent: PlanNavIntent }
+    /** Home / End past a run: read the source's first or last window where it is, and land on its first or last row once it is in. */
+    | { t: "edge"; edge: "first" | "last" }
+    /** A key on a run holding the focus: it waits for the run's rows in view, and goes on from the first of them. */
+    | { t: "wait"; key: PlanWaitKey }
     /** An interaction on the item — focus stays on (or lands on) `focus`,
      *  since the interaction may re-render the item as another element (a
      *  rail becoming a row) or take it away (a gap band). */
@@ -178,27 +194,23 @@ export function planNavKey(items: readonly PlanNavItem[], from: string, key: str
     const i = items.findIndex((it) => it.key === from);
     if (i < 0) return undefined;
     const cur = items[i]!;
+    // A run holding the focus stands for the rows the view shows there, still on their way: a key that moves through
+    // them waits for them, and goes on from the first of them in view once they land.
+    if (cur.band !== undefined && (key === "ArrowDown" || key === "ArrowUp" || key === "PageDown" || key === "PageUp")) return { t: "wait", key };
     const focus = (it: PlanNavItem): PlanNavMove => ({ t: "focus", key: it.key, align: "auto" });
     const step = (dir: 1 | -1): PlanNavMove => {
         const next = items[i + dir];
         if (next === undefined) return { t: "none" };
         if (next.band === undefined) return focus(next);
-        // The band's edge beside this item is already in view: no scroll —
-        // the source is asked for the adjacent window directly.
-        return { t: "band", key: next.key, align: undefined, demand: { kind: "band", block: next.band.block, at: next.band.at },
-            intent: { t: "step", from: cur.key, dir } };
+        // Past the rows read: the window beside the run asked for, the focus waiting where it is.
+        return { t: "fetch", demand: { kind: "band", block: next.band.block, at: next.band.at }, intent: { t: "step", from: cur.key, dir } };
     };
     const edge = (first: boolean): PlanNavMove => {
         const target = first ? items[0] : items[items.length - 1];
-        if (target === undefined || target === cur) return { t: "none" };
-        if (target.band === undefined) return focus(target);
-        // The far end of the source: scroll to the band's far edge, and ask for
-        // the window there.
-        return {
-            t: "band", key: target.key, align: first ? "start" : "end",
-            demand: { kind: "band", block: target.band.block, at: target.band.at, px: first ? 0 : Math.max(0, target.band.px - 1) },
-            intent: { t: first ? "first" : "last" },
-        };
+        if (target === undefined) return { t: "none" };
+        if (target.band === undefined) return target === cur ? { t: "none" } : focus(target);
+        // The source's far end, not read: its window read where it is, then the focus lands on its first or last row.
+        return { t: "edge", edge: first ? "first" : "last" };
     };
     const page = (dir: 1 | -1): PlanNavMove => {
         let j = i;
@@ -211,7 +223,7 @@ export function planNavKey(items: readonly PlanNavItem[], from: string, key: str
             // (#1398, CL10): fetch, then move.
             if (next.band !== undefined) {
                 const rest = pageHeight > 0 ? pageHeight - travelled : FALLBACK_PAGE_ITEMS - Math.abs(j - i);
-                return { t: "band", key: next.key, align: "auto", demand: { kind: "band", block: next.band.block, at: next.band.at },
+                return { t: "fetch", demand: { kind: "band", block: next.band.block, at: next.band.at },
                     intent: { t: "page", from: items[j]!.key, dir, rest, by: pageHeight > 0 ? "px" : "items" } };
             }
             j = k;
@@ -255,7 +267,8 @@ export function planNavKey(items: readonly PlanNavItem[], from: string, key: str
 /** Where a pending band move stands after the grid changed. */
 export type PlanNavResolution =
     | { t: "resolved"; key: string }
-    | { t: "pending" }
+    /** Still waiting — and, where the rows landed so far stop short of where it is headed, the run past them to ask for. */
+    | { t: "pending"; ask?: PlanViewport | undefined }
     | { t: "cancel" };
 
 /**
@@ -301,7 +314,8 @@ export function resolveNavIntent(items: readonly PlanNavItem[], intent: PlanNavI
         }
         case "page": {
             // Its first step waits as a step's does; landed, the page goes on the rest of its way, to the row a page
-            // on, or the last before a band still unread — never onto one.
+            // on — or the source's last row on the way. Rows that stop short of it at a band still unread are never
+            // where it lands: the window past them is asked for, and the page waits for it — never at the loaded edge.
             const i = items.findIndex((it) => it.key === intent.from);
             if (i < 0) return { t: "cancel" };
             const first = items[i + intent.dir];
@@ -311,7 +325,8 @@ export function resolveNavIntent(items: readonly PlanNavItem[], intent: PlanNavI
             let travelled = 0;
             for (;;) {
                 const next = items[j + intent.dir];
-                if (next === undefined || next.band !== undefined) break;
+                if (next === undefined) break;
+                if (next.band !== undefined) return { t: "pending", ask: { kind: "band", block: next.band.block, at: next.band.at } };
                 j += intent.dir;
                 travelled += intent.by === "px" ? next.h : 1;
                 if (travelled >= intent.rest) break;

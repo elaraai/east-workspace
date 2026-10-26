@@ -491,4 +491,118 @@ describe("a bounded view of the narrowed presses (#1344)", () => {
         await act(async () => { windows.release(); });
         await settle();
     });
+
+    // ── The keyboard across presses not read (#1398, CL10) ──────────────────
+    describe("the keyboard across presses not read — fetch, then move (#1398, CL10)", () => {
+        /** A press's grid item: its row, which takes the focus. */
+        const pressItem = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-plan-item=${JSON.stringify(`r:${rowKeyOf(pressRow(key))}`)}]`);
+        /** The press whose row has the focus, by its key — else what has it: the canvas's surface, a run, or the page's body. */
+        const focused = (c: HTMLElement): string => {
+            const at = document.activeElement;
+            if (at === null || at === document.body) return "the page's body";
+            if (at === body(c)) return "the canvas";
+            const row = at.getAttribute("data-plan-row");
+            if (row !== null) return pressKeys.find((key) => rowKeyOf(pressRow(key)) === row) ?? row;
+            return at.hasAttribute("data-plan-window-band") ? "a run" : at.tagName;
+        };
+        /** Every press's key, in the record's order. */
+        let pressKeys: readonly string[] = [];
+        beforeEach(async () => { pressKeys = [...(await storedPresses()).keys()]; });
+        /** What has the focus after each commit from now on — a commit drawing the rows, or a focus moving. */
+        function watchFocus(c: HTMLElement): { seen: string[]; stop: () => void } {
+            const seen: string[] = [];
+            const observer = new MutationObserver(() => { seen.push(focused(c)); });
+            observer.observe(c, { subtree: true, childList: true, attributes: true });
+            const onFocus = () => { seen.push(focused(c)); };
+            document.addEventListener("focusin", onFocus);
+            return { seen, stop: () => { observer.disconnect(); document.removeEventListener("focusin", onFocus); } };
+        }
+        /** A key pressed where the focus is, and what it starts let settle. */
+        async function key(name: string) {
+            await act(async () => { fireEvent.keyDown(document.activeElement!, { key: name }); });
+            await settle();
+        }
+        /** The presses' windows past the first: what a hold of them takes. */
+        const pastFirst = (request: E3Request) => request.dataset === PRESSES && request.kind === "page" && Number(request.query.get("offset")) >= 200;
+
+        test("PageDown from the last press read waits on it while the window past it is read — the view where it is, the focus never on the run — then lands a page on, never at the loaded edge", async () => {
+            // The presses past the first window held on their way: the run stands for them, below the first two hundred.
+            const windows = h.e3.hold(pastFirst);
+            const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
+            await settle();
+            await windows.holding;
+            // Down to the last press read, Press 1200 — the two hundredth — and the run below it.
+            await scrollAndSettle(c, 195 * ROW_PX);
+            await act(async () => { pressItem(c, "P-1200")!.focus(); });
+            const watch = watchFocus(c);
+            const top = frameOf(c).scrollTop;
+            await key("PageDown");
+            // The window past it asked for: the focus waits on Press 1200, and the view stays.
+            expect(focused(c)).toBe("P-1200");
+            expect(frameOf(c).scrollTop).toBe(top);
+            await act(async () => { windows.release(); });
+            await settle();
+            // In: a page on — 400px of view, ten presses of 42 — Press 1210, brought into view; never the run, never Press 1201.
+            await waitFor(() => expect(focused(c)).toBe("P-1210"));
+            expect(frameOf(c).scrollTop).toBe(210 * ROW_PX - VIEWPORT);
+            watch.stop();
+            expect(watch.seen.filter((at) => at !== "P-1200" && at !== "P-1210")).toEqual([]);
+        });
+
+        test("a run holding the focus — clicked, the view far among presses not read — hands it to the first of its presses the view shows as they land; a PageDown pressed on it waits for them, then goes a page on; the focus never on the page's body", async () => {
+            const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
+            await settle();
+            const windows = h.e3.hold((request) => request.dataset === PRESSES && request.kind === "page");
+            // Far down among presses not read: the view over the run that stands for them, its windows held.
+            await scrollAndSettle(c, 1500 * ROW_PX);
+            await windows.holding;
+            const run = c.querySelector<HTMLElement>("[data-plan-window-band]")!;
+            await act(async () => { run.focus(); });
+            expect(focused(c)).toBe("a run");
+            const watch = watchFocus(c);
+            await key("PageDown");
+            // Nothing read in view: the key waits on the run, the view where it is.
+            expect(focused(c)).toBe("a run");
+            expect(frameOf(c).scrollTop).toBe(1500 * ROW_PX);
+            await act(async () => { windows.release(); });
+            await settle();
+            // Landed: the first press in view, the fifteen hundred and first, takes the focus, and the page goes on ten presses.
+            await waitFor(() => expect(focused(c)).toBe("P-2511"));
+            watch.stop();
+            // From the run, the first press in view, then a page on — never the page's body; the canvas's surface keeps the
+            // focus while the run goes, where the run goes before a press takes it.
+            const order = watch.seen.filter((at, i, all) => i === 0 || at !== all[i - 1]).filter((at) => at !== "the canvas" && at !== "a run");
+            expect(order).toEqual(["P-2501", "P-2511"]);
+        });
+
+        test("End from a press reads the last window where the view is — the focus kept on the canvas, never the page's body — then lands on the last press; Home back to the first, its window still held by the page", async () => {
+            const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
+            await settle();
+            await act(async () => { pressItem(c, "P-1001")!.focus(); });
+            const windows = h.e3.hold((request) => request.dataset === PRESSES && request.kind === "page");
+            const watch = watchFocus(c);
+            await key("End");
+            // The last window asked for, the first ones' rows gone with the run: the view stays at the top while it is read,
+            // the focus on the canvas's surface.
+            await windows.holding;
+            expect(frameOf(c).scrollTop).toBe(0);
+            expect(focused(c)).toBe("the canvas");
+            await act(async () => { windows.release(); });
+            await settle();
+            // In: the last press, the two thousandth, at the foot of the view — the scroll's end, which the stand-in layout puts
+            // past the rows.
+            await waitFor(() => expect(focused(c)).toBe("P-3000"));
+            expect(frameOf(c).scrollTop).toBeGreaterThanOrEqual(2000 * ROW_PX - VIEWPORT);
+            // Home: the first window, which the page still holds, read again at once — the first press, at the top.
+            const asked = h.requests().length;
+            await key("Home");
+            await waitFor(() => expect(focused(c)).toBe("P-1001"));
+            expect(frameOf(c).scrollTop).toBe(0);
+            expect(pressesAsked(asked)).toEqual([]);
+            watch.stop();
+            // Never the page's body: the canvas's surface held the focus between the presses, where their rows went first.
+            expect(watch.seen.filter((at) => at === "the page's body")).toEqual([]);
+            expect(watch.seen.filter((at, i, all) => i === 0 || at !== all[i - 1]).filter((at) => at !== "the canvas")).toEqual(["P-3000", "P-1001"]);
+        });
+    });
 });

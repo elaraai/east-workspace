@@ -103,8 +103,9 @@ import type { PlanPart } from "./messages.js";
 import {
     bodyItemKey, canvasRowsOf, derivePlan, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, rowItemKey, rowKeyOf,
     rowKeyWords, visibleRows,
-    type PlanRootValue, type PlanRowIndex, type PlanRowValue, type VisibleRow,
+    type PlanBand, type PlanBodyItem, type PlanRootValue, type PlanRowIndex, type PlanRowValue, type VisibleRow,
 } from "./model.js";
+import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 import type { RowKey } from "./plan-state.js";
 import { entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
 import { usePlanEventEditing } from "./edit/events.js";
@@ -144,7 +145,7 @@ import { PLAN_ELEMENT_SELECTOR, PlanOverlays, createOverlayAnchors, refOfElement
 import { PlanGridContext, createRowPositions, gridPlaces, type PlanGridContextValue } from "./root/grid.js";
 import {
     PLAN_WALK_SELECTOR, gridItemOf, planNavItems, planNavKey, plotElements, resolveNavIntent, rowWidgets,
-    type PlanNavEdges, type PlanNavIntent, type PlanNavMove,
+    type PlanNavEdges, type PlanNavIntent, type PlanNavMove, type PlanWaitKey,
 } from "./root/keyboard.js";
 import { PlanAnnouncer } from "./root/announce.js";
 import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
@@ -627,12 +628,14 @@ export function usePlanCanvas({
     // control), dropping browser focus to <body> and killing the esc rung —
     // re-anchor keyboard focus on the focused ROW (#819: it holds the tab
     // stop from then on), or on the canvas surface in the narrow layout,
-    // which has no grid. Focus that stayed in the canvas is left where it is.
+    // which has no grid. Focus that stayed in the canvas is left where it
+    // is; on the canvas's surface it is a dropped focus kept there until a
+    // row takes it (#1398, below), and the focused row takes it here.
     useEffect(() => {
         if (view.focus === null) return;
         const bodyEl = focusBodyRef.current;
         const at = document.activeElement;
-        if (bodyEl === null || (at !== null && at !== document.body && bodyEl.contains(at))) return;
+        if (bodyEl === null || (at !== null && at !== document.body && at !== bodyEl && bodyEl.contains(at))) return;
         if (narrow) bodyEl.focus();
         else controller.focusItem(rowItemKey(view.focus.key));
     }, [view.focus, narrow, controller]);
@@ -784,6 +787,16 @@ export function usePlanCanvas({
     // What a bounded frame's view is read from — its scroll element and the
     // sticky chrome above its rows.
     const frameRefs = useMemo(() => ({ scrollElRef, headerRef }), [scrollElRef, headerRef]);
+    // ── The focus across a landing (#1398, CL10) ──────────────────────────
+    // Fetch, then move: a keyboard move past the rows read waits on the item it set out from, never on the run — its
+    // intent, served once the rows land (`navIntent`, below). A run holding the focus — a click into it — owes it to the
+    // first of its rows the view shows once they land, and a key pressed on it waits for them (`owedFocus`'s `wait`).
+    // A focused item a landing takes off the canvas leaves the focus on the canvas's surface, never the page's body: an
+    // intent waiting takes it on from there, a run owed it does as above, and a row taken off owes it to the first row
+    // the view shows. What the view shows takes what is owed as it is reported at rest (`takeOwed`).
+    const navIntent = useRef<{ holder: string; intent: PlanNavIntent } | null>(null);
+    const owedFocus = useRef<{ band: PlanBand | undefined; wait: PlanWaitKey | undefined } | null>(null);
+    const takeOwed = useRef<(shown: readonly PlanBodyItem[]) => void>(() => undefined);
     // The paged kind's rows in view, once the scroll rests (#1039): the reader of its kinds' cells reads the blocks around them
     // — under the narrowing their windows are (#1344), so a choice's reads none for the last one's rows standing in. They are
     // the rows the view shows, never the overscan mounted beside them, and a view showing a run not read yet and no row read
@@ -815,6 +828,8 @@ export function usePlanCanvas({
         // in the commit that lands it, so a window landing stays one commit.
         rowsInView.current = rows;
         awaitInView(unread !== undefined && run, unread !== undefined && rows.some(unread));
+        // What the view shows takes a focus a landing owes it.
+        takeOwed.current(shown === undefined ? [] : body.items.slice(shown.startIndex, shown.endIndex + 1));
     }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans, unread, awaitInView]);
     // Scroll anchoring (#878): the row at the top of the view keeps its place
     // when rows above it change height or count — a window landing above at a
@@ -1031,11 +1046,9 @@ export function usePlanCanvas({
                 && paging.total !== undefined && last.resident.to >= paging.total),
         };
     }, [paged, paging.loading, paging.blocks, paging.total]);
-    // A keyboard move onto a band waits — on the band, which stands for its
-    // windows while they load (#876), or on the item it set out from when the
-    // demand took the band away — for the rows, then goes on to the row it was
-    // headed for (`resolveNavIntent`).
-    const navIntent = useRef<{ holder: string; intent: PlanNavIntent } | null>(null);
+    // A keyboard move past the rows read waits on the item it set out from — never on the run (#1398, CL10) — for the
+    // rows, then goes on to the row it was headed for (`resolveNavIntent`); rows landed short of a page on ask for the
+    // window past them, and the page waits for it.
     useEffect(() => {
         const pending = navIntent.current;
         if (pending !== null) {
@@ -1049,6 +1062,7 @@ export function usePlanCanvas({
                     if (r.t === "resolved") controller.focusItem(r.key, "auto");
                     return;
                 }
+                if (r.ask !== undefined) controller.reportViewport(r.ask, false);
             }
         }
         const snap = controller.getSnapshot();
@@ -1063,6 +1077,143 @@ export function usePlanCanvas({
             if (!narrow) gridRef.current?.focus();
         }
     }, [navItems, navEdges, controller, narrow]);
+
+    // ── The grid's keys (#819, `root/keyboard.ts`) ────────────────────────
+    // How far a page moves: the frame's viewport less its pinned header, or
+    // the window's on an unbounded canvas.
+    const pageHeight = (): number => {
+        const el = scrollElRef.current;
+        if (frameFills && el !== null) return Math.max(0, el.clientHeight - (headerRef.current?.offsetHeight ?? 0));
+        return typeof window !== "undefined" ? window.innerHeight : 0;
+    };
+    const runMove = (move: PlanNavMove, from: string) => {
+        switch (move.t) {
+            case "focus":
+                controller.focusItem(move.key, move.align);
+                break;
+            case "fetch":
+                // Fetch, then move (#1398, CL10): the window beside the run asked for now — whatever the scroll reports
+                // after — the focus waiting on the item it set out from, and the view where it is, until the intent finds
+                // the row it was headed for.
+                owedFocus.current = null;
+                navIntent.current = { holder: from, intent: move.intent };
+                controller.reportViewport(move.demand, false);
+                break;
+            case "edge":
+                // Home / End past a run: the source's first or last window read where it is — the view staying put, its
+                // rows a run while it lands — then the focus lands on its first or last row.
+                owedFocus.current = null;
+                navIntent.current = { holder: from, intent: { t: move.edge } };
+                controller.jumpToEdge(move.edge);
+                break;
+            case "wait": {
+                // A key on a run holding the focus waits for the run's rows in view, and goes on from the first of them.
+                const run = body.items.find((it) => it.kind === "band" && bodyItemKey(it) === from);
+                if (run?.kind === "band") owedFocus.current = { band: owedFocus.current?.band ?? run.band, wait: move.key };
+                break;
+            }
+            case "event":
+                controller.dispatch(move.event);
+                // Focus stays on (or lands on) its item: the event may have
+                // re-rendered it as another element — a rail becoming a row.
+                controller.focusItem(move.focus);
+                break;
+            case "none":
+                break;
+        }
+    };
+    // What the view shows takes a focus a landing owes it (`owedFocus`), reported at rest — never while a keyboard move
+    // waits, whose intent takes the focus on. A run owed it keeps it while its rows in view are on their way; once they
+    // land — or the view leaves it — the first of them in view takes it, else the first row in view, and a page pressed on
+    // the run goes on from there. A focus the viewer moved on meanwhile is owed nothing.
+    useLayoutEffect(() => {
+        takeOwed.current = (shown) => {
+            const owed = owedFocus.current;
+            const bodyEl = focusBodyRef.current;
+            if (owed === null || bodyEl === null || narrow || navIntent.current !== null) return;
+            const at = document.activeElement;
+            const runKey = owed.band === undefined ? undefined : bodyItemKey({ kind: "band", band: owed.band });
+            const holding = at === bodyEl
+                || (runKey !== undefined && at instanceof HTMLElement && bodyEl.contains(at) && at.getAttribute("data-plan-item") === runKey);
+            if (!holding) {
+                owedFocus.current = null;
+                return;
+            }
+            const band = owed.band;
+            if (band !== undefined) {
+                const same = (it: PlanBodyItem) => it.kind === "band" && it.band.block === band.block && it.band.at === band.at;
+                const now = body.items.find(same);
+                if (now?.kind === "band" && now.band.from === band.from && now.band.to === band.to && shown.some(same)) return;
+            }
+            const rows = shown.filter((it) => it.kind === "row");
+            // The run's own rows: rows of its block, from a window its elements covered.
+            const ofRun = band === undefined ? [] : rows.filter((it) => {
+                const o = it.kind === "row" ? paging.origin.get(it.row.row.key) : undefined;
+                return o !== undefined && o.block === band.block && o.w * PLAN_PAGE_SIZE <= band.to && (o.w + 1) * PLAN_PAGE_SIZE - 1 >= band.from;
+            });
+            const candidates = ofRun.length > 0 ? ofRun : rows;
+            // Nothing read in view yet: still owed.
+            if (candidates.length === 0) return;
+            const elementOf = (key: string) => Array.from(bodyEl.querySelectorAll<HTMLElement>("[data-plan-item]")).find((e) => e.getAttribute("data-plan-item") === key);
+            // The first of them the view shows whole, below the pinned header — the first in view a scroll left part-hidden
+            // is no row to put the ring on — else the first.
+            const viewTop = Math.max(scrollElRef.current?.getBoundingClientRect().top ?? 0, headerRef.current?.getBoundingClientRect().bottom ?? 0, 0);
+            const target = candidates.find((it) => (elementOf(bodyItemKey(it))?.getBoundingClientRect().top ?? -Infinity) >= viewTop - 1) ?? candidates[0]!;
+            owedFocus.current = null;
+            const key = bodyItemKey(target);
+            const el = elementOf(key);
+            if (el !== undefined) el.focus({ preventScroll: true });
+            else controller.focusItem(key);
+            // A page pressed on the run goes on from its row; a step's is the hand-off itself.
+            if (owed.wait === "PageDown" || owed.wait === "PageUp") {
+                const move = planNavKey(navItems, key, owed.wait, pageHeight());
+                if (move !== undefined) runMove(move, key);
+            }
+        };
+    });
+    // A focused item a render takes off the canvas — a run its rows replace, a row a run evicts — would drop the focus to
+    // the page's body: once the render is done, the canvas's surface keeps it (no ring: it is the keyboard's surface, not
+    // a stop), and a row a landing took off owes it to the first row the view shows. A focus the viewer moved elsewhere
+    // — another element, or nowhere, its element still on the page — is theirs. Whether the focus is in the canvas is
+    // what the canvas last heard (`focusIn`): a page that says a removed element lost it says so as it goes, before the
+    // render is done; one that says nothing leaves the render to find the focus gone.
+    const focusIn = useRef(false);
+    const keepFocus = useRef<(dropped: string | undefined) => void>(() => undefined);
+    useLayoutEffect(() => {
+        const keep = (dropped: string | undefined) => {
+            const bodyEl = focusBodyRef.current;
+            const at = document.activeElement;
+            if (bodyEl === null || !bodyEl.isConnected || (at !== null && at !== document.body)) return;
+            bodyEl.focus({ preventScroll: true });
+            if (owedFocus.current !== null || navIntent.current !== null) return;
+            if (dropped !== undefined && !navItems.some((it) => it.key === dropped)) owedFocus.current = { band: undefined, wait: undefined };
+        };
+        keepFocus.current = keep;
+        const at = document.activeElement;
+        if (focusIn.current && (at === null || at === document.body)) keep(controller.getSnapshot().nav.active ?? undefined);
+    });
+    const hasBody = scale !== undefined;
+    useEffect(() => {
+        const bodyEl = focusBodyRef.current;
+        if (bodyEl === null) return undefined;
+        const lost = () => document.activeElement === null || document.activeElement === document.body;
+        const onOut = (event: globalThis.FocusEvent): void => {
+            const from = event.target;
+            const next = event.relatedTarget;
+            if (next instanceof Node && bodyEl.contains(next)) return;
+            if (next !== null) {
+                focusIn.current = false;
+                return;
+            }
+            const dropped = from instanceof HTMLElement && from !== bodyEl ? gridItemOf(from, bodyEl)?.getAttribute("data-plan-item") ?? undefined : undefined;
+            queueMicrotask(() => {
+                if (from instanceof HTMLElement && from !== bodyEl && !from.isConnected) keepFocus.current(dropped);
+                else if (lost()) focusIn.current = false;
+            });
+        };
+        bodyEl.addEventListener("focusout", onOut);
+        return () => bodyEl.removeEventListener("focusout", onOut);
+    }, [hasBody]);
 
     // ── Moves (#825) ──────────────────────────────────────────────────────
     // What the rows and elements move with: the store, the drag surface — none
@@ -1240,44 +1391,6 @@ export function usePlanCanvas({
                 : undefined} />
     );
 
-    // ── The grid's keys (#819, `root/keyboard.ts`) ────────────────────────
-    // How far a page moves: the frame's viewport less its pinned header, or
-    // the window's on an unbounded canvas.
-    const pageHeight = (): number => {
-        const el = scrollElRef.current;
-        if (frameFills && el !== null) return Math.max(0, el.clientHeight - (headerRef.current?.offsetHeight ?? 0));
-        return typeof window !== "undefined" ? window.innerHeight : 0;
-    };
-    const runMove = (move: PlanNavMove, from: string) => {
-        switch (move.t) {
-            case "focus":
-                controller.focusItem(move.key, move.align);
-                break;
-            case "band": {
-                // The window beside the run, asked for now — whatever the
-                // scroll reports after. While its windows load the band stands
-                // for them (#876); a demand whose windows landed at once may
-                // have filled it, and focus then stays where it is until the
-                // intent finds the row it was headed for.
-                controller.reportViewport(move.demand, false);
-                const p = controller.getSnapshot().paging;
-                const demand = move.demand;
-                const block = demand.kind === "band" ? p.blocks.find((b) => b.index === demand.block) : undefined;
-                const stays = demand.kind === "band" && (demand.at === "head" ? block?.head : block?.tail) !== undefined;
-                navIntent.current = { holder: stays ? move.key : from, intent: move.intent };
-                if (stays) controller.focusItem(move.key, move.align);
-                break;
-            }
-            case "event":
-                controller.dispatch(move.event);
-                // Focus stays on (or lands on) its item: the event may have
-                // re-rendered it as another element — a rail becoming a row.
-                controller.focusItem(move.focus);
-                break;
-            case "none":
-                break;
-        }
-    };
     // An element's activation from the keyboard does what its click does:
     // the popover, the selection, the author's element callback.
     const activateElement = (el: HTMLElement, additive: boolean) => {
@@ -1422,6 +1535,17 @@ export function usePlanCanvas({
         if (target !== undefined) controller.focusItem(target, "auto");
     };
 
+    // Where the focus is in the canvas now (#1398): a run taking it — a click into it — is owed its rows as they land; any
+    // other item it lands in owes nothing. The canvas's own surface, holding it while something is owed, changes nothing.
+    const onBodyFocus = (e: FocusEvent<HTMLDivElement>) => {
+        focusIn.current = true;
+        const bodyEl = focusBodyRef.current;
+        if (bodyEl === null || e.target === bodyEl) return;
+        const key = gridItemOf(e.target, bodyEl)?.getAttribute("data-plan-item");
+        const run = key === null || key === undefined ? undefined : body.items.find((it) => it.kind === "band" && bodyItemKey(it) === key);
+        owedFocus.current = run?.kind === "band" ? { band: run.band, wait: undefined } : null;
+    };
+
     // A carry whose reader left the canvas ends where it began (#825).
     const onBodyBlur = (e: FocusEvent<HTMLDivElement>) => {
         if (editStore.carry === null) return;
@@ -1438,6 +1562,7 @@ export function usePlanCanvas({
             tabIndex={-1}
             css={styles.body}
             data-plan-body
+            onFocus={onBodyFocus}
             onBlur={onBodyBlur}
             // The bound lives HERE, not on the frame — the attribute is
             // the contract (jsdom resolves no Chakra classes).
