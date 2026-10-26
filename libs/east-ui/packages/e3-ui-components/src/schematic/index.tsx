@@ -415,9 +415,11 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // the inspector shows it — a net's leg with it (#1391).
     const [selection, setSelection] = useState<ReadonlySet<string>>(NOTHING_SELECTED);
     const [leg, setLeg] = useState<NetLeg | null>(null);
-    // Why the item Find's last pick landed on doesn't show as itself — the filters, its layer, no position — until the
-    // next pick, Clear filters or a selection (#1404).
+    // Why the item Find's last pick landed on doesn't show as itself — the filters, its layer, no position — while that
+    // pick stands: until the next pick, the search cleared or a new query asked in its place, Clear filters or a selection
+    // (#1404, the footer holding only what is live).
     const [found, setFound] = useState<SchematicFoundNotice | undefined>(undefined);
+    const pickLetGo = useCallback(() => setFound(undefined), []);
     // The Backlog's card picked below 480px of main (#1394, D15), by its id: an item with no position, which Details shows
     // with its Place until the canvas selects something, the card is let go, or it is placed.
     const [placingId, setPlacingId] = useState<string | undefined>(undefined);
@@ -496,7 +498,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
             clear: part === undefined ? undefined : () => { part.clearAll(); setFound(undefined); canvasRef.current?.select(item.id); },
         });
     }, [look.dim, hiddenLayers, drawnItems, chrome, words]);
-    const find = useSchematicFind({ kinds: findKinds, words, dim: look.dim, hiddenLayers, onPick: onFound });
+    const find = useSchematicFind({ kinds: findKinds, words, dim: look.dim, hiddenLayers, onPick: onFound, onCleared: pickLetGo });
 
     // ── The toolbar (§6.1) ──────────────────────────────────────────────
     // What the rail counts a source in: a templates list's, its kind's templates; a kind's own, its rows (#1392).

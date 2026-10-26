@@ -196,3 +196,25 @@ test("a rack with no position says it is in the Backlog (#1404)", async () => {
     await waitFor(() => expect(foundNotice(container)?.textContent).toBe("A06 has no position: it is in the Backlog"));
     expect(foundNotice(container)!.querySelector("button")).toBeNull();
 });
+
+test("where Find's pick landed is said while the pick stands: the footer's words go as the search is cleared, and as a new query replaces it (#1404)", async () => {
+    const { container } = await open();
+    const input = () => findBox(container).querySelector<HTMLInputElement>("input")!;
+    const pickA06 = async () => {
+        await typeIntoFind(container, "A06");
+        await waitFor(() => expect(lines()).toEqual(["A06 · Rack · no position"]), { timeout: 5_000 });
+        fireEvent.keyDown(input(), { key: "Enter" });
+        await waitFor(() => expect(foundNotice(container)?.textContent).toBe("A06 has no position: it is in the Backlog"));
+    };
+    await pickA06();
+    // Cleared: the search, and what its pick said, go together.
+    await act(async () => { fireEvent.click(findBox(container).querySelector("button[aria-label='Clear search']")!); });
+    await settle();
+    expect(input().value).toBe("");
+    expect(foundNotice(container)).toBeNull();
+    // Picked again, then a new query typed over it: the pick no longer stands, and the footer says nothing of it.
+    await pickA06();
+    await act(async () => { await userEvent.type(input(), "{Backspace}"); });
+    await waitFor(() => expect(lines()).toHaveLength(7), { timeout: 5_000 });
+    expect(foundNotice(container)).toBeNull();
+});

@@ -25,11 +25,14 @@
  * an item by its key, its label where it is not its key, and its kind's name,
  * and says what keeps it off the canvas: the rail's filters, its layer, or no
  * position. A pick hands the frame the item and what it knows of it
- * (`onPick`), and the box shows its key. The box asks its query again when
- * what its lines are read from moves — a source's record or its narrowing, a
- * kind read whole's rows, the layers hidden or how the narrowing draws — and
- * never when a window of what the canvas draws lands, so a pick's fly keeps
- * its place among the matches.
+ * (`onPick`), and the box shows its key; the pick stands until the search is
+ * cleared or a new query asked in its place, which the frame hears
+ * (`onCleared`), so what it said of where the pick landed goes with it. The
+ * box asks its query again when what its lines are read from moves — a
+ * source's record or its narrowing, a kind read whole's rows, the layers
+ * hidden or how the narrowing draws — and never when a window of what the
+ * canvas draws lands, so a pick's fly keeps its place among the matches: a
+ * query asked again leaves the pick standing.
  *
  * @packageDocumentation
  */
@@ -239,22 +242,26 @@ export interface SchematicFindProps {
     readonly hiddenLayers: ReadonlySet<string>;
     /** Told the item a pick lands on. */
     readonly onPick: (item: FoundItem) => void;
+    /** Told the last pick stands no more: the search cleared, or a new query asked in its place — never one asked again. */
+    readonly onCleared: () => void;
 }
 
 /**
  * Find's source, for the shared key search's toolbar item (see the module docs).
  *
- * @param props - The kinds, the words, how the narrowing and the layers show, and the pick
+ * @param props - The kinds, the words, how the narrowing and the layers show, the pick, and the pick let go
  * @returns The source
  */
-export function useSchematicFind({ kinds, words, dim, hiddenLayers, onPick }: SchematicFindProps): KeySearchSource {
+export function useSchematicFind({ kinds, words, dim, hiddenLayers, onPick, onCleared }: SchematicFindProps): KeySearchSource {
     // What a find reads, and whom a pick tells: the latest — the box calls what it captured before the find answered.
-    const latest = useRef({ kinds, words, dim, hiddenLayers, onPick });
-    useLayoutEffect(() => { latest.current = { kinds, words, dim, hiddenLayers, onPick }; });
+    const latest = useRef({ kinds, words, dim, hiddenLayers, onPick, onCleared });
+    useLayoutEffect(() => { latest.current = { kinds, words, dim, hiddenLayers, onPick, onCleared }; });
     // What the last find found, each kind's run; a find answered after a newer one asked finds nothing here.
     const found = useRef<readonly FindRun[]>([]);
     const asked = useRef(0);
-    const find = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
+    const find = useCallback(async (query: DatasetKeyQuery, again?: boolean): Promise<DatasetKeyMatchRange> => {
+        // A new query takes the last pick's place; one asked again, as what its lines are read from moved, keeps it.
+        if (again !== true) latest.current.onCleared();
         const mine = ++asked.current;
         const seek = toSeekQuery(query);
         const runs = await Promise.all(latest.current.kinds.map(async (kind): Promise<FindRun> => {
@@ -286,7 +293,11 @@ export function useSchematicFind({ kinds, words, dim, hiddenLayers, onPick }: Sc
         void itemsAt(row, 1).then(([hit]) => { if (hit !== undefined) latest.current.onPick(hit.item); })
             .catch((error: unknown) => { console.error("[Schematic] Find could not read the item it found:", error); });
     }, [itemsAt]);
-    const clear = useCallback(() => { asked.current++; found.current = []; }, []);
+    const clear = useCallback(() => {
+        asked.current++;
+        found.current = [];
+        latest.current.onCleared();
+    }, []);
     // The box asks its query again when what its lines are read from moves: each source's record and its narrowing,
     // each kind read whole's rows — tracked, so a window the canvas reads moves none of it — the layers hidden and how
     // the narrowing draws.
