@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1263,
-    "totalFiles": 211,
+    "totalEntries": 1266,
+    "totalFiles": 212,
     "packages": {
       "east": 570,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 306,
-      "e3-ui": 143,
+      "e3-ui": 146,
       "e3": 18,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -40469,6 +40469,138 @@
         "tsx"
       ],
       "source": "// Indexed Calendar at phone width: the same Slice fields, overlap queries and original-key editing, shown as agenda cards with explicit actions\n// inputs: []\n/** An event's row and original key are independent of every index entry. */\nexport const IndexedCalendarEvent = StructType({\n    title: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType),\n    machine: StringType, status: StringType, customer: StringType,\n});\n\n/** A year of jobs beside the small, identifiable overlap/editing examples. */\nfunction calendarSeed(): Map<string, ValueTypeOf<typeof IndexedCalendarEvent>> {\n    const rows = new Map<string, ValueTypeOf<typeof IndexedCalendarEvent>>([\n    [\"carry\", { title: \"Overnight print run\", start: some(new Date(\"2026-10-01T22:00:00Z\")), end: some(new Date(\"2026-10-02T08:00:00Z\")), machine: \"press-a\", status: \"Ready\", customer: \"Northern Press\" }],\n    [\"long\", { title: \"Annual maintenance reservation\", start: some(new Date(\"2026-01-01T00:00:00Z\")), end: some(new Date(\"2027-01-01T00:00:00Z\")), machine: \"press-b\", status: \"Ready\", customer: \"Operations\" }],\n    [\"job\", { title: \"October brochures\", start: some(new Date(\"2026-10-02T09:00:00Z\")), end: some(new Date(\"2026-10-02T12:00:00Z\")), machine: \"press-a\", status: \"Ready\", customer: \"City Arts\" }],\n    [\"done\", { title: \"Completed proof\", start: some(new Date(\"2026-10-02T08:00:00Z\")), end: some(new Date(\"2026-10-02T09:00:00Z\")), machine: \"press-a\", status: \"Done\", customer: \"City Arts\" }],\n    [\"next\", { title: \"Weekend catalogue\", start: some(new Date(\"2026-10-03T09:00:00Z\")), end: some(new Date(\"2026-10-03T12:00:00Z\")), machine: \"press-a\", status: \"Ready\", customer: \"North Market\" }],\n    [\"backlog\", { title: \"Unscheduled posters\", start: none, end: none, machine: \"press-b\", status: \"Ready\", customer: \"Festival\" }],\n    ]);\n    for (let i = 0; i < 11994; i++) {\n        const ordinal = (i * 37) % 363;\n        // Keep the opening two days legible; navigate to any other day to\n        // inspect the larger schedule. The record and all its indexes are real.\n        const day = ordinal < 274 ? ordinal : ordinal + 2;\n        const start = new Date(Date.UTC(2026, 0, 1 + day, 6 + i % 10));\n        rows.set(`production-${10000 + i}`, {\n            title: `Production job ${10000 + i}`, start: some(start),\n            end: some(new Date(start.getTime() + (1 + i % 4) * 3600000)),\n            machine: i % 2 === 0 ? \"press-a\" : \"press-b\", status: i % 3 === 0 ? \"Done\" : \"Ready\",\n            customer: [\"Northern Press\", \"City Arts\", \"North Market\", \"Festival\"][i % 4]!,\n        });\n    }\n    return rows;\n}\n\nexport const indexedCalendarEvents = e3.record(\"indexed_calendar_events\", DictType(StringType, IndexedCalendarEvent), calendarSeed());\n\nexport const indexedCalendarPatch = e3.mutation.patch(indexedCalendarEvents);\n\nexport const indexedCalendarByTime = e3.recordIndex.interval(\"calendar_by_time\", indexedCalendarEvents, { from: \"start\", to: \"end\" });\n\nexport const indexedCalendarByStatus = e3.recordIndex.interval(\"calendar_by_status_time\", indexedCalendarEvents, { on: [\"status\"], from: \"start\", to: \"end\" });\n\nexport const indexedCalendarByMachine = e3.recordIndex.interval(\"calendar_by_machine_time\", indexedCalendarEvents, { on: [\"machine\"], from: \"start\", to: \"end\" });\n\nexport const indexedCalendarMachines = e3.record(\"indexed_calendar_machines\", DictType(StringType, StructType({ name: StringType })), new Map([\n    [\"press-a\", { name: \"Press A\" }], [\"press-b\", { name: \"Press B\" }],\n]));\n\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const events = $.let(Record.bind(indexedCalendarEvents, [indexedCalendarPatch]));\n        const entries = $.let(Data.bindPaged(indexedCalendarEvents));\n        const indexed = $.let(Data.bindPaged(indexedCalendarEvents, { indexes: [indexedCalendarByTime, indexedCalendarByStatus, indexedCalendarByMachine] }));\n        // The rail's one source, named after the kind it narrows (#1343): its interval indexes keep every overlapping event.\n        const slice = $.let(Slice.bindRecords(\"ex.calendarRecordIndexesMobile\", {\n            job: { source: indexed, icon: { prefix: \"fas\", name: \"print\" },\n                fields: { status: { label: \"Status\", hints: [\"Ready\", \"Done\"] }, machine: { label: \"Machine\" }, start: { label: \"Dates\" } },\n                range: \"start\", search: [\"machine\"],\n                initial: { status: [\"Ready\"], start: { from: new Date(\"2026-10-02T00:00:00Z\"), to: new Date(\"2026-10-03T00:00:00Z\") } } },\n        }));\n        const machines = $.let(Record.bind(indexedCalendarMachines, []));\n        return <Box height=\"760px\" width=\"390px\" maxWidth=\"100%\"><Calendar id=\"calendarRecordIndexesMobile\" inspector\n            events={{ job: Calendar.events(events, {\n                name: \"Job\", icon: \"print\", title: \"title\", start: \"start\", end: \"end\",\n                resource: { field: \"machine\", of: \"machines\" }, entries,\n                backlog: { duration: () => variant(\"hours\", 3) },\n            }) }}\n            resources={{ machines: Calendar.resources(machines.read(), { name: \"Machines\", icon: \"gears\", label: row => row.name }) }}\n            library={[Calendar.library.backlog()]} slice={{ slice, affordances: [\"fields\", \"summary\"] }}\n            view={{ layout: \"calendar\", period: \"day\", date: new Date(\"2026-10-02T00:00:00Z\") }}\n            now={new Date(\"2026-10-02T09:00:00Z\")} />\n        </Box>;\n    }}</Reactive>)"
+    },
+    {
+      "id": "e3-ui:calendar-windows.examples.tsx:calendarWindows",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/calendar/calendar-windows.examples.tsx",
+      "suite": "",
+      "test": "A Calendar read a page at a time — 2,000 presses paged 200 to a window (`Calendar.resources` over `Data.bindPaged`), the timeline's rows the pages around the view and its Choosers searching the presses by key, and the print jobs on them read a cell at a time through one Slice.bindRecords rail: its `job` source lists the interval index, a series index (`e3.recordIndex.series`, the jobs by press and week) and a summary index (`e3.recordIndex.summary`, each press's busy share by month), and the Calendar reads only the jobs of the presses and the weeks on screen, two requests a change, a press's months shaded from the summary past 10,000 — the time grids and the agenda the window counted first, its Backlog paged through the source, one job by its key through the record's own entries, never a record whole",
+      "keywords": [
+        "Calendar",
+        "Schedule",
+        "Calendar.resources",
+        "Calendar.events",
+        "Slice",
+        "Slice.bindRecords",
+        "source",
+        "range",
+        "window",
+        "interval",
+        "interval index",
+        "series",
+        "series index",
+        "summary",
+        "summary index",
+        "e3.recordIndex",
+        "e3.recordIndex.series",
+        "e3.recordIndex.summary",
+        "tile",
+        "cell",
+        "paged",
+        "page",
+        "Data.bindPaged",
+        "backlog",
+        "large record",
+        "key search",
+        "timeline",
+        "scroll",
+        "shading",
+        "presses",
+        "jobs",
+        "Record.bind",
+        "entries",
+        "by key",
+        "Save",
+        "#1424"
+      ],
+      "imports": [
+        "import { East, example, some, variant } from \"@elaraai/east\";",
+        "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
+        "import {"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A Calendar read a page at a time — 2,000 presses paged 200 to a window (`Calendar.resources` over `Data.bindPaged`), the timeline's rows the pages around the view and its Choosers searching the presses by key, and the print jobs on them read a cell at a time through one Slice.bindRecords rail: its `job` source lists the interval index, a series index (`e3.recordIndex.series`, the jobs by press and week) and a summary index (`e3.recordIndex.summary`, each press's busy share by month), and the Calendar reads only the jobs of the presses and the weeks on screen, two requests a change, a press's months shaded from the summary past 10,000 — the time grids and the agenda the window counted first, its Backlog paged through the source, one job by its key through the record's own entries, never a record whole\n// inputs: []\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        // The presses a window at a time; the jobs bound with their patch door, and read through the rail's source.\n        const presses = $.let(Data.bindPaged(planWindowPresses));\n        const jobs = $.let(Record.bind(planWindowJobs, [planWindowJobsPatch]));\n        const entries = $.let(Data.bindPaged(planWindowJobs));\n        // One rail: its `job` source lists the series and the summary beside the interval index, its range the window the\n        // Calendar's navigation writes — the Calendar reads the jobs' cells through them.\n        const slice = $.let(Slice.bindRecords(\"ex.calendarWindows\", {\n            job: { source: Data.bindPaged(planWindowJobs, { indexes: [planWindowJobsByTime, planWindowJobsByPressWeek, planWindowJobsByPressMonth] }),\n                label: \"Print jobs\", icon: { prefix: \"fas\", name: \"file-lines\" }, fields: { start: { label: \"Dates\" } }, range: \"start\" },\n        }));\n        return <Box height=\"720px\"><Calendar id=\"windows\" inspector\n            view={{ layout: \"timeline\", period: \"week\", date: new Date(\"2026-10-05T00:00:00Z\") }} now={new Date(\"2026-10-14T09:00:00Z\")}\n            slice={{ slice }}\n            resources={{\n                presses: Calendar.resources(presses, { name: \"Presses\", icon: \"print\", label: p => p.name, meta: (p, key) => some(East.str`${key} · ${p.hall}`) }),\n            }}\n            events={{\n                job: Calendar.events(jobs, {\n                    name: \"Print job\", icon: \"file-lines\", title: \"title\", start: \"start\", end: \"end\",\n                    resource: { field: \"press\", of: \"presses\" },\n                    backlog: { duration: j => variant(\"hours\", j.sheets.divide(8000.0)), due: j => j.due },\n                    entries,\n                }),\n            }}\n            library={[Calendar.library.backlog()]} />\n        </Box>;\n    }}</Reactive>)"
+    },
+    {
+      "id": "e3-ui:calendar-windows.examples.tsx:calendarWindowsByHall",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/calendar/calendar-windows.examples.tsx",
+      "suite": "",
+      "test": "The Calendar of calendarWindows, its 2,000 presses a record narrowed by hall through the rail — a `presses` source named after the paged resource kind's slot, `Data.bindPaged(record, { indexes })` over the presses' hall index — the timeline paging the narrowing's presses themselves in the index's order, and reading the jobs' cells for the presses of the hall on screen alone; a choice keeps the last view standing until its presses land",
+      "keywords": [
+        "Calendar",
+        "Schedule",
+        "Calendar.resources",
+        "Slice",
+        "Slice.bindRecords",
+        "source",
+        "rail",
+        "narrow",
+        "narrowing",
+        "filter",
+        "resource kind",
+        "hall",
+        "e3.recordIndex",
+        "index",
+        "paged",
+        "Data.bindPaged",
+        "series index",
+        "summary index",
+        "cell",
+        "large record",
+        "presses",
+        "jobs",
+        "timeline",
+        "#1424"
+      ],
+      "imports": [
+        "import { East, example, some, variant } from \"@elaraai/east\";",
+        "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
+        "import {"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The Calendar of calendarWindows, its 2,000 presses a record narrowed by hall through the rail — a `presses` source named after the paged resource kind's slot, `Data.bindPaged(record, { indexes })` over the presses' hall index — the timeline paging the narrowing's presses themselves in the index's order, and reading the jobs' cells for the presses of the hall on screen alone; a choice keeps the last view standing until its presses land\n// inputs: []\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const presses = $.let(Data.bindPaged(planSeriesPresses));\n        const jobs = $.let(Record.bind(planWindowJobs, [planWindowJobsPatch]));\n        const entries = $.let(Data.bindPaged(planWindowJobs));\n        // The `presses` source narrows the paged kind by hall, through the presses' hall index: the timeline pages the\n        // narrowing's presses. The `job` source reads the jobs a cell at a time, as in calendarWindows.\n        const slice = $.let(Slice.bindRecords(\"ex.calendarWindowsByHall\", {\n            presses: { source: Data.bindPaged(planSeriesPresses, { indexes: [planSeriesPressesByHall] }), label: \"Presses\",\n                icon: { prefix: \"fas\", name: \"print\" },\n                fields: { hall: { label: \"Hall\", hints: [\"Hall 1\", \"Hall 2\", \"Hall 3\", \"Hall 4\", \"Hall 5\", \"Hall 6\", \"Hall 7\", \"Hall 8\"] } } },\n            job: { source: Data.bindPaged(planWindowJobs, { indexes: [planWindowJobsByTime, planWindowJobsByPressWeek, planWindowJobsByPressMonth] }),\n                label: \"Print jobs\", icon: { prefix: \"fas\", name: \"file-lines\" }, fields: { start: { label: \"Dates\" } }, range: \"start\" },\n        }));\n        return <Box height=\"720px\"><Calendar id=\"windowsByHall\" inspector\n            view={{ layout: \"timeline\", period: \"week\", date: new Date(\"2026-10-05T00:00:00Z\") }} now={new Date(\"2026-10-14T09:00:00Z\")}\n            slice={{ slice }}\n            resources={{\n                presses: Calendar.resources(presses, { name: \"Presses\", icon: \"print\", label: p => p.name, meta: (p, key) => some(East.str`${key} · ${p.hall}`) }),\n            }}\n            events={{\n                job: Calendar.events(jobs, {\n                    name: \"Print job\", icon: \"file-lines\", title: \"title\", start: \"start\", end: \"end\",\n                    resource: { field: \"press\", of: \"presses\" },\n                    backlog: { duration: j => variant(\"hours\", j.sheets.divide(8000.0)), due: j => j.due },\n                    entries,\n                }),\n            }}\n            library={[Calendar.library.backlog()]} />\n        </Box>;\n    }}</Reactive>)"
+    },
+    {
+      "id": "e3-ui:calendar-windows.examples.tsx:calendarWindowsMobile",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/calendar/calendar-windows.examples.tsx",
+      "suite": "",
+      "test": "The Calendar of calendarWindows in a phone-width container: the agenda cards of the jobs in the day, the window counted first and read through the interval index, their explicit Move, Resize and Return to backlog actions searching the 2,000 presses by key, and the Backlog paged through the rail's source",
+      "keywords": [
+        "Calendar",
+        "mobile",
+        "agenda",
+        "cards",
+        "paged",
+        "Data.bindPaged",
+        "series index",
+        "summary index",
+        "presses",
+        "jobs",
+        "key search",
+        "#1424"
+      ],
+      "imports": [
+        "import { East, example, some, variant } from \"@elaraai/east\";",
+        "import { Box, Reactive, Slice, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Calendar, Data, Record } from \"@elaraai/e3-ui\";",
+        "import {"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The Calendar of calendarWindows in a phone-width container: the agenda cards of the jobs in the day, the window counted first and read through the interval index, their explicit Move, Resize and Return to backlog actions searching the 2,000 presses by key, and the Backlog paged through the rail's source\n// inputs: []\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const presses = $.let(Data.bindPaged(planWindowPresses));\n        const jobs = $.let(Record.bind(planWindowJobs, [planWindowJobsPatch]));\n        const entries = $.let(Data.bindPaged(planWindowJobs));\n        const slice = $.let(Slice.bindRecords(\"ex.calendarWindowsMobile\", {\n            job: { source: Data.bindPaged(planWindowJobs, { indexes: [planWindowJobsByTime, planWindowJobsByPressWeek, planWindowJobsByPressMonth] }),\n                label: \"Print jobs\", icon: { prefix: \"fas\", name: \"file-lines\" }, fields: { start: { label: \"Dates\" } }, range: \"start\" },\n        }));\n        return <Box width=\"100%\" maxWidth=\"390px\" height=\"760px\"><Calendar id=\"windowsMobile\" inspector\n            view={{ layout: \"calendar\", period: \"day\", date: new Date(\"2026-10-05T00:00:00Z\") }} now={new Date(\"2026-10-14T09:00:00Z\")}\n            slice={{ slice }}\n            resources={{\n                presses: Calendar.resources(presses, { name: \"Presses\", icon: \"print\", label: p => p.name, meta: (p, key) => some(East.str`${key} · ${p.hall}`) }),\n            }}\n            events={{\n                job: Calendar.events(jobs, {\n                    name: \"Print job\", icon: \"file-lines\", title: \"title\", start: \"start\", end: \"end\",\n                    resource: { field: \"press\", of: \"presses\" },\n                    backlog: { duration: j => variant(\"hours\", j.sheets.divide(8000.0)), due: j => j.due },\n                    entries,\n                }),\n            }}\n            library={[Calendar.library.backlog()]} />\n        </Box>;\n    }}</Reactive>)"
     },
     {
       "id": "e3-ui:calendar.examples.tsx:calendarOperations",
