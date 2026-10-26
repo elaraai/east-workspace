@@ -363,17 +363,21 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const onIssues = () => { setInspectorTab({ tab: "issues" }); revealPane("Inspector"); };
     const history = editing?.history;
     const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); history?.act(action); }, [history]);
-    // What the footer's loading line says (#1398, CL3): the day being read, the bins' own new narrowing — `Filtering
-    // bins…`, the coordinator's word for them (23 Oct 2026) — the lanes', the resources' or the arrivals', or why one
-    // could not be read, with Retry — the day's asking again each record the day reads.
+    // What the footer's loading line says (#1398, CL3): the day being read; a new narrowing — the bins' own, the lanes',
+    // the resources' or the arrivals' — which is the board waiting for which of its bins show, so `Filtering bins…`
+    // whichever it is, the coordinator's word for them (23 Oct 2026); or why one could not be read, by its source, with
+    // Retry — the day's asking again each record the day reads.
     const retryDay = useCallback(() => retryPeriod([
         { entries: value.bin.kind.entries, part: binsPart },
         ...(value.periods.type === "some" ? [{ entries: value.periods.value.entries }] : [])]), [value, binsPart]);
     const dayWords = format.weekdayDate(day);
-    const line = useMemo(() => periodLoadingLine(periodLoading({ loading: data.loading && !data.filtering, error: data.error, retry: retryDay }, [
-        { noun: BINS, ready: true, loading: data.filtering, error: undefined, retry: retryDay },
-        { noun: other(nouns.lane), ...lanesShown }, { noun: other(nouns.resource), ...resourcesShown }, { noun: other(nouns.arrival), ...arrivalsShown },
-    ]), dayWords), [data.loading, data.filtering, data.error, retryDay, nouns, lanesShown, resourcesShown, arrivalsShown, dayWords]);
+    const line = useMemo(() => {
+        const state = periodLoading({ loading: data.loading && !data.filtering, error: data.error, retry: retryDay }, [
+            { noun: BINS, ready: true, loading: data.filtering, error: undefined, retry: retryDay },
+            { noun: other(nouns.lane), ...lanesShown }, { noun: other(nouns.resource), ...resourcesShown }, { noun: other(nouns.arrival), ...arrivalsShown },
+        ]);
+        return periodLoadingLine(state?.kind === "filtering" ? { kind: "filtering", noun: BINS } : state, dayWords);
+    }, [data.loading, data.filtering, data.error, retryDay, nouns, lanesShown, resourcesShown, arrivalsShown, dayWords]);
     // What the views draw of the day (#1398): the day as read; a day not read yet, its lanes, slots and resources at once
     // and its placeholders, unseen until the frame's one reveal clock says so (CL5, CL2, CL4: `LoadingReveal` below, which
     // the footer's line and each placeholder read where they show, so its flip renders them and never this frame); or one
