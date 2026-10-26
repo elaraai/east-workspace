@@ -265,7 +265,7 @@ restores it, so a reload keeps the period the viewer left rather than the
 slice's start. The view — its layout, period and date — is the page's own, held
 beside the window for as long as the page's UI store holds that window
 (`calendar/view.ts`, over `shared/schedule/page-view.ts`' `usePageView`, which
-the Roster's week keeps too, #1398): a step writes the two together, so no render reads
+the Roster's week and the Allocation's day keep too, #1398): a step writes the two together, so no render reads
 one without the other, and storage keeps the view for a reload alone, read once
 as the page's first Calendar under its key mounts and never followed. Followed,
 a second tab's step moved this page's date without its window, which put the
@@ -834,13 +834,13 @@ surplus by filtering people out of the roster's arithmetic. Hidden edits still
 Save.
 
 The week is the Roster's own navigation and its picker, never a Slice chip
-(ruled 18 Oct, #1342), as the day is the Allocation's. The Roster's view is
-the page's own, as the Calendar's is (`roster/window.ts` over
-`shared/schedule/page-view.ts`, #1398): held beside the window it writes into
-its source, storage keeping it for a reload alone, so another tab keeping a
-view moves neither the week nor its window. Followed, a second tab's step moved
-this page's week under the viewer, its window after it, with what Publish and
-the history act on. Read the period's
+(ruled 18 Oct, #1342), as the day is the Allocation's. Each builder's view is
+the page's own, as the Calendar's is (`roster/window.ts` and
+`allocation/window.ts` over `shared/schedule/page-view.ts`, #1398): held beside
+the window it writes into its source, storage keeping it for a reload alone,
+so another tab keeping a view moves neither the period nor its window.
+Followed, a second tab's step moved this page's week or day under the viewer,
+its window after it, with what Publish and the history act on. Read the period's
 window; the Roster's week before only while the week holds no duty of its own,
 Copy's source; and the open picker's month. Do not read a whole record to
 build the picker. Test reverse navigation.
