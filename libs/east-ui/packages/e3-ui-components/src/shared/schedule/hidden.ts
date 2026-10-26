@@ -11,7 +11,9 @@
  * pick drops, and a pick of the row clears just them. The Sheet asks it of its
  * `rows` source's rows (#1376); the Allocation of the rows its bins stand on —
  * each bin's lane, its resource and its arrival, in the source of each that
- * hides it — and the Roster of its people's (#1398).
+ * hides it — the Roster of its people's, and the Calendar of each event kind's
+ * events, its source's choices but the window its navigation writes, which
+ * hides no event: a pick steps to it (#1398).
  *
  * - **A choice alone.** For each choice the index rules let stand alone
  *   (`recordChoiceWhere` from no narrowing), whether the narrowing of that
@@ -38,10 +40,10 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { StringType, equalFor, none, printFor, some, type option, type ValueTypeOf } from "@elaraai/east";
+import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, type option, type ValueTypeOf } from "@elaraai/east";
 import {
     RecordSliceWhereType, recordChoiceWhere, recordPlanIndex,
-    type RecordSliceBindType, type RecordSliceEntry, type RecordSliceFieldType, type RecordSliceIndexType,
+    type RecordSliceBindType, type RecordSliceChoiceType, type RecordSliceEntry, type RecordSliceFieldType, type RecordSliceIndexType,
 } from "@elaraai/east-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
 import { awaitTracked, recordChoiceLabel, recordSlicePage, recordSliceRevision, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
@@ -53,6 +55,18 @@ type Field = ValueTypeOf<RecordSliceFieldType>;
 
 const printWhere = printFor(RecordSliceWhereType);
 const stringEqual = equalFor(StringType);
+const compareString = compareFor(StringType);
+
+/**
+ * A narrowing without one field's choice: a source's choices but the window a builder's navigation writes into it.
+ *
+ * @param where - The narrowing
+ * @param field - The field left out
+ * @returns The narrowing without it
+ */
+function without(where: Where, field: string): Where {
+    return new SortedMap<string, ValueTypeOf<RecordSliceChoiceType>>([...where].filter(([at]) => !stringEqual(at, field)), compareString);
+}
 
 /** No narrowing: the record's own rows, in its order. */
 const WHOLE_RECORD: Where = new Map();
@@ -438,7 +452,7 @@ export interface SourceHidden {
     readonly rows: HiddenRows;
     /** The source's part of the slice; `undefined` with none. */
     readonly part: Bind | undefined;
-    /** Its narrowing now; `undefined` with no part. */
+    /** Its narrowing now — but the window a builder's navigation writes into it; `undefined` with no part. */
     readonly where: Where | undefined;
 }
 
@@ -446,18 +460,31 @@ export interface SourceHidden {
  * The hidden pick over one source of a builder's `Slice.bindRecords`, read
  * through its part — never through a lens of its own, as the Sheet's is — its
  * rows keyed by String, as `recordSources` binds every source: its narrowing
- * followed as a choice moves it, its answers kept by its record's revision:
- * the Allocation's lanes, resources and arrivals, and the Roster's people.
+ * followed as a choice moves it, the same object while its choices hold, its
+ * answers kept by its record's revision: the Allocation's lanes, resources and
+ * arrivals, the Roster's people and each of the Calendar's event kinds.
  *
  * @param name - Who asks, as its console names it when a read fails
  * @param part - The source's part of the slice; `undefined` with none
- * @returns The pick, the part and its narrowing
+ * @param window - The field of its narrowing the builder's own navigation writes — the Calendar's event kinds' range,
+ *   their window — which hides no row: left out of what is asked, and kept as a pick clears ({@link clearHiding})
+ * @returns The pick, the part and its narrowing but the window
  */
-export function useSourceHidden(name: string, part: Bind | undefined): SourceHidden {
+export function useSourceHidden(name: string, part: Bind | undefined, window?: string): SourceHidden {
     // Its narrowing, read again as a choice moves it.
     const moved = useSliceReactivity(part?.key);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- a choice moves `moved`, which the part's `read()` follows
-    const where = useMemo(() => part?.read().where, [part, moved]);
+    const read = useMemo(() => {
+        const where = part?.read().where;
+        return where === undefined || window === undefined ? where : without(where, window);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- a choice moves `moved`, which the part's `read()` follows
+    }, [part, moved, window]);
+    // The same narrowing while its choices hold: a step of the window alone moves none of it.
+    const text = read === undefined ? undefined : printWhere(read);
+    const kept = useRef<{ readonly text: string | undefined; readonly where: Where | undefined } | undefined>(undefined);
+    const was = kept.current?.text;
+    const holds = kept.current !== undefined && (was === undefined || text === undefined ? was === text : stringEqual(was, text));
+    if (!holds) kept.current = { text, where: read };
+    const where = kept.current!.where;
     const rows = useHiddenRows({ name, part, where, revision: usePartRevision(part), keyOf: stringKey, idOf: stringId });
     return useMemo(() => ({ rows, part, where }), [rows, part, where]);
 }
@@ -466,11 +493,20 @@ export function useSourceHidden(name: string, part: Bind | undefined): SourceHid
  * Clears the choices that hide a row, as the rail clears a choice: those e3
  * named — and what goes with them — else, while it has not said, every choice
  * of the source; the source's narrowing written once, a write of the rail like
- * a chip's.
+ * a chip's. A window the builder's navigation writes into the source is kept.
  *
  * @param part - The source's part of the slice
  * @param answer - What e3 said hides the row; `undefined` while it has not
+ * @param window - The field of the narrowing that holds the builder's window ({@link useSourceHidden}): kept as it is
  */
-export function clearHiding(part: Bind, answer: HiddenAnswer | undefined): void {
-    part.write({ ...part.read(), where: answer?.where ?? WHOLE_RECORD, preset: none });
+export function clearHiding(part: Bind, answer: HiddenAnswer | undefined, window?: string): void {
+    const state = part.read();
+    const held = window === undefined ? undefined : state.where.get(window);
+    if (window === undefined || held === undefined) {
+        part.write({ ...state, where: answer?.where ?? WHOLE_RECORD, preset: none });
+        return;
+    }
+    const left = new SortedMap<string, ValueTypeOf<RecordSliceChoiceType>>([...(answer?.where ?? WHOLE_RECORD)], compareString);
+    left.set(window, held);
+    part.write({ ...state, where: left, preset: none });
 }

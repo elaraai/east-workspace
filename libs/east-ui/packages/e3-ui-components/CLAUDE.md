@@ -439,7 +439,15 @@ does the same for a person its people's source hides (`roster/find.ts`): the
 line names the choices that hide them, asked of e3 through the source's part
 for the people the box lists that its shown people leave out, and a pick
 clears them and selects the person, their People row brought into view once
-the narrowing draws it. Its count shows and Enter jumps once the query is
+the narrowing draws it. The Calendar's does the same for an event its kind's
+source hides (`calendar/hidden.tsx`, `calendar/find.ts`): its choices, never
+the window its navigation writes, which hides no event — a pick steps to it —
+asked of e3 over the page the box read the events from
+(`recordSliceWithinAt`), whose answer, while a kind's one choice stands beside
+its window, says which choice hides them with nothing more asked; the lines
+are listed again as a kind's choices move, and a pick clears those choices,
+the window kept (`clearHiding`'s `window`), steps to the event's period and
+selects it. Its count shows and Enter jumps once the query is
 found, the lines following. A pick — a match chosen from the list, or Enter in
 the box — hands the keyboard to the builder's view, where the selection's ring
 lands, once the match is drawn and the box has let it go, and a step leaves it
