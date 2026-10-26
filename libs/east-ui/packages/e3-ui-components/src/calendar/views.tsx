@@ -20,6 +20,14 @@
  * its height and the view its place, and their booked hours — only the days the
  * held read does not cover washed, its counts over the days shown placeholders
  * only where the view has passed beyond it (`covered`).
+ *
+ * A kind past the cap draws none of its events but its drafts (#1424): a
+ * resource's row on the timeline, or its column in the Resources view, of a
+ * kind it is placed on draws its shading in their place — over each of the
+ * view's periods, a bar along the period as long as the share of it the
+ * resource's events book, or the no-data hatch where no summary shades at that
+ * period (`shading`) — and its booked hours, like a day's count, say they do
+ * not count those events (`uncounted`), never 0.
  */
 import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { Box, Button, chakra } from "@chakra-ui/react";
@@ -27,9 +35,13 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { none } from "@elaraai/east";
+import { tileNext } from "@elaraai/east-ui/internal";
 import { useDragEventChip, useDragEventEdge, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import { LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, VirtualRows, devicePixels, useRowsTop } from "@elaraai/east-ui-components/internal";
 import type { PeriodRead } from "../shared/loading.js";
+import type { ScheduleCellShade, ScheduleCellShading } from "../shared/schedule/cells.js";
+import { eventsNotCounted } from "../shared/schedule/words.js";
+import type { CalendarBucket } from "./cells.js";
 import { NowChip, NowLine } from "../shared/time/now-line.js";
 import { drawSpan } from "../shared/time/drag.js";
 import { timeScale, timeWords } from "../shared/time/scale.js";
@@ -45,8 +57,8 @@ import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { EventActions, type CalendarShownResources } from "./controls.js";
 import { calendarCoord, type CalendarDrag } from "./drag.js";
 import type { CalendarCommands, CalendarPlacement } from "./actions.js";
-import { DAY, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, onResource, resourceKey,
-    type CalendarItem, type CalendarRange, type CalendarRow, type CalendarStyles, type CalendarValue, type CalendarView } from "./model.js";
+import { DAY, NOTHING_UNCOUNTED, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, onResource, resourceKey,
+    type CalendarItem, type CalendarRange, type CalendarRow, type CalendarStyles, type CalendarUncounted, type CalendarValue, type CalendarView } from "./model.js";
 
 /**
  * The views share selection, commands, drafts and overlap state. `rows` are every resource, what an event's label
@@ -94,6 +106,15 @@ export interface CalendarViewsProps {
     reveal?: string | undefined;
     /** Told once the event to show is drawn, with its element. */
     onRevealed?: ((element: HTMLElement) => void) | undefined;
+    /** What the figures leave out (#1424): the kinds past the cap, which neither a day's count nor a resource's booked hours counts. */
+    uncounted?: CalendarUncounted | undefined;
+    /**
+     * The resources' shading (#1424): by a resource kind's slot, then its resource's key, the share of each of the view's
+     * periods the events of a kind past the cap book there — or none, the no-data hatch.
+     */
+    shading?: ScheduleCellShading | undefined;
+    /** The periods the shading is cut into: the timeline's by its period, the Resources view's day. */
+    bucket?: CalendarBucket | undefined;
 }
 
 /**
@@ -171,6 +192,72 @@ function resourceLabel(item: CalendarItem, rows: readonly CalendarRow[]): string
 function booked(items: readonly CalendarItem[], row: CalendarRow, from: Date, to: Date): number {
     return items.reduce((hours, item) => item.start.type === "some" && item.end.type === "some" && onResource(item, row)
         ? hours + Math.max(0, Math.min(item.end.value.getTime(), to.getTime()) - Math.max(item.start.value.getTime(), from.getTime())) / 3_600_000 : hours, 0);
+}
+
+/**
+ * A resource's line under its name: its meta and its booked hours over a span — or, where a kind past the cap is placed
+ * on its kind, that its hours are not counted (#1424), never a sum that leaves those events out unsaid.
+ *
+ * @param props - The views' props: what is uncounted, and the app's formatters
+ * @param items - The events drawn
+ * @param row - The resource's row
+ * @param from - The span's start
+ * @param to - Its end
+ * @returns The line
+ */
+function bookedWords(props: Pick<CalendarViewsProps, "uncounted" | "format">, items: readonly CalendarItem[], row: CalendarRow, from: Date, to: Date): string {
+    const uncounted = props.uncounted ?? NOTHING_UNCOUNTED;
+    if (row.resource.type === "some" && uncounted.resources.has(row.resource.value.kind)) return `${row.meta} · hours not counted`;
+    return `${row.meta} · ${props.format.number(booked(items, row, from, to))} h booked`;
+}
+
+/**
+ * A day's count of events: the events drawn on it — or, with a kind past the cap, those and the kinds it counts none of
+ * (#1424), never a count that leaves them out unsaid.
+ *
+ * @param props - The views' props: what is uncounted, and the app's formatters
+ * @param n - The events drawn on the day
+ * @returns The count's words
+ */
+function dayCountWords(props: Pick<CalendarViewsProps, "uncounted" | "format">, n: number): string {
+    const uncounted = props.uncounted ?? NOTHING_UNCOUNTED;
+    if (uncounted.names.length === 0) return `${n} events`;
+    // Every kind past the cap: no event is counted, so no number is said.
+    return eventsNotCounted({ n, count: uncounted.all ? undefined : props.format.number(n), kinds: uncounted.names });
+}
+
+/**
+ * A resource's shading in place of the events of a kind past the cap (#1424): over each of the view's periods, a bar
+ * from the period's start along it, as long as the share of it the resource's events book — the Plan's booked-vs-free
+ * bar — or the no-data hatch across a period no summary shades. Each drawn within the span shown, its geometry a share
+ * of it; a period nothing books draws nothing.
+ *
+ * @param props - The resource's shades, the periods they are cut into, the span shown, which way it runs, the styles and the app's formatters
+ * @returns The marks
+ */
+function ShadeMarks({ shades, bucket, from, to, along, styles, format }: {
+    shades: readonly ScheduleCellShade[]; bucket: CalendarBucket; from: number; to: number; along: "x" | "y"; styles: CalendarStyles;
+    format: Pick<Formatters, "percent">;
+}) {
+    const span = to - from;
+    const place = (start: number, end: number): CSSProperties | undefined => {
+        const first = Math.max(start, from), last = Math.min(end, to);
+        if (last <= first) return undefined;
+        const offset = `${(first - from) / span * 100}%`, size = `${(last - first) / span * 100}%`;
+        return along === "x" ? { left: offset, width: size } : { top: offset, height: size };
+    };
+    return <>{shades.map(shade => {
+        const start = shade.at.getTime();
+        const end = tileNext(bucket, shade.at).getTime();
+        if (shade.value.type === "none") {
+            const at = place(start, end);
+            return at === undefined ? null : <Box key={start} css={styles.shadeHatch} data-calendar-shade="" data-nodata="" data-along={along} style={at} />;
+        }
+        const share = Math.max(0, Math.min(1, shade.value.value));
+        const at = place(start, start + share * (end - start));
+        const said = `${format.percent(share)} booked`;
+        return at === undefined ? null : <Box key={start} css={styles.shadeBar} data-calendar-shade="" data-along={along} style={at} role="img" aria-label={said} title={said} />;
+    })}</>;
 }
 
 /**
@@ -383,12 +470,12 @@ function TimeGrid(props: CalendarViewsProps) {
                 {column.row === undefined ? <>
                     <Box css={props.styles.dayHeading} data-calendar-day-heading=""><Box as="span" css={props.styles.weekday}>{props.format.weekday(column.day)}</Box><Box as="span" css={props.styles.dayDate}>{column.day.getUTCDate()}</Box></Box>
                     <Box css={props.styles.columnMeta} data-calendar-day-count="">
-                        <Counted props={props} index={i}>{props.items.filter(item => inWindow(item, column.day, new Date(column.day.getTime() + DAY))).length} events</Counted>
+                        <Counted props={props} index={i}>{dayCountWords(props, props.items.filter(item => inWindow(item, column.day, new Date(column.day.getTime() + DAY))).length)}</Counted>
                     </Box>
                 </> : <>
                     <Box css={props.styles.resourceHeading} data-calendar-resource-title="">{column.row.icon !== undefined && <FontAwesomeIcon icon={["fas", column.row.icon as IconName]} />} {column.label}</Box>
                     <Box css={props.styles.columnMeta} data-calendar-booked="">{props.read.state === "held"
-                        ? `${column.row.meta} · ${props.format.number(booked(props.items, column.row, column.day, new Date(column.day.getTime() + DAY)))} h booked`
+                        ? bookedWords(props, props.items, column.row, column.day, new Date(column.day.getTime() + DAY))
                         : <Box as="span" css={props.styles.unreadMeta}>{column.row.meta}<Counted props={props} index={i}>{null}</Counted></Box>}</Box>
                 </>}
             </chakra.button>)}</Box>
@@ -399,9 +486,14 @@ function TimeGrid(props: CalendarViewsProps) {
                     const items = props.items.filter(item => inWindow(item, from, to) && (column.row === undefined || onResource(item, column.row)));
                     const spans = items.map(item => ({ start: Math.max(from.getTime(), item.start.type === "some" ? item.start.value.getTime() : 0), end: Math.min(to.getTime(), item.end.type === "some" ? item.end.value.getTime() : 0) }));
                     const lanes = packLanes(spans);
+                    // A resource's column of a kind past the cap: its shading in place of those events (#1424).
+                    const ref = column.row?.resource;
+                    const shades = ref?.type === "some" ? props.shading?.get(ref.value.kind)?.get(ref.value.key) : undefined;
                     return <DropLane key={column.row?.key ?? i} props={props} from={from} to={to} resource={column.row?.resource ?? none} unassigned={column.row?.resource.type === "none"} css={props.styles.column} style={{ height }}>
                         {/* A period not read yet: the column washed, under its hour rules, shading and now line (#1398). */}
                         {pendingOf(props.read) && <LoadingWash />}
+                        {shades !== undefined && props.bucket !== undefined && props.read.state === "held"
+                            && <ShadeMarks shades={shades} bucket={props.bucket} from={from.getTime()} to={to.getTime()} along="y" styles={props.styles} format={props.format} />}
                         {shadeBands({ min: from, max: to }, { hours: { from: Number(props.value.settings.hours.from), to: Number(props.value.settings.hours.to) } }).map((band, i) => <Box key={i} css={props.styles.shade} data-along="y" style={{ top: `${band.start * 100}%`, height: `${band.width * 100}%` }} />)}
                         {HOURS.map(h => <Fragment key={h}><Box css={props.styles.hour} style={{ top: h * hour }} />{hour >= 48 && <Box css={props.styles.hour} data-half="" style={{ top: (h + 0.5) * hour }} />}</Fragment>)}
                         {items.map((item, i) => <EventBlock key={eventKey(item)} item={item} props={props} window={{ from, to }} geometry={{ top: (spans[i]!.start - from.getTime()) / DAY * height, height: (spans[i]!.end - spans[i]!.start) / DAY * height,
@@ -472,6 +564,12 @@ interface TimelineContext {
     readonly now: Date;
     readonly shades: ReturnType<typeof shadeBands>;
     readonly lines: readonly TimelineLine[];
+    /** What its figures leave out (#1424): the kinds past the cap, which a resource's booked hours do not count. */
+    readonly uncounted: CalendarUncounted;
+    /** The resources' shading in place of the events of a kind past the cap (#1424), by kind and resource. */
+    readonly shading: ScheduleCellShading | undefined;
+    /** The periods the shading is cut into: the timeline's by its period. */
+    readonly bucket: CalendarBucket | undefined;
 }
 /**
  * What of a window the events drawn leave out (#1398): while a continuation's window is read — a re-centre's, a step's
@@ -519,7 +617,7 @@ function TimelineRowMeta({ ctx, row, layout, r }: { ctx: TimelineContext; row: C
         return <Box css={styles.columnMeta} data-calendar-booked=""><Box as="span" css={styles.unreadMeta}>{row.meta}{ctx.read.state !== "failed" && <PlaceholderShape kind="aggregate" index={r} />}</Box></Box>;
     }
     const from = shown?.from ?? range.from, to = shown?.to ?? range.to;
-    return <Box css={styles.columnMeta} data-calendar-booked="">{`${row.meta} · ${format.number(booked(layout.items, row, from, to))} h booked`}</Box>;
+    return <Box css={styles.columnMeta} data-calendar-booked="">{bookedWords({ uncounted: ctx.uncounted, format }, layout.items, row, from, to)}</Box>;
 }
 /**
  * A resource row's plot: its events in the timeline's mounted span — every one while the timeline has not laid out — its
@@ -530,14 +628,18 @@ function TimelineRowMeta({ ctx, row, layout, r }: { ctx: TimelineContext; row: C
 const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, span, index }: {
     ctx: TimelineContext; row: CalendarRow; layout: TimelineLayout; span: { readonly from: number; readonly to: number } | undefined; index: number;
 }) {
-    const { view, read, unread, laneHeight, duration, now, shades, lines } = ctx;
+    const { view, read, unread, laneHeight, duration, now, shades, lines, shading, bucket } = ctx;
     const { styles, range } = view;
     const says = useRowsTop(top => read.state === "failed" && index === firstRowInView(lines, top));
+    // A resource's row of a kind past the cap: its shading in place of those events (#1424).
+    const rowShades = row.resource.type === "some" ? shading?.get(row.resource.value.kind)?.get(row.resource.value.key) : undefined;
     return <DropLane props={view} from={range.from} to={range.to} resource={row.resource} unassigned={row.resource.type === "none"} along="x" css={styles.rowPlot} style={{ height: layout.height }} draw={view.view.period !== "month"}>
         {/* A period not read yet: the row's plot washed, under its shading and its now line (#1398); a continuation's window
             read, the days its held read does not cover. */}
         {read.state === "pending" && <LoadingWash />}
         {read.state === "held" && unread.map((at, i) => <LoadingWash key={i} geometry={at} />)}
+        {read.state === "held" && rowShades !== undefined && bucket !== undefined
+            && <ShadeMarks shades={rowShades} bucket={bucket} from={range.from.getTime()} to={range.to.getTime()} along="x" styles={styles} format={view.format} />}
         {read.state === "failed" && says && <Box css={styles.readLine} data-calendar-read-line="">
             <LoadingFailedLine message={read.message} retry={{ onRetry: read.retry }} /></Box>}
         {shades.map((band, i) => <Box key={i} css={styles.shade} data-along="x" style={{ left: `${band.start * 100}%`, width: `${band.width * 100}%` }} />)}
@@ -629,8 +731,10 @@ function Timeline(props: CalendarViewsProps) {
     // A continuation's window, read while the held read stands in: the days of it that read leaves out (#1398).
     const unread = useMemo(() => props.covered === undefined || (props.covered.from.getTime() === range.from.getTime() && props.covered.to.getTime() === range.to.getTime())
         ? NO_SPANS : unreadSpans(range, props.covered), [props.covered, range]);
-    const ctx = useMemo((): TimelineContext => ({ view: eventView, read: props.read, covered: props.covered, unread, visible: props.visible, laneHeight, duration, now: props.now, shades, lines }),
-        [eventView, props.read, props.covered, unread, props.visible, laneHeight, duration, props.now, shades, lines]);
+    const uncounted = props.uncounted ?? NOTHING_UNCOUNTED;
+    const ctx = useMemo((): TimelineContext => ({ view: eventView, read: props.read, covered: props.covered, unread, visible: props.visible, laneHeight, duration, now: props.now, shades, lines,
+        uncounted, shading: props.shading, bucket: props.bucket }),
+    [eventView, props.read, props.covered, unread, props.visible, laneHeight, duration, props.now, shades, lines, uncounted, props.shading, props.bucket]);
     // The span of the period whose events are mounted (CL9): what the view shows, one view either side, moved as the view
     // nears its edge; every event while the timeline has not laid out.
     const [span, setSpan] = useState<{ from: number; to: number } | undefined>(undefined);

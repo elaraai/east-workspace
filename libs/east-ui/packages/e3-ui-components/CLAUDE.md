@@ -1213,7 +1213,23 @@ next complete window still update the frame immediately. It reads in two
 tracked reads (#1398): the window — every kind's events, and the backlog of
 each kind that reads it with its window — and the backlog of every other
 kind, apart, asked over no window; its first read lands whole, the frame
-hearing of neither until both have.
+hearing of neither until both have. Every kind is counted before one of its
+events is read (#1424), by the shared schedule reader through the Calendar's
+adapter (`calendar/cells.ts`), in the same component: within
+`SCHEDULE_EVENT_CAP` over the window the window's read reads it — once its
+count there says so (`scheduleWithinCap`), never by what the reader last
+decided — and past it none is read or drawn but its drafts. A view that lays
+its resources out — the timeline's rows by its period, the Resources view's
+columns by the day — shades each resource of a kind such a kind is placed on
+from the kind's source's summary, the Plan's booked-vs-free bar along each
+period (`calendarBuckets` cuts the window into whole periods as e3 tiles
+them), or hatches it where no summary divides the period; the banner says how
+many events there are and where they show; and every figure that would count
+them — the toolbar's count, a day's, a resource's booked hours — says they are
+not counted (`shared/schedule/words.ts`' `eventsNotCounted`, the Plan's footer
+words too), never 0. What the reader read is held with the window's read
+(`CalendarData.cells`), so the frame hears of it only as it hears of the
+window, whole.
 
 Bound the work, not only the CSS scroll box. Use Library's existing virtualizer
 for populated bounded panes; do not disable it in an adapter. People rows and

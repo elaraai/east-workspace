@@ -510,7 +510,10 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     readonly windowed: boolean;
     /**
      * The kind on the wire, under its slot: the Calendar's, which takes no
-     * notice of Plan's options.
+     * notice of Plan's options — its window, through its source, through its day
+     * index or in memory, its record read whole, counted first and read only
+     * within {@link SCHEDULE_EVENT_CAP} (#1424), its events counted before one is
+     * read (`count`), a day index's count an upper bound (`countExact`).
      *
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, the source named after its slot, when the slice has one (#1343): its typed handle, bound once in the builder's payload (`recordSources(…).bind($)`, #1356)
@@ -1047,9 +1050,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         readonly withDrafts: ExprType<FunctionType<[EastType, EastType], EastType>>;
     }
     /**
-     * The reads, through the kind's source of its builder's slice when it has one — given `cap` (#1039), the Plan's, its
-     * window counted first, through the source, through its day index or in memory, and read only within `cap`, its
-     * backlog whole.
+     * The reads, through the kind's source of its builder's slice when it has one — given `cap` (#1039, #1424), the
+     * Calendar's and the Plan's, its window counted first, through the source, through its day index or in memory, and
+     * read only within `cap`, its backlog whole.
      */
     const readsOf = (slot: string, part: ScheduleKindPart | undefined, cap?: number): Reads => {
         if (part === undefined) {
@@ -1642,7 +1645,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         resourceField: resource?.field,
         windowed: dayWindow !== undefined,
         build(slot: string, part?: ScheduleKindPart): ExprType<ScheduleKindType> {
-            return East.value(kindParts(slot, part, formSpecs).fields as never, ScheduleKindType);
+            // Its window counted first, and read only within the cap (#1424): past it, no page is read.
+            return East.value(kindParts(slot, part, formSpecs, SCHEDULE_EVENT_CAP).fields as never, ScheduleKindType);
         },
         buildRoster(slot: string, part?: ScheduleKindPart): ExprType<ScheduleRosterKindType> {
             // A duty runs from its start to its end, keyed by String, on its slot's shift and group, rostered to someone.
