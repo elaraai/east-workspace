@@ -9,7 +9,9 @@
  * out in the browser — so that Search Records' line for the row, and an
  * issue's line, can name them as the rail's `Replaces …` names the choices a
  * pick drops, and a pick of the row clears just them. The Sheet asks it of its
- * `rows` source's rows (#1376).
+ * `rows` source's rows (#1376); the Allocation of the rows its bins stand on —
+ * each bin's lane, its resource and its arrival, in the source of each that
+ * hides it (#1398).
  *
  * - **A choice alone.** For each choice the index rules let stand alone
  *   (`recordChoiceWhere` from no narrowing), whether the narrowing of that
@@ -41,8 +43,8 @@ import {
     RecordSliceWhereType, recordChoiceWhere, recordPlanIndex,
     type RecordSliceBindType, type RecordSliceEntry, type RecordSliceFieldType, type RecordSliceIndexType,
 } from "@elaraai/east-ui/internal";
-import type { Formatters } from "@elaraai/east-ui-components";
-import { awaitTracked, recordChoiceLabel, recordSlicePage, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
+import { useSliceReactivity, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
+import { awaitTracked, recordChoiceLabel, recordSlicePage, recordSliceRevision, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
 
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 type Index = ValueTypeOf<RecordSliceIndexType>;
@@ -266,12 +268,15 @@ export interface HiddenRows {
      */
     askListed(from: number, ids: readonly string[], held: readonly boolean[]): void;
     /**
-     * Asks of some rows by their ids — an issue's — whether the narrowing hides them, and which choices hide those it
-     * does: their rows read by their keys in one request, which the narrowing holds in one more.
+     * Asks of some rows by their ids — an issue's, or the rows the key search's lines stand on — whether the narrowing
+     * hides them, and which choices hide those it does: their rows read by their keys in one request, which the narrowing
+     * holds in one more — none more where the builder knows already that it hides them all, as the source's shown keys
+     * have said.
      *
      * @param ids - The rows' ids
+     * @param hidden - Whether the narrowing is known to hide every one of them
      */
-    askIds(ids: readonly string[]): void;
+    askIds(ids: readonly string[], hidden?: boolean): void;
     /**
      * What is known of a row at the revision and the narrowing now.
      *
@@ -366,12 +371,14 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
         });
     }, [now, answer]);
 
-    const askIds = useCallback((ids: readonly string[]) => {
+    const askIds = useCallback((ids: readonly string[], hidden = false) => {
         const at = now();
         const { part, where, keyOf, name } = latest.current;
         if (at === undefined || part === undefined || where === undefined) return;
         const asking: { id: string; key: unknown }[] = [];
         for (const id of ids) {
+            // Known hidden, a row says so at once — `hidden by the filters` — while e3 is asked which choices hide it.
+            if (hidden && !at.states.has(id)) at.states.set(id, HIDDEN);
             if (at.asked.has(id)) continue;
             at.asked.add(id);
             const key = keyOf(id);
@@ -380,13 +387,14 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
         if (asking.length === 0) return;
         void awaitTracked(() => {
             // Their rows as the record holds them, by their keys in one request, and which of them the narrowing holds in
-            // one more.
+            // one more — unless it is known to hide them all.
             const rows = recordSliceRows(part, asking.map(({ key }) => key));
             if (rows.type === "none") return none;
             const stored = asking.flatMap(({ id, key }, i) => {
                 const row = rows.value[i]!;
                 return row.type === "some" ? [{ id, key, row: row.value }] : [];
             });
+            if (hidden) return some({ stored, inside: stored.map(() => false) });
             const inside = stored.length === 0 ? some<boolean[]>([]) : recordSliceWithin(part, where, stored.map(({ key, row }) => ({ key, row })));
             return inside.type === "none" ? none : some({ stored, inside: inside.value });
         }).then(({ stored, inside }) => {
@@ -404,4 +412,65 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
 
     const stateOf = useCallback((id: string): HiddenState | undefined => now()?.states.get(id), [now]);
     return useMemo(() => ({ askListed, askIds, stateOf, version }), [askListed, askIds, stateOf, version]);
+}
+
+/**
+ * The revision a source's record is read at, tracked: what a builder that
+ * reads the record through its part — not through a lens of its own — keeps
+ * its hidden pick's answers by.
+ *
+ * @param part - The source's part of the slice; `undefined` with none
+ * @returns Its revision; `undefined` while it is not known, or with no part
+ */
+export function usePartRevision(part: Bind | undefined): string | undefined {
+    const read = useCallback((): option<string> => (part === undefined ? none : recordSliceRevision(part)), [part]);
+    const { result } = useTrackedEvaluation(read);
+    return result.ok && result.value.type === "some" ? result.value.value : undefined;
+}
+
+/** A source's rows by their keys, as every source a builder binds through `recordSources` keys them: by String, a row's id its key. */
+const stringKey = (id: string): option<unknown> => some(id);
+const stringId = (key: unknown): string => key as string;
+
+/** The hidden pick over one source, read through its part (see {@link useSourceHidden}). */
+export interface SourceHidden {
+    /** The pick's reads, and what they have been told. */
+    readonly rows: HiddenRows;
+    /** The source's part of the slice; `undefined` with none. */
+    readonly part: Bind | undefined;
+    /** Its narrowing now; `undefined` with no part. */
+    readonly where: Where | undefined;
+}
+
+/**
+ * The hidden pick over one source of a builder's `Slice.bindRecords`, read
+ * through its part — never through a lens of its own, as the Sheet's is — its
+ * rows keyed by String, as `recordSources` binds every source: its narrowing
+ * followed as a choice moves it, its answers kept by its record's revision.
+ * The Allocation's lanes, resources and arrivals, and the Roster's people.
+ *
+ * @param name - Who asks, as its console names it when a read fails
+ * @param part - The source's part of the slice; `undefined` with none
+ * @returns The pick, the part and its narrowing
+ */
+export function useSourceHidden(name: string, part: Bind | undefined): SourceHidden {
+    // Its narrowing, read again as a choice moves it.
+    const moved = useSliceReactivity(part?.key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a choice moves `moved`, which the part's `read()` follows
+    const where = useMemo(() => part?.read().where, [part, moved]);
+    const rows = useHiddenRows({ name, part, where, revision: usePartRevision(part), keyOf: stringKey, idOf: stringId });
+    return useMemo(() => ({ rows, part, where }), [rows, part, where]);
+}
+
+/**
+ * Clears the choices that hide a row, as the rail clears a choice: those e3
+ * named — and what goes with them — else, while it has not said, every choice
+ * of the source; the source's narrowing written once, a write of the rail like
+ * a chip's.
+ *
+ * @param part - The source's part of the slice
+ * @param answer - What e3 said hides the row; `undefined` while it has not
+ */
+export function clearHiding(part: Bind, answer: HiddenAnswer | undefined): void {
+    part.write({ ...part.read(), where: answer?.where ?? WHOLE_RECORD, preset: none });
 }

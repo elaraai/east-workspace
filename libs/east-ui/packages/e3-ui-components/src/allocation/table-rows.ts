@@ -9,7 +9,7 @@
  * order — time, then lane — in the app's time bands (four by default). A row is its slot's or its
  * bin's, so an allocation never moves it. The narrowing (#1336) hides a row
  * whose lane it hides, whose every resource it hides, or whose bin's arrival
- * it hides (#1339); never reorders one.
+ * it hides (#1339, `rowHiding`); never reorders one.
  *
  * @packageDocumentation
  */
@@ -118,11 +118,45 @@ function bandOf(key: string, label: string, rows: readonly TableRow[], plan: Day
     };
 }
 
+/** Which of the narrowing's sources hide a row: its lane's, its resources', its arrival's. */
+export interface RowHiding {
+    readonly lanes: boolean;
+    readonly resources: boolean;
+    readonly arrivals: boolean;
+}
+
 /**
- * The rows a narrowing shows (#1336, #1339): a row of a shown lane, of a shown
- * arrival or none — free, or a reservation — that holds no resource (free, or
- * not yet allocated) or has a part on a shown resource. Monotone in each set:
- * showing more never hides a row.
+ * What hides a row under a narrowing (#1336, #1339): its lane, where the
+ * narrowing hides it; its bin's arrival, where it hides that — a reservation,
+ * which has no arrival, it never hides so; and its bin's resources, where the
+ * bin has parts and it hides every one of them — a free row, or a bin not yet
+ * allocated, it never hides so. What Search Records says hides a bin it finds
+ * is this too (`hidden.ts`, #1398).
+ *
+ * @param lane - The row's lane
+ * @param bin - Its bin's arrival and the resources it has parts on; `undefined` for a free row
+ * @param lanes - The lanes the narrowing shows; `none`, every one
+ * @param resources - The resources it shows; `none`, every one
+ * @param arrivals - The arrivals it shows; `none`, every one
+ * @returns Which sources hide it
+ */
+export function rowHiding(lane: string, bin: { readonly arrival: string | undefined; readonly parts: Iterable<string> } | undefined,
+    lanes: option<ReadonlySet<string>>, resources: option<ReadonlySet<string>>, arrivals: option<ReadonlySet<string>>): RowHiding {
+    let parts = 0, shown = false;
+    if (resources.type === "some" && bin !== undefined) for (const key of bin.parts) { parts++; shown ||= resources.value.has(key); }
+    return {
+        lanes: lanes.type === "some" && !lanes.value.has(lane),
+        resources: parts > 0 && !shown,
+        arrivals: arrivals.type === "some" && bin?.arrival !== undefined && !arrivals.value.has(bin.arrival),
+    };
+}
+
+/**
+ * The rows a narrowing shows (#1336, #1339): those nothing of it hides
+ * ({@link rowHiding}) — a row of a shown lane, of a shown arrival or none —
+ * free, or a reservation — that holds no resource (free, or not yet
+ * allocated) or has a part on a shown resource. Monotone in each set: showing
+ * more never hides a row.
  *
  * @param rows - The rows, in order
  * @param plan - The day as drafted
@@ -134,14 +168,10 @@ function bandOf(key: string, label: string, rows: readonly TableRow[], plan: Day
 export function narrowRows(rows: readonly TableRow[], plan: Day, lanes: option<ReadonlySet<string>>, resources: option<ReadonlySet<string>>,
     arrivals: option<ReadonlySet<string>> = none): TableRow[] {
     return rows.filter(row => {
-        if (lanes.type === "some" && !lanes.value.has(row.lane)) return false;
         const bin = row.bin === undefined ? undefined : plan.bins.get(row.bin);
-        // A bin of an arrival the narrowing hides goes; a reservation, which has no arrival, stays.
-        if (arrivals.type === "some" && bin?.arrival.type === "some" && !arrivals.value.has(bin.arrival.value)) return false;
-        const parts = resources.type === "none" ? undefined : bin?.parts;
-        if (parts === undefined || parts.size === 0) return true;
-        for (const key of parts.keys()) if (resources.type === "some" && resources.value.has(key)) return true;
-        return false;
+        const hides = rowHiding(row.lane, bin === undefined ? undefined : { arrival: bin.arrival.type === "some" ? bin.arrival.value : undefined, parts: bin.parts.keys() },
+            lanes, resources, arrivals);
+        return !hides.lanes && !hides.resources && !hides.arrivals;
     });
 }
 

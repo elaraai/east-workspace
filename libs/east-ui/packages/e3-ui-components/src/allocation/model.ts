@@ -158,8 +158,8 @@ export function allocationContext(value: AllocationValue): Context {
     };
 }
 
-/** A bin's parts, the largest first (ties in key order): its first is the resource the bin is shown on. */
-export function partsOf(bin: Bin): { key: string; quantity: number }[] {
+/** A bin's parts — or its roles' — the largest first (ties in key order): its first is the resource the bin is shown on. */
+export function partsOf(bin: Pick<Bin, "parts">): { key: string; quantity: number }[] {
     return [...bin.parts].map(([key, quantity]) => ({ key, quantity })).sort((a, b) => compareFloat(b.quantity, a.quantity) || compareString(a.key, b.key));
 }
 
