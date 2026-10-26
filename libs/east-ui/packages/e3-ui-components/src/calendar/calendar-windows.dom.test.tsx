@@ -25,6 +25,9 @@
  *   no summary divides, hatches its rows and says how many.
  * - A choice of the presses' source pages the narrowing's presses through its
  *   index, and reads the cells of those presses alone.
+ * - The Backlog pages the jobs waiting through their source, a page a request:
+ *   its first pages as it opens, its last as it scrolls to its end, never
+ *   every job waiting; its count the index's.
  */
 import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
@@ -33,7 +36,7 @@ import {
     DateTimeType, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, parseFor, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
-import { getStore } from "@elaraai/east-ui-components/internal";
+import { PAGED_LIBRARY_PAGE, getStore } from "@elaraai/east-ui-components/internal";
 import * as cw from "@elaraai/e3-ui/examples/calendar/calendar-windows";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import type { PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
@@ -351,6 +354,64 @@ describe("past 10,000 jobs in the cells wanted (#1424)", () => {
         expect(bars(pressRow(c, "P-1001")).length).toBeGreaterThan(0);
         expect(indexAsked(SERIES).filter((kind) => kind === "runs")).toEqual([]);
         expect(c.querySelectorAll("[data-calendar-event]")).toHaveLength(0);
+    });
+});
+
+// ============================================================================
+// The Backlog a page at a time (#1424)
+// ============================================================================
+
+describe("the Backlog a page at a time, through the jobs' source (#1424)", () => {
+    /** Another planner's 300 jobs waiting in the backlog, beside the four the jobs hold. */
+    beforeEach(async () => {
+        const jobs = new Map(await readJobs());
+        const waiting = jobs.get("W-0017")!;
+        for (let i = 0; i < 300; i++) jobs.set(`B-${String(i).padStart(4, "0")}`, { ...waiting, title: `Waiting ${i}` });
+        await h.patch(ex.planWindowJobs, jobs);
+    });
+    /** The Backlog's rows laid out as a browser lays them: each card's row 56px — its estimate — in the 400px frame. */
+    beforeEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+            configurable: true,
+            get(this: HTMLElement) {
+                if (isFrame(this)) return VIEW_HEIGHT;
+                if (this.hasAttribute("data-index") && this.closest("[data-library-paged]") !== null) return 56;
+                return isLine(this) ? LINE : 0;
+            },
+        });
+    });
+    /** The pages of the jobs' interval index read from the `since`-th request on — the Backlog's, its Unset run's — each its place and its length. */
+    const pagesRead = (since = 0) => h.requests().slice(since).filter((request) => request.dataset === JOBS && request.kind === "page"
+        && request.query.get("index") === BY_TIME.name).map((request) => ({ offset: Number(request.query.get("offset")), limit: Number(request.query.get("limit")) }));
+    const backlogOf = (c: HTMLElement) => slot(c, "start").querySelector<HTMLElement>('[data-library$=".library.backlog"]')!;
+    const backlogCards = (c: HTMLElement) => [...backlogOf(c).querySelectorAll<HTMLElement>("[data-library-item]")].map((card) => card.textContent ?? "");
+
+    test("it opens on its first pages alone, a page a request, its count every job waiting, from the index — never every job waiting; a scroll to its end reads the last pages alone", async () => {
+        const { container: c } = await h.mount(cw.calendarWindows, { storageKey: "windows-backlog" });
+        await settle();
+        expect(within(slot(c, "start")).getByRole("tab", { name: /Backlog/ }).textContent).toBe("Backlog 304");
+        // Its first two pages — the rows in view and the page after them — each one request of at most a page.
+        const opening = pagesRead();
+        expect(opening.map((page) => page.limit)).toEqual([PAGED_LIBRARY_PAGE, PAGED_LIBRARY_PAGE]);
+        expect(backlogCards(c).length).toBeGreaterThan(0);
+        expect(backlogCards(c).length).toBeLessThan(PAGED_LIBRARY_PAGE);
+        // Its end: the last pages read alone — never the ones between — the last card there.
+        const first = Math.min(...opening.map((page) => page.offset));
+        const since = h.requests().length;
+        const frame = backlogOf(c).querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+        await act(async () => { frame.scrollTop = 300 * 56; fireEvent.scroll(frame); });
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); });
+        await settle();
+        await waitFor(() => expect(backlogCards(c).some((card) => card.includes("Waiting 299"))).toBe(true), { timeout: 10_000 });
+        expect(pagesRead(since).map((page) => page.offset - first).sort((a, b) => a - b)).toEqual([8 * PAGED_LIBRARY_PAGE, 9 * PAGED_LIBRARY_PAGE]);
+        // On the week's time grid the jobs are read over the window — counted first, then its rows alone: no page of the
+        // backlog's run, which the Backlog alone pages.
+        const grid = h.requests().length;
+        await press(c, "radio", "Calendar");
+        await waitFor(() => expect(jobEvent(c, "W-0001")).not.toBeNull(), { timeout: 10_000 });
+        await settle();
+        expect(pagesRead(grid).length).toBeGreaterThan(0);
+        expect(pagesRead(grid).filter((page) => page.offset < first + 304 && page.offset + page.limit > first)).toEqual([]);
     });
 });
 

@@ -29,6 +29,8 @@ export interface CalendarDrag {
 interface DragArgs {
     value: CalendarValue; key: string; commands: CalendarCommands | undefined; narrow: boolean;
     items: readonly CalendarItem[]; backlog: readonly CalendarItem[]; selection: readonly CalendarItem[];
+    /** The Backlog a page at a time (#1424): what a card it listed is, by its id — where a drag of it finds its event. */
+    served?: { served(id: string): CalendarItem | undefined } | undefined;
     /** The templates the rail shows, by their card's id: what a drop or a drawn event is made from (#1343). */
     templates: ReadonlyMap<string, CalendarSource>;
     activeTemplate: string | undefined; onError: (message: string | undefined) => void;
@@ -38,12 +40,12 @@ interface DragArgs {
  * views draw with it draws again only as it changes.
  */
 export function useCalendarDrag(args: DragArgs): CalendarDrag {
-    const { value, key, commands, narrow, items, backlog, selection, activeTemplate, onError } = args;
+    const { value, key, commands, narrow, items, backlog, served, selection, activeTemplate, onError } = args;
     const enabled = commands !== undefined && !narrow;
     const grabbed = useRef<{ id: string; offset: number } | undefined>(undefined);
     const sources = args.templates;
-    const drag = useMemo(() => calendarDrag({ value, key, commands, items, backlog, selection, sources, activeTemplate, onError, enabled, grabbed }),
-        [value, key, commands, items, backlog, selection, sources, activeTemplate, onError, enabled]);
+    const drag = useMemo(() => calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed }),
+        [value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled]);
     const { run } = drag;
     const target = useMemo(() => {
         if (!enabled) return null;
@@ -58,15 +60,15 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
     return drag;
 }
 /** The drag's verdicts over the period as it stands: what a drop runs, what a hover previews and what a press grabs. */
-function calendarDrag({ value, key, commands, items, backlog, selection, sources, activeTemplate, onError, enabled, grabbed }: {
+function calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed }: {
     value: CalendarValue; key: string; commands: CalendarCommands | undefined; items: readonly CalendarItem[]; backlog: readonly CalendarItem[];
-    selection: readonly CalendarItem[]; sources: ReadonlyMap<string, CalendarSource>; activeTemplate: string | undefined;
+    served: DragArgs["served"]; selection: readonly CalendarItem[]; sources: ReadonlyMap<string, CalendarSource>; activeTemplate: string | undefined;
     onError: (message: string | undefined) => void; enabled: boolean; grabbed: MutableRefObject<{ id: string; offset: number } | undefined>;
 }): CalendarDrag {
     const sourceItem = (encoded: string): CalendarItem | undefined => {
         const parsed = parseEventKey(encoded);
         return parsed.success ? [...items, ...backlog].find(item => item.kind === parsed.value.kind && item.key === parsed.value.key)
-            ?? commands?.editing.read(parsed.value.kind, parsed.value.key)?.item : undefined;
+            ?? served?.served(encoded) ?? commands?.editing.read(parsed.value.kind, parsed.value.key)?.item : undefined;
     };
     const resource = (row: string): CalendarItem["resource"] => {
         const read = parseResourceKey(row); return read.success ? some(read.value) : none;

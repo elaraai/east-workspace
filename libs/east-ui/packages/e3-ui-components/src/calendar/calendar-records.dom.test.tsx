@@ -11,9 +11,10 @@
  * one lands; the Backlog never read again for it, and a reload opening the
  * window again where the view was. The view is the page's own: another page
  * keeping one moves neither its date nor its window. The Backlog never blinks:
- * a step, a layout, a period, a re-centre or a narrowing keeps its count and
- * its cards, retained, until what it reads lands, its Library mounted and its
- * search box keeping its query and its focus. jsdom lays nothing out: the
+ * paged through its source (#1424), never with a window, a step, a layout, a
+ * period or a re-centre reads nothing of it and leaves it as it is; a
+ * narrowing keeps its count and its cards standing, retained, until the new
+ * narrowing's land, then swaps them together. jsdom lays nothing out: the
  * timeline's scroll box is given its width.
  */
 import { describe, expect, test, vi } from "vitest";
@@ -542,67 +543,95 @@ describe("the view is the page's own (#1398)", () => {
 });
 
 /**
- * What the Backlog shows: its tab's words — its name and its count — its cards, whether pending rows follow them, and its
- * pane's state: busy and aria-disabled while what it shows stands in for a read in flight (#1398, CL8).
+ * What the Backlog shows: its tab's words — its name and its count — its cards, whether pending rows show — the paged
+ * Library's skeletons among them — and its state: busy and aria-disabled while what it shows stands in for a read in
+ * flight (#1398, CL8) — a paged Library's rows standing in for a new narrowing's (#1424), else its pane.
  */
 function backlogShown(container: HTMLElement) {
     const start = slot(container, "start");
     const library = start.querySelector<HTMLElement>('[data-library$=".library.backlog"]')!;
-    const pane = library.parentElement!;
+    const region = library.querySelector<HTMLElement>("[aria-busy]") ?? library.parentElement!;
     return {
         tab: within(start).getByRole("tab", { name: /Backlog/ }).textContent,
         cards: [...library.querySelectorAll("[data-library-item]")].map(card => card.getAttribute("data-library-item")),
-        pending: library.querySelector("[data-library-pending]") !== null,
-        retained: [pane.getAttribute("aria-busy"), pane.getAttribute("aria-disabled")],
+        pending: library.querySelector('[data-library-pending], [aria-label="Loading record"]') !== null,
+        retained: [region.getAttribute("aria-busy"), region.getAttribute("aria-disabled")],
     };
 }
 /** A Backlog standing in for a read in flight: what it showed, retained. */
 const RETAINED = ["true", "true"];
+/** Every state the Backlog's tab is drawn in from now until `stop`, anywhere on the page: what a mount draws from its first commit. */
+function watchBacklogTab(): { seen: string[]; stop: () => void } {
+    const seen: string[] = [];
+    const note = () => {
+        const now = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find(tab => tab.textContent?.startsWith("Backlog"))?.textContent;
+        if (now !== undefined && seen.at(-1) !== now) seen.push(now);
+    };
+    const observer = new MutationObserver(note);
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+    return { seen, stop: () => { note(); observer.disconnect(); } };
+}
 
 describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
-    test("a step, a layout and a period to windows not read yet keep the Backlog's count and its cards, retained while they are read, never \"…\" and no pending rows, its search box keeping its query and the focus; landed, nothing moves and its own search is asked no more", async () => {
+    test("a cold load with a narrowing — the rail's Ready — draws the Backlog's tab counting \"…\" until every count it says has landed, what the narrowing hides among them: never a bare \"Backlog\" (#1424, CL13)", async () => {
+        StateRuntime.initializeStore(new UIStore());
+        const states = watchBacklogTab();
+        // Every unscheduled event's count — the start Unset alone, through the time index — held until the rest has landed.
+        const whole = h.e3.hold(request => readsBacklog(request) && request.query.get("index") === ex.indexedCalendarByTime.name);
+        try {
+            const { container } = await h.mount(ex.calendarRecordIndexes, { storageKey: "backlog-cold" });
+            await settle();
+            expect(whole.held).toBeGreaterThan(0);
+            expect(backlogShown(container).tab).toBe("Backlog …");
+            await act(async () => { whole.release(); });
+            await settle();
+            expect(backlogShown(container).tab).toBe("Backlog 1 of 1");
+        } finally {
+            states.stop();
+        }
+        expect(states.seen).toEqual(["Backlog …", "Backlog 1 of 1"]);
+    });
+
+    test("a step, a layout and a period to windows not read yet leave the Backlog as it is — its count and its cards, never retained, never \"…\", no pending rows — and read nothing of it: it is paged through its source, never with a window (#1424)", async () => {
         StateRuntime.initializeStore(new UIStore());
         const { container } = await h.mount(ex.calendarRecordIndexes, { storageKey: "backlog-steps" });
         await waitFor(() => expect(event(container, "job")).not.toBeNull());
         await settle();
-        const start = slot(container, "start");
-        const input = within(start).getByRole("textbox", { name: "Search library" }) as HTMLInputElement;
-        await act(async () => { input.focus(); fireEvent.change(input, { target: { value: "post" } }); });
-        await settle();
         const before = backlogShown(container);
         expect(before.tab).toMatch(/^Backlog \d/);
         expect([before.cards.length, before.pending, before.retained]).toEqual([1, false, [null, null]]);
+        // A paged Backlog has no search of its own, as the Schematic's has none: the rail's choices narrow it.
+        expect(within(slot(container, "start")).queryByRole("textbox")).toBeNull();
         const backlog = backlogReads();
+        // Every read of the record held on its way to e3: the Backlog shows what it showed, needing none of them.
         const held = h.e3.hold(eventsRead);
         const toolbar = within(slot(container, "toolbar"));
-        // Past the day read ahead, to one not read: two days on — pressed as a shortcut presses it, the focus kept where it is.
+        // Past the day read ahead, to one not read: two days on.
         for (let press = 0; press < 2; press++) {
             await act(async () => { fireEvent.click(toolbar.getByRole("button", { name: "Next day" })); });
             await settle();
         }
-        expect(backlogShown(container), "a step").toEqual({ ...before, retained: RETAINED });
-        expect(within(start).getByRole("textbox", { name: "Search library" })).toBe(input);
-        expect([input.value, document.activeElement === input]).toEqual(["post", true]);
+        expect(backlogShown(container), "a step").toEqual(before);
         // Onto the timeline, then a period, each a window not read.
         await act(async () => { fireEvent.click(toolbar.getByRole("radio", { name: "Timeline" })); });
         await settle();
-        expect(backlogShown(container), "a layout").toEqual({ ...before, retained: RETAINED });
+        expect(backlogShown(container), "a layout").toEqual(before);
         await act(async () => { fireEvent.click(toolbar.getByRole("radio", { name: "Month" })); });
         await settle();
-        expect(backlogShown(container), "a period").toEqual({ ...before, retained: RETAINED });
+        expect(backlogShown(container), "a period").toEqual(before);
         await act(async () => { held.release(); });
         await settle();
         expect(backlogShown(container), "landed").toEqual(before);
-        expect([input.value, document.activeElement === input]).toEqual(["post", true]);
         expect(backlogReads()).toBe(backlog);
     });
 
-    test("a Day step on the timeline across its window's boundary keeps the Backlog's count and its cards, retained, until the window lands", async () => {
+    test("a Day step on the timeline across its window's boundary leaves the Backlog as it is, reading nothing of it", async () => {
         const { container } = await openTimeline("day", "backlog-day-boundary");
         const before = backlogShown(container);
         expect([before.cards.length, before.retained]).toEqual([1, [null, null]]);
         const timeline = container.querySelector<HTMLElement>("[data-calendar-timeline]")!;
         const shown = windowOf(timeline);
+        const backlog = backlogReads();
         const held = h.e3.hold(eventsRead);
         // On a day at a time until a day another window opens: one not read yet.
         for (let press = 0; press < 7 && windowOf(timeline).from.getTime() === shown.from.getTime(); press++) {
@@ -610,10 +639,11 @@ describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
             await settle();
         }
         expect(windowOf(timeline).from.getTime()).toBeGreaterThan(shown.from.getTime());
-        expect(backlogShown(container)).toEqual({ ...before, retained: RETAINED });
+        expect(backlogShown(container)).toEqual(before);
         await act(async () => { held.release(); });
         await settle();
         expect(backlogShown(container)).toEqual(before);
+        expect(backlogReads()).toBe(backlog);
     });
 
     test("a narrowing keeps the Backlog's count and its cards, retained, until the new narrowing's land: then its own", async () => {
@@ -637,5 +667,67 @@ describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
         const after = backlogShown(container);
         expect([after.cards, after.pending, after.retained]).toEqual([[], false, [null, null]]);
         expect(after.tab).not.toBe(before.tab);
+    });
+});
+
+describe("the Backlog's drafts, paged through the source (#1424)", () => {
+    const job = (key: string) => eventKey({ kind: "job", key });
+    /** The rail's status choice for the jobs, the window kept, written as the rail writes it. */
+    async function chooseStatus(store: UIStore, status: string) {
+        const state = decodeBeast2For(RecordSliceStateType)(store.read(scope)!);
+        const where = new Map(state.where);
+        where.set("status", variant("values", [JSON.stringify(status)]));
+        await act(async () => { store.write(scope, encodeBeast2For(RecordSliceStateType)({ ...state, where, preset: none })); });
+        await settle();
+    }
+    const backlogCard = (container: HTMLElement, key: string) =>
+        slot(container, "start").querySelector<HTMLElement>(`[data-library$=".library.backlog"] [data-library-item=${JSON.stringify(job(key))}]`);
+
+    test("an event returned to the backlog joins it at once, first and counted, while a narrowing holding it is in force — and under one that does not, it is in neither the Backlog nor the board", async () => {
+        const store = new UIStore();
+        StateRuntime.initializeStore(store);
+        const { container } = await h.mount(ex.calendarRecordIndexes, { storageKey: "backlog-returned" });
+        await waitFor(() => expect(event(container, "job")).not.toBeNull());
+        await settle();
+        const before = backlogShown(container);
+        expect([before.tab, before.cards]).toEqual(["Backlog 1 of 1", [job("backlog")]]);
+        // The brochures back to the backlog, from the inspector: off the board, first in the Backlog, and counted.
+        await act(async () => { fireEvent.click(event(container, "job")!); });
+        await settle();
+        await act(async () => { fireEvent.click(within(slot(container, "end")).getByRole("button", { name: "Return to backlog" })); });
+        await settle();
+        expect(event(container, "job")).toBeNull();
+        const returned = backlogShown(container);
+        expect([returned.tab, returned.cards]).toEqual(["Backlog 2 of 2", [job("job"), job("backlog")]]);
+        // Done holds neither the brochures nor the posters: nothing in the Backlog, and no brochures on the board.
+        await chooseStatus(store, "Done");
+        await waitFor(() => expect(backlogShown(container).cards).toEqual([]));
+        expect(event(container, "job")).toBeNull();
+        // Ready again: the brochures, still a draft, listed as they were.
+        await chooseStatus(store, "Ready");
+        await waitFor(() => expect(backlogShown(container).cards).toEqual(returned.cards));
+        expect(backlogShown(container).tab).toBe(returned.tab);
+    });
+
+    test("a backlog event scheduled from its card draws where it is placed — its row the page read, no read of its own — and its card turns to context, faded and dragged no more", async () => {
+        StateRuntime.initializeStore(new UIStore());
+        const { container } = await h.mount(ex.calendarRecordIndexes, { storageKey: "backlog-scheduled" });
+        await waitFor(() => expect(event(container, "job")).not.toBeNull());
+        await settle();
+        expect(backlogCard(container, "backlog")?.hasAttribute("data-draggable")).toBe(true);
+        await act(async () => { fireEvent.click(backlogCard(container, "backlog")!); });
+        await settle();
+        const rows = h.requests("rows", EVENTS).length;
+        await act(async () => { fireEvent.click(within(slot(container, "start")).getByRole("button", { name: "Schedule" })); });
+        await settle();
+        await act(async () => { fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Schedule" })); });
+        await settle();
+        // Drawn on the day, where the form placed it: the row its page read is the original it rewrites.
+        expect(event(container, "backlog")?.hasAttribute("data-drafted")).toBe(true);
+        expect(h.requests("rows", EVENTS).length).toBe(rows);
+        // Its card stays in the Backlog as context: faded, and dragged no more.
+        const card = backlogCard(container, "backlog")!;
+        expect([card.hasAttribute("data-filtered"), card.hasAttribute("data-draggable")]).toEqual([true, false]);
+        expect((await h.read(ex.indexedCalendarEvents)).get("backlog")!.start.type).toBe("none");
     });
 });

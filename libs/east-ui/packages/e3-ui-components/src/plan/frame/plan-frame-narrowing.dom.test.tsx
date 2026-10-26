@@ -506,7 +506,40 @@ function watchBacklog(c: HTMLElement): { seen: string[]; stop: () => void } {
     return { seen, stop: () => observer.disconnect() };
 }
 
+/** Every state the Backlog's tab is drawn in from now until `stop`, anywhere on the page: what a mount draws from its first commit. */
+function watchBacklogTab(): { seen: string[]; stop: () => void } {
+    const seen: string[] = [];
+    const note = () => {
+        const now = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Backlog"))?.textContent;
+        if (now !== undefined && seen.at(-1) !== now) seen.push(now);
+    };
+    const observer = new MutationObserver(note);
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+    return { seen, stop: () => { note(); observer.disconnect(); } };
+}
+
 describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
+    test("a cold load with a narrowing restored draws the Backlog's tab counting \"…\" until what the narrowing hides is counted — never a bare \"Backlog\" — then `1 of 8` (#1424, CL13)", async () => {
+        // A reload: the jobs' narrowing — the board stock — restored before the Plan mounts.
+        getStore().write(`${KEY}.job`, encodeState({ where: where(["stock", values(stockOf(variant("board", null)))]), preset: none, resolution: none }));
+        const states = watchBacklogTab();
+        // What the narrowing hides is counted last: every unscheduled job's count — one search of the jobs' time index,
+        // no stock chosen — held on its way to e3 until the cards and their count have landed.
+        const whole = h.e3.hold((request) => request.kind === "find" && request.dataset === JOBS
+            && request.query.get("index") === ex.planPrintJobsByTime.name && request.searches.length === 1);
+        try {
+            const { container } = await h.mount(ex.planPrintWorks);
+            await settle();
+            expect(whole.held).toBeGreaterThan(0);
+            await act(async () => { whole.release(); });
+            await settle();
+            expect(tabs(pane(container))[1]).toBe("Backlog 1 of 8");
+        } finally {
+            states.stop();
+        }
+        expect(states.seen).toEqual(["Backlog …", "Backlog 1 of 8"]);
+    });
+
     test("a narrowing keeps the Backlog's cards and its count as one, retained while either is read again — its count landing before its cards — and swaps them whole once both have: never a count dropped, never a count over another read's cards", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();

@@ -8,20 +8,27 @@
  * follows its source of the slice (#1343): the Templates tab each templates
  * list's, by template key; the Backlog its kinds' own narrowing; an app's tab
  * the source it names, by its rows' keys — each counting what it shows and
- * saying so, with Clear filters, when the rail leaves it none. The Backlog
- * never blinks (#1398, ruled 25 Oct 2026): while a kind whose backlog follows
- * its window reads it again — a step's period, a re-centre's, a layout's, a
- * narrowing's — it keeps its last cards and its count, retained (CL8); only
- * before its first read, under the cold load's cover, does it count "…" and draw
- * the Library's pending rows, never "No backlog events" before its read (CL13).
- * Its Library stays mounted throughout, so its search box keeps its query and
- * its focus.
+ * saying so, with Clear filters, when the rail leaves it none.
+ *
+ * A Backlog with a kind narrowed through its source of the slice is a page at
+ * a time (#1424, `backlog-pages.ts`): the shared paged Library over its events
+ * in hand and each such kind's through its source with its start Unset — its
+ * choices but its window, so no step of the dates reads it again, and it never
+ * blinks — counted by the index, `N of M` while a choice narrows it, "…" until
+ * its count is first read (CL13), never a count of what has landed. A new
+ * narrowing keeps its cards and its count standing, retained, until its own
+ * land, and swaps them together. It has no search of its own, as the
+ * Schematic's paged Backlog has none: the rail's choices narrow it. Every other
+ * Backlog is its kinds' events in hand, read apart once (#1398): only before
+ * its first read, under the cold load's cover, does it count "…" and draw the
+ * Library's pending rows, never "No backlog events" before its read (CL13).
  */
 import { useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
 import { none, some } from "@elaraai/east";
 import { EastChakraLibrary, useFormatters, type BuilderFrameDock, type LibraryEmpty, type LibraryItemValue, type LibraryNarrowing } from "@elaraai/east-ui-components";
-import { narrowedCount, type CountWords } from "@elaraai/east-ui-components/internal";
+import { PagedLibrary, narrowedCount, type CountWords } from "@elaraai/east-ui-components/internal";
+import type { BacklogPageCount, CalendarBacklogPages } from "./backlog-pages.js";
 import { scheduleLibrary, scheduleLibraryCard } from "../shared/schedule/library.js";
 import { dueGroupOf, durationMinutes } from "../shared/schedule/due.js";
 import type { FollowedSources } from "../shared/schedule/follow-sources.js";
@@ -72,6 +79,13 @@ interface LibraryArgs {
     backlogRead: boolean;
     /** Whether `backlog` stands in for a read in flight (#1398): its pane busy and its cards retained, aria-disabled (CL8). */
     backlogRetained: boolean;
+    /**
+     * The Backlog a page at a time (#1424, `backlog-pages.ts`), when a backlog kind is narrowed through its source of the
+     * slice: `backlog` its events in hand, the kinds' a page at a time after them; `undefined`, every kind's in hand.
+     */
+    backlogPages?: CalendarBacklogPages | undefined;
+    /** What the paged Backlog counts, once read: until then its tab says "…" (CL13). */
+    backlogCount?: BacklogPageCount | undefined;
     narrow: boolean; now: Date; day: Date; styles: CalendarStyles; commands: CalendarCommands | undefined;
     activeTemplate: string | undefined; onTemplate: (key: string) => void;
     /** The Templates tab, as the sources narrow it. */
@@ -94,7 +108,8 @@ interface TabFacts {
 }
 /** The author-listed tabs, populated from the current bound reads. */
 export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefined {
-    const { value, backlog, backlogRead, backlogRetained, key, narrow, day, now, styles, commands, selection, activeTemplate, onTemplate, templates, backlogNarrowing, followed, shown } = args;
+    const { value, backlog, backlogRead, backlogRetained, backlogPages, backlogCount, key, narrow, day, now, styles, commands, selection, activeTemplate, onTemplate, templates,
+        backlogNarrowing, followed, shown } = args;
     const format = useFormatters();
     const [chosen, setChosen] = useState<Record<string, string>>({});
     if (value.library.length === 0) return undefined;
@@ -103,11 +118,40 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
         key: id, label, sublabel: some(meta), icon: icon === undefined ? none : some(icon), status: none, trailing: none,
         draggable, filtered: false, placed, search: some(`${label} ${meta}`), groups: new Map([["group", group]]),
     });
+    // A backlog event's card: its kind, its hours, its resource and its due date, grouped by when it is due.
+    const backlogCard = (item: CalendarItem, placed: boolean): LibraryItemValue => {
+        const kind = value.events.find(kind => kind.key === item.kind)!;
+        const id = eventKey({ kind: item.kind, key: item.key });
+        const ref = item.resource.type === "some" ? item.resource.value : undefined;
+        const resource = value.resources.find(kind => kind.key === ref?.kind)?.rows.find(row => row.key === ref?.key)?.label;
+        const group = dueGroupOf(item.due.type === "some" ? item.due.value : undefined, now);
+        const groups = { thisWeek: "Due this week", nextWeek: "Due next week", later: "Later", none: "No date" };
+        return baseCard(id, item.title, `${kind.name} · ${Number(item.minutes) / 60} h${resource === undefined ? "" : ` · ${resource}`}${item.due.type === "some" ? ` · due ${format.weekdayDate(item.due.value)}` : ""}`,
+            kind.icon, groups[group], placed);
+    };
     const tabs = value.library.map(tab => {
         const tabKey = tab.type === "tab" ? `tab:${tab.value.name}` : tab.type;
         const label = tab.type === "tab" ? tab.value.name : tab.type === "templates" ? "Templates" : "Backlog";
         let source: CalendarSource | undefined;
         let facts: TabFacts;
+        if (tab.type === "backlog" && backlogPages !== undefined) {
+            // A page at a time (#1424): its events in hand, then each narrowed kind's through its source; its count the
+            // index's — "…" until first read (CL13), never a count of what has landed.
+            const chosenItem = chosen[tabKey] === undefined ? undefined : backlogPages.served(chosen[tabKey]);
+            if (chosenItem !== undefined) source = { item: chosenItem, kind: value.events.find(kind => kind.key === chosenItem.kind)! };
+            const { narrowing: narrowed, clear } = backlogNarrowing;
+            const count = backlogCount === undefined ? "…" : backlogCount.narrowing ? narrowedCount(format, backlogCount.shown, backlogCount.total, true) : backlogCount.shown;
+            return { key: tabKey, label, count, shownCount: backlogCount?.shown, body: <Box css={styles.pane}>
+                <PagedLibrary source={backlogPages} id={calendarLibraryId(key, tabKey)} item={row => ({ ...backlogCard(row.item, eventKey(row.item) === chosen[tabKey]), filtered: row.context, draggable: draggable && !row.context })}
+                    onOpen={id => setChosen(was => ({ ...was, [tabKey]: id }))} empty={{ title: "No backlog events" }}
+                    noun={{ singular: "backlog event", plural: "backlog events" }}
+                    narrowing={narrowed.length === 0 || clear === undefined ? undefined
+                        : { empty: { title: "No backlog events match the filters", description: "Change or clear the filters to see more backlog events." }, onClear: clear }} />
+                {commands !== undefined && source !== undefined && <Box css={styles.paneFoot}>
+                    <PlacementAction label="Schedule" source={source} value={value} shown={shown} day={day} commands={commands} styles={styles} />
+                </Box>}
+            </Box> };
+        }
         if (tab.type === "templates") {
             source = activeTemplate === undefined ? undefined : templates.shown.get(activeTemplate);
             facts = { ...templates, cards: templates.cards.map(({ id, kind, template }) => baseCard(id, template.name,
@@ -116,23 +160,15 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
         } else if (tab.type === "backlog") {
             const selected = backlog.find(item => eventKey({ kind: item.kind, key: item.key }) === chosen[tabKey]);
             if (selected !== undefined) source = { item: selected, kind: value.events.find(kind => kind.key === selected.kind)! };
-            const cards = backlog.map(item => {
-                const kind = value.events.find(kind => kind.key === item.kind)!;
-                const id = eventKey({ kind: item.kind, key: item.key });
-                const ref = item.resource.type === "some" ? item.resource.value : undefined;
-                const resource = value.resources.find(kind => kind.key === ref?.kind)?.rows.find(row => row.key === ref?.key)?.label;
-                const group = dueGroupOf(item.due.type === "some" ? item.due.value : undefined, now);
-                const groups = { thisWeek: "Due this week", nextWeek: "Due next week", later: "Later", none: "No date" };
-                return baseCard(id, item.title, `${kind.name} · ${Number(item.minutes) / 60} h${resource === undefined ? "" : ` · ${resource}`}${item.due.type === "some" ? ` · due ${format.weekdayDate(item.due.value)}` : ""}`,
-                    kind.icon, groups[group], id === chosen[tabKey]);
-            });
+            const cards = backlog.map(item => backlogCard(item, eventKey({ kind: item.kind, key: item.key }) === chosen[tabKey]));
             // The backlog is each kind's own narrowing: it shows what its kinds read, and counts the stored events their choices hide.
             const { narrowing, hidden, clear } = backlogNarrowing;
             const narrows = narrowing.length > 0;
             const held = backlog.filter(item => narrowing.some(({ kind }) => kind.key === item.kind)).length;
+            // Until what the narrowing hides is counted its count's slot says "…", never a bare "Backlog" (CL13).
             facts = !backlogRead ? { cards, count: "…", empty: undefined, narrowing: undefined, pane: { "aria-busy": true }, pending: true }
                 : { cards, empty: { title: "No backlog events" }, pane: backlogRetained ? { "aria-busy": true, "aria-disabled": true } : {},
-                    count: !narrows ? cards.length : hidden === undefined ? undefined : narrowedCount(format, cards.length, cards.length + hidden, true),
+                    count: !narrows ? cards.length : hidden === undefined ? "…" : narrowedCount(format, cards.length, cards.length + hidden, true),
                     narrowing: !narrows || clear === undefined ? undefined : { empty: { title: "No backlog events match the filters", description: "Change or clear the filters to see more backlog events." },
                         onClear: clear, emptied: held === 0 } };
         } else {
@@ -164,6 +200,7 @@ export function useCalendarLibrary(args: LibraryArgs): BuilderFrameDock | undefi
         </Box> };
     });
     // The collapsed pane's badge: what the backlog shows — "…" while it is read — else what the first tab shows.
-    const badge = value.library.some(tab => tab.type === "backlog") ? backlogRead ? backlog.length : "…" : tabs[0]?.shownCount ?? 0;
+    const badge = !value.library.some(tab => tab.type === "backlog") ? tabs[0]?.shownCount ?? 0
+        : backlogPages !== undefined ? backlogCount?.shown ?? "…" : backlogRead ? backlog.length : "…";
     return { label: "Library", icon: "layer-group", size: "272px", tabs: tabs.map(({ shownCount: _shown, ...tab }) => tab), persist: "local", badge: String(badge) };
 }
