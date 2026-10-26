@@ -590,6 +590,65 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         expect(el2.scrollTop).toBe(20 * ROW_H);
     });
 
+    test("a request's scroll is the frame's offset at once: a window landing where the view was, before the scroll's event arrives, never takes the view back there — its rows measured off their estimate, as every row is on a fractional device pixel ratio — and the rows are drawn where the view went (#1398)", () => {
+        const dpr = window.devicePixelRatio;
+        // At 1.37 a row measured at 31.594px rounds to 43 device pixels, 31.39 CSS px: never its estimate's 32.
+        Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 1.37 });
+        try {
+            const { container, rerender } = render(frame(ROWS));
+            const scrollEl = scrollTo(container, 50 * ROW_H);
+            Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 100 * ROW_H });
+            // Home: a request for the first row — the view goes there, its scroll's event still to come…
+            rerender(frame(ROWS, { scrollToIndex: 0 }));
+            expect(scrollEl.scrollTop).toBe(0);
+            // …and before it arrives a window lands where the view was: rows 40 to 59 are others now, mounted and
+            // measured for the first time. The view stays on the first row, and the first row is drawn there.
+            const landed = ROWS.map((key, i) => (i >= 40 && i < 60 ? `w${i}` : key));
+            rerender(frame(landed, { scrollToIndex: 0 }));
+            expect(scrollEl.scrollTop).toBe(0);
+            expect(inView(container, "r0")).toBe(0);
+            expect(container.querySelector('[data-key="w50"]')).toBeNull();
+        } finally {
+            Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: dpr });
+        }
+    });
+
+    test("a request's scroll is the frame's offset at once: a correction the virtualizer held back at the scroll's end — rows above the view measured taller than their estimate, as every row is at 110% — is never applied after the view has gone (#1398)", async () => {
+        const dpr = window.devicePixelRatio;
+        const measured = Element.prototype.getBoundingClientRect;
+        // At 110% a row measured at 32.3px rounds to 36 device pixels, 32.73 CSS px: taller than its estimate's 32.
+        Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 1.1 });
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const rect = measured.call(this);
+            return this.hasAttribute("data-index") ? { ...rect, height: 32.3, bottom: 32.3 } : rect;
+        };
+        try {
+            const { container, rerender } = render(frame(ROWS));
+            const scrollEl = container.firstElementChild as HTMLElement;
+            // The scroll goes as far as the rows the frame has drawn reach: what the browser lays out.
+            const extent = () => Number(container.querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"));
+            Object.defineProperty(scrollEl, "clientHeight", { configurable: true, get: () => 200 });
+            Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => extent() });
+            scrollTo(container, extent() - 200);
+            // At rest there (TanStack clears its scrolling flag 150ms after the last scroll event): rows are measured as
+            // they mount.
+            await act(async () => { await new Promise((r) => setTimeout(r, 250)); });
+            // End to Home, as a window lands at the end: its rows measure taller than their estimate, and the corrections
+            // for those above the view would take it past where it can go, so the virtualizer holds them back — and the
+            // request scrolls to the first row, its scroll's event still to come…
+            const landed = ROWS.map((key, i) => (i >= 80 ? `w${i}` : key));
+            rerender(frame(landed, { scrollToIndex: 0 }));
+            expect(scrollEl.scrollTop).toBe(0);
+            // …and a commit before it arrives, the end's rows laid out: the view stays at the top.
+            rerender(frame(landed, { scrollToIndex: 0 }));
+            expect(scrollEl.scrollTop).toBe(0);
+            expect(inView(container, "r0")).toBe(0);
+        } finally {
+            Element.prototype.getBoundingClientRect = measured;
+            Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: dpr });
+        }
+    });
+
     test("an anchored offset past the scroll's end stops there, and the rows are drawn where the view rests (#1213)", () => {
         const { container, rerender } = render(frame(ROWS));
         const scrollEl = container.firstElementChild as HTMLElement;
@@ -782,16 +841,17 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         });
 
         test("a request is followed for five seconds at most, TanStack's own cap", () => {
-            const { container, rerender } = render(frame(ROWS));
+            // A frame that does not anchor: only the request's follow could move the view.
+            const { container, rerender } = render(frame(ROWS, { anchorable: null }));
             const scrollEl = container.firstElementChild as HTMLElement;
             Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 120 * ROW_H });
-            rerender(frame(ROWS, { scrollToIndex: 80 }));
+            rerender(frame(ROWS, { anchorable: null, scrollToIndex: 80 }));
             const requested = scrollEl.scrollTop;
-            // Six seconds on, with its scroll still unreported, rows land above row 80: the request has lapsed.
+            // Six seconds on, with its scroll's event still to come, rows land above row 80: the request has lapsed.
             const start = performance.now();
             const clock = vi.spyOn(performance, "now").mockReturnValue(start + 6_000);
             try {
-                rerender(frame([...keysOf("n", 10), ...ROWS], { scrollToIndex: 80 }));
+                rerender(frame([...keysOf("n", 10), ...ROWS], { anchorable: null, scrollToIndex: 80 }));
             } finally {
                 clock.mockRestore();
             }
