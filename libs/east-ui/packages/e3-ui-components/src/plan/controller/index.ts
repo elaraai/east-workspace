@@ -340,6 +340,8 @@ function groupKeysOf(rows: readonly PlanRowValue[]): readonly RowKey[] {
 const refEqual = equalFor(Plan.Types.ElementRef);
 /** Whether two record Slices narrow one record: its editing identity. */
 const sameSource = equalFor(StringType);
+/** Whether two narrowings, as a live source prints them, are the same one (#1354). */
+const sameNarrowing = equalFor(StringType);
 const uiStateEqual = equalFor(Plan.Types.UiState);
 /** A String key's `.east` literal — how an exact key search names it. */
 const printString = printFor(StringType);
@@ -454,6 +456,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     // which the new rows do not hold, given the driver only where nothing scrolls the view.
     let replacing = false;
     let heldReport: { at: PlanViewport; scrolling: boolean } | undefined;
+    // The narrowing the rows the canvas last drew belong to (#1344, #1354): another's rows landing are a new result's,
+    // whether the last view stood in for them or not — a view that showed only rows not read yet had nothing to stand in.
+    let narrowingDrawn: string | undefined;
     let scroll: PlanScrollTarget = { owner: "search", skippedSeq: 0, searchSeq: 0, targetKey: undefined, nav: undefined };
     // A key search waiting to be served (#574): the key it sought and the
     // source element its answer (or its jump) named. Served once, when the
@@ -513,10 +518,14 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             // A new result's rows have landed — a new narrowing's (#1344, #1354), or a new source's of the same record:
             // the row at the top of the view keeps its place where they draw it, and else the view starts at the top —
             // in this notification, so the canvas places it as it first draws them. A session's anchor still being
-            // restored goes on.
-            if (replacing && !landed.replacing && anchor.phase === "settled") {
+            // restored goes on. A new narrowing's rows are a new result's whether or not the last view stood in for
+            // them: one that showed only rows not read yet stood in for nothing, and kept its offset into the new rows.
+            const rowsIn = !landed.replacing && landed.rows.length > 0;
+            const anew = rowsIn && narrowingDrawn !== undefined && landed.narrowing !== undefined && !sameNarrowing(landed.narrowing, narrowingDrawn);
+            if (((replacing && !landed.replacing) || anew) && anchor.phase === "settled") {
                 anchor = { saved: persisted.anchor, phase: "pending", keeping: true, restore: anchor.restore };
             }
+            if (rowsIn) narrowingDrawn = landed.narrowing;
             replacing = landed.replacing;
             // Rows that arrive WITHOUT a data change carry their own declared
             // collapse: seed each declared key ONCE, the first time its row
@@ -1172,7 +1181,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     const held = heldReport;
                     if (bounded && saved !== null) {
                         if (items.length === 0) return;
-                        const at = items.findIndex((it) => bodyItemKey(it) === saved.key);
+                        // Only a row is kept: a run of rows not read is keyed by its side alone, and the new result's run
+                        // on that side stands for other rows — a view that rested over one starts at the top.
+                        const at = items.findIndex((it) => it.kind === "row" && bodyItemKey(it) === saved.key);
                         // The frame's scroll to the row reports where it lands.
                         heldReport = undefined;
                         anchor = { saved, phase: "settled", keeping: false, restore: at >= 0 ? { index: at, offset: saved.offset } : { index: 0, offset: 0 } };
