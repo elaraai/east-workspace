@@ -25,7 +25,10 @@
  * around the box the query holds — the tools to their chip, the history last —
  * and Undo, Redo, Discard and Save each lie inside the toolbar and take a click
  * at their centres, on the data centre and the floor of 20,000 racks, in boxes
- * from 1600px to 900px and on a phone and in a 294px parent (#1404).
+ * from 1600px to 900px and on a phone and in a 294px parent (#1404); in the
+ * frame a 1440px and a 1024px window give it, nothing else left to fold, Find's
+ * box folds to its icon, and its popover — and the View's on a phone — holds
+ * the pick and its count (ruled 26 Oct 2026, "Find folds").
  * The canvas
  * draws in the design system's tokens and its mono font, read through the
  * recipe's probe, and an item's card dot is the colour its marks draw in on the
@@ -40,7 +43,7 @@
 
 import { test, expect, type Locator } from "playwright/test";
 import { toolbarFaults } from "./builder-frame";
-import { DATA_CENTRE, HANDOVER, RECORD_INDEXES, SHAPES, cardOverlaps, collapseInspector, findAndPick, historyFaults, openSchematic, sizeTo } from "./schematic-page";
+import { DATA_CENTRE, HANDOVER, RECORD_INDEXES, SHAPES, cardOverlaps, collapseInspector, findAndPick, findShown, historyFaults, openSchematic, sizeTo } from "./schematic-page";
 import { settled } from "./settle";
 
 /** The Schematic's own fold steps, after every step of its rail and its summary's, in order — the history's, which the data centre edits, last (#1388). */
@@ -88,10 +91,13 @@ async function expectPhoneRow(root: Locator, at: string): Promise<void> {
     await expect(root.locator("[data-frame-slot='toolbar'] [data-schematic-tools], [data-frame-slot='toolbar'] [data-schematic-zoom]"), at).toHaveCount(0);
 }
 
-/** Each example a Find pick is made on, and the pick: what is typed, and the line picked, which selects the rack it finds. */
+/**
+ * Each example a Find pick is made on, and the pick: what is typed, the line picked, which selects the rack it finds,
+ * and what the box shows of it — its key, and its place among the matches.
+ */
 const PICKS = [
-    { name: "the data centre", hash: DATA_CENTRE, query: "A0", line: "A01 · Rack" },
-    { name: "the floor of 20,000 racks", hash: RECORD_INDEXES, query: "R10000", line: "R100001 · Rack" },
+    { name: "the data centre", hash: DATA_CENTRE, query: "A0", line: "A01 · Rack", shown: { value: "A01", status: "1 of 7" } },
+    { name: "the floor of 20,000 racks", hash: RECORD_INDEXES, query: "R10000", line: "R100001 · Rack", shown: { value: "R100001", status: "2 of 10" } },
 ] as const;
 
 /** A drawing's extent, in its units. */
@@ -384,6 +390,22 @@ test.describe("The Schematic's frame (#1387)", () => {
         });
     }
 
+    for (const pick of PICKS) {
+        test(`in the frame a 1440px window gives it, and then a 1024px one — narrower than every box above — after a Find pick that selects the rack it finds, its box grown to its count and the steps beside it, Undo, Redo, Discard and Save each lie inside the toolbar and take a click at their centres: nothing else left to fold, Find's box folds to its icon, whose popover holds the pick and its count, on ${pick.name} (ruled 26 Oct 2026, "Find folds")`, async ({ page }) => {
+            await page.setViewportSize({ width: 1440, height: 900 });
+            const root = await openSchematic(page, pick.hash);
+            await findAndPick(page, root, pick.query, pick.line);
+            for (const width of [1440, 1024]) {
+                await page.setViewportSize({ width, height: 900 });
+                await settled(page);
+                const at = `${pick.name} at a ${width}px window`;
+                await expect.poll(() => toolbarFaults(root), { message: at }).toEqual([]);
+                await expect.poll(() => historyFaults(root), { message: at }).toEqual([]);
+                expect(await findShown(page, root), at).toEqual({ folded: true, ...pick.shown });
+            }
+        });
+    }
+
     test("given no pane — the handover's — the frame is its toolbar, its canvas and its footer: the canvas filling the body from edge to edge between them, the tools Move among them and the history in the row (#1395)", async ({ page }) => {
         const root = await openSchematic(page, HANDOVER);
         const read = await root.evaluate((el) => {
@@ -490,14 +512,16 @@ test.describe("The Schematic's frame on a phone (#1387)", () => {
         });
 
         for (const pick of PICKS) {
-            test(`on a phone 390px wide and in a 294px parent, after a Find pick in the View that selects the rack it finds, Undo, Redo, Discard and Save each lie inside the toolbar and take a tap at their centres, on ${pick.name} (#1404, ${theme})`, async ({ page }) => {
+            test(`on a phone 390px wide and in a 294px parent, after a Find pick in the View that selects the rack it finds, Undo, Redo, Discard and Save each lie inside the toolbar and take a tap at their centres, and the View holds the pick and its count, on ${pick.name} (#1404, ruled 26 Oct 2026, "Find folds", ${theme})`, async ({ page }) => {
                 await page.setViewportSize({ width: 390, height: 844 });
                 const root = await openSchematic(page, pick.hash, theme);
                 await findAndPick(page, root, pick.query, pick.line, true);
                 await expect.poll(() => historyFaults(root), { message: `${pick.name} at 390px` }).toEqual([]);
+                expect(await findShown(page, root, true), `${pick.name} at 390px`).toEqual({ folded: true, ...pick.shown });
                 await sizeTo(page, root, 294);
                 await expect.poll(() => toolbarFaults(root), { message: `${pick.name} in a 294px parent` }).toEqual([]);
                 await expect.poll(() => historyFaults(root), { message: `${pick.name} in a 294px parent` }).toEqual([]);
+                expect(await findShown(page, root, true), `${pick.name} in a 294px parent`).toEqual({ folded: true, ...pick.shown });
             });
         }
     }

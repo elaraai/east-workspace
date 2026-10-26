@@ -395,7 +395,14 @@ component, nothing in east-ui.
   to its input in the frame after a pick — unless the viewer has moved on,
   a key pressed in a control or the focus taken elsewhere; the box folds to
   its icon, which opens it in the edit
-  popover, and keeps its form while a query is typed; `focusKeySearch` brings
+  popover — the same box, its query, its matches and its pick kept: the
+  toolbar keeps it apart from the item's forms (`keep`), each form showing it
+  where it places it — and while a query stands it keeps its form while
+  anything else in the row can fold (`foldsLast`), folding to its icon only
+  once nothing else can, so a builder's history and Save stay in the row
+  (ruled 26 Oct 2026, "Find folds"); a box that folds away holding the focus
+  gives it to the icon; while its list is open, or its popover, it keeps its
+  form whatever the width; `focusKeySearch` brings
   a host's key for it, the Sheet's ⌘F, to it in either form). A record
   rail's summary (`12 of 69 people`) folds after every step of the rail and
   before a host's own items (`SUMMARY_RANK`, ruled 18 Oct 2026, #1340). Over

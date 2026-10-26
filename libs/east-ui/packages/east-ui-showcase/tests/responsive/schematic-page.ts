@@ -12,8 +12,8 @@
  * one, its library's tabs and cards, a card picked up from it and carried onto the
  * canvas, with what the drag's ghost says, the history's Discard and Save — and
  * whether each of its buttons stays inside the toolbar and takes a click — an
- * item found by Find and picked, and the drawing's counts as the inspector says
- * them.
+ * item found by Find and picked, what Find's box shows wherever the row holds
+ * it, and the drawing's counts as the inspector says them.
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
@@ -392,7 +392,8 @@ export function historyFaults(root: Locator): Promise<string[]> {
 /**
  * Finds an item by Find and picks it, as a viewer does: its box typed into — in the row, or, where the row folds it into
  * the View, in the View's popover, closed again once the pick lands — and its line picked from the list; the rack it
- * lands on selected once the canvas draws it.
+ * lands on selected once the canvas draws it, and the box showing it by its key wherever the row then holds the box —
+ * which, where nothing else in the row can fold, folds to its icon (ruled 26 Oct 2026, "Find folds").
  *
  * @param page - The page
  * @param root - The Schematic's root
@@ -410,8 +411,8 @@ export async function findAndPick(page: Page, root: Locator, query: string, line
     await press(box);
     await box.fill(query);
     await press(page.getByRole("option", { name: line, exact: true }));
-    await expect(box).toHaveValue(line.split(" · ")[0]!);
     if (folded) {
+        await expect(box).toHaveValue(line.split(" · ")[0]!);
         await page.keyboard.press("Escape");
         await expect(view).toHaveAttribute("data-state", "closed");
     }
@@ -419,6 +420,33 @@ export async function findAndPick(page: Page, root: Locator, query: string, line
     await expect.poll(() => root.locator("[data-frame-slot='toolbar'] [data-toolbar]").getAttribute("data-toolbar-state"), { message: `${line} selected` })
         .toMatch(/(^|;)step=/u);
     await settled(page);
+    expect((await findShown(page, root, touch)).value, `Find's box shows ${line} by its key`).toBe(line.split(" · ")[0]!);
+}
+
+/**
+ * What Find's box shows — its text and its count (`1 of 7`) — wherever the row holds it: in the row, or folded to its
+ * icon, in the popover the icon opens, opened to read it and closed again (ruled 26 Oct 2026, "Find folds").
+ *
+ * @param page - The page
+ * @param root - The Schematic's root
+ * @param touch - Whether the pointer is a finger: taps, not clicks
+ * @returns Whether the box is folded to its icon, its text, and its count
+ */
+export async function findShown(page: Page, root: Locator, touch = false): Promise<{ folded: boolean; value: string; status: string }> {
+    const inRow = root.locator("[data-toolbar-item='seek'] [data-part='dataset-key-search']");
+    const read = async (box: Locator) => {
+        const status = box.locator("[role='status']");
+        return { value: await box.locator("input").inputValue(), status: await status.count() > 0 ? (await status.textContent()) ?? "" : "" };
+    };
+    if (await inRow.count() > 0) return { folded: false, ...await read(inRow) };
+    const icon = root.locator("[data-toolbar-item='seek'] [data-key-search='icon']");
+    await (touch ? icon.tap() : icon.click());
+    const box = page.locator("[data-key-search='popover'] [data-part='dataset-key-search']");
+    await expect(box.locator("input")).toBeVisible();
+    const shown = await read(box);
+    await page.keyboard.press("Escape");
+    await expect(icon).toHaveAttribute("data-state", "closed");
+    return { folded: true, ...shown };
 }
 
 /**

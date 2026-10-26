@@ -11,7 +11,8 @@
  * can move the row's width the way the browser reports it.
  */
 
-import type { ReactElement } from "react";
+import { useEffect, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -235,12 +236,13 @@ describe("the toolbar's one ladder", () => {
 
     /**
      * A search whose box folds into a View popover with the zoom, as the
-     * Schematic's Find does (#1395): held while its query is typed, it holds
-     * the View; the steps join the bundle as something is selected.
+     * Schematic's Find does (#1395): held while its query stands — folding
+     * last, as the key search does — it holds the View; the steps join the
+     * bundle as something is selected.
      */
     const searchItems = (held: boolean, steps: boolean): ToolbarItem[] => [
         { key: "zoom", forms: [form("zoom", 100), null], rank: 50, bundle: "view" },
-        { key: "seek", forms: [form("seek-box", 160), form("seek-view", 45)], rank: 50, bundle: "view", held },
+        { key: "seek", forms: [form("seek-box", 160), form("seek-view", 45)], rank: 50, bundle: "view", foldsLast: held },
         ...(steps ? [{ key: "steps", forms: [form("steps", 72), null], rank: 50, bundle: "view" }] : []),
         { key: "history", side: "end", forms: [form("history", 136)] },
     ];
@@ -272,7 +274,7 @@ describe("the toolbar's one ladder", () => {
     const schematicItems = (held: boolean, steps: boolean): ToolbarItem[] => [
         { key: "tools", forms: [form("tools", 180), form("tools-icons", 120), form("tools-chip", 60), null], rank: [10, 30, 50], bundle: [undefined, undefined, "view"] },
         { key: "zoom", forms: [form("zoom", 100), null], rank: 50, bundle: "view" },
-        { key: "seek", forms: [form("seek-box", 160), form("seek-view", 45)], rank: 50, bundle: "view", held },
+        { key: "seek", forms: [form("seek-box", 160), form("seek-view", 45)], rank: 50, bundle: "view", foldsLast: held },
         ...(steps ? [{ key: "steps", forms: [form("steps", 70), null], rank: 50, bundle: "view" }] : []),
         { key: "history", side: "end", forms: [form("history", 170), form("history-buttons", 130)] },
     ];
@@ -298,6 +300,67 @@ describe("the toolbar's one ladder", () => {
         rerenderWith(rerender, schematicItems(false, true));
         resize(300);
         expect(shown(container)).toEqual(["seek-view", "history"]);
+    });
+
+    /**
+     * The Schematic's row as its key search folds (ruled 26 Oct 2026, "Find folds"): the box folds to its icon, then into
+     * the View with the tools, the zoom and the steps — folding last while its query stands.
+     */
+    const findItems = (held: boolean, steps: boolean): ToolbarItem[] => [
+        { key: "tools", forms: [form("tools", 180), form("tools-icons", 120), form("tools-chip", 60), null], rank: [10, 30, 50], bundle: [undefined, undefined, "view"] },
+        { key: "zoom", forms: [form("zoom", 100), null], rank: 50, bundle: "view" },
+        { key: "seek", forms: [form("seek-box", 200), form("seek-icon", 40), form("seek-view", 45)], rank: [20, 50], bundle: [undefined, "view"], foldsLast: held },
+        ...(steps ? [{ key: "steps", forms: [form("steps", 70), null], rank: 50, bundle: "view" }] : []),
+        { key: "history", side: "end", forms: [form("history", 170), form("history-buttons", 130)] },
+    ];
+
+    test("an item that folds last keeps its form while anything else in the row can fold; once nothing else can, it folds on — its bundle still off, the rest unfolding as the row allows — and back no more while so marked; the history always in the row (ruled 26 Oct 2026, \"Find folds\")", () => {
+        // 180 + 100 + 200 + 170 + 30 = 680: every item at its widest.
+        const { container, rerender } = mount(findItems(false, false), 760);
+        expect(shown(container)).toEqual(["tools", "zoom", "seek-box", "history"]);
+        // A query holds the box; a pick selects, and the steps join beside it: 180 + 100 + 200 + 70 + 170 + 40 = 760.
+        rerenderWith(rerender, findItems(true, false));
+        rerenderWith(rerender, findItems(true, true));
+        expect(shown(container)).toEqual(["tools", "zoom", "seek-box", "steps", "history"]);
+        // Everything else folds first: the tools to their chip, the history to its buttons — 60 + 100 + 200 + 70 + 130 + 40 = 600.
+        resize(600);
+        expect(shown(container)).toEqual(["tools-chip", "zoom", "seek-box", "steps", "history-buttons"]);
+        // A pixel less, and nothing else can fold: the box folds to its icon, the View it holds off still off, and the
+        // row folds no further than it must around it — 120 + 100 + 40 + 70 + 170 + 40 = 540.
+        resize(599);
+        expect(shown(container)).toEqual(["tools-icons", "zoom", "seek-icon", "steps", "history"]);
+        // Held, it unfolds no more, whatever the room.
+        resize(760);
+        expect(shown(container)).toEqual(["tools", "zoom", "seek-icon", "steps", "history"]);
+        // Narrower than its icon and every other step allow: into the View, with the tools, the zoom and the steps.
+        resize(300);
+        expect(shown(container)).toEqual(["seek-view", "history"]);
+        // The query cleared, it folds with the rest again: with room, the box.
+        rerenderWith(rerender, findItems(false, true));
+        resize(760);
+        expect(shown(container)).toEqual(["tools", "zoom", "seek-box", "steps", "history"]);
+    });
+
+    test("what an item keeps is drawn once whatever form it takes, in no place of the row, and outlives every fold", () => {
+        const stage = document.createElement("div");
+        let mounts = 0;
+        function Kept() {
+            useEffect(() => { mounts += 1; }, []);
+            return <span data-kept="">kept</span>;
+        }
+        const list: ToolbarItem[] = [
+            { key: "box", forms: [form("box", 300), form("icon", 40)], rank: 1, keep: createPortal(<Kept />, stage) },
+            { key: "history", side: "end", forms: [form("history", 100)] },
+        ];
+        const { container } = mount(list, 620);
+        expect(shown(container)).toEqual(["box", "history"]);
+        resize(200);
+        expect(shown(container)).toEqual(["icon", "history"]);
+        resize(620);
+        expect(shown(container)).toEqual(["box", "history"]);
+        expect(mounts).toBe(1);
+        expect(stage.querySelectorAll("[data-kept]").length).toBe(1);
+        expect(container.querySelector("[data-kept]")).toBeNull();
     });
 
     test("an empty form hides the item, and takes no gap", () => {
