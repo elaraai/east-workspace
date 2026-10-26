@@ -30,7 +30,10 @@
  * does — until the window lands (#1398, CL2). The canvas's own paint, read
  * through its 2D context, draws the density in the theme's heat steps and
  * nothing past the racks, and each rack's dot in its load's status token, in
- * both themes (#1395).
+ * both themes (#1395); and with a hall chosen on the rail, fitted, its 2,000
+ * racks drawn as dots packed a metre or two apart paint their status colours,
+ * the dots' paper never a block over them, and the hall's eyebrow stands over
+ * them, its words on their knockout (ruled 26 Oct 2026, "Legible dots").
  *
  * Every wait is a poll on the page's state, never a fixed pause; nothing reads
  * a screenshot.
@@ -41,6 +44,7 @@
 
 import { test, expect, type Locator } from "playwright/test";
 import { e3Requests, heldE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
+import { recordField } from "./record-slice";
 import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, screenPoint, sizeTo, viewOf, zoomInto, type WorldBox } from "./schematic-page";
 import { settled } from "./settle";
 
@@ -128,6 +132,44 @@ function token(root: Locator, name: string): Promise<number[]> {
         ink.fillRect(0, 0, 1, 1);
         return [...ink.getImageData(0, 0, 1, 1).data];
     }, name);
+}
+
+/** A box of the canvas to read: a box of the drawing, or a box in screen px about a point of it. */
+type PaintedBox =
+    | { readonly world: WorldBox }
+    | { readonly point: { readonly x: number; readonly y: number }; readonly px: { readonly left: number; readonly top: number; readonly right: number; readonly bottom: number } };
+
+/**
+ * Every pixel of the canvas's own paint over a box, read through its 2D context — sRGBA channels as the page painted
+ * them, never a screenshot.
+ */
+function paintedOver(root: Locator, over: PaintedBox): Promise<number[][]> {
+    return root.evaluate((el, read) => {
+        const host = el.querySelector<HTMLElement>("[data-schematic-canvas]")!;
+        const paint = host.querySelector<HTMLCanvasElement>(":scope > canvas")!;
+        const layer = host.querySelector<HTMLElement>("[style*='--cam-ppu']")!;
+        const box = layer.getBoundingClientRect(), at = paint.getBoundingClientRect();
+        const ppu = Number(layer.style.getPropertyValue("--cam-ppu"));
+        const sx = (wx: number) => box.left + parseFloat(layer.style.getPropertyValue("--cam-tx")) + wx * ppu;
+        const sy = (wy: number) => box.top + parseFloat(layer.style.getPropertyValue("--cam-ty")) + wy * ppu;
+        const [left, top, right, bottom] = "world" in read
+            ? [sx(read.world.minX), sy(read.world.minY), sx(read.world.maxX), sy(read.world.maxY)]
+            : [sx(read.point.x) + read.px.left, sy(read.point.y) + read.px.top, sx(read.point.x) + read.px.right, sy(read.point.y) + read.px.bottom];
+        const x0 = Math.floor(((left - at.left) * paint.width) / at.width), x1 = Math.floor(((right - at.left) * paint.width) / at.width);
+        const y0 = Math.floor(((top - at.top) * paint.height) / at.height), y1 = Math.floor(((bottom - at.top) * paint.height) / at.height);
+        const data = paint.getContext("2d")!.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+        const pixels: number[][] = [];
+        for (let i = 0; i < data.length; i += 4) pixels.push([data[i]!, data[i + 1]!, data[i + 2]!, data[i + 3]!]);
+        return pixels;
+    }, over);
+}
+
+/** How far a colour lies from every blend of two, in sRGB channels: 0 for either of them or any mix of the two. */
+function offBlend(colour: readonly number[], a: readonly number[], b: readonly number[]): number {
+    const step = [0, 1, 2].map((i) => b[i]! - a[i]!);
+    const length = step.reduce((sum, d) => sum + d * d, 0);
+    const t = length === 0 ? 0 : Math.max(0, Math.min(1, [0, 1, 2].reduce((sum, i) => sum + (colour[i]! - a[i]!) * step[i]!, 0) / length));
+    return Math.hypot(...[0, 1, 2].map((i) => colour[i]! - (a[i]! + t * step[i]!)));
 }
 
 /** What passes an edge: the density's words past the rail's inner box, the rail past the frame's, or the page wider than the window. */
@@ -373,6 +415,36 @@ test.describe("What the canvas paints, read through its 2D context (#1395)", () 
             await expect.poll(() => painted(root, 3.3, 3.6), "R100000's dot, OK").toEqual(await token(root, "--chakra-colors-status-pos"));
             expect(await painted(root, 5.4, 3.6), "R100003's dot, hot").toEqual(await token(root, "--chakra-colors-status-neg"));
             expect(await painted(root, 7.5, 3.6), "R100006's dot, warm").toEqual(await token(root, "--chakra-colors-status-warn"));
+        });
+
+        test(`a hall chosen on the rail, fitted — 2,000 of the 20,000 racks, each a dot, packed a metre or two apart — paints its racks' status colours, the dots' paper never a block over them, and the hall's eyebrow over them, its words on their knockout (ruled 26 Oct 2026, "Legible dots", ${theme})`, async ({ page }) => {
+            await page.setViewportSize({ width: 1440, height: 900 });
+            const root = await openSchematic(page, RECORD_INDEXES, theme);
+            const hall = await recordField(page, root, "hall", "racks");
+            await hall.getByRole("button", { name: /^Hall 2/ }).first().click();
+            await page.keyboard.press("Escape");
+            await expect(page.getByRole("dialog")).toHaveCount(0);
+            await settled(page);
+            // Fewer racks in view than the density takes over at (5,000): each drawn as a dot, at Fit's zoom.
+            await expect(notice(root)).toHaveCount(0);
+            await expect(root.locator("[data-schematic-canvas]")).toHaveAttribute("data-lod", "dot");
+            const [paper, ok, warm, hot, ground, ink] = await Promise.all(["--chakra-colors-bg-surface", "--chakra-colors-status-pos", "--chakra-colors-status-warn",
+                "--chakra-colors-status-neg", "--chakra-colors-bg-canvas", "--chakra-colors-fg-muted"].map((name) => token(root, name)));
+            const same = (a: readonly number[], b: readonly number[]) => a.every((channel, i) => channel === b[i]);
+            // Hall 2's racks — rows of 100 racks 0.7 m apart, a row each 2.4 m, 79.3 to 148.6 m along and 3.6 to 49.2 m
+            // down — read inside the box their dots' centres span: their status colours, OK, warm and hot, and the dots'
+            // paper, which rings each dot, only between them, never merged into a block over them.
+            const racks = await paintedOver(root, { world: { minX: 80.0, minY: 4.0, maxX: 148.0, maxY: 49.0 } });
+            const share = (pick: (pixel: readonly number[]) => boolean) => racks.filter(pick).length / racks.length;
+            expect(racks.length, "Hall 2's racks' pixels").toBeGreaterThan(5_000);
+            expect(share((pixel) => same(pixel, paper!)), "the share in the dots' paper").toBeLessThan(0.05);
+            expect(share((pixel) => [ok!, warm!, hot!].some((colour) => same(pixel, colour))), "the share in the racks' status colours").toBeGreaterThan(0.75);
+            // Hall 2's eyebrow, over the racks of its front rows: inside its knockout, from just in from its top-left, its
+            // ground and its words' ink alone — and the blends between them — never a dot's paper or a dot's colour.
+            const eyebrow = await paintedOver(root, { point: { x: 78.0, y: 2.0 }, px: { left: 7, top: -6, right: 33, bottom: 4 } });
+            const over = eyebrow.filter((pixel) => offBlend(pixel, ground!, ink!) > 3);
+            expect(eyebrow.length, "the eyebrow's pixels").toBeGreaterThan(200);
+            expect(over.length, `pixels of the eyebrow neither its ground nor its words: ${JSON.stringify(over.slice(0, 4))}`).toBe(0);
         });
     }
 });

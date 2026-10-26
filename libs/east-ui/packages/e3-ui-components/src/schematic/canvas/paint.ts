@@ -416,10 +416,10 @@ function batchDot(batch: DotBatch, style: string, width: number, alpha: number, 
 
 /**
  * Fills or strokes each look's dots as one path, every dot a circle of
- * {@link MARKER_DOT_RADIUS} about its centre: a draw a look, whatever the
- * number of dots. The caller saves and restores the context about it.
+ * `radius` about its centre: a draw a look, whatever the number of dots. The
+ * caller saves and restores the context about it.
  */
-function paintDots(ctx: CanvasRenderingContext2D, batch: DotBatch, op: "fill" | "stroke"): void {
+function paintDots(ctx: CanvasRenderingContext2D, batch: DotBatch, op: "fill" | "stroke", radius: number): void {
     for (const [style, widths] of batch) {
         for (const [width, alphas] of widths) {
             for (const [alpha, centres] of alphas) {
@@ -429,8 +429,8 @@ function paintDots(ctx: CanvasRenderingContext2D, batch: DotBatch, op: "fill" | 
                 ctx.beginPath();
                 for (let i = 0; i < centres.length; i += 2) {
                     const x = centres[i]!, y = centres[i + 1]!;
-                    ctx.moveTo(x + MARKER_DOT_RADIUS, y);
-                    ctx.arc(x, y, MARKER_DOT_RADIUS, 0, Math.PI * 2);
+                    ctx.moveTo(x + radius, y);
+                    ctx.arc(x, y, radius, 0, Math.PI * 2);
                 }
                 if (op === "fill") ctx.fill();
                 else ctx.stroke();
@@ -438,6 +438,18 @@ function paintDots(ctx: CanvasRenderingContext2D, batch: DotBatch, op: "fill" | 
         }
     }
 }
+
+/** The width of a filled dot's ring of paper, in px: it rings the dot from half of it inside its edge to half outside. */
+const DOT_PAPER_PX = 1.5;
+
+/** The width of an open dot's ring — a status drawn as a ring — in px. */
+const DOT_RING_PX = 2;
+
+/**
+ * The radius of a filled dot's colour, in px: what its ring of paper leaves of it, so a dot drawn on its own is
+ * its colour within its ring as it ever was, whichever is drawn first.
+ */
+export const DOT_COLOUR_RADIUS = MARKER_DOT_RADIUS - DOT_PAPER_PX / 2;
 
 /** Links hide their mid-path label below this zoom (px per world unit) —
  *  aligned with the item labelled-pin band. */
@@ -600,6 +612,8 @@ export function paintSchematic(input: PaintInput): void {
     }
 
     // ---- zones: rect outline / hatch + polyline / polygon geometry ----------
+    // Each zone's eyebrow is drawn after the dots, over them (`eyebrows`): a hall its racks pack keeps its name.
+    const eyebrows: { readonly x: number; readonly y: number; readonly label: string; readonly alpha: number }[] = [];
     for (const zone of value.zones) {
         if (layerHidden(zone.key)) continue;   // zone in a hidden layer
         const geom = getSomeorUndefined(zone.geometry);
@@ -764,17 +778,8 @@ export function paintSchematic(input: PaintInput): void {
             ctx.restore();
         }
 
-        // eyebrow label at the bbox top-left (the minimap's anchor), in the mono face
-        if (w >= zone.label.length * 6.2 + 24) {
-            ctx.font = p.eyebrowFont;
-            const label = zone.label.toUpperCase();
-            const tw = ctx.measureText(label).width;
-            ctx.fillStyle = css(p.bgCanvas);
-            ctx.fillRect(x + 6, y - 7, tw + 6, 12);
-            ctx.fillStyle = css(p.fgMuted);
-            ctx.textBaseline = "middle";
-            ctx.fillText(label, x + 9, y);
-        }
+        // Its eyebrow at the bbox top-left (the minimap's anchor), where it has room: drawn over the dots, below.
+        if (w >= zone.label.length * 6.2 + 24) eyebrows.push({ x, y, label: zone.label.toUpperCase(), alpha: za });
         ctx.restore();
     }
 
@@ -1105,14 +1110,17 @@ export function paintSchematic(input: PaintInput): void {
     }
 
     // ---- item LOD markers: dots + labelled pins (cards are DOM) --------------
-    // The dots draw in batches (#1393): the fills of every dot not selected, one path a look — its style and its alpha —
-    // then their rings so, never a save, a fill and a stroke a dot, as thousands land at the dots' zoom. A dot's ring is
-    // the paper it stands on, so every ring draws over every fill, a neighbour's among them. A pin draws on its own, its
-    // save and restore keeping its fade and its font from the next; and what is selected draws last, over its
-    // neighbours, each on its own: the declutter keeps every other pin clear of every mark, but a selected item takes
-    // its form whatever it covers. The marker a card's drop lands on draws on its own too, its ring about it.
-    // Its tint — its status unread (#1398), the placeholders' fill; drained as context, the muted ink — each colour's
-    // words made once a frame.
+    // The dots not selected draw in batches (#1393), one path a look — its style, its line's width and its alpha — never
+    // a save, a fill and a stroke a dot, as thousands land at the dots' zoom: first every dot's paper — a filled dot's
+    // ring of it, an open dot's inside — then every dot's colour — a filled dot's, within its ring, and an open dot's
+    // ring — so no dot's paper covers a neighbour's colour (ruled 26 Oct 2026, "Legible dots"). Dots packed closer than
+    // their paper reaches — a hall's racks at Fit, a metre or two apart — read as their colours, the paper showing only
+    // between them, never merging into a block of it; a dot on its own draws as it ever did. Then each zone's eyebrow,
+    // over the dots, so a hall they pack keeps its name. A pin draws on its own, its save and restore keeping its fade
+    // and its font from the next; and what is selected draws last, over its neighbours, each on its own: the declutter
+    // keeps every other pin clear of every mark, but a selected item takes its form whatever it covers. The marker a
+    // card's drop lands on draws on its own too, its ring about it. Its tint — its status unread (#1398), the
+    // placeholders' fill; drained as context, the muted ink — each colour's words made once a frame.
     const surface = css(p.bgSurface), placeholder = css(p.bgSubtle), muted = css(p.fgMuted);
     const colours = new Map<RGB, string>();
     const markerTint = (item: DrawnItem, unread: boolean): string => {
@@ -1124,7 +1132,8 @@ export function paintSchematic(input: PaintInput): void {
         if (words === undefined) colours.set(own, words = css(own));
         return words;
     };
-    const dotFills: DotBatch = new Map(), dotRings: DotBatch = new Map();
+    // Every dot's paper — its inside, or its ring — and every dot's colour — its own, within its ring, or its ring.
+    const paperInsides: DotBatch = new Map(), paperRings: DotBatch = new Map(), colourFills: DotBatch = new Map(), colourRings: DotBatch = new Map();
     const alone: DrawnItem[] = [];
     for (const item of visibleItems) {
         const tier = tiers.get(item.key) ?? "dot";
@@ -1134,17 +1143,38 @@ export function paintSchematic(input: PaintInput): void {
         const unread = statusUnread(item);
         if (unread && !placeholders) continue;
         const tint = markerTint(item, unread);
-        // A ring status — a tentative one — is an open ring in its tone; any other a filled dot.
+        // A ring status — a tentative one — is an open ring in its tone, the paper inside it; any other a filled dot, ringed
+        // in the paper.
         const ring = statusRing(item.status);
         const alpha = alphaOf(item.key);
         const x = wx(item.x), y = wy(item.y);
-        batchDot(dotFills, ring ? surface : tint, 0, alpha, x, y);
-        batchDot(dotRings, ring ? tint : surface, ring ? 2 : 1.5, alpha, x, y);
+        if (ring) {
+            batchDot(paperInsides, surface, 0, alpha, x, y);
+            batchDot(colourRings, tint, DOT_RING_PX, alpha, x, y);
+        } else {
+            batchDot(paperRings, surface, DOT_PAPER_PX, alpha, x, y);
+            batchDot(colourFills, tint, 0, alpha, x, y);
+        }
     }
     ctx.save();
-    paintDots(ctx, dotFills, "fill");
-    paintDots(ctx, dotRings, "stroke");
+    paintDots(ctx, paperInsides, "fill", MARKER_DOT_RADIUS);
+    paintDots(ctx, paperRings, "stroke", MARKER_DOT_RADIUS);
+    paintDots(ctx, colourFills, "fill", DOT_COLOUR_RADIUS);
+    paintDots(ctx, colourRings, "stroke", MARKER_DOT_RADIUS);
     ctx.restore();
+    // Each zone's eyebrow, over the dots, in the mono face: its words in the third ink on the canvas's paper.
+    for (const brow of eyebrows) {
+        ctx.save();
+        ctx.globalAlpha = brow.alpha;
+        ctx.font = p.eyebrowFont;
+        const tw = ctx.measureText(brow.label).width;
+        ctx.fillStyle = css(p.bgCanvas);
+        ctx.fillRect(brow.x + 6, brow.y - 7, tw + 6, 12);
+        ctx.fillStyle = muted;
+        ctx.textBaseline = "middle";
+        ctx.fillText(brow.label, brow.x + 9, brow.y);
+        ctx.restore();
+    }
     const marked = selected.size === 0 ? alone
         : [...alone.filter((item) => !selected.has(item.key)), ...alone.filter((item) => selected.has(item.key))];
     for (const item of marked) {
@@ -1165,7 +1195,7 @@ export function paintSchematic(input: PaintInput): void {
                 // A ring status — a tentative one — is an open ring in its tone; any other a filled dot.
                 ctx.fillStyle = ring ? surface : tint;
                 ctx.fill();
-                ctx.lineWidth = ring ? 2 : 1.5;
+                ctx.lineWidth = ring ? DOT_RING_PX : DOT_PAPER_PX;
                 ctx.strokeStyle = ring ? tint : surface;
                 ctx.stroke();
             }
