@@ -5,7 +5,7 @@
 
 /**
  * A period builder's view — the page's own (#1398): the Calendar's layout,
- * period and date, and the Roster's week. Each is held
+ * period and date, the Roster's week and the Allocation's day. Each is held
  * for as long as the page's UI store holds what the builder keeps beside it —
  * the window it writes into its sources — so a step moves the two together and
  * every render reads them together. Storage keeps the view the viewer left
@@ -18,8 +18,8 @@
  * Calendar's window then put its date back at the window's first day, and its
  * timeline, centred there, re-centred a window back, writing a date the other
  * page heard in turn: a board stepped on in one tab ran back a window at a
- * time in both. The Roster's week moved under the viewer, with what the
- * toolbar's Publish and the history act on.
+ * time in both. The Roster's week and the Allocation's day moved under the
+ * viewer, with what the toolbar's Publish and the history act on.
  *
  * @packageDocumentation
  */

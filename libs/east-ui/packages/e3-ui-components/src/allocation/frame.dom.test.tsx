@@ -9,12 +9,16 @@
  * (#1398) — over the kiln yard's own records: its bins, and its days, whose
  * row says a day's status. A day not read yet draws at once with its
  * placeholders, under no cover; a day whose read failed says so once; and a
- * started day with no bins says so once, after its read (#1398).
+ * started day with no bins says so once, after its read (#1398). The day is the
+ * page's own (#1398): another page keeping a view moves neither it nor the
+ * window it writes into its source, and a reload opens on the view kept last.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, equalFor, none, printFor, variant } from "@elaraai/east";
-import { editingMessages } from "@elaraai/east-ui-components";
+import { DateTimeType, decodeBeast2For, equalFor, none, printFor, variant } from "@elaraai/east";
+import { RecordSliceStateType } from "@elaraai/east-ui/internal";
+import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
+import { getStore } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { issueSummary } from "./toolbar.js";
@@ -289,5 +293,47 @@ describe("the board's frame", () => {
             count: 3, label: "3 issues", tip: "2 overlaps · 1 over max · show them", aria: "3 issues, show them",
         });
         expect(issueSummary([issue("under", "warning")]).tip).toBe("1 under min · warnings only, Save still works · show them");
+    });
+});
+
+/** The view the board keeps for a reload, as storage holds it: its key, and what it keeps. */
+function keptView(): { key: string; view: { layout: string; date: number } } {
+    const key = Object.keys(localStorage).find(name => name.endsWith(".view"))!;
+    return { key, view: JSON.parse(localStorage.getItem(key)!) as { layout: string; date: number } };
+}
+const printState = printFor(RecordSliceStateType);
+const decodeState = decodeBeast2For(RecordSliceStateType);
+/** The bins' source as the page's store holds it: the window the board writes into it, beside its narrowing. */
+const binSource = () => printState(decodeState(getStore().read("ex.allocationKilnYard.bin")!));
+/** A day, in ms. */
+const DAY_MS = 86_400_000;
+/** How many reads the board has asked of e3: of a record or a dataset, whole, by its pages, its keys or its runs. */
+const readsAsked = () => h.requests().filter(request => READS.has(request.kind) || request.kind === "read").length;
+
+describe("the day is the page's own (#1398)", () => {
+    test("another page keeping a view — a second tab on the same board — moves neither this page's day nor the window it writes into its source, and reads nothing for it; a reload opens on the view kept last", async () => {
+        const { container, unmount } = await h.mount(ex.allocationKilnYard);
+        // A step keeps the view for a reload: the day after, its window written into the bins' source.
+        await key(container, "]");
+        const before = { day: shownDay(container), source: binSource() };
+        const { key: kept, view } = keptView();
+        expect(view.date).toBe(before.day);
+        // Another page keeps a view three days on, and this page hears it as a browser tells it.
+        const theirs = JSON.stringify({ ...view, date: view.date + 3 * DAY_MS });
+        const reads = readsAsked();
+        await act(async () => {
+            const was = localStorage.getItem(kept);
+            localStorage.setItem(kept, theirs);
+            window.dispatchEvent(new StorageEvent("storage", { key: kept, oldValue: was, newValue: theirs, storageArea: localStorage }));
+        });
+        await settle();
+        expect({ day: shownDay(container), source: binSource() }).toEqual(before);
+        expect(readsAsked(), "nothing read for it").toBe(reads);
+        expect(localStorage.getItem(kept), "nothing written back over it").toBe(theirs);
+        // A reload — a page of its own — opens on the view kept last.
+        unmount();
+        StateRuntime.initializeStore(new UIStore());
+        const reloaded = await h.mount(ex.allocationKilnYard);
+        expect(shownDay(reloaded.container)).toBe(view.date + 3 * DAY_MS);
     });
 });
