@@ -135,6 +135,13 @@ export interface PlanNarrowProps {
      *  tab counts, and a top-level section's member count, then cover only the
      *  loaded windows (`spansWindows`, #822). */
     partial: boolean | undefined;
+    /**
+     * A paged source's own count, once a completed read says it (#1398, CL13):
+     * what the Rows tab counts, as the rail counts the source — never the rows
+     * read so far. `undefined` on an inline canvas, and while the count is not
+     * known — or is a new narrowing's, the last narrowing's rows standing in.
+     */
+    pagedCount?: number | undefined;
     /** A bounded frame — the list scrolls inside it. */
     fill: boolean;
     /** Windows whose read failed (#811) — a card each, with a Retry. */
@@ -181,7 +188,7 @@ function PendingTail({ tail, watch, onLoadMore, styles }: {
 /** The narrow shell: tabs · ruler · card list. */
 export function PlanNarrow({
     styles, index, derived, view, dense, storageKey,
-    expandBody, expandGutterBody, canExpand, partial, fill,
+    expandBody, expandGutterBody, canExpand, partial, pagedCount, fill,
     failures, onRetry, paging, marks, noun,
 }: PlanNarrowProps) {
     const scale = usePlanScale();
@@ -520,13 +527,15 @@ export function PlanNarrow({
     // no fill, the mono eyebrow grammar, the hairline baseline the active
     // underline overlaps — so the strip cannot drift from the spec by
     // re-declaring it, and brings Zag's keyboard and tabpanels (#819).
-    // Counts ride each label as plain numerals (never a tinted pill); a paged
-    // prefix marks them `~`.
+    // Counts ride each label as plain numerals (never a tinted pill). Over a paged source the Rows tab counts what the
+    // source does, once its count is read — the rail's count, never the rows read so far — and a count that covers only
+    // what has landed is `…` (#1398, CL13).
     const rowCount = allDataRows(index).length;
-    const tabs: Array<{ key: NarrowTab; label: string; count: number }> = [
-        ...(hasGroups ? [{ key: "groups" as const, label: words.m.tabGroups(), count: rootGroups.length }] : []),
-        { key: "rows" as const, label: words.m.tabRows(), count: rowCount },
-        ...(hasMeasures ? [{ key: "measures" as const, label: words.m.tabMeasures(), count: chartRows.length }] : []),
+    const tabs: Array<{ key: NarrowTab; label: string; count: number; known: boolean }> = [
+        ...(hasGroups ? [{ key: "groups" as const, label: words.m.tabGroups(), count: rootGroups.length, known: true }] : []),
+        pagedCount !== undefined ? { key: "rows" as const, label: words.m.tabRows(), count: pagedCount, known: true }
+            : { key: "rows" as const, label: words.m.tabRows(), count: rowCount, known: partial !== true },
+        ...(hasMeasures ? [{ key: "measures" as const, label: words.m.tabMeasures(), count: chartRows.length, known: partial !== true }] : []),
     ];
 
     return (
@@ -539,7 +548,7 @@ export function PlanNarrow({
                             {t.label}
                             {/* "…" while it counts only what has landed: never a count the read has not finished (#1398, CL13). */}
                             <Box as="span" css={styles.narrowTabCount} data-plan-tabcount={t.count}>
-                                {partial === true && t.key !== "groups" ? "…" : words.m.tabCount({ n: t.count, count: words.number(t.count) })}
+                                {t.known ? words.m.tabCount({ n: t.count, count: words.number(t.count) }) : "…"}
                             </Box>
                         </Tabs.Trigger>
                     ))}

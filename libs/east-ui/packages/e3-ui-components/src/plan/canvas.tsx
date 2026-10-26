@@ -1399,6 +1399,9 @@ export function usePlanCanvas({
                     dense={dense} storageKey={storageKey}
                     expandBody={expandBody} expandGutterBody={expandGutterBody}
                     canExpand={canExpand} partial={partial} fill={frameFills}
+                    // The Rows tab counts what a paged source does once it has counted itself — the rail's count — and
+                    // waits while a new narrowing's rows are read, the last one's standing in (#1398, CL13).
+                    pagedCount={paged && !paging.replacing ? paging.total : undefined}
                     failures={paging.failures} onRetry={controller.retry}
                     paging={narrowPaging} marks={marks} noun={rowsNoun}
                 />
