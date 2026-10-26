@@ -42,6 +42,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import type { PrintJob, PrintPress } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
+import { width } from "../../e3-web-mount.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
@@ -454,6 +455,31 @@ describe("a bounded view of the narrowed presses (#1344)", () => {
         await waitFor(() => expect(loadingLine(c)).toBe("Loading presses 1,201–2,000"));
         await act(async () => { windows.release(); });
         await settle();
+    });
+
+    test("what the canvas's view waited for goes with it as the Plan narrows: the narrow list waits on what it reads alone, so once the window lands the line is idle and main no longer busy (#1398, CL3)", async () => {
+        const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
+        await settle();
+        const main = slot(c, "main")!;
+        // Far down among presses not read, their windows held: the view rests over the run that stands for them, and waits.
+        const windows = h.e3.hold((request) => request.dataset === PRESSES && request.kind === "page");
+        await scrollAndSettle(c, 1500 * ROW_PX);
+        await windows.holding;
+        expect(main.getAttribute("aria-busy")).toBe("true");
+        // The Plan's box narrowed to a phone's, as a resize does: the narrow list in the canvas's place.
+        const realRect = Element.prototype.getBoundingClientRect;
+        vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+            return this.hasAttribute("data-plan-body")
+                ? { x: 0, y: 0, top: 0, left: 0, right: 360, bottom: VIEWPORT, width: 360, height: VIEWPORT, toJSON() {} } as DOMRect
+                : realRect.call(this);
+        });
+        await width(360);
+        expect(body(c).hasAttribute("data-plan-narrow")).toBe(true);
+        // The windows land: nothing the list shows is read any longer — the line idle, main not busy.
+        await act(async () => { windows.release(); });
+        await settle();
+        await waitFor(() => expect(main.getAttribute("aria-busy")).not.toBe("true"), { timeout: 10_000 });
+        expect(slot(c, "footer")!.querySelector("[data-footer-line]")!.hasAttribute("data-idle")).toBe(true);
     });
 
     test("the press at its top keeps its place by its key where the hall chosen holds it — the press and the px into it — and the view starts at the top where it does not", async () => {

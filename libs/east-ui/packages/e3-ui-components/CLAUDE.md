@@ -1436,7 +1436,11 @@ shows and then its rows' cells are one wait: what the view showed at its last re
 that is not read yet — a run on its way, rows whose cells have not landed — keeps
 the line and main busy between the two reads (the canvas's `viewAwaits`), which
 the cells are asked only once the view has said which rows it shows, so the
-reveal clock never sees two waits each too short to say.
+reveal clock never sees two waits each too short to say. That wait is the
+canvas's view's alone: below 480px the narrow list, which reports no range,
+waits on what it reads as the driver and the cells' reader say it, and what the
+canvas last waited for goes as the Plan narrows — kept, nothing would report it
+over again, and the line would say a read none is making.
 
 ## See also
 

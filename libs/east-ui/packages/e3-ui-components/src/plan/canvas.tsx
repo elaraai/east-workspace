@@ -574,6 +574,12 @@ export function usePlanCanvas({
         const resource = row.id.value.path[0]!;
         return row.id.value.series.startsWith(`${pagedSlot}.`) && !drawnResources.has(resource);
     }), [drawnResources, pagedSlot]);
+    // The canvas body: the ribbons' positioning parent, the keyboard surface,
+    // and what the narrow layout measures (§10, #570 — below the adaptive
+    // contract's compact width the Plan is a review tool, cards and tabs; the
+    // signal is the CONTAINER the body renders in, never the viewport).
+    const focusBodyRef = useRef<HTMLDivElement | null>(null);
+    const narrow = useContainerBelow(focusBodyRef, PLAN_NARROW_BELOW);
     // What the view shows at rest that is not read yet, as its last report at rest said it (#1398, CL3): a run whose
     // windows are on their way, or rows whose cells have not landed — what it still waits for once a window has landed and
     // before the cells its rows are drawn from are asked, which they are only once the view has said which rows it shows.
@@ -594,7 +600,16 @@ export function usePlanCanvas({
         // Cells landing draw the rows in view: what they were waited for.
         awaitInView(awaited.current.run, unread !== undefined && rowsInView.current.some(unread));
     }, [unread, awaitInView]);
-    const awaits = viewAwaits.run || viewAwaits.cells;
+    // The canvas's view's alone: the narrow list reports no range, and waits on what it reads as the driver and the cells'
+    // reader say it (`waits`, `cellsReading`). What the canvas's view waited for at its last report goes as the Plan
+    // narrows — kept, nothing would ever report it over again, and the line would say a read none is making — and the
+    // canvas, drawn again, reports afresh what its view shows.
+    useEffect(() => {
+        if (!narrow) return;
+        rowsInView.current = NO_ROWS_IN_VIEW;
+        awaitInView(false, false);
+    }, [narrow, awaitInView]);
+    const awaits = !narrow && (viewAwaits.run || viewAwaits.cells);
     const transport = useMemo<PlanTransport | undefined>(() => {
         if (!paged) return undefined;
         const failed = failures[0];
@@ -677,12 +692,6 @@ export function usePlanCanvas({
     const hasRootGroup = useMemo(() => index.roots.some((r) => r.kind.type === "group"), [index]);
 
     // ── The frame ─────────────────────────────────────────────────────────
-    // The canvas body: the ribbons' positioning parent, the keyboard surface,
-    // and what the narrow layout measures (§10, #570 — below the adaptive
-    // contract's compact width the Plan is a review tool, cards and tabs; the
-    // signal is the CONTAINER the body renders in, never the viewport).
-    const focusBodyRef = useRef<HTMLDivElement | null>(null);
-    const narrow = useContainerBelow(focusBodyRef, PLAN_NARROW_BELOW);
     // The virtualizer's scroll viewport and the sticky chrome inside it —
     // what the R2 clamp measures, watched rather than measured once (#812).
     const scrollElRef = useRef<HTMLDivElement | null>(null);
