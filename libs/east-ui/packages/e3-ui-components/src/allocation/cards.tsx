@@ -32,6 +32,7 @@ import { LoadingFailedLine, PlaceholderShape, VirtualRows, formatDatePattern, us
 import type { PeriodRead } from "../shared/loading.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { remainderOf, splitOf } from "./actions.js";
+import { useBinFocusTarget } from "./bin-focus.js";
 import { arrivalChoices, type ChoiceWords } from "./choices.js";
 import { binCode, matesOf, type InspectorWords, type Mate } from "./inspector-model.js";
 import { NarrowedEmpty } from "./narrowed.js";
@@ -203,13 +204,15 @@ function ResourceBin({ props, words, resource, mate, row, open, setOpen }: {
     const selected = props.selection?.type === "bin" && props.selection.id === mate.id;
     const reserved = bin.arrival.type === "none";
     const name = context.resources.get(resource)?.label ?? resource;
+    // Its head takes the keyboard a pick in Search Records gives the bin (#1398).
+    const given = useBinFocusTarget<HTMLButtonElement>(mate.id);
     const move = row === undefined ? null : <ChoiceCell props={props} row={row} side="resource" part={resource} words={words.choice}
         open={open?.row === row.key && openKey(open.side, open.part) === openKey("resource", resource)} setOpen={setOpen}
         trigger={() => <Button size="xs" variant="outline" title={reserved ? `Move the reservation to another ${one(nouns.resource)}` : `Move the ${mate.quantity} on ${name} to another ${one(nouns.resource)}`}>Move</Button>} />;
     const split = reserved || splitOf(bin, resource) === undefined ? null : <SplitPopover id={mate.id} bin={bin} from={resource} context={context} plan={plan} commands={commands}
         fit={props.fit} words={words.inspector} shown={props.visibleResources} trigger={label => <Button size="xs" variant="outline" title={label} data-allocation-split-open="">Split…</Button>} />;
     return <Box css={styles.agendaBin} data-allocation-card-bin={mate.id} data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined}>
-        <chakra.button type="button" css={styles.agendaBinHead} title={mate.tip} aria-pressed={selected} onClick={() => props.select({ type: "bin", id: mate.id })}>
+        <chakra.button ref={given} type="button" css={styles.agendaBinHead} title={mate.tip} aria-pressed={selected} onClick={() => props.select({ type: "bin", id: mate.id })}>
             <span>{mate.time} · {mate.lane}</span><span>{mate.code}</span><span>{mate.quantity}</span>
         </chakra.button>
         {props.editable && <Box css={styles.agendaActions}>
@@ -347,6 +350,8 @@ function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; word
     const check = parts.some(part => { const l = props.lines.get(part.key); return l !== undefined && (l.over || l.overlap); });
     const status = rowStatus(row.kind, parts.length > 0, check, draft);
     const selected = props.selection !== undefined && ownRow(props.selection, row);
+    // A bin's card's head takes the keyboard a pick in Search Records gives the bin (#1398).
+    const given = useBinFocusTarget<HTMLButtonElement>(row.bin);
     const lane = words.choice.lane(row.lane), time = formatDatePattern("HH:mm", row.at);
     const nameOf = (key: string) => context.resources.get(key)?.label ?? key;
     const code = bin === undefined ? undefined : binCode(context, bin);
@@ -360,7 +365,7 @@ function RowCard({ props, words, row, open, setOpen }: { props: CardsProps; word
         open={open?.row === row.key && openKey(open.side, open.part) === openKey(side, part)} setOpen={setOpen}
         trigger={() => <Button size="xs" variant="outline" title={title}>{label}</Button>} />;
     return <Box css={styles.agendaCard} data-allocation-row-card={row.key} data-kind={row.kind} data-draft={draft ? "" : undefined} data-selected={selected ? "" : undefined}>
-        <chakra.button type="button" css={styles.agendaCardHead} aria-pressed={selected}
+        <chakra.button ref={given} type="button" css={styles.agendaCardHead} aria-pressed={selected}
             onClick={() => props.select(row.bin !== undefined ? { type: "bin", id: row.bin } : { type: "slot", lane: row.lane, at: row.slotAt.getTime() })}>
             <Box css={styles.agendaCardTitle}>{lane} · {time}</Box>
             <Box css={styles.agendaLine}>{holds}</Box>

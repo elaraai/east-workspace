@@ -80,5 +80,6 @@ export {
     type DatasetKeySearchProps,
     type DatasetKeyMatchRange,
     type DatasetKeyQuery,
+    type KeySearchJump,
     type ParsedKeyInput,
 } from "./key-search/index.js";

@@ -12,8 +12,9 @@
  * writing its status. The duties' source of the slice holds the week's window,
  * which the Roster's own navigation writes. Search Records seeks the people by
  * their keys (`find.ts`, #1398): a pick selects the person, their People row
- * brought into view; where the People views rest is saved, and comes back as
- * they mount. BuilderFrame stays an internal React detail.
+ * brought into view and the keyboard handed to their name; where the People
+ * views rest is saved, and comes back as they mount. BuilderFrame stays an
+ * internal React detail.
  *
  * @packageDocumentation
  */
@@ -25,7 +26,7 @@ import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useDataStable, useFormatters,
     usePersistedState, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, usePickHandOff } from "@elaraai/east-ui-components/internal";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
@@ -45,7 +46,7 @@ import {
     type RosterPayload, type RosterStyles, type RosterValue, type Selection, type StoredDuty, type StoredTarget,
 } from "./model.js";
 import { useRosterToolbar } from "./toolbar.js";
-import { RosterViews, assignmentName, personOf, type RosterAnchor } from "./views.js";
+import { RosterViews, assignmentName, personOf, type PeoplePick, type RosterAnchor } from "./views.js";
 import { useRosterWindow, type RosterWindow } from "./window.js";
 import { rosterPart, useRosterVisibility } from "./visibility.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
@@ -220,9 +221,16 @@ function RosterFrame(props: FrameProps) {
     const onAnchor = useCallback((next: Partial<RosterAnchor>) => setAnchor(was => ({ ...was, ...next })), [setAnchor]);
     const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView,
         styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read };
-    // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view.
-    const search = useRosterFind({ people: value.people, visible: value.visiblePeople, groups: value.groups,
-        onPick: (found: FoundPerson) => select({ type: "person", key: found.person.key }) });
+    // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view,
+    // and a pick's person given the keyboard there, once the box has let it go: their name takes the focus as ↑ / ↓ give it.
+    const handOff = usePickHandOff();
+    const [picked, setPicked] = useState<PeoplePick>();
+    const found = useRosterFind({ people: value.people, visible: value.visiblePeople, groups: value.groups,
+        onPick: (person: FoundPerson) => {
+            select({ type: "person", key: person.person.key });
+            handOff.land(() => setPicked(was => ({ key: person.person.key, seq: (was?.seq ?? 0) + 1 })));
+        } });
+    const search = useMemo(() => (found === undefined ? undefined : handOff.search(found)), [found, handOff]);
     const library = useRosterLibrary({ ...viewProps, storageKey: key, tab: libraryTab, onTab: setLibraryTab,
         find: find === undefined ? undefined : { need: find.need, shown: fit.shown, busy: finding }, onClearFind: () => setFind(undefined), shown: props.shown });
     const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },
@@ -281,7 +289,7 @@ function RosterFrame(props: FrameProps) {
             {/* A failed week's main is not retained: its Retry is in it. */}
             <Box ref={main} css={styles.main} data-roster-main="" aria-disabled={retained && read.state !== "failed" ? true : undefined}
                 data-roster-stale={stale ? "" : undefined} data-roster-narrow={narrow ? "" : undefined}>
-                <RosterViews {...viewProps} anchor={anchor} onAnchor={onAnchor} />
+                <RosterViews {...viewProps} anchor={anchor} onAnchor={onAnchor} picked={picked} />
             </Box>
         </BuilderFrame>
         </LoadingReveal>

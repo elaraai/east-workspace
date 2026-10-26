@@ -31,7 +31,11 @@
  * host tree and shows the match in the box, next/prev step through the
  * remembered range ("k of n"), each showing the match it lands on, and
  * the clear button (or emptying the input) drops the query and tells the
- * host to clear its jump highlight. A match shows as the text its host gives
+ * host to clear its jump highlight. A host is told how each jump was asked
+ * (`KeySearchJump`): a commit is a pick, which hands the keyboard to the
+ * host's view — the host brings it to the match as it lands, after the box
+ * has let it go (`usePickHandOff`, `./hand-off.ts`) — and a next or prev is
+ * a step, which leaves it in the box, to step on (#1398). A match shows as the text its host gives
  * its row (`onListRange`'s `text`), else as its label; typing again starts a
  * query from what is typed. The tree itself never changes shape:
  * matches are a contiguous run of rows in the canonical key order, so
@@ -83,6 +87,13 @@ const POPUP_LIMIT = 20;
 /** A row as a host labels it for the popup: its label, at the row asked for; or at a row of its own, with the text the box shows once it is picked. */
 export type ListedLabel = string | { row: number; label: string; text?: string };
 
+/**
+ * How a jump was asked (#1398): a `pick` — a match chosen from the popup, or Enter in the box — hands the keyboard to the
+ * host's view, which brings it to the match as the match lands; a `step` — Previous or Next match — leaves it in the
+ * box, to step on.
+ */
+export type KeySearchJump = "pick" | "step";
+
 /** A listed row: its position, its label, and the text the box shows once it is picked — the host's, else its label. */
 interface ListedRow {
     readonly row: number;
@@ -121,8 +132,8 @@ export interface DatasetKeySearchProps {
     /** Labels rows `[row, row + limit)` for the popup. Explicit positions preserve gaps when a view omits entries; a
      *  row's `text`, when given, is what the box shows once the row is picked or stepped to — its label otherwise. */
     onListRange: (row: number, limit: number) => Promise<ListedLabel[]>;
-    /** Jumps the host tree to a global root row. */
-    onJump: (row: number) => void;
+    /** Jumps the host tree to a global root row — a pick, whose match takes the keyboard as it lands, or a step. */
+    onJump: (row: number, how: KeySearchJump) => void;
     /** Clears the host's jump (and its held row highlight) when the query
      *  is cleared. */
     onClear?: (() => void) | undefined;
@@ -387,8 +398,8 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
             .catch((error: unknown) => { console.error('DatasetKeySearch: could not read the match it jumped to:', error); });
     }, [items, onListRange, onInputChange]);
 
-    const commit = useCallback((row: number) => {
-        onJump(row);
+    const commit = useCallback((row: number, how: KeySearchJump) => {
+        onJump(row, how);
         if (range !== null) setActiveIdx(row - range.row);
         showMatch(row);
     }, [onJump, range, showMatch]);
@@ -396,16 +407,17 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     const step = useCallback((delta: number) => {
         if (range === null || !range.found) return;
         const next = Math.max(0, Math.min(range.count - 1, (activeIdx === -1 ? 0 : activeIdx) + delta));
-        commit(range.row + next);
+        commit(range.row + next, 'step');
     }, [range, activeIdx, commit]);
 
     // Worst-case degrade: with no highlighted popup option, Enter behaves
-    // as a plain search box and jumps to the first match. A highlighted
-    // option commits through the combobox itself.
+    // as a plain search box and jumps to the first match — a pick, as a
+    // highlighted option's Enter is. A highlighted option commits through
+    // the combobox itself.
     const onKeyDownCapture = useCallback((e: React.KeyboardEvent) => {
         if (e.key !== 'Enter' || range === null || !range.found) return;
         if (document.querySelector('[data-scope="combobox"][data-part="content"] [data-highlighted]') !== null) return;
-        commit(range.row + Math.max(0, activeIdx));
+        commit(range.row + Math.max(0, activeIdx), 'pick');
     }, [range, activeIdx, commit]);
 
     const placeholder = useMemo(() => {
@@ -426,7 +438,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
         multiple: none,
         disabled: none,
         allowCustomValue: some(true),
-        onChange: some((v: string) => commit(Number(v))),
+        onChange: some((v: string) => commit(Number(v), 'pick')),
         onChangeMultiple: none,
         onInputValueChange: some(handleInput),
         onOpenChange: some(handleOpen),

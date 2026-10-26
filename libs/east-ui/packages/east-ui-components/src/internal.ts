@@ -43,6 +43,8 @@ export {
     type Residency, type ResidencyOptions, type Travel,
 } from "./collections/window-residency.js";
 export { toSeekQuery, type SeekQueryValue } from "./collections/key-search/seek-query.js";
+// A key search pick's hand-off of the keyboard to its host's view, once the match lands and the box has let it go (#1398).
+export { createPickHandOff, usePickHandOff, type PickHandOff, type PickingSource } from "./collections/key-search/hand-off.js";
 // Density, the drag grammar's IR veto, and its slot codecs.
 export { DensityProvider, useDensity } from "./contracts/density.js";
 export { useIRCanDrop, type CanDropFn } from "./dnd/ir-can-drop.js";

@@ -88,7 +88,7 @@ import {
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
-    parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore, recordSliceNoun,
+    parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore, recordSliceNoun, usePickHandOff,
 } from "@elaraai/east-ui-components/internal";
 import {
     PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, PlanGeometryContext,
@@ -197,6 +197,17 @@ const NO_ROWS_IN_VIEW: readonly PlanRowValue[] = [];
 
 /** Default gutter width (px, desktop — the §8 sheet). */
 const GUTTER_W = 168;
+
+/**
+ * Whether the canvas draws an item now: its element mounted in the body.
+ *
+ * @param body - The canvas body
+ * @param key - The item's key
+ * @returns Whether its element is mounted
+ */
+function drawsItem(body: HTMLElement | null, key: string): boolean {
+    return body !== null && Array.from(body.querySelectorAll("[data-plan-item]")).some((el) => el.getAttribute("data-plan-item") === key);
+}
 
 /** The canvas-wide keys (§11) — esc runs the one-rung ladder, `n` / `[` / `]`
  *  move the window, `g` cycles the grain. They work from anywhere in the
@@ -565,9 +576,13 @@ export function usePlanCanvas({
     // The `rows` source's own Search Records stays primary-key navigation: the rail narrows, never the key search.
     const seekable = rowsPart === undefined && data.rows.type !== "inline" && data.rows.value.seek.type === "some";
     const sourceId = data.rows.type !== "inline" ? data.rows.value.id : "";
+    // A pick in it hands the keyboard to the canvas (#1398): the row it brings in takes the focus — the grid's one stop,
+    // its ring — once the box has let the keyboard go (below); a step leaves it in the box.
+    const handOff = usePickHandOff();
+    const picking = useMemo(() => handOff.search(controller.search), [handOff, controller]);
     const search = useMemo<PlanSearch | undefined>(
-        () => (seekable ? { ...controller.search, resetKey: sourceId, requery: seek.again } : undefined),
-        [seekable, controller, sourceId, seek.again]);
+        () => (seekable ? { ...picking, resetKey: sourceId, requery: seek.again } : undefined),
+        [seekable, picking, sourceId, seek.again]);
 
     // ── Row focus and the visible rows ────────────────────────────────────
     const { linkFamily, focusVisibleKeys, focusCtx } = usePlanFocus(view.focus, data.links);
@@ -613,6 +628,22 @@ export function usePlanCanvas({
         if (narrow) bodyEl.focus();
         else controller.focusItem(rowItemKey(view.focus.key));
     }, [view.focus, narrow, controller]);
+    // A search served — its row resolved, the canvas brought to it: a pick's row takes the keyboard (#1398), while the
+    // canvas draws it as the keyboard is handed over — never a row the viewer has scrolled away from, whose request the
+    // grid would serve by scrolling back. Each search once: a later render never hands it a row an earlier search found.
+    const searchSeq = scroll.searchSeq;
+    const searchTarget = scroll.targetKey;
+    const servedSearch = useRef(searchSeq);
+    useEffect(() => {
+        if (servedSearch.current === searchSeq) return;
+        servedSearch.current = searchSeq;
+        if (searchTarget === undefined || narrow) {
+            handOff.drop();
+            return;
+        }
+        const key = rowItemKey(searchTarget);
+        handOff.land(() => { if (drawsItem(focusBodyRef.current, key)) controller.focusItem(key); });
+    }, [searchSeq, searchTarget, narrow, handOff, controller]);
     // The hover cursor: direct DOM writes, zero renders (#609).
     const cursorChipRef = useRef<HTMLDivElement | null>(null);
     const cursor = usePlanCursorController(focusBodyRef, cursorChipRef, scale);

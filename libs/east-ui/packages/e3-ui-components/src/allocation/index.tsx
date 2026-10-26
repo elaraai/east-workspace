@@ -24,14 +24,14 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SortedMap, none, variant } from "@elaraai/east";
+import { SortedMap, StringType, equalFor, none, variant } from "@elaraai/east";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters,
     usePersistedState, useSliceReactivity, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal, formatDatePattern } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, formatDatePattern, usePickHandOff } from "@elaraai/east-ui-components/internal";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import type { RowAnchor } from "../shared/schedule/row-anchor.js";
@@ -39,6 +39,7 @@ import { useSourceShown } from "../shared/schedule/source-tab.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { allocationCommands, publishChange, remainderOf } from "./actions.js";
+import { BinFocusContext, type BinFocus } from "./bin-focus.js";
 import { AllocationCards } from "./cards.js";
 import { AllocationDataReader, binChoicesOf, initialAllocationData, type AllocationData } from "./data.js";
 import { bookOnto, placeAsk, useAllocationDrag, type DropScene, type LibraryGrip, type Refusal, type Target, type Verdict } from "./drag.js";
@@ -72,6 +73,7 @@ const NO_STORED: ReadonlyMap<string, StoredBin> = new Map();
 const NO_BIN_DRAFTS: ReadonlyMap<string, DraftedBin | undefined> = new Map();
 const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 const NO_ISSUES: Issue[] = [];
+const keyEqual = equalFor(StringType);
 /** The Table's view has rested nowhere yet. */
 const NO_ANCHOR: { table?: RowAnchor | undefined } = {};
 
@@ -183,17 +185,29 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const styles = useMemo(() => recipe({}) as unknown as AllocationStyles, [recipe]);
     const format = useFormatters(), words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
     // Search Records (#1398): a bin found by its key steps the board to its day, where — once the day is read, after the
-    // step's own clearing above — it is selected, and the board follows it into view.
+    // step's own clearing above — it is selected, and the board follows it into view; a pick gives it the keyboard there,
+    // once the box has let it go: the element that stands for it in the layout shown takes the focus (`bin-focus.ts`).
+    const handOff = usePickHandOff();
     const [found, setFound] = useState<string>();
-    const search = useAllocationFind({ value, domain, part: binsPart, format, onPick: (bin: FoundBin) => {
+    const [binFocus, setBinFocus] = useState<string>();
+    const finder = useAllocationFind({ value, domain, part: binsPart, format, onPick: (bin: FoundBin) => {
         setFound(bin.key);
         window.setView({ ...window.view, date: dayStart(bin.at).getTime() });
     } });
+    const search = useMemo(() => (finder === undefined ? undefined : handOff.search(finder)), [finder, handOff]);
     useEffect(() => {
         if (found === undefined || !current || !plan.bins.has(found)) return;
         inspect({ type: "bin", id: found });
         setFound(undefined);
-    }, [found, current, plan, inspect]);
+        handOff.land(() => setBinFocus(found));
+    }, [found, current, plan, inspect, handOff]);
+    // The bin given the keyboard waits for its element only while it is the one selected (`useBinFocusTarget`), and until
+    // the viewer does something else (the root's captures below).
+    useEffect(() => {
+        if (binFocus !== undefined && !(selection?.type === "bin" && keyEqual(selection.id, binFocus))) setBinFocus(undefined);
+    }, [selection, binFocus]);
+    const binFocused = useMemo<BinFocus>(() => ({ id: binFocus, done: () => setBinFocus(undefined) }), [binFocus]);
+    const dropBinFocus = binFocus === undefined ? undefined : () => setBinFocus(undefined);
     // Where the Table's view rests (#1398): saved under the board's key, so the Table comes back to it as it mounts.
     const { state: anchor, setState: setAnchor } = usePersistedState<{ table?: RowAnchor | undefined }>(`${key}.anchor`, NO_ANCHOR);
     const onTableAnchor = useCallback((at: RowAnchor) => setAnchor(was => ({ ...was, table: at })), [setAnchor]);
@@ -412,7 +426,8 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const narrowingQuery = narrowingText(value, binChoices);
     const narrowingSettled = !data.filtering && !narrowingLoading && !narrowingFailed;
     const tableNarrowing = useMemo(() => ({ query: narrowingQuery, settled: narrowingSettled }), [narrowingQuery, narrowingSettled]);
-    return <NounsContext.Provider value={nouns}><Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={readOnly ? "" : undefined}>
+    return <NounsContext.Provider value={nouns}><BinFocusContext.Provider value={binFocused}><Box ref={root} css={styles.root} data-allocation-frame=""
+        data-allocation-readonly={readOnly ? "" : undefined} onPointerDownCapture={dropBinFocus} onKeyDownCapture={dropBinFocus}>
         <AllocationDataReader value={value} day={day} pickerDays={picker} choices={binChoices} onData={setData} />
         <LoadingReveal waiting={line?.kind === "loading"}>
         <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={cold} loadingPitch={ROW_H} busy={busy} liveFooter toolbar={toolbar}
@@ -472,7 +487,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
             </Box>
         </BuilderFrame>
         </LoadingReveal>
-    </Box></NounsContext.Provider>;
+    </Box></BinFocusContext.Provider></NounsContext.Provider>;
 }
 
 /** The board over the app's records: its key, its day — written into the bins' source — and its editing, around the frame. */

@@ -333,6 +333,37 @@ describe("Plan paged random access (#567/#574/#577)", () => {
         }
     });
 
+    test("a pick takes the keyboard to the row it brings in — the grid's focus, once its window lands — and a step leaves it on the step (#1398)", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const { root } = withRecordedWindows(buildPagedPlan());
+            const { container } = renderPlan(root, "plan-search-keyboard");
+            await waitFor(() => {
+                expect(container.querySelector(unitRow("u0000"))).toBeTruthy();
+            });
+            const search = container.querySelector('[data-part="dataset-key-search"]')!;
+            const input = search.querySelector("input")! as HTMLElement;
+            // A far key's two matches, the first's window not read: the pick waits for its row, and the keyboard with it.
+            await userEvent.type(input, "u300");
+            await waitFor(() => expect(search.textContent).toMatch(/10 matches/), { timeout: 5_000 });
+            fireEvent.keyDown(input, { key: "Enter" });
+            await waitFor(() => {
+                expect(container.querySelector(unitRow(TARGET_KEY))).toBeTruthy();
+                expect(document.activeElement).toBe(container.querySelector(unitRow(TARGET_KEY)));
+            }, { timeout: 10_000 });
+            // A step: the canvas goes on to the next match, and the keyboard stays on the step, to step on.
+            const next = search.querySelector<HTMLElement>('[aria-label="Next match"]')!;
+            await act(async () => { next.focus(); });
+            fireEvent.click(next);
+            await waitFor(() => expect(search.textContent).toMatch(/2 of 10/));
+            await act(() => new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
+            expect(document.activeElement).toBe(next);
+        } finally {
+            cleanup();
+            restore();
+        }
+    });
+
     test("the bar appears for the SOURCE's sake — and only when there is a reason", async () => {
         // #587's other half. Giving the frame its toolbar for a seek-capable
         // source must not give it one for everything: an inline canvas binds

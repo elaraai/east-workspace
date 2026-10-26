@@ -203,6 +203,7 @@ export {
     type DatasetKeySearchProps,
     type DatasetKeyMatchRange,
     type DatasetKeyQuery,
+    type KeySearchJump,
     type ParsedKeyInput,
 } from "./collections/index.js";
 

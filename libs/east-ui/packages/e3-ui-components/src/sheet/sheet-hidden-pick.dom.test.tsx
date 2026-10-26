@@ -203,6 +203,19 @@ test("a pick of a row the narrowing hides clears just the filters that hide it, 
     expect(ui.ids().slice(at - 1, at + 2)).toEqual(["JOB-10008", "JOB-10009", "JOB-10010"]);
 });
 
+test("a pick of a row the narrowing hides takes the keyboard into the grid with the ring — its focus on the row's cell once the narrowing it leaves draws it, never left on the page (#1398)", async () => {
+    const ui = await setup(SCHEDULED_EARLY);
+    await waitFor(() => expect(ui.ids()[0]).toBe("JOB-10010"));
+    const search = searchRecords(ui.container);
+    await search.ask("JOB-10000");
+    await waitFor(() => expect(search.lines()).toEqual([`JOB-10000 · ${BY_STATUS}`]), { timeout: 10_000 });
+    await search.enter();
+    await waitFor(() => expect(ui.ring("JOB-10000")).not.toBeNull(), { timeout: 10_000 });
+    const grid = ui.main().querySelector<HTMLElement>('[role="grid"]')!;
+    await waitFor(() => expect(document.activeElement).toBe(grid));
+    expect(grid.getAttribute("aria-activedescendant")).toBe(ui.ring("JOB-10000")!.id);
+});
+
 test("a filter a pick clears is a change of the rail like any other: a saved view's tab is marked changed, and Esc on the sheet puts the filter back", async () => {
     const ui = await setup(SCHEDULED_EARLY);
     await waitFor(() => expect(ui.ids()[0]).toBe("JOB-10010"));

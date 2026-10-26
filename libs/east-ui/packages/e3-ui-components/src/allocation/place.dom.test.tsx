@@ -41,7 +41,7 @@ const lines = (c: HTMLElement) => {
 /** The bins' record, as its dataset's requests name it. */
 const BINS = "records.kiln_bins";
 
-test("Search Records seeks the bins' record by key through e3: a bin of the day shown is selected where it is; one of another day is stepped to and selected there (#1398)", async () => {
+test("Search Records seeks the bins' record by key through e3: a bin of the day shown is selected where it is, its card given the keyboard; one of another day is stepped to, selected and given it there (#1398)", async () => {
     const { container } = await open(ex.allocationKilnYard);
     await waitFor(() => expect(card(container, "3101")).not.toBeNull());
     await settle();
@@ -52,6 +52,7 @@ test("Search Records seeks the bins' record by key through e3: a bin of the day 
     fireEvent.keyDown(searchBox(container).querySelector("input")!, { key: "Enter" });
     await settle();
     await waitFor(() => expect(card(container, "3101")?.getAttribute("aria-pressed")).toBe("true"));
+    await waitFor(() => expect(document.activeElement).toBe(card(container, "3101")));
     // Another day's: Wednesday's split load, its day stepped to and the bin selected there.
     await act(async () => { fireEvent.click(searchBox(container).querySelector("button[aria-label='Clear search']")!); });
     await typeIntoSearch(container, "3201");
@@ -60,8 +61,22 @@ test("Search Records seeks the bins' record by key through e3: a bin of the day 
     await settle();
     await waitFor(() => expect(card(container, "3201")?.getAttribute("aria-pressed")).toBe("true"), { timeout: 10_000 });
     expect(card(container, "3101")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(card(container, "3201")));
     // Nothing read the record whole.
     expect(h.requests("read", BINS)).toEqual([]);
+});
+
+test("in the Table, a pick's bin's row takes the keyboard — its row selected, the focus on it (#1398)", async () => {
+    const { container } = await open(ex.allocationTable);
+    const row = () => container.querySelector<HTMLElement>('[data-allocation-table] [data-allocation-row="bin:3101"]');
+    await waitFor(() => expect(row()).not.toBeNull());
+    await settle();
+    await typeIntoSearch(container, "3101");
+    await waitFor(() => expect(lines(container)).toEqual(["3101 · LD-2201 · B-3 01:55 · Tue, May 11, 2027"]), { timeout: 5_000 });
+    fireEvent.keyDown(searchBox(container).querySelector("input")!, { key: "Enter" });
+    await settle();
+    await waitFor(() => expect(row()?.hasAttribute("data-selected")).toBe(true));
+    await waitFor(() => expect(document.activeElement).toBe(row()));
 });
 
 /** The Table's scroll box. */
