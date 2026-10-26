@@ -378,7 +378,7 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect(container.querySelector("[data-plan-tab]")).toBeNull();
     });
 
-    test("over a partial paged prefix only a top-level SECTION's count is a placeholder — a group per entry's is exact (#822, #1398 CL13); the Rows count is \"…\"", async () => {
+    test("over a partial paged prefix only a top-level SECTION's count is a placeholder — a group per entry's is exact (#822, #1398 CL13); the Rows count is the source's own, as it has counted itself — never the rows it has read", async () => {
         // The cards say what the desktop bands say: a section's members are
         // its series' entries, which the windows share out, so its count is an
         // understatement until the source is exhausted — a short bar, never a
@@ -420,10 +420,12 @@ describe("Plan narrow layout (§10 / #570)", () => {
         const strip = container.querySelector(rowSel("g1", "data-plan-groupcard"))!.textContent;
         expect(strip).toContain("2 rows");
         expect(strip).not.toContain("~");
-        // The tabs: the groups counted, the rows not yet — "…" until the read completes.
+        // The tabs: the groups counted, and the rows as the source counts them — its 600, as the rail counts a paged source,
+        // never the four it has read.
         const counts = Object.fromEntries([...container.querySelectorAll("[data-plan-tab]")]
             .map((tab) => [tab.getAttribute("data-plan-tab"), tab.querySelector("[data-plan-tabcount]")!.textContent]));
-        expect(counts).toEqual({ groups: "2", rows: "…" });
+        expect(counts).toEqual({ groups: "2", rows: "600" });
+        expect(container.querySelector("[data-plan-tab='rows'] [data-plan-tabcount]")!.getAttribute("data-plan-tabcount")).toBe("600");
         // The Rows tab's section headers say the same.
         fireEvent.click(container.querySelector("[data-plan-tab='rows']")!);
         await waitFor(() => expect(container.querySelector(sectionSel("sec", [], "data-plan-section"))).toBeTruthy());
