@@ -11,10 +11,20 @@
  * the focus in its input. A row short of room folds the box to its icon, as
  * the slice rail folds its narrowing to its own: the search stays in the row.
  *
- * A query lives in its box. While one is typed the item keeps its form, as it
- * does while its popover is open, so the box a user is typing in, or stepping
- * through the matches of, never folds from under them: the row folds its
- * other items around it. Cleared, the item folds with the rest again.
+ * The box is one, whatever form the item takes: the toolbar keeps it apart
+ * from the item's forms (the item's `keep`, a portal into a container of its
+ * own), and each form shows it where it places it — in the row, or in the
+ * popover its icon opens — so its query, its matches and its pick stand as it
+ * folds. A query lives in its box. While one stands the item keeps its form
+ * while anything else in the row can fold (`foldsLast`): the row folds its
+ * other items around it. Once nothing else can and the row still does not
+ * fit, the box folds to its icon — its query and its pick shown in the popover
+ * its icon opens — so the row always fits, a builder's history and Save in it
+ * (ruled 26 Oct 2026, "Find folds"), and it unfolds no more while the query
+ * stands. While its list of matches is open, as it is while a query is typed,
+ * or its popover is, the item keeps its form whatever the width. A box that
+ * folds away with the focus in it gives the focus to the icon it folded to.
+ * Cleared, the item folds with the rest again.
  *
  * A host's key for its search (the Sheet's ⌘F) reaches it in either form
  * through {@link focusKeySearch} (#1221).
@@ -22,15 +32,88 @@
  * @packageDocumentation
  */
 
-import { useCallback, useRef, useState, type ReactNode } from "react";
-import { Box, chakra, useRecipe } from "@chakra-ui/react";
+import { useCallback, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { Box, chakra, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faMagnifyingGlass } from "@fortawesome/free-solid-svg-icons";
 import type { EastTypeValue } from "@elaraai/east";
 import { DEFAULT_RANK, type ToolbarItem } from "../../toolbar/index.js";
 import { SliceEditPopover } from "../../slice/edit/index.js";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { useSlotStyles } from "../../theme/slot-styles.js";
 import { DatasetKeySearch, type DatasetKeyMatchRange, type DatasetKeyQuery, type DatasetKeySearchProps, type KeySearchJump } from "./index.js";
+
+/** The icon a folded box opens from, in its toolbar item. */
+const ICON = '[data-key-search="icon"]';
+
+/**
+ * Where the key search's box stands (see the module docs): the container it is rendered into, once, and the slots of
+ * the item's forms it may stand in — the last one mounted holds it, and while none is mounted it stands in no place of
+ * the page, all it holds kept.
+ */
+interface BoxStage {
+    /** The container the box is rendered into. */
+    readonly container: HTMLElement;
+    /** A slot mounted: the box goes into it. */
+    attach(slot: HTMLElement): void;
+    /** A slot gone: the box goes back to the slot mounted before it, if one still is; gone holding the focus, the box gives it to the icon it folded to. */
+    detach(slot: HTMLElement): void;
+}
+
+/** Makes a box's stage: its container, in no slot yet. */
+function createBoxStage(): BoxStage {
+    const container = document.createElement("div");
+    container.setAttribute("data-key-search-box", "");
+    const slots: HTMLElement[] = [];
+    const place = () => {
+        const slot = slots.at(-1);
+        if (slot === undefined) container.remove();
+        else if (container.parentElement !== slot) slot.appendChild(container);
+    };
+    return {
+        container,
+        attach: (slot) => {
+            slots.push(slot);
+            place();
+        },
+        detach: (slot) => {
+            const at = slots.lastIndexOf(slot);
+            if (at >= 0) slots.splice(at, 1);
+            const doc = container.ownerDocument;
+            const focused = container.contains(doc.activeElement);
+            const item = slot.closest("[data-toolbar-item]");
+            place();
+            if (!focused || slots.length > 0 || item === null) return;
+            // The box folded away holding the focus: the focus goes to the icon it folded to, once the toolbar has drawn
+            // it — unless another element of the page has taken it since.
+            queueMicrotask(() => {
+                const active = doc.activeElement;
+                const elsewhere = active !== null && active !== doc.body && active.isConnected && !container.contains(active);
+                if (!item.isConnected || elsewhere) return;
+                item.querySelector<HTMLElement>(ICON)?.focus({ preventScroll: true });
+            });
+        },
+    };
+}
+
+/** A place the box stands in — the row's (`box`), or the popover's its icon opens (`popover`) — drawing no box of its own. */
+function BoxSlot({ stage, where, css, slot }: {
+    stage: BoxStage; where: "box" | "popover"; css: SystemStyleObject | undefined; slot?: MutableRefObject<HTMLDivElement | null> | undefined;
+}) {
+    const mounted = useRef<HTMLDivElement | null>(null);
+    const ref = useCallback((el: HTMLDivElement | null) => {
+        if (el !== null) {
+            mounted.current = el;
+            stage.attach(el);
+        } else if (mounted.current !== null) {
+            stage.detach(mounted.current);
+            mounted.current = null;
+        }
+        if (slot !== undefined) slot.current = el;
+    }, [stage, slot]);
+    return <Box ref={ref} css={css} data-key-search={where} />;
+}
 
 /** What a key search reads and drives: a keyed source's `seek`, as its host wires it. */
 export interface KeySearchSource {
@@ -87,12 +170,16 @@ export interface KeySearchToolbarOptions {
  */
 export function useKeySearchToolbarItem(search: KeySearchSource | undefined, options: KeySearchToolbarOptions = {}): ToolbarItem | undefined {
     const chip = useRecipe({ key: "chip" });
+    // The box's places draw no box of their own: the combobox recipe's slot for them.
+    const styles = useSlotStyles("combobox", { size: "xs" });
     // The text typed, and the search it was typed into: a box keyed afresh starts empty.
     const [typed, setTyped] = useState<{ resetKey: string; text: string }>({ resetKey: "", text: "" });
     const [open, setOpen] = useState(false);
-    const boxRef = useRef<HTMLDivElement | null>(null);
+    // Where the box stands, whatever form the item takes: one box, its query, its matches and its pick kept as it folds.
+    const [stage] = useState(createBoxStage);
     // The popover opens with the focus in its search box.
-    const initialFocusEl = useCallback(() => boxRef.current?.querySelector<HTMLElement>("input") ?? null, []);
+    const popoverSlot = useRef<HTMLDivElement | null>(null);
+    const initialFocusEl = useCallback(() => popoverSlot.current?.querySelector<HTMLElement>("input") ?? null, []);
     // What is typed, kept with the search it was typed into — the same function while the search is, so the box,
     // drawn again with its builder's toolbar, draws nothing again for it (#1398, CL9).
     const resetKey = search?.resetKey ?? "";
@@ -117,15 +204,23 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
                 </chakra.button>
             }>
             {typeof controls === "function" ? controls(() => setOpen(false)) : controls}
-            <Box ref={boxRef} data-key-search="popover">{box}</Box>
+            <BoxSlot stage={stage} where="popover" css={styles.searchSlot} slot={popoverSlot} />
         </SliceEditPopover>
     );
     return {
         key: "seek",
         side: options.side,
-        forms: [box, popup(label), ...(options.compact === undefined ? [] : [popup(options.compact.label, options.compact.controls)])],
+        forms: [
+            <BoxSlot stage={stage} where="box" css={styles.searchSlot} />,
+            popup(label),
+            ...(options.compact === undefined ? [] : [popup(options.compact.label, options.compact.controls)]),
+        ],
         rank: options.rank ?? DEFAULT_RANK,
-        held: active,
+        // While a query stands the item keeps its form while anything else in the row can fold; once nothing else can,
+        // the box folds to its icon, its query and its pick in the popover its icon opens (ruled 26 Oct 2026, "Find folds").
+        foldsLast: active,
+        // The one box, whatever form the item takes: its slots show it where they place it.
+        keep: createPortal(box, stage.container),
     };
 }
 

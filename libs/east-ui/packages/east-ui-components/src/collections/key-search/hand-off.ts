@@ -18,7 +18,8 @@
  * other than the box, a key pressed in some control, a pointer pressed or a
  * wheel turned. A focus the box lost meanwhile, to the page's body — its
  * input drawn again, as a narrowing the pick cleared draws the toolbar again —
- * is the view's to take. A host takes it only for a match its view draws.
+ * or to the icon the box folded to as the row lost room for it, is the view's
+ * to take. A host takes it only for a match its view draws.
  *
  * A host wraps its source in {@link PickHandOff.search} — a pick arms the
  * hand-off, a step or a clear drops it — and lands it as the match shows,
@@ -31,8 +32,11 @@
 import { useEffect, useState } from "react";
 import type { KeySearchJump } from "./index.js";
 
-/** The key search's box — in a toolbar's row, or in the popover its icon opens: where a pick leaves the focus. */
-const KEY_SEARCH_BOX = '[data-part="dataset-key-search"]';
+/**
+ * The key search's box — in a toolbar's row, or in the popover its icon opens: where a pick leaves the focus — and the
+ * icon it folds to, which takes the focus the box held as the row folds it (`toolbar-item.tsx`).
+ */
+const KEY_SEARCH_BOX = '[data-part="dataset-key-search"], [data-key-search="icon"]';
 
 /** What a host's key search source jumps and clears by. */
 export interface PickingSource {

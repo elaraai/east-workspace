@@ -28,9 +28,13 @@
  * it may draw — and last the tools, the zoom, Fit and the steps fold into
  * Find's popover, the View, one move: a phone's row holds the rail's icon,
  * the View and the history item (the Plan's View precedent). The history
- * item's step (`DEFAULT_RANK`) comes after all of them. Nothing wraps,
- * scrolls or goes to a second row, and on a coarse pointer every control is a
- * 44px target by its halo, the row's height its own.
+ * item's step (`DEFAULT_RANK`) comes after all of them. While Find's query
+ * stands, its box keeps its form — the View held off — while anything else in
+ * the row can fold, and folds to its icon only once nothing else can, its
+ * query and its pick in the popover the icon opens, so the history stays in
+ * the row (the shared key search's rule, ruled 26 Oct 2026, "Find folds").
+ * Nothing wraps, scrolls or goes to a second row, and on a coarse pointer
+ * every control is a 44px target by its halo, the row's height its own.
  *
  * @packageDocumentation
  */

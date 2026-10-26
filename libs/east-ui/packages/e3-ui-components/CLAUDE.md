@@ -450,7 +450,12 @@ before every step of the rail and of the builder's own items, so a row short
 of room keeps the rail's chips and the period's steps live; its icon goes into
 the View with the period's controls at the row's last step
 (`shared/schedule/search-rank.ts`, ruled 25 Oct 2026). Elsewhere it folds
-after the rail, as every host item does.
+after the rail, as every host item does. While a query stands, every builder's
+box keeps its form while anything else in its row can fold, and folds to its
+icon only once nothing else can — its query and its pick standing in the
+popover its icon opens — so the history and Save stay in the row (the shared
+key search's rule, east-ui-components' `foldsLast` and `keep`, ruled 26 Oct
+2026, "Find folds").
 
 Calendar preserves overlap `[from, to)`, including carry-in events, whole-window
 spans, overnight/multi-day events and instants at the lower boundary, once by

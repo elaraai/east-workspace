@@ -5,15 +5,18 @@
  *
  * The key search as one item of a builder's toolbar (#1193): the search box,
  * folding at its rank to its icon, which opens the same box in the edit
- * popover with the focus in its input; while a query is typed the item keeps
- * its form, and a search keyed afresh lets it go. jsdom lays nothing out, so
+ * popover with the focus in its input; while a query stands the item keeps
+ * its form while anything else in the row can fold, and once nothing else can
+ * folds to its icon, the very box — its query and its matches — in the popover
+ * its icon opens (ruled 26 Oct 2026, "Find folds"); and a search keyed afresh
+ * lets it go. jsdom lays nothing out, so
  * widths are stubbed from the form each item shows: the box 200px, the icon
  * 44; a peer item 300, or 100 once folded; the gap 10px. The icon is Font
  * Awesome's magnifying glass and its caret (#1263).
  */
 
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
-import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { toEastTypeValue, StringType } from "@elaraai/east";
@@ -164,25 +167,46 @@ test("its icon opens the box in the edit popover, the focus in its input, headed
     await waitFor(() => expect(source.jumps).toEqual([100]));
 });
 
-test("while a query is typed the item keeps its form however narrow the row — the row folds its other items around it; cleared, it folds", async () => {
+test("while a query stands the item keeps its form while anything else in the row can fold; once nothing else can, the box folds to its icon — the focus it held with it — unfolding no more while the query stands, and the icon's popover holds the very box, its query and its matches; cleared, it folds with the rest (ruled 26 Oct 2026, \"Find folds\")", async () => {
     const source = search();
     const view = mount(510, source);
-    const input = screen.getByPlaceholderText("Find a job");
+    const input = screen.getByPlaceholderText("Find a job") as HTMLInputElement;
     await userEvent.type(input, "key");
     await waitFor(() => expect(screen.getByText("3 matches")).toBeTruthy());
-    // The suggestions closed — an open list holds the item anyway — the query stands, as it does while its matches are stepped through.
+    // The suggestions closed — an open list holds the item whatever the width — the query stands, as it does while its
+    // matches are stepped through.
     await act(async () => { fireEvent.keyDown(input, { key: "Escape" }); });
     await waitFor(() => expect(view.container.querySelector('[data-toolbar-item="seek"] [data-part="trigger"][data-state="open"], [data-toolbar-item="seek"] [aria-expanded="true"]')).toBeNull());
     expect(screen.getByText("3 matches")).toBeTruthy();
-    // Narrower than the box and the folded peer: the peer folds, the box stays.
-    view.resize(154);
+    // The box and the folded peer, just: the peer folds, the box stays (100 + 200 + 10 = 310).
+    view.resize(310);
     expect(view.container.querySelector('[data-peer="short"]')).not.toBeNull();
     expect(view.form()).toBe("0");
-    expect((screen.getByPlaceholderText("Find a job") as HTMLInputElement).value).toBe("key");
-    // Cleared, the query no longer holds it: it folds to its icon.
-    await act(async () => { fireEvent.click(screen.getByLabelText("Clear search")); });
+    expect(input.value).toBe("key");
+    // A pixel less, and nothing else can fold: the box folds to its icon, which takes the focus the box held.
+    view.resize(309);
     await waitFor(() => expect(view.form()).toBe("1"));
+    const icon = view.container.querySelector<HTMLElement>('[data-key-search="icon"]')!;
+    await waitFor(() => expect(document.activeElement).toBe(icon));
+    // Room again: while the query stands, the icon it stays.
+    view.resize(510);
+    expect(view.form()).toBe("1");
+    // Its popover holds the very box: its input the one typed into, the query in it, its matches counted.
+    await act(async () => { fireEvent.click(icon); });
+    const popover = await waitFor(() => {
+        const el = document.querySelector<HTMLElement>('[data-key-search="popover"]');
+        if (el === null) throw new Error("no popover");
+        return el;
+    });
+    expect(popover.querySelector("input")).toBe(input);
+    expect(input.value).toBe("key");
+    expect(within(popover).getByText("3 matches")).toBeTruthy();
+    // Cleared there, the query holds it no more: the popover closed, the row has room for the box, in it again — empty.
+    await act(async () => { fireEvent.click(within(popover).getByLabelText("Clear search")); });
     expect(source.clears).toEqual([1]);
+    await act(async () => { fireEvent.click(icon); });
+    await waitFor(() => expect(view.form()).toBe("0"));
+    expect((view.container.querySelector<HTMLInputElement>('[data-toolbar-item="seek"] input'))?.value).toBe("");
 });
 
 test("a search keyed afresh starts empty, and the query typed into the one before no longer holds the item", async () => {

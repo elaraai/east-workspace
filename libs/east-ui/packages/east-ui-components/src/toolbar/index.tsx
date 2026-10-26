@@ -30,7 +30,17 @@
  *
  * An item holding an open overlay (a popover or menu hanging from a trigger
  * inside it) keeps its form, and the row folds around it; so does an item an
- * author marks `held`. A tooltip is no such overlay: it shows wherever the
+ * author marks `held`. One marked `foldsLast` keeps its form only while
+ * anything else in the row can fold: the toolbar chooses as though it were
+ * held, and where even that row does not fit, chooses again letting it fold
+ * on — never back while it is so marked — so the row always fits (the key
+ * search's box while its query stands, which then shows its query and its
+ * pick in the popover its icon opens, ruled 26 Oct 2026, "Find folds"). What
+ * an item keeps whatever its form
+ * (`keep`) the toolbar renders apart from its forms, in no place of the row —
+ * a portal its forms show where they place it — so it outlives every fold
+ * (the key search's box, its query, its matches and its pick).
+ * A tooltip is no such overlay: it shows wherever the
  * pointer rests, an item a narrowing row moves under it included, and an item
  * held for it would be left unfolded past the row's end (#1333). An overlay's
  * trigger turns its `data-state` in the overlay's own render, after the
@@ -55,10 +65,10 @@
  * step is held too, so none is ever split.
  */
 
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { chooseFolds, estimateWidth, foldSequence, formsAt, type FoldItem, type FoldRange } from "./fold.js";
+import { FIT_TOLERANCE_PX, chooseFolds, estimateWidth, foldSequence, formsAt, rowWidth as widthOfRow, type FoldItem, type FoldRange } from "./fold.js";
 
 /** A rank past every slice-rail step (0–7): what an item's steps take unless it names its own. */
 export const DEFAULT_RANK = 100;
@@ -83,6 +93,15 @@ export interface ToolbarItem {
     /** Keep the current form whatever the width — an overlay hangs from the
      *  item. (An open popover or menu inside the item holds it anyway.) */
     held?: boolean | undefined;
+    /** Keep the current form only while anything else in the row can fold:
+     *  once every other step the row may take still leaves it too wide, the
+     *  item folds on — never back while it is so marked — so the row always
+     *  fits. (`held` keeps it whatever the width.) */
+    foldsLast?: boolean | undefined;
+    /** What the item keeps whatever its form: rendered by the toolbar apart
+     *  from its forms, in no place of the row — a portal, which its forms show
+     *  where they place its container — so it outlives every fold. */
+    keep?: ReactNode;
     /** Changes when the item's content does: the widths its other forms were
      *  measured at are then forgotten, and measured again when next rendered. */
     version?: unknown;
@@ -240,7 +259,7 @@ export function Toolbar({ items, gap }: ToolbarProps) {
             }
         }
         // The forms each item is held to: an item holding an open overlay, or marked held, keeps its form.
-        const held = new Map<string, FoldRange>();
+        const holds = new Map<string, FoldRange>();
         const onScreen = new Set<Element>();
         for (const el of row.children) {
             if (!(el instanceof HTMLElement)) continue;
@@ -253,47 +272,59 @@ export function Toolbar({ items, gap }: ToolbarProps) {
             // Its content moved: what the other forms measured is not known any more.
             if (was !== undefined && Math.abs(was - px) > MOVED_PX) m.widths.clear();
             m.widths.set(form, px);
-            if (el.querySelector(OPEN_OVERLAY) !== null) held.set(key, { least: form, most: form });
+            if (el.querySelector(OPEN_OVERLAY) !== null) holds.set(key, { least: form, most: form });
             onScreen.add(el);
             observer.current?.observe(el);
         }
         for (const el of observed.current) if (!onScreen.has(el)) observer.current?.unobserve(el);
         observed.current = onScreen;
-        for (const it of list) if (it.held === true) held.set(it.key, { least: formOf(it), most: formOf(it) });
+        for (const it of list) if (it.held === true) holds.set(it.key, { least: formOf(it), most: formOf(it) });
+        // An item that folds last keeps its form while anything else in the row can fold; only where nothing else can and
+        // the row still does not fit does it fold on, never back (below).
+        const last = list.filter((it) => it.foldsLast === true && !holds.has(it.key));
         // Whether a bundle applies as the row stands: its members the toolbar has placed stand past their steps of it.
         const applies = (bundle: string) => list.some((it) => chosen.has(it.key) && bundlesOf(it).some((b, i) => b === bundle && formOf(it) > i));
-        // A held item holds its bundles as they stand: each member keeps to the side of its step of one the bundle stands
-        // on — past it where the bundle applies, so a member joining the row as it is held joins folded, never unfolding
-        // beside the chip holding it; short of it where it does not — and takes its other steps as the row's width says. A
-        // bundle a member's range keeps from its step is held in turn, so none is ever split.
-        const holding = new Set<string>();
-        for (let grew = true; grew;) {
-            grew = false;
-            for (const it of list) {
-                const range = held.get(it.key);
-                if (range === undefined) continue;
-                bundlesOf(it).forEach((b, i) => {
-                    // Its step `i` takes it from form `i` to `i + 1`: kept from it while its range lies on one side.
-                    if (b === undefined || holding.has(b) || (range.most > i && range.least <= i)) return;
-                    holding.add(b);
+        /**
+         * The forms each item is held to — each item that folds last kept to its form, or, `letGo`, to it and every form
+         * it may fold on to — and the bundles every held item holds.
+         */
+        const heldWith = (letGo: boolean): Map<string, FoldRange> => {
+            const held = new Map(holds);
+            for (const it of last) held.set(it.key, { least: formOf(it), most: letGo ? it.forms.length - 1 : formOf(it) });
+            // A held item holds its bundles as they stand: each member keeps to the side of its step of one the bundle
+            // stands on — past it where the bundle applies, so a member joining the row as it is held joins folded, never
+            // unfolding beside the chip holding it; short of it where it does not — and takes its other steps as the row's
+            // width says. A bundle a member's range keeps from its step is held in turn, so none is ever split.
+            const holding = new Set<string>();
+            for (let grew = true; grew;) {
+                grew = false;
+                for (const it of list) {
+                    const range = held.get(it.key);
+                    if (range === undefined) continue;
+                    bundlesOf(it).forEach((b, i) => {
+                        // Its step `i` takes it from form `i` to `i + 1`: kept from it while its range lies on one side.
+                        if (b === undefined || holding.has(b) || (range.most > i && range.least <= i)) return;
+                        holding.add(b);
+                        grew = true;
+                    });
+                }
+                for (const it of list) {
+                    const was = held.get(it.key) ?? { least: 0, most: it.forms.length - 1 };
+                    let { least, most } = was;
+                    bundlesOf(it).forEach((b, i) => {
+                        if (b === undefined || !holding.has(b)) return;
+                        if (applies(b)) least = Math.max(least, i + 1);
+                        else most = Math.min(most, i);
+                    });
+                    // A member placed astride two bundles that disagree keeps the form it has.
+                    if (least > most) least = most = formOf(it);
+                    if (least === was.least && most === was.most) continue;
+                    held.set(it.key, { least, most });
                     grew = true;
-                });
+                }
             }
-            for (const it of list) {
-                const was = held.get(it.key) ?? { least: 0, most: it.forms.length - 1 };
-                let { least, most } = was;
-                bundlesOf(it).forEach((b, i) => {
-                    if (b === undefined || !holding.has(b)) return;
-                    if (applies(b)) least = Math.max(least, i + 1);
-                    else most = Math.min(most, i);
-                });
-                // A member placed astride two bundles that disagree keeps the form it has.
-                if (least > most) least = most = formOf(it);
-                if (least === was.least && most === was.most) continue;
-                held.set(it.key, { least, most });
-                grew = true;
-            }
-        }
+            return held;
+        };
 
         const boxWidth = row.getBoundingClientRect().width;
         rowWidth.current = boxWidth;
@@ -304,11 +335,19 @@ export function Toolbar({ items, gap }: ToolbarProps) {
         // A row that is not laid out (not in the page yet, or no layout at
         // all) has nothing to fit: it folds nothing.
         if (available <= 0) return;
-        const foldItems = list.map((it) => foldItemOf(it, held.get(it.key)));
-        const sequence = foldSequence(foldItems);
         const widthOf = (i: number, form: number) => estimateWidth(cache.get(list[i]!.key)!.widths, form);
         const gapPx = px(computed.columnGap);
-        const forms = formsAt(foldItems, sequence, chooseFolds(foldItems, sequence, widthOf, available, gapPx));
+        /** The fewest steps whose row fits, each item held to its range: the forms they give, and whether their row fits. */
+        const fold = (held: ReadonlyMap<string, FoldRange>) => {
+            const foldItems = list.map((it) => foldItemOf(it, held.get(it.key)));
+            const sequence = foldSequence(foldItems);
+            const at = formsAt(foldItems, sequence, chooseFolds(foldItems, sequence, widthOf, available, gapPx));
+            return { forms: at, fits: widthOfRow(foldItems, at, widthOf, gapPx) <= available + FIT_TOLERANCE_PX };
+        };
+        // The items that fold last kept to their forms; where even every other step leaves the row too wide, let fold on.
+        // The widths are lower bounds until measured, so a row they say is too wide is: none is let go before it must be.
+        const kept = fold(heldWith(false));
+        const forms = kept.fits || last.length === 0 ? kept.forms : fold(heldWith(true)).forms;
         if (list.every((it, i) => formOf(it) === forms[i])) {
             passes.current = 0;
             return;
@@ -350,11 +389,14 @@ export function Toolbar({ items, gap }: ToolbarProps) {
         if (node !== null) endLed = true;
         return node;
     });
+    // What each item keeps whatever its form: rendered whatever form it takes, and in no place of the row — a portal.
+    const keeps = list.map((it) => (it.keep === undefined ? null : <Fragment key={it.key}>{it.keep}</Fragment>));
     return (
         <Box ref={rowRef} css={styles.root} data-toolbar="" data-toolbar-folds={folds} data-toolbar-state={state}
             data-toolbar-ladder={ladder}>
             {startNodes}
             {endNodes}
+            {keeps}
         </Box>
     );
 }

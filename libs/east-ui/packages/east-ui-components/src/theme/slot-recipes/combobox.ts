@@ -28,9 +28,16 @@ export const comboboxSlotRecipe = defineSlotRecipe({
         "root", "label", "control", "input", "trigger",
         "clearTrigger", "positioner", "content", "list", "item", "itemText",
         "itemIndicator", "itemGroup", "itemGroupLabel", "empty", "indicatorGroup",
-        "search", "searchStatus", "searchAction",
+        "search", "searchStatus", "searchAction", "searchSlot",
     ],
     base: {
+        /* Where a toolbar's key search box stands — in the row, or in the popover its icon opens — in a container of its
+         * own that outlives every fold (`collections/key-search/toolbar-item.tsx`): neither draws a box of its own, so
+         * the row lays the box out as its item and the popover as its body's child. */
+        searchSlot: {
+            "&[data-key-search='box']": { display: "contents" },
+            "& > [data-key-search-box]": { display: "contents" },
+        },
         search: {
             width: "min(var(--key-search-width), 40rem)",
             maxWidth: "100%",
