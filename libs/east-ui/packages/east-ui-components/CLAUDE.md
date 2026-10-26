@@ -752,6 +752,14 @@ Row virtualization via `@tanstack/react-virtual`:
   frame places them on (`devicePixels`) and lets every row anchor, so a jump
   past rows not drawn is never pulled back as they mount; `rootProps` names a
   bounded frame's scroll element.
+- A scroll the frame asks of its virtualizer — a request, its follow, an
+  anchor brought back — is reported to the virtualizer at once, read back live
+  through its own offset callback as the scroll's event would report it
+  (#1398): what mounts before that event arrives — a window landing where the
+  view was, its rows measured off their estimate, as every row is on a
+  fractional device pixel ratio — is placed from where the view went and never
+  takes it back there, nor does a correction the virtualizer held back at the
+  scroll's end; and the range reported meanwhile says where the view is.
 
 **Persist scroll as a clamped ROW INDEX, never a pixel `scrollTop`.** The
 top visible row index survives data changes (restore clamps to the current

@@ -88,7 +88,13 @@
  * follows the row itself, by key: after every commit until the row has mounted
  * where its alignment puts it, a row that has moved — measured at a height its
  * estimate missed, rows above it changed — is scrolled to again. The view
- * moving while the row does not, the viewer's scroll, ends it.
+ * moving while the row does not, the viewer's scroll, ends it. Every scroll
+ * the frame asks of its virtualizer — a request, its follow, an anchor brought
+ * back — is reported to it at once, read back live through its own offset
+ * callback as the scroll's event would report it (#1398): what it measures
+ * before that event arrives moves the view from where it is, never back to
+ * where it was, nor does a correction it held back at the scroll's end; and
+ * the range it reports says where it is.
  *
  * Only a bounded frame pins its header. An unbounded frame's header sits in
  * flow above its rows and scrolls with the page: a collection that scrolls
@@ -549,6 +555,9 @@ type Rows = Virtualizer<HTMLElement, Element> | Virtualizer<Window, Element>;
 /** The scroll behaviour TanStack hands a `scrollToFn`. */
 type ScrollBehaviorOption = "auto" | "smooth" | "instant";
 
+/** How an offset observer tells the virtualizer where its scroll is, and whether it is under way. */
+type OffsetReport = (offset: number, isScrolling: boolean) => void;
+
 function isWindow(target: HTMLElement | Window): target is Window {
     return (target as Window).window === target;
 }
@@ -908,6 +917,17 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     }, []);
     // Set by the unbounded offset observer while it is subscribed.
     const resample = useRef<(() => void) | null>(null);
+    // The virtualizer's own offset callback, as its observer is handed it, while it is subscribed: how the frame tells
+    // it where a scroll the frame asked for went, as the scroll's event would (#1398, `takeLiveOffset`).
+    const offsetReport = useRef<OffsetReport | null>(null);
+    const reporting = (cb: OffsetReport, unsubscribe: (() => void) | undefined): (() => void) | undefined => {
+        if (unsubscribe === undefined) return undefined;
+        offsetReport.current = cb;
+        return () => {
+            unsubscribe();
+            if (offsetReport.current === cb) offsetReport.current = null;
+        };
+    };
     // The scroll anchor taken at the last commit, and an anchored offset this
     // render moved to that the commit has yet to write (#878).
     const anchorRef = useRef<ScrollAnchor | null>(null);
@@ -938,11 +958,11 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         enabled: bounded || ancestorEl !== undefined,
         measureElement: measureRect,
         ...(bounded ? {
-            observeElementOffset: (instance: Virtualizer<HTMLElement, Element>, cb: (offset: number, isScrolling: boolean) => void) =>
-                observeElementOffset(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0)),
+            observeElementOffset: (instance: Virtualizer<HTMLElement, Element>, cb: OffsetReport) =>
+                reporting(cb, observeElementOffset(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0))),
         } : {
-            observeElementOffset: (instance: Virtualizer<HTMLElement, Element>, cb: (offset: number, isScrolling: boolean) => void) =>
-                observeOffsetWithin<HTMLElement>(itemsRef, resample)(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0)),
+            observeElementOffset: (instance: Virtualizer<HTMLElement, Element>, cb: OffsetReport) =>
+                reporting(cb, observeOffsetWithin<HTMLElement>(itemsRef, resample)(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0))),
             scrollToFn: scrollWithin<HTMLElement>(itemsRef),
             initialOffset: () => offsetNow(ancestor, itemsRef),
         }),
@@ -954,8 +974,8 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         overscan,
         enabled: onWindow,
         measureElement: measureRect,
-        observeElementOffset: (instance: Virtualizer<Window, Element>, cb: (offset: number, isScrolling: boolean) => void) =>
-            observeOffsetWithin<Window>(itemsRef, resample)(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0)),
+        observeElementOffset: (instance: Virtualizer<Window, Element>, cb: OffsetReport) =>
+            reporting(cb, observeOffsetWithin<Window>(itemsRef, resample)(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0))),
         scrollToFn: scrollWithin<Window>(itemsRef),
         initialOffset: () => offsetNow(ancestor, itemsRef),
     });
@@ -964,6 +984,26 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // The scroll offset now, in the virtualizer's terms — ahead of a scroll
     // event still to come.
     const liveOffset = (): number | undefined => (bounded ? scrollRef.current?.scrollTop : offsetNow(ancestor, itemsRef));
+    // A scroll the frame asks of its virtualizer — a scroll request, its follow,
+    // an anchor brought back — is the virtualizer's at once (#1398): the offset
+    // the view went to, read back live and handed to the virtualizer as the
+    // scroll's event hands it, before that event arrives. What it kept for the
+    // offset it last saw goes with it, and what it measures meanwhile moves the
+    // view from where it is — an item above the view measured at a height its
+    // estimate missed, as a row on a fractional device pixel ratio always is —
+    // and a range reported meanwhile says where it is. Left to the event, the
+    // virtualizer's adjustment for such an item scrolled the view back to the
+    // offset it last saw; a correction it held back at the scroll's end, rows
+    // there measured taller than their estimate, scrolled the view back there
+    // once the content grew; and a range reported from there took a paged
+    // reader's demand back with it.
+    const takeLiveOffset = (): void => {
+        const live = liveOffset();
+        if (live === undefined || !virtualized) return;
+        const report = offsetReport.current;
+        if (report !== null) report(live, virtualizer.isScrolling);
+        else virtualizer.scrollOffset = live;
+    };
     // The scroll margin the item starts carry: bounded, the pinned header's
     // height, which the rows sit below; at scale they are measured from the
     // rows' own top.
@@ -1082,6 +1122,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         if (scrollToIndex === undefined || !virtualized) return;
         if (getItemKey === undefined) {
             virtualizer.scrollToIndex(scrollToIndex, { align: scrollAlign });
+            takeLiveOffset();
             return;
         }
         if (count === 0) return;
@@ -1098,6 +1139,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             scroller: virtualizer.scrollElement, at: performance.now(),
         };
         virtualizer.scrollToOffset(target[0]);
+        takeLiveOffset();
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the target index, the nonce and going live are the trigger
     }, [scrollToIndex, scrollNonce, virtualized]);
 
@@ -1127,6 +1169,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         const item = virtualizer.measurementsCache[restoreAnchor.index];
         if (item === undefined) return;
         virtualizer.scrollToOffset(item.start - itemsOffset + restoreAnchor.offset, { align: "start" });
+        takeLiveOffset();
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the anchor is the trigger
     }, [restoreAnchor]);
 
@@ -1192,6 +1235,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         } else {
             request.offset = offset;
             virtualizer.scrollToOffset(offset);
+            takeLiveOffset();
         }
     });
 
