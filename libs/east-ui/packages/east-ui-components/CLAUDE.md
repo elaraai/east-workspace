@@ -358,7 +358,13 @@ component, nothing in east-ui.
   draws in the step that hides them, and a popover one of them opens hangs
   from the chip (`SliceEditPopover`'s `anchor`), its item `held` while it is
   open — as the SnapGrid editor's View chip and Studio's and the query
-  builder's ⋯ chips do. An item that joins the row while its bundle is held
+  builder's ⋯ chips do. A held item holds its bundles as they stand — applied
+  or not — and nothing else: every other member keeps to its side of its step
+  of the bundle and takes its other steps as the row's width says, so the row
+  folds what is left around the held one (the Schematic's tools fold to their
+  chip beside the box Find's query holds, its View held off, #1404); a bundle
+  a member is so kept from crossing is held in turn, so none is split. An
+  item that joins the row while its bundle is held
   takes the bundle as it stands, folded where the bundle applies, so a
   control appearing beside a held chip never pushes the row past its end (the
   Schematic's steps beside the View Find's query holds, #1395). On a

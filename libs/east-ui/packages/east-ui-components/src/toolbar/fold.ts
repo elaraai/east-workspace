@@ -21,11 +21,25 @@
  * the sequence; were they to differ, the bundle would apply as one at its last
  * step's place, every step between its first and its last applying with it.
  *
+ * An item can be HELD to a range of its forms: one holding an open overlay to
+ * its one form, and a member of a bundle another item holds to the side of
+ * that bundle's step the bundle stands on — its other steps its own to take
+ * (`./index.tsx`). It starts at the range's least form and takes only the
+ * steps inside it.
+ *
  * @packageDocumentation
  */
 
 /** Slack, in CSS px, for sub-pixel widths when a row is compared with its box. */
 export const FIT_TOLERANCE_PX = 0.5;
+
+/** The forms an item is held to, each a form index: its least and its most. */
+export interface FoldRange {
+    /** The widest form it may take: the steps up to it stand applied. */
+    readonly least: number;
+    /** The narrowest form it may take: the steps past it stand unapplied. */
+    readonly most: number;
+}
 
 /** One item, as the fold model sees it. */
 export interface FoldItem {
@@ -35,8 +49,8 @@ export interface FoldItem {
     readonly ranks: readonly number[];
     /** The forms that draw nothing (the item hides): they take no width and no gap. */
     readonly empty: readonly boolean[];
-    /** The form the item keeps while it holds an open overlay, else `undefined`. */
-    readonly held: number | undefined;
+    /** The forms the item is held to while something holds it — `{ least: f, most: f }` keeps form `f` — else `undefined`. */
+    readonly held: FoldRange | undefined;
     /** Each fold step's bundle, when it has one: `bundles[i]` is the step from form `i` to `i + 1`. */
     readonly bundles?: readonly (string | undefined)[] | undefined;
 }
@@ -51,7 +65,8 @@ export interface FoldStep {
 
 /**
  * Every item's fold steps, in the order the toolbar applies them: by rank,
- * ties in item order. A held item takes no steps — it keeps its form.
+ * ties in item order. A held item takes only the steps inside the range it is
+ * held to — one held to a single form takes none.
  *
  * @param items - The toolbar's items, in their order
  * @returns The fold sequence
@@ -59,10 +74,10 @@ export interface FoldStep {
 export function foldSequence(items: readonly FoldItem[]): FoldStep[] {
     const steps: FoldStep[] = [];
     items.forEach((it, item) => {
-        if (it.held !== undefined) return;
+        const least = it.held?.least ?? 0, most = it.held?.most ?? it.forms - 1;
         // An item's steps apply in order, so a step never ranks below the one before it.
         let floor = -Infinity;
-        for (let to = 1; to < it.forms; to++) {
+        for (let to = least + 1; to <= most; to++) {
             floor = Math.max(floor, it.ranks[to - 1] ?? 0);
             const bundle = it.bundles?.[to - 1];
             steps.push(bundle === undefined ? { item, to, rank: floor } : { item, to, rank: floor, bundle });
@@ -97,7 +112,8 @@ export function splitsBundle(sequence: readonly FoldStep[], folds: number): bool
 }
 
 /**
- * The form each item takes once the first `folds` steps of the sequence apply.
+ * The form each item takes once the first `folds` steps of the sequence apply:
+ * a held item from the least form it is held to.
  *
  * @param items - The toolbar's items
  * @param sequence - Their fold sequence ({@link foldSequence})
@@ -105,7 +121,7 @@ export function splitsBundle(sequence: readonly FoldStep[], folds: number): bool
  * @returns Each item's form index
  */
 export function formsAt(items: readonly FoldItem[], sequence: readonly FoldStep[], folds: number): number[] {
-    const out = items.map((it) => it.held ?? 0);
+    const out = items.map((it) => it.held?.least ?? 0);
     for (let k = 0; k < folds && k < sequence.length; k++) {
         const step = sequence[k]!;
         out[step.item] = step.to;

@@ -265,6 +265,41 @@ describe("the toolbar's one ladder", () => {
         expect(shown(wide.container)).toEqual(["zoom", "seek-box", "steps", "history"]);
     });
 
+    /**
+     * The Schematic's row (#1404): the tools drop their words, then fold into a chip, both their own steps, and last go
+     * into the View with the zoom and the steps, one bundle the box folds into too.
+     */
+    const schematicItems = (held: boolean, steps: boolean): ToolbarItem[] => [
+        { key: "tools", forms: [form("tools", 180), form("tools-icons", 120), form("tools-chip", 60), null], rank: [10, 30, 50], bundle: [undefined, undefined, "view"] },
+        { key: "zoom", forms: [form("zoom", 100), null], rank: 50, bundle: "view" },
+        { key: "seek", forms: [form("seek-box", 160), form("seek-view", 45)], rank: 50, bundle: "view", held },
+        ...(steps ? [{ key: "steps", forms: [form("steps", 70), null], rank: 50, bundle: "view" }] : []),
+        { key: "history", side: "end", forms: [form("history", 170), form("history-buttons", 130)] },
+    ];
+
+    test("the box its query holds keeps the View off, and the row folds what is left around it: the tools to their icons, then their chip, the history last (#1404)", () => {
+        // 180 + 100 + 160 + 170 + 30 = 640 fits.
+        const { container, rerender } = mount(schematicItems(false, false), 640);
+        expect(shown(container)).toEqual(["tools", "zoom", "seek-box", "history"]);
+        // A query typed holds the box; something selected, the steps join beside it — the View held off, the tools fold
+        // to their icons (120 + 100 + 160 + 70 + 170 + 40 = 660), to their chip (600), then the history (560).
+        rerenderWith(rerender, schematicItems(true, false));
+        rerenderWith(rerender, schematicItems(true, true));
+        expect(shown(container)).toEqual(["tools-chip", "zoom", "seek-box", "steps", "history"]);
+        resize(570);
+        expect(shown(container)).toEqual(["tools-chip", "zoom", "seek-box", "steps", "history-buttons"]);
+        expect(container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-state")).toBe("tools=2/4;zoom=0/2;seek=0/2;steps=0/2;history=1/2");
+        // Room again: the tools unfold beside the held box, as far as the row allows — never into the View it holds off.
+        resize(700);
+        expect(shown(container)).toEqual(["tools-icons", "zoom", "seek-box", "steps", "history"]);
+        resize(760);
+        expect(shown(container)).toEqual(["tools", "zoom", "seek-box", "steps", "history"]);
+        // The query cleared, the box folds with the rest again: the View takes the tools, the zoom, the box and the steps.
+        rerenderWith(rerender, schematicItems(false, true));
+        resize(300);
+        expect(shown(container)).toEqual(["seek-view", "history"]);
+    });
+
     test("an empty form hides the item, and takes no gap", () => {
         const list: ToolbarItem[] = [
             { key: "count", forms: [form("count", 100), null], rank: 1 },
