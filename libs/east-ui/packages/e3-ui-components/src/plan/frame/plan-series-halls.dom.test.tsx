@@ -475,4 +475,20 @@ describe("a bounded view of the narrowed presses (#1344)", () => {
         await waitFor(() => expect(frameOf(c).scrollTop).toBe(0));
         expect(pressRows(c)[0]).toBe(rowKeyOf(pressRow("P-1002")));
     });
+
+    test("a view resting over presses not read yet holds no press at its top: a hall chosen then starts the view at the top — never in the run the new rows end with, where the last rested (#1398)", async () => {
+        const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
+        await settle();
+        // Far down among presses not read, their windows held on their way: the view rests over the run that stands for them.
+        const windows = h.e3.hold((request) => request.dataset === PRESSES && request.kind === "page" && request.query.get("index") === null);
+        await scrollAndSettle(c, 1500 * ROW_PX);
+        await windows.holding;
+        expect(frameOf(c).scrollTop).toBe(1500 * ROW_PX);
+        // Hall 2 chosen — its presses read through the hall index, never held: once they are in, the view is at their top.
+        await chooseHalls(["Hall 2"]);
+        await waitFor(() => expect(pressRows(c)[0]).toBe(rowKeyOf(pressRow("P-1002"))));
+        await waitFor(() => expect(frameOf(c).scrollTop).toBe(0));
+        await act(async () => { windows.release(); });
+        await settle();
+    });
 });
