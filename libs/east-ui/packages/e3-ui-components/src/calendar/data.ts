@@ -24,22 +24,49 @@
  * The first read lands whole: the frame hears of neither until both have, so
  * it reveals what it read at once (CL5).
  *
+ * Every kind is counted before one of its events is read (#1424), by the
+ * shared schedule reader (`cells.ts`), which reads beside the window in the
+ * same component: within `SCHEDULE_EVENT_CAP` over the window, the window's
+ * read reads it — once its count there says so, never by what the reader last
+ * decided, which a new narrowing outruns; past it, none of its events is read
+ * or drawn (`capped`), its drafts alone drawn where they place their events,
+ * and its backlog read alone, beside them.
+ *
  * @packageDocumentation
  */
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import { DateTimeType, compareFor, none, some } from "@elaraai/east";
+import { DateTimeType, SortedMap, StringType, compareFor, none, some } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEditing } from "../shared/schedule/editing.js";
+import { scheduleWithinCap, type ScheduleCellResources, type ScheduleCellsRead } from "../shared/schedule/cells.js";
+import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEditing, type ScheduleEventDraftsValue } from "../shared/schedule/editing.js";
 import { useReadAhead } from "../shared/schedule/use-read-ahead.js";
+import { useCalendarCells, type CalendarBucket } from "./cells.js";
 import { calendarAhead, chronological, resourceKey, type CalendarItem, type CalendarRange, type CalendarRow, type CalendarValue, type CalendarView } from "./model.js";
 import { timelineAhead } from "./timeline.js";
 import { useTravel, type TravelStore } from "./visible.js";
 import { calendarEventParts } from "./window.js";
 
 /** A window read, including the backlog of each kind that reads its backlog with its window. */
-export interface CalendarData { items: CalendarItem[]; backlog: CalendarItem[]; loading: boolean; saved: Date | undefined }
-const EMPTY: CalendarData = { items: [], backlog: [], loading: true, saved: undefined };
+export interface CalendarData {
+    items: CalendarItem[]; backlog: CalendarItem[]; loading: boolean; saved: Date | undefined;
+    /**
+     * The kinds past the cap over the window (#1424): none of their events is read or drawn but their drafts, so no
+     * figure the Calendar says counts them — it says they are not counted, never 0.
+     */
+    capped: ReadonlySet<string>;
+    /**
+     * What the shared reader read of the kinds as this read took it (#1424) — the resources' shading and the notices of
+     * the kinds past the cap — held with the events, so the frame hears of them as it hears of the window, whole;
+     * `undefined` before a read.
+     */
+    cells: ScheduleCellsRead | undefined;
+}
+/** No kind past the cap. */
+const NONE_CAPPED: ReadonlySet<string> = new Set();
+const EMPTY: CalendarData = { items: [], backlog: [], loading: true, saved: undefined, capped: NONE_CAPPED, cells: undefined };
 const compareDate = compareFor(DateTimeType);
+/** No drafts: a read-only Calendar's. */
+const NO_DRAFTS: ScheduleEventDraftsValue = new SortedMap([], compareFor(StringType));
 
 /**
  * The backlog of every kind whose backlog follows no window, read apart from
@@ -109,31 +136,47 @@ export function windowedBacklogKinds(value: CalendarValue): ReadonlySet<string> 
  * @param range - The window shown
  * @param editing - The editing whose drafts the reads hold
  * @param view - The view: what a step from it goes to is read ahead
+ * @param cells - What the shared reader read of the kinds (#1424): a kind it gives cells — past the cap, none — is read
+ *   from them; every other is counted over the window and read only within the cap
  * @param travel - On the timeline, which way its view last moved, by its scroll or a step: the next window of its grid that way is read ahead
  * @returns What the frame shows
  */
 export function useCalendarData(value: CalendarValue, range: CalendarRange, editing: ScheduleEditing | undefined, view: CalendarView,
-    travel?: TravelStore): CalendarDataState {
+    cells: ScheduleCellsRead, travel?: TravelStore): CalendarDataState {
     const drafts = editing?.drafts;
     const windowed = useMemo(() => windowedBacklogKinds(value), [value]);
     const read = useCallback((): CalendarData => {
         const items: CalendarItem[] = []; const backlog: CalendarItem[] = [];
         let loading = false;
         let saved: Date | undefined;
+        const capped = new Set<string>();
         for (const kind of value.events) {
-            const changes = drafts?.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS;
-            const scheduled = kind.items(range.from, range.to, changes, none);
+            // A kind the reader gives cells is read from them — past the cap, none: its drafts alone draw, where they place
+            // their events, and its backlog is read alone beside them (#1424).
+            const held = cells.reads.get(kind.key);
+            const changes = (held === undefined ? drafts : cells.drafts)?.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS;
+            const given = held === undefined ? none : some(held);
+            if (held === undefined) {
+                // Every other kind is read over the window once its count there says it is within the cap — never by what
+                // the reader last decided, which a new narrowing outruns: past it, or in flight, the window waits on the
+                // reader, which gives it no cells.
+                const within = scheduleWithinCap(kind.count, range.from, range.to);
+                if (within.type !== "some" || !within.value) { loading = true; continue; }
+            } else if (cells.capped.has(kind.key)) {
+                capped.add(kind.key);
+            }
+            const scheduled = kind.items(range.from, range.to, changes, given);
             if (scheduled.type === "some") { for (const item of scheduled.value) items.push(item); } else loading = true;
             const history = kind.history();
             const latest = history.type === "some" ? history.value[0]?.at : undefined;
             if (latest !== undefined && (saved === undefined || compareDate(latest, saved) > 0)) saved = latest;
             if (kind.backlog && windowed.has(kind.key)) {
-                const unscheduled = kind.unscheduled(range.from, range.to, changes, none);
+                const unscheduled = kind.unscheduled(range.from, range.to, changes, given);
                 if (unscheduled.type === "some") { for (const item of unscheduled.value) backlog.push(item); } else loading = true;
             }
         }
-        return { items: chronological(items), backlog, loading, saved };
-    }, [value.events, range.from, range.to, drafts, windowed]);
+        return { items: chronological(items), backlog, loading, saved, capped: capped.size === 0 ? NONE_CAPPED : capped, cells };
+    }, [value.events, range.from, range.to, drafts, windowed, cells]);
     const { result } = useTrackedEvaluation(read);
     // The backlog apart from the window: asked over no window, so no date change asks it again.
     const readApart = useCallback(() => {
@@ -154,11 +197,14 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
         [travel, range, toward, view, value.settings]);
     const readNext = useCallback((next: CalendarRange) => {
         for (const kind of value.events) {
+            // A kind the reader gives cells is never read over a window (#1424). Every other is counted there first, and
+            // read only within the cap.
+            if (cells.reads.has(kind.key)) continue;
             const changes = drafts?.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS;
             kind.items(next.from, next.to, changes, none);
             if (kind.backlog && windowed.has(kind.key)) kind.unscheduled(next.from, next.to, changes, none);
         }
-    }, [value.events, drafts, windowed]);
+    }, [value.events, drafts, windowed, cells]);
     useReadAhead(result.ok && !result.value.loading, ahead, readNext);
     const held = useRef(EMPTY);
     const heldRange = useRef(range);
@@ -190,23 +236,30 @@ export function useCalendarData(value: CalendarValue, range: CalendarRange, edit
 /**
  * The window read, in a component of its own (#1343): each search that lands re-runs it alone, and it hands the frame
  * its data only when what the frame shows moves. A kind narrowed through an interval index lands some fifty-five
- * searches before its count is known, and each would otherwise re-render the whole frame.
+ * searches before its count is known, and each would otherwise re-render the whole frame. The kinds' counts, and past
+ * the cap their shading and their notices, are read here too, by the shared reader (#1424).
  *
  * @param props - The payload, the range read, the editing whose drafts the read holds, the view and, on the timeline,
- *   which way its view travels (what is read ahead once the window lands), and where the data goes
+ *   which way its view travels (what is read ahead once the window lands); the resource kinds the view lays out, each its
+ *   rows the rail shows, and the periods a resource's shading is cut into — none in a view with no resource axis; and
+ *   where the data goes
  * @returns Nothing: it reads
  */
-export function CalendarDataReader({ value, range, editing, view, travel, onData }: {
+export function CalendarDataReader({ value, range, editing, view, travel, resources, bucket, onData }: {
     value: CalendarValue; range: CalendarRange; editing: ScheduleEditing | undefined; view: CalendarView; travel?: TravelStore | undefined;
+    resources: readonly ScheduleCellResources[]; bucket: CalendarBucket | undefined;
     onData: (data: CalendarDataState) => void;
 }): null {
-    const data = useCalendarData(value, range, editing, view, travel);
+    const parts = useMemo(() => calendarEventParts(value), [value]);
+    const cells = useCalendarCells({ kinds: value.events, parts, resources, range, bucket, drafts: editing?.drafts ?? NO_DRAFTS });
+    const data = useCalendarData(value, range, editing, view, cells, travel);
     const reported = useRef<CalendarDataState | undefined>(undefined);
     useLayoutEffect(() => {
         const was = reported.current;
-        // The same held read over the same range, in the same state: nothing the frame shows has moved.
+        // The same held read over the same range, in the same state, and the same cells: nothing the frame shows has moved.
         if (was !== undefined && Object.is(was.items, data.items) && Object.is(was.backlog, data.backlog) && Object.is(was.range, data.range)
-            && was.ready === data.ready && was.loading === data.loading && was.error === data.error && Object.is(was.apart, data.apart)) return;
+            && was.ready === data.ready && was.loading === data.loading && was.error === data.error && Object.is(was.apart, data.apart)
+            && Object.is(was.cells, data.cells)) return;
         reported.current = data;
         onData(data);
     });

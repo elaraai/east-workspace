@@ -32,6 +32,21 @@ export interface CalendarView {
 export interface CalendarRange { from: Date; to: Date; days: readonly Date[] }
 /** A resource column/row. Unassigned has no resource ref. */
 export interface CalendarRow { key: string; label: string; meta: string; group: string; icon?: string; resource: CalendarItem["resource"] }
+/**
+ * What the Calendar's figures leave out (#1424): the kinds past the cap, none of whose events is drawn but their drafts
+ * — their names, as running text writes them — and the resource kinds they are placed on, whose resources' figures
+ * count none of them. A figure that would count them says they are not counted, never 0.
+ */
+export interface CalendarUncounted {
+    /** The kinds' names, as running text writes them: `print job`. */
+    readonly names: readonly string[];
+    /** Whether every kind is among them: a figure then counts no event at all, and says no number. */
+    readonly all: boolean;
+    /** The resource kinds they are placed on, by slot. */
+    readonly resources: ReadonlySet<string>;
+}
+/** No kind past the cap: every figure counts every kind. */
+export const NOTHING_UNCOUNTED: CalendarUncounted = { names: [], all: false, resources: new Set() };
 /** A slot recipe's styles. */
 export type CalendarStyles = Record<string, Record<string, unknown>>;
 

@@ -6,7 +6,9 @@
 /**
  * One folding Toolbar: the rail, Calendar navigation, overlaps, Search Records and shared history. On the timeline the
  * navigator, the count and the overlaps chip follow the days it shows (#1398, CL9): each reads them itself, so a scroll
- * draws nothing else of the toolbar, and a figure over them is said once what the timeline draws covers them.
+ * draws nothing else of the toolbar, and a figure over them is said once what the timeline draws covers them. The count
+ * counts the events drawn, and names the kinds past the cap it counts none of (#1424): `13 events, print jobs not
+ * counted`, never a count that leaves them out unsaid.
  */
 import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
@@ -20,12 +22,15 @@ import {
 import { HOST_RANK, RecordSliceFieldEditor, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
+import { eventsNotCounted } from "../shared/schedule/words.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { scheduleOverlapsIn, type ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import type { CalendarCommands } from "./actions.js";
 import type { CalendarEventPart } from "./window.js";
 import { coversShown, useShownOverlaps, useVisibleDays, type VisibleDaysStore } from "./visible.js";
-import { dayStart, inWindow, navigate, type CalendarItem, type CalendarRange, type CalendarRef, type CalendarStyles, type CalendarView } from "./model.js";
+import {
+    dayStart, inWindow, navigate, type CalendarItem, type CalendarRange, type CalendarRef, type CalendarStyles, type CalendarUncounted, type CalendarView,
+} from "./model.js";
 
 const LAYOUTS = [{ key: "calendar", label: "Calendar" }, { key: "resources", label: "Resources" }, { key: "timeline", label: "Timeline" }] as const;
 const PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }, { key: "month", label: "Month" }] as const;
@@ -33,6 +38,8 @@ interface ToolbarArgs {
     view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; now: Date;
     /** The window's events; `undefined` while its period is read: "…", never a count of another period's (#1398, CL13). */
     count: number | undefined;
+    /** The kinds past the cap (#1424): the count counts none of their events, and says so. */
+    uncounted: CalendarUncounted;
     styles: CalendarStyles; commands: CalendarCommands | undefined;
     words: EditingWords; overlaps: ScheduleOverlaps<CalendarItem>; select: (refs: CalendarRef[]) => void;
     /** Whether an overlap shows: among what is drawn — on the timeline, in the days it shows (`useOverlapsShown`). */
@@ -73,16 +80,32 @@ function VisibleNavigator({ visible, fallback, words, navigator }: {
 }
 
 /**
+ * What the count says (#1424): the events counted, and the kinds past the cap it counts none of — `13 events, print jobs
+ * not counted`, or with every kind past it `print jobs not counted`, no number; "…" while the period is read (CL13).
+ *
+ * @param count - The events drawn; `undefined` while the period is read
+ * @param uncounted - The kinds past the cap
+ * @param words - The app's formatters
+ * @returns The count's words
+ */
+function countWords(count: number | undefined, uncounted: CalendarUncounted, words: Pick<EditingWords, "number">): string {
+    if (count === undefined) return "… events";
+    if (uncounted.names.length === 0) return `${words.number(count)} events`;
+    return eventsNotCounted({ n: count, count: uncounted.all ? undefined : words.number(count), kinds: uncounted.names });
+}
+
+/**
  * The timeline's count: its window's events over the days it shows, read as they move; "…" while those days are read —
  * a period not read yet, or a re-centre's days the held read does not cover (CL13).
  */
-function VisibleCount({ visible, events, styles, words, range }: {
+function VisibleCount({ visible, events, styles, words, range, uncounted }: {
     visible: VisibleDaysStore; events: { readonly items: readonly CalendarItem[]; readonly covered: CalendarRange | undefined }; styles: CalendarStyles; words: EditingWords; range: CalendarRange;
+    uncounted: CalendarUncounted;
 }) {
     const shown = useVisibleDays(visible);
     const from = shown?.from ?? range.from, to = shown?.to ?? range.to;
     const count = coversShown(events.covered, range, shown) ? events.items.filter(item => inWindow(item, from, to)).length : undefined;
-    return <Box css={styles.toolbarText} data-calendar-count="">{count === undefined ? "…" : words.number(count)} events</Box>;
+    return <Box css={styles.toolbarText} data-calendar-count="">{countWords(count, uncounted, words)}</Box>;
 }
 
 /**
@@ -162,8 +185,8 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         { key: "calendar.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "calendar.controls"], forms: [navigation(), navigation(true), navigation(true, true)] },
         // With no slice, the window's own count; a slice's summary counts each source instead.
         chrome === undefined && { key: "calendar.count", side: "start", rank: HOST_RANK, forms: [visible !== undefined && args.events !== undefined
-            ? <VisibleCount visible={visible} events={args.events} styles={styles} words={words} range={args.range} />
-            : <Box css={styles.toolbarText} data-calendar-count="">{count === undefined ? "…" : words.number(count)} events</Box>, null] },
+            ? <VisibleCount visible={visible} events={args.events} styles={styles} words={words} range={args.range} uncounted={args.uncounted} />
+            : <Box css={styles.toolbarText} data-calendar-count="">{countWords(count, args.uncounted, words)}</Box>, null] },
         paged && chrome === undefined && { key: "calendar.scope", side: "start", forms: [<Box css={styles.toolbarText}>Loaded window</Box>, null], rank: HOST_RANK + 4 },
         overlapsShown && { key: "calendar.overlaps", side: "end", rank: [HOST_RANK, HOST_RANK + 6], forms: [warning(false), warning(true), null] },
         seek !== undefined && { ...seek, forms: [...seek.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "calendar.controls"] },

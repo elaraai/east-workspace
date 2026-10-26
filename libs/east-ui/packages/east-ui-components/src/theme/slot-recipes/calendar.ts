@@ -8,11 +8,13 @@
  * read yet washes its regions (`monthWash` below a month cell's date) and its counts are placeholders (`unreadMeta`); a
  * failed one says so in its timeline's first row (`readLine`), its agenda's other cards blank (`data-blank`); and a newer read of the period shown keeps its events,
  * retained (`data-calendar-stale` on main, CL5): its columns', rows' and cells' rules dashed, its events' and cards' words
- * in the third ink — the shared retained parts.
+ * in the third ink — the shared retained parts. A resource's shading past the cap (#1424): the Plan's booked-vs-free bar
+ * along each period (`shadeBar`) and its no-data hatch (`shadeHatch`).
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
+import { BOOKED_FILL, NO_DATA_HATCH } from "./plan/cells.js";
 import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { retainedColumn, retainedRow } from "./loading.js";
@@ -36,7 +38,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
         "ruler", "rulerRow", "rulerTick", "rulerLabel", "resize", "month", "monthDay", "dayNumber", "more", "timeline",
         "timelineRow", "rowHead", "rowPlot", "agenda", "agendaGroup", "agendaHead", "card", "cardHead", "cardTitle",
         "actions", ...schedulePaneSlots, "section", "status", "footer", "toolbarRange", "rangeTitle", "toolbarText",
-        "form", "error", "empty", ...nowSlots, "unreadMeta", "monthWash", "readLine",
+        "form", "error", "empty", ...nowSlots, "unreadMeta", "monthWash", "readLine", "shadeBar", "shadeHatch",
     ],
     base: {
         ...moveGhostBase,
@@ -158,5 +160,11 @@ export const calendarSlotRecipe = defineSlotRecipe({
             position: "sticky", left: "184px", zIndex: 3, display: "flex", alignItems: "center", width: "max-content", height: "100%",
             padding: "0 12px", background: "bg.surface",
         },
+        // ── A resource's shading past the cap (#1424) ── each period's share booked, a bar along it from its start, inset as
+        // an event's block is in a row or a column; and the no-data hatch across a period no summary shades.
+        shadeBar: { position: "absolute", borderRadius: "2px", background: BOOKED_FILL, zIndex: 1,
+            "&[data-along=x]": { top: "4px", bottom: "5px" }, "&[data-along=y]": { left: "2px", right: "2px" } },
+        shadeHatch: { position: "absolute", pointerEvents: "none", backgroundImage: NO_DATA_HATCH,
+            "&[data-along=x]": { top: 0, bottom: 0 }, "&[data-along=y]": { left: 0, right: 0 } },
     },
 });

@@ -18,6 +18,15 @@ import { coarseHitArea } from "../../../style/hit-area.js";
 import { lifecycleStates } from "./states.js";
 import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
+/**
+ * The no-data hatch (#1039): a 45° rule in the ink at 7% across what no value shades — a heat cell, and the Calendar's
+ * period no summary shades (#1424).
+ */
+export const NO_DATA_HATCH = "repeating-linear-gradient(45deg, transparent 0 3px, color-mix(in srgb, {colors.fg} 7%, transparent) 3px 4px)";
+
+/** A booked-vs-free bar's fill (#1039): the brand's solid — the Plan's weight bar, and the Calendar's shading (#1424). */
+export const BOOKED_FILL = "{colors.brand.solid}";
+
 /** The slots this part styles. */
 export const cellsSlots = [
     "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellWash", "cell", "cellTiles",
@@ -53,10 +62,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         ...wholeOrNone,
         zIndex: 2,
         // No-data: 45° hatch + the em-dash (content set by the renderer).
-        "&[data-nodata]": {
-            backgroundImage:
-                "repeating-linear-gradient(45deg, transparent 0 3px, color-mix(in srgb, {colors.fg} 7%, transparent) 3px 4px)",
-        },
+        "&[data-nodata]": { backgroundImage: NO_DATA_HATCH },
         "&[data-warn]": { boxShadow: "inset 0 0 0 1.5px {colors.status.warn}" },
         // The cell's step on the design system's heat ramp (#949) — five
         // steps, `--heat-1` … `--heat-5`, in each theme; `heatLabel` inks the
@@ -105,7 +111,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         transform: "translateY(-50%)",
         height: "var(--plan-weight-h)",
         borderRadius: "2px",
-        background: "{colors.brand.solid}",
+        background: BOOKED_FILL,
         zIndex: 2,
         "&[data-planned]": {
             background: "color-mix(in srgb, {colors.brand.solid} 45%, {colors.bg.surface})",

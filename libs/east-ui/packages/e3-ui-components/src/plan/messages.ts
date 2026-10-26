@@ -26,6 +26,7 @@
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
+import { eventsNotCounted, joinedWords as joined, kindPlural as pluralName } from "../shared/schedule/words.js";
 import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
 
 /** A lifecycle state as the words name it — `EventStateType`, with the
@@ -513,10 +514,6 @@ const FOCUS_TAG: Record<PlanFocusTagWord, string> = {
 const listed = (parts: ReadonlyArray<string | undefined>): string =>
     parts.filter((p): p is string => p !== undefined && p !== "").join(", ");
 
-/** Words joined as English reads a list — `a`, `a or b`, `a, b or c` (`and` in place of `or` when asked). */
-const joined = (words: readonly string[], last: "or" | "and"): string =>
-    words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} ${last} ${words[words.length - 1]}`;
-
 /** The fields a card's patch sets, as a noun — `customer`, `customer and stock` (an underscore a space); a patch that sets none, `card`. */
 const fieldNoun = (fields: readonly string[]): string =>
     fields.length === 0 ? "card" : joined(fields.map((f) => f.replace(/_/g, " ")), "and");
@@ -527,14 +524,6 @@ const withArticle = (noun: string): string => `${/^[aeiou]/i.test(noun) ? "an" :
 /** What a library tab the rail narrows lists, as its narrowed words say it — `templates`, `backlog events`, an author's tab's name. */
 const narrowedNoun = (tab: PlanLibraryTabWord, name: string): string =>
     (tab === "events" ? "templates" : tab === "backlog" ? "backlog events" : tab === "series" ? "series" : name);
-
-/** A kind's name in the plural, as English makes one — `Stop` → `Stops`, `Delivery` → `Deliveries`; a name that ends in `s` stays. */
-const pluralName = (name: string): string => {
-    if (/s$/i.test(name)) return name;
-    if (/[^aeiou]y$/i.test(name)) return `${name.slice(0, -1)}ies`;
-    if (/(x|z|ch|sh)$/i.test(name)) return `${name}es`;
-    return `${name}s`;
-};
 
 /**
  * The Plan's English messages — the default table.
@@ -579,10 +568,7 @@ export const planMessages: PlanMessages = {
     truncated: ({ count }) => `showing the first ${count} buckets — zoom in`,
 
     footerEvents: ({ n, count }) => `${count} ${plural(n, "event", "events")}`,
-    footerEventsNotCounted: ({ n, count, kinds }) => {
-        const notCounted = `${joined(kinds.map(pluralName), "and")} not counted`;
-        return count === undefined ? notCounted : `${count} ${plural(n, "event", "events")}, ${notCounted}`;
-    },
+    footerEventsNotCounted: ({ n, count, kinds }) => eventsNotCounted({ n, count, kinds }),
     footerBacklog: ({ count }) => `${count} in backlog`,
     footerPending: ({ count }) => `${count} pending`,
     footerSaved: ({ when }) => `saved ${when}`,

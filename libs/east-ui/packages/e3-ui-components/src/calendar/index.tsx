@@ -41,21 +41,34 @@
  * land: never "…", never emptied. Every other kind's follows no window: read
  * once, it is never emptied or read again by a date change. The Library stays
  * mounted through both: its search box keeps its query and its focus.
+ *
+ * Every kind is counted before one of its events is read (#1424): past
+ * `SCHEDULE_EVENT_CAP` over the window, none is read or drawn but its drafts. A
+ * resource's row on the timeline, or its column in the Resources view, of a
+ * kind such a kind is placed on draws its shading in their place — the share
+ * of each of the view's periods its events book, from its source's summary —
+ * or is hatched where none shades at that period; the banner says how many
+ * events there are and to narrow or to choose another period; and every
+ * figure that would count them says they are not counted, never 0.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { none } from "@elaraai/east";
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
+import type { RecordTile } from "@elaraai/east-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters, usePersistedState,
+    type Formatters,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal } from "@elaraai/east-ui-components/internal";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
+import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedule/cells.js";
 import { useScheduleEditing, type ScheduleEditing } from "../shared/schedule/editing.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
+import type { CalendarBucket } from "./cells.js";
 import { CalendarDataReader, initialCalendarData, resourceRows, windowedBacklogKinds, type CalendarDataState } from "./data.js";
 import { useCalendarDrag } from "./drag.js";
 import { useCalendarFind, type FoundEvent } from "./find.js";
@@ -69,8 +82,9 @@ import { useCalendarWindow, type CalendarEventPart, type CalendarWindow } from "
 import { createTravel, createVisibleDays, useOverlapsShown } from "./visible.js";
 import { CalendarViews, calendarHour, type CalendarAnchor } from "./views.js";
 import {
-    calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, periodWords,
-    type CalendarItem, type CalendarKind, type CalendarRange, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarValue, type CalendarView,
+    NOTHING_UNCOUNTED, calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, periodWords,
+    type CalendarItem, type CalendarKind, type CalendarRange, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarUncounted, type CalendarValue,
+    type CalendarView,
 } from "./model.js";
 
 export type { CalendarValue } from "./model.js";
@@ -89,6 +103,29 @@ const NO_ITEMS: CalendarItem[] = [];
 const NO_ANCHOR: CalendarAnchor = {};
 /** The row an event with no resource sits on. */
 const UNASSIGNED: CalendarRow = { key: "", label: "Unassigned", meta: "", group: "", resource: none };
+/** No resource kind laid out: a view with no resource axis shades no resource (#1424). */
+const NO_CELL_RESOURCES: readonly ScheduleCellResources[] = [];
+/** A summary's tile the timeline shades a resource's row at, as the toolbar names the period (#1424). */
+const PERIOD_NAMES: Partial<Record<RecordTile, string>> = { day: "Day", week: "Week", month: "Month" };
+
+/**
+ * What the banner says of a kind past the cap (#1424): how many of its events the window holds — or, where its count is
+ * no number of them (a day index's), that they are not counted — and where they show: the timeline at the period its
+ * summary shades at, or a narrower view.
+ *
+ * @param notice - The kind's notice, as the shared reader gives it
+ * @param format - The app's formatters
+ * @returns The banner's title and its line
+ */
+function noticeWords(notice: ScheduleCellNotice, format: Pick<Formatters, "number" | "locale">): { title: string; hint: string } {
+    const kind = notice.name.toLocaleLowerCase(format.locale);
+    const title = notice.events === undefined ? `${notice.name} events in view: not counted`
+        : `${format.number(notice.events)} ${kind} ${notice.events === 1 ? "event" : "events"} in view`;
+    const period = notice.resolution === undefined ? undefined : PERIOD_NAMES[notice.resolution];
+    const hint = period === undefined ? "Too many to draw here: narrow the filters, or choose a shorter period."
+        : `Too many to draw here: narrow the filters, or open the timeline at ${period} to see where they fall.`;
+    return { title, hint };
+}
 
 /**
  * What the Backlog shows of the kinds that read their backlog with their window (#1398): their last complete read, and
@@ -236,6 +273,20 @@ function CalendarFrame(props: HostProps) {
         return keys === undefined || keys.type === "none" ? kind : { ...kind, rows: kind.rows.filter(row => keys.value.has(row.key)) };
     }), [value.resources, followed]);
     const resourcesBusy = value.resources.some(kind => followed.get(kind.key)?.shown.busy === true);
+    // The periods a resource's shading is cut into (#1424): the timeline's by its period, the Resources view's day — none in
+    // a view with no resource axis, a time grid, the month or the agenda, which shades no resource.
+    const bucket: CalendarBucket | undefined = narrow ? undefined : view.layout === "timeline" ? view.period : view.layout === "resources" ? "day" : undefined;
+    const cellResources = useMemo((): readonly ScheduleCellResources[] => bucket === undefined ? NO_CELL_RESOURCES
+        : shown.map(kind => ({ key: kind.key, keys: kind.rows.map(row => row.key) })), [bucket, shown]);
+    // The kinds past the cap (#1424): none of their events is drawn but their drafts, so every figure that would count
+    // them — the count, a day's, a resource's booked hours — says they are not counted, never 0.
+    const uncounted = useMemo((): CalendarUncounted => {
+        const kinds = value.events.filter(kind => data.capped.has(kind.key));
+        return kinds.length === 0 ? NOTHING_UNCOUNTED : {
+            names: kinds.map(kind => kind.name.toLocaleLowerCase(format.locale)), all: kinds.length === value.events.length,
+            resources: new Set(kinds.flatMap(kind => kind.takes)),
+        };
+    }, [value.events, data.capped, format.locale]);
     const items = drawn ? data.items : NO_ITEMS;
     // What the drawn events were read over (#1398): the window once read; the held read's, while a continuation's window is read.
     const covered = current ? range : continuing ? data.range : undefined;
@@ -301,7 +352,8 @@ function CalendarFrame(props: HostProps) {
     const search = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format, onPick: found });
     // The window's own count: "…" while the period is read, never a count of another period's (#1398, CL13).
     const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
-        count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, chrome: dates.chrome, affordances: dates.affordances, nouns, windowParts: dates.windowParts,
+        count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, uncounted,
+        chrome: dates.chrome, affordances: dates.affordances, nouns, windowParts: dates.windowParts,
         ...(timeline ? { visible: visibleDays, events: { items, covered } } : {}), onToday, search,
         styles, words, commands, onAction, overlaps, overlapsShown, select: refs => { select(refs); setReveal(refs[0]); }, paged: value.events.some(kind => kind.entries.type === "some") });
     const drag = useCalendarDrag({ value, key: storageKey, commands: gestures, narrow, items, backlog, selection: selectedItems, templates: templates.shown, activeTemplate, onError: setError });
@@ -337,7 +389,8 @@ function CalendarFrame(props: HostProps) {
     // The cold load's cover at the board's own pitch: an hour of its time grid (CL1).
     const pitch = view.layout === "timeline" || (view.layout === "calendar" && view.period === "month") ? undefined : calendarHour(value.settings.density);
     return <Box css={styles.root} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined}>
-        <CalendarDataReader value={value} range={range} editing={editing} view={view} travel={timeline ? travel : undefined} onData={setData} />
+        <CalendarDataReader value={value} range={range} editing={editing} view={view} travel={timeline ? travel : undefined}
+            resources={cellResources} bucket={bucket} onData={setData} />
         {/* The selection is read where its events are drawn: the held read, while a continuation's window is read. */}
         <CalendarSelectionReader value={value} refs={refs} range={continuing ? data.range : range} commands={commands} onSelection={setSelection} />
         <LoadingReveal waiting={line?.kind === "loading"}>
@@ -356,6 +409,13 @@ function CalendarFrame(props: HostProps) {
                     <BannerView key={source} status="error" title={`${followedSource.name.charAt(0).toLocaleUpperCase(format.locale)}${followedSource.name.slice(1)} unavailable`} description={followedSource.error}
                         actions={<Button size="xs" variant="outline" onClick={followedSource.retry}>Retry</Button>} />])}
                 {dates.error !== undefined && <BannerView status="error" title="Dates unavailable" description={dates.error} />}
+                {/* A kind past the cap (#1424): how many of its events the window holds, and where they show. */}
+                {(data.cells?.notices ?? []).map(notice => {
+                    const said = noticeWords(notice, format);
+                    return <Box key={`cells:${notice.kind}`} data-calendar-banner="cells" data-calendar-kind={notice.kind}>
+                        <BannerView status="info" title={said.title} description={said.hint} />
+                    </Box>;
+                })}
                 {/* A gesture's error; a read's is said once, in the grid and on the footer's line (#1398, CL11). */}
                 {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
             </>}
@@ -367,6 +427,7 @@ function CalendarFrame(props: HostProps) {
                 data-calendar-narrow={narrow ? "" : undefined}>
                 <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visible={visibleDays} onVisible={showRange} items={items}
                     rows={rows} shownRows={shownRows} shown={shown} now={now} narrow={narrow} styles={styles} read={read} covered={covered} lanesPeriod={lanesPeriod} onRecentre={onRecentre} travel={travel}
+                    uncounted={uncounted} shading={data.cells?.shading} bucket={bucket}
                     selected={selected} select={pick} clear={clear} overlaps={overlaps} commands={gestures} drag={drag}
                     nowRevision={nowAsked} anchor={anchor} onAnchor={onAnchor} reveal={reveal === undefined ? undefined : eventKey(reveal)} onRevealed={revealed} />
             </Box>
