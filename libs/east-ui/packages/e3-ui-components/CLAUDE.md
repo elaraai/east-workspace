@@ -445,12 +445,15 @@ the box — hands the keyboard to the builder's view, where the selection's ring
 lands, once the match is drawn and the box has let it go, and a step leaves it
 in the box (east-ui-components' `usePickHandOff`): the Sheet's grid, its focus
 on the ring's cell, the Plan's row, the Roster's person's name in People, their
-row's or their card's, and the Allocation's bin, its Timeline card, its Table
+row's or their card's, the Allocation's bin, its Timeline card, its Table
 row (focusable for it, no tab stop) or its narrow card
-(`allocation/bin-focus.ts`) — a hidden pick's once the narrowing it leaves
-draws it. Where the view draws no element for the match — a person in Shifts,
-or in a folded group — or the viewer has moved on, the keyboard stays where it
-is. In the Roster's, the Calendar's and the
+(`allocation/bin-focus.ts`), and the Calendar's event where its ring is drawn
+— its block in a time grid or on the timeline, its month chip or its agenda
+card's head (`calendar/event-focus.ts`), once the window a step of the dates
+took it to has landed — a hidden pick's once the narrowing it leaves draws it.
+Where the view draws no element for the match — a person in Shifts, or in a
+folded group, an event of the backlog — or the viewer has moved on, the
+keyboard stays where it is. In the Roster's, the Calendar's and the
 Allocation's rows its box is the first thing the row folds, to its icon,
 before every step of the rail and of the builder's own items, so a row short
 of room keeps the rail's chips and the period's steps live; its icon goes into
