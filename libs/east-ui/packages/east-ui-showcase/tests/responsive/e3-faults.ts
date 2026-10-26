@@ -5,8 +5,8 @@
 
 /**
  * The showcase's e3 fault hook (#1398, `showcase-e3-faults.ts`), from a spec:
- * installed before the page loads, then holds, faults and releases over the
- * page's requests of its e3, by what they ask and the dataset they name. A
+ * installed before the page loads, then holds, slows, faults and releases over
+ * the page's requests of its e3, by what they ask and the dataset they name. A
  * spec that holds a read reads the page at rest with `settled(page, {
  * holding: true })`, since the builder's main stays busy over it. A spec's own
  * mutation of a record goes through it too, as another session's
@@ -51,6 +51,17 @@ export async function holdE3(page: Page, match: FaultMatch): Promise<number> {
 }
 
 /**
+ * Slows each request it matches, from now until released: each waits `ms` from
+ * when it was made, then goes on to e3, as a slow worker answers.
+ *
+ * @returns The slowing's id
+ */
+export async function slowE3(page: Page, match: FaultMatch, ms: number): Promise<number> {
+    await installed(page);
+    return page.evaluate(({ name, match, ms }) => (window as unknown as Scope)[name]!.slow(match, ms), { name: FAULTS_CONTROLS, match, ms });
+}
+
+/**
  * Answers each request it matches as the failure says — e3's 500 unless given
  * another — from now until released.
  *
@@ -62,7 +73,7 @@ export async function failE3(page: Page, match: FaultMatch, failure?: FaultFailu
         { name: FAULTS_CONTROLS, match, failure });
 }
 
-/** Lets a hold's requests go on to e3 and holds no more, or stops a fault. */
+/** Lets a hold's requests go on to e3 and holds no more, or stops a fault or a slowing. */
 export async function releaseE3(page: Page, id: number): Promise<void> {
     await installed(page);
     await page.evaluate(({ name, id }) => (window as unknown as Scope)[name]!.release(id), { name: FAULTS_CONTROLS, id });

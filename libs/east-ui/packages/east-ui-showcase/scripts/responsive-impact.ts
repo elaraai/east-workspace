@@ -30,7 +30,7 @@ const componentSpecs = {
         "schematic-drop.spec.ts", "schematic-editing.spec.ts", "schematic-frame.spec.ts", "schematic-library.spec.ts", "schematic-narrowing.spec.ts",
         "schematic-perf.spec.ts", "schematic-phone.spec.ts", "schematic-records.spec.ts", "schematic-window.spec.ts",
     ],
-    sheet: ["sheet-bound.spec.ts", "sheet-chrome.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-lens.spec.ts", "sheet-narrowing.spec.ts"],
+    sheet: ["sheet-bound.spec.ts", "sheet-chrome.spec.ts", "sheet-far-moves.spec.ts", "sheet-frame.spec.ts", "sheet-keys.spec.ts", "sheet-lens.spec.ts", "sheet-narrowing.spec.ts"],
     studio: ["studio-builder.spec.ts", "studio-page-library.spec.ts", "studio-page.spec.ts"],
 } as const;
 

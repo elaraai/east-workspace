@@ -285,8 +285,10 @@ function keyOfItem(it: SheetBodyItem | undefined, i: number): string {
         case "group": return `group:${it.row.id}`;
         case "subRow": return `sub:${it.lineId}#${it.index}`;
         case "blank": return `blank:${blankIdOf(it)}`;
-        // A paged run has one band each end; the lens one band for each stretch it reads, by where it starts (#1349).
-        case "band": return it.band.at === "reading" ? `band:reading:${it.band.from}` : `band:${it.band.at}`;
+        // A band is a place in one run, never an item (#1398): it is keyed by the elements it stands for — a paged run's
+        // band at each end, the lens's for each stretch it reads (#1349) — so a band that comes to stand for others, a
+        // window landing beside it, is another item, and never carries the height the frame measured for the last.
+        case "band": return `band:${it.band.at}:${it.band.from}-${it.band.to}`;
         case "failed": return `failed:${it.failure.w}`;
         case "proposal": return `proposal:${it.anchorR}#${it.index}`;
     }

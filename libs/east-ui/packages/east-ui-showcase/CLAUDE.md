@@ -49,8 +49,10 @@ clear, so assert the new rows after it. A spec that needs a read held or
 failed installs the e3 fault hook before the page loads
 (`tests/responsive/e3-faults.ts`' `installE3Faults`, an init script setting
 the flag `showcase-e3-faults.ts` looks for): the page's e3 `fetch` then goes
-through it, and the spec holds, fails and releases the page's requests by
-their kind and dataset (`holdE3`, `failE3`, `releaseE3`, `e3Requests`, which
+through it, and the spec holds, slows, fails and releases the page's requests by
+their kind and dataset (`holdE3`, `slowE3` — each request answered that long
+after it was asked, as a slow e3 answers, `sheet-far-moves.spec.ts` —
+`failE3`, `releaseE3`, `e3Requests`, which
 also gives what each batch read sent: the JSON naming its keys, or the runs
 that name them), and applies a record's mutation of the spec's own as another
 session would (`mutateE3`: what the Schematic's budget run fills its floor
