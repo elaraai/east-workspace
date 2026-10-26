@@ -37,7 +37,7 @@ import {
 import type { PeriodRead } from "../shared/loading.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
-import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
+import { useRowAnchor, type RowAnchor, type RowNarrowing } from "../shared/schedule/row-anchor.js";
 import { linkedQuantity, remainderOf, type AllocationCommands } from "./actions.js";
 import { arrivalChoices, resourceChoices, type ChoiceWords } from "./choices.js";
 import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
@@ -100,6 +100,11 @@ export interface TableProps {
     anchor?: RowAnchor | undefined;
     /** Told where the Table's view rests as its scroll settles. */
     onAnchor?: ((at: RowAnchor) => void) | undefined;
+    /**
+     * The board's narrowing, as text, and whether its rows are in (#1398): across a new one the Table keeps the line at the
+     * top of its view where the narrowing holds it — by its key, and the px into it — and else starts at its top.
+     */
+    narrowing?: RowNarrowing | undefined;
 }
 
 /**
@@ -188,9 +193,10 @@ export function AllocationTable(props: TableProps) {
         return l.kind === "band" ? `band:${l.band.key}` : l.kind === "unread" ? `unread:${l.band.key}` : l.row.key;
     }, [lines]);
     // Where the Table's view rests (#1398): its top line by key and the px into it, saved as a scroll settles and brought
-    // back once its lines are laid out — the line it left, wherever the lines above it moved.
+    // back once its lines are laid out — the line it left, wherever the lines above it moved — and kept across a new
+    // narrowing where the narrowing holds it, else the Table starts at its top.
     const keyed = useMemo(() => lines.map((_, i) => ({ key: getItemKey(i) })), [lines, getItemKey]);
-    const { restore, onAnchorChange } = useRowAnchor(keyed, props.anchor, props.onAnchor);
+    const { restore, onAnchorChange } = useRowAnchor(keyed, props.anchor, props.onAnchor, true, props.narrowing);
     // The app's columns shown in the Table, each bin's text and tone over its row, through its callbacks (§6).
     const shown = useMemo(() => value.columns.filter(c => c.table), [value.columns]);
     const readColumns = useCallback(() => {

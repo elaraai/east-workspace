@@ -54,7 +54,7 @@ import {
     editableStatus, focusOf, placeDrafted, placeStored, started, statusText, type AllocationStyles, type AllocationValue, type Day, type DraftedBin,
     type Issue, type PlacedPeriod, type Selection, type StoredBin,
 } from "./model.js";
-import { narrowingPart, useNarrowed } from "./narrowed.js";
+import { narrowingPart, narrowingText, useNarrowed } from "./narrowed.js";
 import { NounsContext, a, other } from "./nouns.js";
 import { AllocationTable, RESERVE_PROBE } from "./table.js";
 import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
@@ -406,6 +406,12 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const cold = (!data.landed && data.error === undefined) || narrowing.some(n => !n.ready && n.loading);
     // After cold load a read in flight — the day, a narrowing — leaves the frame live, main busy.
     const busy = data.loading || narrowingLoading;
+    // The board's narrowing, and whether its rows are in (#1398): across a new one the Table keeps the line at the top of
+    // its view where the narrowing holds it — by its key, and the px into it — and else starts at its top, as the Sheet
+    // keeps its own.
+    const narrowingQuery = narrowingText(value, binChoices);
+    const narrowingSettled = !data.filtering && !narrowingLoading && !narrowingFailed;
+    const tableNarrowing = useMemo(() => ({ query: narrowingQuery, settled: narrowingSettled }), [narrowingQuery, narrowingSettled]);
     return <NounsContext.Provider value={nouns}><Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={readOnly ? "" : undefined}>
         <AllocationDataReader value={value} day={day} pickerDays={picker} choices={binChoices} onData={setData} />
         <LoadingReveal waiting={line?.kind === "loading"}>
@@ -462,7 +468,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
                         sameBin={domain.sameBin} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={inspect} follow={follow}
                         drag={drag} commands={commands} fit={fit} without={without} reserving={reserving} highlight={highlight} book={bookPicked} read={read}
                         visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters}
-                        anchor={anchor.table} onAnchor={onTableAnchor} />}
+                        anchor={anchor.table} onAnchor={onTableAnchor} narrowing={tableNarrowing} />}
             </Box>
         </BuilderFrame>
         </LoadingReveal>

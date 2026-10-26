@@ -15,12 +15,16 @@
  */
 
 import { Box, Button } from "@chakra-ui/react";
-import type { ValueTypeOf } from "@elaraai/east";
-import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { SortedMap, StringType, StructType, compareFor, printFor, type ValueTypeOf } from "@elaraai/east";
+import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { EmptyStateView } from "@elaraai/east-ui-components";
 import { sourcePart, useSourceVisibility, type KeyVisibility } from "../shared/schedule/visibility.js";
 import type { AllocationStyles, AllocationValue } from "./model.js";
 import { one } from "./nouns.js";
+
+/** No choice of a source's: what a source the slice does not have narrows by. */
+const NO_CHOICES: ValueTypeOf<typeof RecordSliceWhereType> = new SortedMap([], compareFor(StringType));
+const printNarrowing = printFor(StructType({ bins: StringType, lanes: RecordSliceWhereType, resources: RecordSliceWhereType, arrivals: RecordSliceWhereType }));
 
 /** A narrowed source's role: what its rows are on the board. */
 export type NarrowedSource = "lanes" | "resources" | "arrivals";
@@ -49,6 +53,20 @@ export function narrowingSlot(value: AllocationValue, source: NarrowedSource): s
  */
 export function narrowingPart(value: AllocationValue, source: NarrowedSource): ValueTypeOf<RecordSliceBindType> | undefined {
     return sourcePart(value.slice.type === "some" ? value.slice.value : undefined, narrowingSlot(value, source));
+}
+
+/**
+ * The board's narrowing, as text (#1398): the bins' own choices, apart from
+ * the day the board writes into their range, and the lanes', the resources'
+ * and the arrivals' — what a view keeps its place across.
+ *
+ * @param value - The payload
+ * @param binChoices - The bins' own source's choices, printed (`binChoicesOf`)
+ * @returns The narrowing, printed
+ */
+export function narrowingText(value: AllocationValue, binChoices: string): string {
+    const where = (source: NarrowedSource) => narrowingPart(value, source)?.read().where ?? NO_CHOICES;
+    return printNarrowing({ bins: binChoices, lanes: where("lanes"), resources: where("resources"), arrivals: where("arrivals") });
 }
 
 /**

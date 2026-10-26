@@ -14,7 +14,7 @@
  * filter change builds nothing again: the board's body runs no more, and no
  * payload is decoded (#1354).
  */
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { StringType, decodeBeast2For, encodeBeast2For, none, printFor, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
@@ -124,6 +124,20 @@ describe("one rail over the lanes, the resources and the arrivals", () => {
 });
 
 describe("the Table, narrowed", () => {
+    // jsdom scrolls nothing a frame asks it to, and its scroll box has no extent to scroll through: here the Table's has
+    // room, and it scrolls as a page does, and says so — only when it moved, as a page says it. A narrowing moves where the
+    // Table's view rests (#1398).
+    beforeEach(() => {
+        vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+            return this.hasAttribute("data-virtual-rows") ? 1_000_000 : 0;
+        });
+        vi.spyOn(Element.prototype, "scrollTo").mockImplementation(function (this: Element, options?: ScrollToOptions | number) {
+            if (typeof options !== "object" || options.top === undefined || options.top === this.scrollTop) return;
+            this.scrollTop = options.top;
+            this.dispatchEvent(new Event("scroll"));
+        } as Element["scrollTo"]);
+    });
+
     test("unnarrowed: 80 rows, 26 bins and 54 free slots", async () => {
         const { c } = await open(ex.allocationTable);
         expect(total(await folded(c))).toEqual({ rows: 80, bins: 26, free: 54 });
@@ -164,6 +178,47 @@ describe("the Table, narrowed", () => {
         expect([tableRow(c, "bin:3102"), tableRow(c, "bin:3104")]).toEqual([null, null]);
         // B-1's and B-2's free slots, and LD-2203, LD-2210, LD-2212 and LD-2220 on Hall A's kilns.
         expect(total(await folded(c))).toEqual({ rows: 38, bins: 4, free: 34 });
+    });
+
+    test("a narrowing keeps the row at the top of the Table where the narrowing holds it — by its key, and the px into it — and else the Table starts at its top (#1398)", async () => {
+        const { c, store } = await open(ex.allocationTable);
+        const pane = c.querySelector<HTMLElement>("[data-allocation-table] [data-virtual-rows]")!;
+        /** Each line the Table has mounted — its row, or its band — and where it starts: its column's top, then each line's height before it. */
+        const mounted = () => {
+            const column = pane.querySelector<HTMLElement>("[data-index]")!.parentElement!;
+            let y = Number(/translateY\((-?[\d.]+)px\)/.exec(column.style.transform)![1]);
+            return [...column.querySelectorAll<HTMLElement>(":scope > [data-index]")].map(line => {
+                const band = line.querySelector("[data-allocation-band]");
+                const row = line.querySelector<HTMLElement>("[data-allocation-row]");
+                const at = { key: row?.getAttribute("data-allocation-row") ?? `band ${band?.textContent}`, lane: row?.children[1]?.textContent, y };
+                y += band !== null ? 38 : 36;
+                return at;
+            });
+        };
+        /** The line at the top of the view, and the px scrolled into it. */
+        const atTop = () => {
+            const lines = mounted();
+            const line = lines.findLast(l => l.y <= pane.scrollTop)!;
+            return { key: line.key, into: pane.scrollTop - line.y };
+        };
+        /** Scroll, and let the scroll settle: TanStack clears its scrolling flag 150ms after the last scroll event. */
+        const scrollAndRest = async (px: number) => {
+            await act(async () => { pane.scrollTop = px; fireEvent.scroll(pane); });
+            await act(async () => { await new Promise((r) => setTimeout(r, 250)); });
+        };
+        // A row of lane B-1 well down the Table at the top of the view, 10px into it.
+        await scrollAndRest(36 * 30);
+        const b1 = mounted().find(l => l.lane === "B-1" && l.y > pane.scrollTop)!;
+        await scrollAndRest(b1.y + 10);
+        expect(atTop()).toEqual({ key: b1.key, into: 10 });
+        // The North bays — B-1 and B-2 — hold it: once their rows are in, it is still at the top, 10px into it.
+        await narrow(store, "allocationTable", "bays", "area", ["North"]);
+        await waitFor(() => expect(mounted().some(l => l.lane === "B-3")).toBe(false));
+        expect(atTop()).toEqual({ key: b1.key, into: 10 });
+        // The South bay — B-3 — does not: the Table starts at its top.
+        await narrow(store, "allocationTable", "bays", "area", ["South"]);
+        await waitFor(() => expect(mounted().some(l => l.lane === "B-1")).toBe(false));
+        expect(pane.scrollTop).toBe(0);
     });
 
     test("a split bin shows while any of its resources shows", async () => {
