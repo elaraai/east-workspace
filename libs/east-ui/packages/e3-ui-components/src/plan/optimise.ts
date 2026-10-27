@@ -113,11 +113,10 @@ export type PlanOptimiseReadiness = "ready" | "reading" | "unread";
  * which the paging runtime keeps as a window of its own. So those rows are
  * waited for, read as the canvas reads them, and no row is read by its key:
  * whatever the number of events in the window, the eye asks e3 for the windows
- * alone. Read before them, each row would be read by its key, one at a time,
- * and past the windows the runtime keeps (`MAX_RETAINED_WINDOWS`) each one
- * landing would evict one read before it, which the next pass would read
- * again: the reads would never settle until the rows' window landed. Every
- * kind is read in one pass, so the kinds' windows are asked together.
+ * alone. Read before them, each row would be read by its key, one at a time —
+ * a key search and a one-row page an event, for rows the canvas's windows
+ * hold already. Every kind is read in one pass, so the kinds' windows are
+ * asked together.
  *
  * `reading` while one is on its way; `unread` for a window no request carries
  * whole: a kind past the cap of events over it (#1039), none of whose events

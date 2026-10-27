@@ -555,11 +555,15 @@ Save. The Roster and the Allocation save each record's drafts by their own
 keys and calculate over every person, resource and event of the period,
 whatever the indexed visibility query hides.
 
-Keep page eviction enabled and independent of sessions. `PagedRuntime` keeps,
-beside what the read in hand holds: at most 24 landed windows
-(`MAX_RETAINED_WINDOWS`) — a window by offset, a window across a narrowing's
-runs, and a batch's answer, of searches or of rows — a window no reader holds
-going whole once evicted; the bounds of at most 1,024 searches a revision apart
+Keep page eviction enabled and independent of sessions. `PagedRuntime` keeps
+at most 24 landed windows (`MAX_RETAINED_WINDOWS`) — a window by offset, a
+window across a narrowing's runs, and a batch's answer, of searches or of rows
+— those its readers hold among them: past the cap the least recently read
+window no reader holds goes whole, and none a reader holds — what its last run
+read, or the read in hand — is evicted under it, so past the cap it keeps
+theirs alone, each reader bounding them by its own demand, and a reader of
+more windows than the cap, rows read a key at a time among them, settles, each
+read once (#1409, R24); the bounds of at most 1,024 searches a revision apart
 from a channel (`MAX_LANDED_SEARCHES`, as record Slice keeps its own: what
 batches answered, and a search's own answer once no reader holds its channel);
 at most 40,000 membership answers over every narrowing of a revision, the least
@@ -812,10 +816,9 @@ event's row is held among the rows the canvas reads over its range
 (`eventReadRange`, which covers the window) and in the backlog beside them, so
 the eye waits for those reads, every kind's in one pass, and reads no row by
 its key: whatever the number of events in the window, it asks e3 for windows
-alone. A row read by its key is a key search and a one-row page, a window of
-its own to the paging runtime; read a row at a time past the windows it keeps,
-each would evict one read before it, and the reads would never settle. A
-rows' window that fails leaves the eye disabled, asking nothing again. The eye
+alone, where a row read by its key would be a key search and a one-row page an
+event, for rows those windows hold already. A rows' window that fails leaves
+the eye disabled, asking nothing again. The eye
 stays disabled over a window no request carries whole: a kind past the cap
 over it, or one read by its cells, whose events no run was shown (#1409, R24).
 
