@@ -13,7 +13,10 @@
  * what leaves it, what a layer locks or hides and what the narrowing takes out
  * (invariants 7a, 7b), and an item a drop adds or places, selected once it
  * draws (invariant 19) — and the steps through the items, each flying to the
- * item it selects (invariant 8).
+ * item it selects (invariant 8). A row of a kind read by area the window no
+ * longer holds still stands (#1393): the frame says so (`standing`), as a read
+ * of it by its key does, and the selection keeps it — a pan or a zoom lets go
+ * of nothing, and `onSelect` hears nothing of it.
  *
  * The commit-phase snapshot reads the selection (`use-paint.ts`, invariant 1),
  * and what keeps it reads the snapshot: {@link useCanvasSelection} holds the
@@ -30,12 +33,27 @@ import { Schematic } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import type { SchematicValue } from "../data.js";
 import type { NetLeg } from "../edits.js";
-import type { DrawnItem, DrawnZone, SchematicDrawn, SchematicRef } from "./drawn";
+import { refOfId, type DrawnItem, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
 import type { SchematicLayerState } from "./layers";
 import { buildNavTree, byLabel, type NavZone } from "./model";
 import { EMPTY_STRING_SET } from "./selection";
 import { itemFrame, pointFrame, type CameraMoves } from "./use-camera";
 import type { Paint } from "./use-paint";
+
+/**
+ * What is selected that the drawing doesn't draw and still stands (#1393): each row of a kind read by area its window
+ * doesn't hold, by its id — as its stored row draws it, `undefined` while it is first read. The selection keeps each, and
+ * Del deletes each item with the rest.
+ */
+export interface SchematicStanding {
+    /** The items, by id. */
+    readonly items: ReadonlyMap<string, DrawnItem | undefined>;
+    /** The zones, by id. */
+    readonly zones: ReadonlyMap<string, DrawnZone | undefined>;
+}
+
+/** Nothing selected stands off the drawing. */
+export const NO_STANDING: SchematicStanding = { items: new Map(), zones: new Map() };
 
 /** What `onSelect` hears: the whole selection, each entity by its kind and key. */
 const SelectedType = ArrayType(Schematic.Types.Ref);
@@ -118,7 +136,8 @@ export function useCanvasSelection({ value, refById, onSelection }: CanvasSelect
             if (onSelect === undefined) return undefined;
             const now = selectedNowRef.current;
             const ids = [...now.items, ...now.zones, ...(now.link === null ? [] : [now.link])];
-            const heard = ids.flatMap(id => { const ref = refs.get(id); return ref === undefined ? [] : [ref]; });
+            // An entity the drawing doesn't draw — a row standing off its window — by its id, its reference printed.
+            const heard = ids.flatMap(id => { const ref = refs.get(id) ?? refOfId(id); return ref === undefined ? [] : [ref]; });
             if (selectedEqual(heardRef.current, heard)) return undefined;
             heardRef.current = heard;
             return onSelect(heard);
@@ -186,6 +205,8 @@ export interface SelectionStepsProps {
     readonly items: readonly DrawnItem[];
     /** The zones drawn, a hidden layer's left out. */
     readonly shownZones: readonly DrawnZone[];
+    /** What is selected that the drawing doesn't draw and still stands: rows of kinds read by area off their windows, kept selected. */
+    readonly standing: SchematicStanding;
     /** Whether a read the drawing needs is in flight: an item a drop asks to select is waited for until it lands. */
     readonly reading: boolean;
     /** What is selected, and its funnels ({@link useCanvasSelection}'s). */
@@ -203,7 +224,7 @@ export interface SelectionStepsProps {
  * @returns The zones' clear, the fly to an item that selects it, the steps, and an item a drop asks to select: where it
  *   is asked, and what asks again
  */
-export function useSelectionSteps({ data, layers, inertKeys, narrowedOut, items, shownZones, reading, canvasSelection, renderSnapRef, flyTo }: SelectionStepsProps) {
+export function useSelectionSteps({ data, layers, inertKeys, narrowedOut, items, shownZones, standing, reading, canvasSelection, renderSnapRef, flyTo }: SelectionStepsProps) {
     const { zoneSelection, selection, setSelection, selected, commitSelection, commitLinkSelection, commitZoneSelection } = canvasSelection;
     // Selected-link hygiene: clear when the link leaves the drawing (deleted —
     // a draft, or another session's commit — or taken back by Undo), or its
@@ -227,11 +248,11 @@ export function useSelectionSteps({ data, layers, inertKeys, narrowedOut, items,
     // Selection hygiene: prune any selected keys that left the working set (their
     // layer was hidden) or whose layer was locked — a locked layer's entities
     // never select (SC27) — and null a dead anchor, so prev/next stepping stays
-    // consistent. Only set state when the set actually shrank (fresh Set), so
-    // this can't loop.
+    // consistent; a row standing off its window stays (#1393). Only set state
+    // when the set actually shrank (fresh Set), so this can't loop.
     useEffect(() => {
         if (selected.size === 0) return;
-        const live = new Set(items.flatMap(it => (inertKeys.has(it.key) ? [] : [it.key])));
+        const live = new Set([...items.flatMap(it => (inertKeys.has(it.key) ? [] : [it.key])), ...standing.items.keys()]);
         let changed = false;
         const next = new Set<string>();
         for (const k of selected) { if (live.has(k)) next.add(k); else changed = true; }
@@ -241,19 +262,19 @@ export function useSelectionSteps({ data, layers, inertKeys, narrowedOut, items,
         // A dead anchor (its item left the working set) is pruned with a PURE,
         // identity-stable updater — no set change, so no callbacks fire.
         setSelection(prev => (prev.anchor !== null && !live.has(prev.anchor)) ? { ...prev, anchor: null } : prev);
-    }, [items, selected, inertKeys, commitSelection, setSelection]);
+    }, [items, selected, inertKeys, standing, commitSelection, setSelection]);
     const clearZoneSelection = useCallback(() => {
         // Only a real clear commits — Esc on an already-empty zone selection is silent.
         if (renderSnapRef.current.zoneSelection.size > 0) commitZoneSelection(EMPTY_STRING_SET);
     }, [commitZoneSelection, renderSnapRef]);
     // Zone-selection hygiene, as the items': a zone whose layer is hidden or locked, or the narrowing takes out, leaves
-    // the selection (SC27, #1392).
+    // the selection (SC27, #1392); a zone standing off its window stays (#1393).
     useEffect(() => {
         if (zoneSelection.size === 0) return;
-        const live = new Set(shownZones.flatMap(z => (inertKeys.has(z.key) ? [] : [z.key])));
+        const live = new Set([...shownZones.flatMap(z => (inertKeys.has(z.key) ? [] : [z.key])), ...standing.zones.keys()]);
         if ([...zoneSelection].every(key => live.has(key))) return;
         commitZoneSelection(new Set([...zoneSelection].filter(key => live.has(key))));
-    }, [zoneSelection, shownZones, inertKeys, commitZoneSelection]);
+    }, [zoneSelection, shownZones, inertKeys, standing, commitZoneSelection]);
 
     // Selection stepping order: the zones nested by containment (`buildNavTree`, as the Index tab's tree is, #1389),
     // in natural label order, each zone's items in it, nested zones after their parent's own items, floor items last — a

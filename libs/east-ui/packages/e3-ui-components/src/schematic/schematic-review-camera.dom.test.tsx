@@ -41,6 +41,7 @@ const FLY_MS = 400;
 
 const printText = printFor(StringType);
 const compareString = compareFor(StringType);
+const stringEqual = equalFor(StringType);
 
 /** The rail's key over the floor. */
 const FLOOR = "schematic.review.camera";
@@ -225,6 +226,33 @@ test("Details shows a rack read by area that the zoomed window no longer holds, 
     expect(card(container, "racks", "A05")).toBeNull();
     await settle();
     await waitFor(() => expect([detailsTitle(container), detailsRead(container)]).toEqual(["A05", true]));
+});
+
+test("a rack off the window is let go of once a read proves it gone: another session deletes it, and onSelect hears it", async () => {
+    const { container } = await open(floor);
+    await tap(canvasOf(container), CAM, 16.8, 2.9);
+    await waitFor(() => expect(keptEqual(readKept(), [{ kind: "racks", key: "A05" }])).toBe(true));
+    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    expect(keptEqual(readKept(), [{ kind: "racks", key: "A05" }])).toBe(true);
+    // Another session deletes A05: read again by its key at the revision that commit makes, it is gone.
+    const racks = await h.read(ex.schematicRacks);
+    await h.patch(ex.schematicRacks, new Map([...racks].filter(([key]) => !stringEqual(key, "A05"))));
+    await waitFor(() => expect(keptEqual(readKept(), [])).toBe(true), { timeout: 5_000 });
+    expect(detailsTitle(container)).toBeNull();
+});
+
+test("a rack off the window is let go of once a new choice leaves it out — asked of the narrowing by its row — and kept while one holds it", async () => {
+    const { container } = await open(floor);
+    await tap(canvasOf(container), CAM, 16.8, 2.9);
+    await waitFor(() => expect(keptEqual(readKept(), [{ kind: "racks", key: "A05" }])).toBe(true));
+    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    // Elmway College's racks chosen: A05 is theirs, and stays selected, Details showing it.
+    await narrow(new SortedMap([["owner", variant("values", [printText("Elmway College")])]], compareString));
+    expect([keptEqual(readKept(), [{ kind: "racks", key: "A05" }]), detailsTitle(container)]).toEqual([true, "A05"]);
+    // Northwind Media's chosen instead: A05 is let go of.
+    await narrow(new SortedMap([["owner", variant("values", [printText("Northwind Media")])]], compareString));
+    await waitFor(() => expect(keptEqual(readKept(), [])).toBe(true), { timeout: 5_000 });
+    expect(detailsTitle(container)).toBeNull();
 });
 
 test("fit flies the camera when the narrowing changes, never as a zoom moves the window over a kind read by area (§10.3)", async () => {

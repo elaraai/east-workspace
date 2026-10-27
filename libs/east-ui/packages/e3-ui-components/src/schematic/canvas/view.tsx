@@ -101,7 +101,7 @@ import type { SchematicLayerState } from "./layers";
 import { minimapSize } from "./minimap";
 import { itemFrame, pointFrame, useCamera, useCameraMoves } from "./use-camera";
 import { useCanvasDrop, useCanvasDropMark } from "./use-canvas-drop";
-import { useCanvasSelection, useSelectionSteps } from "./use-canvas-selection";
+import { NO_STANDING, useCanvasSelection, useSelectionSteps, type SchematicStanding } from "./use-canvas-selection";
 import { capturePointer, releasePointer, useGestureState, useGestures } from "./use-gestures";
 import { RevealTell, niceScaleLength, usePaint } from "./use-paint";
 import type { SchematicDensity, SchematicViewportStore } from "../area.js";
@@ -251,6 +251,11 @@ export interface SchematicCanvasProps {
     readonly overview?: ReadonlyMap<string, SchematicDensity> | undefined;
     /** Whether a read the drawing needs is in flight: an item a drop or a pick asks to select is waited for until it lands. */
     readonly reading?: boolean | undefined;
+    /**
+     * What is selected that the drawing doesn't draw and still stands (#1393): each row of a kind read by area its window
+     * doesn't hold, read by its key — kept selected, never heard of as a camera moves, and deleted by Del with the rest.
+     */
+    readonly standing?: SchematicStanding | undefined;
     /** What the reads in flight have not drawn yet, in world units, as disjoint boxes (#1398, CL2): washed, under the grid, until they land. */
     readonly unread?: readonly WorldBox[] | undefined;
     /** A read that failed, said once where it happened (CL11), with Retry; `undefined` while none has. */
@@ -311,8 +316,8 @@ export interface SchematicZoomRange {
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
     value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onSelection, onOpen, onZoneInView, drop, connectValues,
-    viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, unread = NO_UNREAD, failure, stale = false, retained = false, onZoomRange,
-    narrow = false, onElement, ref,
+    viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, standing = NO_STANDING, unread = NO_UNREAD, failure, stale = false,
+    retained = false, onZoomRange, narrow = false, onElement, ref,
 }: SchematicCanvasProps) {
     // The recipe's styles, resolved once a recipe: the canvas renders at every frame its camera moves.
     const recipe = useSlotRecipe({ key: "schematic" });
@@ -559,7 +564,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     const cameraMoves = useCameraMoves({ canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, look, matches, camera, paint });
     const { transition, flyTo, resetView, zoomBy, minimapDragRef, minimapJump } = cameraMoves;
     // What keeps the selection to the drawing, and the steps through its items (`use-canvas-selection.ts`).
-    const selectionSteps = useSelectionSteps({ data, layers, inertKeys, narrowedOut, items, shownZones, reading, canvasSelection, renderSnapRef, flyTo });
+    const selectionSteps = useSelectionSteps({ data, layers, inertKeys, narrowedOut, items, shownZones, standing, reading, canvasSelection, renderSnapRef, flyTo });
     const { clearZoneSelection, flyToItem, stepSelection, pendingSelectRef, setSelectAsked } = selectionSteps;
     // The gestures' handlers (`use-gestures.ts`): the pointer's over the mode machine, the keys and the taps.
     const {
@@ -567,7 +572,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         onCanvasPointerCancel, onCanvasDoubleClick,
     } = useGestures({
         value, data, layers, tool, linkKind, words, editing, onRefused, onOpen, connectValues, W, H, canvasRef, refById, labelById, inertKeys, narrowedOut,
-        shownZones, visibleItems, tiers, lod, index, itemById, lanes, linkTree, linkById, netById, dragging, canvasSelection, selectionSteps, camera,
+        shownZones, standing, visibleItems, tiers, lod, index, itemById, lanes, linkTree, linkById, netById, dragging, canvasSelection, selectionSteps, camera,
         cameraMoves, paint, gestureState,
     });
     // The canvas's drop cell: where a library card's drag rests over it, marked (`use-canvas-drop.ts`).

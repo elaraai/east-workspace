@@ -64,7 +64,11 @@
  *   `inspector` — Details of what is selected (`inspect.ts`), its rows read in
  *   a component of their own (`inspector-rows.ts`), every edit one step of the
  *   history; and Issues (`issues.ts`), each selecting what it names. Enter, or
- *   a double-click on an entity, opens Details, its open tab kept per viewer;
+ *   a double-click on an entity, opens Details, its open tab kept per viewer.
+ *   A selected row of a kind read by area its window no longer holds stays
+ *   selected, and Details shows it as its stored row reads, by its key
+ *   (`selected-rows.ts`, §4.5): a pan or a zoom lets go of nothing, and only a
+ *   read proving it gone, its drafts, its layer or the narrowing let go of it;
  * - **the narrow layout** (#1394, §9, D15): below 480px of main — measured by
  *   the canvas's element, which fills it, as `useContainerBelow` measures the
  *   other builders' — the canvas pans, pinches and selects, and nothing drags:
@@ -116,7 +120,7 @@
 
 import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { ArrayType, StringType, equalFor, equivalentFor, none, some, type option } from "@elaraai/east";
+import { ArrayType, StringType, compareFor, equalFor, equivalentFor, none, some, type option } from "@elaraai/east";
 import { Schematic, schematicAreaIndexes, schematicKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
@@ -136,6 +140,7 @@ import {
 } from "./canvas/view.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type ItemRoles, type SchematicRef } from "./canvas/drawn.js";
 import { layerState } from "./canvas/layers.js";
+import type { SchematicStanding } from "./canvas/use-canvas-selection.js";
 import { hostZones, zoneHolding } from "./canvas/model.js";
 import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, areaSlots, type SchematicData, type SchematicValue } from "./data.js";
 import { savedRecords, schematicCounts } from "./counts.js";
@@ -155,6 +160,7 @@ import { KindRows } from "./kind-rows.js";
 import { layersInForce, useSchematicLayerView } from "./layers-view.js";
 import { SchematicBacklogCountReader, schematicLibraryId, useSchematicLibrary, type SchematicBacklogNarrowing } from "./library.js";
 import { schematicMessages, type SchematicWords } from "./messages.js";
+import { NO_SELECTED_ROWS, SchematicSelectedReader, type SchematicSelectedRows } from "./selected-rows.js";
 import { looksAtMatches, narrowedDrawing, narrowedLook, schematicNarrowing, type SchematicNarrowedLook } from "./narrowing.js";
 import { useSchematicToolbarItems, type SchematicLinkChoice } from "./toolbar.js";
 import { offeredTools, toolsInForce, useSchematicTools, type SchematicToolsOffered } from "./tools.js";
@@ -170,6 +176,7 @@ const schematicEqual = equivalentFor(Schematic.Types.Payload);
 const layersEqual = equalFor(ArrayType(Schematic.Types.Layer));
 const narrowedEqual = equalFor(Schematic.Types.Narrowed);
 const stringEqual = equalFor(StringType);
+const compareString = compareFor(StringType);
 
 export type { SchematicValue } from "./data.js";
 
@@ -646,6 +653,51 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         : { kinds: areaItemKinds, reader: indexReader, hiddenLayers, drafted: areaDrafts.drafted, created: areaDrafts.created }),
     [listsIndex, areaItemKinds, indexReader, hiddenLayers, areaDrafts]);
 
+    // ── What a selection keeps of a row of a kind read by area its window no longer holds (#1393, §4.5) ──
+    // Each selected entity of such a kind, read by its key once its window lets it go: it stays selected and Details shows
+    // it; a read proving it gone, its drafts — a drafted row draws, or is gone — its layer or the narrowing let go of it.
+    const selectedArea = useMemo(() => [...selection].filter((id) => { const ref = refOfId(id); return ref !== undefined && areas.has(ref.kind); })
+        .sort(compareString), [selection, areas]);
+    const [selectedRows, setSelectedRows] = useState<SchematicSelectedRows>(NO_SELECTED_ROWS);
+    const draftedArea = useMemo(() => {
+        const out = new Set<string>();
+        for (const sort of [editing.drafts.items, editing.drafts.zones]) {
+            for (const [slot, rows] of sort) if (areas.has(slot)) for (const key of rows.keys()) out.add(entityId({ kind: slot, key }));
+        }
+        return out;
+    }, [editing.drafts.items, editing.drafts.zones, areas]);
+    const standing = useMemo((): SchematicStanding => {
+        if (selectedArea.length === 0) return { items: new Map(), zones: new Map() };
+        const drawnIds = new Set([...drawing.items.map((item) => item.key), ...drawing.zones.map((zone) => zone.key)]);
+        const itemKinds = new Set(value.items.map((kind) => kind.key));
+        const items = new Map<string, DrawnItem | undefined>();
+        const zones = new Map<string, DrawnZone | undefined>();
+        for (const id of selectedArea) {
+            if (drawnIds.has(id) || draftedArea.has(id)) continue;
+            const ref = refOfId(id)!;
+            if (itemKinds.has(ref.kind)) {
+                const item = selectedRows.items.get(id);
+                if (item !== null) items.set(id, item);
+            } else {
+                const zone = selectedRows.zones.get(id);
+                if (zone !== null) zones.set(id, zone);
+            }
+        }
+        // A hidden layer's entities never draw, and a locked one's never select (SC27).
+        const onLayers = layerState(layersNow, {
+            items: [...items.values()].flatMap((item) => (item === undefined ? [] : [item])),
+            zones: [...zones.values()].flatMap((zone) => (zone === undefined ? [] : [zone])), links: [], nets: [],
+        });
+        for (const id of [...onLayers.hidden, ...onLayers.locked]) { items.delete(id); zones.delete(id); }
+        return { items, zones };
+    }, [selectedArea, drawing, value.items, draftedArea, selectedRows, layersNow]);
+    // What Details shows of the drawing: its entities, and the selected rows standing off their windows.
+    const inspectorDrawn = useMemo(() => {
+        const items = [...standing.items.values()].flatMap((item) => (item === undefined ? [] : [item]));
+        const zones = [...standing.zones.values()].flatMap((zone) => (zone === undefined ? [] : [zone]));
+        return items.length === 0 && zones.length === 0 ? drawing : { ...drawing, items: [...drawing.items, ...items], zones: [...drawing.zones, ...zones] };
+    }, [drawing, standing]);
+
     // ── The drops (#1390, §7, §8): the library's cards, onto the canvas ──
     // Each kind, as a drop reads it: its name, and whether it writes — bound with its patch door, the Schematic not read only.
     const dropKinds = useMemo(() => new Map<string, SchematicDropKind>([...value.items, ...value.zones, ...value.links, ...value.nets]
@@ -653,7 +705,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     [value.items, value.zones, value.links, value.nets, value.readOnly]);
     // Each entity's one name, wherever the Schematic says it — a drop's words, the inspector's head and rail, an issue's row
     // and a session's banners: an item's or a zone's label, a link's ends, a net's label or its ends; never a minted key.
-    const names = useMemo(() => entityNames(drawing, words), [drawing, words]);
+    const names = useMemo(() => entityNames(inspectorDrawn, words), [inspectorDrawn, words]);
     // The zones a point lands in, smallest first, as the Index files an item: what a drop's words name.
     const hosts = useMemo(() => hostZones(shownZones), [shownZones]);
     // A kind takes a drop while its session takes an edit and nothing the canvas draws is retained (#1398, CL8).
@@ -792,7 +844,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // ── The inspector (#1391, §9): the end pane, given `inspector` ──────
     // What Details shows: the selection as the drawing draws it, a net's leg with it — or, below 480px of main, the
     // Backlog's card picked, an item with no position (#1394); and its rows, read on their own.
-    const entities = useMemo(() => drawnEntities(drawing), [drawing]);
+    const entities = useMemo(() => drawnEntities(inspectorDrawn), [inspectorDrawn]);
     const placing = useMemo((): SchematicUnplaced | undefined => {
         if (!narrow || placingId === undefined) return undefined;
         const entry = backlog.find((row) => stringEqual(row.id, placingId));
@@ -842,7 +894,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const enterCard = drop.enter;
     const place = useCallback((id: string) => enterCard(schematicLibraryId(keys, "backlog"), id), [enterCard, keys]);
     const end = schematicInspectorPane({
-        value, inspected, rows: inspectedRows, drawn: drawing, names, listed, editing, counts, records, issues, zoneAt, reveal: revealEntity, refuse: setRefusal,
+        value, inspected, rows: inspectedRows, drawn: inspectorDrawn, names, listed, editing, counts, records, issues, zoneAt, reveal: revealEntity, refuse: setRefusal,
         tab: inspectorTab.tab, onTab: onInspectorTab, storageKey: keys.frame, words,
         narrow, veto, linkKind: connectKind, onLinkKind: pickConnectKind, connectValues, place,
     });
@@ -853,6 +905,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
             {areas.size > 0 && editing.edits && (
                 <SchematicDraftsReader value={value} areas={areas} drafts={editing.drafts} original={editing.schedule.held} onRead={setDraftsNarrowing} />
             )}
+            {areas.size > 0 && <SchematicSelectedReader value={value} areas={areas} selected={selectedArea} windows={data.windows} onRead={setSelectedRows} />}
             {backlogPages !== undefined && <SchematicBacklogCountReader source={backlogPages} parts={backlogPartKeys} onCount={setBacklogCount} />}
             {/* The frame's one reveal clock (CL4): the footer's line, the canvas's wash and placeholders and the inspector's show a
                 read in flight after 150 ms, held 300 ms once shown. */}
@@ -878,7 +931,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                         onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}
                         viewport={areas.size > 0 ? viewport : undefined} density={data.density} overview={data.overview} reading={areas.size > 0 && data.loading}
                         unread={data.unread} failure={canvasFailure} stale={stale} retained={retained} onZoomRange={setZoomRange} narrow={narrow}
-                        onElement={onCanvasElement} />
+                        standing={standing} onElement={onCanvasElement} />
                 </BuilderFrame>
             </LoadingReveal>
         </Box>

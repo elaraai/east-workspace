@@ -9,7 +9,9 @@
  * the row its kind's record holds, and its details row, each as bytes. A kind's
  * rows hold it where its read does — its record read whole, its narrowing
  * read through its source, or, read by area, its window (#1393) — else it is
- * read by its key through the kind's `entries`; a details record read whole
+ * read by its key through the kind's `entries`, or, for a kind read by area
+ * that has none, through its source of the slice (`recordSliceRows`): a row
+ * the window no longer holds, still selected. A details record read whole
  * holds its row, and one read by key is asked for it. The reader hands the
  * frame what it read only when that moves, so a scan landing elsewhere redraws
  * no inspector. What its drafts make of the rows is the inspector's: the reads
@@ -19,8 +21,12 @@
  */
 
 import { useCallback, useLayoutEffect, useRef } from "react";
-import { BlobType, StringType, equalFor } from "@elaraai/east";
-import { useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { BlobType, StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
+import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { getSomeorUndefined, useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { recordSliceRows } from "@elaraai/east-ui-components/internal";
+import { rowCodec } from "../shared/schedule/records.js";
+import { sourcePart } from "../shared/schedule/visibility.js";
 import type { SchematicRef } from "./canvas/drawn.js";
 import type { SchematicValue, SchematicWindowRows } from "./data.js";
 
@@ -31,6 +37,8 @@ const stringEqual = equalFor(StringType);
 type AnyKind = SchematicValue["items"][number] | SchematicValue["zones"][number] | SchematicValue["links"][number] | SchematicValue["nets"][number];
 /** A kind's details, as the payload carries them. */
 type Details = Extract<AnyKind["details"], { type: "some" }>["value"];
+/** A kind's source of the slice. */
+type Part = ValueTypeOf<RecordSliceBindType>;
 
 /** A stored row as a read finds it: its bytes, the record holding none of it, or its read in flight. */
 export type SchematicRowRead =
@@ -62,20 +70,31 @@ function byKey(entries: AnyKind["entries"], key: string): SchematicRowRead | und
     return got.value.type === "some" ? { state: "held", row: got.value.value } : ABSENT;
 }
 
+/** A row read by its key through its kind's source of the slice: a kind read by area that has no `entries`, read only (#1393). */
+function bySource(kind: AnyKind, part: Part, key: string): SchematicRowRead {
+    const got = recordSliceRows(part, [key]);
+    if (got.type !== "some") return READING;
+    const row = got.value[0];
+    return row === undefined || row.type !== "some" ? ABSENT : { state: "held", row: rowCodec(kind.rowType).encode(row.value) };
+}
+
 /**
  * A kind's stored row of a key: where its rows hold it, else by its key through
  * its `entries`. A kind read by area is never read whole, nor its narrowing
- * complete: its window holds the row, or it is read by its key (#1393).
+ * complete: its window holds the row, or it is read by its key (#1393) —
+ * through its source of the slice where it has no `entries`.
  *
  * @param kind - The kind
  * @param key - The row's key
  * @param window - The rows its window holds, for a kind read by area; `undefined` for one read through its `rows()`
+ * @param part - Its source of the slice, for a kind read by area
  * @returns The read
  */
-export function storedRow(kind: AnyKind, key: string, window?: ReadonlyMap<string, { readonly row: Uint8Array }>): SchematicRowRead {
+export function storedRow(kind: AnyKind, key: string, window?: ReadonlyMap<string, { readonly row: Uint8Array }>, part?: Part): SchematicRowRead {
     if (window !== undefined) {
         const held = window.get(key);
-        return held !== undefined ? { state: "held", row: held.row } : byKey(kind.entries, key) ?? ABSENT;
+        if (held !== undefined) return { state: "held", row: held.row };
+        return byKey(kind.entries, key) ?? (part === undefined ? ABSENT : bySource(kind, part, key));
     }
     const rows = kind.rows();
     if (rows.type === "some") {
@@ -139,11 +158,12 @@ export function SchematicInspectedReader({ value, inspected, areas = NO_AREAS, w
         if (inspected === undefined) return NO_INSPECTED_ROWS;
         const kind = [...value.items, ...value.zones, ...value.links, ...value.nets].find((k) => stringEqual(k.key, inspected.kind));
         if (kind === undefined) return { ref: inspected, row: ABSENT, details: undefined };
-        // A kind read by area: its window's rows, none before it has landed.
-        const window = areas.has(kind.key) ? windows.get(kind.key)?.rows ?? new Map<string, { readonly row: Uint8Array }>() : undefined;
+        // A kind read by area: its window's rows, none before it has landed — a row they don't hold read by its key.
+        const byArea = areas.has(kind.key);
+        const window = byArea ? windows.get(kind.key)?.rows ?? new Map<string, { readonly row: Uint8Array }>() : undefined;
         return {
             ref: inspected,
-            row: storedRow(kind, inspected.key, window),
+            row: storedRow(kind, inspected.key, window, byArea ? sourcePart(getSomeorUndefined(value.slice), kind.key) : undefined),
             details: kind.details.type === "some" ? storedDetailsRow(kind.details.value, inspected.key) : undefined,
         };
     }, [value, inspected, areas, windows]);

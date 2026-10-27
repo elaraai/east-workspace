@@ -47,7 +47,7 @@ import { dotDrawnRadius, planMarkers, topMarker, zoneAnchor, type MarkerPlan } f
 import { linkRoutes, netRoutes, routeEnv, type EdgeGeometry } from "./routes";
 import { EMPTY_STRING_SET, type ItemBox, type LinkIndex, linkAt, marqueeHits } from "./selection";
 import type { Camera, CameraMoves } from "./use-camera";
-import type { CanvasSelection, SelectionSteps } from "./use-canvas-selection";
+import type { CanvasSelection, SchematicStanding, SelectionSteps } from "./use-canvas-selection";
 import { THEME_COLOURS, type Paint } from "./use-paint";
 import type { SchematicCanvasEditing } from "./view";
 
@@ -252,6 +252,8 @@ export interface GesturesProps {
     readonly narrowedOut: ReadonlySet<string>;
     /** The zones drawn, a hidden layer's left out: what a tap selects a zone among. */
     readonly shownZones: readonly DrawnZone[];
+    /** What is selected that the drawing doesn't draw and still stands: Del deletes its items with the rest (#1393). */
+    readonly standing: SchematicStanding;
     /** The items in view: what a tap finds an item among. */
     readonly visibleItems: readonly DrawnItem[];
     /** What each item in view draws as at the zoom. */
@@ -297,7 +299,7 @@ export interface GesturesProps {
  */
 export function useGestures({
     value, data, layers, tool, linkKind, words, editing, onRefused, onOpen, connectValues, W, H, canvasRef, refById, labelById, inertKeys, narrowedOut,
-    shownZones, visibleItems, tiers, lod, index, itemById, lanes, linkTree, linkById, netById, dragging, canvasSelection, selectionSteps, camera,
+    shownZones, standing, visibleItems, tiers, lod, index, itemById, lanes, linkTree, linkById, netById, dragging, canvasSelection, selectionSteps, camera,
     cameraMoves, paint, gestureState,
 }: GesturesProps) {
     const { commitSelection, clearSelection, commitLinkSelection, commitZoneSelection } = canvasSelection;
@@ -621,7 +623,9 @@ export function useGestures({
         const snap = renderSnapRef.current;
         const selection = { items: snap.selection.selected, link: snap.selectedLink };
         if (selection.items.size === 0 && selection.link === null) return false;
-        const result = deleteEdits(kinds, data, selection);
+        // The items standing off the drawing go with the rest: rows of kinds read by area off their windows (#1393).
+        const off = [...standing.items.values()].flatMap((item) => (item === undefined ? [] : [item]));
+        const result = deleteEdits(kinds, off.length === 0 ? data : { ...data, items: [...data.items, ...off] }, selection);
         if ("refusal" in result) {
             onRefused(refusalWords(result.refusal));
             return true;
@@ -629,7 +633,7 @@ export function useGestures({
         if (!recordStep(result.edits, "remove", "delete", "", result.edits.length)) return false;
         endLinkSession();
         return true;
-    }, [editing, kinds, data, onRefused, refusalWords, recordStep, endLinkSession, renderSnapRef]);
+    }, [editing, kinds, data, standing, onRefused, refusalWords, recordStep, endLinkSession, renderSnapRef]);
 
     // Keyboard traversal (#183 WS7): with the canvas focused, arrows step the
     // selection through the deterministic item order (the toolbar's steps'
