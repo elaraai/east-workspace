@@ -12,9 +12,12 @@
  * subscribes to exactly those keys, replacing the previous run's
  * subscriptions. A later run can discover keys the earlier one did not read (a
  * paged reader walks one window further each time a window lands), and those
- * are covered from that run on (#580). The tracker REGISTRY is watched too,
- * so a tracker that registers after the first run (the Data tracker, when its
- * provider mounts) invalidates it.
+ * are covered from that run on (#580). A key the run read that moved before
+ * it subscribed — the version its tracker reports it read at no longer the
+ * store's — invalidates it as the run returns: nothing may have heard the
+ * move. The tracker REGISTRY is watched too, so a tracker that registers
+ * after the first run (the Data tracker, when its provider mounts)
+ * invalidates it.
  *
  * Tracking uses the trackers' module-level recording state, so a run must not
  * overlap another tracked evaluation. Runs happen in event handlers, store
@@ -84,12 +87,19 @@ export function createTrackedRead(onInvalidate: () => void): TrackedRead {
             // recording would attribute the next component's reads to us.
             const read = trackers.map((t) => ({ t, keys: t.disableTracking() }));
             clearKeys();
+            let moved = false;
             for (const { t, keys } of read) {
                 const store = t.getStore();
                 if (store === null) continue;
-                for (const key of keys) keyUnsubs.push(store.subscribe(key, notify));
+                for (const [key, version] of keys) {
+                    keyUnsubs.push(store.subscribe(key, notify));
+                    moved ||= store.getKeyVersion(key) !== version;
+                }
             }
             registryUnsub ??= subscribeTrackers(notify);
+            // A key the run read moved before it subscribed — a closure that wrote what it read: the move may have told
+            // no one, so the run is invalidated, once it has returned.
+            if (moved) queueMicrotask(notify);
             return outcome;
         },
         release() {

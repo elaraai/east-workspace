@@ -497,7 +497,7 @@ test("a window over an interval index is two requests — its searches in one, t
     assert.equal(handle.count().type, "none", "its searches are in flight");
     let fired = 0;
     const reader = () => { fired += 1; };
-    for (const key of runtime.disableTracking()) runtime.subscribe(key, reader);
+    for (const key of runtime.disableTracking().keys()) runtime.subscribe(key, reader);
     await h.settle();
     assert.equal(fired, 1, "the count's reader re-fires once, as every search lands together");
     const searches = findsOf(events);

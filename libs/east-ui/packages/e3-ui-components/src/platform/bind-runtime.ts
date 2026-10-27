@@ -202,8 +202,9 @@ export class BindRuntime {
 
     // Reactive tracking — single combined tracker for both dataset
     // reads and staged-buffer reads. The renderer's reactive context
-    // picks up keys from either source uniformly.
-    private trackingContext: Set<string> | null = null;
+    // picks up keys from either source uniformly, each with its version
+    // (the cache's and the staged store's together) as first read.
+    private trackingContext: Map<string, number> | null = null;
 
     // Binding types registry — populated on every `Data.bind` call so
     // the Diff renderer can decode source/patch bytes and pick the
@@ -368,13 +369,24 @@ export class BindRuntime {
 
     // ----- reactive tracking ---------------------------------------------
 
-    enableTracking(): Set<string> {
-        this.trackingContext = new Set();
+    /**
+     * Start recording the datasets an evaluation reads.
+     *
+     * @returns What it records: each dataset's key, with its version as first read
+     */
+    enableTracking(): ReadonlyMap<string, number> {
+        this.trackingContext = new Map();
         return this.trackingContext;
     }
 
-    disableTracking(): string[] {
-        const keys = this.trackingContext ? [...this.trackingContext] : [];
+    /**
+     * Stop recording.
+     *
+     * @returns Each dataset's key the evaluation read, with its version as it first read it — a staged write it made
+     *   since stands at another
+     */
+    disableTracking(): ReadonlyMap<string, number> {
+        const keys = this.trackingContext ?? new Map<string, number>();
         this.trackingContext = null;
         return keys;
     }
@@ -383,10 +395,21 @@ export class BindRuntime {
         return this.trackingContext !== null;
     }
 
+    /**
+     * A dataset's version as a reader of it sees it: its cache's and its
+     * staged buffer's together, which move as either does.
+     *
+     * @param key - The dataset's key ({@link datasetCacheKey})
+     * @returns Its version
+     */
+    keyVersion(key: string): number {
+        return (this.cache?.getKeyVersion(key) ?? 0) + this.staged.getKeyVersion(key);
+    }
+
     trackPath(workspace: string, path: TreePath): void {
-        if (this.trackingContext) {
-            this.trackingContext.add(datasetCacheKey(workspace, path));
-        }
+        if (this.trackingContext === null) return;
+        const key = datasetCacheKey(workspace, path);
+        if (!this.trackingContext.has(key)) this.trackingContext.set(key, this.keyVersion(key));
     }
 
     // ----- binding registry ----------------------------------------------
@@ -960,10 +983,10 @@ export function clearReactiveDatasetCache(cache?: ReactiveDatasetCacheInterface)
     defaultBindRuntime.clearCache(cache);
 }
 
-export function enableBindingTracking(): Set<string> {
+export function enableBindingTracking(): ReadonlyMap<string, number> {
     return defaultBindRuntime.enableTracking();
 }
-export function disableBindingTracking(): string[] {
+export function disableBindingTracking(): ReadonlyMap<string, number> {
     return defaultBindRuntime.disableTracking();
 }
 export function isBindingTracking(): boolean {
@@ -1040,7 +1063,8 @@ registerReactiveTracker({
                 const offStaged = staged.subscribe(key, cb);
                 return () => { offCache(); offStaged(); };
             },
-            getKeyVersion: (key) => cache.getKeyVersion(key) + staged.getKeyVersion(key),
+            // The version a read records it at, as the runtime counts it.
+            getKeyVersion: (key) => defaultBindRuntime.keyVersion(key),
         };
     },
 });

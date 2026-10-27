@@ -18,11 +18,11 @@ import { readResource } from "./read-scope.js";
 function channelTracker(id: string) {
     const subs = new Map<string, Set<() => void>>();
     const versions = new Map<string, number>();
-    let recording: string[] | null = null;
+    let recording: Map<string, number> | null = null;
     const tracker: ReactiveTracker = {
         id,
-        enableTracking() { recording = []; },
-        disableTracking() { const r = recording ?? []; recording = null; return r; },
+        enableTracking() { recording = new Map(); },
+        disableTracking() { const r = recording ?? new Map<string, number>(); recording = null; return r; },
         getStore: () => ({
             subscribe(key, cb) {
                 const set = subs.get(key) ?? new Set<() => void>();
@@ -36,7 +36,8 @@ function channelTracker(id: string) {
     const fire = (key: string) => { for (const cb of [...(subs.get(key) ?? [])]) cb(); };
     return {
         tracker,
-        read(key: string) { recording?.push(key); },
+        /** A read of a key, recorded with its version as first read. */
+        read(key: string) { if (recording !== null && !recording.has(key)) recording.set(key, versions.get(key) ?? 0); },
         fire,
         /** Moves a key's version and tells its readers, as a write of it does. */
         move(key: string) { versions.set(key, (versions.get(key) ?? 0) + 1); fire(key); },

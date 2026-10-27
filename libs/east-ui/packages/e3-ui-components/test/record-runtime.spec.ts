@@ -496,7 +496,7 @@ describe("RecordRuntime — tracking, scoping, lifecycle", () => {
         handle.mutate.status();
         handle.mutate.error();
         const keys = runtime.disableTracking();
-        assert.deepEqual(keys, [recordChannelKey(h.workspace, ex.counter.name)]);
+        assert.deepEqual([...keys.keys()], [recordChannelKey(h.workspace, ex.counter.name)]);
     });
 
     test("clear() drops state and the api; status throws until re-init", async () => {

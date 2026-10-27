@@ -30,8 +30,15 @@ export interface ReactiveTracker {
     /** Start recording which keys are accessed */
     enableTracking(): void;
 
-    /** Stop recording, return the list of accessed keys */
-    disableTracking(): string[];
+    /**
+     * Stop recording, and return each key read, with its version as the
+     * evaluation first read it — what its result was computed from. A key a
+     * tracker moves after it was read, while the evaluation still runs (a
+     * render that writes a State key it has read, a staged `Data.bind` write,
+     * a call it starts), then stands at another version in the store than the
+     * one read, and the evaluation runs again.
+     */
+    disableTracking(): ReadonlyMap<string, number>;
 
     /**
      * Get the backing store for subscriptions.

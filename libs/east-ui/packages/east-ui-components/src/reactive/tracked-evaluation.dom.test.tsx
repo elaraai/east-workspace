@@ -43,7 +43,9 @@ function walkingTracker(id = "w") {
     const landed = new Set<string>();
     const version = new Map<string, number>();
     const subs = new Map<string, Set<() => void>>();
-    let recording: string[] | null = null;
+    let recording: Map<string, number> | null = null;
+    /** A read of a key, recorded with its version as first read. */
+    const record = (key: string): void => { if (recording !== null && !recording.has(key)) recording.set(key, version.get(key) ?? 0); };
 
     const land = (key: string): void => {
         setTimeout(() => {
@@ -55,8 +57,8 @@ function walkingTracker(id = "w") {
 
     const tracker: ReactiveTracker = {
         id,
-        enableTracking() { recording = []; },
-        disableTracking() { const r = recording ?? []; recording = null; return r; },
+        enableTracking() { recording = new Map(); },
+        disableTracking() { const r = recording ?? new Map<string, number>(); recording = null; return r; },
         getStore: () => ({
             subscribe(key, cb) {
                 const set = subs.get(key) ?? new Set<() => void>();
@@ -72,7 +74,7 @@ function walkingTracker(id = "w") {
     const read = (): number => {
         for (let n = 0; n < 32; n++) {
             const key = `k${n}`;
-            recording?.push(key);
+            record(key);
             if (!landed.has(key)) { land(key); return n; }
         }
         return 32;
@@ -135,11 +137,13 @@ function steppedTracker(id: string) {
     const landed = new Set<string>();
     const version = new Map<string, number>();
     const subs = new Map<string, Set<() => void>>();
-    let recording: string[] | null = null;
+    let recording: Map<string, number> | null = null;
+    /** A read of a key, recorded with its version as first read. */
+    const record = (key: string): void => { if (recording !== null && !recording.has(key)) recording.set(key, version.get(key) ?? 0); };
     const tracker: ReactiveTracker = {
         id,
-        enableTracking() { recording = []; },
-        disableTracking() { const r = recording ?? []; recording = null; return r; },
+        enableTracking() { recording = new Map(); },
+        disableTracking() { const r = recording ?? new Map<string, number>(); recording = null; return r; },
         getStore: () => ({
             subscribe(key, cb) {
                 const set = subs.get(key) ?? new Set<() => void>();
@@ -156,7 +160,7 @@ function steppedTracker(id: string) {
         read(): number {
             for (let n = 0; ; n++) {
                 const key = `k${n}`;
-                recording?.push(key);
+                record(key);
                 if (!landed.has(key)) return n;
             }
         },
@@ -170,7 +174,7 @@ function steppedTracker(id: string) {
         /** Moves a key's version without telling its readers yet, as a change the tracker has still to tell. */
         move(key: string): void { version.set(key, (version.get(key) ?? 0) + 1); },
         /** A key's version, as a read of it sees it. */
-        versionOf(key: string): number { recording?.push(key); return version.get(key) ?? 0; },
+        versionOf(key: string): number { record(key); return version.get(key) ?? 0; },
     };
 }
 

@@ -123,7 +123,7 @@ function heldSource(windows: number, rowsPer: number, openUpTo = 0) {
     const tracker: ReactiveTracker = {
         id: "plan-820-channels",
         enableTracking() { recording = []; },
-        disableTracking() { const r = recording ?? []; recording = null; return r; },
+        disableTracking() { const r = recording ?? []; recording = null; return new Map(r.map((key) => [key, 0])); },
         getStore: () => ({
             subscribe(key, cb) {
                 const set = subs.get(key) ?? new Set<() => void>();

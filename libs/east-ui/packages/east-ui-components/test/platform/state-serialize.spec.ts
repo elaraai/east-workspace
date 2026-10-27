@@ -101,10 +101,10 @@ test("#106 — after decode, read() falls back to the captured default (eager-in
 test("#106 — read() still registers a reactive dependency (trackKey)", () => {
     freshStore();
     const handle = bindFloat("s106.track", 1.0);
-    const tracked = enableTracking();
+    enableTracking();
     handle.read();
     const keys = disableTracking();
-    assert.ok(tracked.has("s106.track") || keys.includes("s106.track"), "read() tracks its key");
+    assert.deepEqual([...keys], [["s106.track", getStore().getKeyVersion("s106.track")]], "read() tracks its key, at its version as read");
 });
 
 test("#106 — non-serialized path still works (bind → has/read/write)", () => {

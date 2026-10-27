@@ -70,10 +70,23 @@ describe("TrackedChannelStore — render tracking", () => {
         assert.equal(store.isTracking(), true);
         store.trackKey("x");
         store.trackKey("y");
-        store.trackKey("x"); // de-duped by the Set
+        store.trackKey("x"); // recorded once
         const keys = store.disableTracking();
-        assert.deepEqual([...keys].sort(), ["x", "y"]);
+        assert.deepEqual([...keys.keys()].sort(), ["x", "y"]);
         assert.equal(store.isTracking(), false);
+    });
+
+    test("a channel keeps the version it was first read at: a launch after the read moves the store's past it", () => {
+        const store = new TestStore();
+        store.open("x");
+        store.enableTracking();
+        store.trackKey("x");
+        // A launch the evaluation makes after reading the channel, and a read again.
+        store.open("x");
+        store.trackKey("x");
+        const keys = store.disableTracking();
+        assert.deepEqual([...keys], [["x", 1]], "the version the evaluation read");
+        assert.equal(store.getKeyVersion("x"), 2, "the store's, moved past it");
     });
 });
 

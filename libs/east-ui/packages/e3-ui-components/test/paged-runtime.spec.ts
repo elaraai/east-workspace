@@ -247,9 +247,10 @@ describe("PagedRuntime", () => {
         callPage(runtime, 0n, 2n);
         callTotal(runtime);
         const tracked = runtime.disableTracking();
-        assert.ok(tracked.includes(pagedRevisionKey(h.workspace, rowsPath)), "revision key tracked, so a move re-fires the read");
-        assert.ok(tracked.includes(pagedWindowKey(h.workspace, rowsPath, R1, 0, 2)), "window key tracked");
-        assert.ok(tracked.includes(pagedTotalKey(h.workspace, rowsPath, R1)), "total key tracked");
+        assert.ok(tracked.has(pagedRevisionKey(h.workspace, rowsPath)), "revision key tracked, so a move re-fires the read");
+        assert.ok(tracked.has(pagedWindowKey(h.workspace, rowsPath, R1, 0, 2)), "window key tracked");
+        assert.ok(tracked.has(pagedTotalKey(h.workspace, rowsPath, R1)), "total key tracked");
+        for (const [key, version] of tracked) assert.equal(version, runtime.getKeyVersion(key), `${key} at its version as read: a launch never moves one`);
         await h.settle();
     });
 
@@ -708,7 +709,7 @@ describe("PagedRuntime — snapshots", () => {
         const read = (): (() => void) => {
             runtime.enableTracking();
             callPage(runtime, 0n, 2n);
-            const unsubs = runtime.disableTracking().map((key) => runtime.subscribe(key, () => {}));
+            const unsubs = [...runtime.disableTracking().keys()].map((key) => runtime.subscribe(key, () => {}));
             return () => { for (const unsub of unsubs) unsub(); };
         };
         let reader = read();
@@ -1271,7 +1272,7 @@ describe("PagedRuntime — a read no reader waits on any longer is aborted (#139
         // One reader's run, as a view's: read under tracking, then subscribe to what the read tracked.
         runtime.enableTracking();
         assert.equal(runtime.seekAll(source, queries).type, "none");
-        const reader = runtime.disableTracking().map((key) => runtime.subscribe(key, () => {}));
+        const reader = [...runtime.disableTracking().keys()].map((key) => runtime.subscribe(key, () => {}));
         await held.holding;
         for (const leave of reader) leave();
         await h.settle();
@@ -1302,7 +1303,7 @@ describe("PagedRuntime — a read no reader waits on any longer is aborted (#139
     const readOnce = <T>(runtime: PagedRuntime, read: () => T) => {
         runtime.enableTracking();
         const value = read();
-        const unsubs = runtime.disableTracking().map((key) => runtime.subscribe(key, () => {}));
+        const unsubs = [...runtime.disableTracking().keys()].map((key) => runtime.subscribe(key, () => {}));
         return { value, leave: () => { for (const unsub of unsubs) unsub(); } };
     };
 
@@ -1396,7 +1397,7 @@ describe("PagedRuntime — several reads in one request (#1351)", () => {
         const value = read();
         let fired = 0;
         const reader = () => { fired += 1; };
-        for (const key of runtime.disableTracking()) runtime.subscribe(key, reader);
+        for (const key of runtime.disableTracking().keys()) runtime.subscribe(key, reader);
         return { value, fired: () => fired };
     };
     /** A batch read's JSON body. */
@@ -1798,7 +1799,7 @@ describe("PagedRuntime — where a narrowing's rows sit, kept for as many narrow
             // the last narrowing's go, as a view moving to a new chip does.
             runtime.enableTracking();
             assert.equal(runtime.placeAll(source, runs).type, "none", "a new narrowing is placed");
-            const unsubs = runtime.disableTracking().map((key) => runtime.subscribe(key, () => {}));
+            const unsubs = [...runtime.disableTracking().keys()].map((key) => runtime.subscribe(key, () => {}));
             leave?.();
             leave = () => { for (const unsub of unsubs) unsub(); };
             const placement = await h.ready(() => runtime.placeAll(source, runs));

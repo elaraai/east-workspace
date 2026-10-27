@@ -655,7 +655,7 @@ describe("Plan paged source (P-c)", () => {
         const tracker: ReactiveTracker = {
             id: "plan-revision-dom",
             enableTracking() { recording = []; },
-            disableTracking() { const r = recording ?? []; recording = null; return r; },
+            disableTracking() { const r = recording ?? []; recording = null; return new Map(r.map((key) => [key, 0])); },
             getStore: () => ({
                 subscribe(key, cb) {
                     const set = subs.get(key) ?? new Set<() => void>();

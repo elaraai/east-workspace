@@ -48,15 +48,27 @@ export function initializeStore(store: UIStoreInterface): void {
 // Reactive Dependency Tracking
 // =============================================================================
 
-let trackingContext: Set<string> | null = null;
+/** The keys the render being tracked has read, each with its version as the render first read it; `null` while none is. */
+let trackingContext: Map<string, number> | null = null;
 
-export function enableTracking(): Set<string> {
-    trackingContext = new Set();
+/**
+ * Start recording the keys a render reads.
+ *
+ * @returns What it records: each key read, with its version as first read
+ */
+export function enableTracking(): ReadonlyMap<string, number> {
+    trackingContext = new Map();
     return trackingContext;
 }
 
-export function disableTracking(): string[] {
-    const keys = trackingContext ? [...trackingContext] : [];
+/**
+ * Stop recording.
+ *
+ * @returns Each key the render read, with its version as it first read it — what the render was computed from: a key
+ *   it wrote after reading it stands at another in the store
+ */
+export function disableTracking(): ReadonlyMap<string, number> {
+    const keys = trackingContext ?? new Map<string, number>();
     trackingContext = null;
     return keys;
 }
@@ -65,10 +77,13 @@ export function isTracking(): boolean {
     return trackingContext !== null;
 }
 
+/**
+ * Record a read of a key, while a render is tracked: its version as it is read now, unless the render read it before.
+ *
+ * @param key - The key read
+ */
 export function trackKey(key: string): void {
-    if (trackingContext) {
-        trackingContext.add(key);
-    }
+    if (trackingContext !== null && !trackingContext.has(key)) trackingContext.set(key, getStore().getKeyVersion(key));
 }
 
 // =============================================================================

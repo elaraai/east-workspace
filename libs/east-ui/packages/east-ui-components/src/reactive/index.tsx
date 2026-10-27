@@ -25,6 +25,12 @@ export interface ReactiveValue {
 /** The outcome of one tracked evaluation — the value, or the error to display. */
 export type TrackedResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
 
+/** The keys an evaluation read, by tracker id: each key with its version as the evaluation first read it. */
+type Reads = ReadonlyMap<string, ReadonlyMap<string, number>>;
+
+/** A tracker's keys where it read none. */
+const NO_READS: ReadonlyMap<string, number> = new Map();
+
 /**
  * Evaluates an East closure with dependency tracking and re-evaluates when the
  * State/Data keys it read change.
@@ -39,13 +45,14 @@ export type TrackedResult<T> = { ok: true; value: T } | { ok: false; error: unkn
  * throw, so the evaluation re-runs when they change) rather than propagated.
  *
  * An evaluation runs once a change of what it read: its result is held while
- * the keys it read keep the versions they had as it ran, so the render that
- * re-keys the subscription after it reads a key it had not — a paged reader
- * walking on to its next window — evaluates nothing again. A key it had read
- * before that moved while it ran holds nothing; one it read for the first time
- * is held at its version once it is done, as no tracker moves a key while it
- * is read (the paging runtime's launch, the channel stores' and the dataset
- * cache's notifications all come after the read).
+ * the keys it read stand at the versions it read them at — each tracker
+ * reports each key with its version as the evaluation first read it — so the
+ * render that re-keys the subscription after it reads a key it had not — a
+ * paged reader walking on to its next window — evaluates nothing again. A key
+ * that moved after it was read, while the evaluation still ran, holds nothing,
+ * whether it had read the key before or reads it for the first time: a render
+ * that writes a State key it has read moves the key in the UI store, and runs
+ * again, drawing what the key holds now.
  *
  * @param fn - The closure to evaluate — memoise it (`useCallback`) so the
  *   evaluation is not redone every host render.
@@ -58,8 +65,8 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
     const trackers = getReactiveTrackers();
     const scope = useMemo(() => new ReadScope(), []);
 
-    // Track which keys each tracker records
-    const depsRef = useRef<Map<string, string[]>>(new Map());
+    // Track which keys each tracker records, each with its version as it was read
+    const depsRef = useRef<Reads>(new Map());
     // ...and a signature of that key SET. An evaluation can discover keys it did
     // not read last time — a paged reader walks one window further each time a
     // window lands — and `useSyncExternalStore` re-subscribes only when
@@ -69,18 +76,19 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
     // signature is what re-keys `subscribe` when the set actually moves.
     const depsSigRef = useRef<string>("");
     const [depsSig, setDepsSig] = useState("");
-    // The last evaluation: the versions of the keys it read as it ran — none while one it had read before moved meanwhile
-    // — and the snapshot it ran at, which keys its result while those versions hold.
-    const ranRef = useRef<{ readonly read: string | undefined; readonly at: string } | undefined>(undefined);
+    // The last evaluation: the versions of the keys it read, as it read them, and the snapshot it ran at, which keys its
+    // result while the keys stand at those versions.
+    const ranRef = useRef<{ readonly read: string; readonly at: string } | undefined>(undefined);
 
-    // The versions of a set of keys now, across the trackers: a snapshot of them.
-    const versionsOf = useCallback((deps: ReadonlyMap<string, string[]>): string => {
+    // A snapshot of the keys an evaluation read, across the trackers: each at its version now, or as it was read.
+    const snapshotOf = useCallback((deps: Reads, asRead: boolean): string => {
         const parts: string[] = [];
         for (const t of trackers) {
             const store = t.getStore();
             if (!store) continue;
-            const keys = deps.get(t.id) ?? [];
-            parts.push(keys.map(k => `${t.id}:${k}:${store.getKeyVersion(k)}`).join(","));
+            const keys: string[] = [];
+            for (const [key, read] of deps.get(t.id) ?? NO_READS) keys.push(`${t.id}:${key}:${asRead ? read : store.getKeyVersion(key)}`);
+            parts.push(keys.join(","));
         }
         return parts.join("|");
     }, [trackers]);
@@ -92,7 +100,7 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
 
         try {
             const result = scope.run(fn);
-            const deps = new Map<string, string[]>();
+            const deps = new Map<string, ReadonlyMap<string, number>>();
             for (const t of trackers) {
                 deps.set(t.id, t.disableTracking());
             }
@@ -101,7 +109,7 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
             return { ok: true, value: result };
         } catch (e) {
             // Capture deps even on error so we re-render when they change
-            const deps = new Map<string, string[]>();
+            const deps = new Map<string, ReadonlyMap<string, number>>();
             for (const t of trackers) {
                 deps.set(t.id, t.disableTracking());
             }
@@ -117,8 +125,8 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
         for (const t of trackers) {
             const store = t.getStore();
             if (!store) continue;
-            const keys = depsRef.current.get(t.id) ?? [];
-            for (const key of keys) {
+            const keys = depsRef.current.get(t.id) ?? NO_READS;
+            for (const key of keys.keys()) {
                 unsubs.push(store.subscribe(key, cb));
             }
         }
@@ -132,25 +140,23 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
     }, [trackers, depsSig]);
 
     // Snapshot based on our dependencies' versions across all trackers
-    const getSnapshot = useCallback(() => versionsOf(depsRef.current), [versionsOf]);
+    const getSnapshot = useCallback(() => snapshotOf(depsRef.current, false), [snapshotOf]);
 
     const snapshot = useSyncExternalStore(subscribe, getSnapshot);
 
-    // What the result is keyed on: the snapshot the last evaluation ran at, while the keys it read keep the versions they
-    // had as it ran — the render that re-keys the subscription reads them over a key set of its own, the same versions —
-    // else the snapshot now.
+    // What the result is keyed on: the snapshot the last evaluation ran at, while the keys it read stand at the versions
+    // it read them at — the render that re-keys the subscription reads them over a key set of its own, the same
+    // versions — else the snapshot now: a key moved since it was read, while the evaluation ran or after it.
     const ran = ranRef.current;
     const at = ran !== undefined && ran.read === snapshot ? ran.at : snapshot;
 
     // trackersVersion forces re-evaluation when trackers change
     const result = useMemo(() => {
-        const before = depsRef.current;
-        const held = versionsOf(before);
         const next = executeWithTracking();
-        ranRef.current = { read: versionsOf(before) === held ? versionsOf(depsRef.current) : undefined, at };
+        ranRef.current = { read: snapshotOf(depsRef.current, true), at };
         return next;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [executeWithTracking, versionsOf, at, trackersVersion]);
+    }, [executeWithTracking, snapshotOf, at, trackersVersion]);
 
     // Publish the key set the evaluation just read, so `subscribe` re-keys and
     // covers a newly-discovered key. Set DURING RENDER (React's documented
@@ -166,9 +172,9 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
 
 /** A stable signature of the key set an evaluation read, per tracker. Order is
  *  the tracker registration order, which `executeWithTracking` also walks. */
-function depsSignature(deps: ReadonlyMap<string, string[]>): string {
+function depsSignature(deps: Reads): string {
     const parts: string[] = [];
-    for (const [id, keys] of deps) parts.push(`${id}:${keys.join(",")}`);
+    for (const [id, keys] of deps) parts.push(`${id}:${[...keys.keys()].join(",")}`);
     return parts.join("|");
 }
 

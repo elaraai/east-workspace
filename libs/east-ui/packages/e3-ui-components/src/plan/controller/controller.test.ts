@@ -740,7 +740,7 @@ describe("the source's channels (#815)", () => {
         const tracker: ReactiveTracker = {
             id: "c815-channels",
             enableTracking() { recording = []; },
-            disableTracking() { const r = recording ?? []; recording = null; return r; },
+            disableTracking() { const r = recording ?? []; recording = null; return new Map(r.map((key) => [key, 0])); },
             getStore: () => ({
                 subscribe(key, cb) {
                     const set = subs.get(key) ?? new Set<() => void>();
@@ -826,7 +826,7 @@ describe("a new source revision (#821)", () => {
         const tracker: ReactiveTracker = {
             id: "c821-revision",
             enableTracking() { recording = []; },
-            disableTracking() { const r = recording ?? []; recording = null; return r; },
+            disableTracking() { const r = recording ?? []; recording = null; return new Map(r.map((key) => [key, 0])); },
             getStore: () => ({
                 subscribe(key, cb) {
                     const set = subs.get(key) ?? new Set<() => void>();

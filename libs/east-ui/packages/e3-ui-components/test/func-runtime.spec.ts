@@ -402,14 +402,15 @@ describe("FuncRuntime — shared channel + reactivity", () => {
 
     test("read/status/pending/error register the channel key while tracking", () => {
         const { runtime, handle } = bound();
+        const key = funcChannelKey(h.workspace, "forecast");
         const ctx = runtime.enableTracking();
         handle.read();
         handle.status();
         handle.pending();
         handle.error();
         const keys = runtime.disableTracking();
-        assert.deepEqual(keys, [funcChannelKey(h.workspace, "forecast")]);
-        assert.ok(ctx.has(funcChannelKey(h.workspace, "forecast")));
+        assert.deepEqual([...keys], [[key, runtime.getKeyVersion(key)]], "the channel, at its version as read");
+        assert.ok(ctx.has(key));
     });
 });
 
