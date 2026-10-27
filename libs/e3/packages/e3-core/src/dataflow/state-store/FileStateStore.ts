@@ -34,8 +34,9 @@ import { checkId, checkName, isNotFoundError } from '../../errors.js';
 import { withKeyedLock } from '../../keyed-mutex.js';
 import { isUuidv7 } from '../../uuid.js';
 // The one atomic write every local record goes through: staged as a `.partial`
-// gc sweeps, and renamed over the record with the shared Windows retry budget.
-import { atomicWriteFile } from '../../storage/local/localHelpers.js';
+// gc sweeps, and renamed over the record with the shared Windows retry budget;
+// and its read, in the file's turn, which no rename of this process meets.
+import { atomicWriteFile, readReplacedFile } from '../../storage/local/localHelpers.js';
 import { compareEventSeqs, eventsSince, planEventAppend, segmentBefore, stateWithoutEvents, type EventSegment } from './events.js';
 
 // The state is written at this e3's version, and read at any version it
@@ -79,6 +80,10 @@ type Mutable<T> = { -readonly [P in keyof T]: T[P] extends object ? Mutable<T[P]
  * - Changes a workspace's state one at a time within a process: each reads
  *   the file, and writes it back, under an in-process lock of the file's
  *   path, so changes made at once never write over each other
+ * - Reads the state and the segments in each file's turn
+ *   (`readReplacedFile`), as their writes rename over them, so a poll in
+ *   the process running the dataflow never holds a file open across a
+ *   rename, which Windows refuses
  * - A run that has ended keeps the state it ended with: every later write is
  *   dropped, as is a write of a run a later one has replaced
  * - A new run's state replaces the workspace's, and the events of the run it
@@ -136,7 +141,7 @@ export class FileStateStore implements ExecutionStateStore {
     const path = this.statePath(workspace);
 
     try {
-      const data = await fs.readFile(path);
+      const data = await readReplacedFile(path);
       const state = decodeDataflowExecutionState(data);
 
       // Check if this is the requested execution
@@ -162,7 +167,7 @@ export class FileStateStore implements ExecutionStateStore {
     const path = this.statePath(workspace);
 
     try {
-      const data = await fs.readFile(path);
+      const data = await readReplacedFile(path);
       return decodeDataflowExecutionState(data);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -316,7 +321,7 @@ export class FileStateStore implements ExecutionStateStore {
       const path = join(this.workspacesDir, workspace, 'execution.beast2');
       let bytes: Uint8Array;
       try {
-        bytes = await fs.readFile(path);
+        bytes = await readReplacedFile(path);
       } catch (err) {
         // A workspace that has had no run, or an entry that is no workspace's
         // directory.
@@ -389,7 +394,7 @@ export class FileStateStore implements ExecutionStateStore {
    */
   private async put(path: string, state: DataflowExecutionState): Promise<StateWriteOutcome> {
     try {
-      const current = decodeDataflowExecutionState(await fs.readFile(path));
+      const current = decodeDataflowExecutionState(await readReplacedFile(path));
       if (current.id !== state.id || current.status !== 'running') return 'dropped';
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
@@ -433,7 +438,7 @@ export class FileStateStore implements ExecutionStateStore {
   /** A segment's bytes; null when it is gone. */
   private async readSegment(dir: string, first: bigint): Promise<Uint8Array | null> {
     try {
-      return await fs.readFile(join(dir, segmentName(first)));
+      return await readReplacedFile(join(dir, segmentName(first)));
     } catch (err) {
       if (isNotFoundError(err)) return null;
       throw err;

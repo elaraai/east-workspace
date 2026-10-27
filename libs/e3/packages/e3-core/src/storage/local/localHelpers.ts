@@ -20,6 +20,7 @@ import { promises as fs, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import * as path from 'path';
 import { StringType, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
 import { checkHash, checkId, checkName, isNotFoundError } from '../../errors.js';
+import { withKeyedLock } from '../../keyed-mutex.js';
 import { isUuidv7 } from '../../uuid.js';
 
 /** A revision token, as a local repository keeps one: a String in beast2. */
@@ -96,7 +97,7 @@ export async function moveRevision(file: string): Promise<void> {
 export async function readRevision(file: string): Promise<string | null> {
   let data: Buffer;
   try {
-    data = await fs.readFile(file);
+    data = await readReplacedFile(file);
   } catch (err) {
     if (isNotFoundError(err)) return null;
     throw err;
@@ -522,6 +523,12 @@ export function isTransientFsError(err: unknown): boolean {
  * bound, while a genuine permission error still surfaces promptly. A no-op on
  * POSIX, where the first attempt always succeeds.
  *
+ * Each attempt takes the destination's turn ({@link readReplacedFile}), so
+ * within one process it never meets a read of the file: a reader there that
+ * read again at once could otherwise meet every attempt, as a status poll in
+ * the process writing the status could. Only another process's reads meet it,
+ * each brief, which the retries outlast.
+ *
  * @param from - Staging path to rename from
  * @param to - Destination path to atomically replace
  * @param maxAttempts - Upper bound on retries (≈1.9s total over the default 25)
@@ -531,7 +538,39 @@ export function isTransientFsError(err: unknown): boolean {
  * ```
  */
 export async function renameWithRetry(from: string, to: string, maxAttempts = 25): Promise<void> {
-  await retryTransient(() => fs.rename(from, to), maxAttempts);
+  await retryTransient(() => withKeyedLock(turnOf(to), () => fs.rename(from, to)), maxAttempts);
+}
+
+/**
+ * The key of a file's turn: within one process, each attempt to rename over
+ * the file ({@link renameWithRetry}) and each read of it through
+ * {@link readReplacedFile} waits for the one before it.
+ */
+function turnOf(file: string): string {
+  return `turn\0${path.resolve(file)}`;
+}
+
+/**
+ * Reads a file {@link atomicWriteFile} replaces, in the file's turn: an
+ * attempt of this process to rename over the file waits until the read has
+ * closed it, and the read waits for an attempt under way.
+ *
+ * @remarks
+ * Windows refuses a rename over a file another handle holds open, and
+ * {@link renameWithRetry} tries it again a bounded number of times, which a
+ * reader in the same process reading the file again at once could outlast:
+ * every attempt meeting a read, as a status poll's could while the
+ * orchestrator in its process writes the status. In turns, an attempt waits
+ * for at most the read under way, and a read for one attempt, never the
+ * retries' backoff. Where a rename over an open file is never refused, as on
+ * POSIX, the turns change nothing but their order.
+ *
+ * @param file - The file to read
+ * @returns The file's bytes
+ * @throws The read's error — `ENOENT` where there is no file
+ */
+export function readReplacedFile(file: string): Promise<Buffer> {
+  return withKeyedLock(turnOf(file), () => fs.readFile(file));
 }
 
 /**
@@ -582,7 +621,9 @@ async function retryTransient(op: () => Promise<void>, maxAttempts: number): Pro
  * The stage-and-rename makes the replacement atomic: a reader sees either the
  * old complete file or the new complete file, never a partial one. Use this for
  * every mutable ref/state file a reader may read while a writer overwrites it
- * (execution status, dataflow runs, workspace state, dataset refs).
+ * (execution status, dataflow runs, workspace state, dataset refs), and read
+ * such a file through {@link readReplacedFile}, in its turn, so the rename
+ * never meets a read of the same process.
  *
  * Staging files use a `.partial` extension so the directory-listing helpers
  * (which filter `.partial`) never mistake them for real entries, and orphaned

@@ -70,15 +70,15 @@ describe('LocalRefStore execution status (concurrent read/write)', () => {
     const reader = (async () => {
       const errors: string[] = [];
       while (!stop) {
+        // Read again at once: a read and a rename over the file take turns
+        // (readReplacedFile), so even this reader never holds the file open
+        // across the writer's rename, which Windows refuses (EPERM).
         try {
           const s = await store.executionGet(repo, taskHash, inputsHash, executionId);
           assert.ok(s !== null, 'the seeded status is always present');
         } catch (err) {
           errors.push((err as Error).message);
         }
-        // Yield: a tight read loop would hold the file open ~continuously and on
-        // Windows starve the writer's rename (EPERM). A real status poll is periodic.
-        await new Promise((r) => setTimeout(r, 1));
       }
       return errors;
     })();
@@ -140,15 +140,13 @@ describe('LocalRefStore dataflow run (concurrent read/write)', () => {
     const reader = (async () => {
       const errors: string[] = [];
       while (!stop) {
+        // Read again at once, in turns with the writer's rename, as above.
         try {
           const run = await store.dataflowRunGet(repo, workspace, runId);
           assert.ok(run !== null, 'the seeded run is always present');
         } catch (err) {
           errors.push((err as Error).message);
         }
-        // Yield: a tight read loop would hold the file open ~continuously and on
-        // Windows starve the writer's rename (EPERM). A real status poll is periodic.
-        await new Promise((r) => setTimeout(r, 1));
       }
       return errors;
     })();
