@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { statSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
-import { East, EastTypeValueType, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, isTypeValueEqual, printFor, readBeast2Type, sha256Hex, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type EastTypeValue, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
+import { DateTimeType, East, EastTypeValueType, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, isTypeValueEqual, printFor, readBeast2Type, sha256Hex, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type EastTypeValue, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
   RecordCommitType, RecordIndexObjectType, RecordStateType, TaskObjectType, decodeCollectionManifest, decodePackageObject, isCollectionManifestType,
@@ -805,7 +805,7 @@ describe('records', () => {
         (err: unknown) => {
           assert.ok(err instanceof WorkspaceLockError, `a WorkspaceLockError, not ${String(err)}`);
           assert.deepStrictEqual(err.holder, holder, 'the refusal names the holder lockStateToHolderInfo gives');
-          assert.strictEqual(err.message, `Workspace '${ws}' is locked by process ${process.pid} (since ${holder.acquiredAt})`);
+          assert.strictEqual(err.message, `Workspace '${ws}' is locked by process ${process.pid} (since ${printFor(DateTimeType)(holder.acquiredAt)})`);
           return true;
         },
       );

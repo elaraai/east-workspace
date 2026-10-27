@@ -627,8 +627,6 @@ export {
   coreStatusToApiStatus,
   summaryToApiStatus,
   coreStateToApiState,
-  type ApiDataflowEventType,
-  type ApiDataflowEvent,
   type ApiExecutionStatus,
   type ApiExecutionSummary,
   type ApiExecutionState,

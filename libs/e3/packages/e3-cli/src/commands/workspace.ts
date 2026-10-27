@@ -48,7 +48,7 @@ import {
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { EastTypeValue } from '@elaraai/east';
+import { DateTimeType, printFor, type EastTypeValue } from '@elaraai/east';
 import e3, { DatasetFileTypeMismatchError, readDatasetFileHeader, sha256File } from '@elaraai/e3';
 import { treePath, type PackageObject, type TreePath } from '@elaraai/e3-types';
 import { parseRepoLocation, parsePackageSpec, formatError, exitError, type RepoLocation } from '../utils.js';
@@ -401,7 +401,7 @@ export const workspaceCommand = {
       if (status.lock) {
         console.log('Lock:');
         console.log(`  Held by PID ${status.lock.pid}`);
-        console.log(`  Since: ${status.lock.acquiredAt}`);
+        console.log(`  Since: ${printFor(DateTimeType)(status.lock.acquiredAt)} UTC`);
         if (status.lock.operation) {
           console.log(`  Operation: ${status.lock.operation}`);
         }

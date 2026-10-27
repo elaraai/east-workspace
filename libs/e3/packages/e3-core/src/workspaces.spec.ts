@@ -11,7 +11,7 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { StringType, variant, some, none, decodeBeast2For, encodeBeast2For } from '@elaraai/east';
+import { DateTimeType, StringType, variant, some, none, decodeBeast2For, encodeBeast2For, printFor } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
   E3_RELEASE, EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, PackageObjectType, WorkspaceRecordType,
@@ -79,7 +79,7 @@ describe('workspaces', () => {
       await assert.rejects(refused(), (err: unknown) => {
         assert.ok(err instanceof WorkspaceLockError, `a WorkspaceLockError, not ${String(err)}`);
         assert.deepStrictEqual(err.holder, holder, 'the refusal names the holder lockStateToHolderInfo gives');
-        assert.strictEqual(err.message, `Workspace '${ws}' is locked by process ${process.pid} (since ${holder.acquiredAt})`);
+        assert.strictEqual(err.message, `Workspace '${ws}' is locked by process ${process.pid} (since ${printFor(DateTimeType)(holder.acquiredAt)})`);
         return true;
       });
     } finally {

@@ -10,7 +10,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join } from 'node:path';
-import { variant, StringType, IntegerType, StructType, ArrayType, DictType, East } from '@elaraai/east';
+import { variant, DateTimeType, StringType, IntegerType, StructType, ArrayType, DictType, East, printFor } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { DataRef, Structure } from '@elaraai/e3-types';
 import { treeRead, treeWrite, datasetRead, datasetWrite, packageListTree, workspaceListTree, workspaceGetDataset, workspaceGetDatasetHash, workspaceGetDatasetStatus, workspaceGetTree, workspaceSetDataset } from './trees.js';
@@ -701,7 +701,7 @@ describe('trees', () => {
         await assert.rejects(workspaceSetDataset(storage, testRepo, 'myws', path, 'during', StringType), (err: unknown) => {
           assert.ok(err instanceof WorkspaceLockError, `a WorkspaceLockError, not ${String(err)}`);
           assert.deepStrictEqual(err.holder, holder, 'the refusal names the holder lockStateToHolderInfo gives');
-          assert.strictEqual(err.message, `Workspace 'myws' is locked by process ${process.pid} (since ${holder.acquiredAt})`);
+          assert.strictEqual(err.message, `Workspace 'myws' is locked by process ${process.pid} (since ${printFor(DateTimeType)(holder.acquiredAt)})`);
           return true;
         });
       } finally {

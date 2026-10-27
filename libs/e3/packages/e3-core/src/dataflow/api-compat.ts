@@ -21,53 +21,13 @@
  * - e3-core 'unit_requeued' -> API 'requeued'
  */
 
-import type { RequeueReason, StageUnit } from '@elaraai/e3-types';
+import { variant } from '@elaraai/east';
+import type { DataflowEvent } from '@elaraai/e3-types';
 import type {
   ExecutionEvent,
   DataflowExecutionStatus,
   ExecutionStateSummary,
 } from './types.js';
-
-// =============================================================================
-// API Event Types (matching e3-api-server/src/types.ts)
-// =============================================================================
-
-/**
- * API-compatible event types for dataflow execution polling.
- * These match the DataflowEventType from e3-api-server/types.ts.
- */
-export type ApiDataflowEventType =
-  | 'start'
-  | 'complete'
-  | 'cached'
-  | 'failed'
-  | 'error'
-  | 'input_unavailable'
-  | 'requeued';
-
-/**
- * API-compatible event structure.
- */
-export interface ApiDataflowEvent {
-  type: ApiDataflowEventType;
-  task: string;
-  timestamp: string;
-  duration?: number;
-  exitCode?: bigint;
-  message?: string;
-  reason?: string;
-  /** A completed task's highest peak memory, in bytes, when its runners
-   *  reported one */
-  peakBytes?: bigint;
-  /** A requeued unit, by its place in the task */
-  unit?: StageUnit;
-  /** Why a requeued unit's runner was stopped */
-  requeueReason?: RequeueReason['type'];
-  /** The most a requeued unit was measured using, in bytes */
-  peak?: bigint;
-  /** The memory, in bytes, a requeued unit reserves when it runs again */
-  reserves?: bigint;
-}
 
 /**
  * API-compatible execution status.
@@ -96,11 +56,11 @@ export interface ApiExecutionState {
   /** The run's id */
   runId: string;
   status: ApiExecutionStatus;
-  startedAt: string;
-  completedAt: string | null;
+  startedAt: Date;
+  completedAt: Date | null;
   summary: ApiExecutionSummary | null;
   /** The run's API-visible events past the poll's cursor */
-  events: ApiDataflowEvent[];
+  events: DataflowEvent[];
   /** The cursor past the events served: the next poll's `since` */
   nextSeq: bigint;
   /** The sequence number of the run's last event: a poll whose `nextSeq` is
@@ -121,71 +81,54 @@ export interface ApiExecutionState {
  * @param event - The e3-core execution event (variant format)
  * @returns API-compatible event or null if no mapping exists
  */
-export function coreEventToApiEvent(event: ExecutionEvent): ApiDataflowEvent | null {
+export function coreEventToApiEvent(event: ExecutionEvent): DataflowEvent | null {
   switch (event.type) {
     case 'task_started':
-      return {
-        type: 'start',
-        task: event.value.task,
-        timestamp: event.value.timestamp.toISOString(),
-      };
+      return variant('start', { task: event.value.task, timestamp: event.value.timestamp });
 
     case 'task_completed':
       if (event.value.cached) {
-        return {
-          type: 'cached',
-          task: event.value.task,
-          timestamp: event.value.timestamp.toISOString(),
-        };
+        return variant('cached', { task: event.value.task, timestamp: event.value.timestamp });
       }
-      return {
-        type: 'complete',
+      return variant('complete', {
         task: event.value.task,
-        timestamp: event.value.timestamp.toISOString(),
+        timestamp: event.value.timestamp,
         duration: Number(event.value.duration),
-        ...(event.value.peakBytes.type === 'some' && { peakBytes: event.value.peakBytes.value }),
-      };
+        peakBytes: event.value.peakBytes,
+      });
 
-    case 'task_failed': {
-      // If there's an exit code, treat as 'failed'; otherwise as 'error'
-      const exitCode = event.value.exitCode.type === 'some' ? event.value.exitCode.value : undefined;
-      const error = event.value.error.type === 'some' ? event.value.error.value : undefined;
-
-      if (exitCode !== undefined) {
-        return {
-          type: 'failed',
+    case 'task_failed':
+      // An exit code is a failure; none is an error.
+      if (event.value.exitCode.type === 'some') {
+        return variant('failed', {
           task: event.value.task,
-          timestamp: event.value.timestamp.toISOString(),
+          timestamp: event.value.timestamp,
           duration: Number(event.value.duration),
-          exitCode,
-        };
+          exitCode: event.value.exitCode.value,
+        });
       }
-      return {
-        type: 'error',
+      return variant('error', {
         task: event.value.task,
-        timestamp: event.value.timestamp.toISOString(),
-        message: error ?? 'Unknown error',
-      };
-    }
+        timestamp: event.value.timestamp,
+        message: event.value.error.type === 'some' ? event.value.error.value : 'Unknown error',
+      });
 
     case 'task_skipped':
-      return {
-        type: 'input_unavailable',
+      return variant('input_unavailable', {
         task: event.value.task,
-        timestamp: event.value.timestamp.toISOString(),
+        timestamp: event.value.timestamp,
         reason: `Upstream task '${event.value.cause}' failed`,
-      };
+      });
 
     case 'unit_requeued':
-      return {
-        type: 'requeued',
+      return variant('requeued', {
         task: event.value.task,
-        timestamp: event.value.timestamp.toISOString(),
+        timestamp: event.value.timestamp,
         unit: event.value.unit,
-        requeueReason: event.value.reason.type,
+        reason: event.value.reason,
         peak: event.value.peak,
         reserves: event.value.reserves,
-      };
+      });
 
     // Events without API equivalents.
     // Reactive events (input_changed, task_invalidated, task_deferred) are
@@ -257,7 +200,7 @@ export function coreStateToApiState(
   duration: number
 ): ApiExecutionState {
   // Convert events, filtering out those without API equivalents
-  const apiEvents: ApiDataflowEvent[] = [];
+  const apiEvents: DataflowEvent[] = [];
   for (const event of events) {
     const apiEvent = coreEventToApiEvent(event);
     if (apiEvent !== null) {
@@ -278,16 +221,11 @@ export function coreStateToApiState(
     };
   }
 
-  // Get completedAt value (handle Option type)
-  const completedAtValue = state.completedAt.type === 'some'
-    ? state.completedAt.value.toISOString()
-    : null;
-
   return {
     runId: state.id,
     status: summaryToApiStatus(state),
-    startedAt: state.startedAt.toISOString(),
-    completedAt: completedAtValue,
+    startedAt: state.startedAt,
+    completedAt: state.completedAt.type === 'some' ? state.completedAt.value : null,
     summary,
     events: apiEvents,
     nextSeq,

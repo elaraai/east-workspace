@@ -15,13 +15,7 @@ const bslPackages = ['e3-core', 'e3-cli', 'e3-api-client', 'e3-api-server', 'e3-
 // still break them: warned, not failed, until each is cleaned and leaves its
 // list. Nothing is ever added.
 const LEGACY_EAST_VALUES = [
-  'packages/e3-api-server/src/handlers/dataflow.ts',
   'packages/e3-api-server/src/handlers/functions.spec.ts',
-  'packages/e3-api-server/src/handlers/tasks.ts',
-  'packages/e3-core/src/dataflow/api-compat.ts',
-  'packages/e3-core/src/dataset-refs.spec.ts',
-  'packages/e3-core/src/errors.ts',
-  'packages/e3-core/src/workspaceStatus.ts',
 ];
 const LEGACY_ANY = [
   'packages/e3-api-client/src/platform.ts',

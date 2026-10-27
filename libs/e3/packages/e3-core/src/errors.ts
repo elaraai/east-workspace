@@ -13,10 +13,14 @@
 import {
   E3_RELEASE, nameProblem, type DatasetTypeMismatch, type HashKind, type IdKind, type IdentifierKind, type LockState, type NamedKind,
 } from '@elaraai/e3-types';
+import { DateTimeType, printFor } from '@elaraai/east';
 import type { TaskExecutionResult } from './dataflow.js';
 import { isObjectHash } from './objects.js';
 import type { PackageZipCheckpoint } from './transfer/types.js';
 import { isUuidv7 } from './uuid.js';
+
+/** A time as East prints it, as an error names it. */
+const printDateTime = printFor(DateTimeType);
 
 // =============================================================================
 // Base Error
@@ -193,8 +197,8 @@ export class WorkspaceExistsError extends E3Error {
 export interface LockHolderInfo {
   /** Process ID of the lock holder (for local process locks) */
   pid?: number;
-  /** When the lock was acquired (ISO 8601) */
-  acquiredAt: string;
+  /** When the lock was acquired */
+  acquiredAt: Date;
   /** What operation holds the lock */
   operation?: string;
   /** System boot ID (to detect stale locks after reboot) */
@@ -213,7 +217,7 @@ export interface LockHolderInfo {
  */
 export function lockStateToHolderInfo(state: LockState): LockHolderInfo {
   const info: LockHolderInfo = {
-    acquiredAt: state.acquiredAt.toISOString(),
+    acquiredAt: state.acquiredAt,
     operation: state.operation.type,
   };
   if (state.holder.type === 'process') {
@@ -241,9 +245,9 @@ export class WorkspaceLockError extends E3Error {
     if (!holder) {
       msg = `Workspace '${workspace}' is locked by another process`;
     } else if (holder.pid !== undefined) {
-      msg = `Workspace '${workspace}' is locked by process ${holder.pid} (since ${holder.acquiredAt})`;
+      msg = `Workspace '${workspace}' is locked by process ${holder.pid} (since ${printDateTime(holder.acquiredAt)})`;
     } else {
-      msg = `Workspace '${workspace}' is locked (since ${holder.acquiredAt})`;
+      msg = `Workspace '${workspace}' is locked (since ${printDateTime(holder.acquiredAt)})`;
     }
     super(msg);
   }

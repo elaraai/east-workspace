@@ -464,8 +464,6 @@ export {
   type LocalOrchestratorHost,
   stateToStatus,
   // API compatibility layer
-  type ApiDataflowEventType,
-  type ApiDataflowEvent,
   type ApiExecutionStatus,
   type ApiExecutionSummary,
   type ApiExecutionState,
