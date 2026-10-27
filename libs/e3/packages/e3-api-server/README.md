@@ -399,9 +399,10 @@ segments' bytes, and decodes none of them.
 
 A summary index's entry stands for every row of its key — its `key` Null, its
 value the rows' totals — so it names no row to join: a `page` or `runs` read of
-one with `join` is refused 400 `bad_request`, naming the index, and so is a
-`rows` read by its runs (`keysOf`). A read by runs also refuses an index whose
-entries name keys of another type than the Dict's, East deciding.
+one with `join` is refused 400 `bad_request`, naming the index, and so are a
+`rows` read by its runs (`keysOf`), a `place` and a `within`, which have no row
+to place or to answer of. A read by runs also refuses an index whose entries
+name keys of another type than the Dict's, East deciding.
 
 Where a narrowing's rows sit among a record's is two reads of its index alone,
 never of a record segment. `place` reads the window's entries from the

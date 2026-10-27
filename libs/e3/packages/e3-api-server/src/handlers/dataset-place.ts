@@ -78,7 +78,8 @@ export interface DatasetPlacedSegment {
  * the record's order and only those that hold some of the window's entries,
  * `placed` how many entries it places: the caller asks again from `offset +
  * placed`. A record Slice's runs name each row once, so a segment's rows over
- * every window add up to the narrowing's rows in it.
+ * every window add up to the narrowing's rows in it. A summary index is
+ * refused 400, naming it: its entries stand for many rows and name none to place.
  *
  * @param storage - Storage backend
  * @param repoPath - Repository identifier
@@ -104,7 +105,8 @@ export async function placeDatasetRuns(
     const limit = request.limit ?? PAGE_MAX_LIMIT;
     if (!Number.isSafeInteger(offset) || offset < 0) return pageError('bad_request', `offset ${offset} is not a row at least 0`);
     if (!Number.isSafeInteger(limit) || limit < 0) return pageError('bad_request', `limit ${limit} is not a count at least 0`);
-    const opened = await openIndexed(storage, repoPath, workspace, treePath, request.index, request.hash, 'a placement of runs');
+    const opened = await openIndexed(storage, repoPath, workspace, treePath, request.index, request.hash, 'a placement of runs',
+      'to place in a record segment');
     if (opened instanceof Response) return opened;
     const { hash, index, primary } = opened;
     const refused = runsRefusal(request.runs, index.elementCount);
@@ -182,7 +184,8 @@ export interface DatasetWithinRequest {
  * Responds with JSON `{ within: [boolean, …] }`, one a key, in order. More than
  * {@link DATASET_BATCH_MAX} keys or runs, runs that are not ascending, disjoint
  * and inside the index, and a key that is not a literal of the index's entry
- * key type are refused, naming what is wrong.
+ * key type are refused, naming what is wrong — and so is a summary index, whose
+ * entries stand for many rows and name none whose membership to answer.
  *
  * @param storage - Storage backend
  * @param repoPath - Repository identifier
@@ -205,7 +208,8 @@ export async function withinDatasetRuns(
     if (request.keys.length > DATASET_BATCH_MAX) {
       return pageError('bad_request', `A membership read takes at most ${DATASET_BATCH_MAX} keys; this one has ${request.keys.length}`);
     }
-    const opened = await openIndexed(storage, repoPath, workspace, treePath, request.index, request.hash, 'a membership read');
+    const opened = await openIndexed(storage, repoPath, workspace, treePath, request.index, request.hash, 'a membership read',
+      'to answer whether a narrowing holds it');
     if (opened instanceof Response) return opened;
     const { hash, index, entryKeyType } = opened;
     const refused = runsRefusal(request.runs, index.elementCount);
@@ -272,14 +276,34 @@ interface Indexed {
   entryKeyType: EastTypeValue;
 }
 
-/** The record, the index and its primary a read names, opened; or the refusal of a pin, a path or an index. */
+/**
+ * The record, the index and its primary a read names, opened; or the refusal
+ * of a pin, a path or an index — a summary's among them (#1039): its entries
+ * stand for every row of their key and name none, so neither read has a row to
+ * place or to answer of, and it is refused 400 as a joined read of one is.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - Repository identifier
+ * @param workspace - Workspace name
+ * @param treePath - The record's path
+ * @param name - The index
+ * @param hash - The record's content hash the read is pinned to
+ * @param what - How the refusal of an empty path names the read
+ * @param unnamed - What the read needs of the row an entry names, as a summary's refusal says it
+ * @returns The opened index, or the refusal
+ */
 async function openIndexed(
   storage: StorageBackend, repoPath: string, workspace: string, treePath: TreePath, name: string, hash: string, what: string,
+  unnamed: string,
 ): Promise<Indexed | Response> {
   const dataset = await readDataset(storage, repoPath, workspace, treePath, hash, what);
   if (dataset instanceof Response) return dataset;
   const resolved = await indexOf(storage, repoPath, workspace, treePath, dataset.hash, name);
   if (resolved instanceof Response) return resolved;
+  if (resolved.summary) {
+    const refPath = treePath.map((segment) => segment.value).join('/');
+    return pageError('bad_request', `index '${name}' of '${refPath}' is a summary: each entry stands for every row of its key and names none ${unnamed}`);
+  }
   const index = await cachedSegments(storage, repoPath, resolved.manifest, (await storage.objects.stat(repoPath, resolved.manifest)).size);
   const primary = await cachedSegments(storage, repoPath, resolved.primary, (await storage.objects.stat(repoPath, resolved.primary)).size);
   const entryKeyType = segmentKeyTypeOf(resolved.collectionType)!;
