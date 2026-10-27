@@ -4,11 +4,12 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { within } from "@testing-library/react";
+import { fireEvent, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
-import { assignment, card, history, narrow, open, press, rosterHarness, slot, START, weekDuties, width, type Choice } from "./harness.test-utils.js";
+import { act, assignment, card, history, narrow, open, press, rosterHarness, settle, slot, START, weekDuties, width, type Choice } from "./harness.test-utils.js";
 const h = rosterHarness();
 /** The duties' commits, newest first, by the mutation that made each. */
 const commits = async () => (await h.history(ex.rosterDuties)).commits.map(c => c.mutation);
@@ -110,6 +111,37 @@ describe("Roster in the shared record-backed frame", () => {
         expect(container.querySelector("[data-roster-grip], [data-roster-chip-action]")).toBeNull();
         expect(within(slot(container, "toolbar")).queryByRole("button", { name: editingMessages.apply() })).toBeNull();
         expect(slot(container, "main").textContent).toContain("D. Bracken");
+    });
+});
+
+describe("the board takes the keyboard (as the Calendar's does, retest C4)", () => {
+    test("a click on an empty part of the board puts the keyboard in the Roster: `]` and `[` step its week from there", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        const user = userEvent.setup();
+        const week = () => slot(container, "toolbar").querySelector("[data-time-navigation]")?.getAttribute("data-time-anchor");
+        const before = week();
+        // The Shifts grid's head over its groups: a part of the board that takes no gesture.
+        await user.click(slot(container, "main").querySelector<HTMLElement>('[data-roster-grid="shifts"]')!); await settle();
+        expect(container.querySelector("[data-roster-frame]")!.contains(document.activeElement)).toBe(true);
+        await user.keyboard("]"); await settle();
+        expect(week()).not.toBe(before);
+        // `[[` is the `[` key in user-event's keys, whose `[` opens a key's name.
+        await user.keyboard("[["); await settle();
+        expect(week()).toBe(before);
+    });
+    test("Delete on the proposal the keyboard is on rejects it, the keyboard staying on the board, so Ctrl+Z there brings it back", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        const proposal = () => slot(container, "main").querySelector('[data-roster-proposal="s317"]');
+        const name = () => within(slot(container, "main")).getByRole("button", { name: "N. Ochre" });
+        await press(name());
+        await act(async () => { name().focus(); });
+        expect(document.activeElement).toBe(name());
+        await act(async () => { fireEvent.keyDown(name(), { key: "Delete" }); }); await settle();
+        expect(proposal()).toBeNull();
+        // On the board, never the page's body: the keys go on to the Roster.
+        expect(document.activeElement).toBe(slot(container, "main").querySelector("[data-roster-main]"));
+        await act(async () => { fireEvent.keyDown(document.activeElement!, { key: "z", ctrlKey: true }); }); await settle();
+        expect(proposal()).not.toBeNull();
     });
 });
 

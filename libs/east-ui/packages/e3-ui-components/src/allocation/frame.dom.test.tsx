@@ -15,6 +15,7 @@
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { DateTimeType, decodeBeast2For, equalFor, none, printFor, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
@@ -293,6 +294,35 @@ describe("the board's frame", () => {
             count: 3, label: "3 issues", tip: "2 overlaps · 1 over max · show them", aria: "3 issues, show them",
         });
         expect(issueSummary([issue("under", "warning")]).tip).toBe("1 under min · warnings only, Save still works · show them");
+    });
+});
+
+describe("the board takes and keeps the keyboard (as the Calendar's does, retest C4)", () => {
+    const board = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-allocation-main]")!;
+    test("a click on an empty part of the board puts the keyboard in the Allocation: `]` and `[` step its day from there", async () => {
+        const { container } = await h.mount(ex.allocationKilnYard);
+        const user = userEvent.setup();
+        // The channel the Timeline's links cross between its lanes and its resources: a part of the board that takes no gesture.
+        await user.click(board(container).querySelector<HTMLElement>("[data-allocation-channel]")!); await settle();
+        expect(container.querySelector("[data-allocation-frame]")!.contains(document.activeElement)).toBe(true);
+        await user.keyboard("]"); await settle();
+        expect(shownDay(container)).toBe(WED.getTime());
+        // `[[` is the `[` key in user-event's keys, whose `[` opens a key's name.
+        await user.keyboard("[["); await settle();
+        expect(shownDay(container)).toBe(TUE.getTime());
+    });
+    test("Delete on the bin the keyboard is on returns it to its arrivals, the keyboard staying on the board, so Ctrl+Z there puts it back", async () => {
+        const { container } = await h.mount(ex.allocationKilnYard);
+        const bin = () => container.querySelector<HTMLElement>('[data-allocation-card="3113"]');
+        await press(bin()!);
+        await act(async () => { bin()!.focus(); });
+        expect(document.activeElement).toBe(bin());
+        await act(async () => { fireEvent.keyDown(bin()!, { key: "Delete" }); }); await settle();
+        expect(bin()).toBeNull();
+        // On the board, never the page's body: the keys go on to the Allocation.
+        expect(document.activeElement).toBe(board(container));
+        await act(async () => { fireEvent.keyDown(document.activeElement!, { key: "z", ctrlKey: true }); }); await settle();
+        expect(bin()).not.toBeNull();
     });
 });
 
