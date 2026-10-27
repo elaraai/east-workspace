@@ -568,6 +568,10 @@ interface Snapshot {
     /** Each membership batch keeping keys for its reader, over every
      *  narrowing, the oldest first, beside the answers it keeps them in. */
     readonly pinning: Map<string, HeldWithin>;
+    /** The placements the revision holds, by their channel, the least recently
+     *  read first (#1349): at most {@link MAX_HELD_PLACEMENTS} narrowings', but
+     *  never one a reader holds. Dropped when it moves. */
+    readonly placements: Map<string, true>;
     /** Stops following the dataset; `undefined` while it is not followed —
      *  nothing reads it, or no adapter is installed. */
     unwatch: (() => void) | undefined;
@@ -1300,6 +1304,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 held: new Map(),
                 within: new Map(),
                 pinning: new Map(),
+                placements: new Map(),
                 unwatch: undefined,
             };
             this.snapshots.set(key, snapshot);
@@ -1425,6 +1430,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         snapshot.held.clear();
         snapshot.within.clear();
         snapshot.pinning.clear();
+        snapshot.placements.clear();
         this.notify(pagedRevisionKey(workspace, path));
     }
 
@@ -1490,7 +1496,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * @param key - The channel
      */
     private dropChannel(key: string): void {
-        for (const owner of this.entries.get(key)?.owners ?? []) owner.channels.delete(key);
+        for (const owner of this.entries.get(key)?.owners ?? []) {
+            owner.channels.delete(key);
+            owner.placements.delete(key);
+        }
         this.entries.delete(key);
         this.loadedWindows.delete(key);
         this.forgetVersion(key);
@@ -1503,7 +1512,9 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * from its channel ({@link Snapshot.searches}), as it holds what batches
      * answered; and a channel holding nothing — aborted, evicted, or a batch
      * whose answer is held elsewhere — which goes. A landed window stays, bounded
-     * by the windows retained, and so do a failure, a total and a placement.
+     * by the windows retained, and a placement, bounded by the placements a
+     * revision holds ({@link MAX_HELD_PLACEMENTS}); and so do a failure and a
+     * total.
      *
      * @param key - The channel
      */
@@ -1729,6 +1740,29 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             delete entry.window;
             delete entry.rows;
             delete entry.ranges;
+        }
+    }
+
+    /**
+     * Note a placement as its revision's most recently read, and let the least
+     * recently read go past {@link MAX_HELD_PLACEMENTS} (#1349): a viewer trying
+     * narrowing after narrowing leaves each one's placement behind, which
+     * nothing else lets go while the revision stands. One a reader holds, one
+     * the read in hand has read, and one still in flight stay — the revision
+     * over its bound, rather than a reader's placement asked again.
+     *
+     * @param snapshot - The placement's revision
+     * @param key - The placement's channel
+     */
+    private touchPlacement(snapshot: Snapshot, key: string): void {
+        snapshot.placements.delete(key);
+        snapshot.placements.set(key, true);
+        if (snapshot.placements.size <= MAX_HELD_PLACEMENTS) return;
+        for (const candidate of [...snapshot.placements.keys()]) {
+            if (snapshot.placements.size <= MAX_HELD_PLACEMENTS) break;
+            if (candidate === key || this.isSubscribed(candidate) || this.isTracked(candidate) || this.fetching.has(candidate)) continue;
+            snapshot.placements.delete(candidate);
+            this.dropChannel(candidate);
         }
     }
 
@@ -2334,7 +2368,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * request's {@link DATASET_BATCH_MAX} are placed a group at a time. A
      * narrowing's runs name each row once, so the windows' placements add up,
      * segment by segment. The channel re-fires as each window lands, its
-     * placement `complete` once the last has.
+     * placement `complete` once the last has. The revision holds the placements
+     * of at most {@link MAX_HELD_PLACEMENTS} narrowings, the least recently read
+     * going first — never one a reader holds — so a viewer trying narrowing
+     * after narrowing leaves no more behind.
      *
      * @param source - One of a record's indexes, the runs' rows
      * @param runs - The narrowing's runs: ascending, disjoint, each inside the index
@@ -2353,6 +2390,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         const batchKey = pagedBatchKey(workspace, path, revision, selector, "place", runs.map(([row, count]) => `${row}+${count}`));
         this.track(batchKey);
         const batch = this.channel(snapshot, batchKey);
+        this.touchPlacement(snapshot, batchKey);
         if (this.due(batch)) this.launchPlacement(workspace, path, snapshot, revision, index, batchKey, runs);
         if (batch.status === "failed") return this.answer<PagedPlacement>(batch, undefined);
         return batch.placement === undefined ? none : some(batch.placement);

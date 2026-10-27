@@ -543,7 +543,9 @@ from a channel (`MAX_LANDED_SEARCHES`, as record Slice keeps its own: what
 batches answered, and a search's own answer once no reader holds its channel);
 at most 40,000 membership answers over every narrowing of a revision, the least
 recently used narrowing's going first, beside what at most 16 batches keep for
-their readers; and 20,000 rows of reads by key a family. A batch's channel is
+their readers; the placements of at most 16 narrowings a revision
+(`MAX_HELD_PLACEMENTS`), the least recently read going first, never one a
+reader holds; and 20,000 rows of reads by key a family. A batch's channel is
 named by a digest of what it asks, never its text, and a read seeking a landed
 window that covers it, or one holding a key's row, looks at the landed windows
 alone, never every channel of the revision. A channel no reader holds goes once
