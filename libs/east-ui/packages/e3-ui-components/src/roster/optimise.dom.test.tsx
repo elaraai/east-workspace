@@ -73,7 +73,19 @@ function blinks(c: HTMLElement): { seen: () => boolean; stop: () => void } {
     note();
     return { seen: () => seen, stop: () => observer.disconnect() };
 }
-const lit = (c: HTMLElement) => c.querySelector("[data-roster-frame]")!.hasAttribute("data-optimise-lit");
+/**
+ * Whether a landing draws what `holds` looks for, watched from now on as the DOM moves: the highlight lasts 8 s from the
+ * landing, which a slow machine can spend before the test looks, so what it draws is looked at as it lands.
+ */
+function lands(c: HTMLElement, holds: () => boolean): { seen: () => boolean; stop: () => void } {
+    let seen = false;
+    const note = () => { if (holds()) seen = true; };
+    const observer = new MutationObserver(note);
+    observer.observe(c, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-optimise-lit", "data-opn", "data-op"] });
+    note();
+    return { seen: () => seen, stop: () => observer.disconnect() };
+}
+const lit =(c: HTMLElement) => c.querySelector("[data-roster-frame]")!.hasAttribute("data-optimise-lit");
 /** The week, as the eye names it: `Optimise W10`. */
 const period = (c: HTMLElement) => eye(c)!.getAttribute("aria-label")!.replace(/^Optimise /, "");
 const commits = async () => (await h.history(ex.rosterDuties)).commits.map(commit => commit.mutation);
@@ -185,8 +197,8 @@ describe("the eye in the Roster", () => {
         const chips = marked(container, "add");
         expect(chips).toHaveLength(onDay);
         expect([...chips].every(el => el.getAttribute("data-layout") === "shifts" && el.getAttribute("data-fill") === "own" && el.getAttribute("title")!.startsWith("Added by Elara · run #1 · "))).toBe(true);
-        // Its person's week in People: the tile marked alike, and their hours flashing — the duty selected first, so its
-        // person's row is brought into view.
+        // Its person's week in People: the tile marked alike — the duty selected first, so its person's row is brought
+        // into view.
         const [id] = [...adds].find(([, d]) => d === day)!;
         await press(container.querySelector(`[data-roster-assignment="${id}"]`));
         await press(toolbar(container).getByRole("radio", { name: "People" }));
@@ -196,15 +208,18 @@ describe("the eye in the Roster", () => {
         for (let i = 1; i <= 40 && tileOf() === null; i++) { await act(async () => { scroller.scrollTop = i * 3 * 36; fireEvent.scroll(scroller); }); await settle(); }
         const tile = await waitFor(() => { const el = tileOf(); expect(el).not.toBeNull(); return el!; });
         expect([tile.getAttribute("data-op"), tile.getAttribute("data-fill"), tile.getAttribute("title")!.startsWith("Added by Elara · run #1 · ")]).toEqual(["add", "own", true]);
-        expect(tile.closest("[data-roster-person-row]")!.querySelector("[data-roster-week-hours][data-opn]")).not.toBeNull();
         // One step: one Undo takes the whole run back, and ends its highlight and its banner.
         await press(history(container, editingMessages.undo()));
         expect([container.querySelectorAll("[data-op]").length, lit(container)]).toEqual([0, false]);
         await waitFor(() => expect(container.querySelector("[data-optimise-banner]:not([data-leaving])")).toBeNull());
-        // Redo re-inserts it and replays the landing, without the banner — the Undo's may still be collapsing.
+        // Redo re-inserts it and replays the landing, without the banner — the Undo's may still be collapsing: lit, its
+        // person's hours flashing in their row, in view now. The way to the row took the first landing's 8 s on a slow
+        // machine; this one is watched as it lands.
+        const relit = lands(container, () => lit(container) && (tileOf()?.closest("[data-roster-person-row]")?.querySelector("[data-roster-week-hours][data-opn]") ?? null) !== null);
         await press(history(container, editingMessages.redo()));
         await waitFor(() => expect(container.querySelector(`[data-roster-tile][data-roster-assignment="${id}"][data-op="add"]`)).not.toBeNull(), { timeout: 10_000 });
-        await waitFor(() => expect(lit(container)).toBe(true));
+        await waitFor(() => expect(relit.seen()).toBe(true));
+        relit.stop();
         expect(container.querySelector('[data-optimise-banner="done"]:not([data-leaving])')).toBeNull();
         // Save commits the run with everything else, as one patch; nothing is marked once nothing is pending.
         await press(history(container, editingMessages.apply()));
@@ -267,8 +282,15 @@ describe("the eye in the Roster", () => {
         await width(400);
         await waitFor(() => expect(container.querySelector("[data-roster-agenda]")).not.toBeNull());
         expect(eye(container)).not.toBeNull();
-        const cards = container.querySelectorAll<HTMLElement>('[data-roster-card][data-op="add"]');
-        expect(cards).toHaveLength(onDay);
-        expect([cards[0]!.getAttribute("title"), cards[0]!.getAttribute("data-fill"), lit(container)]).toEqual(["Added by Elara · run #1", "own", true]);
+        const cards = () => container.querySelectorAll<HTMLElement>('[data-roster-card][data-op="add"]');
+        expect(cards()).toHaveLength(onDay);
+        expect([cards()[0]!.getAttribute("title"), cards()[0]!.getAttribute("data-fill")]).toEqual(["Added by Elara · run #1", "own"]);
+        // The highlight over them, as a landing replayed here lights it: it lasts 8 s from the landing, which a slow
+        // machine can spend narrowing the page, so it is watched as the Redo lands it.
+        await press(history(container, editingMessages.undo()));
+        const relit = lands(container, () => lit(container) && cards().length === onDay);
+        await press(history(container, editingMessages.redo()));
+        await waitFor(() => expect(relit.seen()).toBe(true));
+        relit.stop();
     });
 });
