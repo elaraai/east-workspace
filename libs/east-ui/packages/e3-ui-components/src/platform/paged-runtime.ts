@@ -642,6 +642,13 @@ const MAX_HELD_WITHIN = 2 * MAX_WITHIN_KEYS;
  *  pass {@link MAX_HELD_WITHIN} by more than the keys of this many batches. */
 const MAX_PINNING_BATCHES = 16;
 
+/** The most narrowings whose placements a revision holds (#1349), as many as
+ *  the membership batches it keeps for their readers
+ *  ({@link MAX_PINNING_BATCHES}): a viewer trying narrowing after narrowing
+ *  leaves each one's placement behind, and past this the least recently read
+ *  of those no reader holds go. */
+export const MAX_HELD_PLACEMENTS = MAX_PINNING_BATCHES;
+
 /**
  * Which entry keys one narrowing's runs hold, as membership reads answered
  * them at one revision (#1349), and what each batch keeps for its reader.
@@ -2530,20 +2537,24 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * What the runtime holds now (test use only, through a subclass, as
      * {@link withinHeld} is): the channels it keeps, the versions it keeps of
      * channels, the longest channel's key, and of a source's dataset at its
-     * revision the searches' bounds it holds apart from a channel and how many
-     * narrowings' membership answers it holds — what its specs hold the
-     * runtime's bounds to.
+     * revision the searches' bounds it holds apart from a channel, how many
+     * narrowings' membership answers it holds and how many of its channels hold
+     * a placement — what its specs hold the runtime's bounds to.
      *
      * @param source - Any source of the dataset
      * @returns What it holds
      */
-    protected holding(source: PagedSource): { channels: number; versions: number; longestKey: number; searches: number; narrowings: number } {
+    protected holding(source: PagedSource): {
+        channels: number; versions: number; longestKey: number; searches: number; narrowings: number; placements: number;
+    } {
         const snapshot = this.snapshots.get(pagedRevisionKey(this.resolveWorkspace(), source.path));
         let longestKey = 0;
         for (const key of this.entries.keys()) longestKey = Math.max(longestKey, key.length);
+        let placements = 0;
+        for (const key of snapshot?.channels ?? []) if (this.entries.get(key)?.placement !== undefined) placements += 1;
         return {
             channels: this.entries.size, versions: this.versionsKept(), longestKey,
-            searches: snapshot?.searches.size ?? 0, narrowings: snapshot?.within.size ?? 0,
+            searches: snapshot?.searches.size ?? 0, narrowings: snapshot?.within.size ?? 0, placements,
         };
     }
 

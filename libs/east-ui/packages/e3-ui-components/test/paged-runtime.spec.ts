@@ -49,6 +49,7 @@ import { datasetRowsType, indexWindowType, type TreePath } from "@elaraai/e3-typ
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
 import type { E3Request } from "../src/e3-web.test-utils.js";
 import {
+    MAX_HELD_PLACEMENTS,
     MAX_RETAINED_WINDOWS,
     MAX_WITHIN_KEYS,
     PagedRuntime,
@@ -1765,6 +1766,56 @@ describe("PagedRuntime — which entries a narrowing's runs hold, kept for each 
         const before = asked().length;
         assert.equal(runtime.withinAll(source, narrowings[4]!, keysOf(4)).type, "some");
         assert.equal(asked().length, before, "the narrowing read last still holds its answers");
+    });
+});
+
+describe("PagedRuntime — where a narrowing's rows sit, kept for as many narrowings as the revision keeps (#1349)", () => {
+    /** A runtime that says what it holds of a dataset, its placements among it. */
+    class PlacingRuntime extends PagedRuntime {
+        held(source: PagedSource) { return this.holding(source); }
+    }
+    /** How many narrowings the viewer tries: more than twice the placements a revision keeps. */
+    const NARROWINGS = 40;
+    /** The dispatch queue's eighteen entries narrowed run by run: a run of one, two or three of them from each place one can start. */
+    const narrowings: readonly (readonly PagedRun[])[] = (() => {
+        const made: PagedRun[][] = [];
+        for (let length = 1; made.length < NARROWINGS; length++) {
+            for (let row = 0; row + length <= 18 && made.length < NARROWINGS; row++) made.push([[row, length]]);
+        }
+        return made;
+    })();
+    /** The placements of the work orders asked so far. */
+    const placed = () => h.requests("place", "records.work_orders");
+
+    test("a viewer trying narrowing after narrowing leaves no more placements than the revision keeps, the least recently read going first", async () => {
+        const R1 = await hashOf(orders);
+        const { runtime } = await known(new PlacingRuntime(), (r) => handleOf(r, toEastTypeValue(orders.type), ordersPath).revision!());
+        const source = runtime.sourceOf(handleOf(runtime, QueueWindowType, ordersPath, "pinned", BY_STATUS).id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        let leave: (() => void) | undefined;
+        for (const runs of narrowings) {
+            // The lens reads the new narrowing's placement under tracking and subscribes to what it read, then lets
+            // the last narrowing's go, as a view moving to a new chip does.
+            runtime.enableTracking();
+            assert.equal(runtime.placeAll(source, runs).type, "none", "a new narrowing is placed");
+            const unsubs = runtime.disableTracking().map((key) => runtime.subscribe(key, () => {}));
+            leave?.();
+            leave = () => { for (const unsub of unsubs) unsub(); };
+            const placement = await h.ready(() => runtime.placeAll(source, runs));
+            assert.ok(placement.complete && placement.placed === runs[0]![1], "each narrowing's placement lands whole");
+        }
+        assert.ok(placed().every((request) => request.query.get("hash") === R1), "pinned to the revision");
+        const { placements, channels } = runtime.held(source);
+        assert.ok(placements <= MAX_HELD_PLACEMENTS,
+            `after ${NARROWINGS} narrowings the revision holds ${placements} placements, past the ${MAX_HELD_PLACEMENTS} it keeps (${channels} channels)`);
+        // The narrowing the lens reads now holds its placement: read again, nothing is asked. The first went, and is asked again.
+        const before = placed().length;
+        assert.equal(runtime.placeAll(source, narrowings.at(-1)!).type, "some");
+        assert.equal(placed().length, before, "the narrowing read last still holds its placement");
+        assert.equal(runtime.placeAll(source, narrowings[0]!).type, "none", "the least recently read went, and is placed again");
+        await h.settle();
+        assert.equal(placed().length, before + 1);
+        leave?.();
     });
 });
 
