@@ -15,10 +15,20 @@
  * theme's system, the recipe and the variants asked for, and handed to every
  * caller as the same object.
  *
+ * A part drawn a thousand times at once — the Calendar timeline's event
+ * blocks, as a glide mounts them — draws plain elements with its slots'
+ * classes (`useSlotClass`), each made once a theme: Chakra's styled element
+ * works its styles out again at every element it draws — its css function
+ * keys its cache by the whole style object, printed, and emotion serialises
+ * and hashes what that gives — and a class made once costs an element
+ * nothing.
+ *
  * @packageDocumentation
  */
 
+import { useMemo } from "react";
 import { useChakraContext, type SystemStyleObject } from "@chakra-ui/react";
+import { __unsafe_useEmotionCache as useEmotionCache, css as serialize, type CSSObject, type EmotionCache, type SerializedStyles } from "@emotion/react";
 
 /** A slot recipe's styles: each slot's. */
 export type SlotStyles = Record<string, SystemStyleObject>;
@@ -63,4 +73,67 @@ export function useSlotStyles(key: string, variants?: SlotVariants): SlotStyles 
         bySystem.set(id, styles);
     }
     return styles;
+}
+
+/** A slot's styles, as a slot recipe gives them: Chakra's style object, which a renderer's own recipe types may call loosely. */
+export type SlotStyle = SystemStyleObject | Readonly<Record<string, unknown>>;
+
+/** Each system's classes, by the emotion cache they are inserted in, then by the style object each was made of. */
+const classes = new WeakMap<System, WeakMap<EmotionCache, WeakMap<object, string>>>();
+
+/**
+ * A style's rules inserted in an emotion cache under their class, once — as emotion inserts a styled element's — and
+ * the class.
+ *
+ * @param cache - The emotion cache the theme's elements are styled in
+ * @param serialized - The style, serialised
+ * @returns Its class
+ */
+function insertClass(cache: EmotionCache, serialized: SerializedStyles): string {
+    const name = `${cache.key}-${serialized.name}`;
+    if (cache.inserted[serialized.name] === undefined) {
+        let rules: SerializedStyles | undefined = serialized;
+        do {
+            cache.insert(rules === serialized ? `.${name}` : "", rules, cache.sheet, true);
+            rules = rules.next;
+        } while (rules !== undefined);
+    }
+    return name;
+}
+
+/**
+ * The class of a slot's styles — the class Chakra gives an element drawn with them — made and inserted once for the
+ * theme, for a part drawn many times at once to draw plain elements by (see the module docs). Its recipe owns every
+ * style still; the element sets its class, its data attributes and its geometry.
+ *
+ * @returns A slot's styles' class: the same string for every caller in the theme; `""` for none
+ */
+export function useSlotClass(): (style: SlotStyle | undefined) => string {
+    const system = useChakraContext();
+    const cache = useEmotionCache();
+    // A page's emotion cache: the one Chakra's styled elements insert theirs in, which a browser's context always holds.
+    if (cache === null) throw new Error("useSlotClass: no emotion cache to insert a slot's class in");
+    return useMemo(() => {
+        let byCache = classes.get(system);
+        if (byCache === undefined) {
+            byCache = new WeakMap();
+            classes.set(system, byCache);
+        }
+        let byStyle = byCache.get(cache);
+        if (byStyle === undefined) {
+            byStyle = new WeakMap();
+            byCache.set(cache, byStyle);
+        }
+        const known = byStyle;
+        return (style) => {
+            if (style === undefined) return "";
+            let name = known.get(style);
+            if (name === undefined) {
+                // As Chakra's styled element works it out: the system's css of the style, serialised by emotion.
+                name = insertClass(cache, serialize(system.css(style as SystemStyleObject) as CSSObject));
+                known.set(style, name);
+            }
+            return name;
+        };
+    }, [system, cache]);
 }

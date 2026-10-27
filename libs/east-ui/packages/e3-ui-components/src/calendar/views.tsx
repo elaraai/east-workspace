@@ -55,7 +55,7 @@ import { Schedule } from "@elaraai/e3-ui/internal";
 import { tileNext } from "@elaraai/east-ui/internal";
 import { optimiseMessages, takeKey, useDragEventChip, useDragEventEdge, useDragMessages, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import {
-    LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, UnloadedRun, VirtualRows, devicePixels, loadingLineText, useRowsTop,
+    LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, UnloadedRun, VirtualRows, devicePixels, loadingLineText, useRowsTop, useSlotClass,
     type RowRuns, type RunCell, type RunFailure,
 } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PeriodRead } from "../shared/loading.js";
@@ -250,17 +250,18 @@ function previousWords(was: CalendarItem, props: Pick<CalendarViewsProps, "forma
     return `${props.format.weekdayDate(was.start.value)} ${props.format.time(was.start.value)}${was.end.type === "some" ? `–${props.format.time(was.end.value)}` : ""} · ${resourceLabel(was, props.rows)}`;
 }
 
-/** A ghost's block (R15, R17): decorative, named for what the run did to the event. */
+/** A ghost's block (R15, R17): decorative, named for what the run did to the event — drawn as an event's block is, of its slots' classes. */
 function GhostBlock({ ghost, props, geometry, along = "y", chip = false }: { ghost: CalendarGhost; props: EventView; geometry?: CSSProperties; along?: "x" | "y"; chip?: boolean }) {
     const { styles, format } = props;
+    const slot = useSlotClass();
     const { item, run } = ghost;
     const start = item.start.type === "some" ? item.start.value : props.range.from;
     const title = ghost.op === "del" ? optimiseMessages.ghostRemoved({ run }) : optimiseMessages.ghostMoved({ run });
-    return <Box css={styles.event} style={geometry} data-along={along} data-chip={chip ? "" : undefined} data-compact={chip || along === "x" ? "" : undefined}
+    return <div className={slot(styles.event)} style={geometry} data-along={along} data-chip={chip ? "" : undefined} data-compact={chip || along === "x" ? "" : undefined}
         data-op={ghost.op} data-calendar-ghost={eventKey(item)} aria-hidden="true" title={title}>
-        <Box css={styles.eventDetail} data-calendar-event-detail="">{format.time(start)}{item.end.type === "some" ? `–${format.time(item.end.value)}` : ""}</Box>
-        <Box css={styles.eventTitle} data-calendar-event-title="">{item.title}</Box>
-    </Box>;
+        <div className={slot(styles.eventDetail)} data-calendar-event-detail="">{format.time(start)}{item.end.type === "some" ? `–${format.time(item.end.value)}` : ""}</div>
+        <div className={slot(styles.eventTitle)} data-calendar-event-title="">{item.title}</div>
+    </div>;
 }
 
 /**
@@ -740,7 +741,10 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
     const label = `${item.title}, ${format.weekdayDate(start)} ${timeText}, ${facts.resource}${item.status.type === "some" ? `, ${item.status.value.label}` : ""}`;
     const { selected, drafted, provenance, select, grab, open } = facts;
     const choose = (event: MouseEvent) => { event.stopPropagation(); select(item, event.shiftKey || event.metaKey || event.ctrlKey); };
-    return <Box {...handle} ref={attachEvent} css={styles.event} style={geometry} data-along={along} data-chip={chip ? "" : undefined} data-compact={fits.compact ? "" : undefined}
+    // Plain elements of its slots' classes, each made once a theme (#1398, CL9): a glide mounts a thousand blocks, and
+    // Chakra's styled element works its styles out again at each element it draws.
+    const slot = useSlotClass();
+    return <div {...handle} ref={attachEvent} className={slot(styles.event)} style={geometry} data-along={along} data-chip={chip ? "" : undefined} data-compact={fits.compact ? "" : undefined}
         tabIndex={0} role="button" aria-label={provenance === undefined ? label : `${label}. ${provenance}`} title={provenance === undefined ? label : `${provenance} · ${label}`} aria-pressed={selected}
         data-calendar-event={id} data-selected={selected ? "" : undefined} data-overlap={facts.overlap ? "" : undefined} data-op={facts.op}
         data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-draggable={enabled ? "" : undefined}
@@ -770,22 +774,23 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
                 handle?.onKeyDown?.(event);
             }
         }}>
-        <Box css={styles.eventTop}>
-            {fits.icon && kind !== undefined && <Box as="span" css={styles.eventIcon} data-calendar-event-icon=""><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></Box>}
-            <Box ref={time} css={styles.eventDetail} data-calendar-event-detail="" data-calendar-event-time="" data-measure={!fits.time ? "" : undefined}>{timeText}</Box>
-            {fits.icon && facts.overlap && <Box css={styles.eventWarning}><FontAwesomeIcon icon={faTriangleExclamation} /></Box>}
-        </Box>
-        <Box ref={title} css={styles.eventTitle} data-calendar-event-title="" data-wrap={fits.wrap ? "" : undefined} data-measure={!fits.title ? "" : undefined}>{item.title}</Box>
-        <Box ref={resource} css={styles.eventResource} data-calendar-event-detail="" data-calendar-event-resource="" data-measure={!fits.resource ? "" : undefined}>{resourceText}</Box>
+        <div className={slot(styles.eventTop)}>
+            {fits.icon && kind !== undefined && <span className={slot(styles.eventIcon)} data-calendar-event-icon=""><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></span>}
+            <div ref={time} className={slot(styles.eventDetail)} data-calendar-event-detail="" data-calendar-event-time="" data-measure={!fits.time ? "" : undefined}>{timeText}</div>
+            {fits.icon && facts.overlap && <div className={slot(styles.eventWarning)}><FontAwesomeIcon icon={faTriangleExclamation} /></div>}
+        </div>
+        <div ref={title} className={slot(styles.eventTitle)} data-calendar-event-title="" data-wrap={fits.wrap ? "" : undefined} data-measure={!fits.title ? "" : undefined}>{item.title}</div>
+        <div ref={resource} className={slot(styles.eventResource)} data-calendar-event-detail="" data-calendar-event-resource="" data-measure={!fits.resource ? "" : undefined}>{resourceText}</div>
         {enabled && !chip && !(along === "x" && facts.period === "month") && <>
             {facts.startEdge && <EventEdge coord={coord} edge="start" label={item.title} styles={styles} along={along} />}
             {facts.endEdge && <EventEdge coord={coord} edge="end" label={item.title} styles={styles} along={along} />}
         </>}
-    </Box>;
+    </div>;
 }, sameEventBlock);
 function EventEdge({ coord, edge, label, styles, along }: { coord: Required<CellCoord>; edge: "start" | "end"; label: string; styles: CalendarStyles; along: "x" | "y" }) {
     const handle = useDragEventEdge(coord, edge, <MoveGhost styles={styles} label={label} />, false, `${edge === "start" ? "Start" : "End"} of ${label}`);
-    return <chakra.button {...handle} type="button" css={styles.resize} data-edge={edge} data-along={along} aria-label={`Resize ${edge} of ${label}`}
+    const slot = useSlotClass();
+    return <button {...handle} type="button" className={slot(styles.resize)} data-edge={edge} data-along={along} aria-label={`Resize ${edge} of ${label}`}
         onClick={event => event.stopPropagation()} onPointerDown={event => { event.stopPropagation(); handle?.onPointerDown?.(event); }} />;
 }
 

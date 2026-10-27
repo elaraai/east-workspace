@@ -369,7 +369,14 @@ component, nothing in east-ui.
   variants)` (`./internal`), made once for the theme and its variants, never
   `useSlotRecipe` an instance, which makes every slot again for each (#1398,
   CL9); the shared rail's and a record rail's toolbar items are made again
-  only as what they show moves.
+  only as what they show moves. A part drawn a thousand times at once — the
+  Calendar timeline's event blocks, as a glide mounts them — draws plain
+  elements of its slots' classes (`useSlotClass`, `./internal`): each slot's
+  styles made a class once for the theme, the class Chakra gives an element
+  drawn with them, its rules inserted in the page's emotion cache once.
+  Chakra's styled element works its styles out again at every element it
+  draws — its css function keys its cache by the whole style object, printed,
+  and emotion serialises and hashes what that gives.
 - **Retained content** (#1398, CL8). What a builder keeps on screen while it
   reads again — a period stepped to, a narrowing, a new revision — is
   `aria-disabled`, never `inert`, in an `aria-busy` region: readable,
