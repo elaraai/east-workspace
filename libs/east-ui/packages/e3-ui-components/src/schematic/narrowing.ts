@@ -23,6 +23,11 @@
  *   source narrows out draws as context; so does a link ending at one, and a
  *   net whose every member drawn on a side is one. Context is out.
  *
+ * A kind read by area reads only its window (#1393): a drafted row of it the
+ * window doesn't hold, drawn where its draft places it, is the narrowing's or
+ * not as the row its session began from answers (`drafts-narrowing.ts`) — a
+ * match, or, dimmed, context — as every kind's drafted row is.
+ *
  * A row a gesture created is neither: no read holds it, and it draws as it is.
  *
  * @packageDocumentation
@@ -107,6 +112,12 @@ export interface SchematicNarrowingArgs {
     readonly keys: (slot: string) => option<ReadonlySet<string>> | undefined;
     /** Whether a narrowed-out row draws as context: `narrowed="dim"`. */
     readonly dim: boolean;
+    /**
+     * Whether a kind read by area's narrowing holds a drafted row of it its read does not hold, as the row its session
+     * began from answers (`drafts-narrowing.ts`): `undefined` for a row not asked — one a gesture created, one of a kind
+     * read otherwise, one whose answer is in flight — which is neither a match nor context.
+     */
+    readonly drafted?: ((ref: SchematicRef) => boolean | undefined) | undefined;
 }
 
 /**
@@ -116,12 +127,16 @@ export interface SchematicNarrowingArgs {
  * @returns The matches, the context, and what is out
  */
 export function schematicNarrowing(args: SchematicNarrowingArgs): SchematicNarrowing {
-    const { drawn, held, sourced, keys, dim } = args;
+    const { drawn, held, sourced, keys, dim, drafted } = args;
     const holds = (ref: SchematicRef): boolean => held.get(ref.kind)?.has(ref.key) === true;
-    // A row its kind's source narrows out: its read holds it, and its source's shown keys do not.
+    // A drafted row its read does not hold, as the row its session began from answers: `undefined` for one not asked.
+    const answer = (ref: SchematicRef): boolean | undefined => (drafted === undefined || holds(ref) ? undefined : drafted(ref));
+    // A row its kind's source narrows out: its read holds it, and its source's shown keys do not — or, a drafted row its
+    // read does not hold, the row its session began from is not the narrowing's.
     const outside = (ref: SchematicRef): boolean => {
         const shown = keys(ref.kind);
-        return shown !== undefined && shown.type === "some" && holds(ref) && !shown.value.has(ref.key);
+        if (shown === undefined || shown.type !== "some") return false;
+        return holds(ref) ? !shown.value.has(ref.key) : answer(ref) === false;
     };
     const context = new Set<string>();
     const out = new Set<string>();
@@ -153,7 +168,8 @@ export function schematicNarrowing(args: SchematicNarrowingArgs): SchematicNarro
     const matches = new Set<string>();
     for (const entity of [...drawn.items, ...drawn.zones, ...drawn.links, ...drawn.nets]) {
         const shown = keys(entity.ref.kind);
-        if (shown !== undefined && shown.type === "some" && shown.value.has(entity.ref.key) && !out.has(entity.key)) matches.add(entity.key);
+        if (shown === undefined || shown.type !== "some" || out.has(entity.key)) continue;
+        if (shown.value.has(entity.ref.key) || answer(entity.ref) === true) matches.add(entity.key);
     }
     if (matches.size === 0 && context.size === 0 && out.size === 0) return NO_NARROWING;
     return { matches, context, out, isContext: (ref) => dim && outside(ref) };

@@ -15,7 +15,7 @@
 import { describe, expect, test } from "vitest";
 import { SortedSet, StringType, compareFor, defaultValue, none, some, type option } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
-import { drawnItem, drawnLink, drawnNet, drawnZone, entityId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
+import { drawnItem, drawnLink, drawnNet, drawnZone, entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicHeldRows } from "./data.js";
 import { NO_NARROWING, narrowedDrawing, schematicNarrowing } from "./narrowing.js";
 
@@ -126,6 +126,24 @@ describe("schematicNarrowing", () => {
         });
         expect(sorted(narrowing.context)).toEqual(sorted(new Set([id("fibre", "u2"), id("fibre", "u3")])));
         expect(sorted(narrowing.matches)).toEqual(sorted(new Set([id("fibre", "u1"), id("fibre", "x1")])));
+    });
+
+    test("a kind read by area's drafted row its window doesn't hold is a match, or dimmed context, as the row its session began from answers", () => {
+        // The window holds A01 and A02; A08 and A09, moved by drafts, draw off it; new-1 a gesture made.
+        const window = ["A01", "A02"];
+        const drawn = floor([...window, "A08", "A09", "new-1"]);
+        const answers = new Map([["A08", true], ["A09", false]]);
+        const drafted = (at: SchematicRef) => (at.kind === "racks" ? answers.get(at.key) : undefined);
+        const keys = (slot: string) => (slot === "racks" ? shownKeys("A01") : undefined);
+        const dimmed = schematicNarrowing({ drawn, held: held(window), sourced: SOURCED, keys, dim: true, drafted });
+        expect(sorted(new Set([...dimmed.context].filter((at) => refOfId(at)?.kind === "racks"))))
+            .toEqual(sorted(new Set([id("racks", "A02"), id("racks", "A09")])));
+        expect(sorted(dimmed.matches)).toEqual(sorted(new Set([id("racks", "A01"), id("racks", "A08")])));
+        expect([dimmed.isContext(rack("A09")), dimmed.isContext(rack("A08")), dimmed.isContext(rack("new-1"))]).toEqual([true, false, false]);
+        // Hidden, the window holds the narrowing's rows alone, and the answered drafted rows draw: A08 matches with them.
+        const hidden = schematicNarrowing({ drawn: floor(["A01", "A08"]), held: held(["A01"]), sourced: SOURCED, keys, dim: false, drafted });
+        expect(sorted(hidden.matches)).toEqual(sorted(new Set([id("racks", "A01"), id("racks", "A08")])));
+        expect(hidden.context.size).toBe(0);
     });
 
     test("a row a gesture created — drawn, no read holding it — is neither context nor a match", () => {

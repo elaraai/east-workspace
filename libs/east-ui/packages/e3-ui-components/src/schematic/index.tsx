@@ -80,7 +80,10 @@
  *   hiding what it leaves out or drawing it as context; every list — the
  *   Index, the Backlog, the Choosers, what an item is joined to — and every
  *   count shows what it leaves in, Find marks what it leaves out, and the
- *   canvas rings, frames and flies to its matches;
+ *   canvas rings, frames and flies to its matches. A drafted row of a kind
+ *   read by area its window doesn't hold is the narrowing's or not as the row
+ *   its session began from answers, read in a component of its own
+ *   (`drafts-narrowing.ts`);
  * - **the skeleton** — `BuilderFrame.loading` covers the frame until every
  *   kind has been read once (or its read failed); later reads keep the canvas
  *   and what it draws until they land, main `aria-busy` meanwhile
@@ -137,6 +140,7 @@ import { hostZones, zoneHolding } from "./canvas/model.js";
 import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, areaSlots, type SchematicData, type SchematicValue } from "./data.js";
 import { savedRecords, schematicCounts } from "./counts.js";
 import { draftedDrawing, type DraftedCache } from "./drafted.js";
+import { NO_DRAFTS_NARROWING, SchematicDraftsReader, draftHeld, type SchematicDraftsNarrowing } from "./drafts-narrowing.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
 import { connectVeto, type NetLeg, type SchematicEdit } from "./edits.js";
 import { recordSlot, useSchematicEditing } from "./editing.js";
@@ -340,8 +344,12 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // Each kind read through its source of the rail.
     const sourced = useMemo(() => new Set([...value.items, ...value.zones, ...value.links, ...value.nets]
         .flatMap((kind) => (sourcePart(chrome, kind.key) === undefined ? [] : [kind.key]))), [value.items, value.zones, value.links, value.nets, chrome]);
-    // A kind's narrowing resolving: the frame is busy, its last membership drawn meanwhile.
-    const narrowingBusy = [...sourced].some((slot) => { const one = followed.get(slot); return one !== undefined && one.shown.busy && one.error === undefined; });
+    // Which drafted rows of the kinds read by area their narrowing holds, by the row each one's session began from (#1393).
+    const [draftsNarrowing, setDraftsNarrowing] = useState<SchematicDraftsNarrowing>(NO_DRAFTS_NARROWING);
+    // A kind's narrowing resolving — its shown keys, or its drafted rows' answers: the frame is busy, its last membership
+    // drawn meanwhile.
+    const narrowingBusy = draftsNarrowing.busy
+        || [...sourced].some((slot) => { const one = followed.get(slot); return one !== undefined && one.shown.busy && one.error === undefined; });
     // What the canvas draws under the last narrowing stands in while a new one is read — a kind's rows, or the matches a
     // source the frame follows says — kept: its grid's rules dashed and its words in the third ink. While it stands in, or
     // a narrowing the frame follows could not be read, it is retained: readable, focusable and selectable, its selection
@@ -352,8 +360,13 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const editingWords = useMemo((): EditingWords => ({ ...formatters, m: editingMessages }), [formatters]);
     // What the canvas draws: the stored rows, the drafts in place, each drafted row drawn once.
     const draftedCache = useRef<DraftedCache>(new WeakMap());
-    // A kind read by area holds only its window: a drafted row of it off the window draws where its draft places it (#1393).
-    const drawing = useMemo(() => draftedDrawing(data.drawn, data.held, editing.drafts, draftedCache.current, areas), [data.drawn, data.held, editing.drafts, areas]);
+    // A kind read by area holds only its window: a drafted row of it off the window draws where its draft places it while its
+    // narrowing holds it — the hidden narrowing's leaving it waiting in its session (#1393).
+    const dim = look.dim;
+    const drafted = useCallback((ref: SchematicRef) => draftHeld(draftsNarrowing, ref), [draftsNarrowing]);
+    const leftOut = useCallback((ref: SchematicRef) => !dim && drafted(ref) === false, [dim, drafted]);
+    const drawing = useMemo(() => draftedDrawing(data.drawn, data.held, editing.drafts, draftedCache.current, areas, leftOut),
+        [data.drawn, data.held, editing.drafts, areas, leftOut]);
     const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: editing.record, mint: editing.mint } : undefined),
         [editing.edits, editing.record, editing.mint]);
 
@@ -369,8 +382,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         const shown = sourced.has(slot) ? followed.get(slot)?.shown : undefined;
         return shown === undefined || (shown.keys.type === "some" && !shown.ready) ? undefined : shown.keys;
     }, [areas, data.matched, sourced, followed]);
-    const narrowing = useMemo(() => schematicNarrowing({ drawn: drawing, held: data.held, sourced, keys: kindKeys, dim: look.dim }),
-        [drawing, data.held, sourced, kindKeys, look.dim]);
+    const narrowing = useMemo(() => schematicNarrowing({ drawn: drawing, held: data.held, sourced, keys: kindKeys, dim, drafted }),
+        [drawing, data.held, sourced, kindKeys, dim, drafted]);
     // The drawing as every list shows it — Find, the Index, the Choosers, what an item is joined to, the counts.
     const listed = useMemo(() => narrowedDrawing(drawing, narrowing.out), [drawing, narrowing.out]);
     const canvasNarrowing = useMemo((): SchematicCanvasNarrowing => ({ context: narrowing.context, out: narrowing.out, matches: narrowing.matches, look }),
@@ -820,6 +833,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     return (
         <Box css={styles.root} data-schematic="" data-schematic-layout={narrow ? "narrow" : "wide"}>
             {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} areas={areas} windows={data.windows} onRows={setInspectedRows} />}
+            {areas.size > 0 && editing.edits && (
+                <SchematicDraftsReader value={value} areas={areas} drafts={editing.drafts} original={editing.schedule.held} onRead={setDraftsNarrowing} />
+            )}
             {backlogPages !== undefined && <SchematicBacklogCountReader source={backlogPages} parts={backlogPartKeys} onCount={setBacklogCount} />}
             {/* The frame's one reveal clock (CL4): the footer's line, the canvas's wash and placeholders and the inspector's show a
                 read in flight after 150 ms, held 300 ms once shown. */}

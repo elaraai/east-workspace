@@ -94,6 +94,22 @@ describe("draftedDrawing", () => {
         expect(again.items.map((item) => [item.key, item.x, item.y])).toEqual([[entityId(A01), 2, 3], [entityId(A02), 9, 5]]);
     });
 
+    test("a kind read by area's drafted row its window doesn't hold draws where its draft has it — unless the hidden narrowing leaves it out, when it waits in its session", () => {
+        // The window holds A01 alone: A02, moved by a draft, is off it.
+        const window: SchematicHeldRows = new Map([["racks", new Map([["A01", { details: undefined }]])], ["fibre", new Map([["u1", { details: undefined }]])]]);
+        const narrowed: SchematicDrawn = { ...STORED, items: [stored(A01, 2, 3)] };
+        const drafts = rackDrafts(new Map([["A02", { roles: rack(A02, { x: 9, y: 5 }), created: false }]]));
+        const racks = new Set(["racks"]);
+        expect(draftedDrawing(narrowed, window, drafts, new WeakMap(), racks).items.map((item) => [item.key, item.x, item.y]))
+            .toEqual([[entityId(A01), 2, 3], [entityId(A02), 9, 5]]);
+        // The row its session began from is not the hidden narrowing's: A02 is drawn nowhere.
+        const leftOut = (at: SchematicRef) => at.kind === A02.kind && at.key === A02.key;
+        expect(draftedDrawing(narrowed, window, drafts, new WeakMap(), racks, leftOut).items.map((item) => item.key)).toEqual([entityId(A01)]);
+        // A row a gesture created draws whatever the narrowing.
+        const made = rackDrafts(new Map([["new-1", { roles: rack(NEW, { x: 12, y: 3 }), created: true }]]));
+        expect(draftedDrawing(narrowed, window, made, new WeakMap(), racks, () => true).items.map((item) => item.key)).toEqual([entityId(A01), entityId(NEW)]);
+    });
+
     test("a drafted link draws from its drafted roles, and a deleted one goes", () => {
         const roles: LinkRoles = { ...defaultValue<typeof T.Link>(T.Link), from: A02, to: ODF };
         const drafts: SchematicDrafts = { ...NO_DRAFTS, links: new Map([["fibre", new Map<string, DraftedRow<LinkRoles> | undefined>([

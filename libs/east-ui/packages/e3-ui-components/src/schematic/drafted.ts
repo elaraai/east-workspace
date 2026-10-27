@@ -17,7 +17,10 @@
  *   and Save sends it whatever is drawn. A kind read by area reads only its
  *   window (#1393): a drafted row of it its window doesn't hold — moved off
  *   the window, or placed from the Backlog — draws where its draft places it,
- *   the narrowing deciding as for any row it draws.
+ *   while its narrowing holds it, as the row its session began from answers
+ *   (`drafts-narrowing.ts`): one the hidden narrowing leaves out waits in its
+ *   session, as every kind's does, and one the dimmed narrowing leaves out
+ *   draws as context (`narrowing.ts`).
  *
  * What a drafted row draws is kept by the roles it was drawn from, so a
  * render that moves no draft draws each the same.
@@ -63,6 +66,9 @@ export type DraftedCache = WeakMap<object, { readonly details: DetailsRoles | un
 /** No kind read by area. */
 const NONE_WINDOWED: ReadonlySet<string> = new Set();
 
+/** Nothing the narrowing leaves out. */
+const NONE_LEFT_OUT = (): boolean => false;
+
 /**
  * Whether a sort has any draft.
  *
@@ -83,14 +89,15 @@ function drafted(drafts: SortDrafts<unknown>): boolean {
  * @param drafts - The sort's drafts
  * @param held - Each kind's rows the read holds
  * @param windowed - The kinds read by area, by slot: a drafted row of one draws though its window doesn't hold it
+ * @param leftOut - Whether the hidden narrowing leaves out a drafted row of a kind read by area its window doesn't hold
  * @param cache - What each drafted row was drawn as
  * @param draw - An entity from its reference, its roles, its details' roles and the card roles they give while they are
  *   read (#1398); `undefined` for one that draws nothing
  * @returns The entities
  */
 function merged<R extends object, E extends { readonly key: string }>(
-    entities: readonly E[], drafts: SortDrafts<R>, held: SchematicHeldRows, windowed: ReadonlySet<string>, cache: DraftedCache,
-    draw: (ref: SchematicRef, roles: R, details: DetailsRoles | undefined, pending: CardRoles | undefined) => E | undefined,
+    entities: readonly E[], drafts: SortDrafts<R>, held: SchematicHeldRows, windowed: ReadonlySet<string>, leftOut: (ref: SchematicRef) => boolean,
+    cache: DraftedCache, draw: (ref: SchematicRef, roles: R, details: DetailsRoles | undefined, pending: CardRoles | undefined) => E | undefined,
 ): E[] {
     // Each drafted entity, by its id: what it draws as, or `undefined` for nothing.
     const replaced = new Map<string, E | undefined>();
@@ -101,8 +108,9 @@ function merged<R extends object, E extends { readonly key: string }>(
             const id = entityId(ref);
             if (row === undefined) { replaced.set(id, undefined); continue; }
             const kept = read?.get(key);
-            // A row a narrowing hides waits in its session; a new one draws, and one of a kind read by area its window doesn't hold.
-            if (kept === undefined && !row.created && !windowed.has(slot)) continue;
+            // A row a narrowing hides waits in its session; a new one draws, and one of a kind read by area its window doesn't
+            // hold while its narrowing holds it.
+            if (kept === undefined && !row.created && (!windowed.has(slot) || leftOut(ref))) continue;
             // A drafted card over a row whose details are read holds their places, as the row's own does (#1398).
             const details = kept?.details;
             const pending = kept?.pending;
@@ -133,17 +141,19 @@ function merged<R extends object, E extends { readonly key: string }>(
  * @param drafts - Every kind's drafts
  * @param cache - What each drafted row was drawn as, kept across calls
  * @param windowed - The kinds read by area, by slot (#1393): a drafted row of one its window doesn't hold draws
+ * @param leftOut - Whether the hidden narrowing leaves out a drafted row of a kind read by area its window doesn't hold, as
+ *   the row its session began from answers (`drafts-narrowing.ts`): it waits in its session; none while nothing does
  * @returns The drawing; the stored one itself while nothing is drafted
  */
 export function draftedDrawing(stored: SchematicDrawn, held: SchematicHeldRows, drafts: SchematicDrafts, cache: DraftedCache,
-    windowed: ReadonlySet<string> = NONE_WINDOWED): SchematicDrawn {
+    windowed: ReadonlySet<string> = NONE_WINDOWED, leftOut: (ref: SchematicRef) => boolean = NONE_LEFT_OUT): SchematicDrawn {
     const items = drafted(drafts.items), zones = drafted(drafts.zones), links = drafted(drafts.links), nets = drafted(drafts.nets);
     if (!items && !zones && !links && !nets) return stored;
     return {
-        items: items ? merged(stored.items, drafts.items, held, windowed, cache, (ref, roles, details, pending) => drawnItem(ref, roles, details, pending)) : stored.items,
-        zones: zones ? merged(stored.zones, drafts.zones, held, windowed, cache, (ref, roles) => drawnZone(ref, roles)) : stored.zones,
-        links: links ? merged(stored.links, drafts.links, held, windowed, cache, (ref, roles) => drawnLink(ref, roles)) : stored.links,
-        nets: nets ? merged(stored.nets, drafts.nets, held, windowed, cache, (ref, roles) => drawnNet(ref, roles)) : stored.nets,
+        items: items ? merged(stored.items, drafts.items, held, windowed, leftOut, cache, (ref, roles, details, pending) => drawnItem(ref, roles, details, pending)) : stored.items,
+        zones: zones ? merged(stored.zones, drafts.zones, held, windowed, leftOut, cache, (ref, roles) => drawnZone(ref, roles)) : stored.zones,
+        links: links ? merged(stored.links, drafts.links, held, windowed, leftOut, cache, (ref, roles) => drawnLink(ref, roles)) : stored.links,
+        nets: nets ? merged(stored.nets, drafts.nets, held, windowed, leftOut, cache, (ref, roles) => drawnNet(ref, roles)) : stored.nets,
     };
 }
 
