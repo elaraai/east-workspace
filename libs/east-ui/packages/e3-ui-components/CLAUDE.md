@@ -1297,7 +1297,17 @@ landing beside it, or leaving it — is another item and never keeps the height
 the frame measured for the last: on a fractional device pixel ratio a run
 measures off its estimate, the virtualizer keeps that height by its key, and
 keyed by its side alone a far drag's rows landed a window away from where
-their placeholders stood (`sheet-far-moves.spec.ts`). On the Plan and a flat sheet that row sits at its
+their placeholders stood (`sheet-far-moves.spec.ts`). Its pitches — a row's, a
+group's band's and a sub row's — are on the device-pixel grid the frame
+measures and places its rows on (`devicePixels`), as the Roster's and the
+Calendar's row floors are, and so are its runs, its lens's stretches and its
+estimates, so a row measures as it was laid out: at a fractional device pixel
+ratio a row at a CSS pitch measured a fraction of a pixel off it, kept by its
+key — the rows read as a sheet opened leaving the run for a band as a far
+drag came to rest took theirs with them, the row at the view's top moving up
+6.6px at 110%, and under the lens every row and stretch that mounted was a
+compensation of the scroll the view could only round, the view creeping as
+the narrowing's rows landed. On the Plan and a flat sheet that row sits at its
 first row's place and counts as the rows it stands for, so the grid's
 `aria-rowcount` is every row, read or not (CL12; the Plan's `gridPlaces`). A
 failed window is said once, in its run's first

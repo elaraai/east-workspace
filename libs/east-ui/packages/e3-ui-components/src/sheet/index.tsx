@@ -100,7 +100,7 @@ import {
     type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, type LandingAttributes, historyToolbarItem, historyShortcut, takeKey,
     type ToolbarItem,
 } from "@elaraai/east-ui-components";
-import { DensityProvider, useDensityHeights, VirtualRows, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type RowsViewport, usePickHandOff, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { DensityProvider, useDensityHeights, VirtualRows, devicePixels, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type RowsViewport, usePickHandOff, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import {
@@ -624,10 +624,17 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const style = useMemo(() => getSomeorUndefined(value.style), [value.style]);
     const size = densityOf(value);
     const coarse = useCoarsePointer();
-    const rowPx = Math.max(useDensityHeights(size).row, coarse ? 45 : 0);
-    const bandPx = Math.max(groupBandPx(size), coarse ? 46 : 42);
+    // The pitches on the device-pixel grid the frame measures and places its rows on (`devicePixels`), as the Roster's
+    // and the Calendar's row floors are: at a fractional device pixel ratio a row drawn at a CSS pitch measures a
+    // fraction of a pixel off it, which the frame keeps by its key — the rows read as the sheet opened, leaving the run
+    // for a band as a far drag came to rest, took theirs with them and moved the view up by as much; under the lens every
+    // row and stretch mounting was a compensation of the scroll the view could only round, and the view crept as the
+    // narrowing's rows landed (#1398, CL8). On the grid each one measures as it was laid out, and rows land where their
+    // placeholders stood.
+    const rowPx = devicePixels(Math.max(useDensityHeights(size).row, coarse ? 45 : 0));
+    const bandPx = devicePixels(Math.max(groupBandPx(size), coarse ? 46 : 42));
     // A sub row's least height; a wrapping detail grows it, and the rows are measured.
-    const subRowPx = 30;
+    const subRowPx = devicePixels(30);
     // The word for a group: the host's (#844), else the sheet's words (#861).
     // The machine's messages carry only the host's, and word a missing one
     // when they show — so a new table re-words them.

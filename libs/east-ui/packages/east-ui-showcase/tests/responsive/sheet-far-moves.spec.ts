@@ -12,10 +12,12 @@
  * window that lands is measured anew:
  *
  * - The scrollbar dragged to the middle: the row at the view's top is the same
- *   row, by its number, from the drag until its window has landed, and once the
- *   placeholders' shapes show it stays where it is on screen, each row landing
- *   where its placeholder stood; and the footer's line says what is read
- *   whenever the placeholders' shapes show.
+ *   row, by its number, from the drag until its window has landed, and it
+ *   stays where it is on screen from the frame the view arrives in — as the run
+ *   is cut again around the window the view asks, before the placeholders'
+ *   shapes show on a fast machine and after them on a slow one — each row
+ *   landing where its placeholder stood; and the footer's line says what is
+ *   read whenever the placeholders' shapes show.
  * - Ctrl+End, from rows far from the last: the rows shown stay where they are,
  *   retained — the grid `aria-disabled`, main `aria-busy` — the ring on its
  *   row, in every frame until the last window has landed; then the view is on
@@ -24,6 +26,11 @@
  *   when the Sheet opened (it keeps the windows read last), and then the first
  *   rows show with nothing to wait for. The keyboard stays in the grid
  *   throughout.
+ * - Under the lens — the jobs ready, as the Sheet opens — the scrollbar dragged
+ *   to the middle of the narrowing's rows: once the placeholders of the stretch
+ *   in view show, the row at the view's top stays where it is on screen as the
+ *   stretch's rows land, each where its placeholder stood, and the footer's
+ *   line says what is read whenever they show.
  *
  * Each frame of the Sheet is recorded in the page from the move until it rests.
  */
@@ -174,6 +181,16 @@ async function openAll(page: Page): Promise<Locator> {
     return entry;
 }
 
+/** The Sheet as it opens, on the jobs ready: its lens over every third of the fifty thousand rows, at rest. */
+async function openLens(page: Page): Promise<Locator> {
+    await installE3Faults(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const entry = await visitBuilder(page, ROUTE, "[data-builder-frame]", "light");
+    await expect(entry.locator("[data-frame-slot='main'] [data-sheet][data-lens]")).toBeVisible({ timeout: 30_000 });
+    await settled(page);
+    return entry;
+}
+
 /** Frames, in words: the first row in view's number (`?` a placeholder) and place, the run (`+` its shapes shown), the line, the keyboard, the ring. */
 function told(frames: readonly Frame[]): string {
     return frames.map((f) => `top=${f.top.toFixed(1)}/${f.max.toFixed(1)}${atEnd(f) ? " end" : ""} first=${f.first}${f.read ? "" : "?"}@${f.offset.toFixed(1)} run=${f.run}${f.revealed ? "+" : ""} line=${f.line}${f.words === "" ? "" : ` "${f.words}"`}${f.retained ? " retained" : ""} focus=${f.focus} ring=${f.ring}${f.ringShown ? "" : " (hidden)"}`).join("\n");
@@ -195,6 +212,24 @@ function heldThenFar(frames: readonly Frame[], landing: string, unread: boolean)
     expect(frames.slice(moved).filter((f) => !f.read || f.retained || f.ring !== landing || !f.ringShown), told(frames)).toEqual([]);
 }
 
+/**
+ * The frames of the view resting over rows not read until they land, from the frame it rests in: placeholders stood
+ * in the view first, and the row at its top stays that row in every frame; once their shapes show it stays where it
+ * is on screen as the rows land in their place; and whenever the shapes show, the line says what is read.
+ */
+function landsInPlace(after: readonly Frame[]): void {
+    const held = after.find((f) => f.run && !f.read && f.first !== "");
+    expect(held, `placeholders in the view before the rows land\n${told(after)}`).toBeDefined();
+    expect(after.filter((f) => f.first !== "" && f.first !== held!.first), told(after)).toEqual([]);
+    const shown = after.findIndex((f) => f.revealed);
+    expect(shown, `the placeholders' shapes show before the rows land\n${told(after)}`).toBeGreaterThanOrEqual(0);
+    expect(after.slice(shown).filter((f) => Math.abs(f.offset - after[shown]!.offset) >= 1), told(after)).toEqual([]);
+    expect(after.at(-1)!.read, told(after)).toBe(true);
+    // Whenever the placeholders' shapes show, the line says what is read.
+    expect(after.filter((f) => f.revealed && f.line !== "loading"), told(after)).toEqual([]);
+    expect(after.some((f) => f.revealed && /^Loading /.test(f.words)), `the line names what is read\n${told(after)}`).toBe(true);
+}
+
 test("the scrollbar dragged far through rows not read on a slow e3: the row at the view's top stays where it was as the windows land, each row where its placeholder stood, and the line says what is read whenever the placeholders show (#1398) @desktop", async ({ page }) => {
     const entry = await openAll(page);
     const slowing = await slowE3(page, { kinds: [...RECORD_READS] }, SLOW_MS);
@@ -212,18 +247,42 @@ test("the scrollbar dragged far through rows not read on a slow e3: the row at t
     await releaseE3(page, slowing);
     const after = frames.slice(frames.findIndex((f) => Math.abs(f.top - sent) < 2));
     expect(after.length, told(frames)).toBeGreaterThan(0);
-    // Placeholders stood in the view first: the row at its top stays that row in every frame, and once their shapes show
-    // it stays where it is on screen as the rows land in their place.
-    const held = after.find((f) => f.run && !f.read && f.first !== "");
-    expect(held, `placeholders in the view before the rows land\n${told(after)}`).toBeDefined();
-    expect(after.filter((f) => f.first !== "" && f.first !== held!.first), told(after)).toEqual([]);
+    landsInPlace(after);
+    // And from the frame the view arrives in, before the shapes show as after: as the view comes to rest the run is cut
+    // again around the window it asks — the rows read as the Sheet opened leaving it for the band above — before the
+    // placeholders' shapes show on a fast machine, after them on a slow one, and either way nothing moves.
+    const arrived = after.find((f) => f.first !== "")!;
+    expect(after.filter((f) => f.first !== "" && Math.abs(f.offset - arrived.offset) >= 1), told(after)).toEqual([]);
+});
+
+
+test("under the lens, the scrollbar dragged far through stretches not read on a slow e3: once the placeholders' shapes show, the row at the view's top stays where it is on screen as the stretch's rows land — data landing never moves the view — and the line says what is read whenever they show (#1398, #1349, CL8) @desktop", async ({ page }) => {
+    const entry = await openLens(page);
+    const slowing = await slowE3(page, { kinds: [...RECORD_READS] }, SLOW_MS);
+    await record(entry);
+    // The scrollbar dragged to the middle of the narrowing's rows: far past the stretches read as the Sheet opened.
+    const sent = await scrollerOf(entry).evaluate((el) => {
+        el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) / 2);
+        return el.scrollTop;
+    });
+    // The stretch in view lands, and the line goes idle — in a frame of the view the drag took far from the top.
+    await until(page, (f) => f.top > sent / 2 && f.read && !f.run && f.line === "idle", "the rows in view land");
+    await settled(page);
+    const frames = await recorded(page);
+    await releaseE3(page, slowing);
+    const after = frames.slice(frames.findIndex((f) => f.top > sent / 2));
+    expect(after.length, told(frames)).toBeGreaterThan(0);
+    // The stretch's placeholders stood in the view first, their shapes shown before its rows landed; from then on the
+    // row at the view's top stays where it is on screen — each row lands where its placeholder stood — and, landed, it
+    // stays that row.
     const shown = after.findIndex((f) => f.revealed);
     expect(shown, `the placeholders' shapes show before the rows land\n${told(after)}`).toBeGreaterThanOrEqual(0);
     expect(after.slice(shown).filter((f) => Math.abs(f.offset - after[shown]!.offset) >= 1), told(after)).toEqual([]);
-    expect(after.at(-1)!.read, told(after)).toBe(true);
+    const landed = after.findIndex((f) => f.read);
+    expect(landed, `the rows land\n${told(after)}`).toBeGreaterThan(shown);
+    expect(after.slice(landed).filter((f) => f.first !== after[landed]!.first), told(after)).toEqual([]);
     // Whenever the placeholders' shapes show, the line says what is read.
     expect(after.filter((f) => f.revealed && f.line !== "loading"), told(after)).toEqual([]);
-    expect(after.some((f) => f.revealed && /^Loading /.test(f.words)), `the line names what is read\n${told(after)}`).toBe(true);
 });
 
 test("Ctrl+End and Ctrl+Home on a slow e3: the rows shown stay where they are, retained, the ring on its row, until the last rows are read; then the view is on them and the ring on the last row, and they stay; Ctrl+Home the same to the first; the keyboard never leaves the grid (#1398, CL10) @desktop", async ({ page }) => {
