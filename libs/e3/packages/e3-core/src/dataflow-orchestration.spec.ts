@@ -36,7 +36,7 @@ import { workspaceDeploy } from './workspace-files.js';
 import { packageImport } from './package-files.js';
 import { recordMutate } from './records.js';
 import { workspaceSetDataset } from './trees.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, writableStrings } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { MockTaskRunner } from './execution/MockTaskRunner.js';
 import { inputsHash } from './executions.js';
@@ -140,15 +140,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
   describe('dependency ordering', () => {
     it('executes tasks in topological order', async () => {
       // Create package with A -> B -> C chain
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle1', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle2', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'middle1', 'middle2', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const middle1Path: TreePath = [variant('field', 'middle1')];
@@ -192,15 +184,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
     it('executes independent tasks in parallel', async () => {
       // Create package with diamond: A -> B, A -> C, B+C -> D
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out_a', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out_b', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out_c', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'out_a', 'out_b', 'out_c']);
 
       const inputPath: TreePath = [variant('field', 'input')];
 
@@ -244,16 +228,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
   describe('width', () => {
     it('runs within the loop\'s width with mock runner', async () => {
       // Create package with 4 independent tasks
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out1', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out2', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out3', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out4', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'out1', 'out2', 'out3', 'out4']);
 
       const inputPath: TreePath = [variant('field', 'input')];
 
@@ -327,13 +302,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
   describe('cache behavior', () => {
     it('counts tasks as cached when runner returns cached: true', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -390,15 +359,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
   describe('failure propagation', () => {
     it('skips downstream tasks when upstream fails', async () => {
       // Create A -> B -> C, where A fails
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle1', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle2', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'middle1', 'middle2', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const middle1Path: TreePath = [variant('field', 'middle1')];
@@ -460,13 +421,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     });
 
     it('handles error state from runner', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -505,13 +460,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
   describe('abort handling', () => {
     it('does not start tasks when signal is pre-aborted', async () => {
       // Create an independent task
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -557,13 +506,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
     /** A one-task workspace whose task the mock runner can hold open. */
     async function deployOneTask(): Promise<string> {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
       const taskHashes = await createPackageWithTasks(
@@ -643,13 +586,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
   describe('input hash passing', () => {
     it('passes correct input hashes to runner', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -688,13 +625,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
   describe('callback invocation', () => {
     it('calls onTaskStart and onTaskComplete callbacks', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -730,13 +661,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     });
 
     it('passes stdout/stderr callbacks to runner', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -782,14 +707,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
   describe('reactive dataflow', () => {
     it('reaches fixpoint without re-execution when inputs unchanged', async () => {
       // Normal execution, no input changes → same behavior as before
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'middle', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const middlePath: TreePath = [variant('field', 'middle')];
@@ -828,13 +746,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       // MockTaskRunner for taskA: during execution, write new value to input ref
       // After taskA completes, reactive loop detects change, invalidates taskA
       // taskA re-runs with new input
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -883,14 +795,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       // Setup: input → taskA → middle → taskB → output
       // During taskA execution, input changes
       // taskA should re-run, then taskB should run with new output
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'middle', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const middlePath: TreePath = [variant('field', 'middle')];
@@ -951,13 +856,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     });
 
     it('tracks reexecuted count correctly', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -1001,13 +900,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     });
 
     it('calls onInputChanged callback', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -1056,13 +949,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     });
 
     it('calls onTaskInvalidated callback', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -1110,13 +997,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
     it('handles no-op change (same hash)', async () => {
       // Input "changes" but to same hash value → no invalidation
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -1169,15 +1050,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
     /** Build the diamond: input → left, input → right, (left,right) → merge. */
     async function createDiamond() {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['left_out', { type: 'value', value: { type: StringType, writable: true } }],
-          ['right_out', { type: 'value', value: { type: StringType, writable: true } }],
-          ['merge_out', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'left_out', 'right_out', 'merge_out']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const leftPath: TreePath = [variant('field', 'left_out')];
@@ -1328,16 +1201,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       // Two independent roots, each mutated while the OTHER root's task is
       // running — the cross-invalidation case. Deterministic: mutations
       // happen inside the first execution of each task.
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['x', { type: 'value', value: { type: StringType, writable: true } }],
-          ['y', { type: 'value', value: { type: StringType, writable: true } }],
-          ['a_out', { type: 'value', value: { type: StringType, writable: true } }],
-          ['b_out', { type: 'value', value: { type: StringType, writable: true } }],
-          ['merge_out', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['x', 'y', 'a_out', 'b_out', 'merge_out']);
 
       const xPath: TreePath = [variant('field', 'x')];
       const yPath: TreePath = [variant('field', 'y')];
@@ -1473,16 +1337,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       // ta runs must re-execute ONLY tb and the join — ta's work stands.
       // Over-invalidation here is the efficiency regression that makes big
       // real-world dataflows re-run everything on every edit.
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['x', { type: 'value', value: { type: StringType, writable: true } }],
-          ['y', { type: 'value', value: { type: StringType, writable: true } }],
-          ['a_out', { type: 'value', value: { type: StringType, writable: true } }],
-          ['b_out', { type: 'value', value: { type: StringType, writable: true } }],
-          ['merge_out', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['x', 'y', 'a_out', 'b_out', 'merge_out']);
 
       const xPath: TreePath = [variant('field', 'x')];
       const yPath: TreePath = [variant('field', 'y')];
@@ -1538,19 +1393,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       // diamond1 (input → l1,r1 → m1) feeding diamond2 (m1 → l2,r2 → m2):
       // a root change during l1 must cascade re-execution through BOTH
       // fan-out/fan-in layers, and m2 must join a consistent final pair.
-      const fields: Array<[string, unknown]> = [
-        ['input', { type: 'value', value: { type: StringType, writable: true } }],
-        ['l1_out', { type: 'value', value: { type: StringType, writable: true } }],
-        ['r1_out', { type: 'value', value: { type: StringType, writable: true } }],
-        ['m1_out', { type: 'value', value: { type: StringType, writable: true } }],
-        ['l2_out', { type: 'value', value: { type: StringType, writable: true } }],
-        ['r2_out', { type: 'value', value: { type: StringType, writable: true } }],
-        ['m2_out', { type: 'value', value: { type: StringType, writable: true } }],
-      ];
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map(fields),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'l1_out', 'r1_out', 'm1_out', 'l2_out', 'r2_out', 'm2_out']);
       const path = (name: string): TreePath => [variant('field', name)];
 
       const taskHashes = await createPackageWithTasks(
@@ -1620,9 +1463,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       // input's version vector, a's, has yet to move: once a and b have run
       // again, a join of b's new output with c's old one would defer k, and
       // nothing would run c again.
-      const fields: Array<[string, unknown]> = ['input', 'a_out', 'b_out', 'c_out', 'k_out']
-        .map((name) => [name, { type: 'value', value: { type: StringType, writable: true } }]);
-      const structure = { type: 'struct', value: new Map(fields) } as unknown as Structure;
+      const structure = writableStrings(['input', 'a_out', 'b_out', 'c_out', 'k_out']);
       const path = (name: string): TreePath => [variant('field', name)];
       const taskHashes = await createPackageWithTasks(
         testRepo,
@@ -1696,9 +1537,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       // input → p → x, input → q. x's result for p's first output is cached.
       // The input changes while x's cache is read: p is invalidated, and the
       // cached result, found for p's output from before the change, is stale.
-      const fields: Array<[string, unknown]> = ['input', 'p_out', 'q_out', 'x_out']
-        .map((name) => [name, { type: 'value', value: { type: StringType, writable: true } }]);
-      const structure = { type: 'struct', value: new Map(fields) } as unknown as Structure;
+      const structure = writableStrings(['input', 'p_out', 'q_out', 'x_out']);
       const path = (name: string): TreePath => [variant('field', name)];
       const taskHashes = await createPackageWithTasks(
         testRepo,
@@ -1775,13 +1614,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
   describe('DataflowRun recording', () => {
     it('records correct outputVersions with task output hashes', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -1814,13 +1647,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     });
 
     it('names each task\'s execution whole: the attempt that ran, and the one a cached task was served from', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
       const taskHashes = await createPackageWithTasks(
@@ -1859,14 +1686,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     });
 
     it('records outputVersions for all completed tasks in a chain', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'middle', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const middlePath: TreePath = [variant('field', 'middle')];
@@ -1908,13 +1728,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     });
 
     it('records partial outputVersions when execution is cancelled', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -1965,13 +1779,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
   describe('abort cleanup', () => {
     it('removes abort listener after normal completion', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
@@ -2008,14 +1816,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
 
   describe('cache-hit mutex', () => {
     it('correctly handles cache hit during concurrent execution', async () => {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out_a', { type: 'value', value: { type: StringType, writable: true } }],
-          ['out_b', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'out_a', 'out_b']);
 
       const inputPath: TreePath = [variant('field', 'input')];
 
@@ -2089,15 +1890,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
      * Build the standard A -> B -> C chain fixture and return its task hashes.
      */
     async function createChainFixture(): Promise<Map<string, string>> {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle1', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle2', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'middle1', 'middle2', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const middle1Path: TreePath = [variant('field', 'middle1')];
@@ -2549,7 +2342,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
       assert.deepStrictEqual(mockRunner.getUnitCalls().map((call) => call.unit.merge === null ? 'piece' : 'merge'), ['merge'],
         'the resumed run took up the merges, and ran no piece again');
       const final = await stateStore.read(testRepo, 'test-ws', handle.id);
-      assert.deepStrictEqual(final!.tasks.get('total')!.outputHash, variant('some', 'sum-2'));
+      assert.deepStrictEqual(final!.tasks.get('total')!.outputHash, some('sum-2'));
       const stages = (await stateStore.getEventsSince(testRepo, 'test-ws', handle.id, 0))
         .filter((event) => 'task' in event.value && event.value.task === 'total' && event.type !== 'task_ready')
         .map((event) => event.type);
@@ -2676,13 +2469,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
   describe('lock release ordering', () => {
     // Build a single-task workspace whose run we can drive to completion.
     async function deploySingleTask(): Promise<Map<string, string>> {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'output']);
       const inputPath: TreePath = [variant('field', 'input')];
       const outputPath: TreePath = [variant('field', 'output')];
       const taskHashes = await createPackageWithTasks(
@@ -2831,15 +2618,7 @@ describe('dataflow orchestration with MockTaskRunner', () => {
      * task hashes so callers can assert which task the runner was invoked for.
      */
     async function seedCachedChain(): Promise<Map<string, string>> {
-      const structure: Structure = {
-        type: 'struct',
-        value: new Map([
-          ['input', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle1', { type: 'value', value: { type: StringType, writable: true } }],
-          ['middle2', { type: 'value', value: { type: StringType, writable: true } }],
-          ['output', { type: 'value', value: { type: StringType, writable: true } }],
-        ]),
-      } as unknown as Structure;
+      const structure = writableStrings(['input', 'middle1', 'middle2', 'output']);
 
       const inputPath: TreePath = [variant('field', 'input')];
       const middle1Path: TreePath = [variant('field', 'middle1')];
