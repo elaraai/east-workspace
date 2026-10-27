@@ -29,7 +29,7 @@ import type RBush from "rbush";
 import { StringType, equalFor, type option } from "@elaraai/east";
 import { SCHEMATIC_WINDOW_ROWS } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, takeKey, typedInto, type Origin } from "@elaraai/east-ui-components";
-import { keyFromPage, keyInFrame } from "../../shared/frame-keys.js";
+import { keepsSpace, keyFromPage, keyInFrame } from "../../shared/frame-keys.js";
 import { densityInView } from "../area.js";
 import type { SchematicValue } from "../data.js";
 import {
@@ -1242,6 +1242,9 @@ export function useGestures({
     // nor one the canvas has heard itself, nor one from a layer portaled out of
     // the frame — a popover, a menu, a Chooser's list — which is the layer's
     // (`keyIsCanvas`); window blur and pointer-leave clear a stuck override.
+    // Space is the canvas's only from itself, the page, or an element that acts
+    // on none: a button, a checkbox, a radio or a Chooser in the frame keeps its
+    // own Space, as a browser activates it (`keepsSpace`).
     /** Whether a key is the canvas's while the pointer is over it (see above). */
     const canvasHears = useCallback((e: { readonly defaultPrevented: boolean; readonly target: EventTarget | null }): boolean =>
         hoveredRef.current && !e.defaultPrevented && !typedInto(e.target) && keyIsCanvas(canvasRef.current, e.target), [canvasRef]);
@@ -1271,8 +1274,10 @@ export function useGestures({
     // of it that takes keys of its own, and taken there where it acts (#1398): it goes no further than the Schematic.
     const onFrameKeyDown = useCallback((e: React.KeyboardEvent) => {
         if (keyFromPage(e.target) || !canvasHears(e)) return;
+        // A control's own Space — a button's, a radio's, a Chooser's — is the control's.
+        if (e.code === "Space" && keepsSpace(e.target, canvasRef.current)) return;
         if (hoverKey(e)) takeKey(e);
-    }, [canvasHears, hoverKey]);
+    }, [canvasHears, hoverKey, canvasRef]);
     // A key from the page, which no part of the frame hears: the window's.
     useEffect(() => {
         const onKeyDown = (e: KeyboardEvent) => {

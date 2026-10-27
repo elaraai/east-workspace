@@ -8,7 +8,10 @@
  * the Flowchart's canvases hear a key from inside their frame as it leaves the
  * frame, and one from the page itself — nothing focused — at the window. A key
  * from anywhere else on the page, a layer portaled out of the frame among it,
- * is never the canvas's: a key typed elsewhere never acts on it.
+ * is never the canvas's: a key typed elsewhere never acts on it. And a control
+ * in the frame keeps its own Space ({@link keepsSpace}): the Schematic's
+ * canvas holds Space as its momentary Select only from itself, the page, or an
+ * element that acts on none.
  *
  * @packageDocumentation
  */
@@ -40,4 +43,27 @@ export function keyFromPage(target: EventTarget | null): boolean {
 export function keyInFrame(inside: Element | null, target: EventTarget | null): boolean {
     const frame = inside?.closest("[data-builder-frame]") ?? inside;
     return frame !== null && frame !== undefined && target instanceof Node && frame.contains(target);
+}
+
+/** What acts on Space itself: a control, a field, and every widget role's element. */
+const OWN_SPACE = [
+    "button", "a[href]", "input", "select", "textarea", "summary", "[contenteditable]:not([contenteditable=\"false\"])",
+    ...["button", "checkbox", "radio", "switch", "tab", "option", "menuitem", "menuitemcheckbox", "menuitemradio", "combobox", "slider",
+        "spinbutton", "link", "textbox", "searchbox", "treeitem", "tree", "listbox", "grid", "gridcell", "radiogroup", "tablist", "menu",
+        "menubar"].map((role) => `[role="${role}"]`),
+].join(", ");
+
+/**
+ * Whether a key's target keeps its Space (#1398): a control a press of Space acts on — a button, a link, a field, a
+ * checkbox, a radio, a Chooser's trigger, any widget role's element — as a browser activates a focused button on it. A
+ * canvas holds Space as a momentary tool only from itself, from the page, or from an element that acts on none; from
+ * a control in its frame it leaves Space to the control.
+ *
+ * @param target - The key's target
+ * @param canvas - The canvas's element: its own Space is the canvas's
+ * @returns Whether the target keeps its Space
+ */
+export function keepsSpace(target: EventTarget | null, canvas: Element | null): boolean {
+    if (!(target instanceof Element) || target === canvas) return false;
+    return target.closest(OWN_SPACE) !== null;
 }
