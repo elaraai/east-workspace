@@ -92,7 +92,9 @@ export default defineConfig(({ command }) => {
                * reaches for the record Slice's placement, the virtual rows and
                * the pick hand-off, to the same source as the bare entry: `dist/`'s
                * would be a second copy of the record Slice registry, so a binding
-               * made through the bare entry was found by no lens (#1443). */
+               * made through the bare entry was found by no lens (#1443). The
+               * showcase's `tests/tooling/dev-aliases.spec.ts` holds every
+               * subpath the page imports to this. */
               {
                 find: /^@elaraai\/east-ui-components\/internal$/,
                 replacement: path.resolve(__dirname, '../east-ui-components/src/internal.ts'),

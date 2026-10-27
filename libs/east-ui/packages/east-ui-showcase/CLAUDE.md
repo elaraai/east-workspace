@@ -86,11 +86,15 @@ harness's browser-safe shim: the examples only declare what they bind.
 to e3-ui's source needs `make showcase` again (it runs `vite --force`). In
 dev, `@elaraai/e3-ui` (bare, `/internal` and its JSX runtimes),
 `@elaraai/east-ui` (the same three) and `@elaraai/east-ui-components`
-(bare, `/fonts`, `/platform`) must all resolve to source together — a split
-resolves East's reference-based identities into two instances: `Data.bind`
-stops matching its registered platform implementation, and a `Fields` hint
-made through the bare entry fails `fieldSpecs`' check through `/internal`
-("its hint is one of Fields' hints").
+(bare, `/fonts`, `/platform`, `/internal`) must all resolve to source
+together — a split resolves East's reference-based identities into two
+instances: `Data.bind` stops matching its registered platform
+implementation, a `Fields` hint made through the bare entry fails
+`fieldSpecs`' check through `/internal` ("its hint is one of Fields'
+hints"), and a record Slice bound in one copy's registry is one the Sheet's
+lens finds in no store (#1443). `tests/tooling/dev-aliases.spec.ts` holds
+the dev aliases to it: every subpath of these packages that the page's
+modules import resolves to its package's source.
 
 Visual verification is the responsive suite (`tests/responsive/`): after
 an east-ui example or component change, rebuild and run it, and land a
