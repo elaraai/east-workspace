@@ -452,7 +452,20 @@ asked of e3 over the page the box read the events from
 its window, says which choice hides them with nothing more asked; the lines
 are listed again as a kind's choices move, and a pick clears those choices,
 the window kept (`clearHiding`'s `window`), steps to the event's period and
-selects it. Its count shows and Enter jumps once the query is
+selects it. Where the view lays resources out — the timeline's rows, the
+Resources view's columns — a scheduled event whose resource its resource
+kind's source hides is drawn nowhere (one waiting in the Backlog is its card
+there, which no resource's source narrows), so its line names that source's
+choices beside its kind's own, as the Allocation's names each source's that
+hides a bin: which resources the source hides is what it shows, where the
+Calendar follows it, else — the paged kind's, whose windows are its
+narrowing's rows themselves — asked of e3 by their keys before the lines list
+(`recordSliceRows`, `recordSliceWithin`), and which of its choices hide them
+is asked as a kind's is, for the resources the listed events are drawn on; a
+pick clears both, and the lines are listed again as the layout comes to lay
+resources out or leaves off. The time grids, the month and the agenda narrow
+no event by its resource, and name none.
+Its count shows and Enter jumps once the query is
 found, the lines following. A pick — a match chosen from the list, or Enter in
 the box — hands the keyboard to the builder's view, where the selection's ring
 lands, once the match is drawn and the box has let it go, and a step leaves it

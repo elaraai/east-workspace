@@ -31,7 +31,9 @@
  *   them, the summary shades each press's months, the timeline at Week, which
  *   no summary divides, hatches its rows and says how many.
  * - A choice of the presses' source pages the narrowing's presses through its
- *   index, and reads the cells of those presses alone.
+ *   index, and reads the cells of those presses alone. Search Records names a
+ *   job on a press the choice hides by it, asked of e3 by the press's key, and
+ *   a pick clears it and goes to the job.
  * - The Backlog pages the jobs waiting through their source, a page a request:
  *   its first pages as it opens, its last as it scrolls to its end, never
  *   every job waiting; its count the index's. A job waiting on a press names
@@ -626,6 +628,51 @@ describe("the presses narrowed by hall through their source of the rail (#1424)"
         const hall = new Set(Array.from({ length: 50 }, (_, i) => pressAt(1 + 8 * i)));
         await waitFor(() => expect(searchedPresses(since).length).toBeGreaterThan(0), { timeout: 10_000 });
         expect(searchedPresses(since).filter((key) => !hall.has(key))).toEqual([]);
+    });
+});
+
+describe("Search Records over the presses narrowed by hall (#1398)", () => {
+    /** Search Records' box, in the toolbar's row. */
+    const searchBox = (c: HTMLElement) => slot(c, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search']")!;
+    /** A query put in the box at once, as a paste is: one input event, with no keystrokes of user-event's. */
+    async function pasteIntoSearch(c: HTMLElement, typed: string) {
+        const input = searchBox(c).querySelector<HTMLInputElement>("input")!;
+        await act(async () => { input.focus(); fireEvent.input(input, { target: { value: typed } }); });
+        await settle();
+    }
+    /** The box's list — the listbox its input controls — its lines as they read. */
+    const searchLines = (c: HTMLElement) => {
+        const list = document.getElementById(searchBox(c).querySelector("input")!.getAttribute("aria-controls") ?? "");
+        return list === null ? [] : [...list.querySelectorAll('[role="option"]')].map((option) => option.textContent ?? "");
+    };
+    /** The press a membership read's entry key `(ik=…, k=…)` asks of: its record key. */
+    const pressOf = (entry: string) => /k="([^"]+)"\)$/.exec(entry)?.[1];
+
+    test("a job on a press the hall hides, drawn nowhere on the timeline, is named by the Hall that hides it — asked of e3 by its press's key — and a pick clears the hall and goes to it, given the keyboard once its press's row draws it", async () => {
+        const { container: c } = await h.mount(cw.calendarWindowsByHall, { storageKey: "windows-hidden-pick" });
+        await settle();
+        // Hall 2 chosen: the brochure run's Press 1001, of Hall 1, is none of the hall's presses the timeline pages.
+        await chooseHall("Hall 2");
+        await waitFor(() => expect(pressRows(c)[0]).toBe("Press 1002"), { timeout: 10_000 });
+        await settle();
+        expect(jobEvent(c, "W-0001")).toBeNull();
+        const since = h.requests().length;
+        await pasteIntoSearch(c, "W-0001");
+        await waitFor(() => expect(searchLines(c)).toEqual(["W-0001 · Brochure run · Print job · Mon, Oct 5, 2026 06:00 · hidden by Hall: Hall 2 — picking it clears that filter"]),
+            { timeout: 10_000 });
+        // Asked of e3 through the hall index by the keys of the presses the box's lines stand on — Press 1001's among
+        // them — a request of no more presses than the twenty lines the box lists: never every press.
+        const reads = h.requests().slice(since).filter((request) => request.dataset === HALL_PRESSES && request.kind === "within")
+            .map((request) => JSON.parse(new TextDecoder().decode(request.body)) as { index: string; keys: string[] });
+        expect(reads.length).toBeGreaterThan(0);
+        expect(reads.filter((read) => read.index !== BY_HALL.name || read.keys.length > 20)).toEqual([]);
+        expect(reads.flatMap((read) => read.keys.map(pressOf))).toContain("P-1001");
+        // Picked: the hall cleared, and the brochure run drawn on Press 1001's row, selected and given the keyboard.
+        await act(async () => { fireEvent.keyDown(searchBox(c).querySelector("input")!, { key: "Enter" }); });
+        await settle();
+        await waitFor(() => expect(jobEvent(c, "W-0001")?.getAttribute("aria-pressed")).toBe("true"), { timeout: 10_000 });
+        await waitFor(() => expect(document.activeElement).toBe(jobEvent(c, "W-0001")));
+        expect(decodeState(getStore().read(`${HALL_KEY}.presses`)!).where.size).toBe(0);
     });
 });
 
