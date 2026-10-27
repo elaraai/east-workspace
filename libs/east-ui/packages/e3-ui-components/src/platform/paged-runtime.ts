@@ -1539,8 +1539,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     /**
      * Mark a channel's fetch as started, as {@link launch} does, and hand it
      * the signal that aborts its requests (#1398, CL6): aborted once no read
-     * waits on the channel any longer ({@link unsubscribed}), or once the
-     * revision it reads at moves. A fetch it replaces is aborted.
+     * waits on the channel any longer ({@link unsubscribed}). A fetch it
+     * replaces is aborted. A fetch of a revision the source moves past is
+     * not: the move lets go of it and of its channel, and its answer lands
+     * nowhere, its pin no longer holding ({@link moveTo}).
      *
      * @param key - The channel
      * @param entry - Its entry
