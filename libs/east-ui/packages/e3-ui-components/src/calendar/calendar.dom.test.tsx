@@ -325,6 +325,70 @@ describe("Calendar explicit action forms", () => {
 
 });
 
+describe("the agenda keeps the keyboard as a card's action takes its card away (#1398)", () => {
+    /** A card's control the focus is put on, then pressed: what holds the focus after. */
+    async function pressFocused(control: HTMLElement): Promise<Element> {
+        control.focus();
+        expect(document.activeElement).toBe(control);
+        await press(control);
+        return document.activeElement ?? document.body;
+    }
+    /** The agenda's cards in its order, each by its event. */
+    const cards = (c: HTMLElement) => [...c.querySelectorAll("[data-calendar-card]")].map(el => el.getAttribute("data-calendar-card")!);
+    const cardOf = (c: HTMLElement, id: string) => [...c.querySelectorAll<HTMLElement>("[data-calendar-card]")].find(el => el.getAttribute("data-calendar-card") === id)!;
+    /** The card an element stands in, by its event, and whether it is that card's head. */
+    const standing = (el: Element) => {
+        const at = el.closest("[data-calendar-card]");
+        return [at?.getAttribute("data-calendar-card") ?? null, at !== null && at.querySelector("button") === el];
+    };
+
+    test("Delete and Return to backlog take a card away: the focus lands on the head of the card after it — the last one's, before it — never on the page's body", async () => {
+        const { container } = await h.mount(ex.calendarOperations); await width(390);
+        const order = cards(container);
+        expect(order.length).toBeGreaterThan(3);
+        let focused = await pressFocused(within(cardOf(container, order[0]!)).getByRole("button", { name: "Delete" }));
+        expect(cards(container)).not.toContain(order[0]);
+        expect(focused).not.toBe(document.body);
+        expect(standing(focused)).toEqual([order[1], true]);
+        // The first card that offers Return to backlog: the event goes to the Backlog, the focus to the card after it.
+        const now = cards(container);
+        const i = now.findIndex(id => within(cardOf(container, id)).queryByRole("button", { name: "Return to backlog" }) !== null);
+        expect(i).toBeGreaterThanOrEqual(0);
+        focused = await pressFocused(within(cardOf(container, now[i]!)).getByRole("button", { name: "Return to backlog" }));
+        expect(cards(container)).not.toContain(now[i]);
+        expect(standing(focused)).toEqual([now[i + 1] ?? now[i - 1], true]);
+        // The agenda's last card: the focus lands on the one before it.
+        const rest = cards(container);
+        focused = await pressFocused(within(cardOf(container, rest.at(-1)!)).getByRole("button", { name: "Delete" }));
+        expect(standing(focused)).toEqual([rest.at(-2), true]);
+    });
+
+    test("Move takes a card to another of the agenda's days, from the popover its card opened: the focus lands on its head there, never on the page's body", async () => {
+        const { container } = await h.mount(ex.calendarOperations); await width(390);
+        const days = [...container.querySelectorAll("[data-calendar-day]")].map(day => day.getAttribute("data-calendar-day"));
+        const dayOf = (id: string) => cardOf(container, id)?.closest("[data-calendar-day]")?.getAttribute("data-calendar-day");
+        // A card of Thursday 1 October, the week's fourth day: a day later is the agenda's Friday.
+        const id = container.querySelector('[data-calendar-day="2026-10-01"] [data-calendar-card]')!.getAttribute("data-calendar-card")!;
+        const move = within(cardOf(container, id)).getByRole("button", { name: "Move" });
+        move.focus();
+        await press(move);
+        const dialog = within(document.body).getByRole("dialog");
+        // A day later: the start's day stepped up, taken as the focus leaves its field.
+        const start = dialog.querySelector<HTMLElement>('[data-field="start"]')!;
+        const user = userEvent.setup();
+        await user.click(start.querySelector<HTMLElement>('[role="spinbutton"][aria-label^="day"]')!);
+        await user.keyboard("{ArrowUp}");
+        while (start.contains(document.activeElement)) await user.tab();
+        await settle();
+        await press(within(dialog).getByRole("button", { name: "Move" }));
+        expect(dayOf(id)).toBe("2026-10-02");
+        expect(days).toContain("2026-10-02");
+        const focused = document.activeElement ?? document.body;
+        expect(focused).not.toBe(document.body);
+        expect(standing(focused)).toEqual([id, true]);
+    });
+});
+
 describe("the inspector keeps the keyboard as a control goes with its view (#1398)", () => {
     /** A Details control the focus is put on, then pressed: what holds the focus after — never the page's body. */
     async function pressFocused(control: HTMLElement): Promise<Element> {
