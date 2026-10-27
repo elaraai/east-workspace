@@ -1390,7 +1390,12 @@ frame follows no such source (`followedSources`). The inspector's resource
 Chooser over the kind is the shared key search (`calendar/chooser.tsx`'s
 `PagedChooser`, through `FieldForm`'s `renderControl`): it seeks the kind
 through its paged read by key and lists the windows it lands in, each line the
-resource's name and its meta; an event — drawn, or its Backlog card — names
+resource's name and its meta, leaving out what the kind's source of the slice
+hides, as the other Choosers leave out what the rail hides (ruled 27 Oct
+2026) — which of each page it lists the choices hold asked of e3, a request a
+page (`recordSliceWithinAt`), the rest dropped but the resource the field
+holds, an event's own; a step onto one they hide picks nothing, and its count
+is the kind's, searched whole by key; an event — drawn, or its Backlog card — names
 its resource by the windows held, else by its key (`model.ts`'
 `resourceLabel`). A new event takes the resource it is dropped on or chosen;
 with none chosen it lands on the first resource of the windows held free then,
