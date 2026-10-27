@@ -145,8 +145,9 @@ export interface SheetPaging {
     /** The windows in flight, ascending: a run is busy while one of its own is (#1398). */
     pending: readonly number[];
     /**
-     * Whether a window the view shows is in flight (#1398): what the footer's loading line and the grid's busy follow
-     * — never a window read ahead of the view, which nothing on screen waits for.
+     * Whether the view waits for a window it shows (#1398): one in flight, or one not read and not asked yet — the view
+     * on its way over rows not read, or resting there before its read is asked (CL6). What the footer's loading line and
+     * the grid's busy follow — never a window read ahead of the view, which nothing on screen waits for.
      */
     viewLoading: boolean;
     /** The source elements the view waits for (#1398, CL3): the stretch of windows in flight among those it shows, first and last element; `undefined` while none is. */
@@ -659,6 +660,17 @@ export function useSheetPaging(
         const extra = allPending.filter((w) => residency.pins.has(w) && !shown.includes(w));
         return extra.length === 0 ? shown : [...shown, ...extra].sort((a, b) => a - b);
     }, [allPending, shows, viewportWindow, residency.pins]);
+    // And what the view shows that is neither in nor asked yet (#1398, CL3): a window of the elements it shows — or, unsaid,
+    // the one it is centred in — not landed, failed or in flight. The view on its way over rows not read, or resting there
+    // before it has shown the intent their read waits for (CL6), waits for them from the moment it shows them: the line's
+    // reveal clock runs from then, never from their read.
+    const viewAwaits = useMemo(() => {
+        if (value === undefined || value.sourceError !== undefined || ledger.windows === 0) return false;
+        const lo = shows === undefined ? viewportWindow : Math.floor(Math.max(0, shows.from) / SHEET_PAGE_SIZE);
+        const hi = Math.min(ledger.windows - 1, shows === undefined ? viewportWindow : Math.floor(Math.max(0, shows.to) / SHEET_PAGE_SIZE));
+        for (let w = lo; w <= hi; w++) if (!isIn(w) && !allPending.includes(w)) return true;
+        return false;
+    }, [value, ledger.windows, shows, viewportWindow, isIn, allPending]);
     // What the footer's loading line names (#1398): one object while the stretch holds, so the line it feeds — and
     // the footer that measures itself as it renders — renders again only when the stretch moves.
     const stretch = readingStretch(viewPending, viewportWindow, total);
@@ -693,7 +705,7 @@ export function useSheetPaging(
         exhausted,
         loading: value?.loading ?? false,
         pending: allPending,
-        viewLoading: viewPending.length > 0,
+        viewLoading: viewPending.length > 0 || viewAwaits,
         reading,
         replacing: false,
         held: false,

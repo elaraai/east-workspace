@@ -157,6 +157,48 @@ const pageFrom = (from: number, to = Number.POSITIVE_INFINITY) => (request: E3Re
     return request.kind === "page" && request.dataset === ORDERS && request.query.get("index") === null && at >= from && at < to;
 };
 
+test("the view sent far over rows not read waits for them from the scroll itself — main busy, the footer's line on its reveal clock, before their page is even asked, as the view comes to rest — and the line names them once asked, and goes as they land (#1398, CL3)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());
+    await settle();
+    // The whole sheet: every order, a page at a time.
+    fireEvent.mouseDown(ui.tab("all"), { button: 0 });
+    await settle();
+    await waitFor(() => expect(ui.row("JOB-10001")).not.toBeNull());
+    const main = () => ui.container.querySelector<HTMLElement>('[data-frame-slot="main"]')!;
+    const footerLine = () => ui.container.querySelector<HTMLElement>('[data-frame-slot="footer"] [data-footer-line]')!;
+    const line = () => footerLine().querySelector("[data-line-text]")?.textContent ?? "";
+    expect(main().getAttribute("aria-busy")).not.toBe("true");
+    // The pages far from the rows held on their way; the view goes three fifths down the record.
+    const far = h.e3.hold(pageFrom(1_000));
+    const sent = h.requests("page", ORDERS).length;
+    const frame = main().querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+    // The scroll and what it draws flushed at once, in one synchronous scope — no timer runs in it, so the view has not
+    // dwelt yet and its page waits for it.
+    act(() => {
+        frame.scrollTop = Math.round(frame.scrollHeight * 0.6);
+        frame.dispatchEvent(new Event("scroll"));
+    });
+    // The scroll's own report: the view over the run that stands for them, no page of them asked yet — it waits for them
+    // already, main busy and the line's clock running from here, never once their page is asked.
+    expect(main().querySelector("[data-unloaded-run]")).not.toBeNull();
+    expect(h.requests("page", ORDERS).slice(sent)).toEqual([]);
+    expect(main().getAttribute("aria-busy")).toBe("true");
+    // At rest: their pages asked, and the line names them — the rows where the view is.
+    await far.holding;
+    await settle();
+    expect(main().getAttribute("aria-busy")).toBe("true");
+    await waitFor(() => expect(line()).toMatch(/^Loading rows \d/));
+    const first = Number((/\d[\d,]*/.exec(line())?.[0] ?? "0").replace(/,/g, ""));
+    expect(first).toBeGreaterThan(25_000);
+    // Landed: the rows drawn where the view is, and the line idle.
+    await act(async () => { far.release(); });
+    await settle();
+    await waitFor(() => expect(footerLine().hasAttribute("data-idle")).toBe(true), { timeout: 10_000 });
+    expect(Math.min(...ui.rows().map((row) => Number(row.querySelector('[data-slot="gutterNumber"]')!.textContent)))).toBeGreaterThan(25_000);
+    expect(main().getAttribute("aria-busy")).not.toBe("true");
+});
+
 test("another session's write while ⌘End's page is on its way keeps what the rows shown were read from: a gesture on them puts them back as they were, never as runs not read, while they are read again (#1398, CL10)", async () => {
     const ui = await setup();
     await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());

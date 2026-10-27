@@ -595,3 +595,40 @@ test("the loading line names the stretch the lens reads near the view — never 
     await act(async () => { end.release(); });
     await settle();
 });
+
+test("the view sent far over stretches the lens has not read waits for them from the scroll itself — main busy, the footer's line on its reveal clock, before the lens has heard where the view rests or asked a page there — and the line names them once asked, and goes as they land (#1398, CL3)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.ids()[0]).toBe("JOB-10000"));
+    await settle();
+    const footerLine = () => ui.container.querySelector<HTMLElement>('[data-frame-slot="footer"] [data-footer-line]')!;
+    const line = () => footerLine().querySelector("[data-line-text]")?.textContent ?? "";
+    expect(ui.main().getAttribute("aria-busy")).not.toBe("true");
+    // The record's far segments held on their way; the view goes three fifths down the narrowing's matches.
+    const far = h.e3.hold((request) => request.kind === "page" && request.dataset === ORDERS && Number(request.query.get("offset") ?? 0) >= 10_000);
+    const sent = h.requests("page", ORDERS).length;
+    const frame = ui.main().querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+    // The scroll and what it draws flushed at once, in one synchronous scope — no timer runs in it, so the view has not
+    // dwelt yet and the lens has not heard it.
+    act(() => {
+        frame.scrollTop = Math.round(frame.scrollHeight * 0.6);
+        frame.dispatchEvent(new Event("scroll"));
+    });
+    // The scroll's own report: the view over the band of the stretch there, no page of it asked yet — it waits for it
+    // already, main busy and the line's clock running from here, never once the lens has heard the view at rest.
+    expect(ui.main().querySelector('[data-slot="band"][data-band="reading"]')).not.toBeNull();
+    expect(h.requests("page", ORDERS).slice(sent)).toEqual([]);
+    expect(ui.main().getAttribute("aria-busy")).toBe("true");
+    // At rest: the lens reads there, and the line names the rows it reads.
+    await far.holding;
+    await settle();
+    expect(ui.main().getAttribute("aria-busy")).toBe("true");
+    await waitFor(() => expect(line()).toMatch(/^Loading rows \d/));
+    const first = Number((/\d[\d,]*/.exec(line())?.[0] ?? "0").replace(/,/g, ""));
+    expect(first).toBeGreaterThan(10_000);
+    // Landed: their rows drawn, the line idle and main no longer busy.
+    await act(async () => { far.release(); });
+    await settle();
+    await waitFor(() => expect(footerLine().hasAttribute("data-idle")).toBe(true), { timeout: 10_000 });
+    expect(ui.rows().length).toBeGreaterThan(0);
+    expect(ui.main().getAttribute("aria-busy")).not.toBe("true");
+});

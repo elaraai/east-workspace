@@ -2312,6 +2312,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const lensLoading = lens.loading;
     // The stretches the lens reads (#1398): what the line names and the runs it draws mark busy — never one it is not reading.
     const lensReading = lens.reading;
+    // Whether the view shows a stretch the lens has not read (#1398, CL3), as the frame's every report says — the scroll on
+    // its way, and at rest before the lens has heard it, too: the lens hears the view and reads there only once it rests,
+    // but the view waits for what it shows from the moment it shows it, so the line's reveal clock runs from then.
+    const [lensAwaits, setLensAwaits] = useState(false);
+    const lensAwaitsNow = useRef(false);
+    const lensAwaiting = lensDrawn && lensAwaits;
     const lensSourceError = lens.sourceError;
     const lensError = lens.error;
     // A source that failed before anything landed: nothing else to show (#853) — the pages', or the lens's
@@ -2328,9 +2334,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         if (reason !== undefined) return { kind: "failed", from: undefined, to: undefined, reason };
         if (standingIn) return { kind: "filtering" };
         if (lensDrawn) {
-            if (!lensLoading) return undefined;
+            if (!lensLoading && !lensAwaiting) return undefined;
             // The stretch the lens reads first — a jump's, else the nearest the view — never a band it is not reading: one far
-            // from the view, or one its placement has still to place.
+            // from the view, or one its placement has still to place; none named while the view waits for the lens to hear it.
             const bands = body.filter((it): it is Extract<SheetBodyItem, { kind: "band" }> => it.kind === "band");
             const at = lensReading.find((from) => bands.some((it) => it.band.from === from));
             const reading = at === undefined ? undefined : bands.find((it) => it.band.from === at);
@@ -2339,13 +2345,13 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         // A window the view shows, never one read ahead of it: nothing on screen waits for that.
         if (!paging.viewLoading) return undefined;
         return { kind: "loading", from: paging.reading?.from, to: paging.reading?.to };
-    }, [pagedSource, body, sourceFailure, lensDrawn, lensSourceError, pagesStandIn, lensError, paging.sourceError, standingIn, lensLoading, lensReading, paging.viewLoading, paging.reading]);
+    }, [pagedSource, body, sourceFailure, lensDrawn, lensSourceError, pagesStandIn, lensError, paging.sourceError, standingIn, lensLoading, lensAwaiting, lensReading, paging.viewLoading, paging.reading]);
     // Cold load (#1398, CL5): a paged source with nothing drawn yet and no failure to say — the frame's skeleton
     // covers it at the rows' pitch. After it, a read the view waits for leaves everything live and the grid busy: a
     // scroll far from the rows, every window it shows still on its way, draws the runs there and is never covered.
     const cold = pagedSource === undefined ? undefined
         : decodedRows === undefined && !lensDrawn && !pagesReady && !paging.landedOnce && !pagesStandIn && sourceFailure === undefined;
-    const busy = cold === false && (standingIn || (lensDrawn ? lensLoading : paging.viewLoading));
+    const busy = cold === false && (standingIn || (lensDrawn ? lensLoading || lensAwaiting : paging.viewLoading));
     const loadingFacts = useMemo<SheetLoadingFacts>(() => ({ cold, busy, pitch: rowPx }), [cold, busy, rowPx]);
 
     // ── The key search over a keyed paged source (§3.13) ──────────────────
@@ -2979,7 +2985,20 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         range: { startIndex: number; endIndex: number },
         isScrolling: boolean,
         center?: { index: number; withinPx: number },
+        shown?: { startIndex: number; endIndex: number },
     ) => {
+        // Under the lens, whether the items the view shows hold a stretch it has not read — said at once, from every
+        // report: the view waits for it from the moment it shows it (#1398, CL3).
+        let awaits = false;
+        if (lensDrawn) {
+            const lo = shown?.startIndex ?? range.startIndex;
+            const hi = shown?.endIndex ?? range.endIndex;
+            for (let i = lo; i <= hi && !awaits; i++) awaits = body[i]?.kind === "band";
+        }
+        if (awaits !== lensAwaitsNow.current) {
+            lensAwaitsNow.current = awaits;
+            setLensAwaits(awaits);
+        }
         if (lensDrawn) {
             // The record's rows the mounted items stand for, from the first's to the last's: the lens reads the segments they meet.
             let from: number | undefined;
