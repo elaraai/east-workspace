@@ -15,9 +15,13 @@
  * landing without the banner, Save commits it with everything else (R9, R11).
  * Stop ignores a late answer (R3); nothing to change and a failed call say so
  * (R10). What a run's request waits on is read in a component of its own
- * (#1343): over jobs read a window at a time, each of its reads landing — the
- * plan window's jobs, each job's row by its key — re-runs that reader alone,
- * never the canvas or the frame, which draw again as the eye can be used.
+ * (#1343): over jobs read a window at a time, the eye waits for the rows the
+ * canvas reads over its range, which hold each job's row, and reads none by
+ * its key — whatever the number of jobs in the window, it asks e3 for the
+ * windows alone (R24) — each of its reads landing re-running that reader
+ * alone, never the canvas or the frame, which draw again as the eye can be
+ * used; a rows' window that fails leaves the eye disabled, asking nothing
+ * again.
  */
 
 import { describe, expect, test } from "vitest";
@@ -30,6 +34,7 @@ import * as events from "@elaraai/e3-ui/examples/plan/plan-events";
 import * as opt from "@elaraai/e3-ui/examples/plan/optimise";
 import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
+import { MAX_RETAINED_WINDOWS } from "../platform/paged-runtime.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
 import { setPlanFrameRenderProbe } from "./frame/index.js";
 import { setPlanRootRenderProbe } from "./index.js";
@@ -259,49 +264,105 @@ const windowFrom = (day: Date) => (request: E3Request): boolean => {
     const first = request.searches[0];
     return first !== undefined && "from" in first && first.from?.at(-1) === maybeTime(some(day));
 };
-/** A job's row, read by its key. */
+/** A job's row, read by its key: the key sought among the record's own entries. */
 const jobByKey = (request: E3Request): boolean => request.kind === "find" && request.dataset === JOBS && request.query.get("index") === null
     && request.searches.some((search) => "key" in search);
+/** A job's row, read on its own: a one-row page of the record's own entries, at the row its key was found at. */
+const jobRowPage = (request: E3Request): boolean => request.kind === "page" && request.dataset === JOBS && request.query.get("index") === null
+    && request.query.get("limit") === "1";
+/** One job's row read by its key: its key sought, or its one-row page — each a request of its own, a job at a time. */
+const readsJobRow = (request: E3Request): boolean => jobByKey(request) || jobRowPage(request);
+/** A batch of the jobs' searches through their interval index: a window of them, read whole. */
+const windowSearches = (request: E3Request): boolean => request.kind === "find" && request.dataset === JOBS
+    && request.query.get("index") === events.planPrintJobsByTime.name;
+/** The requests made of the jobs' record since the request log held `from`. */
+const jobsSince = (from: number): E3Request[] => h.requests().slice(from).filter((request) => request.dataset === JOBS);
+/** The toolbar's step to the next day. */
+const nextDay = (c: HTMLElement) => toolbar(c).getByRole("button", { name: "Next day" });
 
 describe("what the eye waits on, read in a component of its own (#1343)", () => {
-    test("R24 — over jobs read a window at a time, what a run's request waits on lands in many settles — the plan window's jobs, then each job's row by its key — and each re-runs the eye's reader alone, never the canvas or the frame; the canvas draws again as the eye can be used", async () => {
+    test("R24 — over jobs read a window at a time, the eye waits for the rows the canvas reads over its range, which hold each job's row, and reads none by its key: its own reads landing re-run its reader alone, never the canvas or the frame, which draw again as the eye can be used", async () => {
         const { container } = await h.mount(windowed);
         await waitFor(() => expect(eye(container)!.disabled).toBe(false), { timeout: 10_000 });
         // The next day's reads: the rows' window over the range the canvas reads — the plan window and a day either
-        // side — held until the end; the eye's over the plan window, and each job's row by its key, let land in turn.
+        // side — held until the end, and the eye's count of the plan window's jobs, let land first; any job's row read
+        // by its key held, so one asked is counted rather than run on.
         const rowsWindow = h.e3.hold(windowFrom(new Date("2026-10-04T00:00:00Z")));
         const eyeWindow = h.e3.hold(windowFrom(new Date("2026-10-06T00:00:00Z")));
-        const byKey = h.e3.hold(jobByKey);
+        const jobRow = h.e3.hold(readsJobRow);
         let canvas = 0;
         let frame = 0;
         setPlanRootRenderProbe(() => { canvas += 1; });
         setPlanFrameRenderProbe(() => { frame += 1; });
         try {
-            await press(toolbar(container).getByRole("button", { name: "Next day" }));
-            expect([rowsWindow.held, eyeWindow.held, eye(container)!.disabled]).toEqual([1, 1, true]);
-            // The plan window's jobs land: the eye reads each one's row by its key, the rows' window still on its way.
+            await press(nextDay(container));
+            expect([rowsWindow.held, eyeWindow.held, jobRow.held, eye(container)!.disabled]).toEqual([1, 1, 0, true]);
+            // The plan window's jobs land: the eye waits on for the rows' window, reading no job's row by its key, and
+            // nothing else draws again.
             canvas = 0;
             frame = 0;
             await act(async () => { eyeWindow.release(); });
             await settle();
-            expect([canvas, frame, byKey.held, eye(container)!.disabled]).toEqual([0, 0, 1, true]);
-            // Each job's row landing re-runs the eye's reader alone: the eye still waits, and nothing else draws again.
-            for (let row = 1; row <= 3; row++) {
-                await act(async () => { byKey.releaseOne(); });
-                await settle();
-                expect([canvas, frame, byKey.held, eye(container)!.disabled], `job row ${row}`).toEqual([0, 0, 1, true]);
-            }
-            // The rows' window lands: every job's row is held, and the eye can be used — the canvas draws it so.
-            await act(async () => {
-                byKey.release();
-                rowsWindow.release();
-            });
+            expect([canvas, frame, jobRow.held, eye(container)!.disabled]).toEqual([0, 0, 0, true]);
+            // The rows' window lands: every job's row is held there, and the eye can be used — the canvas draws it so.
+            await act(async () => { rowsWindow.release(); });
             await settle();
-            expect(eye(container)!.disabled).toBe(false);
+            expect([eye(container)!.disabled, jobRow.held]).toEqual([false, 0]);
             expect(canvas).toBeGreaterThan(0);
         } finally {
             setPlanRootRenderProbe(undefined);
             setPlanFrameRenderProbe(undefined);
+        }
+    });
+
+    test("R24 — over more jobs in the plan window than the paging runtime keeps windows, with the rows' window held, the next day's reads ask e3 the two windows' searches and nothing of any one job, the eye disabled; once the window lands the eye can be used, and the request a click makes carries every job, reading none", async () => {
+        const { container } = await h.mount(windowed);
+        await waitFor(() => expect(eye(container)!.disabled).toBe(false), { timeout: 10_000 });
+        // Read a job at a time, past the windows the runtime keeps each row read evicted one read before it, which the
+        // next pass read again: the reads never settled while the rows' window was on its way. Any job's row read by its
+        // key is held, so one asked is counted rather than run on.
+        const rowsWindow = h.e3.hold(windowFrom(new Date("2026-10-04T00:00:00Z")));
+        const jobRow = h.e3.hold(readsJobRow);
+        const stepped = h.requests().length;
+        await press(nextDay(container));
+        const asked = jobsSince(stepped);
+        // The rows' window over the range the canvas reads, held, and the plan window's: bounded whatever the jobs.
+        expect([asked.filter(readsJobRow).length, jobRow.held, asked.filter(windowSearches).length, asked.length, rowsWindow.held, eye(container)!.disabled])
+            .toEqual([0, 0, 2, 2, 1, true]);
+        // The rows' window lands: each job's row is held there, and the eye can be used, nothing more asked.
+        const landing = h.requests().length;
+        await act(async () => { rowsWindow.release(); });
+        await settle();
+        expect([eye(container)!.disabled, jobsSince(landing).filter(readsJobRow).length]).toEqual([false, 0]);
+        // A click's request carries the plan window's jobs and the backlog — more than the windows the runtime keeps — each
+        // row read where the canvas read it: none by its key.
+        const call = calls.hold();
+        const clicked = h.requests().length;
+        await press(eye(container));
+        await call.holding;
+        const request = calls.requests()[0]!;
+        expect([request.events.job.size > MAX_RETAINED_WINDOWS, [...request.events.job.values()].filter((job) => job.start.type === "none").length,
+            jobsSince(clicked).filter(readsJobRow).length]).toEqual([true, 8, 0]);
+        call.release();
+        await waitFor(() => expect(eye(container)!.hasAttribute("data-running")).toBe(false), { timeout: 10_000 });
+    });
+
+    test("R24 — a rows' window that fails leaves the eye disabled and its reads settled: no job's row read by its key, nothing asked again, and the toolbar says the jobs could not be read", async () => {
+        const { container } = await h.mount(windowed);
+        await waitFor(() => expect(eye(container)!.disabled).toBe(false), { timeout: 10_000 });
+        const restore = h.e3.fail(windowFrom(new Date("2026-10-04T00:00:00Z")));
+        const jobRow = h.e3.hold(readsJobRow);
+        try {
+            const stepped = h.requests().length;
+            await press(nextDay(container));
+            expect([eye(container)!.disabled, jobRow.held, jobsSince(stepped).filter(readsJobRow).length]).toEqual([true, 0, 0]);
+            expect(slot(container, "toolbar").querySelector('[data-plan-diagnostics="source"]')?.textContent).toContain(JOBS);
+            // Nothing is asked again of the jobs while the window stands failed.
+            const settled = h.requests().length;
+            await settle();
+            expect([jobsSince(settled).length, eye(container)!.disabled]).toEqual([0, true]);
+        } finally {
+            restore();
         }
     });
 });
