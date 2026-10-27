@@ -1770,7 +1770,11 @@ once — a bar guesses which of its parts fit from the box its plot gives it
 (`size`), less what a bar the browser laid out showed its measure takes off
 its box (`chromeOf`), never the recipe's rule and padding repeated, so its
 measure keeps the guess — and a window read again draws none it holds as it
-was. It draws plain elements of its slots' classes (east-ui-components'
+was. A block is measured as the browser hands its box over, once it has laid
+the frame out — the views' one ResizeObserver (`BlockBoxes`), every fit a
+delivery moves applied in one render before the frame paints — never in the
+commit that mounts it, which forced the new blocks' style and layout before
+the frame laid them out. It draws plain elements of its slots' classes (east-ui-components'
 `useSlotClass`), never Chakra's styled elements, which work their styles out
 again at every element they draw: a glide mounts a thousand blocks. A row's
 plot draws its shading — its weekends, its hours off — once while its bands

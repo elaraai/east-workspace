@@ -45,7 +45,11 @@
  * as wide as all of them (`--calendar-column-at`), drawing those around the
  * view alone: no grid holds a track a column.
  */
-import { Fragment, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from "react";
+import {
+    Fragment, createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent,
+    type ReactNode, type RefObject,
+} from "react";
+import { flushSync } from "react-dom";
 import { Box, Button, chakra, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
@@ -676,6 +680,51 @@ function fitsIn(width: number, height: number, chip: boolean, along: "x" | "y", 
         time: height >= (inline ? 18 : 38) && lines.time + (inline ? lines.title + 38 : 0) <= width - (inline ? 0 : 28),
         resource: !inline && height >= 64 && width >= 80 && lines.resource <= width };
 }
+/**
+ * What the views' event blocks measure their fits by (#1398, CL9): one ResizeObserver for every block they draw, each
+ * block measured as the browser hands its box over — once it has laid the frame out, as the block mounts or as its words
+ * move, then as it resizes — so the commit that mounts a block forces no style or layout of its own; and every fit one
+ * delivery moves is applied in one render, before the frame paints.
+ */
+interface BlockBoxes {
+    /** Measures a block each time the browser hands its box over: from the next it hands over on. */
+    readonly observe: (element: Element, measure: () => void) => void;
+    /** Measures it no more. */
+    readonly unobserve: (element: Element) => void;
+}
+
+/**
+ * The views' {@link BlockBoxes}: the one observer made as the first block is measured, and let go with the views.
+ *
+ * @returns The boxes, and what lets them go
+ */
+function createBlockBoxes(): BlockBoxes & { readonly disconnect: () => void } {
+    const measures = new Map<Element, () => void>();
+    let observer: ResizeObserver | undefined;
+    return {
+        observe(element, measure) {
+            measures.set(element, measure);
+            observer ??= new ResizeObserver(entries => {
+                // Every fit this delivery moves, in one render before the frame paints.
+                flushSync(() => { for (const entry of entries) measures.get(entry.target)?.(); });
+            });
+            observer.observe(element);
+        },
+        unobserve(element) {
+            measures.delete(element);
+            observer?.unobserve(element);
+        },
+        disconnect() {
+            measures.clear();
+            observer?.disconnect();
+            observer = undefined;
+        },
+    };
+}
+
+/** The views' {@link BlockBoxes}, which their event blocks are measured by. */
+const BlockBoxesContext = createContext<BlockBoxes | undefined>(undefined);
+
 /** Whether two fits are the same. */
 function sameFits(a: EventFits, b: EventFits): boolean {
     return a.title === b.title && a.time === b.time && a.resource === b.resource && a.icon === b.icon && a.wrap === b.wrap && a.compact === b.compact;
@@ -734,10 +783,12 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
     const kind = facts.kind;
     const timeText = `${facts.continued ? "↳ " : ""}${format.time(start)}${item.end.type === "some" ? `–${format.time(item.end.value)}` : ""}`;
     const resourceText = facts.layout === "resources" ? kind?.name ?? item.kind : facts.resource;
-    // Measure whole secondary lines — again as they or the block's size move. Hidden measurement spans never change the
-    // event's geometry.
+    // Measure whole secondary lines — again as they or the block's size move — as the browser hands its box over, once it
+    // has laid the frame out (CL9): never in the commit that mounts it. Hidden measurement spans never change the event's
+    // geometry.
+    const boxes = useContext(BlockBoxesContext);
     useLayoutEffect(() => {
-        const element = block.current; if (element === null) return;
+        const element = block.current; if (element === null || boxes === undefined) return;
         const measure = () => {
             fitMeasureProbe?.(id);
             const width = element.clientWidth - 12, height = element.clientHeight;
@@ -748,8 +799,9 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
             });
             setFits(before => sameFits(before, next) ? before : next);
         };
-        measure(); const observer = new ResizeObserver(measure); observer.observe(element); return () => observer.disconnect();
-    }, [id, item.title, timeText, resourceText, along, chip, bar, styles]);
+        boxes.observe(element, measure);
+        return () => boxes.unobserve(element);
+    }, [boxes, id, item.title, timeText, resourceText, along, chip, bar, styles]);
     // The event a pick asks to be shown (#1398): drawn — as a timeline brings it into its view — it tells the frame.
     const { revealing, onRevealed } = facts;
     useLayoutEffect(() => { if (revealing && block.current !== null) onRevealed?.(block.current); }, [revealing, onRevealed]);
@@ -1806,10 +1858,12 @@ function AgendaCard({ props, item, day }: { props: CalendarViewsProps; item: Cal
         {props.commands !== undefined && <EventActions item={item} value={props.value} shown={props.shown} commands={props.commands} day={day} styles={props.styles} />}
     </Box>;
 }
-/** Calendar's main view; the narrow branch contains no drag hooks. */
+/** Calendar's main view; the narrow branch contains no drag hooks. Its event blocks are measured by one observer of its own. */
 export function CalendarViews(props: CalendarViewsProps) {
-    if (props.narrow) return <Agenda {...props} />;
-    if (props.view.layout === "timeline") return <Timeline {...props} />;
-    if (props.view.layout === "calendar" && props.view.period === "month") return <MonthGrid {...props} />;
-    return <TimeGrid {...props} />;
+    const [boxes] = useState(createBlockBoxes);
+    useEffect(() => () => boxes.disconnect(), [boxes]);
+    return <BlockBoxesContext.Provider value={boxes}>{props.narrow ? <Agenda {...props} />
+        : props.view.layout === "timeline" ? <Timeline {...props} />
+        : props.view.layout === "calendar" && props.view.period === "month" ? <MonthGrid {...props} />
+        : <TimeGrid {...props} />}</BlockBoxesContext.Provider>;
 }

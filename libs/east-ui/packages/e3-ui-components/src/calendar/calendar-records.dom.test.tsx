@@ -659,6 +659,9 @@ describe("the timeline draws only what moves (#1398, CL9)", () => {
             await scrollTo(timeline, timeline.scrollLeft + 400);
             const brought = [...drawnOf(timeline)].filter(id => !kept.has(id));
             expect(brought.length).toBeGreaterThan(0);
+            // Their boxes handed over, as the browser hands them over once it has laid the frame out: each measured, its
+            // measure keeping its guess.
+            await width(VIEW);
             const times = new Map<string, number>();
             for (const id of renders) times.set(id, (times.get(id) ?? 0) + 1);
             expect(brought.filter(id => times.get(id) !== 1)).toEqual([]);
