@@ -16,7 +16,7 @@
 export interface PlanAnchor {
     /** The first body item showing under the header (its `bodyItemKey`). */
     key: string;
-    /** How many px of it are scrolled past. */
+    /** How many px of it are scrolled past — over rows not read (`element`), how many px into the window it is in. */
     offset: number;
     /** Its body index — the clamped fallback when the key is gone. */
     index: number;
@@ -27,6 +27,12 @@ export interface PlanAnchor {
      *  that window; `null` for a row of no paged block, or an anchor saved
      *  before blocks paged apart (every block then opens there). */
     block: number | null;
+    /**
+     * Where the view rested over rows not read — a run, or a window whose read failed (#1398): the source element under
+     * its top, in `window`. A remount opens that window where it is and puts the view back `offset` px into it once it
+     * is in; the run's own key, its side alone, stands for other rows by then. Absent over a row.
+     */
+    element?: number | undefined;
 }
 
 /**
@@ -95,7 +101,9 @@ export function persistedOf(stored: unknown): PlanPersisted {
         && Number.isFinite(a.offset) && Number.isInteger(a.index)
         && (a.window === null || Number.isInteger(a.window))
         // Written before blocks paged apart, an anchor names none.
-        && (a.block === undefined || a.block === null || Number.isInteger(a.block));
+        && (a.block === undefined || a.block === null || Number.isInteger(a.block))
+        // Over rows not read, the element under the view's top (#1398); over a row, none.
+        && (a.element === undefined || (Number.isInteger(a.element) && a.element >= 0));
     const own = ownWindowOf(window);
     return {
         collapse: okCollapse ? collapse as Array<[string, boolean]> : [],
@@ -119,7 +127,8 @@ export const sameKey = (x: string, y: string): boolean => x === y;
 
 /** Two anchors are the same — `x` may be absent. */
 export const sameAnchor = (x: PlanAnchor | null, y: PlanAnchor): boolean => x !== null
-    && x.key === y.key && x.offset === y.offset && x.index === y.index && x.window === y.window && x.block === y.block;
+    && x.key === y.key && x.offset === y.offset && x.index === y.index && x.window === y.window && x.block === y.block
+    && x.element === y.element;
 
 /** Two of the canvas's own windows are the same — `x` may be absent. */
 export const sameOwnWindow = (x: PlanOwnWindow | undefined, y: PlanOwnWindow): boolean => x !== undefined

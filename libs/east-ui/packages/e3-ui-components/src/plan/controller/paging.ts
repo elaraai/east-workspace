@@ -150,7 +150,7 @@
 import { StringType, equalFor, equivalentFor } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import {
-    createTrackedRead, createLedger, observeWindow, offsetOfWindow, elementsIn,
+    createTrackedRead, createLedger, observeWindow, offsetOfWindow, elementAtOffset, elementsIn,
     type WindowLedger, NO_RESIDENCY, DEFAULT_RESIDENCY, isEmpty, residentWindows, unpinAll,
     snapshotOf, type Residency, type ResidencyOptions,
 } from "@elaraai/east-ui-components/internal";
@@ -306,6 +306,19 @@ export interface PlanRowPlace {
     px: number;
 }
 
+/**
+ * Where a view resting over rows not read rests (#1398) — over one of a
+ * block's bands, or a failed window's: the source element under its top, and
+ * how many px into that element's window it is, by the ledger's geometry. What
+ * a remount opens at, and puts the view back on.
+ */
+export interface PlanUnreadPlace {
+    /** The element under the view's top. */
+    element: number;
+    /** Px from the top of the element's window to the view's top. */
+    px: number;
+}
+
 /** Options for {@link createPagingDriver}. */
 export interface PagingDriverOptions {
     /** One block's rows from one landed window, as the heights need them — its
@@ -380,6 +393,12 @@ export interface PagingDriver {
      *  into a landed one past a window still in flight, #876). `undefined`
      *  for a row never seen, or one whose window is in its block's run. */
     placeOf(key: RowKey): PlanRowPlace | undefined;
+    /**
+     * Where a view whose top is `px` into a band of rows not read rests (#1398): one of a block's bands, or a failed
+     * window's, as drawn — by the elements it stands for, never the run the driver has moved on to since. `undefined`
+     * for a block the driver does not page, or before its ledger knows a window.
+     */
+    unreadPlace(band: Pick<PlanBand, "block" | "from" | "to">, px: number): PlanUnreadPlace | undefined;
     /** Which block and window a row was last seen in, resident or evicted —
      *  what a request to bring it into view opens (#824). `undefined` for a
      *  row no window has shown. */
@@ -1331,6 +1350,16 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 return { block: o.block, at: "tail", px: offsetOfWindow(lane.ledger, o.w) - offsetOfWindow(lane.ledger, to + 1) };
             }
             return undefined;
+        },
+        unreadPlace(band, px) {
+            const ledger = lanes.get(band.block)?.ledger;
+            if (ledger === undefined || ledger.windows === 0) return undefined;
+            // A band's top is where its first element's window starts — the head band's the rows' own top, the tail's
+            // where the run it was drawn beside ends, a failed window's its slot (`bandsAround`, `failedSpan`) — and the
+            // element `px` below it one of its own, however far a failed band's floored height reaches past its slot.
+            const at = offsetOfWindow(ledger, Math.floor(band.from / PLAN_PAGE_SIZE)) + Math.max(0, px);
+            const element = Math.min(band.to, Math.max(band.from, elementAtOffset(ledger, at)));
+            return { element, px: at - offsetOfWindow(ledger, Math.floor(element / PLAN_PAGE_SIZE)) };
         },
         seenAt: (key) => located.get(key),
         jumping: () => pinnedWindows().length > 0,

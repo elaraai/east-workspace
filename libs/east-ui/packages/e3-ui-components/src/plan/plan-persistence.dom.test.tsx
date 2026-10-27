@@ -15,7 +15,7 @@
  */
 
 import { useLayoutEffect } from "react";
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, fireEvent, waitFor, screen, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { none, some, variant } from "@elaraai/east";
@@ -292,6 +292,95 @@ describe("Plan UI state survives a remount (#813)", () => {
         // rows that have not landed are kept for when they do.
         expect(storedAt("plan-813-paged").collapse).toEqual([[rowKey("u1900"), true]]);
         expect(storedAt("plan-813-paged").charts).toEqual([rowKey("u1999")]);
+    });
+
+    describe("a view resting over rows not read is kept by the element under its top (#1398)", () => {
+        /**
+         * Two thousand rows of 32px, two hundred a window: those in `held` stay on their way, and those in `failing`
+         * fail, until the test lets them go.
+         */
+        function unreadSource(id: string) {
+            const held = new Set<number>();
+            const failing = new Set<number>();
+            const source = {
+                id,
+                page: (offset: bigint) => {
+                    const from = Number(offset);
+                    const w = from / 200;
+                    if (failing.has(w)) throw new Error("gateway timeout");
+                    if (held.has(w)) return none;
+                    return some(Array.from({ length: Math.max(0, Math.min(200, 2_000 - from)) }, (_u, i) => planRow(`u${pad(from + i, 4)}`, span())));
+                },
+                total: () => some(2_000n),
+                seek: none,
+                revision: () => none,
+                refresh: () => null,
+            };
+            return { source, held, failing };
+        }
+        /** The canvas, its rows read down to u1599, the view a row of them: the run past them stands for u1600 on. */
+        async function readTo1600(source: unknown, key: string) {
+            const first = renderPlan(planRoot([], { source }), key);
+            await waitFor(() => expect(first.container.querySelector(rowSel("u0000"))).toBeTruthy());
+            await scrollAndSettle(first.container, 1_000 * 32);
+            await waitFor(() => expect(first.container.querySelector(rowSel("u1000"))).toBeTruthy());
+            return first;
+        }
+
+        test("over a run: a remount opens the window of the element under the view's top and puts the view back on it — never as many px into the run on that side of the rows it opens on", async () => {
+            const { source, held } = unreadSource("dom-1398-run");
+            const first = await readTo1600(source, "plan-1398-run");
+            // On to u1850, its windows on their way: the view rests over the run, two hundred and fifty rows into it.
+            held.add(8);
+            held.add(9);
+            await scrollAndSettle(first.container, 1_850 * 32);
+            expect(first.container.querySelector(rowSel("u1850"))).toBeNull();
+            expect(storedAt("plan-1398-run").anchor?.key).toBe("b:0:tail");
+            first.unmount();
+            // Every window there to be had again: the remount opens at u1850's window, and the view is on u1850 — not
+            // two hundred and fifty rows into the run that stands, as it opens, for u0600 on.
+            held.clear();
+            const second = renderPlan(planRoot([], { source }), "plan-1398-run");
+            await waitFor(() => expect(second.container.querySelector(rowSel("u1850"))).toBeTruthy(), { timeout: 5_000 });
+            await waitFor(() => expect(frameOf(second.container).scrollTop).toBe(1_850 * 32));
+            expect(second.container.querySelector(rowSel("u0850"))).toBeNull();
+        });
+
+        test("over a run whose windows land as the view comes to rest there: the place is the run's as drawn, never the run the windows landing move on to", async () => {
+            const { source } = unreadSource("dom-1398-landing");
+            const first = await readTo1600(source, "plan-1398-landing");
+            // On to u1850: the view rests over the run, and its rest reads the windows there, which land at once.
+            await scrollAndSettle(first.container, 1_850 * 32);
+            expect(storedAt("plan-1398-landing").anchor?.key).toBe("b:0:tail");
+            await waitFor(() => expect(first.container.querySelector(rowSel("u1850"))).toBeTruthy());
+            first.unmount();
+            const second = renderPlan(planRoot([], { source }), "plan-1398-landing");
+            await waitFor(() => expect(second.container.querySelector(rowSel("u1850"))).toBeTruthy(), { timeout: 5_000 });
+            await waitFor(() => expect(frameOf(second.container).scrollTop).toBe(1_850 * 32));
+        });
+
+        test("over a window whose read failed: a remount reads that window and puts the view back the same px into its rows", async () => {
+            const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+            try {
+                const { source, failing } = unreadSource("dom-1398-failed");
+                failing.add(9);
+                const first = await readTo1600(source, "plan-1398-failed");
+                // On to u1650: its window lands, and the one read ahead past it fails — its band where its rows would be.
+                await scrollAndSettle(first.container, 1_650 * 32);
+                // Down onto that band: the view rests over it, fifty rows into it.
+                await scrollAndSettle(first.container, 1_850 * 32);
+                await waitFor(() => expect(first.container.querySelector('[data-plan-failed="9"]')).toBeTruthy());
+                expect(storedAt("plan-1398-failed").anchor?.key).toBe("f:0:9");
+                first.unmount();
+                // The window reads again: the view is on u1850.
+                failing.clear();
+                const second = renderPlan(planRoot([], { source }), "plan-1398-failed");
+                await waitFor(() => expect(second.container.querySelector(rowSel("u1850"))).toBeTruthy(), { timeout: 5_000 });
+                await waitFor(() => expect(frameOf(second.container).scrollTop).toBe(1_850 * 32));
+            } finally {
+                logged.mockRestore();
+            }
+        });
     });
 });
 

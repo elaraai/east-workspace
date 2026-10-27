@@ -66,6 +66,16 @@
  * last result's place: the driver is told of it only where nothing scrolls the
  * view, so no window of the new result is read for it.
  *
+ * # A place over rows not read is kept by its element (#1398)
+ *
+ * A view that rests over rows not read — a run, or a window whose read failed
+ * — is saved by the source element under its top and the px into that
+ * element's window (the paging driver's `unreadPlace`), never by the run's key,
+ * which names only its side: the run a remount draws on that side stands for
+ * other rows. A remount opens that window where it is (`openAt`), as it opens
+ * the window of a row it has not read, and puts the view back as many px into
+ * the window once it is in — its rows, or its failure's band.
+ *
  * @packageDocumentation
  */
 
@@ -1234,6 +1244,40 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     return;
                 }
                 if (items.length === 0) return;
+                if (saved.element !== undefined && value !== undefined && value.rows.type !== "inline") {
+                    // The view rested over rows not read (#1398): its element's window opened where it is — a rebase,
+                    // not a walk — and the view put back as many px into that window once it is in, as its rows or as
+                    // its failure's band. Never the saved key: the run on that side stands for other rows now.
+                    const block = saved.block ?? undefined;
+                    if (anchor.phase === "pending") {
+                        anchor = { ...anchor, phase: "seeking" };
+                        paging.openAt(saved.element, block);
+                        return;
+                    }
+                    const snap = paging.getSnapshot();
+                    const windows = snap.total !== undefined ? Math.ceil(snap.total / PLAN_PAGE_SIZE) : 0;
+                    // An element past the end — saved against a longer source — is in the last window, as `openAt` reads it.
+                    const savedW = Math.floor(saved.element / PLAN_PAGE_SIZE);
+                    const w = windows > 0 ? Math.min(savedW, windows - 1) : savedW;
+                    const ours = (b: number) => block === undefined || b === block;
+                    const first = items.findIndex((it) => {
+                        if (it.kind === "failed") return it.failure.w === w && ours(it.failure.block);
+                        if (it.kind !== "row") return false;
+                        const o = snap.origin.get(it.row.row.key);
+                        return o !== undefined && o.w === w && ours(o.block);
+                    });
+                    // On its way still; once the jump has settled without an item of the window — its rows all folded
+                    // away — the clamped index, as for a row gone.
+                    if (first < 0 && paging.jumping()) return;
+                    anchor = {
+                        ...anchor,
+                        phase: "settled",
+                        restore: first >= 0
+                            ? { index: first, offset: w === savedW ? saved.offset : 0 }
+                            : { index: Math.min(saved.index, items.length - 1), offset: 0 },
+                    };
+                    return;
+                }
                 const at = items.findIndex((it) => bodyItemKey(it) === saved.key);
                 if (at < 0 && value !== undefined && value.rows.type !== "inline" && saved.window !== null) {
                     // A paged canvas may simply not have loaded the row yet:
@@ -1266,14 +1310,29 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             if (anchor.phase !== "settled") return;
             const item = items[at.index];
             if (item === undefined) return;
+            // Over rows not read — a run, or a failed window's band (#1398) — the element under the view's top, and the
+            // px into its window: a run's key names only its side, which stands for other rows by the time a remount
+            // draws it, and a failed band's names a window that may read by then. The band as these items drew it: the
+            // view's own report at the same rest may have moved the driver's run on already.
+            const band = item.kind === "band" ? item.band : item.kind === "failed" ? item.failure : undefined;
+            const unread = band === undefined ? undefined : paging.unreadPlace(band, at.offset);
             const origin = item.kind === "row" ? paging.getSnapshot().origin.get(item.row.row.key) : undefined;
-            const next: PlanAnchor = {
-                key: bodyItemKey(item),
-                offset: at.offset,
-                index: at.index,
-                window: origin?.w ?? null,
-                block: origin?.block ?? null,
-            };
+            const next: PlanAnchor = band !== undefined && unread !== undefined
+                ? {
+                    key: bodyItemKey(item),
+                    offset: unread.px,
+                    index: at.index,
+                    window: Math.floor(unread.element / PLAN_PAGE_SIZE),
+                    block: band.block,
+                    element: unread.element,
+                }
+                : {
+                    key: bodyItemKey(item),
+                    offset: at.offset,
+                    index: at.index,
+                    window: origin?.w ?? null,
+                    block: origin?.block ?? null,
+                };
             if (sameAnchor(persisted.anchor, next)) return;
             persisted = { ...persisted, anchor: next };
             options.persist?.(persisted);
