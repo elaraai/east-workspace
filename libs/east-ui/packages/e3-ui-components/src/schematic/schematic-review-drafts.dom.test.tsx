@@ -167,3 +167,47 @@ test("a rack a draft unplaced is the Backlog's wherever the view goes, until Sav
     expect(unsaved(container)).toBe(true);
     expect(backlogKeys(container)).toEqual([rack("A01"), rack("A06"), rack("A07")]);
 });
+
+/** Opens a tab of the library, by its name. */
+async function openTab(c: HTMLElement, name: string) {
+    const found = [...slot(c, "start").querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === name || t.textContent?.startsWith(`${name} `));
+    if (found === undefined) throw new Error(`no library tab ${name}`);
+    await act(async () => { fireEvent.click(found); });
+    await settle();
+}
+
+/** The Index's rows as a reader meets them: each indented by its level, its name, its open mark and its count. */
+const indexRows = (c: HTMLElement) => [...panel(c).querySelectorAll<HTMLElement>('[role="treeitem"]')].map((row) => {
+    const pad = "  ".repeat(Number(row.getAttribute("aria-level")) - 1);
+    const expanded = row.getAttribute("aria-expanded");
+    const count = row.querySelector("[data-index-count]")?.textContent;
+    return `${pad}${row.querySelector("[data-index-name]")!.textContent}${expanded === "true" ? " ▾" : expanded === "false" ? " ▸" : ""}${count === undefined ? "" : ` ${count}`}`;
+});
+
+/** Opens an Index zone's row by its chevron. */
+async function openZone(c: HTMLElement, name: string) {
+    const row = [...panel(c).querySelectorAll<HTMLElement>('[role="treeitem"]')].find((r) => r.querySelector("[data-index-name]")!.textContent === name)!;
+    await act(async () => { fireEvent.click(row.querySelector("button")!); });
+    await settle();
+}
+
+test("the Index lists a rack read by area where its draft has it, as it lists the drafted rows of a kind read whole", async () => {
+    const { container } = await open();
+    const canvas = canvasOf(container);
+    // A01 moved out of Cage A into the Network room: a draft.
+    await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("radio", { name: "Move" })); });
+    await act(async () => {
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, 2.4, 2.9) });
+        fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, 23.0, 9.6) });
+        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, ...at(CAM, 23.0, 9.6) });
+    });
+    await settle();
+    expect(unsaved(container)).toBe(true);
+    // Cage A and the Network room opened: Cage A holds A02 to A05, and the Network room A01, as the canvas draws them.
+    await openTab(container, "Index");
+    await openZone(container, "Cage A");
+    await openZone(container, "Network room");
+    await waitFor(() => expect(indexRows(container)).toEqual([
+        "Cage A ▾ 4", "  A02", "  A03", "  A04", "  A05", "Cold aisle A · 1.2 m ▸", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▾ 1", "  A01",
+    ]), { timeout: 5_000 });
+});
