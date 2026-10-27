@@ -8,11 +8,13 @@
  * across a step — never back to half past five — and across a remount, and
  * Today brings the now line into view; each key the Calendar acts on goes no
  * further than it; Search Records seeks the events' record by its keys through
- * e3, an event on screen selected where it is and a far one's period stepped
- * to, the event selected and drawn there, and a pick hands the keyboard to the
- * event where its ring is drawn — a step leaves it in the box. jsdom lays
- * nothing out: a view has no height, so the now line Today brings in sits at
- * its top, and a month's cells are given room for their chips.
+ * e3 — its box saying so, `Search events by key`, and a query no key matches
+ * saying to search by one — an event on screen selected where it is and a far
+ * one's period stepped to, the event selected and drawn there, and a pick hands
+ * the keyboard to the event where its ring is drawn — a step leaves it in the
+ * box. jsdom lays nothing out: a view has no height, so the now line Today
+ * brings in sits at its top, and a month's cells are given room for their
+ * chips.
  */
 import { expect, test, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -149,6 +151,16 @@ test("Search Records seeks the events' record by key through e3: one on screen i
     await waitFor(() => expect(document.activeElement).toBe(event(container, "job", "production-10001")));
     // Nothing read the record whole.
     expect(h.requests("read", EVENTS)).toEqual([]);
+});
+
+test("Search Records says what it searches — its box `Search events by key` — and a title typed, which no event's key matches, says so and to search by an event's key (#1398)", async () => {
+    const { container } = await open(records.calendarRecordIndexes);
+    await waitFor(() => expect(event(container, "job", "job")).not.toBeNull());
+    await settle();
+    expect(searchBox(container).querySelector("input")!.placeholder).toBe("Search events by key");
+    // The brochures' title, as the grid draws it: no event's key.
+    await typeIntoSearch(container, "October");
+    await waitFor(() => expect(within(document.body).getByText("No matching events. Search by an event's key.")).toBeTruthy(), { timeout: 5_000 });
 });
 
 /** Clears Search Records' box. */

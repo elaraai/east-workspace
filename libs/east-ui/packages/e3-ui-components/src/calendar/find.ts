@@ -53,6 +53,7 @@ import {
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleEditing, type ScheduleHeldRows } from "../shared/schedule/editing.js";
 import { hiddenByText, hidingWords, type HiddenAnswer, type HidingWords } from "../shared/schedule/hidden.js";
 import { hiddenVersion, type HiddenEvents, type KindHidden, type ResourceHidden } from "./hidden.js";
+import type { CalendarWords } from "./messages.js";
 import type { CalendarEventPart } from "./window.js";
 import type { CalendarItem, CalendarKind, CalendarRange, CalendarResource } from "./model.js";
 
@@ -234,8 +235,8 @@ export interface CalendarFindProps {
     readonly editing: ScheduleEditing | undefined;
     /** The window the Calendar shows: what an event is read over, by key past it. */
     readonly range: CalendarRange;
-    /** The app's formatters, which word a choice as the rail does. */
-    readonly format: Formatters;
+    /** The Calendar's words: the app's formatters, which word a choice as the rail does, and its message table — what the box says. */
+    readonly format: CalendarWords;
     /** Told the event a pick lands on. */
     readonly onPick: (found: FoundEvent) => void;
     /** The rows a kind read by its cells holds (#1424): a found event of such a kind is read from them, else by its key — never over the window. */
@@ -376,8 +377,10 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
     const laid = useRef({ lays: laysResources, moves: 0 });
     if (laid.current.lays !== laysResources) laid.current = { lays: laysResources, moves: laid.current.moves + 1 };
     const relist = hiddenVersion(hidden) + laid.current.moves;
+    // Where no key matches, the box says it finds an event by its key — never by its title, which the views draw.
+    const noMatches = format.m.keySearchNoMatches();
     return useMemo(() => (any ? { resetKey: "calendar", requery, relist, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY,
-        noMatchesText: "No matching events. Search by an event's key." } : undefined), [any, requery, relist, find, listRange, jump, clear]);
+        noMatchesText: noMatches } : undefined), [any, requery, relist, find, listRange, jump, clear, noMatches]);
 }
 
 /** A record's revision, as a token: `-` while it is not yet known. */

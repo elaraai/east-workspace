@@ -15,7 +15,9 @@
  * step to a period not read yet draws that period's grid at once — never the
  * old period's events under its labels — its regions washed and its counts
  * placeholders; one whose read failed keeps its grid and says so once (CL11).
- * Its Search Records seeks each event kind's record by key (`find.ts`): a pick
+ * Its Search Records seeks each event kind's record by key (`find.ts`), and its
+ * box says so — `Search events by key`, the Calendar's message table's
+ * (`messages.ts`) — as the views name an event by its title: a pick
  * steps to its event's period, selects it and brings it into view, and hands it
  * the keyboard where its ring is drawn once the window it is drawn in has landed
  * (`event-focus.ts`); a step through the matches leaves the keyboard in the box.
@@ -82,7 +84,7 @@ import { SortedMap, StringType, compareFor, equalFor, none, some } from "@elaraa
 import { CalendarComponent } from "@elaraai/e3-ui/internal";
 import type { RecordTile } from "@elaraai/east-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useFormatters,
+    BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useFormatters,
     usePersistedState, useLanding, useLandingStyles, useTrackedEvaluation, type Formatters,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, PAGED_LIBRARY_PAGE, usePickHandOff } from "@elaraai/east-ui-components/internal";
@@ -109,6 +111,7 @@ import { HideEvents, type CalendarResourcePart, type HiddenEvents } from "./hidd
 import { CalendarPagesReader, createPagedDemand, type CalendarPages } from "./pages.js";
 import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type CalendarSelection } from "./inspector.js";
 import { calendarLibraryId, templatesTab, useCalendarLibrary } from "./library.js";
+import { calendarMessages, type CalendarWords } from "./messages.js";
 import {
     calendarOptimiseRequest, calendarOptimiseTypes, landCalendarOptimise, lockCalendarCommands,
     type CalendarOptimiseRequest, type CalendarOptimiseResult, type CalendarOptimised,
@@ -311,7 +314,8 @@ function CalendarFrame(props: HostProps) {
     }, [visibleDays]);
     const recipe = useSlotRecipe({ key: "calendar" });
     const styles = useMemo(() => recipe({}) as unknown as CalendarStyles, [recipe]);
-    const format = useFormatters(); const words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
+    // The Calendar's words: its message table — the editing session's, and what Search Records searches — and the app's formatters.
+    const format = useFormatters(); const words = useMemo((): CalendarWords => ({ ...format, m: calendarMessages }), [format]);
     const root = useRef<HTMLDivElement>(null);
     const main = useRef<HTMLDivElement>(null);
     const narrow = useContainerBelow(main, NARROW_WIDTH);
@@ -580,7 +584,7 @@ function CalendarFrame(props: HostProps) {
         setReveal(ref);
         setPickLanding(eventKey(ref));
     };
-    const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format, onPick: found, held: cellRows, hidden: hiddenEvents,
+    const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format: words, onPick: found, held: cellRows, hidden: hiddenEvents,
         laysResources });
     const search = useMemo(() => (finder === undefined ? undefined : handOff.search(finder)), [finder, handOff]);
     useEffect(() => {

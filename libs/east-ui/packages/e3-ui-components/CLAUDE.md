@@ -414,10 +414,12 @@ rows of, and the Filters editor counts each source in its heading (#1358).
 Search Records remains primary-key navigation, not Slice field search: the
 Sheet's and the Plan's over their sources' keys, the Roster's over its staff,
 the Calendar's over each event kind's record and the Allocation's over its
-bins' (each one's `find.ts`, #1398, CL10) — whose keys the board draws only in
-a bin's Details, so its box says what it searches (`Search bins by key`) and,
-where nothing matches, where a bin's key is. It lists the rows a query finds
-wherever they are — read through the source by their place, never only what is
+bins' (each one's `find.ts`, #1398, CL10). The Allocation's board draws a
+bin's key only in its Details, and the Calendar's views name an event by its
+title, so each box says what it searches — `Search bins by key`, `Search
+events by key`, each builder's message table (`messages.ts`) — and, where
+nothing matches, where a bin's key is, or to search by an event's key. It
+lists the rows a query finds wherever they are — read through the source by their place, never only what is
 drawn. The Sheet's names the choices of its `rows` source that hide it,
 as the rail words them — `· hidden by Status: Ready — picking it clears that
 filter` — asked of e3 through the record's indexes (the hidden pick,

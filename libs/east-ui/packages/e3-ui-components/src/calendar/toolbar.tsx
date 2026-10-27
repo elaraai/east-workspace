@@ -26,6 +26,7 @@ import { eventsNotCounted } from "../shared/schedule/words.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { scheduleOverlapsIn, type ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import type { CalendarCommands } from "./actions.js";
+import type { CalendarWords } from "./messages.js";
 import type { CalendarEventPart } from "./window.js";
 import { coversShown, useShownOverlaps, useVisibleDays, type VisibleDaysStore } from "./visible.js";
 import {
@@ -41,7 +42,8 @@ interface ToolbarArgs {
     /** The kinds past the cap (#1424): the count counts none of their events, and says so. */
     uncounted: CalendarUncounted;
     styles: CalendarStyles; commands: CalendarCommands | undefined;
-    words: EditingWords; overlaps: ScheduleOverlaps<CalendarItem>; select: (refs: CalendarRef[]) => void;
+    /** The Calendar's words: its message table — the history's, and what Search Records searches — and the app's formatters. */
+    words: CalendarWords; overlaps: ScheduleOverlaps<CalendarItem>; select: (refs: CalendarRef[]) => void;
     /** Whether an overlap shows: among what is drawn — on the timeline, in the days it shows (`useOverlapsShown`). */
     overlapsShown: boolean;
     onAction: (action: HistoryAction) => void; paged: boolean;
@@ -136,10 +138,11 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         : lead.part.config.fields.find(field => lead.part.config.range.type === "some" && field.fieldId === lead.part.config.range.value);
     const rangeEditor = lead !== undefined && leadField !== undefined ? <RecordSliceFieldEditor slice={lead.part} field={leadField} source={lead.kind.key} /> : undefined;
     const chip = useRecipe({ key: "chip" });
-    // Search Records (#1398): primary-key navigation over every event kind's record, at the row's end. Its box is the first
-    // thing the row folds, to its icon, before the rail and the period's steps (ruled 25 Oct 2026); at the row's last step
-    // it goes into the View, beside the date and the view controls.
-    const seek = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK });
+    // Search Records (#1398): primary-key navigation over every event kind's record, at the row's end, saying what it
+    // searches — `Search events by key` — as the views name an event by its title. Its box is the first thing the row
+    // folds, to its icon, before the rail and the period's steps (ruled 25 Oct 2026); at the row's last step it goes into
+    // the View, beside the date and the view controls.
+    const seek = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK, label: words.m.keySearch() });
     const period = view.layout === "resources" ? "day" : view.period;
     // A step from where the view is: the timeline's, the day under its centre as it is when the step is asked.
     const move = (step: number) => args.onNavigate(navigate({ ...view, date: args.visible?.get()?.center ?? args.navigationDate }, step).date);
