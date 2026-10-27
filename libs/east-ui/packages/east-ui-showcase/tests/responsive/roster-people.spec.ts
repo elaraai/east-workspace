@@ -55,6 +55,41 @@ const rowHeights = (frame: Locator) => frame.locator("[data-roster-person-row]")
 const rowLabels = (row: Locator) => row.locator("[data-roster-person-day]").evaluateAll(cells => cells.map(c => c.querySelector("[data-roster-tile]:not([data-removed]) [data-roster-assignment-name]")?.textContent ?? null));
 /** The shifts' colour tokens, as the warehouse seeds them (teal 300, orange 300, purple 700), and the ink each shade takes. */
 const SHIFTS = [["Early", "teal-300", "gray-900"], ["Late", "orange-300", "gray-900"], ["Night", "purple-700", "white"]] as const;
+/**
+ * What a header draws of its words that is cut or crowded (the hand retest, R3): each element's words — its own text,
+ * whole, when it is not hidden and is laid out — cut by a box of the header that clips them, or, as far as they show,
+ * on a line with another's closer than a pixel. Measured from the words' own box, so an ellipsis is a cut.
+ */
+const headerFaults = (header: Locator) => header.evaluate((root) => {
+    const faults: string[] = [];
+    const shown: { text: string; left: number; right: number; top: number; bottom: number }[] = [];
+    for (const el of [root, ...root.querySelectorAll("*")]) {
+        const texts = [...el.childNodes].filter((node) => node.nodeType === Node.TEXT_NODE && (node.textContent ?? "").trim() !== "");
+        if (texts.length === 0 || getComputedStyle(el).visibility !== "visible") continue;
+        const range = document.createRange();
+        range.setStartBefore(texts[0]!);
+        range.setEndAfter(texts[texts.length - 1]!);
+        const box = range.getBoundingClientRect();
+        if (box.width === 0) continue;
+        const text = texts.map((node) => node.textContent ?? "").join("").trim();
+        let left = box.left, right = box.right, cut = false;
+        for (let clip: Element | null = el; clip !== null && clip !== root.parentElement; clip = clip.parentElement) {
+            if (getComputedStyle(clip).overflowX === "visible") continue;
+            const edge = clip.getBoundingClientRect();
+            if (box.left < edge.left - 0.5 || box.right > edge.right + 0.5) cut = true;
+            left = Math.max(left, edge.left);
+            right = Math.min(right, edge.right);
+        }
+        if (cut) faults.push(`"${text}" is cut`);
+        if (right > left) shown.push({ text, left, right, top: box.top, bottom: box.bottom });
+    }
+    for (let i = 0; i < shown.length; i++) for (let j = i + 1; j < shown.length; j++) {
+        const a = shown[i]!, b = shown[j]!;
+        if (a.top >= b.bottom || b.top >= a.bottom) continue;
+        if (Math.max(a.left, b.left) - Math.min(a.right, b.right) < 1) faults.push(`"${a.text}" touches "${b.text}"`);
+    }
+    return faults;
+});
 
 for (const theme of ["light", "dark"] as const) {
     test(`People week and month fit 1440/1024/768/390/360 and a 294px parent: a row one line at the density's pitch, a 36px header, seven marks a cell lettered by the 13px rule, and the phone's cards by week alone (${theme}) @narrow`, async ({ page }) => {
@@ -101,6 +136,27 @@ for (const theme of ["light", "dark"] as const) {
                     await expect(frame.locator("[data-roster-week-hours]")).toHaveCount(0);
                 }
             }
+        }
+    });
+    test(`the month's header and the week's hold every word whole at 1440/1024/768/390/360 and a 294px parent: no week label, day letter or day number cut or touching another — a day's number only where it fits its day, a week's label dropping its month name first (retest R3) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        for (const name of ["rosterPeopleMonth", "rosterPeople"] as const) {
+            const entry = await open(page, name, theme), frame = entry.locator("[data-roster-frame]").first();
+            const header = frame.locator(name === "rosterPeopleMonth" ? "[data-roster-month-head]" : "[data-roster-people-head]");
+            let measured = 0;
+            for (const width of [1440, 1024, 768, 390, 360, 294]) {
+                await size(page, entry, width);
+                // A phone's People is its cards, by week alone: no header to measure.
+                if (await header.count() === 0) continue;
+                measured += 1;
+                expect(await headerFaults(header), `${name} ${width}px`).toEqual([]);
+                if (name === "rosterPeopleMonth") {
+                    // Every week keeps its number whole, whatever else its label drops.
+                    const labels = await header.locator("[data-roster-week-column]").evaluateAll(els => els.map(el => el.textContent ?? ""));
+                    expect(labels.every(label => /W\d+/.test(label)), `${name} ${width}px week numbers`).toBe(true);
+                }
+            }
+            expect(measured, `${name}: a width with its header`).toBeGreaterThan(0);
         }
     });
     test(`tiles take the shifts' colour tokens, their words in the ink the shade takes — the same in both themes (D6, P7) (${theme}) @desktop`, async ({ page }) => {
