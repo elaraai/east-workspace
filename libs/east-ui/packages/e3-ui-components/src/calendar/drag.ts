@@ -6,7 +6,7 @@
 /** Calendar's adaptation of the shared drag grammar to Schedule commands. */
 import { useCallback, useMemo, useRef, type MutableRefObject } from "react";
 import { none, some } from "@elaraai/east";
-import { dropEvent, useDragTarget, type CellCoord, type DragEventValue, type DragPayload } from "@elaraai/east-ui-components";
+import { dropEvent, useDragTarget, useFormatters, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import { initialPlacement, type CalendarCommands, type CalendarPlacement, type CalendarSource } from "./actions.js";
 import { moveSpan, resizeSpan } from "../shared/time/drag.js";
 import { timeScale } from "../shared/time/scale.js";
@@ -23,6 +23,7 @@ export interface CalendarDrag {
     enabled: boolean;
     run: (event: DragEventValue, checkOnly: boolean) => string | undefined;
     preview: (coord: CellCoord, payload: DragPayload) => CalendarPlacement | undefined;
+    /** A drag's words where it rests: why a drop there is refused, if it is, the event's name, and the instant it lands at in the locale's date and time. */
     caption: (coord: CellCoord, payload: DragPayload, allowed: boolean) => string;
     create: (start: Date, end: Date, resource: CalendarItem["resource"]) => void;
 }
@@ -48,8 +49,10 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
         grabbed.current = { id: eventKey(item), offset: item.start.type === "some" ? instant.getTime() - item.start.value.getTime() : 0 };
     }, []);
     const sources = args.templates;
-    const drag = useMemo(() => calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed, grab }),
-        [value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grab]);
+    // The locale's date and time, which the caption says where a drag lands in, as the Calendar prints every date.
+    const format = useFormatters();
+    const drag = useMemo(() => calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed, grab, format }),
+        [value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grab, format]);
     const { run } = drag;
     const target = useMemo(() => {
         if (!enabled) return null;
@@ -64,11 +67,11 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
     return drag;
 }
 /** The drag's verdicts over the period as it stands: what a drop runs, what a hover previews and what a press grabs. */
-function calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed, grab }: {
+function calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed, grab, format }: {
     value: CalendarValue; key: string; commands: CalendarCommands | undefined; items: readonly CalendarItem[]; backlog: readonly CalendarItem[];
     served: DragArgs["served"]; selection: readonly CalendarItem[]; sources: ReadonlyMap<string, CalendarSource>; activeTemplate: string | undefined;
     onError: (message: string | undefined) => void; enabled: boolean; grabbed: MutableRefObject<{ id: string; offset: number } | undefined>;
-    grab: CalendarDrag["grab"];
+    grab: CalendarDrag["grab"]; format: Formatters;
 }): CalendarDrag {
     const sourceItem = (encoded: string): CalendarItem | undefined => {
         const parsed = parseEventKey(encoded);
@@ -163,7 +166,7 @@ function calendarDrag({ value, key, commands, items, backlog, served, selection,
             const name = payload.label ?? (payload.kind === "item" ? payload.from.key : payload.from.event);
             const candidate = dropEvent(payload, coord, false);
             const refusal = allowed || candidate === undefined ? undefined : run(candidate, true);
-            return `${refusal === undefined ? "" : `${refusal} · `}${name}${at.success ? ` · ${at.value.toISOString().slice(0, 16).replace("T", " ")} UTC` : ""}`;
+            return `${refusal === undefined ? "" : `${refusal} · `}${name}${at.success ? ` · ${format.dateTime(at.value)}` : ""}`;
         },
         create(start, end, resource) {
             if (!enabled || commands === undefined) return;
