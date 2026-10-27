@@ -1,6 +1,7 @@
 import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
+import east, { hostValueRules } from '@elaraai/eslint-plugin-east';
 
 // BSL 1.1 packages: e3-core, e3-cli, e3-api-client, e3-api-server, e3-web
 const bslHeader = 'Copyright (c) 2025 Elara AI Pty Ltd\nLicensed under BSL 1.1. See LICENSE for details.';
@@ -9,6 +10,93 @@ const bslHeader = 'Copyright (c) 2025 Elara AI Pty Ltd\nLicensed under BSL 1.1. 
 const agplHeader = 'Copyright (c) 2025 Elara AI Pty Ltd\nDual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.';
 
 const bslPackages = ['e3-core', 'e3-cli', 'e3-api-client', 'e3-api-server', 'e3-rack', 'e3-web'];
+
+// The files written before the rules below were enforced (2026-10-27), which
+// still break them: warned, not failed, until each is cleaned and leaves its
+// list. Nothing is ever added.
+const LEGACY_EAST_VALUES = [
+  'packages/e3-api-server/src/handlers/dataflow.ts',
+  'packages/e3-api-server/src/handlers/datasets.spec.ts',
+  'packages/e3-api-server/src/handlers/functions.spec.ts',
+  'packages/e3-api-server/src/handlers/tasks.ts',
+  'packages/e3-api-tests/src/suites/datasets.ts',
+  'packages/e3-api-tests/src/suites/platform.ts',
+  'packages/e3-api-tests/src/suites/repository.ts',
+  'packages/e3-cli/src/commands/call.ts',
+  'packages/e3-cli/src/commands/repo.ts',
+  'packages/e3-cli/src/path-resolver.spec.ts',
+  'packages/e3-core/src/dataflow-orchestration.spec.ts',
+  'packages/e3-core/src/dataflow.spec.ts',
+  'packages/e3-core/src/dataflow/api-compat.ts',
+  'packages/e3-core/src/dataflow/steps.spec.ts',
+  'packages/e3-core/src/dataset-refs.spec.ts',
+  'packages/e3-core/src/errors.ts',
+  'packages/e3-core/src/execution/engine.spec.ts',
+  'packages/e3-core/src/gc.ts',
+  'packages/e3-core/src/packages.spec.ts',
+  'packages/e3-core/src/record-apply.ts',
+  'packages/e3-core/src/records.spec.ts',
+  'packages/e3-core/src/records.ts',
+  'packages/e3-core/src/trees.ts',
+  'packages/e3-core/src/workspaceStatus.ts',
+  'packages/e3-core/src/workspaces.spec.ts',
+  'packages/e3-types/src/record.ts',
+  'packages/e3-types/src/structure.ts',
+  'packages/e3/src/export.ts',
+  'packages/e3/src/mutation-programs.spec.ts',
+  'packages/e3/src/package.ts',
+  'packages/e3/src/record-index.ts',
+  'packages/e3/src/record-programs.ts',
+  'test/integration/src/segmentation-bench.spec.ts',
+];
+const LEGACY_EAST_PROGRAMS = [
+  'packages/e3/src/record-area.ts',
+  'packages/e3/src/record-index.ts',
+  'packages/e3/src/record-interval.ts',
+  'packages/e3/src/record-programs.ts',
+  'packages/e3/src/record-series.ts',
+  'packages/e3/src/record-tiles.ts',
+];
+const LEGACY_ANY = [
+  'packages/e3-api-client/src/platform.ts',
+  'packages/e3-api-server/src/handlers/functions.spec.ts',
+  'packages/e3-api-server/src/handlers/records.spec.ts',
+  'packages/e3-api-server/src/handlers/workspaces.ts',
+  'packages/e3-api-tests/src/suites/package-transfer.ts',
+  'packages/e3-cli/src/commands/convert.impl.ts',
+  'packages/e3-cli/src/commands/workspace.ts',
+  'packages/e3-core/src/contract/gc.ts',
+  'packages/e3-core/src/formats.ts',
+  'packages/e3-core/src/gc-graph.ts',
+  'packages/e3-core/src/packages.spec.ts',
+  'packages/e3-core/src/storage/local/LocalDatasetRefStore.ts',
+  'packages/e3-core/src/trees.spec.ts',
+  'packages/e3-core/src/workspaces.spec.ts',
+  'packages/e3-web/src/testing/runner-cases.ts',
+  'packages/e3/src/export.spec.ts',
+  'packages/e3/src/export.ts',
+  'packages/e3/src/function.ts',
+  'packages/e3/src/functions-link.spec.ts',
+  'packages/e3/src/functions-resolve.ts',
+  'packages/e3/src/migration.ts',
+  'packages/e3/src/mutation.ts',
+  'packages/e3/src/open-beast-link.spec.ts',
+  'packages/e3/src/output.ts',
+  'packages/e3/src/package.ts',
+  'packages/e3/src/record-area.spec.ts',
+  'packages/e3/src/record-area.ts',
+  'packages/e3/src/record-index.spec.ts',
+  'packages/e3/src/record-index.ts',
+  'packages/e3/src/record-interval.spec.ts',
+  'packages/e3/src/record-interval.ts',
+  'packages/e3/src/record-programs.ts',
+  'packages/e3/src/record-series.spec.ts',
+  'packages/e3/src/record-series.ts',
+  'packages/e3/src/record.spec.ts',
+  'packages/e3/src/task.ts',
+  'packages/e3/src/types.ts',
+  'test/integration/src/segmentation-bench.spec.ts',
+];
 const agplPackages = ['e3', 'e3-types'];
 
 const baseRules = {
@@ -256,5 +344,46 @@ export default [
         content: bslHeader
       }]
     }
-  }
+  },
+  // East values through East, and no `any`, in every package's sources and
+  // specs (2026-10-27): East's own rules over host code that builds or reads
+  // East values — no variant built or cast by hand, none printed, parsed or
+  // compared as plain JS — as east-ui runs them.
+  {
+    files: ['packages/*/src/**/*.ts', 'test/*/src/**/*.ts'],
+    plugins: { east },
+    rules: {
+      'east/east-rules': ['error', { only: hostValueRules }],
+      '@typescript-eslint/no-explicit-any': 'error',
+    },
+  },
+  // The record code that generates East programs: every East rule. Logic is a
+  // typed East.function a program calls, never statements a TypeScript helper
+  // writes into another function's body; a loop over a declaration's fields,
+  // which a row names only at run time, is exempted where it is, with why.
+  {
+    files: ['packages/e3/src/record-*.ts'],
+    ignores: ['**/*.spec.ts'],
+    plugins: { east },
+    rules: {
+      // Options given whole: a severity alone would keep the host-value `only` above.
+      'east/east-rules': ['error', {}],
+    },
+  },
+  // Files not held to the above yet: each leaves its list as it is cleaned,
+  // and the lists only shrink — a new file is held to the rules from the start.
+  ...(LEGACY_EAST_VALUES.length === 0 ? [] : [{
+    files: LEGACY_EAST_VALUES,
+    plugins: { east },
+    rules: { 'east/east-rules': ['warn', { only: hostValueRules }] },
+  }]),
+  ...(LEGACY_EAST_PROGRAMS.length === 0 ? [] : [{
+    files: LEGACY_EAST_PROGRAMS,
+    plugins: { east },
+    rules: { 'east/east-rules': ['warn', {}] },
+  }]),
+  ...(LEGACY_ANY.length === 0 ? [] : [{
+    files: LEGACY_ANY,
+    rules: { '@typescript-eslint/no-explicit-any': 'warn' },
+  }]),
 ];

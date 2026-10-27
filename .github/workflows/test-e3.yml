@@ -10,6 +10,9 @@ on:
       - "libs/east-web/**"
       - "libs/east-py/**"
       - "libs/east-c/**"
+      # The East rules gate e3's lint: a rule change runs it.
+      - "libs/east-diagnostics/**"
+      - "libs/eslint-plugin-east/**"
       # httpbin, which e3-web's browser specs call, is started from here.
       - "docker/services/**"
       - ".github/workflows/test-e3.yml"
@@ -22,6 +25,9 @@ on:
       - "libs/east-web/**"
       - "libs/east-py/**"
       - "libs/east-c/**"
+      # The East rules gate e3's lint: a rule change runs it.
+      - "libs/east-diagnostics/**"
+      - "libs/eslint-plugin-east/**"
       # httpbin, which e3-web's browser specs call, is started from here.
       - "docker/services/**"
       - ".github/workflows/test-e3.yml"
@@ -110,6 +116,16 @@ jobs:
       - name: Build scaffold-core (environment e2e dependency)
         working-directory: libs/create
         run: pnpm --filter @elaraai/scaffold-core run build
+
+      # `make lint` runs the East rules through eslint-plugin-east, which loads
+      # east-diagnostics' rules from its dist.
+      - name: Build east-diagnostics (dependency)
+        working-directory: libs/east-diagnostics
+        run: make build
+
+      - name: Build eslint-plugin-east (dependency)
+        working-directory: libs/eslint-plugin-east
+        run: make build
 
       - name: Build e3 packages
         working-directory: libs/e3
