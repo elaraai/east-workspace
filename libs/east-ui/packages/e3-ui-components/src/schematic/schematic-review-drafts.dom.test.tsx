@@ -181,6 +181,21 @@ test("Unplace in Details keeps the keyboard in the frame: the button it was pres
     expect(document.activeElement).not.toBe(document.body);
 });
 
+test("Delete in Details keeps the keyboard in the inspector: the button it was pressed on goes, and the focus lands in the pane, never on the page's body", async () => {
+    const { container } = await open();
+    await tap(canvasOf(container), CAM, 2.4, 2.9);
+    await waitFor(() => expect(inspector(container).querySelector('[data-inspector-action="delete"]')).not.toBeNull());
+    const remove = inspector(container).querySelector<HTMLElement>('[data-inspector-action="delete"]')!;
+    remove.focus();
+    expect(document.activeElement).toBe(remove);
+    await act(async () => { fireEvent.click(remove); });
+    await settle();
+    await waitFor(() => expect(card(container, "racks", "A01")).toBeNull());
+    await waitFor(() => expect(inspector(container).querySelector("[data-schematic-inspector='drawing']")).not.toBeNull());
+    expect(document.activeElement).not.toBe(document.body);
+    expect(slot(container, "end").contains(document.activeElement)).toBe(true);
+});
+
 /** Opens a tab of the library, by its name. */
 async function openTab(c: HTMLElement, name: string) {
     const found = [...slot(c, "start").querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === name || t.textContent?.startsWith(`${name} `));
