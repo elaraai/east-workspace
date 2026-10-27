@@ -518,3 +518,14 @@ Each wire changed under this rule, with the kind it is.
   the dataflow computes each UI task's output again under the new type. A UI
   task's output is not stored state, so no repository upgrade step ships with
   it.
+- **e3-ui's `Plan` event kinds read every event's row at once (#1409, R24)** —
+  package-borne. The Plan's event kind on the wire (`PlanEventKindType`) gains
+  `planRows`, after `planEvent`: its events' rows over a window and its
+  backlog's beside them, by key, the drafts in place, as beast2 of the
+  record's own `DictType(K, R)` — what a run's request finds each event's row
+  in, read once a kind rather than once an event. It travels in the `Plan`
+  extension's payload, and `inspector` moves down one after it, so a UI value
+  encoded under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under the
+  new type. A UI task's output is not stored state, so no repository upgrade
+  step ships with it.

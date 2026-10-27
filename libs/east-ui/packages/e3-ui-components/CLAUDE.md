@@ -826,12 +826,20 @@ component of its own (`optimise.ts`' `PlanOptimiseReader`, a tracked read of
 request can be made only as that moves: over a kind read a window at a time,
 each search landing re-runs that reader alone, never the canvas (#1343). Each
 event's row is held among the rows the canvas reads over its range
-(`eventReadRange`, which covers the window) and in the backlog beside them, so
-the eye waits for those reads, every kind's in one pass, and reads no row by
-its key: whatever the number of events in the window, it asks e3 for windows
-alone, where a row read by its key would be a key search and a one-row page an
-event, for rows those windows hold already. A rows' window that fails leaves
-the eye disabled, asking nothing again. The eye
+(`eventReadRange`, which covers the window) and in the backlog beside them,
+which a kind's `planRows` reads at once — the record's own Dict, by key, the
+drafts in place — so the eye waits for that read, every kind's in one pass,
+and reads no row by its key: whatever the number of events in the window, it
+asks e3 for windows alone, where a row read by its key would be a key search
+and a one-row page an event, for rows those windows hold already. A click
+reads it once a kind, decoded as a `SortedMap` by the East key, and finds each
+event's row there, so its work grows with the events plus the rows, never
+their product. A rows' window that fails leaves the eye disabled, asking
+nothing again, and is said on the footer's line in the words of the kinds
+whose own events it could not read — `Couldn't read print job events` — with
+Retry, which asks those kinds' records again at once (`retryPeriod`), never as
+the toolbar's chip; once the retried read lands the eye can be used (#1398).
+The eye
 stays disabled over a window no request carries whole: a kind past the cap
 over it, or one read by its cells, whose events no run was shown (#1409, R24).
 
@@ -982,7 +990,11 @@ placeholders and never the frame: shown after 150 ms, held at least 300 ms; a
 failure at once), its words the builder's — over a paged
 source `pagedLoadingLine`, over a period `periodLoading` and
 `periodLoadingLine` (`shared/loading.ts`), in the record's noun
-(`recordSliceNoun`) and the builder's message table. A rail carrying the line
+(`recordSliceNoun`) and the builder's message table; the Plan's, paged or not,
+also says a failed read of its event kinds' rows there, after its rows' own, in
+the nouns of the kinds whose own events it could not read (else the rows'),
+with Retry through `retryPeriod` — and nowhere else, never a "… unavailable"
+chip (#1398). A rail carrying the line
 never wraps and never cuts a word: each legend item is a unit of its fit
 (`data-footer-unit`, `data-footer-cut` from `useFooterFit`), `FooterMore` ends
 a cut legend, and the fit keeps the legend whole and in place as the line
