@@ -332,6 +332,19 @@ test("the drawing's links, nothing selected, are never counted from the window o
     expect([drawingCounts(container)["links"], uncounted(container)]).toEqual([undefined, words]);
 });
 
+/** What the inspector's Issues says it checks only in view, each line; none while it checks every row. */
+const unchecked = (c: HTMLElement) => [...slot(c, "end").querySelectorAll("[role='tabpanel']:not([hidden]) [data-inspector-unchecked]")].map((el) => el.textContent);
+
+test("Issues checks a kind read by area in the rows read around the view, and one line says its other rows are checked as the view reaches them (ruled 27 Oct 2026)", async () => {
+    const { container } = await open(floor);
+    const issues = [...slot(container, "end").querySelectorAll<HTMLElement>('[role="tab"]')].find((tab) => tab.textContent?.startsWith("Issues"));
+    if (issues === undefined) throw new Error("the inspector has no Issues tab");
+    await act(async () => { fireEvent.click(issues); });
+    await settle();
+    // The racks, read by area, are named; the frames, read whole, are checked every row.
+    expect(unchecked(container)).toEqual(["Racks out of view are checked only as the view reaches them"]);
+});
+
 test("Space on a button of the frame is the button's, even while the pointer rests over the canvas", async () => {
     const { getByRole } = await open(floor);
     const fit = getByRole("button", { name: "Fit" });
