@@ -297,13 +297,13 @@ describe("several indexes on a source", () => {
         expect(h.requests(undefined, "records.kilns").some(r => r.query.get("index") === ex.kilnsByName.name)).toBe(true);
     });
 
-    test("a max with no group first: bounds typed, its editor asks for the preceding field, and Apply is off", async () => {
+    test("a max with no group first: bounds typed, its editor names the field to choose first — the one its index takes before it — and Apply is off", async () => {
         const { c, store } = await open(ex.allocationKilnYard);
         await press(slot(c, "toolbar").querySelector('[data-record-slice-source="kilns"][data-record-slice-field="max"]'));
         const from = await within(document.body).findByLabelText("Max m³ from"), until = within(document.body).getByLabelText("Max m³ until");
         await act(async () => { fireEvent.change(from, { target: { value: "24" } }); }); await settle();
         await act(async () => { fireEvent.change(until, { target: { value: "25" } }); }); await settle();
-        await waitFor(() => expect(document.body.textContent).toContain("Choose a preceding field first."));
+        await waitFor(() => expect(document.body.textContent).toContain("Choose Kiln group first."));
         expect(within(document.body).getByRole("button", { name: "Apply" })).toHaveProperty("disabled", true);
         expect(where(store, "allocationKilnYard", "kilns").size).toBe(0);
     });

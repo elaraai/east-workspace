@@ -29,6 +29,7 @@ import userEvent from "@testing-library/user-event";
 import { DateTimeType, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
+import { SEARCH_DELAY_MS } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
 import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
@@ -802,6 +803,47 @@ describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
         const after = backlogShown(container);
         expect([after.cards, after.pending, after.retained]).toEqual([[], false, [null, null]]);
         expect(after.tab).not.toBe(before.tab);
+    });
+});
+
+describe("the rail's Machine search: what its indexes take (retest C3, 27 Oct 2026)", () => {
+    test("the machines are found by their keys' start and picked from the list; no index takes a prefix of a machine — the one led by it is an interval index — so no prefix is offered, and nothing asks for a preceding field when none would do", async () => {
+        const store = new UIStore();
+        StateRuntime.initializeStore(store);
+        const { container } = await h.mount(ex.calendarRecordIndexes, { storageKey: "rail-machine" });
+        await waitFor(() => expect(event(container, "job")).not.toBeNull());
+        await settle();
+        await act(async () => { fireEvent.click(slot(container, "toolbar").querySelector('[data-record-slice-field="machine"]')!); });
+        await settle();
+        const editor = document.querySelector<HTMLElement>('[data-record-slice-editor="machine"]')!;
+        const box = within(editor).getByRole("combobox");
+        const user = userEvent.setup();
+        await user.click(box);
+        await settle();
+        /** Types into the box, and waits out the beat the search waits after the last keystroke, then its reads. */
+        const type = async (text: string) => {
+            await act(async () => { fireEvent.change(box, { target: { value: text } }); });
+            await act(async () => { await new Promise(resolve => setTimeout(resolve, SEARCH_DELAY_MS + 50)); });
+            await settle();
+        };
+        const options = () => screen.queryAllByRole("option").map(option => option.textContent ?? "");
+        // The machines whose keys start so, each counted: the list they are picked from.
+        await type("press");
+        await waitFor(() => expect(options().map(option => option.slice(0, 7))).toEqual(["press-a", "press-b"]));
+        expect(document.body.textContent).not.toContain("All starting with");
+        expect(document.body.textContent).not.toContain("preceding field");
+        // No machine's key starts with a capital: no machine, and no choice its indexes cannot take.
+        await type("Press");
+        await waitFor(() => expect(within(document.body).getByText("No matching values")).toBeTruthy());
+        expect(options()).toEqual([]);
+        expect(document.body.textContent).not.toContain("All starting with");
+        expect(document.body.textContent).not.toContain("preceding field");
+        // A machine picked from the list narrows the jobs to it.
+        await type("press");
+        await waitFor(() => expect(options()).toHaveLength(2));
+        await act(async () => { fireEvent.click(screen.getAllByRole("option")[1]!); });
+        await settle();
+        expect(decodeBeast2For(RecordSliceStateType)(store.read(scope)!).where.get("machine")).toEqual(variant("values", ['"press-b"']));
     });
 });
 
