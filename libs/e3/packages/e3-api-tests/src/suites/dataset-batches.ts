@@ -14,9 +14,10 @@
  * runs to a read by the keys the runs' entries name, a run's entries to the
  * pages of its rows by offset — at one content hash, and refused 409 at
  * another, as a pinned page is. A batch read of a dataset whose path ends as
- * an upload's init does is a batch still. What a batch costs a server — each
- * segment read once — is measured in e3-api-server's own specs; this suite
- * pins what a client sees.
+ * an upload's init does is a batch still, and a body past the bytes a batch
+ * holds is refused 413. What a batch costs a server — each segment read once —
+ * is measured in e3-api-server's own specs; this suite pins what a client
+ * sees.
  */
 
 import { describe, it } from 'node:test';
@@ -61,6 +62,10 @@ const notesPath = [variant('field', 'records'), variant('field', 'item_notes')];
 const UPLOAD_PKG = 'upload-named-pkg';
 const UPLOAD_WS = 'upload-named-ws';
 const uploadPath = [variant('field', 'inputs'), variant('field', 'upload')];
+
+/** The most bytes a batch read's body holds: e3-api-server's
+ *  `DATASET_BATCH_BODY_MAX`, a bound every server keeps. */
+const BATCH_BODY_MAX = 16 * 1024 * 1024;
 
 /** The most bytes a client sets a dataset with inline: a larger value goes
  *  through the transfer routes, its init a POST to `<path>/upload`. */
@@ -377,6 +382,24 @@ export function datasetBatchTests(setup: TestSetup<TestContext>): void {
       const after = await datasetFindKeys(...base, { queries: [{ prefix: 'k-' }, { key: '"b"' }] }, opts);
       assert.deepEqual(after.results, [{ found: true, row: 0, count: 300_000 }, { found: false, row: 0, count: 0 }],
         'the batch reads what the upload set');
+    });
+
+    it('a batch read whose body passes the bytes a batch holds is refused 413, naming the bound', async (t) => {
+      const { opts, base } = await withUploadNamed(t);
+      // One key literal past the bound: a server never reads such a body whole.
+      const literal = JSON.stringify('x'.repeat(BATCH_BODY_MAX));
+      await assert.rejects(() => datasetFindKeys(...base, { queries: [{ key: literal }] }, opts), (err: unknown) => {
+        assert.ok(err instanceof ApiError, `expected the body refused, got ${String(err)}`);
+        // Behind a gateway whose own bound is smaller, the gateway refuses it
+        // first: 413, in its own words.
+        if (err.code === 'http_413') return true;
+        assert.equal(err.code, 'payload_too_large', `expected the body refused, got ${err.code}: ${String(err.details)}`);
+        assert.match(String(err.details), new RegExp(`past the ${BATCH_BODY_MAX} .*: split it into smaller batches`));
+        return true;
+      });
+      // The same search, its key a short one, is answered.
+      const answered = await datasetFindKeys(...base, { queries: [{ key: '"a"' }] }, opts);
+      assert.deepEqual(answered.results, [{ found: true, row: 0, count: 1 }]);
     });
   });
 }
