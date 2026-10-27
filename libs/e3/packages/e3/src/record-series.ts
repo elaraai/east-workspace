@@ -199,16 +199,34 @@ export function summaryContributions(name: string, keyType: EastType, valueType:
   return { fn, indexType: checked.indexType };
 }
 
+/** The largest Integer: a summary's total past it is no Integer. */
+const INTEGER_MAX = (1n << 63n) - 1n;
+
 /**
  * A summary's merge: the build's pieces hold the same keys, and a key's
  * totals across them are their sum. Integer addition is associative and
  * commutative, so the pieces fold to the same totals in any order.
  *
+ * @remarks
+ * East's Integer addition wraps, so a sum past the largest Integer is refused
+ * rather than stored below none — as a write that would carry a total past it
+ * is: a finer tile's totals are smaller.
+ *
+ * @param name - The summary, as the refusal names it
  * @param indexType - The summary's index key
  * @returns `({ik, k}, Totals, Totals) → Totals`
+ * @throws East runtime error when a key's totals sum past the largest Integer,
+ *   naming the summary, the key and a finer tile
  */
-export function summaryMerge(indexType: EastType) {
+export function summaryMerge(name: string, indexType: EastType) {
   const entry = StructType({ ik: indexType, k: NullType });
+  const past = 'sum past the largest Integer: declare a finer tile, whose totals are smaller';
   return East.function([entry as never, RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType,
-    (_$: any, _key: any, a: any, b: any) => ({ count: a.count.add(b.count), ms: a.ms.add(b.ms) }));
+    ($: any, key: any, a: any, b: any) => {
+      // Totals are never below none, so a sum passes the largest Integer exactly when one part passes what the other leaves of it.
+      $.if(a.count.greater(East.value(INTEGER_MAX).subtract(b.count)).or(() => a.ms.greater(East.value(INTEGER_MAX).subtract(b.ms))), ($: any) => {
+        $.error(East.str`${name}: the totals under ${East.print(key)} ${past}`);
+      });
+      return { count: a.count.add(b.count), ms: a.ms.add(b.ms) };
+    });
 }

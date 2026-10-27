@@ -136,7 +136,8 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef): Ea
  * A summary index's build merge (#1039): `({ik, k}, Totals, Totals) =>
  * Totals`, the sum of two pieces' totals for one key. Integer addition is
  * associative and commutative, so a build split into any pieces sums to the
- * totals a single piece would.
+ * totals a single piece would; a sum past the largest Integer fails the build,
+ * naming the summary and the key, rather than wrap.
  *
  * @param def - The summary's declaration
  * @returns The merge's IR bundle
@@ -144,7 +145,7 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef): Ea
  */
 export function summaryMergeProgram(def: RecordIndexDef): EastIR<any, any> {
   if (def.summary === undefined) throw new Error(`index '${def.name}' is not a summary, and its build merges nothing`);
-  return locationFree(() => summaryMerge(def.keyType));
+  return locationFree(() => summaryMerge(def.name, def.keyType));
 }
 
 /**

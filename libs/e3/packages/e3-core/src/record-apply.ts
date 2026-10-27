@@ -68,10 +68,12 @@ export class DeltaConflictError extends Error {
 }
 
 /**
- * A summary index disagrees with its record (#1039): a write's change would
- * leave a total no rebuild could sum — a count below zero, milliseconds below
- * zero or left without a row, or a key the summary does not hold taken from.
- * Never a stale write, so never retried: a rebuild (`e3 reindex`) answers it.
+ * A summary index's write would leave a total it cannot hold (#1039): one no
+ * rebuild could sum — a count below zero, milliseconds below zero or left
+ * without a row, or a key the summary does not hold taken from — which a
+ * rebuild (`e3 reindex`) answers; or one past the largest Integer, which a
+ * rebuild sums too, and a finer tile answers. Never a stale write, so never
+ * retried.
  */
 export class SummaryIntegrityError extends Error {
   constructor(message: string) {
@@ -336,9 +338,11 @@ async function applyTarget(
  * @remarks
  * A count is how many rows touch a key's period, so a total held has a positive
  * count, and the milliseconds the rows cover are never negative and are none
- * without a row. A change that would break either — or carry a total past the
- * largest Integer — says the summary disagrees with its record, and the write
- * fails naming the key rather than store a total no rebuild could sum.
+ * without a row. A change that would break either says the summary disagrees
+ * with its record, and the write fails naming the key and `e3 reindex` rather
+ * than store a total no rebuild could sum. One that would carry a total past
+ * the largest Integer fails too, naming a finer tile: that total agrees with
+ * the record, and a rebuild sums it, and refuses it, alike.
  *
  * @param target - The summary's name, for the refusal
  * @param before - The segment's totals, by key
@@ -346,7 +350,7 @@ async function applyTarget(
  * @param keyCompare - The summary's key order
  * @param printKey - Prints a key, for the refusal
  * @returns The segment's totals after the changes
- * @throws {SummaryIntegrityError} When a change leaves a total no rebuild sums
+ * @throws {SummaryIntegrityError} When a change leaves a total the summary cannot hold
  */
 function addToTotals(
   target: string,
@@ -366,12 +370,14 @@ function addToTotals(
     const held = after.get(key);
     const count = (held?.count ?? 0n) + change.value.count;
     const ms = (held?.ms ?? 0n) + change.value.ms;
-    const refuse = (why: string) => new SummaryIntegrityError(
-      `${target}: the total under ${printKey(key)} would be ${count} rows covering ${ms} ms — ${why}: ` +
-      'the summary disagrees with its record; rebuild it (e3 reindex)');
+    const refuse = (why: string, remedy = 'the summary disagrees with its record; rebuild it (e3 reindex)') => new SummaryIntegrityError(
+      `${target}: the total under ${printKey(key)} would be ${count} rows covering ${ms} ms — ${why}: ${remedy}`);
     if (count < 0n) throw refuse('fewer than no rows');
     if (ms < 0n) throw refuse('less than no time');
-    if (count > INTEGER_MAX || ms > INTEGER_MAX) throw refuse('past the largest Integer');
+    // Agreeing with its record: a rebuild sums the same total, and refuses it too.
+    if (count > INTEGER_MAX || ms > INTEGER_MAX) {
+      throw refuse('past the largest Integer, which no total holds and a rebuild sums too', 'declare a finer tile, whose totals are smaller');
+    }
     if (count === 0n) {
       if (ms !== 0n) throw refuse('time with no row');
       after.delete(key);
