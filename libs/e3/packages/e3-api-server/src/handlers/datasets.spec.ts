@@ -1070,6 +1070,21 @@ describe('a summary index (#1039)', () => {
     assert.deepEqual([refused.status, refused.type], [400, 'bad_request']);
     assert.match(refused.message, /^index 'by_press_week' of 'records\/plans' is a summary: each entry stands for every row of its key and names none to read the rows of$/);
   });
+
+  it('refuses a placement of runs of it, naming it: its entries name no row to place in a record segment', async () => {
+    // Review (R1): `placeDatasetRuns` places each entry's `k` by the record's
+    // fences; a summary's `k` is Null, so a placement of it is meaningless and
+    // must be refused as the joined page, the joined runs and the rows by runs are.
+    const storage = new InMemoryStorage();
+    await seedSummary(storage, 10, 4);
+    const state = await stateOf(storage);
+    const response = await placeDatasetRuns(storage, REPO, WS, plansPath, { index: 'by_press_week', runs: [[0, 5]], hash: state });
+    const body = await response.clone().text();
+    assert.equal(response.status, 400, `a placement of a summary's entries is refused, never answered: got ${response.status} ${body}`);
+    const refused = await refusalOf(response);
+    assert.equal(refused.type, 'bad_request');
+    assert.match(refused.message, /by_press_week/);
+  });
 });
 
 describe('findDatasetKey (through an index)', () => {
