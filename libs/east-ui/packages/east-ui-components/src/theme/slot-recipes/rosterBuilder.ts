@@ -204,11 +204,21 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         // A week's column header: its number and range over its seven days' ticks; a press opens the week.
         weekHead: { display: "flex", flexDirection: "column", minWidth: 0, borderLeftWidth: "1px", borderColor: "border.subtle", textAlign: "left", ...planRowFocus,
             "&[data-selected]": { background: "brand.subtle" } },
-        weekNumber: { display: "flex", alignItems: "baseline", gap: "8px", height: "24px", padding: "0 8px", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textStyle: "body.sm", fontWeight: "semibold" },
+        // Its label never cuts (the hand retest, R3): the header's fit (`data-week-label` on the header's row) shows its
+        // dates, else their days alone — the month name dropped — else none; the other form of its dates is laid out
+        // unseen, out of the flow and clipped by the label, so the fit measures it whole.
+        weekNumber: { position: "relative", display: "flex", alignItems: "baseline", gap: "8px", height: "24px", padding: "0 8px", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textStyle: "body.sm", fontWeight: "semibold",
+            "& > [data-roster-week-dates]": { position: "absolute", left: 0, top: 0, visibility: "hidden" },
+            "[data-week-label=full] &": { "& > [data-roster-week-dates=full]": { position: "static", visibility: "visible" } },
+            "[data-week-label=days] &": { "& > [data-roster-week-dates=days]": { position: "static", visibility: "visible" } } },
         weekRange: { ...timeHeaderText, color: "fg.muted", overflow: "hidden", textOverflow: "ellipsis" },
         dayTicks: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", height: "32px", padding: "0 2px", gap: "2px" },
+        // A tick's letter, and its number, show only where every day holds its own whole (R3: `data-day-letters`,
+        // `data-day-numbers` on the header's row); unseen, they keep their room, so the fit measures them still.
         dayTick: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden", textStyle: "mono.xs", color: "fg.subtle",
-            "& > span:last-of-type": { color: "fg.muted" } },
+            "& > span:last-of-type": { color: "fg.muted" },
+            "[data-day-letters=off] &": { "& > [data-roster-day-letter]": { visibility: "hidden" } },
+            "[data-day-numbers=off] &": { "& > [data-roster-day-number]": { visibility: "hidden" } } },
         // A person's week cell: seven marks; tinted while a day of it is drafted, the panel while selected, outlined as its row's cells are.
         monthCell: { position: "relative", display: "flex", alignItems: "center", padding: "0 2px", minWidth: 0, borderLeftWidth: "1px", borderColor: "border.subtle", textAlign: "left", ...planRowFocus,
             "&[data-drafted]": { background: "{colors.brandTint}" }, "&[data-selected]": { background: "bg.panel", boxShadow: "inset 0 0 0 1px {colors.fg}" },

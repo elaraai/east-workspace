@@ -961,16 +961,99 @@ function People({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }) {
 
 // ── The month (#1406, §8, P12–P16) ─────────────────────────────────────────────────────────────────────────────────
 
-/** A week column's header: `W10` and `Mar 5 – 11` over its seven days' ticks; a press opens the week in Week (P12). */
+/**
+ * A week column's header: `W10` and its dates over its seven days' ticks; a press opens the week in Week (P12). Its
+ * label holds both forms of its dates — as the shared range prints them, `Mar 5 – 11, 2028`, and their days alone, the
+ * month name dropped, `5 – 11` — the one the header's fit chose in its place and the other laid out unseen beside it,
+ * so the fit measures each whole ({@link useMonthHeadFit}).
+ */
 function WeekColumnHead({ ctx, week, current }: { ctx: ViewContext; week: Date; current: boolean }) {
     const { styles, format } = ctx;
-    const number = weekNumber(week), range = format.range(week, new Date(week.getTime() + 6 * DAY));
+    const last = new Date(week.getTime() + 6 * DAY);
+    const number = weekNumber(week), range = format.range(week, last);
+    const days = `${format.number(week.getUTCDate())} – ${format.number(last.getUTCDate())}`;
     return <chakra.button type="button" css={styles.weekHead} data-roster-week-column={weekKey(week)} data-roster-column-header="" data-selected={current ? "" : undefined}
         aria-label={`Open W${format.number(number)} · ${range}`} onClick={() => ctx.openWeek(week)}>
-        <Box css={styles.weekNumber}><span>W{format.number(number)}</span><Box as="span" css={styles.weekRange}>{range}</Box></Box>
-        <Box css={styles.dayTicks}>{SEVEN_DAYS.map(day => { const date = new Date(week.getTime() + day * DAY); return <Box key={day} css={styles.dayTick}>
-            <span>{format.weekday(date).slice(0, 1).toLocaleUpperCase(format.locale)}</span><span>{format.number(date.getUTCDate())}</span></Box>; })}</Box>
+        <Box css={styles.weekNumber} data-roster-week-label=""><span data-roster-week-number="">W{format.number(number)}</span>
+            <Box as="span" css={styles.weekRange} data-roster-week-dates="full">{range}</Box><Box as="span" css={styles.weekRange} data-roster-week-dates="days">{days}</Box></Box>
+        <Box css={styles.dayTicks}>{SEVEN_DAYS.map(day => { const date = new Date(week.getTime() + day * DAY); return <Box key={day} css={styles.dayTick} data-roster-day-tick="">
+            <span data-roster-day-letter="">{format.weekday(date).slice(0, 1).toLocaleUpperCase(format.locale)}</span><span data-roster-day-number="">{format.number(date.getUTCDate())}</span></Box>; })}</Box>
     </chakra.button>;
+}
+/**
+ * How the month's header fits its columns (the hand retest, R3, ruled 27 Oct 2026: "Fit rule now"): each week's label
+ * in the richest form every column holds whole — its dates, then its dates with the month name dropped, then its number
+ * alone — and the day ticks' letters, and their numbers, only where every day holds its own whole, the 2px between two
+ * ticks keeping each clear of the next, as the marks are lettered only where a day is wide enough. Nothing is cut.
+ */
+interface MonthHeadFit {
+    /** The week labels' form: their dates, their dates' days alone, or their numbers alone. */
+    readonly label: "full" | "days" | "number";
+    /** Whether the ticks show their days' letters, and their numbers. */
+    readonly letters: boolean;
+    readonly numbers: boolean;
+}
+/** The header before it is measured, and where it cannot be (no layout): every word in its place. */
+const MONTH_HEAD_WHOLE: MonthHeadFit = { label: "full", letters: true, numbers: true };
+/**
+ * The month's header measured as it is laid out: each week label's room against its number and each form of its dates
+ * at their natural widths — the one shown, whatever its box cut of it, and the other laid out unseen — and each tick's
+ * room against its letter and its number, which keep their width unseen. What it reads never moves with the fit, so a
+ * measure never loops.
+ *
+ * @param head - The header's row
+ * @returns How it fits
+ */
+function measureMonthHead(head: HTMLElement): MonthHeadFit {
+    const px = (value: string) => Number.parseFloat(value) || 0;
+    const natural = (el: Element | null) => el === null ? 0 : el.getBoundingClientRect().width + Math.max(0, el.scrollWidth - el.clientWidth);
+    let full = true, days = true, letters = true, numbers = true;
+    for (const label of head.querySelectorAll<HTMLElement>("[data-roster-week-label]")) {
+        const css = getComputedStyle(label);
+        const room = label.getBoundingClientRect().width - px(css.paddingLeft) - px(css.paddingRight) + 0.5;
+        const own = natural(label.querySelector("[data-roster-week-number]")) + px(css.columnGap);
+        if (own + natural(label.querySelector('[data-roster-week-dates="full"]')) > room) full = false;
+        if (own + natural(label.querySelector('[data-roster-week-dates="days"]')) > room) days = false;
+    }
+    for (const tick of head.querySelectorAll<HTMLElement>("[data-roster-day-tick]")) {
+        const room = tick.getBoundingClientRect().width + 0.5;
+        if (natural(tick.querySelector("[data-roster-day-letter]")) > room) letters = false;
+        if (natural(tick.querySelector("[data-roster-day-number]")) > room) numbers = false;
+    }
+    return { label: full ? "full" : days ? "days" : "number", letters, numbers };
+}
+/**
+ * The month's header's fit ({@link MonthHeadFit}): measured after each render, as the header resizes and as fonts
+ * arrive, before the browser paints.
+ *
+ * @param head - The header's row
+ * @returns How it fits
+ */
+function useMonthHeadFit(head: RefObject<HTMLElement | null>): MonthHeadFit {
+    const [fit, setFit] = useState(MONTH_HEAD_WHOLE);
+    const measure = useCallback(() => {
+        const el = head.current;
+        if (el === null) return;
+        const next = measureMonthHead(el);
+        setFit(was => was.label === next.label && was.letters === next.letters && was.numbers === next.numbers ? was : next);
+    }, [head]);
+    // After every render: the weeks, the locale or the density may have moved.
+    useLayoutEffect(() => { measure(); });
+    useLayoutEffect(() => {
+        const el = head.current;
+        if (el === null) return undefined;
+        const run = () => measure();
+        const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(run);
+        observer?.observe(el);
+        const fonts = el.ownerDocument.fonts as FontFaceSet | undefined;
+        fonts?.addEventListener?.("loadingdone", run);
+        void fonts?.ready?.then(run, () => undefined);
+        return () => {
+            observer?.disconnect();
+            fonts?.removeEventListener?.("loadingdone", run);
+        };
+    }, [head, measure]);
+    return fit;
 }
 /** A day's mark in a week cell (P13): the shift's letter in its colour, an off day faint; dashed where a pattern previews it; drafted against its own week as held. */
 function Mark({ ctx, held, day, duties, preview, letters }: { ctx: ViewContext; held: Week; day: number; duties: readonly DayDuty[]; preview: PatternDay | undefined; letters: boolean }) {
@@ -1082,7 +1165,11 @@ function MonthGrid({ props, ctx }: { props: RosterViewsProps; ctx: ViewContext }
     const style = { "--roster-weeks": weeks.length } as CSSProperties;
     // The selected person-week's column is marked (D11); none without a selection.
     const picked = props.selection?.type === "personWeek" ? props.selection.start : undefined;
-    const header = <Box css={props.styles.monthRow} style={style} data-roster-month-head="" data-density={props.value.settings.density.type}>
+    // What the header shows of each week's label and of its days is what fits whole (R3): its recipe hides the rest.
+    const head = useRef<HTMLDivElement>(null);
+    const fit = useMonthHeadFit(head);
+    const header = <Box ref={head} css={props.styles.monthRow} style={style} data-roster-month-head="" data-density={props.value.settings.density.type}
+        data-week-label={fit.label} data-day-letters={fit.letters ? undefined : "off"} data-day-numbers={fit.numbers ? undefined : "off"}>
         <Box css={props.styles.monthGutter}>People · Month</Box>
         {weeks.map(held => <WeekColumnHead key={held.start.getTime()} ctx={ctx} week={held.start} current={held.start.getTime() === picked} />)}
     </Box>;

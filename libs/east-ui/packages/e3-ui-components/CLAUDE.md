@@ -1046,7 +1046,14 @@ tile a duty in each day cell — the shift's label and, by `tileTimes`, its
 hours, a duty's own times where they differ or the group where it is not the
 person's — `+ Assign` on an off day opening a menu of the shifts, and the
 week's hours in the name cell; its month a column a week, a cell seven marks
-in the shifts' colour tokens, lettered where a day is 13px or wider. A pattern
+in the shifts' colour tokens, lettered where a day is 13px or wider. Its
+header cuts no word and crowds none (the hand retest, R3, ruled 27 Oct 2026:
+"Fit rule now"): measured as it is laid out (`views.tsx`' `useMonthHeadFit`),
+each week's label takes the richest form every column holds whole — its dates
+as the shared range prints them, then their days alone, the month name
+dropped, then its number alone — and its days' letters, and their numbers,
+show only where every day holds its own whole, the ticks' 2px gap keeping each
+clear of the next. A pattern
 of the app's (`Roster.patterns`) dropped on a person's week — a row's day
 cell, or a month cell, each resolving to the person-week coordinate
 (`drag.ts`' `rosterPersonWeekCoord`, its slot the East-printed `{ person,
