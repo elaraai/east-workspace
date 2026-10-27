@@ -29,6 +29,7 @@ import { rowCodec } from "../shared/schedule/records.js";
 import type { PlanEventEditing, PlanEventReadValue } from "./edit/events.js";
 import type { PlanInstantValue } from "./instant.js";
 import { rowKeyOf, type PlanWireBlock } from "./model.js";
+import type { PlanEventRange } from "./root/events.js";
 import type { PlanElementOp, PlanGhost } from "./rows/element-optimise.js";
 
 /** One event kind, as the Plan's payload carries it. */
@@ -99,47 +100,69 @@ export type PlanOptimiseReadiness = "ready" | "reading" | "unread";
 
 /**
  * Whether a run's request can carry the window whole now (#1409, R24): every
- * kind's events in the window and its backlog, and each event's row as the
- * session holds it, read as {@link planOptimiseRequest} reads them — called in
- * a tracked read of a component of its own ({@link PlanOptimiseReader}), which
- * hears each land, so the eye waits for them and the request a click makes
- * finds them held. `reading` while one is on its way; `unread` for a window no
- * request carries whole: a kind past the cap of events over it (#1039), none
- * of whose events is read, or one read by its cells, never read over the
- * window — a run would place the backlog over events it was never shown.
+ * kind's events in the window and its backlog, and each event's row held where
+ * {@link planOptimiseRequest} reads it — called in a tracked read of a
+ * component of its own ({@link PlanOptimiseReader}), which hears each land, so
+ * the eye waits for them and the request a click makes finds them held.
+ *
+ * The request reads each event's row through the kind's editing
+ * (`editing.read`), which finds it among the rows the canvas reads over its
+ * range — the plan window and the periods laid out beyond it — drafts in
+ * place, and else in the backlog beside them; only while those are on their
+ * way does it read the row by its key: a key search, then a one-row page,
+ * which the paging runtime keeps as a window of its own. So those rows are
+ * waited for, read as the canvas reads them, and no row is read by its key:
+ * whatever the number of events in the window, the eye asks e3 for the windows
+ * alone. Read before them, each row would be read by its key, one at a time,
+ * and past the windows the runtime keeps (`MAX_RETAINED_WINDOWS`) each one
+ * landing would evict one read before it, which the next pass would read
+ * again: the reads would never settle until the rows' window landed. Every
+ * kind is read in one pass, so the kinds' windows are asked together.
+ *
+ * `reading` while one is on its way; `unread` for a window no request carries
+ * whole: a kind past the cap of events over it (#1039), none of whose events
+ * is read, or one read by its cells, never read over the window — a run would
+ * place the backlog over events it was never shown.
  *
  * @param kinds - The event kinds
- * @param editing - The kinds' editing: where each event's row is read, drafts in place
+ * @param editing - The kinds' editing: each kind's drafts, which every read puts in place
  * @param window - The plan window in view
+ * @param range - The range the canvas reads its event kinds' rows over (`eventReadRange`): the window, and the periods laid out beyond each edge
  * @param cells - The kinds' cells and counts, when the reader gives a kind cells
  * @returns Whether the request can be made: `ready`, `reading` or `unread`
  */
 export function planOptimiseReady(kinds: readonly PlanEventKindValue[], editing: PlanEventEditing, window: PlanOptimiseWindow,
-    cells: ScheduleCellsRead | undefined): PlanOptimiseReadiness {
+    range: PlanEventRange, cells: ScheduleCellsRead | undefined): PlanOptimiseReadiness {
+    let reading = false;
     for (const kind of kinds) {
         if (cells?.reads.has(kind.key) === true) return "unread";
         const within = scheduleWithinCap(kind.count, window.from, window.to);
-        if (within.type !== "some") return "reading";
-        if (!within.value) return "unread";
+        if (within.type === "some" && !within.value) return "unread";
         const drafts = editing.draftsOf(kind.key);
+        // Where each event's row is held: the kind's rows over the range the canvas reads, which covers the window, and
+        // its backlog — the reads the canvas makes, so no request of their own.
+        const held = kind.planItems(range.from, range.to, drafts, none);
+        const heldWaiting = kind.backlog ? kind.planUnscheduled(range.from, range.to, drafts, none) : undefined;
+        // What the request carries: the window's events, and the backlog.
         const placed = kind.planItems(window.from, window.to, drafts, none);
         const waiting = kind.backlog ? kind.planUnscheduled(window.from, window.to, drafts, none) : undefined;
-        if (placed.type !== "some" || waiting?.type === "none") return "reading";
-        for (const item of [...placed.value, ...(waiting?.type === "some" ? waiting.value : [])]) {
-            if (editing.read(kind.key, item.key) === undefined) return "reading";
+        if (within.type !== "some" || held.type !== "some" || heldWaiting?.type === "none" || placed.type !== "some" || waiting?.type === "none") {
+            reading = true;
         }
     }
-    return "ready";
+    return reading ? "reading" : "ready";
 }
 
 /** Props of {@link PlanOptimiseReader}. */
 export interface PlanOptimiseReaderProps {
     /** The event kinds. */
     kinds: readonly PlanEventKindValue[];
-    /** The kinds' editing: where each event's row is read, drafts in place. */
+    /** The kinds' editing: each kind's drafts, which every read puts in place. */
     editing: PlanEventEditing;
     /** The plan window in view. */
     window: PlanOptimiseWindow;
+    /** The range the canvas reads its event kinds' rows over: where each event's row is held. */
+    range: PlanEventRange;
     /** The kinds' cells and counts, when the reader gives a kind cells. */
     cells: ScheduleCellsRead | undefined;
     /** Where whether the request can be made goes: called only when that moves. */
@@ -149,18 +172,18 @@ export interface PlanOptimiseReaderProps {
 /**
  * Whether a run's request can carry the window whole (#1409, R24), read in a
  * component of its own (#1343): what {@link planOptimiseReady} reads lands in
- * as many settles as the keys it touches — every kind's events in the window,
- * its backlog and each event's row — and each re-runs this alone. It hands the
- * canvas whether the request can be made only when that moves, so the canvas
- * renders as the eye's state changes, never at every settle of what it reads.
- * A read that fails is `unread`: no request carries a window it could not
- * read.
+ * as many settles as the searches it touches — every kind's events over the
+ * range the canvas reads and in the window, and its backlog — and each re-runs
+ * this alone. It hands the canvas whether the request can be made only when
+ * that moves, so the canvas renders as the eye's state changes, never at every
+ * settle of what it reads. A read that fails is `unread`: no request carries a
+ * window it could not read.
  *
  * @param props - What is read, over what, and where it goes
  * @returns Nothing: it reads
  */
-export function PlanOptimiseReader({ kinds, editing, window, cells, onReady }: PlanOptimiseReaderProps): null {
-    const read = useCallback(() => planOptimiseReady(kinds, editing, window, cells), [kinds, editing, window, cells]);
+export function PlanOptimiseReader({ kinds, editing, window, range, cells, onReady }: PlanOptimiseReaderProps): null {
+    const read = useCallback(() => planOptimiseReady(kinds, editing, window, range, cells), [kinds, editing, window, range, cells]);
     const { result } = useTrackedEvaluation(read);
     const ready: PlanOptimiseReadiness = result.ok ? result.value : "unread";
     // What the canvas holds: its own until the first read is reported.
@@ -177,9 +200,11 @@ export function PlanOptimiseReader({ kinds, editing, window, cells, onReady }: P
  * The run's request (R1, R24, O3, O5): the window, the run's number, every
  * event kind's rows in the window and its backlog by key, as the session
  * holds them — base plus every unapplied draft, every row whatever the rail
- * shows — and every resource kind's rows, read whole. A kind whose window is
- * still being read carries no rows: the eye is disabled until every kind has
- * read, and for a window no request carries whole ({@link planOptimiseReady}).
+ * shows — and every resource kind's rows, read whole. Each event's row is
+ * read through its kind's editing, among the rows the canvas reads over its
+ * range, which the eye waits for: none is read by its key. A kind whose window
+ * is still being read carries no rows: the eye is disabled until every kind
+ * has read, and for a window no request carries whole ({@link planOptimiseReady}).
  *
  * @param kinds - The event kinds
  * @param resources - The resource kinds

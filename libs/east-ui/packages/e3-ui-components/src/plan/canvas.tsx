@@ -642,12 +642,13 @@ export function usePlanCanvas({
     // The eye and its parts (#1409): the window's label is the period. The eye is listed only where the window can be
     // optimised (ruled 25 Oct 2026) — event kinds on a time axis; it waits, disabled, while the kinds' rows are read.
     const periodName = planWindow === undefined ? "" : format.range(planWindow.from, new Date(planWindow.to.getTime() - 1));
-    // What a run's request reads (R24, #1039): every kind's events in the window, its backlog and each event's row. The eye
-    // waits while one is on its way, and stays disabled for a window no request carries whole — a kind past the cap over
-    // it, or read by its cells — never sending a run the events it was not shown. Read only while an optimiser is bound,
-    // in a component of its own (`PlanOptimiseReader`, in `provide`), which hands the canvas whether the request can be
-    // made only as that moves: the read lands in as many settles as the keys it touches, and each would otherwise render
-    // the whole canvas (#1343).
+    // What a run's request reads (R24, #1039): every kind's events in the window, its backlog and each event's row — held
+    // among the rows the canvas reads over its range, which the eye waits for, so no row is read by its key and the eye
+    // asks e3 for windows alone, whatever the number of events. The eye waits while one is on its way, and stays disabled
+    // for a window no request carries whole — a kind past the cap over it, or read by its cells — never sending a run the
+    // events it was not shown. Read only while an optimiser is bound, in a component of its own (`PlanOptimiseReader`, in
+    // `provide`), which hands the canvas whether the request can be made only as that moves: the read lands in as many
+    // settles as the searches it touches, and each would otherwise render the whole canvas (#1343).
     const [optimiseReady, setOptimiseReady] = useState<PlanOptimiseReadiness>("reading");
     const requestHeld = optimise === undefined || planWindow === undefined || optimiseReady === "ready";
     const optimiseParts = useOptimiseParts<PlanOptimiseRequest>({
@@ -1498,9 +1499,9 @@ export function usePlanCanvas({
         )
         : null;
     // Whether a run's request can carry the window whole (R24): read by a component of its own, beside the event kinds'
-    // rows, while an optimiser is bound.
-    const optimiseReader = optimise !== undefined && planWindow !== undefined
-        ? <PlanOptimiseReader kinds={kinds} editing={eventEditing} window={planWindow} cells={cellsRead} onReady={setOptimiseReady} />
+    // rows, while an optimiser is bound — over the range the canvas reads them, where each event's row is held.
+    const optimiseReader = optimise !== undefined && planWindow !== undefined && eventRange !== undefined
+        ? <PlanOptimiseReader kinds={kinds} editing={eventEditing} window={planWindow} range={eventRange} cells={cellsRead} onReady={setOptimiseReady} />
         : null;
     const provide = (children: ReactNode): ReactNode => {
         const provided = (
