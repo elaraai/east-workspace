@@ -165,6 +165,11 @@ const NO_CELL_RESOURCES: readonly ScheduleCellResources[] = [];
 const PERIOD_NAMES: Partial<Record<RecordTile, string>> = { day: "Day", week: "Week", month: "Month" };
 /** No resource of a paged kind held. */
 const NO_ROWS: readonly CalendarRow[] = [];
+/**
+ * The frame's root takes the focus a click on a part of it holding nothing focusable gives — the Backlog's list clear of
+ * its cards, a pane's empty foot (retest C4) — so the keyboard is in the Calendar, never the page's body: not a tab stop.
+ */
+const CLICK_FOCUS: Readonly<Record<string, string>> = { tabIndex: "-1" };
 
 /**
  * The paged kind's resources the frame holds (#1424), every window's in order: what an event names its resource by.
@@ -368,6 +373,10 @@ function CalendarFrame(props: HostProps) {
         element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
         element.closest("[data-builder-frame]")?.querySelector<HTMLButtonElement>('button[aria-label="Expand Inspector"]')?.click();
         setReveal(undefined);
+    }, []);
+    // Enter on an event opens its Details, as the Schematic's Enter does (retest C5): the Inspector, folded, opened on it.
+    const openDetails = useCallback(() => {
+        root.current?.querySelector<HTMLButtonElement>('[data-builder-frame] button[aria-label="Expand Inspector"]')?.click();
     }, []);
     useEffect(() => {
         if (reveal === undefined || main.current === null) return;
@@ -602,6 +611,16 @@ function CalendarFrame(props: HostProps) {
     const drag = useCalendarDrag({ value, key: storageKey, commands: locked ? undefined : gestures, narrow, items, backlog, served: backlogPages, selection: selectedItems, templates: templates.shown,
         activeTemplate, onError: setError });
     const clear = useCallback(() => setRefs([]), []);
+    // The keyboard stays on the board as the events it was on go (retest C4): an event Delete takes away holding the focus,
+    // the board takes it, never the page's body — where the history's keys, the Undo that brings the event back, go unheard.
+    const keepOnBoard = (going: readonly CalendarItem[]) => {
+        const board = main.current;
+        const active = board?.ownerDocument.activeElement;
+        if (board === null || !(active instanceof HTMLElement) || !board.contains(active)) return;
+        const held = active.closest("[data-calendar-event], [data-calendar-card]");
+        const id = held?.getAttribute("data-calendar-event") ?? held?.getAttribute("data-calendar-card") ?? undefined;
+        if (id !== undefined && going.some(item => stringEqual(eventKey(item), id))) board.focus({ preventScroll: true });
+    };
     // The selection a pick adds to or takes from, as last drawn: read as the pick runs, so the pick is the same function
     // while the selection moves, and an event, which calls it, draws again only as its own ring does (#1398, CL9).
     const picked = useRef(refs);
@@ -672,8 +691,8 @@ function CalendarFrame(props: HostProps) {
                 if (action !== undefined && commands !== undefined && !locked) { takeKey(event); onAction(action); }
                 else if (event.key === "[" || event.key === "]") { takeKey(event); step(event.key === "[" ? -1 : 1); }
                 else if (event.key === "Escape" && (refs.length > 0 || error !== undefined)) { takeKey(event); setRefs([]); setError(undefined); }
-                else if ((event.key === "Delete" || event.key === "Backspace") && gestures !== undefined && selectedItems.length > 0) { takeKey(event); gestures.remove(selectedItems); }
-            }} banners={<>
+                else if ((event.key === "Delete" || event.key === "Backspace") && gestures !== undefined && selectedItems.length > 0) { takeKey(event); keepOnBoard(selectedItems); gestures.remove(selectedItems); }
+            }} rootProps={CLICK_FOCUS} banners={<>
                 {parts.banner}
                 {editing?.sessions.map(held => <SessionBanners key={held.key} session={held.session} words={words} name={value.events.find(kind => kind.key === held.kind)?.name}
                     onAction={action => editing.history.actOn(held.key, action)} />)}
@@ -695,14 +714,17 @@ function CalendarFrame(props: HostProps) {
             {/* The period read now's grid, whatever the read: what it holds of the period is `items` and `read` (#1398, CL5). While
                 it is read, what it shows is retained (CL8): readable, focusable and selectable, aria-disabled, every editing
                 gesture off (`gestures`). A failed period's main is not: its Retry is in it. */}
-            <Box ref={main} css={styles.main} data-calendar-main="" aria-disabled={!available && read.state !== "failed" ? true : undefined} data-calendar-stale={stale ? "" : undefined}
+            {/* The board: the keyboard's surface and its anchor, but not a tab stop (retest C4), as the Plan's body is — a click
+                on a part of it that holds nothing focusable puts the keyboard here, in the Calendar, where `[` and `]` step
+                its period, and an event Delete takes away leaves it here. */}
+            <Box ref={main} css={styles.main} data-calendar-main="" tabIndex={-1} aria-disabled={!available && read.state !== "failed" ? true : undefined} data-calendar-stale={stale ? "" : undefined}
                 data-calendar-narrow={narrow ? "" : undefined}>
                 <CalendarViews navigationRevision={navigationRevision} format={format} value={value} view={view} setView={setView} range={narrow ? displayRange : range} visible={visibleDays} onVisible={showRange} items={items}
                     rows={rows} shownRows={shownRows} shown={shown} now={now} narrow={narrow} styles={styles} read={read} covered={covered} lanesPeriod={lanesPeriod} onRecentre={onRecentre} travel={travel}
                     uncounted={uncounted} shading={data.cells?.shading} bucket={bucket} pages={pages} demand={demand} drawnRows={data.cells?.drawn}
                     selected={selected} select={pick} clear={clear} overlaps={overlaps} commands={gestures} drag={drag}
                     nowRevision={nowAsked} anchor={anchor} onAnchor={onAnchor} reveal={reveal === undefined ? undefined : eventKey(reveal)} onRevealed={revealed}
-                    optimised={optimised} lit={landing.lit} editing={editing} grips={grips} />
+                    onOpen={value.inspector ? openDetails : undefined} optimised={optimised} lit={landing.lit} editing={editing} grips={grips} />
             </Box>
         </BuilderFrame>
         </CalendarChooserContext.Provider>

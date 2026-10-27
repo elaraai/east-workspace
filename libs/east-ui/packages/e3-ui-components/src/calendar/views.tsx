@@ -132,6 +132,8 @@ export interface CalendarViewsProps {
     reveal?: string | undefined;
     /** Told once the event to show is drawn, with its element. */
     onRevealed?: ((element: HTMLElement) => void) | undefined;
+    /** Opens the selection's Details — Enter on an event, as the Schematic's Enter does (retest C5); `undefined` with no inspector. */
+    onOpen?: (() => void) | undefined;
     /** What the figures leave out (#1424): the kinds past the cap, which neither a day's count nor a resource's booked hours counts. */
     uncounted?: CalendarUncounted | undefined;
     /**
@@ -500,7 +502,7 @@ function ShadeMarks({ shades, bucket, from, to, along, styles, format }: {
  * CL9) — so a scroll, or a day crossed, draws none of them again.
  */
 type EventView = Pick<CalendarViewsProps, "styles" | "drag" | "selected" | "overlaps" | "commands" | "range" | "view" | "value" | "format" | "rows" | "select" | "clear"
-    | "reveal" | "onRevealed" | "optimised" | "lit" | "editing" | "grips">;
+    | "reveal" | "onRevealed" | "onOpen" | "optimised" | "lit" | "editing" | "grips">;
 
 /**
  * Test-only render probe — lets "a re-centre, or a move of the timeline's mounted span, draws no event again" be asserted
@@ -573,6 +575,8 @@ interface EventFacts {
     /** What a click or Enter selects it by, and what a press or Space grabs it by. */
     readonly select: CalendarViewsProps["select"];
     readonly grab: CalendarDrag["grab"];
+    /** What opens its Details as Enter selects it (retest C5); `undefined` with no inspector. */
+    readonly open: (() => void) | undefined;
 }
 
 /**
@@ -603,7 +607,7 @@ function eventFacts(view: EventView, item: CalendarItem, window: { readonly from
         start, continued: window !== undefined && item.start.type === "some" && start < window.from.getTime(),
         startEdge: window === undefined || start >= window.from.getTime(),
         endEdge: window === undefined || (item.end.type === "some" && item.end.value.getTime() <= window.to.getTime()),
-        select: view.select, grab: view.drag.grab,
+        select: view.select, grab: view.drag.grab, open: view.onOpen,
     };
 }
 
@@ -733,7 +737,7 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
     const { revealing, onRevealed } = facts;
     useLayoutEffect(() => { if (revealing && block.current !== null) onRevealed?.(block.current); }, [revealing, onRevealed]);
     const label = `${item.title}, ${format.weekdayDate(start)} ${timeText}, ${facts.resource}${item.status.type === "some" ? `, ${item.status.value.label}` : ""}`;
-    const { selected, drafted, provenance, select, grab } = facts;
+    const { selected, drafted, provenance, select, grab, open } = facts;
     const choose = (event: MouseEvent) => { event.stopPropagation(); select(item, event.shiftKey || event.metaKey || event.ctrlKey); };
     return <Box {...handle} ref={attachEvent} css={styles.event} style={geometry} data-along={along} data-chip={chip ? "" : undefined} data-compact={fits.compact ? "" : undefined}
         tabIndex={0} role="button" aria-label={provenance === undefined ? label : `${label}. ${provenance}`} title={provenance === undefined ? label : `${provenance} · ${label}`} aria-pressed={selected}
@@ -751,8 +755,9 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
             }
             handle?.onPointerDown?.(event);
         }} onClick={choose} onKeyDown={event => {
-            // Enter selects it, the key going no further than the Calendar (#1398); Space picks it up, the drag's to take.
-            if (event.key === "Enter") { takeKey(event); select(item, event.shiftKey); }
+            // Enter selects it and opens its Details, as the Schematic's Enter does (retest C5), the key going no further
+            // than the Calendar (#1398); Space picks it up, the drag's to take.
+            if (event.key === "Enter") { takeKey(event); select(item, event.shiftKey); open?.(); }
             else {
                 if (event.key === " ") {
                     const cell = event.currentTarget.closest<HTMLElement>("[data-calendar-cell]");
@@ -1465,10 +1470,10 @@ function Timeline(props: CalendarViewsProps) {
     const shades = useMemo(() => shadeBands({ min: range.from, max: range.to }, { hours: view.period === "day" ? { from: Number(props.value.settings.hours.from), to: Number(props.value.settings.hours.to) } : undefined }),
         [range.from, range.to, view.period, props.value.settings.hours]);
     // What an event and a cell read, held while it holds.
-    const { drag, selected, overlaps, commands, value, format, rows, select, clear, reveal, onRevealed, optimised, lit, editing, grips } = props;
-    const eventView = useMemo((): EventView => ({ styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed, optimised, lit,
-        editing, grips }),
-    [styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed, optimised, lit, editing, grips]);
+    const { drag, selected, overlaps, commands, value, format, rows, select, clear, reveal, onRevealed, onOpen, optimised, lit, editing, grips } = props;
+    const eventView = useMemo((): EventView => ({ styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed, onOpen,
+        optimised, lit, editing, grips }),
+    [styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed, onOpen, optimised, lit, editing, grips]);
     // Each event's facts, made once while what they read holds: a move of the mounted span makes none again (CL9).
     const facts = useMemo(() => timelineFacts(eventView), [eventView]);
     // Where the events are placed from (CL9): an instant a re-centre never moves — the window first shown at the period —
