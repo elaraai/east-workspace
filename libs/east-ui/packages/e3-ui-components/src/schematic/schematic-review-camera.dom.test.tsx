@@ -54,12 +54,14 @@ const KEPT = "schematic.review.camera.selected";
 
 /**
  * The data centre's racks read by area, read only — their source lists their area index, one led by owner, and one by
- * name — the network frames read whole, and the inspector: as `schematic-window-reads.dom.test.tsx`'s floor, a
- * narrowed-out rack hidden, the host keeping the whole selection `onSelect` hears in a State of its own.
+ * name — the network frames and the fibre runs between them read whole, and the inspector: as
+ * `schematic-window-reads.dom.test.tsx`'s floor, a narrowed-out rack hidden, the host keeping the whole selection
+ * `onSelect` hears in a State of its own.
  */
 const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const racks = $.let(Data.bindPaged(ex.schematicRacks));
     const frames = $.let(Data.bind(ex.schematicFrames));
+    const fibre = $.let(Data.bind(ex.schematicFibre));
     const selected = $.let(State.bind([ArrayType(Schematic.Types.Ref)], KEPT, []));
     const onSelect = $.const(East.function([ArrayType(Schematic.Types.Ref)], NullType, ($2, refs) => {
         $2(selected.write(refs));
@@ -80,6 +82,11 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
         items: {
             racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name" }),
             network: Schematic.items(frames, { name: "Network frame", icon: "network-wired", x: "x", y: "y", width: "w", height: "h", label: "name" }),
+        },
+        links: {
+            fibre: Schematic.links(fibre, {
+                name: "Fibre run", icon: "bolt", from: { field: "from", of: { rack: "racks", frame: "network" } }, to: { field: "to", of: { rack: "racks", frame: "network" } },
+            }),
         },
     });
 }))) };
@@ -291,6 +298,17 @@ test("the drawing's counts, nothing selected, stay as they are while a zoom move
     expect(atFit["racks"]).toBe("5");
     await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
     expect(drawingCounts(container)).toEqual(atFit);
+});
+
+/** What the drawing's Details says it does not count, each line; none while it counts everything. */
+const uncounted = (c: HTMLElement) => [...slot(c, "end").querySelectorAll("[role='tabpanel']:not([hidden]) [data-inspector-uncounted]")].map((el) => el.textContent);
+
+test("the drawing's links, nothing selected, are never counted from the window of the kind read by area they join: Details says it does not count them, wherever the view goes (§9)", async () => {
+    const { container } = await open(floor);
+    const words = ["Links not counted: what they join is read as the view moves"];
+    expect([drawingCounts(container)["links"], uncounted(container)]).toEqual([undefined, words]);
+    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    expect([drawingCounts(container)["links"], uncounted(container)]).toEqual([undefined, words]);
 });
 
 test("Space on a button of the frame is the button's, even while the pointer rests over the canvas", async () => {
