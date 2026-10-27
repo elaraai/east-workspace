@@ -143,6 +143,14 @@ describe("the board takes the keyboard (as the Calendar's does, retest C4)", () 
         await act(async () => { fireEvent.keyDown(document.activeElement!, { key: "z", ctrlKey: true }); }); await settle();
         expect(proposal()).not.toBeNull();
     });
+    test("Delete on a saved duty the keyboard is on leaves its tombstone, and the keyboard on it", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await press(assignment(container, "s37"));
+        await act(async () => { assignment(container, "s37").focus(); });
+        await act(async () => { fireEvent.keyDown(assignment(container, "s37"), { key: "Delete" }); }); await settle();
+        expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
+        expect(document.activeElement).toBe(assignment(container, "s37"));
+    });
 });
 
 describe("the inspector keeps the keyboard as a control goes with its view (#1398)", () => {
