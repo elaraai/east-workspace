@@ -18,7 +18,8 @@
  * (#1343): over jobs read a window at a time, the eye waits for the rows the
  * canvas reads over its range, which hold each job's row, and reads none by
  * its key — whatever the number of jobs in the window, it asks e3 for the
- * windows alone (R24) — each of its reads landing re-running that reader
+ * windows alone, and a click builds its request from one read of the jobs'
+ * rows over the range, never one a job (R24) — each of its reads landing re-running that reader
  * alone, never the canvas or the frame, which draw again as the eye can be
  * used. A rows' window that fails is said once, on the footer's loading line
  * in the jobs' words — `Couldn't read print job events` — with Retry, never a
@@ -29,7 +30,7 @@
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, East, OptionType, none, printFor, some, variant } from "@elaraai/east";
+import { DateTimeType, East, OptionType, equalFor, none, printFor, some, variant } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Data, Func, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
@@ -41,6 +42,7 @@ import { MAX_RETAINED_WINDOWS } from "../platform/paged-runtime.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
 import { setPlanFrameRenderProbe } from "./frame/index.js";
 import { setPlanRootRenderProbe } from "./index.js";
+import { setPlanOptimiseProbe } from "./optimise.js";
 
 const h = e3Harness({ "plan/plan-events": events, "plan/optimise": opt }, { main: "data-plan-body" });
 const calls = fitCalls(h, { request: opt.PlanOptimiseRequest, result: opt.PlanOptimiseResult });
@@ -328,7 +330,7 @@ describe("what the eye waits on, read in a component of its own (#1343)", () => 
         }
     });
 
-    test("R24 — over more jobs in the plan window than the paging runtime keeps windows, with the rows' window held, the next day's reads ask e3 the two windows' searches and nothing of any one job, the eye disabled; once the window lands the eye can be used, and the request a click makes carries every job, reading none", async () => {
+    test("R24 — over more jobs in the plan window than the paging runtime keeps windows, with the rows' window held, the next day's reads ask e3 the two windows' searches and nothing of any one job, the eye disabled; once the window lands the eye can be used, and the request a click makes carries every job as e3 holds it, built from one read of the jobs' rows over the range — never one a job — and reading none by its key", async () => {
         const { container } = await h.mount(windowed);
         await waitFor(() => expect(eye(container)!.disabled).toBe(false), { timeout: 10_000 });
         // Read a job at a time, past the windows the runtime keeps each row read evicted one read before it, which the
@@ -351,11 +353,23 @@ describe("what the eye waits on, read in a component of its own (#1343)", () => 
         // row read where the canvas read it: none by its key.
         const call = calls.hold();
         const clicked = h.requests().length;
-        await press(eye(container));
-        await call.holding;
+        const reads: string[] = [];
+        setPlanOptimiseProbe({ readRows: (kind) => { reads.push(kind); } });
+        try {
+            await press(eye(container));
+            await call.holding;
+        } finally {
+            setPlanOptimiseProbe(undefined);
+        }
         const request = calls.requests()[0]!;
         expect([request.events.job.size > MAX_RETAINED_WINDOWS, [...request.events.job.values()].filter((job) => job.start.type === "none").length,
             jobsSince(clicked).filter(readsJobRow).length]).toEqual([true, 8, 0]);
+        // Built from one read of the jobs' rows over the range, whatever the number of jobs — never one a job, which read
+        // them all again each time — and each job the request carries is the job e3 holds.
+        expect(reads).toEqual(["job"]);
+        const held = await h.read(events.planPrintJobs);
+        const sameJob = equalFor(events.PrintJob);
+        expect([...request.events.job].filter(([key, job]) => !sameJob(job, held.get(key)!)).map(([key]) => key)).toEqual([]);
         call.release();
         await waitFor(() => expect(eye(container)!.hasAttribute("data-running")).toBe(false), { timeout: 10_000 });
     });

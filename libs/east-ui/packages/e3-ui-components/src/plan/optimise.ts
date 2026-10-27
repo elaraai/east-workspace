@@ -70,6 +70,28 @@ export interface PlanOptimised {
 /** An element's key: its event's ref, as East prints it — what the canvas names its elements by. */
 const printEventRef = printFor(ScheduleEventRefType);
 
+/**
+ * What a spec watches a run's request by (test use only), as the canvas's
+ * render probe watches the canvas: each read of an event kind's rows the
+ * request makes as a click builds it.
+ */
+export interface PlanOptimiseProbe {
+    /** Called for each read of a kind's rows, with the kind's slot. */
+    readonly readRows?: (kind: string) => void;
+}
+
+/** The probe a spec installed; `undefined` outside tests. */
+let planOptimiseProbe: PlanOptimiseProbe | undefined;
+
+/**
+ * Install (or clear) the probe a run's request is watched by. Test use only.
+ *
+ * @param probe - What watches it; `undefined` clears it
+ */
+export function setPlanOptimiseProbe(probe: PlanOptimiseProbe | undefined): void {
+    planOptimiseProbe = probe;
+}
+
 /** A kind's key and row types, from the kind on the wire. */
 function typesOf(kind: Pick<PlanEventKindValue, "editing">): { keyType: EastType; rowType: EastType } {
     return {
@@ -225,6 +247,8 @@ export function planOptimiseRequest(kinds: readonly PlanEventKindValue[], resour
         const waiting = kind.backlog ? kind.planUnscheduled(window.from, window.to, drafts, none) : none;
         const items = [...(placed.type === "some" ? placed.value : []), ...(waiting.type === "some" ? waiting.value : [])];
         for (const item of items) {
+            // Each event's row read through its kind's editing, which reads the kind's rows over the range to find it.
+            planOptimiseProbe?.readRows?.(kind.key);
             const read = editing.read(kind.key, item.key);
             const key = keyOf(item.key);
             if (read === undefined || key === undefined) continue;
