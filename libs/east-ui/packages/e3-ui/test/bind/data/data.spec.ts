@@ -364,13 +364,14 @@ describe("the client's tiles are e3's", () => {
             early.setUTCFullYear(year, month, 17);
             instants.push(early);
         }
+        const theirStart = East.compile(e3TileStart, []);
+        const theirNext = East.compile(e3TileNext, []);
         for (const tile of RECORD_TILES) {
-            const theirStart = East.compile(e3TileStart(tile), []) as (at: Date) => Date;
-            const theirNext = East.compile(e3TileNext(tile), []) as (start: Date) => Date;
+            const level = variant(tile, null);
             for (const at of instants) {
-                const start = theirStart(at);
+                const start = theirStart(level, at);
                 assert.ok(sameInstant(tileStart(tile, at), start), `${tile} of ${print(at)}: ${print(tileStart(tile, at))}, and e3's ${print(start)}`);
-                assert.ok(sameInstant(tileNext(tile, start), theirNext(start)), `the ${tile} after ${print(start)}`);
+                assert.ok(sameInstant(tileNext(tile, start), theirNext(level, start)), `the ${tile} after ${print(start)}`);
             }
         }
     });

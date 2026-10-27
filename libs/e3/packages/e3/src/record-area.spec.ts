@@ -16,11 +16,15 @@ import assert from 'node:assert/strict';
 import {
   DictType, East, FloatType, IntegerType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
   compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printType, some, variant,
-  type FunctionExpr, type ValueTypeOf,
+  type ValueTypeOf,
 } from '@elaraai/east';
 import { record } from './record.js';
 import { recordIndex, type IndexKeyOf, type IndexOn } from './record-index.js';
 import { AREA_UNPLACED, areaCellExponent, areaCode } from './record-area.js';
+import { indexFunctionAt } from './record-guards.js';
+
+/** The cell code each runtime files a box by: `(cx, cy, side, cell)`. */
+const locate = East.compile(areaCode, []);
 import { buildMutationProgram, indexBuildProgram } from './record-programs.js';
 import { mutation } from './mutation.js';
 import { package_ } from './package.js';
@@ -97,8 +101,8 @@ describe('e3.recordIndex.area — its keys (§11.2)', () => {
 
   it('files a box under the deepest level whose cell is twice its larger side, in the cell holding its centre — as the oracle does', () => {
     for (const e of [-7, 0, 3]) {
-      const code = East.compile(areaCode(e), []) as (cx: number, cy: number, side: number) => bigint;
       const cell = 2 ** e;
+      const code = (cx: number, cy: number, side: number) => locate(cx, cy, side, cell);
       const half = 2 ** (e + 27);
       const cases: [number, number, number][] = [
         [0, 0, 0], [-half, -half, 0], [half - cell, half - cell, 0], [cell * 3, -cell * 5, 0],
@@ -128,7 +132,7 @@ describe('e3.recordIndex.area — its keys (§11.2)', () => {
   it('keeps every box inside its cell grown by a quarter of the cell each side: its loose bounds', () => {
     const e = -7;
     const cell = 2 ** e;
-    const code = East.compile(areaCode(e), []) as (cx: number, cy: number, side: number) => bigint;
+    const code = (cx: number, cy: number, side: number) => locate(cx, cy, side, cell);
     const next = stream(7);
     for (let i = 0; i < 2000; i++) {
       const cx = (next() * 2 - 1) * 5000;
@@ -160,20 +164,22 @@ describe('e3.recordIndex.area — its keys (§11.2)', () => {
     const rack = (x: number | null, y: number | null): Rack => ({
       hall: 'H1', tags: new Set(['a', 'b']), x: x === null ? none : some(x), y: y === null ? none : some(y), w: 0.6, h: -1.2, name: 'r',
     });
-    const keyOf = (def: RecordIndexDef) => East.compile(def.keyFn as FunctionExpr<any, any>, []) as (key: string, row: unknown) => unknown;
+    const keyByArea = East.compile(indexFunctionAt(byArea.keyFn, [StringType, RackRow], byArea.keyType), []);
+    const keyByHallArea = East.compile(indexFunctionAt(byHallArea.keyFn, [StringType, RackRow], byHallArea.keyType), []);
+    const keysByTagArea = East.compile(indexFunctionAt(byTagArea.keyFn, [StringType, RackRow], SetType(byTagArea.keyType)), []);
+    const keyByZoneArea = East.compile(indexFunctionAt(zonesByArea.keyFn, [StringType, ZoneRow], zonesByArea.keyType), []);
     const decode = decodeBeast2For(RackRow);
     const encode = encodeBeast2For(RackRow);
     const placed = decode(encode(rack(12.34, -5.6)));
     // The row's leading fields under `on` — none here — and the cell's code beside them (#1432).
-    assert.deepEqual(keyOf(byArea)('r1', placed), { on: {}, area: oracle(12.34, -5.6, 1.2, -7) }, 'the larger side, whatever its sign');
-    assert.deepEqual(keyOf(byHallArea)('r1', placed), { on: { hall: 'H1' }, area: oracle(12.34, -5.6, 1.2, -7) });
-    const tagged = keyOf(byTagArea)('r1', placed) as Set<{ on: { tags: string }; area: bigint }>;
-    assert.deepEqual([...tagged], [{ on: { tags: 'a' }, area: oracle(12.34, -5.6, 0, -7) }, { on: { tags: 'b' }, area: oracle(12.34, -5.6, 0, -7) }],
+    assert.deepEqual(keyByArea('r1', placed), { on: {}, area: oracle(12.34, -5.6, 1.2, -7) }, 'the larger side, whatever its sign');
+    assert.deepEqual(keyByHallArea('r1', placed), { on: { hall: 'H1' }, area: oracle(12.34, -5.6, 1.2, -7) });
+    assert.deepEqual([...keysByTagArea('r1', placed)], [{ on: { tags: 'a' }, area: oracle(12.34, -5.6, 0, -7) }, { on: { tags: 'b' }, area: oracle(12.34, -5.6, 0, -7) }],
       'a point is filed at the finest level, once a tag');
-    assert.deepEqual(keyOf(byArea)('r2', decode(encode(rack(null, -5.6)))), { on: {}, area: AREA_UNPLACED });
-    assert.deepEqual(keyOf(byArea)('r3', decode(encode(rack(1, null)))), { on: {}, area: AREA_UNPLACED });
+    assert.deepEqual(keyByArea('r2', decode(encode(rack(null, -5.6)))), { on: {}, area: AREA_UNPLACED });
+    assert.deepEqual(keyByArea('r3', decode(encode(rack(1, null)))), { on: {}, area: AREA_UNPLACED });
     const zone = decodeBeast2For(ZoneRow)(encodeBeast2For(ZoneRow)({ x: 10, y: 20, w: 4, h: 2 }));
-    assert.deepEqual(keyOf(zonesByArea)('z1', zone), { on: {}, area: oracle(12, 21, 4, -7) }, 'a corner plus half the box is its centre');
+    assert.deepEqual(keyByZoneArea('z1', zone), { on: {}, area: oracle(12, 21, 4, -7) }, 'a corner plus half the box is its centre');
   });
 });
 

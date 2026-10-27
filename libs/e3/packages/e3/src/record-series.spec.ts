@@ -20,7 +20,7 @@ import {
   DateTimeType, DictType, East, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet,
   StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, equalFor, none, parseFor,
   printFor, printType, some, variant,
-  type EastType, type FunctionExpr, type ValueTypeOf,
+  type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import {
   RecordLevelType, RecordSummaryOpType, RecordSummaryTotalsType, type RecordSummaryOp, type RecordSummaryTotals,
@@ -31,6 +31,7 @@ import {
   MAX_EVENT_TILES, RECORD_TILES, SHORTEST_MS, checkTile, eventFilings, tileNext, tileShares, tileStart, type RecordTile,
 } from './record-tiles.js';
 import { buildMutationProgram, indexBuildProgram, summaryMergeProgram } from './record-programs.js';
+import { indexFunctionAt } from './record-guards.js';
 import { mutation } from './mutation.js';
 import { package_ } from './package.js';
 import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
@@ -157,19 +158,22 @@ function oracleFilings(tile: RecordTile, from: bigint, to: bigint): Array<{ leve
 /** An instant's milliseconds from the epoch, read by East. */
 const millisecondsOf = East.compile(East.function([DateTimeType], IntegerType, (_$, t) => t.toEpochMilliseconds()), []);
 
-/** A tile's functions over epoch milliseconds: what each runtime computes, its instants made and read by East. */
+/** The tile functions, as each runtime computes them. */
+const startOf = East.compile(tileStart, []);
+const nextOf = East.compile(tileNext, []);
+const sharesOf = East.compile(tileShares, []);
+const filingsOf = East.compile(eventFilings, []);
+
+/** A tile's functions over epoch milliseconds, its instants made and read by East. */
 function compiled(tile: RecordTile) {
-  const startOf = East.compile(tileStart(tile), []);
-  const nextOf = East.compile(tileNext(tile), []);
-  const sharesOf = East.compile(tileShares(tile), []);
-  const filingsOf = East.compile(eventFilings(tile), []);
+  const level = variant(tile, null);
   return {
-    start: (ms: bigint) => millisecondsOf(startOf(instant(ms))),
-    next: (ms: bigint) => millisecondsOf(nextOf(instant(ms))),
-    shares: (from: bigint, to: bigint, what: string) => sharesOf(instant(from), instant(to), what)
+    start: (ms: bigint) => millisecondsOf(startOf(level, instant(ms))),
+    next: (ms: bigint) => millisecondsOf(nextOf(level, instant(ms))),
+    shares: (from: bigint, to: bigint, what: string) => sharesOf(level, instant(from), instant(to), what)
       .map((share) => ({ tile: millisecondsOf(share.tile), ms: share.ms })),
-    filings: (from: bigint, to: bigint, what: string) => filingsOf(instant(from), instant(to), what)
-      .map((filing) => ({ level: filing.level.type as RecordTile, tile: millisecondsOf(filing.tile) })),
+    filings: (from: bigint, to: bigint, what: string) => filingsOf(level, instant(from), instant(to), what)
+      .map((filing) => ({ level: filing.level.type, tile: millisecondsOf(filing.tile) })),
   };
 }
 
@@ -310,9 +314,9 @@ describe('the tiles an event touches', () => {
       ['year', '1969-07-20T20:17:00.000', '1969-01-01T00:00:00.000', '1970-01-01T00:00:00.000'],
     ];
     for (const [tile, held, first, after] of cases) {
-      const start = East.compile(tileStart(tile), [])(at(held));
+      const start = startOf(variant(tile, null), at(held));
       assert.ok(sameInstant(start, at(first)), `the ${tile} holding ${held} starts ${first}, not ${print(start)}`);
-      const next = East.compile(tileNext(tile), [])(start);
+      const next = nextOf(variant(tile, null), start);
       assert.ok(sameInstant(next, at(after)), `the ${tile} after ${first} starts ${after}, not ${print(next)}`);
     }
   });
@@ -467,9 +471,9 @@ describe('e3.recordIndex.series — its keys', () => {
     const byPressWeek = recordIndex.series('jobs_by_press_week', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'week' });
     const byStatePressWeek = recordIndex.series('jobs_by_state_press_week', jobs(), { on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week' });
     const byCrewPressWeek = recordIndex.series('jobs_by_crew_press_week', jobs(), { on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'week' });
-    const keysByPressWeek = East.compile(byPressWeek.keyFn as FunctionExpr<any, any>, []) as (key: string, row: Job) => unknown;
-    const keysByStatePressWeek = East.compile(byStatePressWeek.keyFn as FunctionExpr<any, any>, []) as (key: string, row: Job) => unknown;
-    const keysByCrewPressWeek = East.compile(byCrewPressWeek.keyFn as FunctionExpr<any, any>, []) as (key: string, row: Job) => unknown;
+    const keysByPressWeek = East.compile(indexFunctionAt(byPressWeek.keyFn, [StringType, JobRow], SetType(byPressWeek.keyType)), []);
+    const keysByStatePressWeek = East.compile(indexFunctionAt(byStatePressWeek.keyFn, [StringType, JobRow], SetType(byStatePressWeek.keyType)), []);
+    const keysByCrewPressWeek = East.compile(indexFunctionAt(byCrewPressWeek.keyFn, [StringType, JobRow], SetType(byCrewPressWeek.keyType)), []);
     // Wednesday 06:00 to the next Tuesday 06:00: six days, a week's length, under the week of 5 October that holds its start.
     const row = scheduled('2026-10-07T06:00:00.000', '2026-10-13T06:00:00.000');
     const oct5 = at('2026-10-05T00:00:00.000');
@@ -494,7 +498,7 @@ describe('e3.recordIndex.series — its keys', () => {
     const keysType = SetType(def.keyType);
     const order = compareFor(def.keyType);
     const oct5 = { on: {}, key: 'P-1001', level: variant('week', null), tile: at('2026-10-05T00:00:00.000') };
-    const keys = East.compile(def.keyFn as FunctionExpr<any, any>, []) as (key: string, row: Job) => unknown;
+    const keys = East.compile(indexFunctionAt(def.keyFn, [StringType, JobRow], keysType), []);
     assertEast(keysType, keys('W-0001', scheduled('2026-10-07T06:00:00.000', null)), new SortedSet([oct5], order), 'no end');
     assertEast(keysType, keys('W-0001', scheduled('2026-10-07T06:00:00.000', '2026-10-01T00:00:00.000')), new SortedSet([oct5], order), 'an end before its start');
     assertEast(keysType, keys('W-0001', scheduled('2026-10-07T06:00:00.000', '2026-10-07T06:00:00.000')), new SortedSet([oct5], order), 'an end at its start');
@@ -505,7 +509,7 @@ describe('e3.recordIndex.series — its keys', () => {
   it('reads a plain DateTime start and end as an Option\'s', () => {
     const def = recordIndex.series('shifts_by_press_day', shifts(), { key: 'press', from: 'start', to: 'end', tile: 'day' });
     const shift = decodeBeast2For(ShiftRow)(encodeBeast2For(ShiftRow)({ press: 'P-1002', start: at('2026-10-05T22:00:00.000'), end: at('2026-10-06T06:00:00.000') }));
-    const keys = East.compile(def.keyFn as FunctionExpr<any, any>, []) as (key: string, row: unknown) => unknown;
+    const keys = East.compile(indexFunctionAt(def.keyFn, [StringType, ShiftRow], SetType(def.keyType)), []);
     assertEast(SetType(def.keyType), keys('S-1', shift), new SortedSet([
       { on: {}, key: 'P-1002', level: variant('day', null), tile: at('2026-10-05T00:00:00.000') },
     ], compareFor(def.keyType)), 'a night shift, eight hours, is filed once, under the day it starts');
@@ -602,8 +606,8 @@ describe('e3.recordIndex.summary — its contributions and declaration', () => {
   it('counts an event once under each tile it touches, with the milliseconds of it covered; an instant covers none; no start counts nowhere', () => {
     const def = recordIndex.summary('jobs_by_press_week_totals', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'week' });
     const byCrew = recordIndex.summary('jobs_by_crew_press_week_totals', jobs(), { on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'week' });
-    const contribute = East.compile(def.keyFn as FunctionExpr<any, any>, []) as (key: string, row: Job) => unknown;
-    const contributeByCrew = East.compile(byCrew.keyFn as FunctionExpr<any, any>, []) as (key: string, row: Job) => unknown;
+    const contribute = East.compile(indexFunctionAt(def.keyFn, [StringType, JobRow], DictType(def.keyType, RecordSummaryTotalsType)), []);
+    const contributeByCrew = East.compile(indexFunctionAt(byCrew.keyFn, [StringType, JobRow], DictType(byCrew.keyType, RecordSummaryTotalsType)), []);
     const contributions = DictType(def.keyType, RecordSummaryTotalsType);
     const order = compareFor(def.keyType);
     const oct5 = at('2026-10-05T00:00:00.000');

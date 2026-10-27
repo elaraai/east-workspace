@@ -22,11 +22,10 @@
  * runtime — TypeScript, C, Python — files a row under the same key, which is
  * what lets a maintained index equal its rebuild byte for byte.
  */
-import {
-  East, Expr, FloatType, IntegerType, OptionType, StructType, SetType, isTypeEqual, printType,
-  type EastType, type FunctionExpr,
-} from '@elaraai/east';
-import type { IndexFunction } from './record-index.js';
+import { East, FloatType, IntegerType, OptionType, SetType, StructType, isTypeEqual, none, printType, some, type EastType } from '@elaraai/east';
+import type { RecordDef, RecordIndexDef } from './types.js';
+import { INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexFunction } from './record-guards.js';
+import { checkLeading, leadingValue, leadingValues, optionField, readerOf, type RowType } from './record-keys.js';
 
 /** The finest level: a level-28 cell is `cell` wide. */
 export const AREA_FINEST_LEVEL = 28;
@@ -76,95 +75,122 @@ export function areaCellExponent(name: string, cell: number): number {
   return e;
 }
 
+/** The finest level's cells either side of zero: the domain is `cell · 2^27` either side. */
+const HALF_CELLS = 2 ** 27;
+/** {@link HALF_CELLS}, an Integer. */
+const HALF_CELLS_INTEGER = 1n << 27n;
+/** {@link AREA_FINEST_LEVEL}, an Integer. */
+const FINEST_LEVEL = 28n;
+
 /**
- * The `area` part of a box's key, from its centre and its larger side: an East
- * function, so every runtime computes it alike.
+ * The `area` part of a box's key, from its centre, its larger side and the
+ * finest cell's side, a power of two: the level-28 Morton code of the box's
+ * cell, times 32, plus its level; `0`, the root, for a box outside the domain,
+ * not finite, or larger than half the domain. Every step is exact, so every
+ * runtime computes it alike.
  *
- * @param exponent - The finest cell's side is `2^exponent` world units
- * @returns `(cx, cy, side) → Integer`: the level-28 Morton code of the box's
- *   cell, times 32, plus its level; `0`, the root, for a box outside the domain,
- *   not finite, or larger than half the domain
+ * `(cx, cy, side, cell) → Integer`
  */
-export function areaCode(exponent: number) {
-  const cell = 2 ** exponent;
-  const half = 2 ** (exponent + 27);
-  const finest = BigInt(AREA_FINEST_LEVEL);
-  return East.function([FloatType, FloatType, FloatType], IntegerType, ($, cx, cy, side) => {
-    // A value is finite exactly when it less itself is zero: an infinity's, or a NaN's, is a NaN.
-    const finite = (value: typeof cx) => value.subtract(value).equal(0.0);
-    const inside = (value: typeof cx) => value.greaterEqual(-half).and(() => value.less(half));
-    $.if(finite(cx).and(() => finite(cy)).and(() => finite(side)).not()
-      .or(() => inside(cx).not()).or(() => inside(cy).not()).or(() => side.greater(half)), ($) => {
-      $.return(0n);
-    });
-    // The deepest level whose cell is at least twice the box's larger side:
-    // each step up doubles the cell, exactly, and the step between its cells'
-    // indices at the finest level. A side at most half the domain stops at the
-    // root at the latest.
-    const level = $.let(finest);
-    const size = $.let(cell);
-    const step = $.let(1n);
-    const twice = $.let(side.multiply(2.0));
-    $.while(size.less(twice), ($) => {
-      $.assign(size, size.multiply(2.0));
-      $.assign(level, level.subtract(1n));
-      $.assign(step, step.multiply(2n));
-    });
-    // The finest cell holding the centre: a division by a power of two, and its
-    // floor, are exact; the domain's lower edge is cell 0. Then the level's
-    // cell holding it, aligned to the finest level: the bits below it cleared.
-    const ix = $.let(East.Float.roundFloor(cx.divide(cell)).add(1n << 27n).divide(step).multiply(step));
-    const iy = $.let(East.Float.roundFloor(cy.divide(cell)).add(1n << 27n).divide(step).multiply(step));
-    // Its Morton code: x in the even bits, y in the odd.
-    const code = $.let(0n);
-    const bit = $.let(1n);
-    $.for(East.Array.range(0n, finest), ($) => {
-      $.assign(code, code.add(ix.remainder(2n).multiply(bit)).add(iy.remainder(2n).multiply(bit).multiply(2n)));
-      $.assign(ix, ix.divide(2n));
-      $.assign(iy, iy.divide(2n));
-      $.assign(bit, bit.multiply(4n));
-    });
-    $.return(code.multiply(32n).add(level));
+export const areaCode = East.function([FloatType, FloatType, FloatType, FloatType], IntegerType, ($, cx, cy, side, cell) => {
+  const half = $.let(cell.multiply(HALF_CELLS));
+  // A value is finite exactly when it less itself is zero: an infinity's, or a NaN's, is a NaN.
+  const finite = $.let(cx.subtract(cx).equal(0.0).and(() => cy.subtract(cy).equal(0.0)).and(() => side.subtract(side).equal(0.0)));
+  const inside = $.let(cx.greaterEqual(half.negate()).and(() => cx.less(half)).and(() => cy.greaterEqual(half.negate())).and(() => cy.less(half)));
+  $.if(finite.not().or(() => inside.not()).or(() => side.greater(half)), ($) => {
+    $.return(0n);
   });
+  // The deepest level whose cell is at least twice the box's larger side:
+  // each step up doubles the cell, exactly, and the step between its cells'
+  // indices at the finest level. A side at most half the domain stops at the
+  // root at the latest.
+  const level = $.let(FINEST_LEVEL);
+  const size = $.let(cell);
+  const step = $.let(1n);
+  const twice = $.let(side.multiply(2.0));
+  $.while(size.less(twice), ($) => {
+    $.assign(size, size.multiply(2.0));
+    $.assign(level, level.subtract(1n));
+    $.assign(step, step.multiply(2n));
+  });
+  // The finest cell holding the centre: a division by a power of two, and its
+  // floor, are exact; the domain's lower edge is cell 0. Then the level's
+  // cell holding it, aligned to the finest level: the bits below it cleared.
+  const ix = $.let(East.Float.roundFloor(cx.divide(cell)).add(HALF_CELLS_INTEGER).divide(step).multiply(step));
+  const iy = $.let(East.Float.roundFloor(cy.divide(cell)).add(HALF_CELLS_INTEGER).divide(step).multiply(step));
+  // Its Morton code: x in the even bits, y in the odd.
+  const code = $.let(0n);
+  const bit = $.let(1n);
+  $.for(East.Array.range(0n, FINEST_LEVEL), ($) => {
+    $.assign(code, code.add(ix.remainder(2n).multiply(bit)).add(iy.remainder(2n).multiply(bit).multiply(2n)));
+    $.assign(ix, ix.divide(2n));
+    $.assign(iy, iy.divide(2n));
+    $.assign(bit, bit.multiply(4n));
+  });
+  $.return(code.multiply(32n).add(level));
+});
+
+/** `(width, height) → the larger of their sizes`: a box's larger side. */
+const largerSide = East.function([FloatType, FloatType], FloatType, (_$, width, height) =>
+  width.abs().greaterEqual(height.abs()).ifElse(() => width.abs(), () => height.abs()));
+
+/** What an area index's declaration names (`e3.recordIndex.area`). */
+export interface AreaSpec {
+  readonly on?: readonly string[];
+  readonly x: string;
+  readonly y: string;
+  readonly width?: string;
+  readonly height?: string;
+  readonly at?: 'corner' | 'centre';
+  readonly cell: number;
 }
 
 /**
- * Generate the area index's pure key function: one entry per row (one per
- * element of a Set among the leading `on` fields), `{ on: { …on }, area }` —
- * the row's leading fields under `on`, the cell's code beside them (#1432) — using
- * the field index's generated function for the leading fields, as the
- * interval index does. It stays an ordinary maintained index: mutation,
- * rebuild, storage and transport are shared.
+ * An area index's definition (`e3.recordIndex.area`): its key function, one
+ * entry per row — one per combination of its leading values where a Set among
+ * them fans out — `{ on: { …on }, area }`, the row's leading fields under `on`
+ * and the cell's code beside them (#1432); and its projection, the whole row,
+ * so a window reads the index alone and no record segment (D29). It stays an
+ * ordinary maintained index: mutation, rebuild, storage and transport are
+ * shared.
  *
- * @param name - The index, for the refusals
- * @param keyType - The record's key type
- * @param valueType - The record's row type
- * @param on - The exact leading fields
- * @param box - How the row's box is read
- * @param exponent - The finest cell's side is `2^exponent`
- * @param prefix - The leading fields' generated key function
- * @returns The key function, whether it fans out, and whether `x` and `y` are Options
- * @throws {Error} When a field is not of its option's type, naming the option,
- *   the field and its type; when `x` and `y` are not both Options or neither;
- *   or when `width` and `height` are not given together
+ * @param name - The index
+ * @param rec - Its record
+ * @param spec - The box's fields, whether `x`, `y` is its centre or its corner, the finest cell, and the optional leading `on`
+ * @param config - Its runner selection
+ * @returns The definition
+ * @throws {Error} When a field is not of its option's type, naming the option, the field and its type; when `x` and `y`
+ *   are not both Options or neither; when `width` and `height` are not given together; or on any guard every index applies
  */
-export function areaKey(name: string, keyType: EastType, valueType: EastType, on: readonly string[], box: AreaBox,
-  exponent: number, prefix?: { fn: IndexFunction; multi: boolean }) {
+export function areaDefinition(name: string, rec: RecordDef, spec: AreaSpec, config: { runner?: RecordIndexDef['runner'] } | undefined): RecordIndexDef {
+  const constructor = 'e3.recordIndex.area';
+  const { keyType, valueType } = indexedEntry(constructor, name, rec);
+  onlyOptions(constructor, name, spec, ['on', 'x', 'y', 'width', 'height', 'at', 'cell'],
+    'value' in spec ? 'an area index carries the whole row as its projection, so it takes no value' : undefined);
+  const exponent = areaCellExponent(name, spec.cell);
+  const box: AreaBox = {
+    x: spec.x, y: spec.y,
+    ...(spec.width !== undefined && { width: spec.width }),
+    ...(spec.height !== undefined && { height: spec.height }),
+    at: spec.at ?? 'corner',
+  };
   if (valueType.type !== 'Struct') throw new Error(`e3.recordIndex.area '${name}' indexes a record with Struct rows`);
-  const rowType = valueType as StructType<Record<string, EastType>>;
+  const rowType: RowType = valueType;
   const typeOf = (option: string, field: string): EastType => {
     const type = rowType.fields[field];
     if (type === undefined) throw new Error(`e3.recordIndex.area '${name}' ${option} names unknown row field '${field}'`);
     return type;
   };
-  const placeOptional = (option: string, field: string): boolean => {
+  const placeOf = (option: string, field: string) => {
     const type = typeOf(option, field);
-    if (isTypeEqual(type, FloatType)) return false;
-    if (isTypeEqual(type, OptionType(FloatType))) return true;
-    throw new Error(`e3.recordIndex.area '${name}' ${option} names '${field}', of type ${printType(type)}: ${option} is a Float or an Option<Float> field`);
+    const place = optionField(rowType, field, FloatType);
+    if (place === undefined) {
+      throw new Error(`e3.recordIndex.area '${name}' ${option} names '${field}', of type ${printType(type)}: ${option} is a Float or an Option<Float> field`);
+    }
+    return place;
   };
-  const optional = placeOptional('x', box.x);
-  if (placeOptional('y', box.y) !== optional) {
+  const x = placeOf('x', box.x);
+  const y = placeOf('y', box.y);
+  if (x.optional !== y.optional) {
     throw new Error(`e3.recordIndex.area '${name}': x '${box.x}' and y '${box.y}' are both Options, or neither — a row is placed, or not, by both`);
   }
   if ((box.width === undefined) !== (box.height === undefined)) {
@@ -178,44 +204,99 @@ export function areaKey(name: string, keyType: EastType, valueType: EastType, on
     }
   }
   if (box.at !== 'corner' && box.at !== 'centre') {
-    throw new Error(`e3.recordIndex.area '${name}' at is "corner" or "centre", not ${JSON.stringify(box.at)}`);
+    throw new Error(`e3.recordIndex.area '${name}' at is "corner" or "centre", not ${String(box.at)}`);
   }
-  const fields = Object.fromEntries(on.map((field) => {
-    const type = rowType.fields[field]!;
-    return [field, type.type === 'Set' ? type.key : type];
-  }));
-  const indexType = StructType({ on: StructType(fields), area: IntegerType });
-  const multi = prefix?.multi ?? false;
-  const prefixType = prefix === undefined ? undefined : Expr.type(prefix.fn as unknown as Expr) as { output: EastType };
-  const code = areaCode(exponent);
-  // Dynamic field names are erased only inside this generated East function,
-  // as in the field and interval key generators; every type was checked above.
-  const fn = East.function([keyType as never, rowType], (multi ? SetType(indexType) : indexType) as never, ($: any, key: any, row: any) => {
-    const locate = $.const(code);
-    // The box's larger side; a point has none.
-    const larger = $.let(box.width === undefined ? 0.0
-      : row[box.width].abs().greaterEqual(row[box.height!].abs()).ifElse(() => row[box.width!].abs(), () => row[box.height!].abs()), FloatType);
-    // Its centre: `x`, `y` itself, or the minimum corner plus half the box.
-    const centre = (at: any, extent: string | undefined) => box.at === 'centre' || extent === undefined
-      ? at : at.add(row[extent].divide(2.0));
+  const on = spec.on ?? [];
+  const leading = checkLeading(name, rowType, on);
+  const indexType = StructType({ on: leading.onType, area: IntegerType });
+  // The row's box as the code reads it: its centre, `none` for a row not placed, and its larger side, a point's none.
+  const BoxType = StructType({ cx: OptionType(FloatType), cy: OptionType(FloatType), side: FloatType });
+  const place = readerOf(keyType, rowType, { x: { option: x }, y: { option: y } });
+  const size = box.width === undefined || box.height === undefined ? undefined
+    : readerOf(keyType, rowType, { width: { field: box.width, type: FloatType }, height: { field: box.height, type: FloatType } });
+  const boxOf = size === undefined
+    // A point: its place, no side.
+    ? East.function([keyType, rowType], BoxType, ($, key, row) => {
+      const readPlace = $.const(place.fn);
+      const at = $.let(readPlace(key, row));
+      return { cx: at.x, cy: at.y, side: 0.0 };
+    })
+    : box.at === 'corner'
+      // A box by its minimum corner: its centre half the box on.
+      ? East.function([keyType, rowType], BoxType, ($, key, row) => {
+        const readPlace = $.const(place.fn);
+        const readSize = $.const(size.fn);
+        const larger = $.const(largerSide);
+        const at = $.let(readPlace(key, row));
+        const extent = $.let(readSize(key, row));
+        return {
+          cx: at.x.match({ some: (_$, cx) => some(cx.add(extent.width.divide(2.0))), none: () => none }),
+          cy: at.y.match({ some: (_$, cy) => some(cy.add(extent.height.divide(2.0))), none: () => none }),
+          side: larger(extent.width, extent.height),
+        };
+      })
+      // A box by its centre.
+      : East.function([keyType, rowType], BoxType, ($, key, row) => {
+        const readPlace = $.const(place.fn);
+        const readSize = $.const(size.fn);
+        const larger = $.const(largerSide);
+        const at = $.let(readPlace(key, row));
+        const extent = $.let(readSize(key, row));
+        return { cx: at.x, cy: at.y, side: larger(extent.width, extent.height) };
+      });
+  // The row's cell code: unplaced, or the cell of its box's centre and larger side.
+  const areaOf = East.function([keyType, rowType], IntegerType, ($, key, row) => {
+    const locate = $.const(areaCode);
+    const read = $.const(boxOf);
+    const at = $.let(read(key, row));
     const area = $.let(AREA_UNPLACED, IntegerType);
-    if (optional) {
-      $.match(row[box.x], { some: ($: any, x: any) => {
-        $.match(row[box.y], { some: ($: any, y: any) => {
-          $.assign(area, locate(centre(x, box.width), centre(y, box.height), larger));
-        } });
-      } });
-    } else {
-      $.assign(area, locate(centre(row[box.x], box.width), centre(row[box.y], box.height), larger));
-    }
-    if (prefix === undefined) return { on: {}, area };
-    const make = $.const(prefix.fn as FunctionExpr<any, any>);
-    const values = $.let(make(key, row), prefixType!.output);
-    const entry = (value: any) => ({ on: Object.fromEntries(on.map((field) => [field, on.length === 1 ? value : value[field]])), area });
-    if (!prefix.multi) return entry(values);
-    const keys = $.let(new Set(), SetType(indexType));
-    $.for(values, ($: any, value: any) => { $(keys.insert(entry(value))); });
-    return keys;
+    $.match(at.cx, {
+      some: ($, cx) => {
+        $.match(at.cy, {
+          some: ($, cy) => { $.assign(area, locate(cx, cy, at.side, 2 ** exponent)); },
+          none: () => {},
+        });
+      },
+      none: () => {},
+    });
+    return area;
   });
-  return { fn, multi, optional };
+  // One entry a row, under its leading values; one a combination of them where a Set among them fans it out.
+  let keyFn: IndexFunction;
+  if (leading.multi) {
+    const leads = leadingValues(keyType, rowType, leading);
+    keyFn = East.function([keyType, rowType], SetType(indexType), ($, key, row) => {
+      const areaFn = $.const(areaOf);
+      const combinations = $.const(leads);
+      const area = $.let(areaFn(key, row));
+      return combinations(key, row).toSet((_$, on) => ({ on, area }));
+    });
+  } else {
+    const lead = leadingValue(keyType, rowType, leading);
+    keyFn = East.function([keyType, rowType], indexType, ($, key, row) => {
+      const areaFn = $.const(areaOf);
+      const values = $.const(lead);
+      return { on: values(key, row), area: areaFn(key, row) };
+    });
+  }
+  // It carries its rows (D29): each entry's projection is the whole row, so a window reads the index alone and no
+  // record segment.
+  const valueFn = East.function([keyType, rowType], rowType, (_$, _key, row) => row);
+  const runner = indexRunner(config);
+  const role = leading.multi ? "'keys' function" : "'key' function";
+  checkPure(`e3.recordIndex '${name}' ${role}`, keyFn, INDEX_PURITY);
+  checkEntryParams(name, role, keyType, valueType, signatureOf(keyFn).inputs);
+  return {
+    kind: 'recordIndex',
+    name,
+    record: rec,
+    on: Object.freeze([...on]),
+    area: Object.freeze({ ...box, cell: 2 ** exponent }),
+    keyFn,
+    valueFn,
+    multi: leading.multi,
+    keyType: indexType,
+    valueType: rowType,
+    runner,
+  };
 }

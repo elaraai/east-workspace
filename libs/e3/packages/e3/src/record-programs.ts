@@ -38,7 +38,6 @@ import {
 import {
   DELTA_CONFLICT, RecordSummaryTotalsType, editTypeOf, indexCollectionType, mutationDeltaType, patchOpsType, type DeltaTarget,
 } from '@elaraai/e3-types';
-import { summaryMerge } from './record-series.js';
 import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
 /**
@@ -144,8 +143,9 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef): Ea
  * @throws {Error} When the index is not a summary
  */
 export function summaryMergeProgram(def: RecordIndexDef): EastIR<any, any> {
-  if (def.summary === undefined) throw new Error(`index '${def.name}' is not a summary, and its build merges nothing`);
-  return locationFree(() => summaryMerge(def.name, def.keyType));
+  const merge = def.mergeFn;
+  if (def.summary === undefined || merge === undefined) throw new Error(`index '${def.name}' is not a summary, and its build merges nothing`);
+  return locationFree(() => merge);
 }
 
 /**

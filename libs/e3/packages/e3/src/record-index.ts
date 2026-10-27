@@ -20,46 +20,25 @@
  * one to the byte.
  */
 
-import type { DateTimeType, DictType, EastType, FloatType, FunctionExpr, IntegerType, OptionType } from '@elaraai/east';
-import { East, Expr, NullType, SetType, StructType, printType } from '@elaraai/east';
-import { RecordSummaryTotalsType, type RecordLevelType } from '@elaraai/e3-types';
+import type { DateTimeType, DictType, EastType, Expr, FloatType, FunctionType, IntegerType, OptionType, SetType, StructType } from '@elaraai/east';
+import { NullType } from '@elaraai/east';
+import type { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
 import type { RecordDef, RecordIndexDef } from './types.js';
-import { intervalKey } from './record-interval.js';
-import { areaCellExponent, areaKey } from './record-area.js';
-import { seriesKeys, summaryContributions } from './record-series.js';
-import { checkTile, type RecordTile } from './record-tiles.js';
-import { checkPure, sameEastType } from './record-guards.js';
-import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
+import { intervalDefinition } from './record-interval.js';
+import { areaDefinition } from './record-area.js';
+import { seriesDefinition, summaryDefinition } from './record-series.js';
+import type { RecordTile } from './record-tiles.js';
+import { indexFunctions, indexedEntry, onlyOptions } from './record-guards.js';
+import type { IndexFunction } from './record-guards.js';
+import { checkLeading, fieldKeyOf } from './record-keys.js';
+import type { FunctionRunner } from './runner.js';
 
-/** The index name reserved for the record's own collection wherever an index
- *  is selected — a page, a key search, an arm of the mutation delta. */
-const RESERVED_INDEX_NAME = 'primary';
-
-/**
- * What an index declaration needs of a function: a way to reach its IR, and
- * through that its signature.
- *
- * @remarks
- * Deliberately the weakest shape that works, because a stronger one silently
- * breaks the authored surface. An index reads
- * `key: East.function([K, V], IK, ($, k, v) => …)` written INLINE in the spec,
- * and `East.function` infers its callback's parameters from its own first
- * argument — but only if nothing is imposed on it from outside. Both a
- * callable contextual type (`FunctionExpr<any, any>`) and a generic return
- * type here (`toIR(): EastIR<any, any>`) make TypeScript infer against the
- * expected type instead, and the body's `k` and `v` come out as the union of
- * every expression class. `unknown` imposes nothing; the guards below read the
- * signature at run time regardless.
- */
-export interface IndexFunction {
-  /** The function's IR bundle, as `EastIR` or `AsyncEastIR`. */
-  toIR(): unknown;
-}
+export type { IndexFunction } from './record-guards.js';
 
 /** The own fields of a Dict record's struct row. */
-type RowFields<T> = T extends DictType<any, StructType<infer F>> ? F : Record<never, never>;
+type RowFields<T> = T extends DictType<unknown, StructType<infer F>> ? F : Record<never, never>;
 /** A Dict record's row type. */
-type RowOf<T> = T extends DictType<any, infer V extends EastType> ? V : EastType;
+type RowOf<T> = T extends DictType<unknown, infer V extends EastType> ? V : EastType;
 /** A Set field indexes its elements; every other field indexes its value. */
 type FieldKey<T> = T extends SetType<infer K extends EastType> ? K : T extends EastType ? T : never;
 /**
@@ -82,7 +61,7 @@ type PlaceField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends FloatT
 /** A row field an area index may size a box by: a Float. */
 type FloatField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends FloatType ? F : never }[keyof RowFields<T>] & string;
 /** A row field a series or summary index files events under: any but a Set. */
-type KeyField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends SetType<any> ? never : F }[keyof RowFields<T>] & string;
+type KeyField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends SetType<unknown> ? never : F }[keyof RowFields<T>] & string;
 /**
  * A generated index's leading fields, by name, at their key types: the fields
  * of its key's `on` (#1432). The fields, never the struct, so a definition's
@@ -213,7 +192,7 @@ export interface SummaryIndexSpec<T extends EastType = EastType> {
 }
 
 /** The type an East function returns, read off the expression itself. */
-type OutputOf<F> = F extends FunctionExpr<any, infer O> ? (O extends EastType ? O : EastType) : EastType;
+type OutputOf<F> = F extends Expr<FunctionType<unknown[], infer O>> ? (O extends EastType ? O : EastType) : EastType;
 
 /**
  * The index key a spec declares (#1432): a generated index's row fields under
@@ -266,156 +245,34 @@ export type ProjectionOf<S> =
   : 'value' extends keyof S ? EastType
   : NullType;
 
-/** Generate a pure key function from a field declaration. The normal index
- *  build and mutation programs call it exactly as they call an authored key. */
-function fieldKey(name: string, keyType: EastType, valueType: EastType, on: readonly string[]): { fn: IndexFunction; multi: boolean } {
-  const rowType = valueType as StructType<Record<string, EastType>>;
-  if (rowType.type !== 'Struct') throw new Error(`e3.recordIndex '${name}' on requires a record with Struct rows`);
-  if (on.length === 0) throw new Error(`e3.recordIndex '${name}' on requires at least one field`);
-  if (new Set(on).size !== on.length) throw new Error(`e3.recordIndex '${name}' on must not repeat a field`);
-  const fields = on.map((field) => {
-    if (!Object.hasOwn(rowType.fields, field)) throw new Error(`e3.recordIndex '${name}' on names unknown row field '${field}'`);
-    const type = rowType.fields[field]!;
-    const set = (type as SetType).type === 'Set';
-    return { field, type: set ? (type as SetType).key : type, set };
-  });
-  const indexType = fields.length === 1 ? fields[0]!.type : StructType(Object.fromEntries(fields.map((f) => [f.field, f.type])));
-  const multi = fields.some((f) => f.set);
-  const output = multi ? SetType(indexType) : indexType;
-  // Types are checked above; the row's dynamic field names are erased only
-  // inside this generated East body, as in record-programs.ts.
-  const fn = East.function([keyType as never, rowType], output as never, ($: any, _key: any, row: any) => {
-    if (fields.length === 1) return row[fields[0]!.field];
-    if (!multi) return Object.fromEntries(fields.map((f) => [f.field, row[f.field]]));
-    const keys = $.let(new Set(), SetType(indexType));
-    const append = ($: any, at: number, values: Record<string, unknown>): void => {
-      const field = fields[at];
-      if (field === undefined) { $(keys.insert(values)); return; }
-      if (field.set) {
-        $.for(row[field.field], ($: any, element: any) => append($, at + 1, { ...values, [field.field]: element }));
-      } else append($, at + 1, { ...values, [field.field]: row[field.field] });
-    };
-    append($, 0, {});
-    return keys;
-  });
-  return { fn, multi };
-}
-
-/** The signature of a function an index declares, as the guards see it. */
-function signatureOf(fn: IndexFunction): { inputs: EastType[]; output: EastType } {
-  return Expr.type(fn as unknown as Expr<any>) as { inputs: EastType[]; output: EastType };
-}
-
-/** Why an index function may be neither async nor reach a platform function:
- *  either makes the index non-deterministic, and an index that does not equal
- *  its rebuild is worse than no index, since the view it serves is quietly
- *  wrong. */
-const INDEX_PURITY = {
-  async: 'an async function implies platform IO, and an index is rebuilt from the record whenever it is dropped or its declaration changes.',
-  platform: 'the index is maintained on every commit and rebuilt on demand, so a platform call makes the two disagree.',
-};
-
-/** Refuses an index function whose parameters are not the record's entry. */
-function checkEntryParams(name: string, role: string, keyType: EastType, valueType: EastType, inputs: EastType[]): void {
-  if (inputs.length !== 2 || !sameEastType(keyType, inputs[0]!) || !sameEastType(valueType, inputs[1]!)) {
-    const got = inputs.length === 0 ? 'no parameters' : inputs.map((t) => printType(t)).join(', ');
-    throw new Error(
-      `e3.recordIndex '${name}' ${role} must take the record's entry ` +
-      `(${printType(keyType)}, ${printType(valueType)}), but got ${got}.`,
-    );
-  }
-}
-
-/** The constructor a refusal names. */
-type Constructor = 'e3.recordIndex' | 'e3.recordIndex.interval' | 'e3.recordIndex.area' | 'e3.recordIndex.series' | 'e3.recordIndex.summary';
-
 /**
- * A record's entry types, once an index's name and its record pass: a name that
- * is an identifier, never `primary`, declared once on the record, over a Dict
- * record.
+ * A plain index's key function, from exactly one of `on` — row fields, whose
+ * key function is generated — `key` or `keys`.
  *
- * Every guard here is a definition-time error rather than a deploy failure.
+ * @param name - The index, for the refusals
+ * @param keyType - The record's key type
+ * @param valueType - The record's row type
+ * @param spec - The declaration
+ * @returns The key function, and whether it returns a Set of keys
+ * @throws {Error} When the declaration gives none of them or more than one, or `on` names no field of the row's
  */
-function indexedEntry(constructor: Constructor, name: string, rec: RecordDef): { keyType: EastType; valueType: EastType } {
-  if (!name) {
-    throw new Error(`${constructor} requires a non-empty name`);
-  }
-  if (name === RESERVED_INDEX_NAME) {
-    throw new Error(
-      `${constructor} cannot be named '${RESERVED_INDEX_NAME}' — that name is the ` +
-      `record's own collection wherever an index is selected.`,
-    );
-  }
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
-    throw new Error(
-      `${constructor} '${name}' must be an identifier — it names a query ` +
-      `selector in URLs and on the command line.`,
-    );
-  }
-  // An assembled record — a package's `records.plans` — carries its indexes
-  // already; a bare one is checked when `e3.package` folds indexes onto it.
-  if (rec.indexes[name] !== undefined) {
-    throw new Error(`${constructor} '${name}' is already declared on record '${rec.name}'`);
-  }
-  const recordType = rec.type as unknown as { type: string; key: EastType; value: EastType };
-  if (recordType.type !== 'Dict') {
-    throw new Error(
-      `${constructor} '${name}' indexes a Dict record — '${rec.name}' holds ` +
-      `${printType(rec.type)}, which has no (key, value) entry to index. A Set or ` +
-      `Array record is read in its own order only.`,
-    );
-  }
-  return { keyType: recordType.key, valueType: recordType.value };
-}
-
-/** Refuses an option a constructor does not take, naming those it does. */
-function onlyOptions(constructor: Constructor, name: string, spec: object, options: readonly string[], instead?: string): void {
-  const extra = Object.keys(spec).filter((option) => !options.includes(option));
-  if (extra.length === 0) return;
-  throw new Error(
-    `${constructor} '${name}' takes ${options.join(', ')}, not ${extra.join(', ')}` + (instead === undefined ? '' : ` — ${instead}`),
-  );
-}
-
-/**
- * An index's key and projection functions, checked as every constructor checks
- * them: pure, over the record's entry, a `keys` function returning a Set.
- *
- * @returns The runner, and the index key and projection types the functions declare
- */
-function indexFunctions(
+function plainKey(
   name: string, keyType: EastType, valueType: EastType,
-  keyFn: IndexFunction, multi: boolean, valueFn: IndexFunction | undefined, config: { runner?: FunctionRunner } | undefined,
-): { runner: FunctionRunner; indexKeyType: EastType; projectionType: EastType } {
-  const runner = config?.runner ?? DEFAULT_RUNNER;
-  // Validate eagerly so a bad runner fails at definition time, not export time.
-  runnerToVariant(runner);
-
-  checkPure(`e3.recordIndex '${name}' ${multi ? "'keys' function" : "'key' function"}`, keyFn, INDEX_PURITY);
-  const keySig = signatureOf(keyFn);
-  checkEntryParams(name, multi ? "'keys' function" : "'key' function", keyType, valueType, keySig.inputs);
-
-  let indexKeyType = keySig.output;
-  if (multi) {
-    const returned = keySig.output as unknown as { type: string; key: EastType };
-    if (returned.type !== 'Set') {
-      throw new Error(
-        `e3.recordIndex '${name}' declared with 'keys' must return a Set of index ` +
-        `keys — one entry per element — but returns ${printType(keySig.output)}. ` +
-        `For one entry per row use 'key'.`,
-      );
-    }
-    indexKeyType = returned.key;
+  spec: { readonly on?: readonly string[]; readonly key?: IndexFunction; readonly keys?: IndexFunction },
+): { keyFn: IndexFunction; multi: boolean } {
+  const { on, key, keys } = spec;
+  if (on !== undefined && key === undefined && keys === undefined) {
+    if (valueType.type !== 'Struct') throw new Error(`e3.recordIndex '${name}' on requires a record with Struct rows`);
+    if (on.length === 0) throw new Error(`e3.recordIndex '${name}' on requires at least one field`);
+    const leading = checkLeading(name, valueType, on);
+    return { keyFn: fieldKeyOf(keyType, valueType, leading), multi: leading.multi };
   }
-
-  let projectionType: EastType = NullType;
-  if (valueFn !== undefined) {
-    checkPure(`e3.recordIndex '${name}' 'value' projection`, valueFn, INDEX_PURITY);
-    const valueSig = signatureOf(valueFn);
-    checkEntryParams(name, "'value' projection", keyType, valueType, valueSig.inputs);
-    projectionType = valueSig.output;
-  }
-  return { runner, indexKeyType, projectionType };
+  if (key !== undefined && on === undefined && keys === undefined) return { keyFn: key, multi: false };
+  if (keys !== undefined && on === undefined && key === undefined) return { keyFn: keys, multi: true };
+  throw new Error(
+    `e3.recordIndex '${name}' takes exactly one of 'key' (one entry per row) ` +
+    `or 'keys' (one per element of a returned Set), or 'on' (row fields)`,
+  );
 }
 
 /**
@@ -481,15 +338,7 @@ function plainIndex<Name extends string, T extends EastType, const S extends Rec
   onlyOptions('e3.recordIndex', name, spec, ['on', 'key', 'keys', 'value'], 'interval' in spec
     ? `an interval index has a constructor of its own: e3.recordIndex.interval('${name}', record, { on?, from, to })`
     : undefined);
-  if ([spec.on, spec.key, spec.keys].filter((part) => part !== undefined).length !== 1) {
-    throw new Error(
-      `e3.recordIndex '${name}' takes exactly one of 'key' (one entry per row) ` +
-      `or 'keys' (one per element of a returned Set), or 'on' (row fields)`,
-    );
-  }
-  const generated = spec.on === undefined ? undefined : fieldKey(name, keyType, valueType, spec.on);
-  const multi = generated?.multi ?? (spec.keys !== undefined);
-  const keyFn = generated?.fn ?? (spec.key ?? spec.keys)!;
+  const { keyFn, multi } = plainKey(name, keyType, valueType, spec);
   const { runner, indexKeyType, projectionType } = indexFunctions(name, keyType, valueType, keyFn, multi, spec.value, config);
 
   return {
@@ -503,7 +352,7 @@ function plainIndex<Name extends string, T extends EastType, const S extends Rec
     // The signature read above IS the type the spec's functions declare; the
     // casts only restate it at the TypeScript level.
     keyType: indexKeyType as IndexKeyOf<S, T>,
-    valueType: projectionType as ProjectionOf<S>,
+    valueType: (projectionType ?? NullType) as ProjectionOf<S>,
     runner,
   };
 }
@@ -550,24 +399,9 @@ function intervalIndex<Name extends string, T extends EastType, const S extends 
   spec: S,
   config?: { runner?: FunctionRunner },
 ): RecordIndexDef<Name, T, IndexKeyOf<S, T>, NullType, IndexOn<S>> & { interval: { readonly from: S['from']; readonly to: S['to'] } } {
-  const { keyType, valueType } = indexedEntry('e3.recordIndex.interval', name, rec);
-  onlyOptions('e3.recordIndex.interval', name, spec, ['on', 'from', 'to']);
-  const prefix = spec.on === undefined ? undefined : fieldKey(name, keyType, valueType, spec.on);
-  const generated = intervalKey(name, keyType, valueType, spec.on ?? [], { from: spec.from, to: spec.to }, prefix);
-  const { runner, indexKeyType } = indexFunctions(name, keyType, valueType, generated.fn, generated.multi, undefined, config);
-
-  return {
-    kind: 'recordIndex',
-    name,
-    record: rec,
-    on: Object.freeze([...(spec.on ?? [])]) as unknown as IndexOn<S>,
-    interval: Object.freeze({ from: spec.from, to: spec.to }),
-    keyFn: generated.fn,
-    multi: generated.multi,
-    keyType: indexKeyType as IndexKeyOf<S, T>,
-    valueType: NullType,
-    runner,
-  };
+  // Built from the spec at run time; the type restates, from the spec as written, what it built.
+  return intervalDefinition(name, rec, spec, config) as
+    RecordIndexDef<Name, T, IndexKeyOf<S, T>, NullType, IndexOn<S>> & { interval: { readonly from: S['from']; readonly to: S['to'] } };
 }
 
 /** The box an area index declares, as its definition carries it, `cell` rounded to its power of two. */
@@ -641,36 +475,8 @@ function areaIndex<Name extends string, T extends EastType, const S extends Area
   spec: S,
   config?: { runner?: FunctionRunner },
 ): RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { area: AreaIndexOf<S> } {
-  const { keyType, valueType } = indexedEntry('e3.recordIndex.area', name, rec);
-  onlyOptions('e3.recordIndex.area', name, spec, ['on', 'x', 'y', 'width', 'height', 'at', 'cell'],
-    'value' in spec ? 'an area index carries the whole row as its projection, so it takes no value' : undefined);
-  const exponent = areaCellExponent(name, spec.cell);
-  const box = {
-    x: spec.x, y: spec.y,
-    ...(spec.width !== undefined && { width: spec.width as string }),
-    ...(spec.height !== undefined && { height: spec.height as string }),
-    at: spec.at ?? 'corner',
-  } as const;
-  const prefix = spec.on === undefined ? undefined : fieldKey(name, keyType, valueType, spec.on);
-  const generated = areaKey(name, keyType, valueType, spec.on ?? [], box, exponent, prefix);
-  // It carries its rows (D29): each entry's projection is the whole row, so a
-  // window reads the index alone and no record segment.
-  const valueFn = East.function([keyType as never, valueType as never], valueType as never, (_$: any, _key: any, row: any) => row);
-  const { runner, indexKeyType, projectionType } = indexFunctions(name, keyType, valueType, generated.fn, generated.multi, valueFn, config);
-
-  return {
-    kind: 'recordIndex',
-    name,
-    record: rec,
-    on: Object.freeze([...(spec.on ?? [])]) as unknown as IndexOn<S>,
-    area: Object.freeze({ ...box, cell: 2 ** exponent }) as AreaIndexOf<S>,
-    keyFn: generated.fn,
-    valueFn,
-    multi: generated.multi,
-    keyType: indexKeyType as IndexKeyOf<S, T>,
-    valueType: projectionType as RowOf<T>,
-    runner,
-  };
+  // Built from the spec at run time; the type restates, from the spec as written, what it built.
+  return areaDefinition(name, rec, spec, config) as RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { area: AreaIndexOf<S> };
 }
 
 /** The fields and tile a series or summary index files by, as its definition carries them. */
@@ -733,30 +539,8 @@ function seriesIndex<Name extends string, T extends EastType, const S extends Se
   spec: S,
   config?: { runner?: FunctionRunner },
 ): RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { series: TimeTileOf<S> } {
-  const { keyType, valueType } = indexedEntry('e3.recordIndex.series', name, rec);
-  onlyOptions('e3.recordIndex.series', name, spec, ['on', 'key', 'from', 'to', 'tile'],
-    'value' in spec ? 'a series index carries the whole row as its projection, so it takes no value' : undefined);
-  const fields = { key: spec.key, from: spec.from, to: spec.to, tile: checkTile('e3.recordIndex.series', name, spec.tile) };
-  const prefix = spec.on === undefined ? undefined : fieldKey(name, keyType, valueType, spec.on);
-  const generated = seriesKeys(name, keyType, valueType, spec.on ?? [], fields, prefix);
-  // It carries its rows: each entry's projection is the whole row, so a cell
-  // reads the index alone and no record segment.
-  const valueFn = East.function([keyType as never, valueType as never], valueType as never, (_$: any, _key: any, row: any) => row);
-  const { runner, indexKeyType, projectionType } = indexFunctions(name, keyType, valueType, generated.fn, generated.multi, valueFn, config);
-
-  return {
-    kind: 'recordIndex',
-    name,
-    record: rec,
-    on: Object.freeze([...(spec.on ?? [])]) as unknown as IndexOn<S>,
-    series: Object.freeze(fields) as TimeTileOf<S>,
-    keyFn: generated.fn,
-    valueFn,
-    multi: generated.multi,
-    keyType: indexKeyType as IndexKeyOf<S, T>,
-    valueType: projectionType as RowOf<T>,
-    runner,
-  };
+  // Built from the spec at run time; the type restates, from the spec as written, what it built.
+  return seriesDefinition(name, rec, spec, config) as RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { series: TimeTileOf<S> };
 }
 
 /**
@@ -803,31 +587,9 @@ function summaryIndex<Name extends string, T extends EastType, const S extends S
   spec: S,
   config?: { runner?: FunctionRunner },
 ): RecordIndexDef<Name, T, SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>> & { summary: TimeTileOf<S> } {
-  const { keyType, valueType } = indexedEntry('e3.recordIndex.summary', name, rec);
-  onlyOptions('e3.recordIndex.summary', name, spec, ['on', 'key', 'from', 'to', 'tile'],
-    'value' in spec ? 'a summary index holds its totals, so it takes no value' : undefined);
-  const fields = { key: spec.key, from: spec.from, to: spec.to, tile: checkTile('e3.recordIndex.summary', name, spec.tile) };
-  const prefix = spec.on === undefined ? undefined : fieldKey(name, keyType, valueType, spec.on);
-  const generated = summaryContributions(name, keyType, valueType, spec.on ?? [], fields, prefix);
-  const runner = config?.runner ?? DEFAULT_RUNNER;
-  // Validate eagerly so a bad runner fails at definition time, not export time.
-  runnerToVariant(runner);
-  checkPure(`e3.recordIndex.summary '${name}' contributions`, generated.fn, INDEX_PURITY);
-  checkEntryParams(name, 'contributions', keyType, valueType, signatureOf(generated.fn).inputs);
-
-  return {
-    kind: 'recordIndex',
-    name,
-    record: rec,
-    on: Object.freeze([...(spec.on ?? [])]) as unknown as IndexOn<S>,
-    summary: Object.freeze(fields) as TimeTileOf<S>,
-    keyFn: generated.fn,
-    // A row touches several keys, and a key stands for several rows.
-    multi: true,
-    keyType: generated.indexType as unknown as SummaryKeyOf<S, T>,
-    valueType: RecordSummaryTotalsType,
-    runner,
-  };
+  // Built from the spec at run time; the type restates, from the spec as written, what it built.
+  return summaryDefinition(name, rec, spec, config) as
+    RecordIndexDef<Name, T, SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>> & { summary: TimeTileOf<S> };
 }
 
 /**

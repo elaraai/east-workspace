@@ -5,10 +5,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DateTimeType, DictType, East, IntegerType, OptionType, SetType, StringType, StructType,
-  decodeBeast2For, encodeBeast2For, none, some, type FunctionExpr } from '@elaraai/east';
+  decodeBeast2For, encodeBeast2For, none, some } from '@elaraai/east';
 import { record } from './record.js';
 import { recordIndex, type IndexKeyOf, type IndexOn } from './record-index.js';
 import { IntervalEntryType, intervalEntries } from './record-interval.js';
+import { indexFunctionAt } from './record-guards.js';
 
 const entriesOf = East.compile(intervalEntries, []);
 const leaf = 3n * (1n << 53n);
@@ -51,7 +52,7 @@ test('interval indexes retain declared fields, optional backlog and Set-member p
   assert.deepEqual(index.on, ['resources']);
   assert.deepEqual(index.interval, { from: 'start', to: 'end' });
   assert.equal(index.multi, true);
-  const fn = East.compile(index.keyFn as FunctionExpr<any, any>, []) as (key: string, row: unknown) => Set<{ on: { resources: string }; node: bigint; at: { type: "some"; value: Date } | { type: "none"; value: null } }>;
+  const fn = East.compile(indexFunctionAt(index.keyFn, [StringType, Row], SetType(index.keyType)), []);
   const start = new Date('2026-10-01T22:00:00Z');
   const end = new Date('2026-10-03T06:00:00Z');
   const decode = decodeBeast2For(Row);
@@ -74,7 +75,7 @@ test('interval indexes retain declared fields, optional backlog and Set-member p
   const simple = recordIndex.interval('by_time', records, { from: 'start', to: 'end' });
   // Led by no field: `on` is there, with none (#1432).
   assert.deepEqual(simple.on, []);
-  const simpleFn = East.compile(simple.keyFn as FunctionExpr<any, any>, []);
+  const simpleFn = East.compile(indexFunctionAt(simple.keyFn, [StringType, Row], SetType(simple.keyType)), []);
   assert.equal(simpleFn('instant', { resources: new Set(), start: some(start), end: none }).size, 1);
   assert.throws(() => recordIndex.interval('bad_interval', records, {
     // @ts-expect-error Only DateTime fields are interval endpoints.

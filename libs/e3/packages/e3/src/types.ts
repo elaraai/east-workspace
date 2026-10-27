@@ -351,6 +351,10 @@ export interface RecordIndexDef<
   /** `(K, V) -> P`, the covering projection; absent when the index carries no
    *  value. */
   readonly valueFn?: { toIR(): unknown };
+  /** A summary's merge, `({ik, k}, Totals, Totals) -> Totals`: a build's
+   *  pieces hold the same keys, and a key's totals across them are their sum.
+   *  Absent for any other index. */
+  readonly mergeFn?: { toIR(): unknown };
   /** Declared with `keys` rather than `key`: one entry per element of the
    *  returned set, so a row naming five resources appears under five keys. */
   readonly multi: boolean;
