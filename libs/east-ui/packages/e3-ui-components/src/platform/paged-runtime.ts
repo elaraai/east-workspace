@@ -46,6 +46,12 @@
  * the answer in its own channel. A sheet reads an entry it is about to draft
  * as a one-element window, beside the windows it draws.
  *
+ * Landed windows are kept least recently read first, at most
+ * {@link MAX_RETAINED_WINDOWS} of them: past the cap a window no reader holds
+ * goes whole, and none a reader holds is evicted under it (#1409, R24), so a
+ * reader of more windows than the cap — rows read a key at a time among
+ * them, each a key search and a one-row window — settles, each read once.
+ *
  * Several reads of one source are asked as one request when a reader asks
  * them together (#1351): `seekAll` a batch of key searches (`findKeys`),
  * `rowsAll` the rows of several keys of a Dict, `runsAll` the entries of
@@ -856,9 +862,15 @@ export type PagedLandingFrame = (apply: () => void) => () => void;
  * A decoded window is the heavy object here — a window of wide rows runs to
  * megabytes — and nothing else evicts one while its revision stands: scrolling
  * a GB-scale dataset end to end would pin every window it passed. Retention is
- * bounded least-recently-READ, and an evicted window drops back to `idle` so
- * the next read simply refetches it (the raw bytes may still be in an HTTP
- * cache, so a return is usually cheap).
+ * bounded least-recently-READ: past the cap the least recently read window no
+ * reader holds goes whole, and a read of it fetches it again (the raw bytes
+ * may still be in an HTTP cache, so a return is usually cheap).
+ *
+ * The windows its readers hold count toward the cap, but none is evicted
+ * under its reader: past the cap the runtime keeps what its readers hold
+ * alone, each reader bounding what it holds by its own demand (#1409, R24) —
+ * a reader of more windows than the cap, rows read a key at a time among
+ * them, each a one-row window, settles, each read once.
  *
  * `<PagedDatasetPreview>` caps its own materialized rows the same way
  * (`MAX_RETAINED_PAGES`); this is the cap for the *bound* path, where the
@@ -1511,10 +1523,13 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * version, which goes; a search's answer, which the revision holds apart
      * from its channel ({@link Snapshot.searches}), as it holds what batches
      * answered; and a channel holding nothing — aborted, evicted, or a batch
-     * whose answer is held elsewhere — which goes. A landed window stays, bounded
-     * by the windows retained, and a placement, bounded by the placements a
-     * revision holds ({@link MAX_HELD_PLACEMENTS}); and so do a failure and a
-     * total.
+     * whose answer is held elsewhere — which goes. A landed window stays,
+     * bounded by the windows retained: held by no reader any longer, it is the
+     * cap's to let go again, and past the cap the least recently read windows
+     * no reader holds go ({@link trimWindows}), so readers that held more than
+     * the cap leave no more than it behind (#1409, R24). A placement stays,
+     * bounded by the placements a revision holds ({@link MAX_HELD_PLACEMENTS});
+     * and so do a failure and a total.
      *
      * @param key - The channel
      */
@@ -1530,7 +1545,11 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             this.dropChannel(key);
             return;
         }
-        if (holdsNothing(entry)) this.dropChannel(key);
+        if (holdsNothing(entry)) {
+            this.dropChannel(key);
+            return;
+        }
+        if (this.loadedWindows.has(key)) this.trimWindows();
     }
 
     /** Whether a channel is due a fetch: never fetched, evicted, or failed
@@ -1705,41 +1724,43 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         return none;
     }
 
-    /** Note a window as most-recently-read, and drop the coldest decoded
-     *  windows once the cache exceeds its cap. An evicted window returns to
-     *  `idle`, so the next read refetches it rather than reading a hole. */
+    /** Note a window as most-recently-read, and let the coldest windows no
+     *  reader holds go once more have landed than the cap ({@link trimWindows}). */
     private touchWindow(key: string): void {
         this.loadedWindows.delete(key);
         this.loadedWindows.set(key, true);
+        this.trimWindows();
+    }
+
+    /**
+     * Past {@link MAX_RETAINED_WINDOWS} landed windows, let the least recently
+     * read that no reader holds go, whole (#1351), coldest first, until the
+     * cap holds or none is left to go.
+     *
+     * A window a reader holds is never evicted under it: one a reader
+     * subscribes to — what its last run read — and one the evaluation in hand
+     * has read, which it subscribes to as it ends. A read pass longer than the
+     * cap would otherwise evict its own head, find it gone on its next pass and
+     * blank the surface (#581). And evicted while a reader held it, a window
+     * went `idle` without its reader being told, so the reader's next run, set
+     * off by any other landing, read it again: a reader of more windows than
+     * the cap — rows read a key at a time, each a key search and a one-row
+     * window, or windows several readers hold between them — never settled,
+     * each landing evicting one it held (#1409, R24). Past the cap the runtime
+     * keeps what its readers hold alone, each reader bounding that by its own
+     * demand: exceeding a memory target beats a surface that never settles.
+     *
+     * A window still in flight is never evicted either: its settle would land
+     * on an entry the next read has already relaunched.
+     */
+    private trimWindows(): void {
         if (this.loadedWindows.size <= MAX_RETAINED_WINDOWS) return;
-        // Evict coldest-first, but SKIP anything the current evaluation has
-        // already read. A reader walking a prefix longer than this cache would
-        // otherwise evict its own head partway through the pass; the next pass
-        // finds window 0 `idle`, gets `none`, stops at the hole, and the canvas
-        // renders zero rows — a source over ~4,800 elements blinked empty and
-        // reloaded forever (#581).
-        //
-        // If EVERY loaded window is in the current read set the cache is left
-        // over its cap for this pass, which is the right trade: exceeding a
-        // memory target beats blanking the surface. The readers additionally
-        // bound their own demand so this is not reached in practice.
         for (const candidate of [...this.loadedWindows.keys()]) {
             if (this.loadedWindows.size <= MAX_RETAINED_WINDOWS) break;
-            if (this.isTracked(candidate)) continue;
+            if (this.isTracked(candidate) || this.isSubscribed(candidate)) continue;
             const entry = this.entries.get(candidate);
-            // Never evict a window that is still in flight — its settle would
-            // land on an entry the next read has already relaunched.
             if (entry === undefined || entry.status !== "loaded") continue;
-            // A window no reader holds goes whole (#1351); one a reader holds is idle for it, and asked again as it reads.
-            if (!this.isSubscribed(candidate)) {
-                this.dropChannel(candidate);
-                continue;
-            }
-            this.loadedWindows.delete(candidate);
-            entry.status = "idle";
-            delete entry.window;
-            delete entry.rows;
-            delete entry.ranges;
+            this.dropChannel(candidate);
         }
     }
 
@@ -1845,8 +1866,8 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * read's (#1351): the cut lands in the window's own channel, so it keeps
      * one identity, and nothing is fetched. The channel is the snapshot's, so
      * a move drops the cut with every window. Only the landed windows are
-     * looked at — at most {@link MAX_RETAINED_WINDOWS}, beside those the read
-     * in hand holds — never every channel of the revision.
+     * looked at — at most {@link MAX_RETAINED_WINDOWS}, or past it what its
+     * readers hold — never every channel of the revision.
      *
      * @param sourceType - The source's type
      * @param family - The window's family
