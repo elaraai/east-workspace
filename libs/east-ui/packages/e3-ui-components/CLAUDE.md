@@ -1517,7 +1517,22 @@ same function while what its rows show holds, and a row drawn again only as what
 it shows changes is a memo whose props hold — the People grid's rows and days,
 its week's duties indexed once by person and day, its Library's cards made once.
 The Calendar's timeline virtualises its resources' rows in their groups, and
-their events by what the view shows of the period, one view either side; its
+their events by what the view shows of the period, one view either side. An
+event's block is a memo of what it shows (`calendar/views.tsx`' `EventBlock`,
+`sameEventBlock`): its facts — its selection ring, its overlap mark, its draft
+and the optimiser's marks, its drag handle and edges, a pick's reveal, the
+window it is clipped to and the handlers it calls (`eventFacts`, each made once
+while what it reads holds) — where it stands, and its event as East compares
+it; so a move of the span it mounts draws only the events it brings in, and a
+window read again draws none it holds as it was. Each bar is placed from an
+origin a re-centre never moves, its plot moving by one variable
+(`--calendar-origin`), so a re-centre draws no event both windows hold whole.
+An event keeps its handle, its edges, its draft and its marks through a read in
+flight (the views' `grips` and `editing`): retained content refuses the gesture
+itself — the shared drag sensors pick nothing up inside the `aria-disabled`
+main — and the commands are withheld meanwhile, so no read draws every event
+off and back on; where the read failed, main takes the pointer for its Retry,
+and the events carry no handle. Its
 scroll publishes the days it shows to a store only what says them reads
 (`calendar/visible.ts`: the navigator's date and label, the count, each row's
 hours, the overlaps chip and the inspector's overlaps), so a scroll draws

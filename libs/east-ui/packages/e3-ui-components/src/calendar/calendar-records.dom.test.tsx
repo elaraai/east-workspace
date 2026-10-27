@@ -9,7 +9,10 @@
  * (ruled 25 Oct 2026), the held read standing in, every row its height, while
  * the window is read; the next window the way the view went read ahead once
  * one lands; the Backlog never read again for it, and a reload opening the
- * window again where the view was. The view is the page's own: another page
+ * window again where the view was. The timeline draws only what moves (CL9):
+ * a move of the period's span it mounts draws only the events it brings in,
+ * and a re-centre none that both windows hold whole, each placed from an
+ * origin the re-centre does not move. The view is the page's own: another page
  * keeping one moves neither its date nor its window. The Backlog never blinks:
  * paged through its source (#1424), never with a window, a step, a layout, a
  * period or a re-centre reads nothing of it and leaves it as it is; a
@@ -26,8 +29,9 @@ import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-compone
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
 import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { DAY, eventKey } from "./model.js";
+import { DAY, eventKey, parseEventKey } from "./model.js";
 import { TIMELINE_GUTTER, timelinePixels } from "./timeline.js";
+import { setEventBlockRenderProbe } from "./views.js";
 import "./index.js";
 
 const h = e3Harness({ "calendar/calendar-records": ex }, { main: "data-calendar-main" });
@@ -496,6 +500,52 @@ describe("the timeline continues what it shows: its re-centre and every step of 
         // Back where it was: the overlaps there were.
         await scrollTo(timeline, at);
         expect({ chip: chip(), listed: listed() }).toEqual(here);
+    });
+});
+
+describe("the timeline draws only what moves (#1398, CL9)", () => {
+    /** The events a timeline draws, by their keys. */
+    const drawnOf = (timeline: Element) => new Set([...timeline.querySelectorAll("[data-calendar-event]")].map(el => el.getAttribute("data-calendar-event")!));
+    /** Where each event a timeline draws stands — its block's own geometry — by its key. */
+    const placesOf = (timeline: Element) => new Map([...timeline.querySelectorAll<HTMLElement>("[data-calendar-event]")]
+        .map(el => [el.getAttribute("data-calendar-event")!, el.style.cssText] as const));
+
+    test("a move of the span it mounts draws only the events it brings in, none it keeps; a re-centre draws none that both windows hold whole — each placed from an origin the re-centre does not move, where it stood", async () => {
+        const { timeline, end } = await openTimeline("month", "draws-what-moves");
+        const renders: string[] = [];
+        setEventBlockRenderProbe(id => { renders.push(id); });
+        try {
+            // On past half a view: the span of the period it mounts moves on with the view.
+            const kept = drawnOf(timeline);
+            await scrollTo(timeline, timeline.scrollLeft + 400);
+            const brought = [...drawnOf(timeline)].filter(id => !kept.has(id));
+            expect(brought.length).toBeGreaterThan(0);
+            expect([...new Set(renders)].filter(id => !brought.includes(id))).toEqual([]);
+            // On to two px short of where it re-centres: the next window read ahead as the view travels on.
+            await scrollTo(timeline, end - RECENTRE - 2);
+            const shown = windowOf(timeline);
+            const held = placesOf(timeline);
+            renders.length = 0;
+            // Two px on, it re-centres onto the window read ahead.
+            await scrollTo(timeline, end - RECENTRE);
+            const next = windowOf(timeline);
+            expect(next).toEqual(stepped(shown, 1));
+            // Each event both windows hold whole — its days, as Month lays them out — stands where it stood, and drew nothing again.
+            const events = await h.read(ex.indexedCalendarEvents);
+            const whole = [...held.keys()].filter(id => {
+                const ref = parseEventKey(id);
+                const row = ref.success ? events.get(ref.value.key) : undefined;
+                if (row === undefined || row.start.type !== "some" || row.end.type !== "some") return false;
+                const from = Math.floor(row.start.value.getTime() / DAY) * DAY, to = Math.ceil(row.end.value.getTime() / DAY) * DAY;
+                return from >= next.from.getTime() && to <= shown.to.getTime();
+            });
+            expect(whole.length).toBeGreaterThan(0);
+            const places = placesOf(timeline);
+            expect(whole.filter(id => places.get(id) !== held.get(id))).toEqual([]);
+            expect(renders.filter(id => whole.includes(id))).toEqual([]);
+        } finally {
+            setEventBlockRenderProbe(undefined);
+        }
     });
 });
 

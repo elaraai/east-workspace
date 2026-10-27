@@ -4,7 +4,7 @@
  */
 
 /** Calendar's adaptation of the shared drag grammar to Schedule commands. */
-import { useMemo, useRef, type MutableRefObject } from "react";
+import { useCallback, useMemo, useRef, type MutableRefObject } from "react";
 import { none, some } from "@elaraai/east";
 import { dropEvent, useDragTarget, type CellCoord, type DragEventValue, type DragPayload } from "@elaraai/east-ui-components";
 import { initialPlacement, type CalendarCommands, type CalendarPlacement, type CalendarSource } from "./actions.js";
@@ -37,15 +37,19 @@ interface DragArgs {
 }
 /**
  * No layer is registered in narrow or read-only mode. The same adapter while what it reads holds (#1398, CL9): what the
- * views draw with it draws again only as it changes.
+ * views draw with it draws again only as it changes — and its `grab` the same function while the adapter lives, so an
+ * event's block, which calls it, draws again for none of the adapter's other moves.
  */
 export function useCalendarDrag(args: DragArgs): CalendarDrag {
     const { value, key, commands, narrow, items, backlog, served, selection, activeTemplate, onError } = args;
     const enabled = commands !== undefined && !narrow;
     const grabbed = useRef<{ id: string; offset: number } | undefined>(undefined);
+    const grab = useCallback((item: CalendarItem, instant: Date) => {
+        grabbed.current = { id: eventKey(item), offset: item.start.type === "some" ? instant.getTime() - item.start.value.getTime() : 0 };
+    }, []);
     const sources = args.templates;
-    const drag = useMemo(() => calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed }),
-        [value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled]);
+    const drag = useMemo(() => calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed, grab }),
+        [value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grab]);
     const { run } = drag;
     const target = useMemo(() => {
         if (!enabled) return null;
@@ -60,10 +64,11 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
     return drag;
 }
 /** The drag's verdicts over the period as it stands: what a drop runs, what a hover previews and what a press grabs. */
-function calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed }: {
+function calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed, grab }: {
     value: CalendarValue; key: string; commands: CalendarCommands | undefined; items: readonly CalendarItem[]; backlog: readonly CalendarItem[];
     served: DragArgs["served"]; selection: readonly CalendarItem[]; sources: ReadonlyMap<string, CalendarSource>; activeTemplate: string | undefined;
     onError: (message: string | undefined) => void; enabled: boolean; grabbed: MutableRefObject<{ id: string; offset: number } | undefined>;
+    grab: CalendarDrag["grab"];
 }): CalendarDrag {
     const sourceItem = (encoded: string): CalendarItem | undefined => {
         const parsed = parseEventKey(encoded);
@@ -122,8 +127,7 @@ function calendarDrag({ value, key, commands, items, backlog, served, selection,
         const next = moveSpan(scale, span, (target.start.getTime() - item.start.value.getTime()) / QUARTER, true);
         return commands.move(moving, next.start.getTime() - span.start.getTime(), moving.length === 1 && event.value.to.row !== "" ? target.resource : undefined, checkOnly);
     };
-    return { surface: key, enabled, run,
-        grab: (item, instant) => { grabbed.current = { id: eventKey(item), offset: item.start.type === "some" ? instant.getTime() - item.start.value.getTime() : 0 }; },
+    return { surface: key, enabled, run, grab,
         adjust: (instant, payload) => payload?.kind === "event" && grabbed.current?.id === payload.from.event
             ? new Date(instant.getTime() - grabbed.current.offset) : instant,
         readTime: slot => { const parsed = parseTimeKey(slot); return parsed.success ? parsed.value : undefined; },

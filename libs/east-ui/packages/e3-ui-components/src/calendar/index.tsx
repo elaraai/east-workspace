@@ -602,10 +602,15 @@ function CalendarFrame(props: HostProps) {
     const drag = useCalendarDrag({ value, key: storageKey, commands: locked ? undefined : gestures, narrow, items, backlog, served: backlogPages, selection: selectedItems, templates: templates.shown,
         activeTemplate, onError: setError });
     const clear = useCallback(() => setRefs([]), []);
+    // The selection a pick adds to or takes from, as last drawn: read as the pick runs, so the pick is the same function
+    // while the selection moves, and an event, which calls it, draws again only as its own ring does (#1398, CL9).
+    const picked = useRef(refs);
+    picked.current = refs;
     const pick = useCallback((item: CalendarItem, additive = false) => {
         const ref = { kind: item.kind, key: item.key }; const id = eventKey(ref);
-        select(additive ? selected.has(id) ? refs.filter(ref => eventKey(ref) !== id) : [...refs, ref] : [ref]);
-    }, [select, selected, refs]);
+        const now = picked.current;
+        select(additive ? now.some(was => eventKey(was) === id) ? now.filter(was => eventKey(was) !== id) : [...now, ref] : [ref]);
+    }, [select]);
     // A followed source not yet resolved holds the frame's cold load, as an event kind's window does — and a paged kind's
     // first window.
     const cold = [...followed.values()].some(source => !source.shown.ready && source.error === undefined)
@@ -638,6 +643,11 @@ function CalendarFrame(props: HostProps) {
     // its events, stale (#1398, CL5): their words in the third ink, the grid's rules dashed, and nothing dragged or dropped
     // until it lands.
     const stale = drawn && (reading || [...followed.values()].some(source => source.shown.busy) || pages?.stale === true);
+    // Whether the events carry their drag handles and edges (#1398, CL9): wherever the board takes edits — through a read
+    // in flight too, whose retained content refuses the gesture itself (the shared drag sensors, inside the aria-disabled
+    // main, CL8) while `gestures` are withheld — so an event draws the same through a read, a re-centre's among them;
+    // never while a run of the optimiser is out (R2), nor where the read failed and main takes the pointer for its Retry.
+    const grips = editing !== undefined && !locked && read.state !== "failed";
     // The cold load's cover at the board's own pitch: an hour of its time grid (CL1).
     const pitch = view.layout === "timeline" || (view.layout === "calendar" && view.period === "month") ? undefined : calendarHour(value.settings.density);
     return <EventFocusContext.Provider value={eventFocus}><Box ref={root} css={[styles.root, landingStyles.main]} data-calendar-frame="" data-calendar-readonly={value.settings.readOnly ? "" : undefined}
@@ -692,7 +702,7 @@ function CalendarFrame(props: HostProps) {
                     uncounted={uncounted} shading={data.cells?.shading} bucket={bucket} pages={pages} demand={demand} drawnRows={data.cells?.drawn}
                     selected={selected} select={pick} clear={clear} overlaps={overlaps} commands={gestures} drag={drag}
                     nowRevision={nowAsked} anchor={anchor} onAnchor={onAnchor} reveal={reveal === undefined ? undefined : eventKey(reveal)} onRevealed={revealed}
-                    optimised={optimised} lit={landing.lit} />
+                    optimised={optimised} lit={landing.lit} editing={editing} grips={grips} />
             </Box>
         </BuilderFrame>
         </CalendarChooserContext.Provider>
