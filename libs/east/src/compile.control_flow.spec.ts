@@ -134,6 +134,16 @@ describe("a control statement in a finally", () => {
     // Every row is summed; none reaches the statement after its try
     assert.equal(East.compile(f, [])([1n, 2n, 3n]), 60n);
   });
+
+  test("in an async function whose try and finally await, a return in the finally gives its value", async () => {
+    const same = East.asyncFunction([IntegerType], IntegerType, (_$, x) => x);
+    const f = East.asyncFunction([], IntegerType, ($) => {
+      const call = $.const(same);
+      $.try(($) => { $.return(call(1n)); }).finally(($) => { $.return(call(2n)); });
+      return 3n;
+    });
+    assert.equal(await East.compileAsync(f, [])(), 2n);
+  });
 });
 
 describe("a function value gives its value, never a signal", () => {
