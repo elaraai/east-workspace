@@ -195,3 +195,68 @@ test("another session's write while ⌘End's page is on its way keeps what the r
     expect(cell("JOB-10005")?.hasAttribute("data-selected")).toBe(true);
     expect(ui.row("JOB-59999")).toBeNull();
 });
+
+test("⌘End past rows not read keeps the rows shown standing in — retained, the grid aria-disabled in a busy main, the ring on its cell, taking no edit — until the last page lands, then the ring is on the last row; a gesture on them meanwhile puts them back; ⌘Home likewise to the first (#1398, CL10)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());
+    await settle();
+    // The whole sheet: every order, a page at a time.
+    fireEvent.mouseDown(ui.tab("all"), { button: 0 });
+    await settle();
+    await waitFor(() => expect(ui.row("JOB-10005")).not.toBeNull());
+    const card = ui.container.querySelector<HTMLElement>("[data-sheet-card]")!;
+    const main = () => ui.container.querySelector<HTMLElement>('[data-frame-slot="main"]')!;
+    const cell = (id: string, key: string) => ui.row(id)?.querySelector<HTMLElement>(`[data-slot="cell"][data-key="${key}"]`) ?? null;
+    const active = () => document.getElementById(card.getAttribute("aria-activedescendant") ?? "");
+    const line = () => ui.container.querySelector('[data-frame-slot="footer"] [data-footer-line] [data-line-text]')?.textContent;
+    /** The rows shown stand in where they were — `row` among them — the ring on its cell, retained in a busy main. */
+    const standing = (row: string, ring: HTMLElement | null) => {
+        expect(ui.row(row)).not.toBeNull();
+        expect(ring?.hasAttribute("data-selected")).toBe(true);
+        expect(active()).toBe(ring);
+        expect(card.getAttribute("aria-disabled")).toBe("true");
+        expect(main().getAttribute("aria-busy")).toBe("true");
+    };
+    fireEvent.mouseDown(cell("JOB-10005", "quantity")!, { button: 0 });
+    // The record's last page held on its way until the test lets it land.
+    const last = h.e3.hold(pageFrom(49_800));
+    await act(async () => { fireEvent.keyDown(card, { key: "End", ctrlKey: true }); });
+    await last.holding;
+    await settle();
+    standing("JOB-10000", cell("JOB-10005", "quantity"));
+    // The line says the last page is read, once the wait passes its reveal.
+    await waitFor(() => expect(line()).toBe("Loading rows 49,801–50,000"));
+    // They take no edit; and the key that asked for one is a gesture on them, which puts them back as they were — live,
+    // the jump dropped — so the last page landing now draws nothing over them.
+    await act(async () => { fireEvent.keyDown(card, { key: "x" }); });
+    expect(ui.container.querySelector('[data-slot="editorInput"]')).toBeNull();
+    expect(card.hasAttribute("aria-disabled")).toBe(false);
+    await act(async () => { last.release(); });
+    await settle();
+    expect(cell("JOB-10005", "quantity")?.hasAttribute("data-selected")).toBe(true);
+    expect(ui.row("JOB-10000")).not.toBeNull();
+    expect(ui.row("JOB-59999")).toBeNull();
+    // ⌘End again: the ring on the last row, the last cell of the record.
+    await act(async () => { fireEvent.keyDown(card, { key: "End", ctrlKey: true }); });
+    await waitFor(() => expect(cell("JOB-59999", "quantity")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+    expect(active()).toBe(cell("JOB-59999", "quantity"));
+    expect(ui.row("JOB-10000")).toBeNull();
+    expect(card.hasAttribute("aria-disabled")).toBe(false);
+    // ⌘Home, the first page read anew — another session's change moved the record on — and held on its way: the last
+    // rows stand in, the ring on the last row, until it lands; then the ring is on the first.
+    const before = await h.read(ex.indexedWorkOrders);
+    const moved = new Map(before);
+    const changed = before.get("JOB-10001")!;
+    moved.set("JOB-10001", { ...changed, quantity: changed.quantity + 100n });
+    await h.patch(ex.indexedWorkOrders, moved);
+    const first = h.e3.hold(pageFrom(0, 200));
+    await act(async () => { fireEvent.keyDown(card, { key: "Home", ctrlKey: true }); });
+    await first.holding;
+    await settle();
+    standing("JOB-59999", cell("JOB-59999", "quantity"));
+    await act(async () => { first.release(); });
+    await waitFor(() => expect(cell("JOB-10000", "reference")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+    expect(active()).toBe(cell("JOB-10000", "reference"));
+    expect(card.hasAttribute("aria-disabled")).toBe(false);
+    expect(h.requests("read", ORDERS)).toEqual([]);
+});
