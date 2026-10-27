@@ -24,6 +24,9 @@
  * - A kind held whole is counted in memory, and draws the same.
  * - No figure counts a kind past the cap as none: a press's booked hours say
  *   they are not counted, as do a day's count and the toolbar's.
+ * - Search Records finds an event past the cap by its key, and a pick of it
+ *   goes to it and draws it where it is, read by its key alone — selected and
+ *   given the keyboard there — the window still unread (#1398).
  */
 import { afterEach, beforeEach, describe, expect, test, vi, type MockInstance } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
@@ -305,5 +308,53 @@ describe("a kind held whole, counted in memory (#1424)", () => {
         expect(notice(c)).toBeNull();
         expect(hatched(pressRow(c, "P-1001"))).toBe(0);
         expect(slot(c, "toolbar").querySelector("[data-calendar-count]")?.textContent).toMatch(/^\d+ events$/);
+    });
+});
+
+// ============================================================================
+// Search Records past the cap (#1398)
+// ============================================================================
+
+/** Search Records' box, in the toolbar's row. */
+const searchBox = (c: HTMLElement) => slot(c, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search']")!;
+/** The box's list — the listbox its input controls — its lines as they read. */
+const lines = (c: HTMLElement) => {
+    const list = document.getElementById(searchBox(c).querySelector("input")!.getAttribute("aria-controls") ?? "");
+    return list === null ? [] : [...list.querySelectorAll('[role="option"]')].map((option) => option.textContent ?? "");
+};
+/**
+ * A query put in the box at once, as a paste is: one input event, with no keystrokes of user-event's, whose own `change`
+ * as the box loses the focus — to the event a pick hands the keyboard to, inside React's commit — would open an `act`
+ * inside the commit.
+ */
+async function pasteIntoSearch(c: HTMLElement, typed: string) {
+    const input = searchBox(c).querySelector<HTMLInputElement>("input")!;
+    await act(async () => { input.focus(); fireEvent.input(input, { target: { value: typed } }); });
+    await settle();
+}
+
+describe("Search Records past the cap (#1398)", () => {
+    test("a pick of an event of a kind past the cap goes to it and draws it where it is — read by its key, the window still unread — selected and given the keyboard there", async () => {
+        await bookProofs();
+        const { container: c } = await h.mount(summaryCalendar, { storageKey: "cap-find" });
+        await settle();
+        // The time grid at Day, on Monday: the proofs in it, past the cap — none drawn.
+        await press(c, "radio", "Calendar");
+        await press(c, "radio", "Day");
+        expect(notice(c)).not.toBeNull();
+        expect(eventsDrawn(c)).toHaveLength(0);
+        // The sixth proof, found by its key: Monday at midnight, on Press 1006.
+        await pasteIntoSearch(c, "X-00005");
+        await waitFor(() => expect(lines(c)).toEqual(["X-00005 · Proof 5 · Print job · Mon, Oct 5, 2026 00:00"]), { timeout: 10_000 });
+        await act(async () => { fireEvent.keyDown(searchBox(c).querySelector("input")!, { key: "Enter" }); });
+        await settle();
+        // Drawn where it is, alone, selected, and the keyboard on it.
+        await waitFor(() => expect(jobEvent(c, "X-00005")?.getAttribute("aria-pressed")).toBe("true"), { timeout: 10_000 });
+        await waitFor(() => expect(document.activeElement).toBe(jobEvent(c, "X-00005")));
+        expect(eventsDrawn(c)).toHaveLength(1);
+        // Still past the cap: the banner says so, and nothing of the window was read — the proof by its key alone.
+        expect(notice(c)).not.toBeNull();
+        expect(windowRead()).toBe(false);
+        expect(h.requests("read", JOBS)).toEqual([]);
     });
 });
