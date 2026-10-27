@@ -16,7 +16,8 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { ArrayType, IntegerType, StringType, StructType, encodeBeast2For, printType } from '@elaraai/east';
 import { convertCore } from './convert.impl.js';
 import { createTestDir, removeTestDir, writeTestFile } from '../cli-test-helpers.js';
 
@@ -206,6 +207,18 @@ describe('convert command', () => {
       assert.strictEqual(result.success, true);
       const output = readFileSync(outputPath, 'utf-8');
       assert.match(output, /Array/);
+    });
+
+    it('outputs the type a .beast2 file holds', async () => {
+      const type = StructType({ a: IntegerType, b: ArrayType(StringType) });
+      const inputPath = `${testDir}/input.beast2`;
+      writeFileSync(inputPath, encodeBeast2For(type)({ a: 1n, b: ['x'] }));
+      const outputPath = `${testDir}/type.east`;
+
+      const result = await convertCore(inputPath, 'type', outputPath);
+
+      assert.strictEqual(result.success, true, result.error?.message);
+      assert.strictEqual(readFileSync(outputPath, 'utf-8'), printType(type));
     });
   });
 

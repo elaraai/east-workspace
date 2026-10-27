@@ -17,6 +17,9 @@ import {
   encodeBeast2For,
   parseInferred,
   printType,
+  fromEastTypeValue,
+  toEastTypeValue,
+  type EastTypeValue,
 } from '@elaraai/east';
 
 /**
@@ -63,8 +66,9 @@ export async function convertCore(
   fromFormat?: InputFormat
 ): Promise<ConvertResult> {
   try {
-    let type: any;
-    let value: any;
+    // The value's type, known only as the input is read, and the value
+    let type: EastTypeValue;
+    let value: unknown;
     let detectedFormat: InputFormat;
 
     // Read input data
@@ -110,10 +114,10 @@ export async function convertCore(
     }
 
     // Parse type specification if provided (in .east format)
-    let providedType: any | undefined;
+    let providedType: EastTypeValue | undefined;
     if (typeSpec) {
-      const [parsedType, _] = parseInferred(typeSpec);
-      providedType = parsedType;
+      const [parsedType] = parseInferred(typeSpec);
+      providedType = toEastTypeValue(parsedType);
     }
 
     // Decode input based on format
@@ -138,7 +142,7 @@ export async function convertCore(
       } else {
         // Use parseInferred
         const [parsedType, parsedValue] = parseInferred(content);
-        type = parsedType;
+        type = toEastTypeValue(parsedType);
         value = parsedValue;
       }
     } else {
@@ -148,7 +152,7 @@ export async function convertCore(
       }
 
       const content = inputData.toString('utf-8');
-      const jsonValue = JSON.parse(content);
+      const jsonValue: unknown = JSON.parse(content);
       const fromJSON = fromJSONFor(providedType);
       type = providedType;
       value = fromJSON(jsonValue);
@@ -169,7 +173,7 @@ export async function convertCore(
 
     if (toFormat === 'type') {
       // Output the type instead of the value (always in .east format)
-      const typeString = printType(type);
+      const typeString = printType(fromEastTypeValue(type));
       outputData = typeString;
     } else if (toFormat === 'east') {
       const printer = printFor(type);
@@ -202,7 +206,7 @@ export async function convertCore(
       data: outputData,
       format: toFormat,
     };
-  } catch (error: any) {
+  } catch (error) {
     return {
       success: false,
       error: error instanceof Error ? error : new Error(String(error)),
