@@ -75,6 +75,7 @@ import { coversShown, useVisibleDays, type TravelStore, type VisibleDaysStore } 
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
+import { useAgendaLanding } from "./agenda-focus.js";
 import { EventActions, type CalendarShownResources } from "./controls.js";
 import { calendarCoord, type CalendarDrag } from "./drag.js";
 import { useEventFocus } from "./event-focus.js";
@@ -1697,11 +1698,15 @@ function Timeline(props: CalendarViewsProps) {
 
 /**
  * The narrow layout mounts no drag sources, edges, cells or pointer gestures. A period not read yet: each day's group,
- * real, and one placeholder card in it; a period whose read failed says so once, in the first day's card (#1398).
+ * real, and one placeholder card in it; a period whose read failed says so once, in the first day's card (#1398). A
+ * card's action that takes its card away — Delete, Return to backlog, a Move to another day — leaves the keyboard on
+ * the card drawn in its place, else the next card, never on the page's body (`agenda-focus.ts`).
  */
 function Agenda(props: CalendarViewsProps) {
     const { read } = props;
-    return <Box css={props.styles.scroll} data-calendar-agenda="" data-calendar-unread={read.state === "held" ? undefined : read.state}><Box css={props.styles.agenda}>
+    const landing = useAgendaLanding();
+    return <Box ref={landing.ref} css={props.styles.scroll} data-calendar-agenda="" data-calendar-unread={read.state === "held" ? undefined : read.state}
+        onFocus={landing.onFocus} onBlur={landing.onBlur}><Box css={props.styles.agenda}>
         {props.range.days.map((day, d) => {
             const next = new Date(day.getTime() + DAY);
             const items = chronological(props.items.filter(item => inWindow(item, day, next)));

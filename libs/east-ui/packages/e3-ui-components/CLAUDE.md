@@ -782,7 +782,12 @@ recipe's inset focus ring. A focus that left the region, or a press outside
 it, is let be, and the Plan's Delete hands the keyboard to the canvas's row.
 The region is a component that mounts with its element, the hook's effect
 running at mount. A builder's test presses each such control and asserts where
-the focus lands, never the page's body.
+the focus lands, never the page's body. A narrow Calendar's agenda keeps the
+keyboard the same way for its cards' own actions (`calendar/agenda-focus.ts`):
+Delete, Return to backlog, or a Move from the popover a card opened to another
+of its days, lands on the head of the card drawn in its place — the same
+event's — else of the card after it, else before it, else on the Calendar's
+main; a focus in a popover a card's control opened is the agenda's still.
 
 The Plan's Elara eye waits, disabled, for what a run's request carries — every
 event kind's events in the window, its backlog and each event's row — read in a
