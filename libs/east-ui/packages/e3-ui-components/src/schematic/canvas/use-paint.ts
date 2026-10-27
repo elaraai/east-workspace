@@ -24,7 +24,7 @@
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type RefObject } from "react";
-import { useRevealed } from "@elaraai/east-ui-components/internal";
+import { schematicColorTokens, useRevealed } from "@elaraai/east-ui-components/internal";
 import type { SchematicDensity } from "../area.js";
 import type { SchematicValue } from "../data.js";
 import type { SchematicDropMark } from "../drop.js";
@@ -46,6 +46,12 @@ type Pt = { x: number; y: number };
 const PULSE_PERIOD_MS = 1600;
 /** No entity's colour resolved: what the canvas paints by before the probe is first read. */
 const NO_TINTS: ReadonlyMap<string, RGB> = new Map();
+
+/**
+ * The theme's colour tokens an entity's colour may name (D14): a dot whose token names none of them draws its tone's
+ * colour, and is stacked by its tone — what the painter and a tap's pick of the dot drawn on top read alike.
+ */
+export const THEME_COLOURS: ReadonlySet<string> = new Set(schematicColorTokens);
 
 /**
  * Tells the canvas whether its builder's reveal shows a read in flight (#1398, CL4), as its clock flips: what its
@@ -234,6 +240,8 @@ export interface Paint {
     readonly applyCamera: () => void;
     /** Hears the builder's reveal flip (CL4): the painted placeholders show, or go unseen, with no render of the canvas. */
     readonly onReveal: (shown: boolean) => void;
+    /** Whether the painted placeholders show, as the reveal last said: what a tap's pick of the marker drawn on top reads too. */
+    readonly placeholdersRef: RefObject<boolean>;
     /** The minimap's painted canvas's element. */
     readonly minimapPaintRef: RefObject<HTMLCanvasElement | null>;
 }
@@ -430,6 +438,8 @@ export function usePaint({
                 placeholders: placeholdersRef.current,
                 // What stands in for a new narrowing (#1398): its words in the third ink.
                 stale: snap.stale,
+                // The theme's colour tokens: a dot whose token names none draws, and is stacked by, its tone.
+                colours: THEME_COLOURS,
             });
         } catch (err) {
             console.error("[Schematic] paint failed (frame skipped):", err);
@@ -537,6 +547,6 @@ export function usePaint({
     // short-circuit makes the no-change case free.)
     return {
         drawRef, cardSizesRef, applyCardSizes, cardLayerRef, gridRef, washLayerRef, tintIndex, probeRef, renderSelected, renderSnapRef, applyCamera, onReveal,
-        minimapPaintRef,
+        placeholdersRef, minimapPaintRef,
     };
 }

@@ -262,6 +262,131 @@ export interface PaintInput {
      * Absent, it draws as itself.
      */
     stale?: boolean;
+    /**
+     * The theme's colour tokens (D14): a dot whose colour token names none of them draws in its tone's colour, and is
+     * stacked by its tone ({@link drawnSeverity}). Absent, every token is the theme's.
+     */
+    colours?: ReadonlySet<string>;
+}
+
+/** What {@link planMarkers} reads of a frame: what the painter draws the markers not drawn as cards by. */
+export type MarkerInput = Pick<PaintInput,
+    "visibleItems" | "tiers" | "selected" | "dropMark" | "tints" | "effect" | "layerAlpha" | "placeholders" | "colours" | "cam" | "palette">;
+
+/**
+ * How the markers not drawn as cards paint in a frame (#1393, ruled 26 Oct 2026, "Legible dots"), bottom to top:
+ * every dot's paper — an open dot's inside, a filled dot's ring of it — then every dot's colour a layer at a time, by
+ * the severity of the colour each is drawn in, each layer's filled dots then its open rings, each look's dots in the
+ * order they came; then what draws on its own — a labelled pin, the marker a drop lands on — and what is selected
+ * last, over them all. The painter draws by it, and a tap finds the marker drawn on top by it ({@link topMarker}), so
+ * the paint and the hit agree (invariant 9).
+ */
+export interface MarkerPlan {
+    /** Every open dot's inside, in the paper. */
+    readonly paperInsides: DotBatch;
+    /** Every filled dot's ring of paper. */
+    readonly paperRings: DotBatch;
+    /** Each layer's colours, bottom to top: its filled dots', then its open rings'. */
+    readonly layers: readonly { readonly fills: DotBatch; readonly rings: DotBatch }[];
+    /** What draws on its own after the dots, bottom to top: the pins and a drop's target, then what is selected. */
+    readonly alone: readonly DrawnItem[];
+    /**
+     * A marker's colour, as its words: its own as the bridge resolved it; drained as context, the muted ink; its status
+     * unread, the placeholders' fill.
+     *
+     * @param item - The item
+     * @param unread - Whether its status is unread
+     * @returns Its colour
+     */
+    readonly tintOf: (item: DrawnItem, unread: boolean) => string;
+}
+
+/**
+ * How the markers not drawn as cards paint in a frame (see {@link MarkerPlan}).
+ *
+ * @param input - The frame: the items in view, what each draws as, what is selected, a drop's mark, each entity's
+ *   colour, the narrowing's context, the layers' fades, whether the placeholders show, the theme's colour tokens, the
+ *   camera and the palette
+ * @returns The plan
+ */
+export function planMarkers(input: MarkerInput): MarkerPlan {
+    const { visibleItems, tiers, selected, tints, effect, layerAlpha, cam, palette: p } = input;
+    const placeholders = input.placeholders ?? true;
+    const dropOn = input.dropMark?.kind === "entity" ? input.dropMark.id : undefined;
+    const isExcluded = (key: string): boolean => effect?.excluded.has(key) ?? false;
+    const alphaOf = (key: string): number => (effect !== undefined && isExcluded(key) ? effect.excludedOpacity : 1) * (layerAlpha?.get(key) ?? 1);
+    const surface = css(p.bgSurface), placeholder = css(p.bgSubtle), muted = css(p.fgMuted);
+    const words = new Map<RGB, string>();
+    const tintOf = (item: DrawnItem, unread: boolean): string => {
+        if (effect !== undefined && isExcluded(item.key) && effect.excludedDesaturate) return muted;
+        if (unread) return placeholder;
+        const own = tints.get(item.key);
+        if (own === undefined) return muted;
+        let said = words.get(own);
+        if (said === undefined) words.set(own, said = css(own));
+        return said;
+    };
+    // The layer each dot's colour draws in: what the narrowing leaves out, a status unread, then the severity of the colour
+    // it is drawn in.
+    const layerOf = (item: DrawnItem, unread: boolean): number => {
+        if (isExcluded(item.key)) return DOT_CONTEXT_LAYER;
+        if (unread) return DOT_UNREAD_LAYER;
+        const severity = drawnSeverity(item, input.colours);
+        return severity === undefined ? DOT_NO_STATUS_LAYER : DOT_STATUS_LAYER[severity];
+    };
+    const paperInsides: DotBatch = new Map(), paperRings: DotBatch = new Map();
+    const layers = Array.from({ length: DOT_LAYERS }, () => ({ fills: new Map() as DotBatch, rings: new Map() as DotBatch }));
+    const alone: DrawnItem[] = [];
+    for (const item of visibleItems) {
+        const tier = tiers.get(item.key) ?? "dot";
+        if (tier === "card") continue; // rich card rendered by the React layer
+        if (tier !== "dot" || selected.has(item.key) || dropOn === item.key) { alone.push(item); continue; }
+        // Its status unread (#1398): its dot in the placeholders' fill once revealed, unseen before — never a status.
+        const unread = statusUnread(item);
+        if (unread && !placeholders) continue;
+        const tint = tintOf(item, unread);
+        const alpha = alphaOf(item.key);
+        const x = item.x * cam.ppu + cam.tx, y = item.y * cam.ppu + cam.ty;
+        const colour = layers[layerOf(item, unread)]!;
+        // A ring status — a tentative one — is an open ring in its tone, the paper inside it; any other a filled dot, ringed
+        // in the paper.
+        if (statusRing(item.status)) {
+            batchDot(paperInsides, surface, 0, alpha, x, y, item.key);
+            batchDot(colour.rings, tint, DOT_RING_PX, alpha, x, y, item.key);
+        } else {
+            batchDot(paperRings, surface, DOT_PAPER_PX, alpha, x, y, item.key);
+            batchDot(colour.fills, tint, 0, alpha, x, y, item.key);
+        }
+    }
+    // What is selected draws last, over its neighbours: the declutter keeps every other pin clear of every mark, but a
+    // selected item takes its form whatever it covers.
+    const marked = selected.size === 0 ? alone
+        : [...alone.filter((item) => !selected.has(item.key)), ...alone.filter((item) => selected.has(item.key))];
+    return { paperInsides, paperRings, layers, alone: marked, tintOf };
+}
+
+/**
+ * Which of some markers draws on top in a frame (invariant 9): the last of them its plan draws — each layer's
+ * colours, bottom to top, each look's dots in the order they came, then what draws on its own. A marker the plan
+ * draws not at all — its status unread, unseen until the reveal — is none of them.
+ *
+ * @param plan - The frame's plan ({@link planMarkers})
+ * @param ids - The markers, by their items' ids
+ * @returns The one drawn on top; `undefined` where the plan draws none of them
+ */
+export function topMarker(plan: MarkerPlan, ids: ReadonlySet<string>): string | undefined {
+    let top: string | undefined;
+    for (const layer of plan.layers) {
+        for (const batch of [layer.fills, layer.rings]) {
+            for (const widths of batch.values()) {
+                for (const alphas of widths.values()) {
+                    for (const run of alphas.values()) for (const id of run.ids) if (ids.has(id)) top = id;
+                }
+            }
+        }
+    }
+    for (const item of plan.alone) if (ids.has(item.key)) top = item.key;
+    return top;
 }
 
 /**
@@ -392,22 +517,28 @@ function traceVertices(ctx: CanvasRenderingContext2D, pts: Vert[], closed: boole
     }
 }
 
+/** One look's dots: their centres in screen px, as `x, y, x, y, …`, and their items' ids, in the order they came. */
+interface DotRun {
+    readonly centres: number[];
+    readonly ids: string[];
+}
+
 /**
  * Dots drawn alike, by their look (#1393): their style, then their line's
- * width (a fill's is 0), then their alpha, each look's centres in screen px as
- * `x, y, x, y, …`.
+ * width (a fill's is 0), then their alpha, each look's dots in the order they
+ * came.
  */
-type DotBatch = Map<string, Map<number, Map<number, number[]>>>;
+type DotBatch = Map<string, Map<number, Map<number, DotRun>>>;
 
-/** Adds a dot's centre to the look it draws in. */
-function batchDot(batch: DotBatch, style: string, width: number, alpha: number, x: number, y: number): void {
+/** Adds a dot to the look it draws in. */
+function batchDot(batch: DotBatch, style: string, width: number, alpha: number, x: number, y: number, id: string): void {
     let widths = batch.get(style);
     if (widths === undefined) batch.set(style, widths = new Map());
     let alphas = widths.get(width);
     if (alphas === undefined) widths.set(width, alphas = new Map());
-    const centres = alphas.get(alpha);
-    if (centres === undefined) alphas.set(alpha, [x, y]);
-    else centres.push(x, y);
+    const run = alphas.get(alpha);
+    if (run === undefined) alphas.set(alpha, { centres: [x, y], ids: [id] });
+    else { run.centres.push(x, y); run.ids.push(id); }
 }
 
 /**
@@ -418,7 +549,7 @@ function batchDot(batch: DotBatch, style: string, width: number, alpha: number, 
 function paintDots(ctx: CanvasRenderingContext2D, batch: DotBatch, op: "fill" | "stroke", radius: number): void {
     for (const [style, widths] of batch) {
         for (const [width, alphas] of widths) {
-            for (const [alpha, centres] of alphas) {
+            for (const [alpha, { centres }] of alphas) {
                 ctx.globalAlpha = alpha;
                 if (op === "fill") ctx.fillStyle = style;
                 else { ctx.strokeStyle = style; ctx.lineWidth = width; }
@@ -447,18 +578,64 @@ const DOT_RING_PX = 2;
  */
 export const DOT_COLOUR_RADIUS = MARKER_DOT_RADIUS - DOT_PAPER_PX / 2;
 
-/** A status's tone, as an item's status names it. */
-type StatusTone = Extract<DrawnItem["status"], { type: "some" }>["value"]["tone"]["type"];
+/**
+ * How far a dot's drawn shape reaches from its centre, in px (invariant 9): a filled dot's ring of paper half its
+ * width past its radius, an open dot's ring half its own. What a tap lands on the dot by, where dots overlap.
+ *
+ * @param item - The item, drawn as a dot
+ * @returns Its reach
+ */
+export function dotDrawnRadius(item: DrawnItem): number {
+    return MARKER_DOT_RADIUS + (statusRing(item.status) ? DOT_RING_PX : DOT_PAPER_PX) / 2;
+}
+
+/** A status's tone, as an item's status names it: what a dot's colour is stacked by. */
+export type StatusTone = Extract<DrawnItem["status"], { type: "some" }>["value"]["tone"]["type"];
+
+/**
+ * The valence a theme colour token names, by its group: the design system's status bases (`status.pos` …), their
+ * text steps (`fg.success` …), their washes and their palettes (`success.solid` …).
+ */
+const TOKEN_SEVERITIES: readonly (readonly [StatusTone, RegExp])[] = [
+    ["success", /^(status\.pos|fg\.success|bg\.success|success(\.|$))/],
+    ["neutral", /^neutral(\.|$)/],
+    ["info", /^(status\.info|fg\.info|bg\.info|info(\.|$))/],
+    ["warning", /^(status\.warn|fg\.warning|bg\.warning|warning(\.|$))/],
+    ["danger", /^(status\.neg|fg\.(danger|error)|bg\.(danger|error)|danger(\.|$))/],
+];
+
+/** The severity an item's tone names: its valence's — brand, ink and muted name none. */
+const TONE_SEVERITY: Readonly<Record<string, StatusTone>> = { success: "success", warning: "warning", danger: "danger" };
+
+/**
+ * The severity of the colour a dot is drawn in (ruled 26 Oct 2026, "Legible dots"; D14): its colour token's — the
+ * token's valence, while the theme holds it, as the colour chain draws it — else its tone's, else its status's. A
+ * colour of no valence — a heat step, the brand's, an ink — names none, and stacks with the dots showing no status.
+ *
+ * @param item - The item
+ * @param colours - The theme's colour tokens: one naming none of them draws its tone, and stacks by it; absent, every token is the theme's
+ * @returns The severity; `undefined` for none
+ */
+export function drawnSeverity(item: DrawnItem, colours?: ReadonlySet<string>): StatusTone | undefined {
+    const token = getSomeorUndefined(item.color);
+    if (token !== undefined && (colours === undefined || colours.has(token))) {
+        return TOKEN_SEVERITIES.find(([, pattern]) => pattern.test(token))?.[0];
+    }
+    const tone = getSomeorUndefined(item.tone);
+    if (tone !== undefined) return TONE_SEVERITY[tone.type];
+    return getSomeorUndefined(item.status)?.tone.type;
+}
 
 /**
  * The layers the dots' colours draw in, bottom to top: what the narrowing leaves out, as context; a status not read
- * yet, in the placeholders' fill; a dot showing no status; then each status's tone, from success to danger
- * ({@link DOT_STATUS_LAYER}). Packed dots overlap by severity, never by the order they come in, so a danger rack is
- * never hidden under a healthy neighbour ("Legible dots").
+ * yet, in the placeholders' fill; a dot whose colour names no severity; then each severity, from success to danger
+ * ({@link DOT_STATUS_LAYER}) — the severity of the colour each is drawn in ({@link drawnSeverity}). Packed dots overlap
+ * by it, never by the order they come in, so the worst colour drawn is never hidden under a healthier one ("Legible
+ * dots").
  */
 const DOT_CONTEXT_LAYER = 0, DOT_UNREAD_LAYER = 1, DOT_NO_STATUS_LAYER = 2;
 
-/** The layer each status's tone draws its dots' colour in: over context, a status unread and none, danger the top. */
+/** The layer each severity draws its dots' colour in: over context, a status unread and none, danger the top. */
 const DOT_STATUS_LAYER: Readonly<Record<StatusTone, number>> = { success: 3, neutral: 4, info: 5, warning: 6, danger: 7 };
 
 /** How many layers the dots' colours draw in. */
@@ -1099,60 +1276,21 @@ export function paintSchematic(input: PaintInput): void {
     // ring — so no dot's paper covers a neighbour's colour (ruled 26 Oct 2026, "Legible dots"). Dots packed closer than
     // their paper reaches — a hall's racks at Fit, a metre or two apart — read as their colours, the paper showing only
     // between them, never merging into a block of it; a dot on its own draws as it ever did. The colours draw a layer at
-    // a time, by severity (`DOT_LAYERS`): context under a status unread, under a dot showing none, under success,
-    // neutral, info, warning and danger, so packed dots overlap with the worst on top, never in the order they came in.
-    // Then each zone's eyebrow, over the dots, so a hall they pack keeps its name. A pin draws on its own, its save and
-    // restore keeping its fade and its font from the next; and what is selected draws last, over its neighbours, each on
-    // its own: the declutter keeps every other pin clear of every mark, but a selected item takes its form whatever it
-    // covers. The marker a card's drop lands on draws on its own too, its ring about it. Its tint — its status unread
-    // (#1398), the placeholders' fill; drained as context, the muted ink — each colour's words made once a frame.
-    const surface = css(p.bgSurface), placeholder = css(p.bgSubtle), muted = css(p.fgMuted);
-    const colours = new Map<RGB, string>();
-    const markerTint = (item: DrawnItem, unread: boolean): string => {
-        if (desatOf(item.key)) return muted;
-        if (unread) return placeholder;
-        const own = tints.get(item.key);
-        if (own === undefined) return muted;
-        let words = colours.get(own);
-        if (words === undefined) colours.set(own, words = css(own));
-        return words;
-    };
-    // Every dot's paper — its inside, or its ring — and every dot's colour — its own, within its ring, or its ring — in
-    // the layer its severity draws in: what the narrowing leaves out, a status unread, none, then its status's tone.
-    const paperInsides: DotBatch = new Map(), paperRings: DotBatch = new Map();
-    const colourLayers = Array.from({ length: DOT_LAYERS }, () => ({ fills: new Map() as DotBatch, rings: new Map() as DotBatch }));
-    const layerOf = (item: DrawnItem, unread: boolean): number => {
-        if (isExcluded(item.key)) return DOT_CONTEXT_LAYER;
-        if (unread) return DOT_UNREAD_LAYER;
-        return item.status.type === "some" ? DOT_STATUS_LAYER[item.status.value.tone.type] : DOT_NO_STATUS_LAYER;
-    };
-    const alone: DrawnItem[] = [];
-    for (const item of visibleItems) {
-        const tier = tiers.get(item.key) ?? "dot";
-        if (tier === "card") continue; // rich card rendered by the React layer
-        if (tier !== "dot" || selected.has(item.key) || dropOn === item.key) { alone.push(item); continue; }
-        // Its status unread (#1398): its dot in the placeholders' fill once revealed, unseen before — never a status.
-        const unread = statusUnread(item);
-        if (unread && !placeholders) continue;
-        const tint = markerTint(item, unread);
-        // A ring status — a tentative one — is an open ring in its tone, the paper inside it; any other a filled dot, ringed
-        // in the paper.
-        const ring = statusRing(item.status);
-        const alpha = alphaOf(item.key);
-        const x = wx(item.x), y = wy(item.y);
-        const colour = colourLayers[layerOf(item, unread)]!;
-        if (ring) {
-            batchDot(paperInsides, surface, 0, alpha, x, y);
-            batchDot(colour.rings, tint, DOT_RING_PX, alpha, x, y);
-        } else {
-            batchDot(paperRings, surface, DOT_PAPER_PX, alpha, x, y);
-            batchDot(colour.fills, tint, 0, alpha, x, y);
-        }
-    }
+    // a time, by the severity of the colour each is drawn in (`DOT_LAYERS`, `drawnSeverity`): context under a status
+    // unread, under a colour of no severity, under success, neutral, info, warning and danger, so packed dots overlap
+    // with the worst colour drawn on top, never in the order they came in. Then each zone's eyebrow, over the dots, so a
+    // hall they pack keeps its name. A pin draws on its own, its save and restore keeping its fade and its font from the
+    // next; and what is selected draws last, over its neighbours, each on its own: the declutter keeps every other pin
+    // clear of every mark, but a selected item takes its form whatever it covers. The marker a card's drop lands on
+    // draws on its own too, its ring about it. Its tint — its status unread (#1398), the placeholders' fill; drained as
+    // context, the muted ink — each colour's words made once a frame. The order is the plan's (`planMarkers`), which a
+    // tap finds the marker drawn on top by (invariant 9).
+    const surface = css(p.bgSurface), muted = css(p.fgMuted);
+    const plan = planMarkers(input);
     ctx.save();
-    paintDots(ctx, paperInsides, "fill", MARKER_DOT_RADIUS);
-    paintDots(ctx, paperRings, "stroke", MARKER_DOT_RADIUS);
-    for (const colour of colourLayers) {
+    paintDots(ctx, plan.paperInsides, "fill", MARKER_DOT_RADIUS);
+    paintDots(ctx, plan.paperRings, "stroke", MARKER_DOT_RADIUS);
+    for (const colour of plan.layers) {
         paintDots(ctx, colour.fills, "fill", DOT_COLOUR_RADIUS);
         paintDots(ctx, colour.rings, "stroke", MARKER_DOT_RADIUS);
     }
@@ -1170,13 +1308,11 @@ export function paintSchematic(input: PaintInput): void {
         ctx.fillText(brow.label, brow.x + 9, brow.y);
         ctx.restore();
     }
-    const marked = selected.size === 0 ? alone
-        : [...alone.filter((item) => !selected.has(item.key)), ...alone.filter((item) => selected.has(item.key))];
-    for (const item of marked) {
+    for (const item of plan.alone) {
         const tier = tiers.get(item.key) ?? "dot";
         // Its status unread (#1398): its dot in the placeholders' fill once revealed, unseen before — never a status.
         const unread = statusUnread(item);
-        const tint = markerTint(item, unread);
+        const tint = plan.tintOf(item, unread);
         const isSel = selected.has(item.key);
         const x = wx(item.x), y = wy(item.y);
 

@@ -43,12 +43,12 @@ import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type 
 import type { SchematicLayerState } from "./layers";
 import { markerHit, markerHitbox } from "./markers";
 import type { LodTier } from "./model";
-import { zoneAnchor } from "./paint";
+import { dotDrawnRadius, planMarkers, topMarker, zoneAnchor, type MarkerPlan } from "./paint";
 import { linkRoutes, netRoutes, routeEnv, type EdgeGeometry } from "./routes";
 import { EMPTY_STRING_SET, type ItemBox, type LinkIndex, linkAt, marqueeHits } from "./selection";
 import type { Camera, CameraMoves } from "./use-camera";
 import type { CanvasSelection, SelectionSteps } from "./use-canvas-selection";
-import type { Paint } from "./use-paint";
+import { THEME_COLOURS, type Paint } from "./use-paint";
 import type { SchematicCanvasEditing } from "./view";
 
 const stringEqual = equalFor(StringType);
@@ -304,7 +304,7 @@ export function useGestures({
     const { clearZoneSelection, stepSelection } = selectionSteps;
     const { cameraRef } = camera;
     const { drawPending, transition, requestRender, flyTo, resetView } = cameraMoves;
-    const { renderSnapRef, applyCamera, drawRef, cardSizesRef } = paint;
+    const { renderSnapRef, applyCamera, drawRef, cardSizesRef, placeholdersRef } = paint;
     const { kinds, movableKinds, setLit, setDragMoves, setTempTool, setConnectDraft, connectFlashRef, flashRafRef, setBoxDrag } = gestureState;
     // Connection veto (#176, #1401 D34): gates the connect GESTURE itself — the
     // one channel behind pairwise links, every Shift-session extension (nets),
@@ -665,13 +665,35 @@ export function useGestures({
     const pinchRef = useRef<{ dist: number } | null>(null);
     const movedRef = useRef(false);
 
+    // The order the markers not drawn as cards paint in, as the last commit drew them (`paint.ts`' `planMarkers`): what
+    // a tap where markers overlap picks the one drawn on top by (invariant 9). Made again only as a commit or the reveal
+    // moves it — never as the camera moves, which moves no marker over another.
+    const markerPlanRef = useRef<{ readonly snap: unknown; readonly placeholders: boolean; readonly plan: MarkerPlan } | null>(null);
+    const markerPlan = useCallback((): MarkerPlan | undefined => {
+        const snap = renderSnapRef.current;
+        if (snap.palette === null) return undefined;
+        const placeholders = placeholdersRef.current;
+        const was = markerPlanRef.current;
+        if (was !== null && Object.is(was.snap, snap) && was.placeholders === placeholders) return was.plan;
+        const plan = planMarkers({
+            visibleItems: snap.visibleItems, tiers: snap.tiers, selected: snap.renderSelected, tints: snap.tints, layerAlpha: snap.layerAlpha,
+            placeholders, colours: THEME_COLOURS, cam: { ppu: 1, tx: 0, ty: 0 }, palette: snap.palette,
+            ...(snap.dropMark !== undefined ? { dropMark: snap.dropMark } : {}),
+            ...(snap.paintEffect !== undefined ? { effect: { ...snap.paintEffect, pulsePhase: 0 } } : {}),
+        });
+        markerPlanRef.current = { snap, placeholders, plan };
+        return plan;
+    }, [renderSnapRef, placeholdersRef]);
+
     // Pick the item under a tap. Card-tier hits take precedence over markers
     // (rich cards / footprints are the primary affordance): (1) the footprint
     // shape's exact painted geometry, then (2) the real DOM card under the
-    // pointer, then (3) the nearest dot/label marker against its FULL rendered
-    // extent (P11). Reads the LIVE camera so a tap maps to what was painted
-    // (invariant 4). Returns whether anything was selected. `accept` narrows it
-    // to the items a drop's card lands on (#1390).
+    // pointer, then (3) the dot/label markers: where the point lies on the drawn
+    // shapes of several, the one drawn on top (invariant 9, "Legible dots"),
+    // else the nearest against its FULL rendered extent (P11). Reads the LIVE
+    // camera so a tap maps to what was painted (invariant 4). Returns whether
+    // anything was selected. `accept` narrows it to the items a drop's card
+    // lands on (#1390).
     const itemKeyAt = useCallback((host: HTMLElement, clientX: number, clientY: number, accept?: (id: string) => boolean): string | undefined => {
         const sz = renderSnapRef.current.size;
         if (sz === null) return undefined;
@@ -704,7 +726,10 @@ export function useGestures({
                 ?.closest("[data-card-key]")?.getAttribute("data-card-key");
             if (cardKey !== null && cardKey !== undefined && !inertKeys.has(cardKey) && (accept === undefined || accept(cardKey))) return cardKey;
         }
-        // 3) dot / label markers: nearest hit against the full rendered extent (P11).
+        // 3) dot / label markers: where the point lies on the drawn shapes of several — a dot's colour and its ring, a pin's
+        // pill — the one the painter draws on top of them (invariant 9): packed dots overlap by the severity of the colour
+        // each is drawn in, a pin over the dots and what is selected over all. Else the nearest hit against the full
+        // rendered extent, its touch slop among it (P11).
         const ctx = drawRef.current?.getContext("2d") ?? null;
         const labelFont = renderSnapRef.current.palette?.labelFont;
         // Measure label widths with the painter's font so the hitbox matches the
@@ -713,6 +738,7 @@ export function useGestures({
         if (measuring) { ctx.save(); ctx.font = labelFont; }
         const camScreen = { ppu: ppuLive, tx: cam.tx, ty: cam.ty };
         let best: DrawnItem | null = null, bestD = Infinity;
+        const drawnUnder = new Set<string>();
         for (const it of visibleItems) {
             if (inertKeys.has(it.key)) continue;
             if (accept !== undefined && !accept(it.key)) continue;
@@ -722,10 +748,17 @@ export function useGestures({
             if (!markerHit(box, sx, sy)) continue;
             const d = Math.hypot(it.x * ppuLive + cam.tx - sx, it.y * ppuLive + cam.ty - sy);
             if (d < bestD) { best = it; bestD = d; }
+            // On what it draws: a pin's pill is its hitbox; a dot's shape its colour and its ring, inside its slop.
+            if (box.kind === "rect" || d <= dotDrawnRadius(it)) drawnUnder.add(it.key);
         }
         if (measuring) ctx.restore();
+        if (drawnUnder.size > 1) {
+            const plan = markerPlan();
+            const top = plan === undefined ? undefined : topMarker(plan, drawnUnder);
+            if (top !== undefined) return top;
+        }
         return best?.key;
-    }, [tiers, lod, visibleItems, inertKeys, renderSnapRef, cameraRef, drawRef]);
+    }, [tiers, lod, visibleItems, inertKeys, renderSnapRef, cameraRef, drawRef, markerPlan]);
     const pickAt = useCallback((host: HTMLElement, clientX: number, clientY: number, additive: boolean): boolean => {
         const key = itemKeyAt(host, clientX, clientY);
         if (key === undefined) return false;
