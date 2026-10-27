@@ -259,6 +259,24 @@ describe("the Table, narrowed", () => {
         expect([issues(), load()]).toEqual(before);
     });
 
+    test("with every read of the records held, a narrowing not read before — Cover › Covered — says `Filtering bins…` on the footer's line while the board waits for it, never the day's loading, until it lands (retest A2)", async () => {
+        const { c, store } = await open(ex.allocationTable);
+        await waitFor(() => expect(tableRow(c, "bin:3101")).not.toBeNull());
+        const line = () => slot(c, "footer").querySelector<HTMLElement>("[data-footer-line]")!;
+        // Every read of the records held on its way to e3, as a slow e3 holds them: the bays' new membership, and the bins read under it.
+        const reads = new Set(["page", "find", "runs", "rows", "within", "read"]);
+        const held = h.e3.hold(request => request.dataset?.startsWith("records.") === true && reads.has(request.kind));
+        await narrow(store, "allocationTable", "bays", "cover", ["Covered"]);
+        await waitFor(() => expect(slot(c, "main").getAttribute("aria-busy")).toBe("true"));
+        await waitFor(() => expect(line().hasAttribute("data-idle")).toBe(false));
+        expect(line().querySelector("[data-line-text]")?.textContent).toBe("Filtering bins…");
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(line().hasAttribute("data-idle")).toBe(true));
+        expect(slot(c, "main").getAttribute("aria-busy")).toBe("false");
+        expect(tableRow(c, "bin:3101")).not.toBeNull();
+    });
+
     test("a narrowing that leaves nothing says so, in either layout, and Clear filters brings every row back", async () => {
         const { c, store } = await open(ex.allocationTable);
         await narrow(store, "allocationTable", "bays", "area", ["East"]);
