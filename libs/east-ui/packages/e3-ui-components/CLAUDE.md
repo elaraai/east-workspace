@@ -493,6 +493,11 @@ row (focusable for it, no tab stop) or its narrow card
 — its block in a time grid or on the timeline, its month chip or its agenda
 card's head (`calendar/event-focus.ts`), once the window a step of the dates
 took it to has landed — a hidden pick's once the narrowing it leaves draws it.
+The Calendar's pick opens its Inspector, and where the Inspector floats over
+main for lack of room — an overlay pane, as at 1440 — the view is scrolled
+across once it is laid out, so the event stands clear of it and of the column
+the view keeps at its left, the timeline's resources or the time grid's hours
+(`calendar/index.tsx`' `clearOfPanes`, the hand retest).
 Where the view draws no element for the match — a person in Shifts, or in a
 folded group, an event of the backlog — or the viewer has moved on, the
 keyboard stays where it is. In the Roster's, the Calendar's and the

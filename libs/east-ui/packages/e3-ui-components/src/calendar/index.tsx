@@ -203,6 +203,32 @@ function noticeWords(notice: ScheduleCellNotice, format: Pick<Formatters, "numbe
     return { title, hint };
 }
 
+/**
+ * Brings a picked event out from under a pane the frame lays over main (the hand retest, 27 Oct 2026). The Inspector a
+ * pick opens floats over main's edge for lack of room, as a start pane overlaid floats over its other; what main shows
+ * between them, clear of the sticky column the view keeps at its left too — the timeline's resources, the time grid's
+ * hours — is where the viewer sees the event. The view is scrolled across by as much as the event stands outside that
+ * part: its middle to the part's middle, or, wider than the part, its start to the part's start. A view that has no
+ * room left across it is left as it is.
+ *
+ * @param element - The event's element, drawn
+ */
+function clearOfPanes(element: HTMLElement): void {
+    const frame = element.closest("[data-builder-frame]");
+    const main = element.closest('[data-frame-slot="main"]');
+    const view = element.closest<HTMLElement>("[data-calendar-timeline], [data-calendar-time-grid], [data-calendar-month-grid]");
+    if (!element.isConnected || frame === null || main === null || view === null) return;
+    const shown = main.getBoundingClientRect();
+    const laid = (side: "start" | "end") =>
+        frame.querySelector(`[data-frame-slot="${side}"][data-pane-mode="overlay"]:not([data-collapsed]) > :first-child`)?.getBoundingClientRect();
+    const sticky = view.querySelector("[data-calendar-row-head], [data-calendar-gutter]")?.getBoundingClientRect();
+    const left = Math.max(shown.left, laid("start")?.right ?? shown.left, sticky !== undefined && sticky.width > 0 ? sticky.right : shown.left);
+    const right = Math.min(shown.right, laid("end")?.left ?? shown.right);
+    const box = element.getBoundingClientRect();
+    if (right <= left || (box.left >= left && box.right <= right)) return;
+    view.scrollLeft += box.width >= right - left ? box.left - left : (box.left + box.right - left - right) / 2;
+}
+
 /** Whether two ranges are one window: the same bounds. */
 function sameRange(a: CalendarRange, b: CalendarRange): boolean {
     return a.from.getTime() === b.from.getTime() && a.to.getTime() === b.to.getTime();
@@ -375,6 +401,9 @@ function CalendarFrame(props: HostProps) {
         element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
         element.closest("[data-builder-frame]")?.querySelector<HTMLButtonElement>('button[aria-label="Expand Inspector"]')?.click();
         setReveal(undefined);
+        // The Inspector just opened may float over main, for lack of room: once it is laid out, the event is brought out from
+        // under it (the hand retest, 27 Oct 2026).
+        requestAnimationFrame(() => clearOfPanes(element));
     }, []);
     // Enter on an event opens its Details, as the Schematic's Enter does (retest C5): the Inspector, folded, opened on it.
     const openDetails = useCallback(() => {
