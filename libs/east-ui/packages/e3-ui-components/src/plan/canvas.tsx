@@ -872,7 +872,10 @@ export function usePlanCanvas({
     // first of its rows the view shows once they land, and a key pressed on it waits for them (`owedFocus`'s `wait`).
     // A focused item a landing takes off the canvas leaves the focus on the canvas's surface, never the page's body: an
     // intent waiting takes it on from there, a run owed it does as above, and a row taken off owes it to the first row
-    // the view shows. What the view shows takes what is owed as it is reported at rest (`takeOwed`).
+    // the view shows. What the view shows takes what is owed as it is reported at rest (`takeOwed`). A key that moves
+    // through the rows, pressed on the surface while it holds what is owed, waits as one pressed on the run does — a
+    // run the click focused can leave the frame before its rows come, when windows the page still holds land at once
+    // beside it as the view comes to rest (`surfaceKey`).
     const navIntent = useRef<{ holder: string; intent: PlanNavIntent } | null>(null);
     const owedFocus = useRef<{ band: PlanBand | undefined; wait: PlanWaitKey | undefined } | null>(null);
     const takeOwed = useRef<(shown: readonly PlanBodyItem[]) => void>(() => undefined);
@@ -1575,6 +1578,22 @@ export function usePlanCanvas({
         }
     };
 
+    /**
+     * A key on the canvas's surface while it holds a focus a landing owes (`owedFocus`, #1398, CL10) — a run the focus
+     * was on taken off before its rows came, or a row a landing took off — `true` when it took it: one that moves through
+     * the rows (↑ ↓ PgUp PgDn) waits as one pressed on the run does, for the row the focus is owed to, and goes on from it.
+     */
+    const surfaceKey = (e: KeyboardEvent<HTMLDivElement>, bodyEl: HTMLElement): boolean => {
+        const owed = owedFocus.current;
+        if (e.target !== bodyEl || owed === null || narrow || e.altKey || e.ctrlKey || e.metaKey) return false;
+        const wait: PlanWaitKey | undefined = e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "PageDown" || e.key === "PageUp"
+            ? e.key : undefined;
+        if (wait === undefined) return false;
+        e.preventDefault();
+        owedFocus.current = { band: owed.band, wait };
+        return true;
+    };
+
     /** A key the canvas acts on, in the order its rungs take one — `true` when it took it. */
     const canvasKey = (e: KeyboardEvent<HTMLDivElement>, bodyEl: HTMLElement, t: HTMLElement): boolean => {
         // An element carried by the keyboard takes the keys while it lasts (#825).
@@ -1589,6 +1608,7 @@ export function usePlanCanvas({
         }
         // An open popover is the ladder's top rung.
         if (e.key === "Escape" && overlayHandlers.onKeyDown(e)) return true;
+        if (surfaceKey(e, bodyEl)) return true;
         if (gridKeys(e, bodyEl)) return true;
         // Enter on an element outside the grid — a narrow card's.
         if (overlayHandlers.onKeyDown(e)) return true;

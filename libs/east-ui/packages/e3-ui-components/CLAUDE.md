@@ -1483,7 +1483,10 @@ nothing read again for them (`plan-far-moves.spec.ts`,
 rows land, to the first of them the view shows whole, and a key pressed on it
 waits for them and goes on from there (`wait`); an item a landing takes off the
 canvas leaves the focus on the canvas's surface, never the page's body, until a
-row takes it, and the rows landing never move the view — the browser's own
+row takes it — a key that moves through the rows, pressed on the surface
+meanwhile, waits there as it does on the run: a run a click focused leaves the
+frame before its rows come when windows the page still holds land beside it as
+the view comes to rest — and the rows landing never move the view — the browser's own
 scroll anchoring, which anchors on the focused run, is off where `VirtualRows`
 anchors (`plan-run-focus.spec.ts`). ↑ and ↓ on a person's name in the
 People grid step to the next person or the one before, past the groups' bands
