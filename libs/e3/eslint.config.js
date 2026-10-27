@@ -11,29 +11,6 @@ const agplHeader = 'Copyright (c) 2025 Elara AI Pty Ltd\nDual-licensed under AGP
 
 const bslPackages = ['e3-core', 'e3-cli', 'e3-api-client', 'e3-api-server', 'e3-rack', 'e3-web'];
 
-// The files written before the rules below were enforced (2026-10-27), which
-// still break them: warned, not failed, until each is cleaned and leaves its
-// list. Nothing is ever added.
-const LEGACY_EAST_VALUES = [
-  'packages/e3-api-server/src/handlers/functions.spec.ts',
-];
-const LEGACY_ANY = [
-  'packages/e3-api-client/src/platform.ts',
-  'packages/e3-api-server/src/handlers/functions.spec.ts',
-  'packages/e3-api-server/src/handlers/records.spec.ts',
-  'packages/e3-api-server/src/handlers/workspaces.ts',
-  'packages/e3-api-tests/src/suites/package-transfer.ts',
-  'packages/e3-cli/src/commands/convert.impl.ts',
-  'packages/e3-cli/src/commands/workspace.ts',
-  'packages/e3-core/src/contract/gc.ts',
-  'packages/e3-core/src/formats.ts',
-  'packages/e3-core/src/gc-graph.ts',
-  'packages/e3-core/src/packages.spec.ts',
-  'packages/e3-core/src/storage/local/LocalDatasetRefStore.ts',
-  'packages/e3-core/src/trees.spec.ts',
-  'packages/e3-core/src/workspaces.spec.ts',
-  'packages/e3-web/src/testing/runner-cases.ts',
-];
 const agplPackages = ['e3', 'e3-types'];
 
 const baseRules = {
@@ -307,15 +284,4 @@ export default [
       'east/east-rules': ['error', {}],
     },
   },
-  // Files not held to the above yet: each leaves its list as it is cleaned,
-  // and the lists only shrink — a new file is held to the rules from the start.
-  ...(LEGACY_EAST_VALUES.length === 0 ? [] : [{
-    files: LEGACY_EAST_VALUES,
-    plugins: { east },
-    rules: { 'east/east-rules': ['warn', { only: hostValueRules }] },
-  }]),
-  ...(LEGACY_ANY.length === 0 ? [] : [{
-    files: LEGACY_ANY,
-    rules: { '@typescript-eslint/no-explicit-any': 'warn' },
-  }]),
 ];
