@@ -318,6 +318,11 @@ const dcFibreRuns = new Map([
 ]);
 export const schematicFibre = e3.record("schematic_fibre", DictType(StringType, DcFibre), dcFibreRuns);
 export const schematicFibrePatch = e3.mutation.patch(schematicFibre);
+/**
+ * The fibre runs by system, for a floor whose rail narrows its runs through a source of their own: a run read complete
+ * through its narrowing, a run a draft changed that a choice leaves out waiting in its session (#1391).
+ */
+export const schematicFibreBySystem = e3.recordIndex("schematic_fibre_by_system", schematicFibre, { on: ["system"] });
 /** The fibre runs of a floor whose cabling is frozen: the same runs, which no Save changes. */
 export const schematicFrozenFibre = e3.record("schematic_frozen_fibre", DictType(StringType, DcFibre), dcFibreRuns);
 /** The frozen floor's door, a checked one: it refuses every change, naming why — what a Save over it is answered. */

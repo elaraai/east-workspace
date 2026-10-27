@@ -8,7 +8,11 @@
  * window holds. A draft the narrowing leaves out waits in its session, hidden
  * — the default — as every kind's does (`drafted.ts`, SKILL.md's Narrowing);
  * and a rack a draft unplaced is the Backlog's wherever the view goes, until
- * Save. Each test fails on the code under review.
+ * Save. Issues checks every unsaved change wherever it is drawn — or drawn
+ * nowhere, a draft the hidden narrowing leaves out, its line saying which
+ * choice hides it, as the shared hidden pick words it, and Go to issue
+ * clearing that choice and selecting it once it draws (ruled 27 Oct 2026,
+ * "Checked in view, said so"). Each test fails on the code under review.
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin, and each card the tests press answers at
@@ -17,7 +21,8 @@
 
 import { expect, test } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import { East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import userEvent from "@testing-library/user-event";
+import { East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
@@ -166,9 +171,8 @@ const windowSearches = () => h.requests("find", RACKS_DATASET).filter((request) 
 
 type Where = ValueTypeOf<typeof RecordSliceStateType>["where"];
 
-/** Writes the racks' narrowing, as the rail does. */
-async function narrow(where: Where) {
-    const key = `${FLOOR}.racks`;
+/** Writes a source's narrowing — the racks' unless another is named — as the rail does. */
+async function narrow(where: Where, key = `${FLOOR}.racks`) {
     const store = StateRuntime.getStore();
     const state = decodeBeast2For(RecordSliceStateType)(store.read(key)!);
     await act(async () => { store.write(key, encodeBeast2For(RecordSliceStateType)({ ...state, preset: none, where })); });
@@ -352,4 +356,176 @@ test("the Index lists a rack a gesture made in the zone it stands in, and none a
     await waitFor(() => expect(indexRows(container)).toEqual([
         "Cage A ▾ 4", "  A01", "  A03", "  A04", "  A05", "Cold aisle A · 1.2 m ▾ 1", "  New 42U rack", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▸",
     ]), { timeout: 5_000 });
+});
+
+// ============================================================================
+// Issues: every unsaved change, drawn or waiting in its session (ruled 27 Oct 2026, "Checked in view, said so")
+// ============================================================================
+
+/** Opens one of the inspector's tabs, by its name. */
+async function openInspectorTab(c: HTMLElement, name: string) {
+    const found = [...slot(c, "end").querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === name || t.textContent?.startsWith(`${name} `));
+    if (found === undefined) throw new Error(`no inspector tab ${name}`);
+    await act(async () => { fireEvent.click(found); });
+    await settle();
+}
+
+/** The Issues tab's rows: each what it names, what it says, whether it blocks, and the choices that hide its row — `null` where none does. */
+const issueRows = (c: HTMLElement) => [...inspector(c).querySelectorAll("[data-inspector-issue]")].map((el) => [
+    el.children[0]?.textContent, el.children[1]?.textContent, el.children[1]?.getAttribute("data-kind"),
+    el.querySelector("[data-inspector-issue-hidden]")?.textContent ?? null,
+]);
+
+/** What Details shows, its panel open or not: its view — `item`, `link`, `drawing` — and the title it gives what is selected. */
+const detailsHead = (c: HTMLElement) => {
+    const view = slot(c, "end").querySelector("[data-schematic-inspector]");
+    return [view?.getAttribute("data-schematic-inspector") ?? null, view?.querySelector("[data-inspector-title]")?.textContent ?? null];
+};
+
+/** Picks a choice of a Chooser in Details, by its section, its field and its words. */
+async function choose(c: HTMLElement, section: string, key: string, option: string) {
+    const trigger = inspector(c).querySelector<HTMLElement>(`[data-inspector-fields="${section}"] [data-field="${key}"] [data-scope=select][data-part=trigger]`)!;
+    await act(async () => { fireEvent.click(trigger); });
+    const listbox = document.getElementById(trigger.getAttribute("aria-controls")!)!;
+    await act(async () => { fireEvent.click(within(listbox).getByRole("option", { name: option })); });
+    await settle();
+}
+
+/** Types a number field of Details' section, a key at a time — the shared input writes back on a frame — and commits it with ⏎. */
+async function retypeNumber(c: HTMLElement, section: string, key: string, text: string) {
+    const user = userEvent.setup();
+    const input = within(inspector(c).querySelector<HTMLElement>(`[data-inspector-fields="${section}"] [data-field="${key}"]`)!).getByRole("spinbutton");
+    await user.clear(input);
+    await settle();
+    for (const ch of text) {
+        await user.type(input, ch);
+        await settle();
+        await act(async () => { for (let i = 0; i < 3; i++) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
+    }
+    await user.type(input, "{Enter}");
+    await settle();
+}
+
+/** A01, tapped, moved past the floor's east edge in Details — its x 30 m on a floor 28 m wide: a draft Issues says is outside the drawing. */
+async function pushOffTheFloor(c: HTMLElement) {
+    await tap(canvasOf(c), CAM, 2.4, 2.9);
+    await waitFor(() => expect(detailsHead(c)).toEqual(["item", "A01"]));
+    await retypeNumber(c, "position", "x", "30");
+    expect(unsaved(c)).toBe(true);
+}
+
+/** A source's narrowing — the racks' unless another is named — as the rail holds it. */
+const whereOf = (key = `${FLOOR}.racks`): Where => decodeBeast2For(RecordSliceStateType)(StateRuntime.getStore().read(key)!).where;
+
+/** Northwind Media's racks: A03 and A04 — never Harbour Labs' A01 and A02. */
+const NORTHWIND: Where = new SortedMap([["owner", variant("values", [printText("Northwind Media")])]], compareString);
+
+/** A01's issue once its draft has moved it past the floor's east edge. */
+const A01_OUTSIDE = ["Rack · A01", "Outside the drawing", "warning"] as const;
+
+/** What A01's issue says of the choice that hides it, as the shared hidden pick words it. */
+const HIDDEN_BY_NORTHWIND = "hidden by Owner: Northwind Media — picking it clears that filter";
+
+test("hidden, a rack a draft moved off the drawing that a new choice leaves out is listed in Issues still, its line naming the choice that hides it; Go to issue clears that choice and selects the rack once it draws", async () => {
+    const { container } = await open();
+    await pushOffTheFloor(container);
+    await openInspectorTab(container, "Issues");
+    expect(issueRows(container)).toEqual([[...A01_OUTSIDE, null]]);
+    // Northwind Media's racks chosen: A01, Harbour Labs', waits in its session, drawn nowhere — its issue unsaved still.
+    await narrow(NORTHWIND);
+    await waitFor(() => expect(card(container, "racks", "A02")).toBeNull(), { timeout: 5_000 });
+    await waitFor(() => expect(issueRows(container)).toEqual([[...A01_OUTSIDE, HIDDEN_BY_NORTHWIND]]), { timeout: 5_000 });
+    expect(unsaved(container)).toBe(true);
+    // Go to issue: just the owner's choice cleared, as the rail clears it, and A01 selected once the narrowing it leaves draws it.
+    await act(async () => { fireEvent.click(inspector(container).querySelector("[data-inspector-issue]")!); });
+    await settle();
+    await waitFor(() => expect(whereOf().size).toBe(0));
+    await waitFor(() => expect(detailsHead(container)).toEqual(["item", "A01"]), { timeout: 5_000 });
+    expect(issueRows(container)).toEqual([[...A01_OUTSIDE, null]]);
+    expect(unsaved(container)).toBe(true);
+});
+
+test("dimmed, the same draft draws as context where its draft has it, and Issues lists it with no line of a choice hiding it", async () => {
+    const { container } = await open(dimFloor);
+    await pushOffTheFloor(container);
+    await openInspectorTab(container, "Issues");
+    expect(issueRows(container)).toEqual([[...A01_OUTSIDE, null]]);
+    // Northwind Media's racks chosen: Harbour Labs' A02 draws as context, and so does A01, where its draft has it.
+    await narrow(NORTHWIND);
+    await waitFor(() => expect(card(container, "racks", "A02")?.hasAttribute("data-context")).toBe(true), { timeout: 5_000 });
+    await settle();
+    expect(issueRows(container)).toEqual([[...A01_OUTSIDE, null]]);
+});
+
+test("a draft off the window is checked where its draft has it: a zoom away from the rack's stored place keeps its issue listed, and a choice leaving it out keeps it listed, its line naming that choice", async () => {
+    const { container } = await open();
+    await pushOffTheFloor(container);
+    await openInspectorTab(container, "Issues");
+    // A zoom into the Network room: its window holds none of the cage, A01's stored place, and A01's draft is still checked.
+    const before = windowSearches();
+    await zoomInto(canvasOf(container), cameraOf(container), { minX: 20, minY: 8, maxX: 26, maxY: 12 });
+    await waitFor(() => expect(windowSearches()).toBeGreaterThan(before), { timeout: 5_000 });
+    await settle();
+    expect(issueRows(container)).toEqual([[...A01_OUTSIDE, null]]);
+    // Northwind Media's racks chosen: A01 waits in its session, off the window, and its issue stays listed, saying what hides it.
+    await narrow(NORTHWIND);
+    await waitFor(() => expect(issueRows(container)).toEqual([[...A01_OUTSIDE, HIDDEN_BY_NORTHWIND]]), { timeout: 5_000 });
+    expect(unsaved(container)).toBe(true);
+});
+
+/** The rail's key over the runs' floor. */
+const RUNS = "schematic.review.runs";
+
+/**
+ * The data centre's racks — editable through their patch door — and its network frames, read whole, and the fibre runs
+ * between them read complete through a source of their own, narrowed by their system and editable through their patch
+ * door, with the inspector: a narrowed-out run hidden, the default.
+ */
+const runsFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const frames = $.let(Data.bind(ex.schematicFrames));
+    const fibre = $.let(Record.bind(ex.schematicFibre, [ex.schematicFibrePatch]));
+    const fibreEntries = $.let(Data.bindPaged(ex.schematicFibre));
+    const slice = $.let(Slice.bindRecords(RUNS, {
+        fibre: { source: Data.bindPaged(ex.schematicFibre, { indexes: [ex.schematicFibreBySystem] }), fields: { system: { label: "System", hints: ["network", "power"] } } },
+    }));
+    const ends = { field: "from", of: { rack: "racks", frame: "network" } } as const;
+    return Schematic({
+        id: "reviewRuns",
+        inspector: true,
+        extent: { width: 28, height: 14 },
+        slice: { slice },
+        items: {
+            racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name" }),
+            network: Schematic.items(frames, { name: "Network frame", icon: "network-wired", x: "x", y: "y", width: "w", height: "h", label: "name" }),
+        },
+        links: { fibre: Schematic.links(fibre, { name: "Fibre run", icon: "bolt", via: "path", from: ends, to: { ...ends, field: "to" }, entries: fibreEntries }) },
+    });
+}))) };
+
+const stringEqual = equalFor(StringType);
+
+test("hidden, a run a draft re-targeted that a choice of its own source leaves out is listed in Issues still — the rack another session deleted named, its line naming the choice — and Go to issue clears that choice and selects the run once it draws", async () => {
+    const { container } = await open(runsFloor);
+    // u3, from A03 to ODF-1, tapped on its line and re-targeted to MMR-1 in Details: a draft.
+    await tap(canvasOf(container), CAM, 9.6, 6.0);
+    await waitFor(() => expect(detailsHead(container)).toEqual(["link", "A03 → ODF-1"]));
+    await choose(container, "ends", "to", "MMR-1 · Network frame");
+    expect(unsaved(container)).toBe(true);
+    // Another session deletes A03: the drafted run names a rack no rack holds.
+    const racks = await h.read(ex.schematicRacks);
+    await h.patch(ex.schematicRacks, new Map([...racks].filter(([key]) => !stringEqual(key, "A03"))));
+    await openInspectorTab(container, "Issues");
+    const missing = ["Fibre run · A03 → MMR-1", "Names Rack A03, which no rack holds", "warning"] as const;
+    await waitFor(() => expect(issueRows(container)).toEqual([[...missing, null]]), { timeout: 5_000 });
+    // The power system's runs chosen: none of them is, and u3 waits in its session, drawn nowhere — its issue listed still.
+    await narrow(new SortedMap([["system", variant("values", [printText("power")])]], compareString), `${RUNS}.fibre`);
+    await waitFor(() => expect(issueRows(container)).toEqual([[...missing, "hidden by System: power — picking it clears that filter"]]), { timeout: 5_000 });
+    expect(unsaved(container)).toBe(true);
+    // Go to issue: the system's choice cleared, and u3 selected once the narrowing it leaves draws it.
+    await act(async () => { fireEvent.click(inspector(container).querySelector("[data-inspector-issue]")!); });
+    await settle();
+    await waitFor(() => expect(whereOf(`${RUNS}.fibre`).size).toBe(0));
+    await waitFor(() => expect(detailsHead(container)).toEqual(["link", "A03 → MMR-1"]), { timeout: 5_000 });
+    expect(unsaved(container)).toBe(true);
 });
