@@ -36,9 +36,10 @@
  * re-fires every channel the burst answered at once, so a reader of a window
  * over an interval index — some fifty-five searches — runs again once, not
  * once a search. Windows are applied to their readers once a frame (#1398,
- * CL9): each lands in its channel at once, and the windows that land before
- * the next frame — a fling coming to rest, the windows read ahead either side
- * — re-fire together, so a reader draws once for them, never once a window.
+ * CL9) — those by offset and those across a narrowing's runs alike: each lands
+ * in its channel at once, and the windows that land before the next frame — a
+ * fling coming to rest, the windows read ahead either side — re-fire together,
+ * so a reader draws once for them, never once a window.
  *
  * A window a landed one covers is never fetched (#1217): its rows are that
  * window's, at the same revision, so the read is answered from it and keeps
@@ -2108,7 +2109,8 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             const runSpans: RunSpans = { family: pagedWindowFamily(workspace, path, revision, selector), runs: spans };
             if (!this.apply(batchKey, seq, (e) => { e.status = "loaded"; e.window = window; e.runSpans = runSpans; delete e.error; })) return;
             this.touchWindow(batchKey);
-            this.notify(batchKey);
+            // A window across a narrowing's runs is a window: its readers hear with the burst it lands in, once a frame (CL9).
+            this.notifyLanded([batchKey]);
         })();
     }
 
