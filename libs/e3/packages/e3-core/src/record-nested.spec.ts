@@ -28,6 +28,10 @@
  *
  * The parity compares every runtime installed and skips with fewer than two;
  * the rest runs on each runtime installed.
+ *
+ * And a window of the rail's rows, read without a join through an index
+ * carrying them beside the nested index, reads none of the record's own
+ * objects, under a store that keeps every read.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -36,10 +40,12 @@ import assert from 'node:assert';
 import { delimiter, join, dirname } from 'node:path';
 import {
   DateTimeType, DictType, East, FloatType, IntegerType, OptionType, PatchType, RecursiveType, SortedMap, StringType, StructType,
-  compareFor, diffFor, encodeBeast2For, parseFor, printType, variant, type EastType, type ValueTypeOf,
+  compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, fromEastTypeValue, parseFor, printFor, printType, variant,
+  type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { recordMutate, recordReindex, readRecordState } from './records.js';
+import { recordMutate, recordReindex, readRecordState, resolveRecordIndex } from './records.js';
+import { DatasetSegments, readManifest } from './dataset-open.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
@@ -465,5 +471,117 @@ describe('the nested series index on the real runners', () => {
       const [first, ...rest] = [...each];
       for (const [ws, held] of rest) assert.deepStrictEqual(held, first![1], `${ws} disagrees with ${first![0]} after ${what}`);
     }
+  });
+});
+
+// ── A window of the rail's rows ──────────────────────────────────────────────
+
+/** A store keeping every object a read reads — its hash, and the bytes read of it. */
+function readsKept(inner: StorageBackend): StorageBackend & { kept: Map<string, number> } {
+  const kept = new Map<string, number>();
+  const note = (hash: string, bytes: number) => kept.set(hash, (kept.get(hash) ?? 0) + bytes);
+  // A Proxy, not a spread: the store is a class instance and its methods live
+  // on the prototype, where a spread does not reach them.
+  const objects = new Proxy(inner.objects, {
+    get(target, property, receiver) {
+      if (property === 'read') {
+        return async (repo: string, hash: string) => {
+          const bytes = await target.read(repo, hash);
+          note(hash, bytes.byteLength);
+          return bytes;
+        };
+      }
+      if (property === 'readRange') {
+        return async (repo: string, hash: string, offset: number, length: number) => {
+          const bytes = await target.readRange(repo, hash, offset, length);
+          note(hash, bytes.byteLength);
+          return bytes;
+        };
+      }
+      if (property === 'materialize') {
+        return async (repo: string, hash: string, dest: string, options?: { link?: boolean }) => {
+          note(hash, (await target.stat(repo, hash)).size);
+          return target.materialize(repo, hash, dest, options);
+        };
+      }
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  });
+  return new Proxy(inner, {
+    get(target, property, receiver) {
+      if (property === 'objects') return objects;
+      if (property === 'kept') return kept;
+      const value = Reflect.get(target, property, receiver) as unknown;
+      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as StorageBackend & { kept: typeof kept };
+}
+
+describe('a window of the rail\'s rows beside the nested series index', () => {
+  let repo: string;
+  let tempDir: string;
+  let storage: StorageBackend;
+  let runner: TaskRunner;
+
+  beforeEach(async () => {
+    repo = createTestRepo();
+    tempDir = createTempDir();
+    storage = new LocalStorage(dirname(repo));
+    runner = new LocalTaskRunner(repo);
+    const { records, doors, clear, indexes } = declared();
+    const pkg = e3.package('nested-rail', '1.0.0', ...records, ...doors, clear, ...indexes);
+    const zip = join(tempDir, 'nested-rail.zip');
+    await e3.export(pkg, zip);
+    await packageImport(storage, repo, zip);
+    await workspaceCreate(storage, repo, 'rail');
+    await workspaceDeploy(storage, repo, 'rail', 'nested-rail', '1.0.0', { runner });
+  });
+
+  afterEach(() => {
+    removeTestRepo(repo);
+    removeTempDir(tempDir);
+  });
+
+  it('reads 200 machines through machines_by_site_status without a join, each without its collections, and no object of the record\'s own', async () => {
+    const draw = stream(200);
+    const names = Array.from({ length: 300 }, (_, m) => `M-${String(m).padStart(3, '0')}`);
+    const machines = parsed(Machines, dict(names.map((name, m) => `"${name}":${machine(m, draw)}`)));
+    const patch = diffFor(Machines)(new SortedMap([], compareFor(StringType)) as never, machines as never);
+    const outcome = await recordMutate(storage, runner, repo, 'rail', 'machines', 'patch', [encodeBeast2For(PatchType(Machines))(patch)], { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed', `machines: ${outcome.kind === 'failed' ? outcome.stderr : outcome.kind}`);
+
+    // The record's own objects: its state, its primary's manifest, header and segments.
+    const ref = await storage.datasets.read(repo, 'rail', 'records/machines');
+    assert.ok(ref && ref.type === 'value', 'records/machines holds a value');
+    const record = await readRecordState(storage, repo, ref.value.hash);
+    const primary = await readManifest(storage, repo, record.primary);
+    assert.ok(primary !== null, 'the primary is a manifest');
+    const own = new Set([ref.value.hash, record.primary, primary.header, ...primary.entries.map((entry) => entry.hash)]);
+    let ownBytes = 0;
+    for (const entry of primary.entries) ownBytes += (await storage.objects.stat(repo, entry.hash)).size;
+    const index = await resolveRecordIndex(storage, repo, 'rail', 'records/machines', ref.value.hash, 'machines_by_site_status');
+    assert.ok(index !== null, 'the record names machines_by_site_status');
+
+    // A window of 200, read as a page reads one without a join: the index's segments holding its first 200 entries.
+    const counted = readsKept(storage);
+    const window = await DatasetSegments.open(counted, repo, index.manifest);
+    const segments = window.cumulative.findIndex((ends) => ends >= 200) + 1;
+    assert.ok(segments > 0, `the index holds 200 entries: ${window.elementCount}`);
+    const entries = decodeBeast2For(fromEastTypeValue(index.collectionType))(await window.span(0, segments)) as SortedMap<unknown, unknown>;
+    const page = [...entries].slice(0, 200);
+    assert.strictEqual(page.length, 200, 'a window of 200');
+
+    // Each machine as the record holds it, its collections empty.
+    const lean = new SortedMap<string, unknown>(names.map((name, m) => [name, parsed(Machine,
+      `(name="Press ${m}", site="Site ${m % 3}", status="up", jobs={:}, stops={:}, alarms={:}, load={:}, output={:})`)]), compareFor(StringType));
+    for (const [key, value] of page) {
+      const row = (key as { k: string }).k;
+      assert.ok(equalFor(Machine)(value as never, lean.get(row) as never), `${printFor(StringType)(row)} is carried without its collections`);
+    }
+    assert.deepStrictEqual([...counted.kept.keys()].filter((hash) => own.has(hash)), [], 'no object of the record\'s own is read');
+    let read = 0;
+    for (const bytes of counted.kept.values()) read += bytes;
+    assert.ok(read * 10 < ownBytes, `the window reads ${read} bytes; the record's own segments hold ${ownBytes}`);
   });
 });
