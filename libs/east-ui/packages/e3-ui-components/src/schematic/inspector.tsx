@@ -75,7 +75,11 @@
  * has not read, and the form its own height when the row lands.
  *
  * Issues (SC16) lists the drawing's issues (`issues.ts`), each a control that
- * selects what it names and flies to it.
+ * selects what it names and flies to it. A kind read by area is checked in the
+ * rows read around the view, with every unsaved change, never by a read of its
+ * other rows: while one is, a line over the list names it and says its rows out
+ * of view are checked only as the view reaches them, as the drawing's counts
+ * say what they don't count (ruled 27 Oct 2026, "Checked in view, said so").
  *
  * Styles are the `schematicInspector` recipe's, the form's `fieldForm`'s and
  * the buttons the shared `button`'s; the pane — its tab row, its collapse
@@ -165,6 +169,11 @@ export interface SchematicInspectorProps {
     readonly records: readonly SchematicSavedRecord[];
     /** The drawing's issues, and its sessions'. */
     readonly issues: readonly SchematicIssue[];
+    /**
+     * The kinds read by area, each by its name as running text writes it in the plural (`racks`): Issues checks their rows
+     * read around the view and says the others are checked only as the view reaches them; none, it says nothing of it.
+     */
+    readonly unchecked: readonly string[];
     /** The zone holding a point, by its name, as the Index files an item. */
     readonly zoneAt: (x: number, y: number) => string | undefined;
     /** Selects an entity, by its id — a net's leg with it — flying to it; `undefined` selects nothing. */
@@ -1037,28 +1046,43 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
 // Issues (SC16)
 // ============================================================================
 
-/** The Issues tab: every issue of the drawing, each a control that selects what it names. */
-const SchematicInspectorIssues = memo(function SchematicInspectorIssues({ issues, reveal, words }: SchematicInspectorProps) {
+/**
+ * The Issues tab: every issue of the drawing, each a control that selects what it names — under a line, while a kind is
+ * read by area, saying its rows out of view are checked only as the view reaches them (ruled 27 Oct 2026).
+ */
+const SchematicInspectorIssues = memo(function SchematicInspectorIssues({ issues, unchecked, reveal, words }: SchematicInspectorProps) {
     const styles = useSlotRecipe({ key: "schematicInspector" })() as Styles;
     const m = words.m;
+    // What the list leaves unchecked, said before it: a reader hears it ahead of the issues, or of none.
+    const scope = unchecked.length === 0 ? null : (
+        <Box css={styles.section}>
+            <Box css={styles.fact} data-inspector-unchecked="">{m.inspectorUnchecked({ names: unchecked })}</Box>
+        </Box>
+    );
     if (issues.length === 0) {
         return (
-            <Box css={styles.empty} data-inspector-no-issues="">
-                <Box as="span" css={styles.emptyTitle}>{m.inspectorNoIssues({ part: "title" })}</Box>
-                <Box as="span" css={styles.emptyHint}>{m.inspectorNoIssues({ part: "hint" })}</Box>
-            </Box>
+            <>
+                {scope}
+                <Box css={styles.empty} data-inspector-no-issues="">
+                    <Box as="span" css={styles.emptyTitle}>{m.inspectorNoIssues({ part: "title" })}</Box>
+                    <Box as="span" css={styles.emptyHint}>{m.inspectorNoIssues({ part: "hint" })}</Box>
+                </Box>
+            </>
         );
     }
     return (
-        <Box as="ul" css={styles.issueList} data-inspector-issue-list="">
-            {issues.map((issue, i) => (
-                <Box as="li" key={i}>
-                    <chakra.button type="button" css={styles.issueItem} data-inspector-issue={issue.word.issue} onClick={() => reveal(issue.at)}>
-                        <Box as="span" css={styles.issueWhere}>{m.issueWhere(issue.where)}</Box>
-                        <Box as="span" css={styles.issueMessage} data-kind={issue.blocking ? "invalid" : "warning"}>{m.issueText(issue.word)}</Box>
-                    </chakra.button>
-                </Box>
-            ))}
-        </Box>
+        <>
+            {scope}
+            <Box as="ul" css={styles.issueList} data-inspector-issue-list="">
+                {issues.map((issue, i) => (
+                    <Box as="li" key={i}>
+                        <chakra.button type="button" css={styles.issueItem} data-inspector-issue={issue.word.issue} onClick={() => reveal(issue.at)}>
+                            <Box as="span" css={styles.issueWhere}>{m.issueWhere(issue.where)}</Box>
+                            <Box as="span" css={styles.issueMessage} data-kind={issue.blocking ? "invalid" : "warning"}>{m.issueText(issue.word)}</Box>
+                        </chakra.button>
+                    </Box>
+                ))}
+            </Box>
+        </>
     );
 });

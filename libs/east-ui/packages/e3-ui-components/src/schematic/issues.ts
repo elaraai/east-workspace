@@ -25,6 +25,10 @@
  * them. Two items of one key in one kind can't arise: each kind is a record
  * keyed by String.
  *
+ * What is checked is what the drawing holds: a kind read by area's rows read
+ * around the view, and its drafts — never a read of its other rows, which are
+ * checked as the view reaches them; the inspector says so (ruled 27 Oct 2026).
+ *
  * @packageDocumentation
  */
 

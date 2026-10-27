@@ -22,7 +22,8 @@
  * refused, and a drop's step in the history; and its inspector's (#1391): the
  * pane and its tabs, the heads of Details' sections and its own fields, where
  * an entity stands, a gesture's button and its step, a record's last save and
- * who made it, why a net's side stays, and each issue's words — and below
+ * who made it, why a net's side stays, each issue's words, and what Issues says
+ * of the kinds read by area it checks only in view — and below
  * 480px of main (#1394) its Connect to…, its link kind, and an item with no
  * position, its Place; and the
  * footer's loading line's (#1398, CL3), the shared paged words over a kind's
@@ -273,6 +274,12 @@ export interface SchematicMessages extends PagedLoadingMessages {
     issueText: (p: SchematicIssueWord) => string;
     /** What Issues says with none: its head and the line under it. */
     inspectorNoIssues: (p: { part: "title" | "hint" }) => string;
+    /**
+     * What Issues says of the kinds read by area, whose rows it checks only as the view reads them (ruled 27 Oct 2026) —
+     * `Racks out of view are checked only as the view reaches them`: `names` are the kinds', as running text writes them
+     * in the plural.
+     */
+    inspectorUnchecked: (p: { names: readonly string[] }) => string;
 }
 
 /** A section of the inspector's Details, as its head names it. */
@@ -488,6 +495,7 @@ export const schematicMessages: SchematicMessages = {
     issueWhere: ({ kind, name }) => `${kind ?? "Layer"} · ${name}`,
     issueText,
     inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every link names its items, and every shape and colour holds."),
+    inspectorUnchecked: ({ names }) => `${capital(joinedWords(names, "and"))} out of view are checked only as the view reaches them`,
 };
 
 /** The words a Schematic speaks: its message table, and its locale's formatters. */

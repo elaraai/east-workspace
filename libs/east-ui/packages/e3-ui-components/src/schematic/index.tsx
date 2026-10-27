@@ -63,8 +63,11 @@
  * - **the inspector** (#1391, `inspector.tsx`): the end pane, given
  *   `inspector` — Details of what is selected (`inspect.ts`), its rows read in
  *   a component of their own (`inspector-rows.ts`), every edit one step of the
- *   history; and Issues (`issues.ts`), each selecting what it names. Enter, or
- *   a double-click on an entity, opens Details, its open tab kept per viewer.
+ *   history; and Issues (`issues.ts`), each selecting what it names — a kind
+ *   read by area checked in the rows read around the view and every unsaved
+ *   change, a line naming it and saying its other rows are checked only as the
+ *   view reaches them. Enter, or a double-click on an entity, opens Details,
+ *   its open tab kept per viewer.
  *   A selected row of a kind read by area its window no longer holds stays
  *   selected, and Details shows it as its stored row reads, by its key
  *   (`selected-rows.ts`, §4.5): a pan or a zoom lets go of nothing, and only a
@@ -135,6 +138,7 @@ import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineT
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
+import { kindPlural } from "../shared/schedule/words.js";
 import { NARROW_WIDTH } from "../shared/schedule/window.js";
 import { createViewportStore, type SchematicViewportStore } from "./area.js";
 import { backlogEntries } from "./backlog.js";
@@ -950,6 +954,10 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         // A session's readiness and its Save's issues move with the history's version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     ], [sessions, historyVersion, kindName, names, drawing, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
+    // A kind read by area is checked in the rows read around the view, never by a read of its others: Issues names each, its
+    // rows out of view checked only as the view reaches them (ruled 27 Oct 2026, "Checked in view, said so").
+    const unchecked = useMemo(() => [...value.items, ...value.zones].filter((kind) => areas.has(kind.key))
+        .map((kind) => kindPlural(kind.name.toLocaleLowerCase(words.locale))), [value.items, value.zones, areas, words]);
     // The host's veto, as Details' Connect to…, a link's ends and a net's sides ask it — as the canvas's gestures do (#1394).
     const canConnectFn = useMemo(() => getSomeorUndefined(value.canConnect), [value.canConnect]);
     const veto = useMemo(() => connectVeto(canConnectFn, refOfId), [canConnectFn]);
@@ -957,7 +965,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const enterCard = drop.enter;
     const place = useCallback((id: string) => enterCard(schematicLibraryId(keys, "backlog"), id), [enterCard, keys]);
     const end = schematicInspectorPane({
-        value, inspected, rows: inspectedRows, drawn: inspectorDrawn, names, listed, editing, counts, records, issues, zoneAt, reveal: revealEntity, refuse: setRefusal,
+        value, inspected, rows: inspectedRows, drawn: inspectorDrawn, names, listed, editing, counts, records, issues, unchecked, zoneAt, reveal: revealEntity,
+        refuse: setRefusal,
         tab: inspectorTab.tab, onTab: onInspectorTab, storageKey: keys.frame, words,
         narrow, veto, linkKind: connectKind, onLinkKind: pickConnectKind, connectValues, place,
     });
