@@ -112,3 +112,32 @@ describe("Roster in the shared record-backed frame", () => {
         expect(slot(container, "main").textContent).toContain("D. Bracken");
     });
 });
+
+describe("the inspector keeps the keyboard as a control goes with its view (#1398)", () => {
+    /** A Details control the focus is put on, then pressed: what holds the focus after. */
+    async function pressFocused(control: HTMLElement): Promise<Element> {
+        control.focus();
+        expect(document.activeElement).toBe(control);
+        await press(control);
+        return document.activeElement ?? document.body;
+    }
+    /** An inspector heading's title and its status, as the focus finds it: whether it is its view's home, and what it names. */
+    const heading = (el: Element) => [el.hasAttribute("data-focus-home"), el.querySelector("[data-inspector-title]")?.textContent ?? null,
+        el.querySelector("[data-inspector-status]")?.textContent ?? null];
+    test("Remove on a duty in Details turns its actions to Restore: the focus lands on the duty's heading, never on the page's body", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await press(assignment(container, "s37"));
+        const focused = await pressFocused(within(slot(container, "end")).getByRole("button", { name: "Remove" }));
+        expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
+        expect(focused).not.toBe(document.body);
+        expect(heading(focused)).toEqual([true, "C. Clover", "Removed · unsaved"]);
+    });
+    test("Accept proposal takes the proposal's view away: the focus lands on the heading of the duty it rosters, never on the page's body", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await press(within(slot(container, "main")).getByRole("button", { name: "N. Ochre" }));
+        const focused = await pressFocused(within(slot(container, "end")).getByRole("button", { name: "Accept proposal" }));
+        expect(within(slot(container, "end")).queryByRole("button", { name: "Accept proposal" })).toBeNull();
+        expect(focused).not.toBe(document.body);
+        expect(heading(focused)).toEqual([true, "N. Ochre", "Added · unsaved"]);
+    });
+});
