@@ -88,6 +88,15 @@ export default defineConfig(({ command }) => {
                 find: /^@elaraai\/east-ui-components\/platform$/,
                 replacement: path.resolve(__dirname, '../east-ui-components/src/platform.ts'),
               },
+              /* The renderer's internals (`/internal`), which e3-ui-components
+               * reaches for the record Slice's placement, the virtual rows and
+               * the pick hand-off, to the same source as the bare entry: `dist/`'s
+               * would be a second copy of the record Slice registry, so a binding
+               * made through the bare entry was found by no lens (#1443). */
+              {
+                find: /^@elaraai\/east-ui-components\/internal$/,
+                replacement: path.resolve(__dirname, '../east-ui-components/src/internal.ts'),
+              },
               {
                 find: /^@elaraai\/east-ui$/,
                 replacement: path.resolve(__dirname, '../east-ui/src/index.ts'),
