@@ -829,7 +829,10 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const standingIn = lensDrawn ? lens.replacing || lensStandsIn : paging.replacing || pagesStandIn || (lensWanted && !lensReady);
     // A new line beside loose rows (#846) takes a minted id: the field a loose row is identified by.
     const mintLineId = useCallback(() => newRowIdFn?.() ?? mintId((id) => sourceRows.some((row) => row.id === id)), [newRowIdFn, sourceRows]);
-    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn);
+    // The rows a key's far jump holds stand in, retained, until its rows replace them (#1398, CL10): the source's own
+    // rows still, which the session holds, but they take no gesture.
+    const keyHeld = !lensDrawn && paging.held;
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld);
     const session = editingState.session;
     // ── The app's optimiser (#1409, #1418) ────────────────────────────────
     // One run over the current tab's rows, its result landed on them as one edit (below, once the rows and their
@@ -1836,7 +1839,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     const land = step ? (eff.dir > 0 ? "first" : "last") : eff.edge === "first" ? "first" : "end";
                     seekIntent.current = { element, window: Math.floor(element / SHEET_PAGE_SIZE), land, c: eff.c, moves: ringMoves.current };
                     jumpBy.current = "key";
-                    jumpToElement(element);
+                    // Fetch, then move (#1398, CL10): the rows shown stand in, retained, the ring where it is, until the
+                    // window it goes to is in — then the ring lands there in the commit that draws it (below).
+                    jumpToElement(element, true);
                     break;
                 }
                 case "select.id": {
@@ -2062,22 +2067,34 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         window.addEventListener("mousemove", move);
         return () => { window.removeEventListener("mouseup", up); window.removeEventListener("mousemove", move); };
     }, []);
+    /**
+     * A gesture on the ring (#860): counted — a key's move past the rows read lands only if none came after it — and,
+     * when it is no such move itself, it abandons one still on its way at once, the rows that move holds put back as
+     * they were (#1398, CL10): a window landing after the gesture never draws its rows over the place the viewer is at.
+     */
+    const pagingClearJump = paging.clearJump;
+    const ringGesture = useCallback((seeks = false) => {
+        ringMoves.current += 1;
+        if (seeks || seekIntent.current === undefined || jumpBy.current !== "key") return;
+        seekIntent.current = undefined;
+        pagingClearJump();
+    }, [pagingClearJump]);
     const onCellDown = useCallback((r: number, c: number, e: MouseEvent) => {
         if (e.button !== 0) return;
         e.preventDefault();
         pressed.current = !e.shiftKey;
         dragging.current = false;
-        ringMoves.current += 1;
+        ringGesture();
         dispatch({ t: "cell.down", r, c, shift: e.shiftKey });
-    }, [dispatch]);
-    const onCellDouble = useCallback((r: number, c: number) => { ringMoves.current += 1; dispatch({ t: "cell.dbl", r, c }); }, [dispatch]);
+    }, [dispatch, ringGesture]);
+    const onCellDouble = useCallback((r: number, c: number) => { ringGesture(); dispatch({ t: "cell.dbl", r, c }); }, [dispatch, ringGesture]);
     const onCellEnter = useCallback((r: number, c: number) => dispatch({ t: "cell.enter", r, c, dragging: dragging.current }), [dispatch]);
     const onRowPick = useCallback((r: number, e: MouseEvent) => {
         if (e.button !== 0) return;
         e.preventDefault();
-        ringMoves.current += 1;
+        ringGesture();
         dispatch({ t: "row.pick", r, shift: e.shiftKey });
-    }, [dispatch]);
+    }, [dispatch, ringGesture]);
     const onTake = useCallback((key: string) => dispatch({ t: "fill.take", key }), [dispatch]);
     const onFillRow = useCallback(() => dispatch({ t: "fill.row" }), [dispatch]);
     const onProposalPick = useCallback((i: number) => dispatch({ t: "proposal.pick", i }), [dispatch]);
@@ -2088,14 +2105,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const onKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
         if (store.ui.edit !== null) return;
         if (e.altKey && e.key === "Insert") {
-            takeKey(e); ringMoves.current += 1; onInsert("row", store.ui.sel.r, e.shiftKey ? "before" : "after"); return;
+            takeKey(e); ringGesture(); onInsert("row", store.ui.sel.r, e.shiftKey ? "before" : "after"); return;
         }
         const meta = e.metaKey || e.ctrlKey;
         // The history keys every collection shares (#988).
         const historyKey = historyShortcut(e);
         if (historyKey !== undefined) {
             takeKey(e);
-            ringMoves.current += 1;
+            ringGesture();
             onHistoryAction(historyKey);
             return;
         }
@@ -2114,9 +2131,13 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             if (probe.state === uiRef.current && probe.effects.length === 0) return;
         }
         takeKey(e);
-        ringMoves.current += 1;
-        dispatch({ t: "key", key: e.key, shift: e.shiftKey, meta, alt: e.altKey });
-    }, [dispatch, store.ui.edit, store.ui.sel.r, onHistoryAction, onInsert]);
+        const event: SheetEvent = { t: "key", key: e.key, shift: e.shiftKey, meta, alt: e.altKey };
+        // A key that goes past the rows read again takes a move still on its way over (#1398): asked of the pure reducer.
+        const seeks = seekIntent.current !== undefined
+            && sheetReducer(uiRef.current, event, ctxRef.current).effects.some((fx) => fx.t === "seek.step" || fx.t === "seek.edge");
+        ringGesture(seeks);
+        dispatch(event);
+    }, [dispatch, store.ui.edit, store.ui.sel.r, onHistoryAction, onInsert, ringGesture]);
     // A band never copies (G9): a whole-group selection copies its lines.
     const isBandRow = useCallback((r: number) => { const k = rowAt(r)?.kind; return k === "group"; }, [rowAt]);
     const onCopy = useCallback((e: ClipboardEvent<HTMLDivElement>) => {
@@ -2456,11 +2477,17 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // headed for (↓, ⌘Home), the last at or before it (↑), or the last there
     // that is not blank padding (⌘End) — and where the window could not be
     // read, the view goes to its band. A gesture since the key, or an open
-    // editor, abandons it; a jump the move did not ask for — the key
-    // search's — takes its place. Either way the viewport is handed back once
-    // the scroll is asked for, as a search's is.
+    // editor, abandons it, the rows it held put back as they were; a jump the
+    // move did not ask for — the key search's — takes its place. Either way
+    // the viewport is handed back once the scroll is asked for, as a search's
+    // is. It lands in the commit that draws the jump's rows, before paint
+    // (#1398, CL10): until then the rows shown stand in (the driver's `held`),
+    // and then the ring and the view are on the row it went to in the frame
+    // that first shows the jump's rows — never a frame of them at the old
+    // place. The ring it places is placed in these rows: nothing follows it
+    // there from the rows that stood in.
     const keyJump = paging.jump;
-    useEffect(() => {
+    useLayoutEffect(() => {
         const intent = seekIntent.current;
         if (intent === undefined) return;
         if (jumpBy.current !== "key") { seekIntent.current = undefined; return; }
@@ -2478,14 +2505,17 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         if (intent.land === "first") bi = body.findIndex((it) => { const p = positionOf(it); return p !== undefined && p >= intent.element; });
         else for (let i = body.length - 1; i >= 0 && bi < 0; i--) { const p = positionOf(body[i]!); if (p !== undefined && p <= intent.element && isRowSpace(body[i]!)) bi = i; }
         const r = bi >= 0 ? rowSpace.rowOf[bi] : undefined;
-        if (r !== undefined && r >= 0) dispatch({ t: "select.move", r, c: intent.c });
+        if (r !== undefined && r >= 0) {
+            seenRows.current = { source: sourceRows, slots: rowSpaceSlots };
+            dispatch({ t: "select.move", r, c: intent.c });
+        }
         const shown = r !== undefined && r >= 0 ? bi : body.findIndex((it) => it.kind === "failed" && it.failure.from <= intent.element && intent.element <= it.failure.to);
         // Nothing to show (a lens hides every row there): the viewport is the viewer's again.
         if (shown < 0) { clearJump(); return; }
         setScrollTarget({ index: shown, align: "auto" });
         setScrollNonce((n) => n + 1);
         handBack.current = true;
-    }, [keyJump, body, rowSpace, dispatch, clearJump]);
+    }, [keyJump, body, rowSpace, dispatch, clearJump, sourceRows, rowSpaceSlots]);
 
     // ── Where the scroll rests (#857) ─────────────────────────────────────
     // The anchor the last session left is restored once its item is in the
@@ -4216,6 +4246,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 data-gutter={folded ? "folded" : undefined}
                 style={{ "--sheet-gutter": `${gutterPx}px`, "--sheet-number": `${numberPx}px` } as CSSProperties}
                 role="grid"
+                // Rows that stand in — a narrowing's last, or those a key's far jump holds — are retained (#1398, CL8,
+                // CL10): readable and walked by the keys, the frame's main busy, and taking no edit, drag or drop.
+                aria-disabled={standingIn || keyHeld ? true : undefined}
                 aria-rowcount={ariaRowCount}
                 aria-colcount={colCount + 1}
                 aria-multiselectable

@@ -100,10 +100,12 @@ export interface SheetEditingResult {
  * @param storageKey - The view's key
  * @param recordSlice - The record query's primary-entry reader, independent of its narrowed windows
  * @param replacing - Displayed rows belong to the previous query and cannot be edited
+ * @param retained - Displayed rows stand in while a key's far jump is read (#1398, CL10): the source's own rows, which
+ *   the session still holds, but they take no gesture until the jump's rows replace them
  * @param mint - On a sheet with loose rows between its groups (#846), mints a new line's id field — the field a loose row is identified by
  * @returns The session, its layer and gesture recorder, the drafts, and whether editing is available
  */
-export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false): SheetEditingResult {
+export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false): SheetEditingResult {
     const currentRows = replacing ? NO_ROWS : rows;
     const currentPositions = replacing ? NO_POSITIONS : positions;
     const editing = useMemo(() => recordSlice === undefined ? declared : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
@@ -122,7 +124,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
 
     /** Aggregate the renderer's writes — the draft edits beside them, its new entries seeded as it says — into one transaction at the effect boundary. */
     const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds): boolean => {
-        if (replacing || (!events.length && !draftEdits?.size) || !observed || !session.writable) return false;
+        if (replacing || retained || (!events.length && !draftEdits?.size) || !observed || !session.writable) return false;
         session.observeBase(observed.base);
         // A dropped template's new entry starts as its seed says, in place of the constructors' (#1187).
         const seeded: Editing = seeds === undefined ? editing : { ...editing, newRow: seeds.newRow ?? editing.newRow, newGroup: seeds.newGroup ?? editing.newGroup };
@@ -163,7 +165,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const label = gestureOrigin === "insert" ? "Insert row" : gestureOrigin === "drop" ? "Drop" : gestureOrigin === "move" ? "Move"
             : origin === "pasted" ? "Paste cells" : origin === "remove" ? "Remove rows" : origin === "pattern" ? "Accept proposed rows" : events.length === 0 ? "Edit fields" : "Edit cells";
         return session.record([...updates.values()], gestureOrigin, label);
-    }, [session, observed, original, codecs, editing, draftType, mint, replacing]);
+    }, [session, observed, original, codecs, editing, draftType, mint, replacing, retained]);
     const recordVersions = useCallback((updates: readonly EntryUpdate[], origin: Origin, label: string): boolean => {
         if (replacing || updates.length === 0 || !observed || !session.writable) return false;
         session.observeBase(observed.base);
@@ -197,5 +199,5 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // The version tracks mutations to the session's maps.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [session, codecs, version, rows, rowIndex]);
-    return { session, layer, record, recordVersions, original, drafts, available: available && !replacing, version };
+    return { session, layer, record, recordVersions, original, drafts, available: available && !replacing && !retained, version };
 }

@@ -1468,7 +1468,18 @@ and last rows. In the Plan the focus waits on the row it set out from, never on
 the run, and the view where it is (`root/keyboard.ts`' `fetch` and `edge`
 moves), ↑ and ↓ past the rows read the same; Home and End read the far window
 where the view is, pinned as a key search's jump is (the controller's
-`jumpToEdge`). A run that holds the focus — a click into it — hands it, as its
+`jumpToEdge`). A key whose jump takes the rows shown off the run — Home and End
+to a far end, the Sheet's ⌘Home and ⌘End — never blanks them: they stand in
+where they are, retained (CL8), the focus or the ring where it was, until the
+far window is in — the Plan's paging snapshot `standing`, the Sheet's driver
+`held`, the windows they were read from kept in the cache meanwhile — and the
+far rows are then drawn with the focus or the ring on their first or last row
+in the commit that draws them, before paint: `VirtualRows` serves a scroll
+request in a layout effect, and the Sheet lands a key's move in one. A step or
+a page into the window beside the run keeps its rows drawn, live. The focus
+moving on, or a gesture on the ring, meanwhile puts the rows back as they were,
+nothing read again for them (`plan-far-moves.spec.ts`,
+`sheet-far-moves.spec.ts`). A run that holds the focus — a click into it — hands it, as its
 rows land, to the first of them the view shows whole, and a key pressed on it
 waits for them and goes on from there (`wait`); an item a landing takes off the
 canvas leaves the focus on the canvas's surface, never the page's body, until a

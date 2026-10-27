@@ -16,9 +16,14 @@
  *   placeholders' shapes show it stays where it is on screen, each row landing
  *   where its placeholder stood; and the footer's line says what is read
  *   whenever the placeholders' shapes show.
- * - Ctrl+End: the last rows are read, then the view goes to them and the ring
- *   lands on the last row, and both stay there; Ctrl+Home likewise to the
- *   first. The keyboard stays in the grid throughout.
+ * - Ctrl+End, from rows far from the last: the rows shown stay where they are,
+ *   retained — the grid `aria-disabled`, main `aria-busy` — the ring on its
+ *   row, in every frame until the last window has landed; then the view is on
+ *   the last rows, the ring on the last row, and both stay there. Ctrl+Home
+ *   likewise to the first — whose window the rows' runtime may still hold from
+ *   when the Sheet opened (it keeps the windows read last), and then the first
+ *   rows show with nothing to wait for. The keyboard stays in the grid
+ *   throughout.
  *
  * Each frame of the Sheet is recorded in the page from the move until it rests.
  */
@@ -60,6 +65,8 @@ interface Frame {
     /** The number of the ring's row, or "" while the ring is on no drawn cell; and whether that row shows whole in the view. */
     readonly ring: string;
     readonly ringShown: boolean;
+    /** Whether the rows shown are retained: the grid `aria-disabled`, its main `aria-busy`. */
+    readonly retained: boolean;
 }
 
 /**
@@ -107,6 +114,8 @@ async function record(entry: Locator): Promise<void> {
                 focus: active === null || active === document.body ? "body" : card?.contains(active) === true ? "grid" : "elsewhere",
                 ring: ringCell?.closest('[data-slot="row"]')?.querySelector('[data-slot="gutterNumber"]')?.textContent ?? "",
                 ringShown: ringRow !== undefined && ringRow.top >= head - 1 && ringRow.bottom <= box.top + scroller.clientHeight + 1,
+                retained: card?.getAttribute("aria-disabled") === "true"
+                    && root.querySelector("[data-frame-slot='main']")?.getAttribute("aria-busy") === "true",
             };
         };
         const tick = () => {
@@ -130,22 +139,26 @@ function recorded(page: Page): Promise<Frame[]> {
     }, RECORDER);
 }
 
+/** The Sheet's frame now, as the recorder last read it. */
+function latest(page: Page): Promise<Frame | null> {
+    return page.evaluate((name) => (window as unknown as Record<string, { frames: Frame[] }>)[name]!.frames.at(-1) ?? null, RECORDER);
+}
+
 /** The Sheet's frame now, in words, as the recorder last read it. */
 function now(page: Page): Promise<string> {
-    return page.evaluate((name) => JSON.stringify((window as unknown as Record<string, { frames: Frame[] }>)[name]!.frames.at(-1) ?? null), RECORDER)
-        .then((said) => {
-            const frame = JSON.parse(said) as Frame | null;
-            return frame === null ? "" : told([frame]);
-        });
+    return latest(page).then((frame) => (frame === null ? "" : told([frame])));
 }
 
 /**
- * Waits until the Sheet's last frame, in words, matches: on a timeout, every frame the recorder saw is the failure's
- * message.
+ * Waits until the Sheet's last frame says what `ready` asks — its words matching, or the frame passing — on a timeout,
+ * every frame the recorder saw is the failure's message.
  */
-async function until(page: Page, pattern: RegExp, message: string): Promise<void> {
+async function until(page: Page, ready: RegExp | ((frame: Frame) => boolean), message: string): Promise<void> {
     try {
-        await expect.poll(() => now(page), { message, timeout: 30_000 }).toMatch(pattern);
+        await expect.poll(async () => {
+            const frame = await latest(page);
+            return frame !== null && (ready instanceof RegExp ? ready.test(told([frame])) : ready(frame));
+        }, { message, timeout: 30_000 }).toBe(true);
     } catch (error) {
         throw new Error(`${message}\n${told(await recorded(page))}`, { cause: error });
     }
@@ -163,7 +176,23 @@ async function openAll(page: Page): Promise<Locator> {
 
 /** Frames, in words: the first row in view's number (`?` a placeholder) and place, the run (`+` its shapes shown), the line, the keyboard, the ring. */
 function told(frames: readonly Frame[]): string {
-    return frames.map((f) => `top=${f.top.toFixed(1)}/${f.max.toFixed(1)}${atEnd(f) ? " end" : ""} first=${f.first}${f.read ? "" : "?"}@${f.offset.toFixed(1)} run=${f.run}${f.revealed ? "+" : ""} line=${f.line} focus=${f.focus} ring=${f.ring}${f.ringShown ? "" : " (hidden)"}`).join("\n");
+    return frames.map((f) => `top=${f.top.toFixed(1)}/${f.max.toFixed(1)}${atEnd(f) ? " end" : ""} first=${f.first}${f.read ? "" : "?"}@${f.offset.toFixed(1)} run=${f.run}${f.revealed ? "+" : ""} line=${f.line}${f.words === "" ? "" : ` "${f.words}"`}${f.retained ? " retained" : ""} focus=${f.focus} ring=${f.ring}${f.ringShown ? "" : " (hidden)"}`).join("\n");
+}
+
+/**
+ * The frames of a key to a far end, from the frame before it: until a frame shows another first row, the rows shown —
+ * the same first row, read, where it was, the ring on its row — retained from the key on; from it on, the far rows,
+ * read, the ring on the row `landing` names, whole in the view, nothing retained. Where the far window is surely not
+ * read (`unread`), the rows shown stand in for at least a frame.
+ */
+function heldThenFar(frames: readonly Frame[], landing: string, unread: boolean): void {
+    const before = frames[0]!;
+    const moved = frames.findIndex((f) => f.first !== before.first);
+    expect(moved, `the far rows show\n${told(frames)}`).toBeGreaterThan(0);
+    expect(frames.slice(0, moved).filter((f) => !f.read || Math.abs(f.offset - before.offset) >= 1 || f.ring !== before.ring), told(frames)).toEqual([]);
+    if (unread) expect(frames.slice(1, moved).length, `the rows shown stand in while the far window is read\n${told(frames)}`).toBeGreaterThan(0);
+    expect(frames.slice(1, moved).filter((f) => !f.retained), `retained while they stand in\n${told(frames)}`).toEqual([]);
+    expect(frames.slice(moved).filter((f) => !f.read || f.retained || f.ring !== landing || !f.ringShown), told(frames)).toEqual([]);
 }
 
 test("the scrollbar dragged far through rows not read on a slow e3: the row at the view's top stays where it was as the windows land, each row where its placeholder stood, and the line says what is read whenever the placeholders show (#1398) @desktop", async ({ page }) => {
@@ -175,8 +204,9 @@ test("the scrollbar dragged far through rows not read on a slow e3: the row at t
         el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) / 2);
         return el.scrollTop;
     });
-    // The rows in view land, and the line goes idle.
-    await until(page, /first=\d+@.* run=false line=idle /, "the rows in view land");
+    // The rows in view land, and the line goes idle — in a frame of the view where the drag left it, never the frame
+    // before the drag, which the recorder may not have followed yet.
+    await until(page, (f) => Math.abs(f.top - sent) < 2 && f.read && !f.run && f.line === "idle", "the rows in view land");
     await settled(page);
     const frames = await recorded(page);
     await releaseE3(page, slowing);
@@ -196,7 +226,7 @@ test("the scrollbar dragged far through rows not read on a slow e3: the row at t
     expect(after.some((f) => f.revealed && /^Loading /.test(f.words)), `the line names what is read\n${told(after)}`).toBe(true);
 });
 
-test("Ctrl+End and Ctrl+Home on a slow e3: the last rows are read, then the view goes to them and the ring lands on the last row, and they stay; Ctrl+Home the same to the first; the keyboard never leaves the grid (#1398) @desktop", async ({ page }) => {
+test("Ctrl+End and Ctrl+Home on a slow e3: the rows shown stay where they are, retained, the ring on its row, until the last rows are read; then the view is on them and the ring on the last row, and they stay; Ctrl+Home the same to the first; the keyboard never leaves the grid (#1398, CL10) @desktop", async ({ page }) => {
     const entry = await openAll(page);
     // A few thousand rows down, read at e3's own speed; the ring on a row in the middle of the view.
     await scrollerOf(entry).evaluate((el) => { el.scrollTop = 6_000 * 36; });
@@ -221,11 +251,10 @@ test("Ctrl+End and Ctrl+Home on a slow e3: the last rows are read, then the view
     await until(page, / focus=grid ring=50000$/, "the ring on the last row, in the view");
     await settled(page);
     const toEnd = await recorded(page);
-    // The view goes to the last row with the ring on it, and from then on the last row stays whole in the view under the
-    // ring — whatever lands meanwhile; the keyboard is in the grid in every frame.
-    const arrived = toEnd.findIndex((f) => f.ring === "50000" && f.ringShown);
-    expect(arrived, `the ring on the last row, in the view\n${told(toEnd)}`).toBeGreaterThanOrEqual(0);
-    expect(toEnd.slice(arrived).filter((f) => f.ring !== "50000" || !f.ringShown), told(toEnd)).toEqual([]);
+    // The rows shown stand in, retained, the ring on its row, until the last window — never read — lands; then the view
+    // is on the last rows with the ring on the last of them, which stays whole in the view under the ring whatever lands
+    // meanwhile; the keyboard is in the grid in every frame.
+    heldThenFar(toEnd, "50000", true);
     expect(toEnd.filter((f) => f.focus !== "grid"), told(toEnd)).toEqual([]);
 
     await record(entry);
@@ -233,7 +262,10 @@ test("Ctrl+End and Ctrl+Home on a slow e3: the last rows are read, then the view
     await until(page, /^top=0\.0\/.* focus=grid ring=1$/, "the ring on the first row, the view at the top");
     await settled(page);
     const toTop = await recorded(page);
-    // Likewise to the top: from the frame it arrives in, the view stays there, the ring on the first row.
+    // Likewise to the top: the rows shown stand in until the first window lands — read as the Sheet opened, which the
+    // rows' runtime may hold yet, when it lands at once — then the view is at the top and stays there, the ring on the
+    // first row.
+    heldThenFar(toTop, "1", false);
     const home = toTop.findIndex((f) => f.top < 1 && f.ring === "1");
     expect(home, `the view at the top, the ring on the first row\n${told(toTop)}`).toBeGreaterThanOrEqual(0);
     expect(toTop.slice(home).filter((f) => f.top >= 1 || f.ring !== "1" || !f.ringShown), told(toTop)).toEqual([]);

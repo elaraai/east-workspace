@@ -71,6 +71,20 @@
  * {@link SheetPaging.clearJump}, and the reports resume from where it
  * scrolled to. The Plan's driver does the same (#812).
  *
+ * # A key's jump keeps the rows shown (#1398, CL10)
+ *
+ * A key that goes past the rows read jumps as a key search does, but fetch,
+ * then move. A step or a page into the window beside the run keeps the rows
+ * drawn, live, as the run grows to it. A jump that takes them off the run —
+ * ⌘Home or ⌘End to a far end, whose demand rebases there — holds them: the
+ * rows shown as the key came stand in, whole and where they are (`held`),
+ * until the jump has settled, and the windows they were read from stay in the
+ * cache, never pruned for the jump's run. Settled, the jump's own rows are
+ * drawn, and the sheet puts the ring on its row in the commit that draws them.
+ * A clear before then (`clearJump`) — a gesture on the rows that stand in —
+ * puts the run back as it was, its windows still read, so nothing is read
+ * again for it. The Plan's Home and End do the same.
+ *
  * @packageDocumentation
  */
 
@@ -139,6 +153,11 @@ export interface SheetPaging {
     reading: { from: number; to: number } | undefined;
     /** The last query is still displayed while its replacement loads. */
     replacing: boolean;
+    /**
+     * The rows shown as a key went past them stand in while the window it goes to is read (#1398, CL10): retained,
+     * and the line says that window is read (`reading`).
+     */
+    held: boolean;
     /** Why the SOURCE could not be read — its `total()` or `revision()` threw — while its rows show (#853): chrome, never their replacement. */
     sourceError: string | undefined;
     /** Why the source could not be read before anything landed: there is nothing else to show, so this is the whole sheet (#853). */
@@ -154,9 +173,15 @@ export interface SheetPaging {
     jump: { window: number; settled: boolean } | undefined;
     /** Tell the driver where the viewport is. Ignored while a jump is pending (#854). */
     reportViewport: (at: SheetViewport, isScrolling: boolean) => void;
-    /** Jump to a source element (a seek result): pin its window and rebase. */
-    jumpToElement: (element: number) => void;
-    /** Drop any pending jump — the search was cleared, or the sheet has shown the jump's target and hands the viewport back (#854). */
+    /**
+     * Jump to a source element (a seek result): pin its window and rebase. A key's jump (`hold`) that takes the rows
+     * shown off the run leaves them standing in until it has settled (`held`, #1398, CL10).
+     */
+    jumpToElement: (element: number, hold?: boolean) => void;
+    /**
+     * Drop any pending jump — the search was cleared, or the sheet has shown the jump's target and hands the viewport
+     * back (#854) — or, while a key's jump holds the rows shown, put the run back as it was (#1398).
+     */
     clearJump: () => void;
     /** Ask again (#853): the failed window `w`, or — with none — the source and every failed window. At once (#1398): a source that can refresh rearms what failed first, and the windows are read again a microtask on, so the gap a read alone waits after a failure never holds a Retry back. */
     retry: (w?: number) => void;
@@ -167,7 +192,7 @@ const NONE_PENDING: readonly number[] = [];
 
 const IDLE: SheetPaging = {
     rows: [], positions: [], rowsOffset: 0, failures: [], head: undefined, tail: undefined, total: undefined,
-    exhausted: true, loading: false, pending: NONE_PENDING, viewLoading: false, reading: undefined, replacing: false,
+    exhausted: true, loading: false, pending: NONE_PENDING, viewLoading: false, reading: undefined, replacing: false, held: false,
     sourceError: undefined, error: undefined, landedOnce: false, sizeVersion: 0, jump: undefined,
     reportViewport: () => {}, jumpToElement: () => {}, clearJump: () => {}, retry: () => {},
 };
@@ -249,6 +274,21 @@ function emptyCache(source: SheetPagedSourceValue | undefined): SourceCache {
 }
 
 /**
+ * A key's jump holding the rows shown (#1398, CL10): the window it goes to,
+ * what the sheet was handed as the key came — what stands in — where the run
+ * stood then and where the view was centred, which way it travelled, and the
+ * windows those rows were read from, kept in the cache while they stand in.
+ */
+interface Held {
+    readonly window: number;
+    readonly shown: SheetPaging;
+    readonly residency: Residency;
+    readonly centredOn: number;
+    readonly travel: WindowTravel;
+    readonly keep: ReadonlySet<number>;
+}
+
+/**
  * How the driver reads a window of its source: the rows the source serves, as it serves them.
  *
  * @param source - The source
@@ -318,6 +358,9 @@ export function useSheetPaging(
     const shows = sourceChanged ? undefined : storedShows;
     const displayed = useRef<{ family: string; source: string; result: SheetPaging } | undefined>(undefined);
     const replacingRef = useRef(false);
+    // A key's jump holding the rows shown (#1398, CL10), and what the sheet was handed last: what such a jump holds.
+    const heldRef = useRef<Held | undefined>(undefined);
+    const shownRef = useRef<SheetPaging | undefined>(undefined);
 
     const read = useCallback(() => {
         void retries;
@@ -450,8 +493,11 @@ export function useSheetPaging(
         setResidency(next);
         // Whatever left the run leaves the cache with it, a stand-in too; a
         // failure record leaves as well, so a window demanded again later is
-        // asked afresh (#853).
-        cacheRef.current.store.prune(new Set(residentWindows(next)));
+        // asked afresh (#853). What a key's jump holds the rows of stays while
+        // it holds them (#1398).
+        const keep = new Set(residentWindows(next));
+        for (const w of heldRef.current?.keep ?? []) keep.add(w);
+        cacheRef.current.store.prune(keep);
         setSizeVersion((v) => v + 1);
     }, [source, ledger, residency, viewportWindow, isScrolling, policy]);
 
@@ -502,9 +548,10 @@ export function useSheetPaging(
     // Read by the viewport report, so a jump's pin changes nothing it closes over.
     const jumpingRef = useRef(false);
     jumpingRef.current = residency.pins.size > 0;
-    // What the anchor is decided by, as this render has it: the windows in, and the residency.
-    const decided = useRef({ isIn, residency });
-    decided.current = { isIn, residency };
+    // What the anchor is decided by, as this render has it: the windows in, and the residency — and what a key's jump
+    // asks of it, whether the jump takes the rows drawn off the run: the ledger, the run drawn and the policy (#1398).
+    const decided = useRef({ isIn, residency, ledger, drawn: { from: run.from, to: run.to }, policy });
+    decided.current = { isIn, residency, ledger, drawn: { from: run.from, to: run.to }, policy };
     // A report draws the sheet again only for what it moves (#1398, CL9): the window the viewport is centred in, the run's
     // anchor, the windows the view shows, whether the scroll is at rest — never each row the view passes. What holds is
     // never asked again, so nothing is asked of React for it.
@@ -540,17 +587,50 @@ export function useSheetPaging(
         setViewportAt(next);
     }, [run.from, run.to, ledger]);
 
-    const jumpToElement = useCallback((element: number) => {
+    const jumpToElement = useCallback((element: number, hold = false) => {
         const at = Math.max(0, element);
+        const w = Math.floor(at / SHEET_PAGE_SIZE);
+        // A key's jump that takes the rows drawn off the run — its demand rebases there — holds the rows shown until it
+        // has settled (#1398, CL10): the rows shown as the first such key came, however often the keys go again
+        // meanwhile. A step or a page into the window beside them keeps them drawn, and holds nothing. Any other jump
+        // takes its place.
+        const held = heldRef.current;
+        const shown = shownRef.current;
+        const { residency: resident, ledger: measured, drawn, policy: rule } = decided.current;
+        const leaves = (): boolean => {
+            if (drawn.to < drawn.from) return false;
+            const next = advanceAtRest(pinTarget(resident, w), measured, w, rule, travel.current).residency;
+            return next.hi < drawn.from || next.lo > drawn.to;
+        };
+        if (hold && held !== undefined) heldRef.current = { ...held, window: w };
+        else if (hold && shown !== undefined && !shown.replacing && shown.rows.length > 0 && leaves()) {
+            heldRef.current = { window: w, shown, residency: resident, centredOn: centredOn.current, travel: travel.current, keep: new Set(residentWindows(resident)) };
+        } else heldRef.current = undefined;
         centredOn.current = at;
         asked.current.viewportAt = at;
         asked.current.isScrolling = false;
         setViewportAt(at);
         setIsScrolling(false);
-        setResidency((r) => pinTarget(r, Math.floor(at / SHEET_PAGE_SIZE)));
+        setResidency((r) => pinTarget(r, w));
     }, []);
 
-    const clearJump = useCallback(() => { setResidency((r) => unpinAll(r)); }, []);
+    const clearJump = useCallback(() => {
+        const held = heldRef.current;
+        if (held === undefined) {
+            setResidency((r) => unpinAll(r));
+            return;
+        }
+        // A gesture on the rows a key's jump holds: the run is put back as it stood, the view centred where it was,
+        // and the windows it was read from are still in the cache, so nothing is read again for it (#1398).
+        heldRef.current = undefined;
+        centredOn.current = held.centredOn;
+        asked.current.viewportAt = held.centredOn;
+        asked.current.isScrolling = false;
+        travel.current = held.travel;
+        setViewportAt(held.centredOn);
+        setIsScrolling(false);
+        setResidency(unpinAll(held.residency));
+    }, []);
 
     // A pending jump, and whether it has SETTLED (#854): the run around it has
     // stopped moving (the demand is met), and the target's window — landed,
@@ -587,7 +667,13 @@ export function useSheetPaging(
         [readingFrom, readingTo],
     );
 
-    if (source === undefined) { displayed.current = undefined; replacingRef.current = false; return IDLE; }
+    if (source === undefined) {
+        displayed.current = undefined;
+        replacingRef.current = false;
+        heldRef.current = undefined;
+        shownRef.current = undefined;
+        return IDLE;
+    }
 
     // Until anything has landed there is nothing to show beside a failure:
     // it is the whole sheet (#853).
@@ -608,6 +694,7 @@ export function useSheetPaging(
         viewLoading: viewPending.length > 0,
         reading,
         replacing: false,
+        held: false,
         sourceError: nothingShown ? undefined : value?.sourceError,
         error: readError ?? (nothingShown ? failure : undefined),
         landedOnce: !nothingShown,
@@ -618,6 +705,25 @@ export function useSheetPaging(
         clearJump,
         retry,
     };
+    // A key's jump holds the rows shown until it has settled — the window it goes to in the run, the demand met — or
+    // until the source cannot be read, or another source takes the sheet (#1398, CL10). Settled, the jump's rows are
+    // drawn, and the windows the held rows were read from leave the cache.
+    const hold = heldRef.current;
+    if (hold !== undefined && (sourceChanged || jump === undefined || jump.window !== hold.window || jump.settled || current.sourceError !== undefined)) {
+        heldRef.current = undefined;
+        if (!sourceChanged) cacheRef.current.store.prune(new Set(residentWindows(residency)));
+    } else if (hold !== undefined) {
+        const end = (hold.window + 1) * SHEET_PAGE_SIZE;
+        const held: SheetPaging = {
+            ...hold.shown,
+            pending: allPending, loading: true, viewLoading: true, replacing: false, held: true,
+            reading: { from: hold.window * SHEET_PAGE_SIZE, to: (total === undefined ? end : Math.min(total, end)) - 1 },
+            jump: { window: hold.window, settled: false },
+            reportViewport, jumpToElement, clearJump, retry,
+        };
+        shownRef.current = held;
+        return held;
+    }
     const previous = displayed.current;
     const sameFamily = family !== undefined && previous !== undefined && stringEqual(previous.family, family);
     const replacement = sameFamily && !stringEqual(previous.source, source.id);
@@ -625,15 +731,18 @@ export function useSheetPaging(
     replacingRef.current = replacement && !ready;
     if (replacingRef.current && previous !== undefined) {
         const reason = current.error ?? current.sourceError ?? current.failures[0]?.error;
-        return { ...current, rows: previous.result.rows, positions: previous.result.positions,
+        const standing: SheetPaging = { ...current, rows: previous.result.rows, positions: previous.result.positions,
             rowsOffset: previous.result.rowsOffset, failures: previous.result.failures,
             head: previous.result.head, tail: previous.result.tail, total: previous.result.total,
             exhausted: previous.result.exhausted, sizeVersion: previous.result.sizeVersion,
             jump: undefined, replacing: true, loading: reason === undefined, viewLoading: reason === undefined, reading: undefined,
             error: undefined, sourceError: reason };
+        shownRef.current = standing;
+        return standing;
     }
     if (family !== undefined && (current.rows.length > 0 || current.exhausted)) {
         displayed.current = { family, source: source.id, result: current };
     } else if (!sameFamily) displayed.current = undefined;
+    shownRef.current = current;
     return current;
 }

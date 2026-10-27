@@ -1617,6 +1617,63 @@ describe("the accessible grid (#860)", () => {
         expect(active(card)).toBe(at("r000", "task"));
     }, HELD_TEST_MS);
 
+    test("⌘End past rows not read keeps the rows shown standing in — retained, the grid aria-disabled in a busy main, the ring on its cell, taking no edit — until the last window lands, then the ring is on the last row; a gesture on them meanwhile puts them back; ⌘Home likewise to the first (#1398, CL10)", async () => {
+        const held = heldSheet(8_000);
+        // The last window stays on the wire until the test lets it land.
+        held.state.inFlight.add(39);
+        const { container, card, key, input, flush } = mount(held.value);
+        await waitFor(() => expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy(), { timeout: 15_000 });
+        const at = (id: string, k: string) => container.querySelector(`[data-row-id="${id}"] [data-key="${k}"]`) as HTMLElement | null;
+        const main = () => container.querySelector('[data-frame-slot="main"]')!;
+        /** The rows shown stand in where they were — `row` among them — the ring on its cell, retained in a busy main. */
+        const standing = (row: string, ring: HTMLElement | null) => {
+            expect(container.querySelector(`[data-row-id="${row}"]`)).toBeTruthy();
+            expect(ring?.hasAttribute("data-selected")).toBe(true);
+            expect(active(card)).toBe(ring);
+            expect(card.getAttribute("aria-disabled")).toBe("true");
+            expect(main().getAttribute("aria-busy")).toBe("true");
+        };
+        fireEvent.mouseDown(at("r005", "qty")!, { button: 0 });
+        key("End", { ctrlKey: true });
+        await flush();
+        standing("r000", at("r005", "qty"));
+        // The line says the last window is read, once the wait passes its reveal.
+        await waitFor(() => expect(footerLine(container).text).toBe("Loading rows 7,801–8,000"));
+        // They take no edit; and the key that asked for one is a gesture on them, which puts them back as they were —
+        // live, the jump dropped — so the last window landing now draws nothing over them.
+        key("x");
+        expect(input()).toBeNull();
+        expect(card.hasAttribute("aria-disabled")).toBe(false);
+        held.state.inFlight.delete(39);
+        held.touch();
+        await flush();
+        expect(at("r005", "qty")!.hasAttribute("data-selected")).toBe(true);
+        expect(container.querySelector('[data-row-id="r000"]')).toBeTruthy();
+        expect(container.querySelector('[data-row-id="r7999"]')).toBeNull();
+        // ⌘End again, the last window on the wire once more: the rows stand in until it lands, then the ring is on the last row.
+        held.state.inFlight.add(39);
+        key("End", { ctrlKey: true });
+        await flush();
+        standing("r000", at("r005", "qty"));
+        held.state.inFlight.delete(39);
+        held.touch();
+        await waitFor(() => expect(at("r7999", "status")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+        expect(active(card)).toBe(at("r7999", "status"));
+        expect(container.querySelector('[data-row-id="r000"]')).toBeNull();
+        expect(card.hasAttribute("aria-disabled")).toBe(false);
+        // ⌘Home, the first window on the wire: the last rows stand in, the ring on the last row, until it lands; then
+        // the ring is on the first.
+        held.state.inFlight.add(0);
+        key("Home", { ctrlKey: true });
+        await flush();
+        standing("r7999", at("r7999", "status"));
+        held.state.inFlight.delete(0);
+        held.touch();
+        await waitFor(() => expect(at("r000", "task")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+        expect(active(card)).toBe(at("r000", "task"));
+        expect(card.hasAttribute("aria-disabled")).toBe(false);
+    }, HELD_TEST_MS);
+
     test("a source that has not counted itself leaves the grid's row count unknown, and its rows still say where they are", async () => {
         const held = heldSheet(20);
         held.state.uncounted = true;
