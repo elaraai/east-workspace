@@ -228,6 +228,7 @@ _SIGNATURES: dict[str, Any] = {
     "ArrayFlattenToDict": lambda T, K2, T2: [ArrayType(T), FN, FN],
     "ArrayGroupFold": lambda T, K2, T2: [ArrayType(T), FN, FN, FN],
     "ArrayToTree": lambda T, K, N: [ArrayType(T), FN, FN, FN],
+    "ArrayFlattenTree": lambda T: [ArrayType(T), FN],
     # ── set ──
     "SetGenerate": lambda K: [IntegerType, FN, FN],
     "SetSize": lambda K: [SetType(K)],
@@ -299,6 +300,7 @@ _SIGNATURES: dict[str, Any] = {
     "DictFlattenToDict": lambda K, V, K2, V2: [DictType(K, V), FN, FN],
     "DictGroupFold": lambda K, V, K2, T2: [DictType(K, V), FN, FN, FN],
     "DictToTree": lambda K, V, N: [DictType(K, V), FN, FN],
+    "DictFlattenTree": lambda K, V: [DictType(K, V), FN],
     # ── vector ──
     "VectorLength": lambda T: [VectorType(T)],
     "VectorGet": lambda T: [VectorType(T), IntegerType],

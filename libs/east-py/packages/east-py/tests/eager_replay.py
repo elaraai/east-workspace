@@ -1001,6 +1001,7 @@ _ROWS: dict[str, Any] = {
     # toTree takes its node type first: the result's element type
     "ArrayToTree": lambda ev, n, a: a[0].to_tree(
         child_type(_out(n)), _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
+    "ArrayFlattenTree": lambda ev, n, a: a[0].flatten_tree(_cb(ev, a[1])),
     "ArrayFlattenToArray": lambda ev, n, a: a[0].flat_map(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], Expression) else a[0].flat_map(_cb(ev, a[1])),
     "ArrayFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))
@@ -1109,6 +1110,7 @@ _ROWS: dict[str, Any] = {
     "DictGroupFold": lambda ev, n, a: a[0].group_reduce(
         _cb(ev, a[1]), _cb(ev, a[2]), _cb(ev, a[3])),
     "DictToTree": lambda ev, n, a: a[0].to_tree(child_type(_out(n)), _cb(ev, a[1]), _cb(ev, a[2])),
+    "DictFlattenTree": lambda ev, n, a: a[0].flatten_tree(_cb(ev, a[1])),
     "DictFlattenToArray": lambda ev, n, a: a[0].flatten_to_array(_cb(ev, a[1]), out=child_type(_out(n)))
     if not isinstance(a[0], Expression) else a[0].flatten_to_array(_cb(ev, a[1])),
     "DictFlattenToSet": lambda ev, n, a: a[0].flatten_to_set(_cb(ev, a[1]), out=child_type(_out(n)))

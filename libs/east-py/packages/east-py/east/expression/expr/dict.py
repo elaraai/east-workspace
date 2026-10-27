@@ -46,6 +46,7 @@ from east.types.types import (
     NullType,
     SetType,
     StringType,
+    StructType,
     is_type_equal,
 )
 
@@ -448,6 +449,27 @@ class DictExpression(Expression):
         out = ArrayType(node)
         return self._expr(
             _builtin("DictToTree", out, [k_t, v_t, node], [self.ir, parent_node, build_node]), out)
+
+    def flatten_tree(self, children: Any) -> ArrayExpression:
+        """Traced DictFlattenTree: every node of a tree of any depth whose
+        roots are the dict's entries, each with its path of keys from its
+        root, depth first — the inverse of ``to_tree`` (TS ``flattenTree``).
+
+        ``children(value, key)`` names each node's children, a dict of the
+        dict's own key and value types — empty for a leaf. The result is an
+        ``Array<{path, node}>``: a root's path is ``[key]``, its child's
+        ``[key, child_key]``, each node before its descendants, siblings in
+        key order. ``children`` runs once per node, in the result's order; the
+        walk is iterative."""
+        k_t, v_t = self._key(), self._value()
+        children_t = DictType(k_t, v_t)
+        children_node, c_out = self._callback(children, out_hint=children_t)
+        if c_out != children_t:
+            raise ExpressionError(
+                f".flatten_tree() children must return a dict of the dict's own types, got {c_out.type}")
+        out = ArrayType(StructType([("path", ArrayType(k_t)), ("node", v_t)]))
+        return self._expr(
+            _builtin("DictFlattenTree", out, [k_t, v_t], [self.ir, children_node]), out)
 
     # ── folds ───────────────────────────────────────────────────────────
 

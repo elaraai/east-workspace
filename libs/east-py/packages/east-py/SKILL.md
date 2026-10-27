@@ -132,6 +132,8 @@ Task → What do you need?
     │   │   East.break_ / continue_ / label → "Control flow — the expression forms", "Sequential logic that stays in east-c"
     │   ├─ Nest flat parent-keyed rows (any depth) → xs.to_tree(Node, key, parent, build) — not recursion, which is for
     │   │   shallow depths                                                     → "Trees from flat rows, and recursion"
+    │   ├─ Flatten nested data back to {path, node} rows, depth first → xs.flatten_tree(children) (an Array's or a Dict's)
+    │   │                                                                      → "Trees from flat rows, and recursion"
     │   ├─ Query a value with jq → East.jq(input, "jq", result_type) ❗ result_type is required, and types the result ·
     │   │   a dict of inputs is read as an e3 root                              → "Queries — East.jq"
     │   ├─ What a body may capture — and what it refuses, naming the binding → "What a body may reference"
@@ -1117,7 +1119,7 @@ at the call. `.element_type` is the logical element type.
 | Search | `find_first(target, key=None) -> some/none` · `find_all(value, by=None) -> Array<Integer>` · `find_maximum/find_minimum(by=None) -> some(index)/none` · `find_sorted_first/last(target, key=None) -> int` · `find_sorted_range(target, key=None) -> {start,end}` · `first_map(fn(el)->some/none, out=None)` · `is_sorted(key=None) -> bool` |
 | Flatten | `flat_map(fn(el)->arr, out=None)` (`flatten_to_array` deprecated) · `flatten_to_set(fn(el)->set, out=None)` · `flatten_to_dict(fn(el)->dict, combine=None)` (a duplicate key errors without `combine`) |
 | Columnar | `to_columns(fields=None) -> dict` (numpy per numeric/bool column, `Option<Float>`→NaN, interned strings) · `EastArray.from_columns(element_type, columns)` *(static)* (C-side fill needs numpy columns — float64/int64/bool, `Option<Float>` as float64+NaN; python lists convert per cell) · `map_batches(fn(cols)->cols, out=None, batch_size=100_000)` |
-| Convert | `to_tree(node, key(el[, i]), parent(el[, i])->some/none, build(el, i, children)) -> Array<node>` (flat parent-keyed rows → nested nodes of any depth, iterative — [Trees from flat rows](#trees-from-flat-rows-and-recursion)) · `string_join(sep) -> str` (String arrays) · `to_vector() -> EastVector` (Float/Integer/Boolean elements, in order — east-c VectorFromArray; the expression method emits the same builtin) · `encode_csv(config=None, **options) -> EastBlob` (Array of structs; east-c ArrayEncodeCsv) |
+| Convert | `to_tree(node, key(el[, i]), parent(el[, i])->some/none, build(el, i, children)) -> Array<node>` (flat parent-keyed rows → nested nodes of any depth, iterative — [Trees from flat rows](#trees-from-flat-rows-and-recursion)) · `flatten_tree(children(el[, i])) -> Array<{path, node}>` (nested nodes back: every node with its path of indices, depth first, iterative) · `string_join(sep) -> str` (String arrays) · `to_vector() -> EastVector` (Float/Integer/Boolean elements, in order — east-c VectorFromArray; the expression method emits the same builtin) · `encode_csv(config=None, **options) -> EastBlob` (Array of structs; east-c ArrayEncodeCsv) |
 | Mutate (in place, the TS names) | `push_last(item)` · `push_first(item)` · `append(array)` (ArrayAppend — a whole array, NOT one element) · `prepend(array)` · `pop_last()` · `pop_first()` · `update(i, item)` ❗bounds · `merge(i, value, update_fn(existing, incoming[, i]))` · `merge_all(array, merge_fn(existing, incoming[, i]))` · `clear()` · `sort_in_place(by=None)` · `reverse_in_place()` — plus the python protocol: `extend(iterable)` (bulk: one crossing; C-to-C for same-type East arrays, raw buffers for numpy) · `insert(i, item)` · `pop(i=-1)` · `remove(item)` · `count(value) -> int` · `index(value) -> int` |
 
 ### EastSet — complete method surface
@@ -1159,7 +1161,7 @@ in `other`'s values; `merge` takes a single differently-typed value.
 | Reduce | `reduce(fn(acc, value[, key]), init)` (TS order) · `scan(fn(acc, value[, key]), init) -> Array` (running fold in key order) · `map_reduce(map_fn(value[, key]), reduce_fn(a, b), out=None)` (raises on empty) · `sum(fn(value[, key])=None)` · `mean(fn(value[, key])=None) -> float` · `every(pred(value[, key])=None) -> bool` · `some(pred(value[, key])=None) -> bool` (native short-circuit) |
 | Group | `group_reduce(key_fn(value[, key]), init_fn(gk), fold_fn(acc, value[, key]), key_out=None, acc_out=None) -> Dict` · `group_size(key_fn)` · `group_sum(key_fn, fn=None)` · `group_mean(key_fn, fn=None)` · `group_every/group_some(key_fn, pred(value[, key]))` · `group_to_arrays/group_to_sets(key_fn, value_fn=None)` · `group_to_dicts(key_fn, key2_fn, value_fn=None, combine=None)` · ⚠️ `group_fold(...)` is the DEPRECATED alias of `group_reduce` |
 | Flatten | `flatten_to_array(fn(value[, key])->arr, out=None)` (the TS Dict name; `flat_map` is Array's and a deprecated spelling here) · `flatten_to_set(fn(value[, key])->set, out=None)` · `flatten_to_dict(fn(value[, key])->dict, combine=None)` (a duplicate key errors without `combine`) |
-| Convert | `keys() -> Set` · `to_array(fn(value[, key]), out=None)` · `to_set(fn(value[, key]), out=None)` · `to_dict(key_fn, value_fn=None, combine=None, key_out=None, value_out=None)` (the value itself when `value_fn` is omitted; a duplicate key errors without `combine`) · `to_tree(node, parent(value[, key])->some/none, build(value, key, children)) -> Array<node>` (each entry's key its key) · `copy()` |
+| Convert | `keys() -> Set` · `to_array(fn(value[, key]), out=None)` · `to_set(fn(value[, key]), out=None)` · `to_dict(key_fn, value_fn=None, combine=None, key_out=None, value_out=None)` (the value itself when `value_fn` is omitted; a duplicate key errors without `combine`) · `to_tree(node, parent(value[, key])->some/none, build(value, key, children)) -> Array<node>` (each entry's key its key) · `flatten_tree(children(value[, key])) -> Array<{path, node}>` (nested nodes back: every node with its path of keys, depth first, iterative) · `copy()` |
 | Mutate (in place) | `d[k]=v` · `del d[k]` · `insert(k, v)` (errors if present) · `get_or_insert(k, fn(k))` · `insert_or_update(k, v, combine(existing, incoming, k))` · `update(k, v)` (TS; the read-modify-write `update(k, fn(current))` is deprecated) · `swap(k, v) -> prev` · `delete(k)` · `try_delete(k) -> bool` (`update`/`swap`/`delete` error on a missing key) · `pop(k, *default)` · `clear()` |
 | Bulk (in place) | `update_many(keys, values, combine(existing, incoming)=None)` — the whole batch crosses once; a pure/precompiled `combine` resolves collisions C-to-C (dicts as hot-loop accumulators) |
 
@@ -1899,10 +1901,30 @@ roots = rows.to_tree(Node,
 - A non-recursive `Node` folds bottom-up: `IntegerType` with
   `children.sum() + 1` is each root's subtree size. A Set's element and a
   Dict's key are their own keys, so those take no `key`.
+
+`flatten_tree` is the way back: every node of nested data, each with its path
+of keys (a Dict's) or indices (an Array's) from its root, depth first — each
+node before its descendants, siblings in key or array order. `children` names a
+node's children, of the collection's own type:
+
+```python
+from east import DictType, FloatType, StringType, StructType, recursive_type
+
+Part = recursive_type(lambda self: StructType([("name", StringType), ("cost", FloatType), ("parts", DictType(StringType, self))]))
+
+nodes = parts.flatten_tree(lambda b, part: part.unwrap().parts)
+# an Array of {path, node}: ["pump"], ["pump", "motor"], ["pump", "motor", "rotor"], ["pump", "seal"]
+```
+
+- An Array of `{path, node}`, not a Dict keyed by path: a Dict key is
+  immutable, and a path is an Array. `to_tree` over it, keyed by `path` and
+  parented by `path` less its last step, rolls the tree up at every root.
+- `children` runs once per node, in the result's order. Each path is an array
+  of its own, so a chain n deep holds n(n+1)/2 path elements.
 - **Recursion** — a function calling itself through a captured variable — is
   for shallow depths, in the hundreds. Deeper, a call ❗ `call stack exhausted:
   East calls nested too deeply`, a catchable `EastError` on every runtime. Walk
-  deep data with `b.while_` or `to_tree`; a recursive VALUE's depth is still
+  deep data with `b.while_`, `to_tree` or `flatten_tree`; a recursive VALUE's depth is still
   bounded, at tens of thousands of levels, by east-c's recursive collect and
   free.
 
