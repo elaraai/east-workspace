@@ -211,8 +211,13 @@ export function deriveHeatCells(
  * values only; text and tone are renderer-derived through the row's shared
  * `TickFormatType` format.
  *
+ * @remarks
+ * A bucket none of the cells holds a value in has no subtotal, whatever the
+ * mode (#1436): a `count` there is no value, never 0, as e3 keeps none.
+ *
  * @param cells - The children's cells, already folded to the period
- * @param mode - The declared aggregate
+ * @param mode - The declared aggregate; `count` counts the values here, each a leaf's (a parent's `count` over rows of
+ *   its own counts their leaves: {@link deriveTableSeries})
  * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
  * @param period - The canvas's period — cells group by the bucket that holds them
  * @returns One cell per bucket, in axis order
@@ -226,10 +231,10 @@ export function deriveTableCells(
     return bucketGroups(cells, (c) => c.at, period, ordinal).map((g): TableCellValue => {
         const vals = g.members.flatMap((c) => (c.value.type === "some" ? [c.value.value] : []));
         let v: number | undefined;
-        if (mode === "count") v = vals.length;
-        else if (vals.length > 0) {
+        if (vals.length > 0) {
             const total = vals.reduce((a, b) => a + b, 0);
-            v = mode === "sum" ? total
+            v = mode === "count" ? vals.length
+                : mode === "sum" ? total
                 : mode === "mean" ? total / vals.length
                 : mode === "min" ? minOf(vals)
                 : maxOf(vals);
@@ -243,6 +248,82 @@ export function deriveTableCells(
     });
 }
 
+/** A count in one bucket, at the instant the bucket's cell sits at (#1436). */
+interface Tally {
+    readonly at: PlanInstantValue;
+    readonly n: number;
+}
+
+/**
+ * One position of a table row as a parent above it reads it (#1436): what it
+ * draws, and how many leaf rows beneath it draw a value in each bucket.
+ *
+ * @remarks
+ * A `count` subtotal counts the leaf rows beneath that draw a value — a row
+ * drawing its own values counts one, a parent its own count — whatever the
+ * subtotals between them count by, as e3 keeps its `count` rollup (#1434):
+ * `TableAggregateType`'s leaf rows beneath. So each position carries its
+ * leaves beside its numbers.
+ */
+export interface TablePosition {
+    /** What the position draws: its own cells folded to the period, or its children's subtotal. */
+    readonly series: TableSeriesValue;
+    /** How many leaf rows beneath draw a value, bucket by bucket — one in each bucket a position of its own draws a value in. */
+    readonly leaves: readonly Tally[];
+}
+
+/** Each bucket's tallies added up. */
+function sumTallies(tallies: readonly Tally[], ordinal: ReadonlyMap<string, number> | undefined, period: PlanPeriod | undefined): Tally[] {
+    return bucketGroups(tallies, (l) => l.at, period, ordinal).map((g): Tally => {
+        let n = 0;
+        for (const m of g.members) n += m.n;
+        return { at: g.at, n };
+    });
+}
+
+/**
+ * A position a row draws its own values in: one leaf in each bucket it draws
+ * a value in.
+ *
+ * @param series - The position's own series, folded to the period
+ * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
+ * @param period - The canvas's period
+ * @returns The position
+ */
+function ownPosition(series: TableSeriesValue, ordinal: ReadonlyMap<string, number> | undefined, period: PlanPeriod | undefined): TablePosition {
+    const leaves = bucketGroups(series.cells, (c) => c.at, period, ordinal)
+        .filter((g) => g.members.some((c) => c.value.type === "some"))
+        .map((g): Tally => ({ at: g.at, n: 1 }));
+    return { series, leaves };
+}
+
+/**
+ * A `count` subtotal's cells (#1436): in each bucket its children draw a cell
+ * in, the leaf rows beneath them that draw a value there; no value where none
+ * does.
+ *
+ * @param positions - The children's positions at one place
+ * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
+ * @param period - The canvas's period
+ * @returns One cell per bucket, in axis order
+ */
+function countCells(
+    positions: readonly TablePosition[],
+    ordinal: ReadonlyMap<string, number> | undefined,
+    period: PlanPeriod | undefined,
+): TableCellValue[] {
+    const marks: Tally[] = [];
+    for (const p of positions) {
+        for (const c of p.series.cells) marks.push({ at: c.at, n: 0 });
+        appendAll(marks, p.leaves);
+    }
+    return bucketGroups(marks, (m) => m.at, period, ordinal).map((g): TableCellValue => {
+        let n = 0;
+        for (const m of g.members) n += m.n;
+        return { at: g.at, value: n > 0 ? some(n) : none, text: none, tone: none };
+    });
+}
+
 /**
  * Derive a parent's subtotal SERIES — position by position.
  *
@@ -251,27 +332,36 @@ export function deriveTableCells(
  * rollup / fold) from the first child carrying it, so the subtotal is styled
  * like the numbers it totals rather than as anonymous plain text.
  *
+ * @remarks
+ * `sum`, `mean` (a mean of its children's, a child parent's own a mean),
+ * `min` and `max` aggregate what each child draws. `count` is the leaf rows
+ * beneath that draw a value in the bucket, at any depth: a child drawing its
+ * own values counts one, a parent child its own leaves (#1436).
+ *
  * @param positions - Each child's aggregable positions (see {@link tableRollupSeries}), folded
  * @param mode - The declared aggregate
  * @param ordinal - The ordinal axis's value → index map, when the axis is ordinal
  * @param period - The canvas's period
- * @returns One derived series per position
+ * @returns One derived position per position, with the leaves beneath it
  */
 export function deriveTableSeries(
-    positions: ReadonlyArray<readonly TableSeriesValue[]>,
+    positions: ReadonlyArray<readonly TablePosition[]>,
     mode: "sum" | "mean" | "min" | "max" | "count",
     ordinal?: ReadonlyMap<string, number>,
     period?: PlanPeriod,
-): TableSeriesValue[] {
+): TablePosition[] {
     const width = positions.reduce((m, p) => Math.max(m, p.length), 0);
-    const out: TableSeriesValue[] = [];
+    const out: TablePosition[] = [];
     for (let i = 0; i < width; i++) {
-        const at = positions.map((p) => p[i]).filter((s): s is TableSeriesValue => s !== undefined);
+        const at = positions.flatMap((p) => (p[i] !== undefined ? [p[i]!] : []));
         if (at.length === 0) continue;
-        const style = at[0]!;
+        const style = at[0]!.series;
+        const cells = mode === "count"
+            ? countCells(at, ordinal, period)
+            : deriveTableCells(at.flatMap((p) => p.series.cells), mode, ordinal, period);
         out.push({
-            cells: deriveTableCells(at.flatMap((s) => s.cells), mode, ordinal, period),
-            format: style.format, tone: style.tone, strong: style.strong, rollup: style.rollup, fold: style.fold,
+            series: { cells, format: style.format, tone: style.tone, strong: style.strong, rollup: style.rollup, fold: style.fold },
+            leaves: sumTallies(at.flatMap((p) => p.leaves), ordinal, period),
         });
     }
     return out;
@@ -356,10 +446,10 @@ export type PlanRowDiagnostic =
     | { kind: "axis"; found: PlanAxisKind; expected: PlanAxisKind }
     | { kind: "duplicate"; of: RowKey };
 
-/** Whether a table row carries values of its own — a parent with none shows
- *  its children's subtotals in the positions it declares. */
-function hasOwnValues(series: readonly TableSeriesValue[]): boolean {
-    return series.some((s) => s.cells.length > 0);
+/** The positions a parent subtotals of a list — {@link tableRollupSeries}' rule, over a row's drawn positions. */
+function rollupPositions(positions: readonly TablePosition[]): readonly TablePosition[] {
+    const flagged = positions.filter((p) => p.series.rollup);
+    return flagged.length > 0 ? flagged : positions;
 }
 
 /**
@@ -469,12 +559,12 @@ export function derivePlan(
             const arm = drawnHeatArm(r);
             return arm !== undefined ? [arm] : [];
         });
-    // A table row's aggregable positions as it draws them.
-    const resolvedTableSeries = (row: PlanRowValue): readonly TableSeriesValue[] => {
-        if (row.kind.type !== "table" || !placeable(row)) return [];
-        if (hasOwnValues(row.kind.value.series)) return tableRollupSeries(tableSeries.get(row.key) ?? row.kind.value.series);
-        return tableSeries.get(row.key) ?? [];
-    };
+    // A table row's aggregable positions as it draws them, each with the
+    // leaves beneath it (#1436). The walk is bottom-up, so a child's are in
+    // the map before its parent reads them.
+    const tablePositions = new Map<RowKey, readonly TablePosition[]>();
+    const aggregableOf = (row: PlanRowValue): readonly TablePosition[] =>
+        row.kind.type === "table" && placeable(row) ? tablePositions.get(row.key) ?? [] : [];
     const visit = (row: PlanRowValue): void => {
         const children = index.children.get(row.key) ?? [];
         // Descendants first — a declared parent reads its children's DERIVED
@@ -512,18 +602,42 @@ export function derivePlan(
                 return;
             }
             case "table": {
-                // A table parent with no values of its own — a series parent
-                // declares its positions with empty cells — shows its
-                // children's subtotals.
-                if (kind.value.aggregate.type === "some" && !hasOwnValues(kind.value.series) && children.length > 0) {
-                    const positions = children.map(resolvedTableSeries).filter((p) => p.length > 0);
-                    if (positions.length > 0) {
-                        tableSeries.set(row.key, deriveTableSeries(positions, kind.value.aggregate.value.type, ordinal, period));
+                const declared = kind.value.series;
+                const folded = foldTableSeries(declared, period, ordinal);
+                const derived = kind.value.aggregate.type === "some" && children.length > 0
+                    ? deriveTableSeries(
+                        children.map(aggregableOf).filter((p) => p.length > 0), kind.value.aggregate.value.type, ordinal, period)
+                    : [];
+                const own = folded.map((s) => ownPosition(s, ordinal, period));
+                if (!declared.some((s) => s.cells.length > 0)) {
+                    // A parent with no values of its own — a series parent
+                    // declares its positions with empty cells — shows its
+                    // children's subtotals.
+                    if (derived.length > 0) {
+                        tableSeries.set(row.key, derived.map((p) => p.series));
+                        tablePositions.set(row.key, derived);
+                    } else {
+                        if (!Object.is(folded, declared)) tableSeries.set(row.key, folded);
                     }
                     return;
                 }
-                const folded = foldTableSeries(kind.value.series, period, ordinal);
-                if (!Object.is(folded, kind.value.series)) tableSeries.set(row.key, folded);
+                // Each position draws its own values where it holds any, and
+                // its children's subtotal where it holds none — decided per
+                // position, each one collection, never by the row's other
+                // positions (#1436). A position the parent subtotals takes its
+                // place among them, as its children's are subtotalled.
+                const flagged = declared.some((s) => s.rollup);
+                let k = 0;
+                let moved = !Object.is(folded, declared);
+                const drawn = own.map((p, i): TablePosition => {
+                    if (flagged && !declared[i]!.rollup) return p;
+                    const sub = derived[k++];
+                    if (declared[i]!.cells.length > 0 || sub === undefined) return p;
+                    moved = true;
+                    return { series: { ...p.series, cells: sub.series.cells }, leaves: sub.leaves };
+                });
+                if (moved) tableSeries.set(row.key, drawn.map((p) => p.series));
+                tablePositions.set(row.key, rollupPositions(drawn));
                 return;
             }
             case "chart": {

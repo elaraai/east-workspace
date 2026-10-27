@@ -409,6 +409,79 @@ describe("Plan derived heat / table aggregates", () => {
     });
 });
 
+// ── A parent's subtotal composes as e3 keeps it (#1436) ─────────────────────
+
+describe("Plan subtotals compose level by level, as e3 keeps them (#1436)", () => {
+    const cell = (at: Date, v: number | undefined) => ({ at: t(at), value: v !== undefined ? some(v) : none, text: none, tone: none });
+    /** A table row of the one series every level of a tree shares: its own positions, a subtotal declared. */
+    const level = (mode: string, ...positions: unknown[][]) => variant("table", {
+        series: positions.map((cells) => series(cells)),
+        split: variant("horizontal", null),
+        aggregate: some(variant(mode, null)), format: none, emphasis: variant("body", null),
+    });
+    /** `top → (gp → (mid → a, b), c), e`: three levels of parents over four leaves, each leaf's one value at W27. */
+    const tree = (mode: string, a = 10, b = 20, c = 40, e = 70) => indexRows([
+        trow("top", undefined, level(mode, [])),
+        trow("gp", "top", level(mode, [])),
+        trow("mid", "gp", level(mode, [])),
+        trow("a", "mid", level(mode, [cell(W27, a)])),
+        trow("b", "mid", level(mode, [cell(W27, b)])),
+        trow("c", "gp", level(mode, [cell(W27, c), cell(W28, 3)])),
+        trow("e", "top", level(mode, [cell(W27, e)])),
+    ]);
+    const at = (derived: ReturnType<typeof derivePlan>, key: string, i = 0) => derived.tableSeries.get(key)![i]!.cells;
+
+    test("`count` counts the leaf rows beneath that draw a value — a parent child adds its own count, at every level", () => {
+        const derived = derivePlan(indexRows([...tree("count").rows]));
+        expect(at(derived, "mid")).toEqual([cell(W27, 2)]);
+        // gp: a and b beneath mid, and c — three leaves at W27; c alone at W28.
+        expect(at(derived, "gp")).toEqual([cell(W27, 3), cell(W28, 1)]);
+        // top: every leaf beneath it — a, b, c and e — never its two children.
+        expect(at(derived, "top")).toEqual([cell(W27, 4), cell(W28, 1)]);
+    });
+
+    test("`sum`, `min` and `max` compose over the levels; `mean` is a mean of means", () => {
+        const sum = derivePlan(tree("sum"));
+        expect(at(sum, "top")).toEqual([cell(W27, 140), cell(W28, 3)]);
+        expect(at(derivePlan(tree("min")), "top")).toEqual([cell(W27, 10), cell(W28, 3)]);
+        expect(at(derivePlan(tree("max")), "top")).toEqual([cell(W27, 70), cell(W28, 3)]);
+        const mean = derivePlan(tree("mean"));
+        expect(at(mean, "mid")).toEqual([cell(W27, 15)]);            // (10 + 20) / 2
+        expect(at(mean, "gp")).toEqual([cell(W27, 27.5), cell(W28, 3)]);   // (15 + 40) / 2
+        expect(at(mean, "top")).toEqual([cell(W27, 48.75), cell(W28, 3)]); // (27.5 + 70) / 2
+    });
+
+    test("a bucket no child draws a value in has no subtotal, whatever the subtotal counts by", () => {
+        for (const mode of ["count", "sum", "mean"]) {
+            const derived = derivePlan(indexRows([
+                trow("p", undefined, level(mode, [])),
+                trow("x", "p", level(mode, [cell(W27, undefined), cell(W28, 6)])),
+            ]));
+            expect(at(derived, "p")[0]).toEqual(cell(W27, undefined));
+        }
+    });
+
+    test("a row draws its own values per position — one holding `second` values and no `readings` subtotals the readings", () => {
+        // Each position reads one collection: the parent's readings are its
+        // children's subtotal, its seconds its own, whatever the other holds.
+        const derived = derivePlan(indexRows([
+            trow("p", undefined, level("sum", [], [cell(W27, 5)])),
+            trow("x", "p", level("sum", [cell(W27, 10)], [cell(W27, 1)])),
+            trow("y", "p", level("sum", [cell(W27, 20)], [cell(W27, 2)])),
+        ]));
+        const positions = derived.tableSeries.get("p")!;
+        expect(positions).toHaveLength(2);
+        expect(positions[0]!.cells).toEqual([cell(W27, 30)]);
+        expect(positions[1]!.cells).toEqual([cell(W27, 5)]);
+        // A parent whose every position holds values of its own draws them all, as it declares them.
+        const own = derivePlan(indexRows([
+            trow("q", undefined, level("sum", [cell(W27, 7)], [cell(W27, 8)])),
+            trow("z", "q", level("sum", [cell(W27, 96)], [cell(W27, 1)])),
+        ]));
+        expect(own.tableSeries.has("q")).toBe(false);
+    });
+});
+
 // ── Derivations at scale (#810) ─────────────────────────────────────────────
 
 describe("Plan derivations at scale (#810)", () => {
