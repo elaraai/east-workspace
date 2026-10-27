@@ -90,9 +90,8 @@ each selecting what it names, over what the drawing holds and every unsaved
 change it leaves out — a draft waiting in its session where the narrowing
 leaves out the row it drafts, checked as its draft has it, never drawn
 (`drafted.ts`' `waitingDrafts`), its issue's line naming the choices that hide
-it as the shared hidden pick words them (`hidden-drafts.tsx`) and Go to issue
-clearing just those, then flying to where its draft stands and selecting it once
-it draws — and one line naming the kinds read by area whose rows out of view it
+it and Go to issue going to it, the frame's hidden pick (below) — and one line
+naming the kinds read by area whose rows out of view it
 checks only as the view reaches them (ruled 27 Oct 2026, "Checked in view, said
 so"); every edit there is one step of the history, and a
 control whose view goes with it leaves the keyboard on the heading of the view
@@ -105,8 +104,9 @@ faded, greyed or a bare marker, by the recipe and the painter — and is selecte
 by no path. The Index, the Backlog, the inspector's Choosers, what an item is
 joined to and the drawing's counts show only what it leaves in, and the matches
 take the emphasis, the frame and the fit. Find lists what it leaves out too,
-marked: a pick on it flies to where it stands, selects nothing, and the footer
-says why, with Clear filters (#1404). Below 480px of main (#1394, D15) its
+dimmed or hidden alike, through the frame's hidden pick (below, #1404); the
+footer says why a pick's item still doesn't show as itself — its layer hidden,
+or no position. Below 480px of main (#1394, D15) its
 canvas pans, pinches and selects and nothing drags — no Move or Connect, no
 card dragged, no drop cell or link handle — and Details takes the gestures'
 place: an item's Connect to…, and the Backlog's card picked as an item with no
@@ -117,7 +117,7 @@ Allocation's renderer (`src/allocation/`, #1319) registers against its
 toolbar (`index.tsx`, `toolbar.tsx`); its words (`messages.ts`: the editing
 session's, and its own that are no noun of the app's — what Search Records
 searches, `Search bins by key`, and what its line says of a bin the rail's
-narrowing hides, `hidden.ts`' hidden pick); one history over a session per record it
+narrowing hides, the shared hidden pick's words); one history over a session per record it
 writes, the bins' and the days' (`editing.ts`, #1372); the day's reads in a
 component of their own (`data.ts`), and the day assembled from the bins the
 kind's `rows` read, drafts in place (`model.ts`); the
@@ -437,54 +437,68 @@ title, so each box says what it searches — `Search bins by key`, `Search
 events by key`, each builder's message table (`messages.ts`) — and, where
 nothing matches, where a bin's key is, or to search by an event's key. It
 lists the rows a query finds wherever they are — read through the source by their place, never only what is
-drawn. The Sheet's names the choices of its `rows` source that hide it,
-as the rail words them — `· hidden by Status: Ready — picking it clears that
-filter` — asked of e3 through the record's indexes (the hidden pick,
-`shared/schedule/hidden.ts`, which words them too): each
-choice alone where an index serves it, else with the choices before it on the
-narrowing's index, as the rail plans them, one request a choice for the hidden
-rows the box lists and no others, kept by the revision and the narrowing, the
-box listing its rows again as the answer lands (the shared box's `relist`).
-Until it lands the line says `· hidden by the filters`. A pick of such a row —
-and Go to issue on an issue of one — clears just those choices, every choice
-while e3 has not said, a write of the rail like a chip's, and goes to the row
-once the narrowing they leave draws it. The Allocation's does the same for a
-bin (`allocation/hidden.ts`): what hides one is what hides its row in the
-layout shown (`table-rows.ts`' `rowHiding`) — on the Table its lane, its
-arrival or every resource it has parts on, on the Timeline's lanes its lane or
-its arrival, on a phone's Timeline of resources its resources — so the line
-names each choice of the lanes', the arrivals' and the resources' sources that
-hides it, in the rail's order, asked of e3 through each source's part
-(`useSourceHidden`) for the rows the listed bins stand on — their lanes,
-arrivals and the resources they are shown on — and a pick clears them
-(`clearHiding`), steps to the bin's day and selects it once the narrowing they
-leave draws it, the Table following it into view at its time. The Roster's
-does the same for a person its people's source hides (`roster/find.ts`): the
-line names the choices that hide them, asked of e3 through the source's part
-for the people the box lists that its shown people leave out, and a pick
-clears them and selects the person, their People row brought into view once
-the narrowing draws it. The Calendar's does the same for an event its kind's
-source hides (`calendar/hidden.tsx`, `calendar/find.ts`): its choices, never
-the window its navigation writes, which hides no event — a pick steps to it —
-asked of e3 over the page the box read the events from
-(`recordSliceWithinAt`), whose answer, while a kind's one choice stands beside
-its window, says which choice hides them with nothing more asked; the lines
-are listed again as a kind's choices move, and a pick clears those choices,
-the window kept (`clearHiding`'s `window`), steps to the event's period and
-selects it. Where the view lays resources out — the timeline's rows, the
-Resources view's columns — a scheduled event whose resource its resource
-kind's source hides is drawn nowhere (one waiting in the Backlog is its card
-there, which no resource's source narrows), so its line names that source's
-choices beside its kind's own, as the Allocation's names each source's that
-hides a bin: which resources the source hides is what it shows, where the
-Calendar follows it, else — the paged kind's, whose windows are its
-narrowing's rows themselves — asked of e3 by their keys before the lines list
-(`recordSliceRows`, `recordSliceWithin`), and which of its choices hide them
-is asked as a kind's is, for the resources the listed events are drawn on; a
-pick clears both, and the lines are listed again as the layout comes to lay
-resources out or leaves off. The time grids, the month and the agenda narrow
-no event by its resource, and name none.
-Its count shows and Enter jumps once the query is
+drawn.
+
+A row the rail's narrowing hides is one shared behaviour, the hidden pick
+(`shared/schedule/hidden.ts`, `hidden-pick.tsx`), in every builder's Search
+Records and Go to issue — the Schematic's Find among them; no builder keeps a
+copy of it. Its line names the choices that hide the row, as the rail words
+them — `· hidden by Status: Ready — picking it clears that filter`, and `·
+hidden by the filters` until e3 has said — in the builder's message table's
+words (`words.ts`' `HiddenWords`, `hiddenLine`). Which choices hide it is
+asked of e3 through the record's indexes: each choice alone where an index
+serves it, else with the choices before it on the narrowing's index, as the
+rail plans them, one request a choice for the hidden rows a list shows or an
+issue names and no others — a list's by the page it read them from
+(`askListed`), others by their ids, a source at a time (`askHiding`) — kept by
+the source, the revision and the narrowing; what hides a row is each source
+the builder reads as hiding it, with what e3 said there (`hiddenOf`), and the
+box lists its lines again as an answer lands or a source's choices move
+(`useRelist`, the shared box's `relist`). A pick of such a row
+(`useHiddenPick`) clears just those choices — every choice of a source while
+e3 has not said, the window a builder's navigation writes into it kept, a
+write of the rail like a chip's (`clearHidden`); a clear that throws is said
+where the builder says a gesture's error, the keyboard left where it is — then
+goes to the row as the builder goes, and, once the narrowing they leave draws
+it, selects it where the builder selects it only then and hands it the
+keyboard (`usePickHandOff`). Each source's pick is read in a component of its
+own, in order (`HideSources`), over the one chain every builder reads its
+sources by (`each-source.tsx`, which `FollowSources` reads over too). A
+builder supplies only its own:
+
+- **The Sheet**: its `rows` source, read through its lens at the lens's
+  revision (`useHidden`); the lens's jump lands the row at its row number.
+- **The Allocation**: what hides a bin is what hides its row in the layout
+  shown (`allocation/hidden.ts` over `table-rows.ts`' `rowHiding`) — on the
+  Table its lane, its arrival or every resource it has parts on, on the
+  Timeline's lanes its lane or its arrival, on a phone's Timeline of resources
+  its resources — each of the lanes', the arrivals' and the resources' sources
+  asked for the rows the listed bins stand on, in the rail's order; a pick
+  steps to the bin's day and selects it once drawn, the Table following it
+  into view at its time.
+- **The Roster**: its people's source (`roster/find.ts`), asked for the people
+  the box lists that its shown people leave out; a pick selects the person,
+  their People row brought into view once the narrowing draws them.
+- **The Calendar** (`calendar/find.ts`): each event kind's source — its
+  choices, never the window its navigation writes, which hides no event: a
+  pick steps to it — asked over the page the box read the events from
+  (`recordSliceWithinAt`); and, where the view lays resources out — the
+  timeline's rows, the Resources view's columns — a scheduled event's resource
+  kind's source beside its kind's own (one waiting in the Backlog is its card
+  there, which no resource's source narrows): which resources the source hides
+  is what it shows, where the Calendar follows it, else — the paged kind's,
+  whose windows are its narrowing's rows themselves — asked of e3 by their
+  keys before the lines list (`recordSliceRows`, `recordSliceWithin`); the
+  lines are listed again as the layout comes to lay resources out or leaves
+  off, and a pick steps to the event's period and selects it. The time grids,
+  the month and the agenda narrow no event by its resource, and name none.
+- **The Schematic**: each kind's source of the rail, every kind's pick read by
+  the frame — Find's items, and an unsaved change waiting in its session that
+  Issues names; a pick flies to where the row stands and selects it through
+  the canvas once the narrowing draws it as itself, never as context, which no
+  path selects. Its Find hands the canvas no keyboard.
+
+A Search Records box's count shows and Enter jumps once the query is
 found, the lines following. A pick — a match chosen from the list, or Enter in
 the box — hands the keyboard to the builder's view, where the selection's ring
 lands, once the match is drawn and the box has let it go, and a step leaves it
@@ -701,12 +715,11 @@ waiting in its session made as its kind draws it, for Issues alone
 by drawing what the narrowing hides. An issue of a draft the narrowing hides
 says so on a line of its own, as the rail words the choices that hide it —
 `hidden by Owner: Northwind Media — picking it clears that filter` — asked of
-e3 through its kind's source, one component a kind (`hidden-drafts.tsx`, the
-shared hidden pick, `shared/schedule/hidden.ts`); Go to issue clears just those
-choices, every one of the source's while e3 has not said (`clearHiding`), then
-flies to where its draft stands and selects it once the narrowing they leave
-draws it — the canvas's `look` and `select`, the path Find takes to a row
-nothing draws, `select` taking an item, a zone, a link or a net. Issues says
+e3 through its kind's source (the shared hidden pick, every kind's read by the
+frame's `HideSources`); Go to issue is the frame's hidden pick, as Find's is,
+going to the draft by the canvas's `look` at where it stands and landing by
+its `select` — which takes an item, a zone, a link or a net — once the
+narrowing the pick leaves draws it as itself. Issues says
 which kinds' rows out of view it checks only as the view reaches them (ruled 27
 Oct 2026, "Checked in view, said so"). `fit` flies to the box the
 narrowing's rows stand in, from the area index's counts (`area.ts`' `fitBox`,
