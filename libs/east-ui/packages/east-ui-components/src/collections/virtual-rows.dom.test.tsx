@@ -14,7 +14,8 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
@@ -647,6 +648,48 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
             Element.prototype.getBoundingClientRect = measured;
             Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: dpr });
         }
+    });
+
+    test("a request and an anchor brought back are served in the commit that asks for them: the rows where the view went are drawn when that commit's work is done — what the page paints next — never in a render queued after it (#1398, CL10)", () => {
+        type Asked = { scrollToIndex?: number; restoreAnchor?: { index: number; offset: number } };
+        let ask: ((asked: Asked) => void) | undefined;
+        function Asking() {
+            const [asked, setAsked] = useState<Asked>({});
+            ask = setAsked;
+            return (
+                <ChakraProvider value={system}>
+                    <VirtualRows height="200px" maxHeight={undefined} count={ROWS.length} estimateSize={() => ROW_H} overscan={2}
+                        getItemKey={(i) => ROWS[i]!} anchorable={() => true} scrollToIndex={asked.scrollToIndex} restoreAnchor={asked.restoreAnchor}
+                        renderRow={(i) => <div data-key={ROWS[i]}>{ROWS[i]}</div>} />
+                </ChakraProvider>
+            );
+        }
+        const { container } = render(<Asking />);
+        const scrollEl = container.firstElementChild as HTMLElement;
+        Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 100 * ROW_H });
+        /**
+         * Asks in a commit of its own — a discrete update's, as a builder's landing is — and reads where the view is and
+         * which rows are drawn once that commit's work is done, before anything it queued runs.
+         */
+        const served = (asked: Asked) => {
+            let top = 0;
+            let drawn: string[] = [];
+            act(() => {
+                flushSync(() => ask!(asked));
+                top = scrollEl.scrollTop;
+                drawn = [...container.querySelectorAll<HTMLElement>("[data-key]")].map((el) => el.dataset["key"]!);
+            });
+            return { top, drawn };
+        };
+        // A request for row 80: the view goes there, the row centred in it — and is drawn there.
+        const request = served({ scrollToIndex: 80 });
+        expect(request.top).toBe(80 * ROW_H - (200 - ROW_H) / 2);
+        expect(request.drawn).toContain("r80");
+        // An anchor brought back, 6px into row 20: the view goes there — and row 20 is drawn there, row 80 gone.
+        const anchor = served({ restoreAnchor: { index: 20, offset: 6 } });
+        expect(anchor.top).toBe(20 * ROW_H + 6);
+        expect(anchor.drawn).toContain("r20");
+        expect(anchor.drawn).not.toContain("r80");
     });
 
     test("an anchored offset past the scroll's end stops there, and the rows are drawn where the view rests (#1213)", () => {

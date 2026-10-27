@@ -816,7 +816,17 @@ Row virtualization via `@tanstack/react-virtual`:
   view was, its rows measured off their estimate, as every row is on a
   fractional device pixel ratio — is placed from where the view went and never
   takes it back there, nor does a correction the virtualizer held back at the
-  scroll's end; and the range reported meanwhile says where the view is.
+  scroll's end; and the range reported meanwhile says where the view is. A
+  request (`scrollToIndex`) and an anchor brought back (`restoreAnchor`) are
+  served in a layout effect of the commit that asks for them, so the rows they
+  bring into view are drawn before paint: a builder that lands the keyboard's
+  far move with the rows it reads (the Plan's and the Sheet's Home and End)
+  never paints a frame of them at the old offset, no rows where the view went.
+  The request's effect is declared after its follow's: a requested row is in
+  the virtualizer's range at once but mounted, and measured, only in the
+  render the scroll asks for, so the follow takes it up from that render's
+  commit — settled in its own, a row measured taller than its estimate was
+  never brought wholly into view.
 - A frame that anchors its own scroll (keyed, given `anchorable`, its rows
   positioned) is the only one to: the browser's scroll anchoring is off on its
   scroll element, or at scale on its root (`overflow-anchor: none`). Left on,

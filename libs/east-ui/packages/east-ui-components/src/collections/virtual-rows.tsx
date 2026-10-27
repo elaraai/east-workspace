@@ -103,7 +103,10 @@
  * callback as the scroll's event would report it (#1398): what it measures
  * before that event arrives moves the view from where it is, never back to
  * where it was, nor does a correction it held back at the scroll's end; and
- * the range it reports says where it is.
+ * the range it reports says where it is. A request and an anchor brought back
+ * are served in the commit that asks for them, before paint (#1398, CL10):
+ * the rows they bring into view are drawn before the page paints, never a
+ * frame of the old offset with no rows where the view went.
  *
  * Only a bounded frame pins its header. An unbounded frame's header sits in
  * flow above its rows and scrolls with the page: a collection that scrolls
@@ -1154,46 +1157,6 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             : anchorOf(virtualizer, offset, offset + margin, virtualizer.scrollRect?.height ?? 0, anchorable, margin, runs);
     });
 
-    // Bring a requested row into view. Keyed on the index (and the explicit
-    // re-request nonce) alone, so a row set that grows underneath a standing
-    // target (paged windows landing) does not re-scroll on every frame — and
-    // on the virtualizer going live, so a target that arrived before an
-    // unbounded frame found its ancestor is still honoured. A keyed frame
-    // scrolls to the offset the request's alignment gives the row, which
-    // TanStack's reconcile then holds where its `scrollToIndex` would follow
-    // the index, and follows the row by its key itself (#885, below).
-    //
-    // A keyed request is its ROW's, served once: the same row at another
-    // index — rows landed or folded above it — under the same nonce is the
-    // request already served. Serving it again took the view back from a
-    // reader who had scrolled on (a standing key search pulled the page back
-    // to its match each time a window landed above it); a new nonce asks
-    // again.
-    useEffect(() => {
-        if (scrollToIndex === undefined || !virtualized) return;
-        if (getItemKey === undefined) {
-            virtualizer.scrollToIndex(scrollToIndex, { align: scrollAlign });
-            takeLiveOffset();
-            return;
-        }
-        if (count === 0) return;
-        const index = Math.max(0, Math.min(scrollToIndex, count - 1));
-        const key = getItemKey(index);
-        const served = servedRef.current;
-        if (served !== null && served.key === key && served.nonce === scrollNonce
-            && served.scroller === virtualizer.scrollElement) return;
-        const target = virtualizer.getOffsetForIndex(index, scrollAlign);
-        if (target === undefined) return;
-        servedRef.current = { key, nonce: scrollNonce, scroller: virtualizer.scrollElement };
-        requestRef.current = {
-            key: getItemKey(index), index, align: target[1], offset: target[0],
-            scroller: virtualizer.scrollElement, at: performance.now(),
-        };
-        virtualizer.scrollToOffset(target[0]);
-        takeLiveOffset();
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- the target index, the nonce and going live are the trigger
-    }, [scrollToIndex, scrollNonce, virtualized]);
-
     // Where a bounded frame's scroll rests, reported when a scroll SETTLES
     // (#813) — the row showing just under the header (the item starts carry
     // the header's height as the scroll margin) and the px scrolled past it.
@@ -1212,17 +1175,6 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         if (item !== undefined) onAnchorChange({ index: item.index, offset: Math.max(0, top - item.start) });
         // eslint-disable-next-line react-hooks/exhaustive-deps -- a scroll settling is the trigger
     }, [virtualizer.isScrolling]);
-
-    // Bring an anchor back: its row's start, less the header the rows sit
-    // under, plus how far into the row the scroll had rested.
-    useEffect(() => {
-        if (restoreAnchor === undefined || !bounded) return;
-        const item = virtualizer.measurementsCache[restoreAnchor.index];
-        if (item === undefined) return;
-        virtualizer.scrollToOffset(item.start - itemsOffset + restoreAnchor.offset, { align: "start" });
-        takeLiveOffset();
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- the anchor is the trigger
-    }, [restoreAnchor]);
 
     // Heights changed without the count changing — bust TanStack's measurement
     // memo, which does not watch `estimateSize` (see `sizeVersion`).
@@ -1289,6 +1241,71 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             takeLiveOffset();
         }
     });
+
+    // Bring a requested row into view. Keyed on the index (and the explicit
+    // re-request nonce) alone, so a row set that grows underneath a standing
+    // target (paged windows landing) does not re-scroll on every frame — and
+    // on the virtualizer going live, so a target that arrived before an
+    // unbounded frame found its ancestor is still honoured. A keyed frame
+    // scrolls to the offset the request's alignment gives the row, which
+    // TanStack's reconcile then holds where its `scrollToIndex` would follow
+    // the index, and follows the row by its key itself (#885, above).
+    //
+    // A keyed request is its ROW's, served once: the same row at another
+    // index — rows landed or folded above it — under the same nonce is the
+    // request already served. Serving it again took the view back from a
+    // reader who had scrolled on (a standing key search pulled the page back
+    // to its match each time a window landed above it); a new nonce asks
+    // again.
+    //
+    // Served before paint (#1398, CL10): the commit that asks for a row draws
+    // it in view, the rows there drawn in a render of their own before the
+    // page paints — the virtualizer told where the view went in a layout
+    // effect, whose renders are the commit's own. Served after paint, the view
+    // a builder landed on — a far window's rows, the keyboard's move there —
+    // painted a frame at the old offset first, its rows not yet drawn where
+    // the view went. Declared after the follow: in the commit that asks for
+    // it the row is in the virtualizer's range at once, but mounted — and
+    // measured — only in the render the scroll asks for, so the follow takes
+    // the request up from that render's commit on, never settling it on a row
+    // not yet drawn whose height its estimate missed.
+    useLayoutEffect(() => {
+        if (scrollToIndex === undefined || !virtualized) return;
+        if (getItemKey === undefined) {
+            virtualizer.scrollToIndex(scrollToIndex, { align: scrollAlign });
+            takeLiveOffset();
+            return;
+        }
+        if (count === 0) return;
+        const index = Math.max(0, Math.min(scrollToIndex, count - 1));
+        const key = getItemKey(index);
+        const served = servedRef.current;
+        if (served !== null && served.key === key && served.nonce === scrollNonce
+            && served.scroller === virtualizer.scrollElement) return;
+        const target = virtualizer.getOffsetForIndex(index, scrollAlign);
+        if (target === undefined) return;
+        servedRef.current = { key, nonce: scrollNonce, scroller: virtualizer.scrollElement };
+        requestRef.current = {
+            key: getItemKey(index), index, align: target[1], offset: target[0],
+            scroller: virtualizer.scrollElement, at: performance.now(),
+        };
+        virtualizer.scrollToOffset(target[0]);
+        takeLiveOffset();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the target index, the nonce and going live are the trigger
+    }, [scrollToIndex, scrollNonce, virtualized]);
+
+    // Bring an anchor back: its row's start, less the header the rows sit
+    // under, plus how far into the row the scroll had rested — before paint,
+    // as a scroll request is (#1398), so the rows it brings back are the ones
+    // the page first paints.
+    useLayoutEffect(() => {
+        if (restoreAnchor === undefined || !bounded) return;
+        const item = virtualizer.measurementsCache[restoreAnchor.index];
+        if (item === undefined) return;
+        virtualizer.scrollToOffset(item.start - itemsOffset + restoreAnchor.offset, { align: "start" });
+        takeLiveOffset();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the anchor is the trigger
+    }, [restoreAnchor]);
 
     // The header is watched: whatever changes its height moves the rows below
     // it — bounded, the scroll margin follows; unbounded, the offset re-samples.
