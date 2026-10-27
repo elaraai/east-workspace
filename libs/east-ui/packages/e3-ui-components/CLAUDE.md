@@ -1804,7 +1804,10 @@ scroll publishes the days it shows to a store only what says them reads
 hours, the overlaps chip and the inspector's overlaps), so a scroll draws
 nothing else, and a day crossed only those — a row's hours read off its booked
 time up to each instant its events start or end at, made once a read (the
-views' `bookedHours`), so a day crossed sums none of its events again. The
+views' `bookedHours`), so a day crossed sums none of its events again; the
+navigator and its popover drawn with their styles made once for the theme
+(`useSlotStyles`, `shared/time/navigation.tsx`, east-ui-components'
+`SliceEditPopover`), never their recipes' slots worked out again. The
 overlaps chip counts the
 overlaps in the days shown (`shared/schedule/overlaps.ts`'
 `scheduleOverlapsIn`, #1398), so it moves as days come into view and never as

@@ -4,8 +4,9 @@
  */
 
 import { cloneElement, useEffect, useId, useMemo, useRef, type MouseEvent, type ReactElement, type ReactNode } from "react";
-import { Popover as ChakraPopover, Portal, Box, chakra, useSlotRecipe } from "@chakra-ui/react";
+import { Popover as ChakraPopover, Portal, Box, chakra } from "@chakra-ui/react";
 import { useSliceDensity } from "../density";
+import { useSlotStyles } from "../../theme/slot-styles.js";
 import { POPOVER_GUTTER } from "../../overlays/popover/gutter.js";
 import { frameBounds } from "../../overlays/popover/frame-bounds.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -102,7 +103,9 @@ export type SliceEditPopoverProps = SliceEditPopoverAnchor & {
 export function SliceEditPopover({
     open, onOpenChange, trigger, anchor, label, size = "sm", flush, footLeft, footActions, initialFocusEl, children,
 }: SliceEditPopoverProps) {
-    const styles = useSlotRecipe({ key: "sliceEdit" })({ size, ...(flush === true && { flush: true }) });
+    // Its styles made once for the theme and its variants (#1398, CL9): its trigger draws again with what it shows — a
+    // timeline's date navigator's with each day its view crosses — and its recipe would work every slot out again.
+    const styles = useSlotStyles("sliceEdit", { size, ...(flush === true && { flush: true }) });
     const density = useSliceDensity();
     const anchored = trigger === undefined;
     const anchorRef = useRef<HTMLDivElement | null>(null);

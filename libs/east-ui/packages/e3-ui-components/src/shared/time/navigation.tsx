@@ -4,10 +4,11 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Box, Button, chakra, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Button, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faCaretDown, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { SliceEditPopover, useFormatters } from "@elaraai/east-ui-components";
+import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { Seg } from "../schedule/segments.js";
 import { DAY, dayStart, weekStart } from "../schedule/window.js";
 import { isoWeekUTC, shiftCalendar, type TimeResolution } from "./scale.js";
@@ -67,8 +68,8 @@ export function setNavigatorStylesProbe(fn: ((styles: object) => void) | undefin
 export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor, onToday }: TimeNavigatorProps) {
     const format = useFormatters();
     const now = useNow(givenNow);
-    const recipe = useSlotRecipe({ key: "timeNavigator" });
-    const styles = recipe({});
+    // Its styles made once for the theme (#1398, CL9): a timeline's navigator draws again with each day its view crosses.
+    const styles = useSlotStyles("timeNavigator");
     navigatorStylesProbe?.(styles);
     const [open, setOpen] = useState(false);
     const [month, setMonth] = useState(() => monthStart(date));
