@@ -28,7 +28,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DateTimeType, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
-import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
+import { StateRuntime, UIStore, editingMessages, system } from "@elaraai/east-ui-components";
 import { SEARCH_DELAY_MS } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
 import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
@@ -550,6 +550,30 @@ describe("the timeline draws only what moves (#1398, CL9)", () => {
             expect(renders.filter(id => whole.includes(id))).toEqual([]);
         } finally {
             setEventBlockRenderProbe(undefined);
+        }
+    });
+
+    test("a move of the span it mounts draws the events it brings in of their slots' classes, made once a theme: Chakra works out no style for an event's block as it mounts", async () => {
+        const { timeline } = await openTimeline("month", "blocks-of-classes");
+        // An event's block's slots' styles, as the Calendar's recipe gives them.
+        const slots = system.sva(structuredClone(system.getSlotRecipe("calendar")))({}) as Record<string, unknown>;
+        const ofBlock = new Set(["event", "eventTop", "eventIcon", "eventDetail", "eventWarning", "eventTitle", "eventResource", "resize"].map(slot => JSON.stringify(slots[slot])));
+        // What Chakra's styled element asks of the system at every element it draws: its styles worked out, keyed by the
+        // whole style object printed.
+        const css = vi.spyOn(system, "css");
+        try {
+            const kept = drawnOf(timeline);
+            await scrollTo(timeline, timeline.scrollLeft + 400);
+            const brought = [...drawnOf(timeline)].filter(id => !kept.has(id));
+            expect(brought.length).toBeGreaterThan(100);
+            // A slot's class made once, the first time one of the theme's blocks draws it; never again a block.
+            const asked = new Map<string, number>();
+            for (const styles of css.mock.calls) {
+                for (const style of styles.map(each => JSON.stringify(each)).filter(each => ofBlock.has(each))) asked.set(style, (asked.get(style) ?? 0) + 1);
+            }
+            expect([...asked.values()].filter(times => times > 1)).toEqual([]);
+        } finally {
+            css.mockRestore();
         }
     });
 
