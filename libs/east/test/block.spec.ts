@@ -16,7 +16,17 @@ import {
     DictType,
     StructType,
     VariantType,
+    OptionType,
+    FunctionType,
     variant,
+    some,
+    none,
+    type ArrayExpr,
+    type BooleanExpr,
+    type ExprType,
+    type IntegerExpr,
+    type StringExpr,
+    type option,
 } from "../src/index.js";
 import { describeEast as describe, assertEast as assert } from "./platforms.spec.js";
 import * as ex from "./block.examples.js";
@@ -800,5 +810,463 @@ await describe("Block", (test) => {
         });
         $(assert.equal(inner, true));
         $(assert.equal(outer, true));
+    });
+
+    // =========================================================================
+    // Control flow through every kind of statement: a continue or break naming
+    // an outer loop through inner loops of every kind, a return out of loops,
+    // match arms and try/catch, loops that await, a control statement in an
+    // expression whose value is used, and recursion. Each test counts what
+    // ran, so a continue, break or return that went unheeded, or that a loop
+    // it does not name took, gives other counts.
+    // =========================================================================
+
+    test("continue names an outer While through a ForArray, a ForSet and a ForDict", $ => {
+        const rows = $.const([100n, 200n, 300n]);
+        const keys = $.const(new Set([10n, 20n, 30n]));
+        const words = $.const(new Map([["a", 1n], ["b", 2n], ["c", 3n]]));
+        const pass = $.let(0n);
+        const innermost = $.let(0n);
+        const ends = $.let(0n);
+        $.while(East.less(pass, 3n), ($, outer) => {
+            $.assign(pass, pass.add(1n));
+            $.for(rows, ($) => {
+                $.for(keys, ($) => {
+                    $.for(words, ($, n) => {
+                        // The second pass goes round again at its second innermost row
+                        $.if(East.equal(pass, 2n).and(() => East.equal(n, 2n)), $ => { $.continue(outer); });
+                        $.assign(innermost, innermost.add(1n));
+                    });
+                });
+            });
+            $.assign(ends, ends.add(1n));
+        });
+        // Passes 1 and 3 run all 27 innermost rows and reach their ends; pass 2 runs one, and not its end
+        $(assert.equal(innermost, 55n));
+        $(assert.equal(ends, 2n));
+        $(assert.equal(pass, 3n));
+    });
+
+    test("break names an outer ForDict through a ForSet, a While and a ForArray", $ => {
+        const rows = $.const(new Map([["a", 1n], ["b", 2n], ["c", 3n]]));
+        const keys = $.const(new Set([10n, 20n]));
+        const cells = $.const([100n, 200n, 300n]);
+        const innermost = $.let(0n);
+        const ends = $.let(0n);
+        const after = $.let(0n);
+        $.for(rows, ($, n, _key, outer) => {
+            $.for(keys, ($) => {
+                const j = $.let(0n);
+                $.while(East.less(j, 2n), ($) => {
+                    $.assign(j, j.add(1n));
+                    $.for(cells, ($, cell) => {
+                        // Row 2's first cell of 200 stops every loop
+                        $.if(East.equal(n, 2n).and(() => East.equal(cell, 200n)), $ => { $.break(outer); });
+                        $.assign(innermost, innermost.add(1n));
+                    });
+                });
+            });
+            $.assign(ends, ends.add(1n));
+        });
+        $.assign(after, after.add(1n));
+        // Row 1 runs 2 keys × 2 passes × 3 cells = 12 and its end; row 2 runs one cell; row 3 never runs
+        $(assert.equal(innermost, 13n));
+        $(assert.equal(ends, 1n));
+        $(assert.equal(after, 1n));
+    });
+
+    test("continue names an outer ForSet through a ForDict, a ForArray and a While", $ => {
+        const keys = $.const(new Set([1n, 2n, 3n]));
+        const words = $.const(new Map([["a", 10n], ["b", 20n]]));
+        const cells = $.const([100n, 200n]);
+        const innermost = $.let(0n);
+        const ends = $.let(0n);
+        $.for(keys, ($, k, outer) => {
+            $.for(words, ($) => {
+                $.for(cells, ($) => {
+                    const j = $.let(0n);
+                    $.while(East.less(j, 3n), ($) => {
+                        $.assign(j, j.add(1n));
+                        // Key 2 goes on to key 3 at the second pass of its first While
+                        $.if(East.equal(k, 2n).and(() => East.equal(j, 2n)), $ => { $.continue(outer); });
+                        $.assign(innermost, innermost.add(1n));
+                    });
+                });
+            });
+            $.assign(ends, ends.add(1n));
+        });
+        // Keys 1 and 3 run 2 words × 2 cells × 3 passes = 12 and their ends; key 2 runs one pass
+        $(assert.equal(innermost, 25n));
+        $(assert.equal(ends, 2n));
+    });
+
+    test("break names an outer ForArray through a While, a ForDict and a ForSet", $ => {
+        const rows = $.const([1n, 2n, 3n]);
+        const words = $.const(new Map([["a", 10n], ["b", 20n]]));
+        const keys = $.const(new Set([100n, 200n, 300n]));
+        const innermost = $.let(0n);
+        const ends = $.let(0n);
+        $.for(rows, ($, r, _i, outer) => {
+            const j = $.let(0n);
+            $.while(East.less(j, 2n), ($) => {
+                $.assign(j, j.add(1n));
+                $.for(words, ($, w) => {
+                    $.for(keys, ($, k) => {
+                        // Row 2's second pass stops every loop at word 20's key 300
+                        $.if(East.equal(r, 2n).and(() => East.equal(j, 2n)).and(() => East.equal(w, 20n)).and(() => East.equal(k, 300n)), $ => { $.break(outer); });
+                        $.assign(innermost, innermost.add(1n));
+                    });
+                });
+            });
+            $.assign(ends, ends.add(1n));
+        });
+        // Row 1 runs 2 passes × 2 words × 3 keys = 12 and its end; row 2 runs 11 before the break
+        $(assert.equal(innermost, 23n));
+        $(assert.equal(ends, 1n));
+    });
+
+    test("return leaves nested loops, a match arm and a try whose catch never sees it", $ => {
+        const finallies = $.let(0n);
+        const find = East.function([ArrayType(OptionType(IntegerType)), IntegerType], IntegerType, ($, xs, target) => {
+            const visited = $.let(0n);
+            $.try($ => {
+                $.for(xs, ($, x) => {
+                    $.match(x, {
+                        none: ($) => { $.assign(visited, visited.add(1n)); },
+                        some: ($, v) => {
+                            const j = $.let(0n);
+                            $.while(East.less(j, v), ($) => {
+                                $.assign(j, j.add(1n));
+                                $.if(East.equal(j, target), ($) => { $.return(visited.multiply(100n).add(j)); });
+                            });
+                            $.assign(visited, visited.add(1n));
+                        },
+                    });
+                });
+            }).catch(($, _message) => {
+                $.return(-1n);
+            }).finally(($) => {
+                $.assign(finallies, finallies.add(1n));
+            });
+            return -2n;
+        });
+        const xs = $.const([none, some(1n), some(3n), none], ArrayType(OptionType(IntegerType)));
+        // Found in the third row's second pass, two rows visited before it
+        $(assert.equal(find(xs, 2n), 202n));
+        // Never found: the loops end, and so does the try, then the function
+        $(assert.equal(find(xs, 5n), -2n));
+        $(assert.equal(finallies, 2n));
+    });
+
+    test("continue from a match arm and an if/else branch, in every kind of loop", $ => {
+        const opts = $.const([some(1n), none, some(2n), some(3n), none, some(4n)], ArrayType(OptionType(IntegerType)));
+        const keys = $.const(new Set([1n, 2n, 3n, 4n, 5n, 6n]));
+        const byKey = $.const(new Map<bigint, option<bigint>>([[1n, some(1n)], [2n, none], [3n, some(2n)], [4n, some(3n)], [5n, none], [6n, some(4n)]]), DictType(IntegerType, OptionType(IntegerType)));
+        // Each loop adds the odd payloads and counts the rows reaching its end: a none
+        // continues from a match arm, an even payload from an else branch
+
+        const arraySum = $.let(0n);
+        const arrayEnds = $.let(0n);
+        $.for(opts, ($, x, _i, label) => {
+            $.match(x, {
+                none: ($) => { $.continue(label); },
+                some: ($, v) => {
+                    $.if(East.equal(v.remainder(2n), 1n), ($) => { $.assign(arraySum, arraySum.add(v)); })
+                        .else(($) => { $.continue(label); });
+                },
+            });
+            $.assign(arrayEnds, arrayEnds.add(1n));
+        });
+        $(assert.equal(arraySum, 4n));
+        $(assert.equal(arrayEnds, 2n));
+
+        const whileSum = $.let(0n);
+        const whileEnds = $.let(0n);
+        const i = $.let(0n);
+        $.while(East.less(i, opts.size()), ($, label) => {
+            const x = $.const(opts.get(i));
+            $.assign(i, i.add(1n));
+            $.match(x, {
+                none: ($) => { $.continue(label); },
+                some: ($, v) => {
+                    $.if(East.equal(v.remainder(2n), 1n), ($) => { $.assign(whileSum, whileSum.add(v)); })
+                        .else(($) => { $.continue(label); });
+                },
+            });
+            $.assign(whileEnds, whileEnds.add(1n));
+        });
+        $(assert.equal(whileSum, 4n));
+        $(assert.equal(whileEnds, 2n));
+
+        const setSum = $.let(0n);
+        const setEnds = $.let(0n);
+        $.for(keys, ($, k, label) => {
+            $.match(byKey.get(k), {
+                none: ($) => { $.continue(label); },
+                some: ($, v) => {
+                    $.if(East.equal(v.remainder(2n), 1n), ($) => { $.assign(setSum, setSum.add(v)); })
+                        .else(($) => { $.continue(label); });
+                },
+            });
+            $.assign(setEnds, setEnds.add(1n));
+        });
+        $(assert.equal(setSum, 4n));
+        $(assert.equal(setEnds, 2n));
+
+        const dictSum = $.let(0n);
+        const dictEnds = $.let(0n);
+        $.for(byKey, ($, x, _k, label) => {
+            $.match(x, {
+                none: ($) => { $.continue(label); },
+                some: ($, v) => {
+                    $.if(East.equal(v.remainder(2n), 1n), ($) => { $.assign(dictSum, dictSum.add(v)); })
+                        .else(($) => { $.continue(label); });
+                },
+            });
+            $.assign(dictEnds, dictEnds.add(1n));
+        });
+        $(assert.equal(dictSum, 4n));
+        $(assert.equal(dictEnds, 2n));
+    });
+
+    test("continue, break and return in every kind of loop that awaits", $ => {
+        const same = $.const(East.asyncFunction([IntegerType], IntegerType, (_$, x) => x));
+        const opts = $.const([some(1n), none, some(2n), some(3n), none, some(4n)], ArrayType(OptionType(IntegerType)));
+        const keys = $.const(new Set([1n, 2n, 3n, 4n, 5n, 6n]));
+        const byKey = $.const(new Map<bigint, option<bigint>>([[1n, some(1n)], [2n, none], [3n, some(2n)], [4n, some(3n)], [5n, none], [6n, some(4n)]]), DictType(IntegerType, OptionType(IntegerType)));
+
+        // Each pass awaits; a none continues from a match arm, an even payload from an else branch
+        const arraySum = $.let(0n);
+        const arrayEnds = $.let(0n);
+        $.for(opts, ($, x, _i, label) => {
+            $.match(x, {
+                none: ($) => { $.continue(label); },
+                some: ($, v) => {
+                    const w = $.const(same(v));
+                    $.if(East.equal(w.remainder(2n), 1n), ($) => { $.assign(arraySum, arraySum.add(w)); })
+                        .else(($) => { $.continue(label); });
+                },
+            });
+            $.assign(arrayEnds, arrayEnds.add(1n));
+        });
+        $(assert.equal(arraySum, 4n));
+        $(assert.equal(arrayEnds, 2n));
+
+        const setSum = $.let(0n);
+        const setEnds = $.let(0n);
+        $.for(keys, ($, k, label) => {
+            const awaited = $.const(same(k));
+            $.match(byKey.get(awaited), {
+                none: ($) => { $.continue(label); },
+                some: ($, v) => {
+                    $.if(East.equal(v.remainder(2n), 1n), ($) => { $.assign(setSum, setSum.add(v)); })
+                        .else(($) => { $.continue(label); });
+                },
+            });
+            $.assign(setEnds, setEnds.add(1n));
+        });
+        $(assert.equal(setSum, 4n));
+        $(assert.equal(setEnds, 2n));
+
+        // A break stops a While that awaits, and one an outer ForDict names stops it through an inner ForArray
+        const count = $.let(0n);
+        const i = $.let(0n);
+        $.while(true, ($, label) => {
+            const v = $.const(same(i));
+            $.assign(i, i.add(1n));
+            $.if(East.equal(v, 3n), ($) => { $.break(label); });
+            $.assign(count, count.add(1n));
+        });
+        $(assert.equal(count, 3n));
+        $(assert.equal(i, 4n));
+
+        const reached = $.let(0n);
+        const rows = $.const([10n, 20n, 30n]);
+        $.for(byKey, ($, _x, k, outer) => {
+            $.for(rows, ($, r) => {
+                const w = $.const(same(r.add(k)));
+                $.if(East.equal(w, 22n), ($) => { $.break(outer); });
+                $.assign(reached, reached.add(1n));
+            });
+        });
+        // Key 1 reaches 3 rows; key 2 reaches row 10, and stops every loop at row 20
+        $(assert.equal(reached, 4n));
+
+        // A return leaves a ForDict and a While that await, out of an async function
+        const firstOver = East.asyncFunction([DictType(IntegerType, OptionType(IntegerType)), IntegerType], IntegerType, ($, entries, limit) => {
+            const call = $.const(same);
+            $.for(entries, ($, x, k) => {
+                $.match(x, {
+                    some: ($, v) => {
+                        const j = $.let(0n);
+                        $.while(East.less(j, v), ($) => {
+                            $.assign(j, call(j.add(1n)));
+                            $.if(East.greater(k.multiply(10n).add(j), limit), ($) => { $.return(k.multiply(10n).add(j)); });
+                        });
+                    },
+                });
+            });
+            return -1n;
+        });
+        $(assert.equal(firstOver(byKey, 32n), 41n));
+        $(assert.equal(firstOver(byKey, 99n), -1n));
+    });
+
+    test("continue and break leave a try inside their loop, uncaught, its finally run", $ => {
+        const rows = $.const([1n, 2n, 3n, 4n, 5n]);
+        const counted = $.let(0n);
+        const caught = $.let(0n);
+        const finallies = $.let(0n);
+        $.for(rows, ($, r, _i, label) => {
+            $.try(($) => {
+                $.if(East.equal(r, 2n), ($) => { $.continue(label); });
+                $.if(East.equal(r, 4n), ($) => { $.break(label); });
+                $.assign(counted, counted.add(1n));
+            }).catch(($) => {
+                $.assign(caught, caught.add(1n));
+            }).finally(($) => {
+                $.assign(finallies, finallies.add(1n));
+            });
+        });
+        // Rows 1 and 3 are counted, 2 continues and 4 breaks, each through the try: row 5 never runs
+        $(assert.equal(counted, 2n));
+        $(assert.equal(caught, 0n));
+        $(assert.equal(finallies, 4n));
+    });
+
+    test("continue and break in a match whose value is bound, assigned, or an argument", $ => {
+        const opts = $.const([some(1n), none, some(2n), none, some(3n)], ArrayType(OptionType(IntegerType)));
+        // A continue arm is typed as giving nothing, though it gives Never: each match is an Integer
+
+        const bound = $.let(0n);
+        $.for(opts, ($, x, _i, label) => {
+            const v = $.const(x.match({ none: ($) => $.continue(label), some: (_$, v) => v }) as unknown as IntegerExpr);
+            $.assign(bound, bound.add(v));
+        });
+        $(assert.equal(bound, 6n));
+
+        const assigned = $.let(0n);
+        $.for(opts, ($, x, _i, label) => {
+            const v = $.let(0n);
+            $.assign(v, x.match({ none: ($) => $.continue(label), some: (_$, v) => v }) as unknown as IntegerExpr);
+            $.assign(assigned, assigned.add(v));
+        });
+        $(assert.equal(assigned, 6n));
+
+        // A builtin's argument
+        const added = $.let(0n);
+        $.for(opts, ($, x, _i, label) => {
+            $.assign(added, added.add(x.match({ none: ($) => $.continue(label), some: (_$, v) => v }) as unknown as IntegerExpr));
+        });
+        $(assert.equal(added, 6n));
+
+        // A function's argument: the first none stops the loop
+        const double = $.const(East.function([IntegerType], IntegerType, (_$, x) => x.multiply(2n)));
+        const doubled = $.let(0n);
+        $.for(opts, ($, x, _i, label) => {
+            $.assign(doubled, doubled.add(double(x.match({ none: ($) => $.break(label), some: (_$, v) => v }) as unknown as IntegerExpr)));
+        });
+        $(assert.equal(doubled, 2n));
+    });
+
+    test("continue and break in what a statement evaluates: a predicate, a variant matched, a loop's collection, a return's value, an error's message", $ => {
+        const opts = $.const([some(1n), none, some(2n), none, some(3n)], ArrayType(OptionType(IntegerType)));
+        // A continue or break arm is typed as giving nothing, though it gives Never: each match is of its other arm's type
+
+        // An if's predicate
+        const big = $.let(0n);
+        $.for(opts, ($, x, _i, label) => {
+            $.if(x.match({ none: ($) => $.continue(label), some: (_$, v) => East.greater(v, 1n) }) as unknown as BooleanExpr, ($) => {
+                $.assign(big, big.add(1n));
+            });
+        });
+        $(assert.equal(big, 2n));
+
+        // A variant matched
+        const matched = $.let(0n);
+        $.for(opts, ($, x, _i, label) => {
+            const shifted = x.match({ none: ($) => $.continue(label), some: (_$, v) => East.value(some(v.add(10n)), OptionType(IntegerType)) });
+            $.match(shifted as unknown as ExprType<OptionType<IntegerType>>, {
+                some: ($, v) => { $.assign(matched, matched.add(v)); },
+            });
+        });
+        $(assert.equal(matched, 36n));
+
+        // A loop's collection, which continues the loop around it
+        const nested = $.let(0n);
+        $.for(opts, ($, x, _i, outer) => {
+            const cells = x.match({ none: ($) => $.continue(outer), some: (_$, v) => East.Array.range(East.value(0n), v, 1n) });
+            $.for(cells as unknown as ArrayExpr<IntegerType>, ($) => {
+                $.assign(nested, nested.add(1n));
+            });
+            $.assign(nested, nested.add(100n));
+        });
+        // Each some runs its payload's cells and its 100; each none continues before both
+        $(assert.equal(nested, 306n));
+
+        // A While's predicate, which breaks the loop around it
+        const passes = $.let(0n);
+        $.for(opts, ($, x, _i, outer) => {
+            const j = $.let(0n);
+            $.while(x.match({ none: ($) => $.break(outer), some: (_$, v) => East.less(j, v) }) as unknown as BooleanExpr, ($) => {
+                $.assign(j, j.add(1n));
+                $.assign(passes, passes.add(1n));
+            });
+        });
+        // The first row runs one pass; the second, a none, stops both loops
+        $(assert.equal(passes, 1n));
+
+        // A return's value, which breaks the loop around the return
+        const fourth = East.function([ArrayType(OptionType(IntegerType))], IntegerType, ($, xs) => {
+            const seen = $.let(0n);
+            $.for(xs, ($, x, _i, label) => {
+                $.assign(seen, seen.add(1n));
+                $.if(East.equal(seen, 4n), ($) => {
+                    $.return(x.match({ none: ($) => $.break(label), some: (_$, v) => v }) as unknown as IntegerExpr);
+                });
+            });
+            return seen.negate();
+        });
+        // The fourth row is a none: the loop stops, and the function goes on past it
+        $(assert.equal(fourth(opts), -4n));
+        $(assert.equal(fourth([none, none, none, some(9n)]), 9n));
+
+        // An error's message, which continues the loop: only the somes raise
+        const raised = $.let(0n);
+        $.for(opts, ($, x, _i, label) => {
+            $.try(($) => {
+                $.error(x.match({ none: ($) => $.continue(label), some: (_$, v) => East.print(v) }) as unknown as StringExpr);
+            }).catch(($) => {
+                $.assign(raised, raised.add(1n));
+            });
+        });
+        $(assert.equal(raised, 3n));
+    });
+
+    test("return out of a loop in a recursive function, at every depth", $ => {
+        // The steps from n to 1 of the Collatz sequence, each step found by a loop over the two parities that returns
+        const steps = $.let(East.function([IntegerType], IntegerType, (_$, _n) => 0n), FunctionType([IntegerType], IntegerType));
+        $.assign(steps, East.function([IntegerType], IntegerType, ($, n) => {
+            $.if(East.equal(n, 1n), ($) => { $.return(0n); });
+            $.for(East.Array.range(East.value(0n), 2n, 1n), ($, parity) => {
+                $.if(East.equal(n.remainder(2n), parity), ($) => {
+                    $.return(East.equal(parity, 0n).ifElse(() => steps(n.divide(2n)), () => steps(n.multiply(3n).add(1n))).add(1n));
+                });
+            });
+            return -1n;
+        }));
+        // 6 3 10 5 16 8 4 2 1
+        $(assert.equal(steps(6n), 8n));
+        $(assert.equal(steps(27n), 111n));
+    });
+
+    test("return early from the function a builtin calls for each element", $ => {
+        const xs = $.const([3n, -1n, 4n, -1n, 5n]);
+        const scale = $.const(East.function([IntegerType, IntegerType], IntegerType, ($, x, _i) => {
+            $.if(East.less(x, 0n), ($) => { $.return(0n); });
+            return x.multiply(10n);
+        }));
+        const scaled = $.let(xs.map(scale));
+        $(assert.equal(scaled, [30n, 0n, 40n, 0n, 50n]));
     });
 });

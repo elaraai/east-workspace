@@ -5,6 +5,7 @@
 import type { AnalyzedIR } from "../analyze.js";
 import { compile_constructors } from "./constructors.js";
 import { compile_control } from "./control.js";
+import { asStatement, asValue, ControlSignal, escapesOf, NO_ESCAPES, withControlFlow } from "./flow.js";
 import { compile_functions } from "./functions.js";
 import { getContextValue, requiresBoxing, type RuntimeContext } from "./runtime.js";
 import { variant } from "../containers/variant.js";
@@ -22,9 +23,24 @@ let _compile_source_map: SourceMap | null = null;
 * A "context" of the current variables in scope is given. For toplevel function IR, provide `{}`.
 * A "platform" is provided with JavaScript functions to perform effects, like logging. If no effects are needed, simply provide `{}`.
 *
+* A `return`, `continue` or `break` gives a signal in place of a value, which
+* the statements around it give back to the function or loop it is for
+* (`flow.ts`): a function compiled from the IR gives its value, never a signal.
+* What can leave each node is worked out once, as the compile starts.
+*
 * @internal
 */
 export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeValue>, platform: Record<string, (...args: any[]) => any>, asyncPlatformFns: Set<string>, platformDef: PlatformFunction[], fresh_ctx: boolean = true, compilingNodes: Set<IR> = new Set()): (ctx: RuntimeContext) => any {
+  return withControlFlow(ir, () => compile_ir(ir, ctx, platform, asyncPlatformFns, platformDef, fresh_ctx, compilingNodes));
+}
+
+/** Compiles one node of the IR a {@link compile_internal} call was given — its
+* root, or a node under it — within that call's compile, which knows what
+* control flow can leave each node.
+*
+* @internal
+*/
+export function compile_ir(ir: AnalyzedIR, ctx: Record<string, EastTypeValue>, platform: Record<string, (...args: any[]) => any>, asyncPlatformFns: Set<string>, platformDef: PlatformFunction[], fresh_ctx: boolean = true, compilingNodes: Set<IR> = new Set()): (ctx: RuntimeContext) => any {
   // Capture source map from the active scope on first call
   if (fresh_ctx) _compile_source_map = get_current_source_map();
   const source_map = _compile_source_map;
@@ -41,11 +57,28 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
     // All context values are variants - read via .value
     return (ctx: RuntimeContext) => getContextValue(ctx, name).value;
   } else if (ir.type === "Let") {
-    const compiled_statement = compile_internal(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes);
+    const compiled_statement = asStatement(ir.value.value, compile_ir(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes));
     const name = ir.value.variable.value.name;
     ctx[name] = ir.value.variable.value.type;
     const boxed = requiresBoxing(ir.value.variable.value);
-    if (ir.value.isAsync) {
+    if (escapesOf(ir.value.value) !== NO_ESCAPES) {
+      // A value a control statement leaves binds nothing: its signal is the statement's.
+      if (ir.value.isAsync) {
+        return async (ctx: RuntimeContext) => {
+          const value: unknown = await compiled_statement(ctx);
+          if (value instanceof ControlSignal) return value;
+          ctx[name] = boxed ? variant("boxed", value) : variant("value", value);
+          return null;
+        };
+      } else {
+        return (ctx: RuntimeContext) => {
+          const value: unknown = compiled_statement(ctx);
+          if (value instanceof ControlSignal) return value;
+          ctx[name] = boxed ? variant("boxed", value) : variant("value", value);
+          return null;
+        };
+      }
+    } else if (ir.value.isAsync) {
       return async (ctx: RuntimeContext) => {
         ctx[name] = boxed
           ? variant("boxed", await compiled_statement(ctx))
@@ -62,8 +95,31 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
     }
   } else if (ir.type === "Assign") {
     const name = ir.value.variable.value.name;
-    const compiled_statement = compile_internal(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes);
-    if (requiresBoxing(ir.value.variable.value)) {
+    const compiled_statement = asStatement(ir.value.value, compile_ir(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes));
+    const boxed = requiresBoxing(ir.value.variable.value);
+    if (escapesOf(ir.value.value) !== NO_ESCAPES) {
+      // A value a control statement leaves assigns nothing: its signal is the statement's.
+      const assign = (ctx: RuntimeContext, value: unknown): null => {
+        if (boxed) {
+          getContextValue(ctx, name).value = value;
+        } else {
+          while (!Object.hasOwn(ctx, name)) ctx = Object.getPrototypeOf(ctx);
+          ctx[name] = variant("value", value);
+        }
+        return null;
+      };
+      if (ir.value.isAsync) {
+        return async (ctx: RuntimeContext) => {
+          const value: unknown = await compiled_statement(ctx);
+          return value instanceof ControlSignal ? value : assign(ctx, value);
+        };
+      } else {
+        return (ctx: RuntimeContext) => {
+          const value: unknown = compiled_statement(ctx);
+          return value instanceof ControlSignal ? value : assign(ctx, value);
+        };
+      }
+    } else if (boxed) {
       // Boxed variables: mutate in place via .value
       if (ir.value.isAsync) {
         return async (ctx: RuntimeContext) => {
@@ -99,70 +155,122 @@ export function compile_internal(ir: AnalyzedIR, ctx: Record<string, EastTypeVal
   } else if (ir.type === "As") {
     // in dynamically typed runtimes like Javascript, this is a no-op
     // (for statically typed runtimes this assists in unifying types in branches)
-    return compile_internal(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, fresh_ctx, compilingNodes);
+    return compile_ir(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, fresh_ctx, compilingNodes);
   } else if (ir.type === "UnwrapRecursive") {
     // in dynamically typed runtimes like Javascript, this is a no-op
     // (for statically typed runtimes this assists in e.g. typing a reference or pointer)
-    return compile_internal(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, fresh_ctx, compilingNodes);
+    return compile_ir(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, fresh_ctx, compilingNodes);
   } else if (ir.type === "WrapRecursive") {
     // in dynamically typed runtimes like Javascript, this is a no-op
     // (for statically typed runtimes this assists in e.g. typing a heap allocation)
-    return compile_internal(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes);
+    return compile_ir(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes);
   } else if (ir.type === "Block") {
+    // A statement before the last that a control statement leaves ends the
+    // block: its signal is the block's, as the last statement's is anyway.
+    let leaves = false;
+    for (let i = 0; i < ir.value.statements.length - 1; i++) {
+      if (escapesOf(ir.value.statements[i]) !== NO_ESCAPES) leaves = true;
+    }
     // The pattern of creating a new context (e.g. a function) and then immediately invoking a block (e.g. as the function body) is very common.
     // Here we avoid creating a second context when possible, as an optimization.
     if (fresh_ctx) {
       const compiled_statements: ((ctx: RuntimeContext) => any)[] = [];
       for (const statement of ir.value.statements) {
-        const compiled_statement = compile_internal(statement, ctx, platform, asyncPlatformFns, platformDef, true, compilingNodes);
+        const compiled_statement = asStatement(statement, compile_ir(statement, ctx, platform, asyncPlatformFns, platformDef, true, compilingNodes));
         compiled_statements.push(compiled_statement);
       }
       if (ir.value.isAsync) {
-        return async (ctx: RuntimeContext) => {
-          let ret = null;
-          for (const statement of compiled_statements) {
-            ret = await statement(ctx);
-          }
-          return ret;
-        };
+        if (leaves) {
+          return async (ctx: RuntimeContext) => {
+            let ret = null;
+            for (const statement of compiled_statements) {
+              ret = await statement(ctx);
+              if (ret instanceof ControlSignal) return ret;
+            }
+            return ret;
+          };
+        } else {
+          return async (ctx: RuntimeContext) => {
+            let ret = null;
+            for (const statement of compiled_statements) {
+              ret = await statement(ctx);
+            }
+            return ret;
+          };
+        }
       } else {
-        return (ctx: RuntimeContext) => {
-          let ret = null;
-          for (const statement of compiled_statements) {
-            ret = statement(ctx);
-          }
-          return ret;
-        };
+        if (leaves) {
+          return (ctx: RuntimeContext) => {
+            let ret = null;
+            for (const statement of compiled_statements) {
+              ret = statement(ctx);
+              if (ret instanceof ControlSignal) return ret;
+            }
+            return ret;
+          };
+        } else {
+          return (ctx: RuntimeContext) => {
+            let ret = null;
+            for (const statement of compiled_statements) {
+              ret = statement(ctx);
+            }
+            return ret;
+          };
+        }
       }
     } else {
       const ctx2 = Object.create(ctx);
       const compiled_statements: ((ctx: RuntimeContext) => any)[] = [];
       for (const statement of ir.value.statements) {
-        const compiled_statement = compile_internal(statement, ctx2, platform, asyncPlatformFns, platformDef, true, compilingNodes);
+        const compiled_statement = asStatement(statement, compile_ir(statement, ctx2, platform, asyncPlatformFns, platformDef, true, compilingNodes));
         compiled_statements.push(compiled_statement);
       }
       if (ir.value.isAsync) {
-        return async (ctx: RuntimeContext) => {
-          const ctx2 = Object.create(ctx);
-          let ret = null;
-          for (const statement of compiled_statements) {
-            ret = await statement(ctx2);
-          }
-          return ret;
-        };
+        if (leaves) {
+          return async (ctx: RuntimeContext) => {
+            const ctx2 = Object.create(ctx);
+            let ret = null;
+            for (const statement of compiled_statements) {
+              ret = await statement(ctx2);
+              if (ret instanceof ControlSignal) return ret;
+            }
+            return ret;
+          };
+        } else {
+          return async (ctx: RuntimeContext) => {
+            const ctx2 = Object.create(ctx);
+            let ret = null;
+            for (const statement of compiled_statements) {
+              ret = await statement(ctx2);
+            }
+            return ret;
+          };
+        }
       } else {
+        if (leaves) {
           return (ctx: RuntimeContext) => {
-          const ctx2 = Object.create(ctx);
-          let ret = null;
-          for (const statement of compiled_statements) {
-            ret = statement(ctx2);
+            const ctx2 = Object.create(ctx);
+            let ret = null;
+            for (const statement of compiled_statements) {
+              ret = statement(ctx2);
+              if (ret instanceof ControlSignal) return ret;
+            }
+            return ret;
+          };
+        } else {
+          return (ctx: RuntimeContext) => {
+            const ctx2 = Object.create(ctx);
+            let ret = null;
+            for (const statement of compiled_statements) {
+              ret = statement(ctx2);
+            }
+            return ret;
           }
-          return ret;
         }
       }
     }
   } else if (ir.type === "GetField") {
-    const struct = compile_internal(ir.value.struct, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes);
+    const struct = asValue(ir.value.struct, compile_ir(ir.value.struct, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes));
     const field = ir.value.field;
     if (ir.value.isAsync) {
       return async (ctx: RuntimeContext) => (await struct(ctx))[field];
