@@ -36,6 +36,7 @@ import {
 } from '@elaraai/e3-types';
 import { functionAt, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
 import { argumentsType, callWithArguments, programOverArguments } from './record-arguments.js';
+import { NestedPatchedType } from './record-nested-programs.js';
 import { patchTypeOf, patchesOf, type Patches } from './record-patches.js';
 import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
@@ -367,8 +368,8 @@ function dictWrite(keyType: EastType, valueType: EastType, indexes: readonly Rec
     rows,
     patchType,
     opsType,
-    /** The rows a write touches: under each key it changes, the row before and after. */
-    changesType: DictType(keyType, StructType({ held: OptionType(valueType), next: OptionType(valueType) })),
+    /** The rows a write touches: under each key it changes, the row before and after, and the patch that updated it. */
+    changesType: DictType(keyType, StructType({ held: OptionType(valueType), next: OptionType(valueType), patch: OptionType(rows.patchType) })),
     emitType: deltaEmitType(stateType, indexes),
   };
 }
@@ -428,7 +429,8 @@ export function dictPatchOps(types: DictWrite) {
 
 /**
  * The rows a write touches: `(State, Ops, Emit) → Changes`, under each key it
- * changes the row before it and the row after.
+ * changes the row before it and the row after, and, for a row updated by a
+ * patch, the patch — none for a row inserted or deleted.
  *
  * @remarks
  * Applying a patch verifies the row it was made against, and a row that no
@@ -445,6 +447,7 @@ function rowChanges(types: DictWrite) {
     $.for(ops, ($, op, key) => {
       const held = $.let(state.tryGet(key));
       const next = $.let(none, OptionType(valueType));
+      const patched = $.let(none, OptionType(rows.patchType));
       $.match(op, {
         insert: ($, value) => {
           $.assign(next, some(value));
@@ -454,6 +457,7 @@ function rowChanges(types: DictWrite) {
             some: ($, value) => {
               $.try(($) => {
                 $.assign(next, some(apply(value, patch)));
+                $.assign(patched, some(patch));
               }).catch(($) => {
                 $(emit(
                   variant(DELTA_CONFLICT, East.str`update of ${East.print(key)}, whose row no longer matches the patch`),
@@ -465,7 +469,7 @@ function rowChanges(types: DictWrite) {
         },
         delete: () => {},
       });
-      $(changes.insert(key, { held, next }));
+      $(changes.insert(key, { held, next, patch: patched }));
     });
     return changes;
   });
@@ -527,12 +531,18 @@ function indexChanges(index: RecordIndexDef, types: DictWrite) {
  * A nested series index's entry changes for a write's touched rows (#1434):
  * `(Changes, Emit) → Null`, each row's entries before and after compared by
  * key — one gone a delete, one come an insert, one whose value changed an
- * update. The entries' keys hold the row's own key, so no two rows share one.
+ * update. A row updated by a patch is maintained by the patch: only the
+ * entries of what it touched, before and after, are compared — unless a
+ * replace on the way leaves the row to be compared whole, as a row inserted or
+ * deleted is. Both give one delta. The entries' keys hold the row's own key,
+ * so no two rows share one.
  */
-function nestedChanges(index: RecordIndexDef, types: DictWrite) {
-  const { keyType, valueType, changesType, emitType } = types;
+function nestedChanges(index: RecordIndexDef, byPatchFn: IndexFunction, types: DictWrite) {
+  const { keyType, valueType, rows, changesType, emitType } = types;
   const entriesType = DictType(index.keyType, index.valueType);
+  const changedType = StructType({ before: entriesType, after: entriesType });
   const entries = functionAt(index.keyFn, [keyType, valueType], entriesType);
+  const byPatch = functionAt(byPatchFn, [keyType, valueType, valueType, rows.patchType], NestedPatchedType(entriesType));
   const values = patchesOf(index.valueType);
   // A row's entries; none for no row.
   const entriesOf = East.function([keyType, OptionType(valueType)], entriesType, ($, key, row) => {
@@ -545,12 +555,30 @@ function nestedChanges(index: RecordIndexDef, types: DictWrite) {
     });
     return new Map();
   });
+  // A row's entries before and after its write: by its patch where one updated it and can say what it touched; whole otherwise.
+  const changedOf = East.function([keyType, changesType.value], changedType, ($, key, change) => {
+    const of = $.const(entriesOf);
+    const patched = $.const(byPatch);
+    $.match(change.patch, {
+      some: ($, patch) => {
+        $.match(patched(key, change.held.unwrap(), change.next.unwrap(), patch), {
+          changed: ($, both) => {
+            $.return(both);
+          },
+          whole: () => {},
+        });
+      },
+      none: () => {},
+    });
+    return { before: of(key, change.held), after: of(key, change.next) };
+  });
   return East.function([changesType, emitType], NullType, ($, changes, emit) => {
-    const rowEntries = $.const(entriesOf);
+    const changedFn = $.const(changedOf);
     const diff = $.const(values.diff);
     $.for(changes, ($, change, key) => {
-      const before = $.let(rowEntries(key, change.held));
-      const after = $.let(rowEntries(key, change.next));
+      const both = $.let(changedFn(key, change));
+      const before = $.let(both.before);
+      const after = $.let(both.after);
       $.for(before, ($, was, ik) => {
         $.match(after.tryGet(ik), {
           none: ($) => {
@@ -632,7 +660,7 @@ function indexesChanges(indexes: readonly RecordIndexDef[], types: DictWrite) {
   return indexes.reduce(
     (earlier, index) => {
       const own = index.summary !== undefined ? summaryChanges(index, types)
-        : index.nested !== undefined ? nestedChanges(index, types)
+        : index.nested !== undefined ? nestedChanges(index, index.nested.byPatch, types)
         : indexChanges(index, types);
       return East.function([changesType, emitType], NullType, ($, changes, emit) => {
         const before = $.const(earlier);

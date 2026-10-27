@@ -18,7 +18,9 @@
  * summed) — each with its patch door, its nested index and an index of its
  * rows. It writes the same rows through the doors, then the issue's writes one
  * after another, and a reduce over all last, and compares the states hash for
- * hash after each: across the runtimes, and against a rebuild in each.
+ * hash after each: across the runtimes, against a rebuild in each, and against
+ * the same writes with every row they update replaced whole — which the index
+ * compares whole rather than walking its patch.
  *
  * The rows are a few dozen of each, every shape the issue names — a year long,
  * before 1970, with no end, with no start, an instant — rather than its
@@ -34,7 +36,7 @@ import assert from 'node:assert';
 import { delimiter, join, dirname } from 'node:path';
 import {
   DateTimeType, DictType, East, FloatType, IntegerType, OptionType, PatchType, RecursiveType, SortedMap, StringType, StructType,
-  compareFor, diffFor, encodeBeast2For, parseFor, printType, type EastType, type ValueTypeOf,
+  compareFor, diffFor, encodeBeast2For, parseFor, printType, variant, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { recordMutate, recordReindex, readRecordState } from './records.js';
@@ -265,6 +267,24 @@ function copied<V>(rows: ReadonlyMap<string, V>): SortedMap<string, V> {
   return new SortedMap<string, V>([...rows], compareFor(StringType));
 }
 
+/**
+ * How a write is sent: `patch`, as a client's diff makes it, each row it
+ * updates by the row's own patch; or `whole`, each row it updates replaced
+ * whole, which the nested index can only compare whole.
+ */
+type Way = 'patch' | 'whole';
+
+/** The patch from one record state to another, sent the way given. */
+function patchOf(type: EastType, before: unknown, next: unknown, way: Way): unknown {
+  const patch = diffFor(type)(before as never, next as never) as variant<string, unknown>;
+  if (way === 'patch' || patch.type !== 'patch') return patch;
+  const held = before as SortedMap<string, unknown>;
+  const after = next as SortedMap<string, unknown>;
+  const ops = [...(patch.value as SortedMap<string, variant<string, unknown>>)].map(([key, op]): [string, unknown] =>
+    [key, op.type === 'update' ? variant('update', variant('replace', { before: held.get(key), after: after.get(key) })) : op]);
+  return variant('patch', new SortedMap(ops, compareFor(StringType)));
+}
+
 /** The issue's writes, one after another, each from the rows the last left. */
 function writes(): Array<{ what: string; record: keyof Rows; next: (rows: Rows) => Rows[keyof Rows] }> {
   const draw = stream(1435);
@@ -379,29 +399,34 @@ describe('the nested series index on the real runners', () => {
     return held;
   }
 
-  /** Writes a record's rows through a workspace's patch door, from `before` to `next`. */
-  async function write(ws: string, record: keyof Rows, before: unknown, next: unknown): Promise<void> {
+  /** Writes a record's rows through a workspace's patch door, from `before` to `next`, the patch sent the way given. */
+  async function write(ws: string, record: keyof Rows, before: unknown, next: unknown, way: Way): Promise<void> {
     const type = RECORDS.find((r) => r.name === record)!.type;
-    const patch = diffFor(type)(before as never, next as never);
-    const outcome = await recordMutate(storage, realRunner, repo, ws, record, 'patch', [encodeBeast2For(PatchType(type))(patch)], { actor: 'cli:test' });
+    const patch = patchOf(type, before, next, way);
+    const outcome = await recordMutate(storage, realRunner, repo, ws, record, 'patch', [encodeBeast2For(PatchType(type))(patch as never)], { actor: 'cli:test' });
     assert.strictEqual(outcome.kind, 'committed', `${ws}: ${record}: ${outcome.kind === 'failed' ? outcome.stderr : outcome.kind}`);
   }
 
-  /** Writes the seeded rows, then each of the issue's writes, then the reduce, calling `after` with the states after each. */
-  async function run(after: (what: string, ws: string, held: Record<string, string>) => Promise<void>): Promise<void> {
-    for (const { ws } of runtimes) {
+  /**
+   * Writes the seeded rows, then each of the issue's writes, then the reduce,
+   * into each runtime's workspace — or, sent whole, into its own beside it —
+   * calling `after` with the states after each.
+   */
+  async function run(after: (what: string, ws: string, held: Record<string, string>) => Promise<void>, way: Way = 'patch'): Promise<void> {
+    for (const runtime of runtimes) {
+      const ws = way === 'patch' ? runtime.ws : `${runtime.ws}-whole`;
       let rows = seeded();
-      for (const { name } of RECORDS) await write(ws, name as keyof Rows, new SortedMap([], compareFor(StringType)), rows[name as keyof Rows]);
-      await after('the seeded rows', ws, await state(ws));
+      for (const { name } of RECORDS) await write(ws, name as keyof Rows, new SortedMap([], compareFor(StringType)), rows[name as keyof Rows], way);
+      await after('the seeded rows', runtime.ws, await state(ws));
       for (const step of writes()) {
         const next = step.next(rows);
-        await write(ws, step.record, rows[step.record], next);
+        await write(ws, step.record, rows[step.record], next, way);
         rows = { ...rows, [step.record]: next };
-        await after(step.what, ws, await state(ws));
+        await after(step.what, runtime.ws, await state(ws));
       }
       const cleared = await recordMutate(storage, realRunner, repo, ws, 'machines', 'clear', [], { actor: 'cli:test' });
       assert.strictEqual(cleared.kind, 'committed', `${ws}: the reduce: ${cleared.kind === 'failed' ? cleared.stderr : cleared.kind}`);
-      await after('a reduce over every machine', ws, await state(ws));
+      await after('a reduce over every machine', runtime.ws, await state(ws));
     }
   }
 
@@ -413,6 +438,20 @@ describe('the nested series index on the real runners', () => {
       }
       assert.deepStrictEqual(await state(ws), maintained, `${ws}, after ${what}: maintained ≡ rebuilt`);
     });
+  });
+
+  it('maintains every index by each write\'s patch as comparing each row it updates whole does, after each write, hash for hash, on each runtime', async () => {
+    for (const { ws } of runtimes) {
+      await workspaceCreate(storage, repo, `${ws}-whole`);
+      await workspaceDeploy(storage, repo, `${ws}-whole`, `nested-${ws}`, '1.0.0', { runner: realRunner });
+    }
+    const byPatch = new Map<string, Record<string, string>>();
+    await run(async (what, ws, held) => {
+      byPatch.set(`${ws} after ${what}`, held);
+    });
+    await run(async (what, ws, whole) => {
+      assert.deepStrictEqual(byPatch.get(`${ws} after ${what}`), whole, `${ws}, after ${what}: by the patch ≡ whole`);
+    }, 'whole');
   });
 
   it('gives every row the same entries on every runtime, after each write, hash for hash', { skip: missing }, async () => {

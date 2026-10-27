@@ -9,8 +9,9 @@
  * words; a row's entries — its items filed by #1433's levels, its totals, its
  * items rolled up under every ancestor, and every parent's subtotals, checked
  * by hand; the lean rows the record's other indexes carry beside it; and how
- * a write keeps it — maintained equals rebuilt, byte for byte. That every
- * runtime files a row alike is e3-core's series spec.
+ * a write keeps it — by its patch where the patch can say what it touched,
+ * whole where it cannot, both one delta, and maintained equals rebuilt, byte
+ * for byte. That every runtime files a row alike is e3-core's series spec.
  *
  * Rows and entries are written as East prints them, and read by East's parser.
  */
@@ -28,7 +29,8 @@ import { buildMutationProgram, builtIndex, indexBuildProgram } from './record-pr
 import { functionAt } from './record-guards.js';
 import { mutation } from './mutation.js';
 import { package_ } from './package.js';
-import { patchesOf } from './record-patches.js';
+import { NestedPatchedType } from './record-nested-programs.js';
+import { patchTypeOf, patchesOf } from './record-patches.js';
 import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
 const series = recordIndex.series;
@@ -489,22 +491,44 @@ function emitted(def: RecordIndexDef, recordType: EastType, rows: unknown): [unk
   return out;
 }
 
-/** The delta a patch's program emits for a write from one state to another: each entry's target, its key there and its op. */
-function written(rec: RecordDef, patch: MutationDef, before: unknown, after: unknown): Array<{ target: string; key: unknown; op: variant<string, unknown> }> {
-  const diff = East.compile(patchesOf(rec.type).diff, []);
+/** The delta a patch's program emits for a write of a patch to a state: each entry's target, its key there and its op. */
+function written(rec: RecordDef, mut: MutationDef, before: unknown, patch: unknown): Array<{ target: string; key: unknown; op: variant<string, unknown> }> {
   const changes: Array<{ target: string; key: unknown; op: variant<string, unknown> }> = [];
-  const run = buildMutationProgram(rec, patch).compile([]);
-  run(before, diff(before as never, after as never), (key: variant<string, unknown>, op: variant<string, variant<string, unknown>>) => {
+  const run = buildMutationProgram(rec, mut).compile([]);
+  run(before, patch, (key: variant<string, unknown>, op: variant<string, variant<string, unknown>>) => {
     changes.push({ target: key.type, key: key.value, op: op.value });
     return null;
   });
   return changes;
 }
 
+/** The patch from one state to another, as a client's diff makes it: each row it updates by the row's own patch. */
+function diffOf(rec: RecordDef, before: unknown, after: unknown): unknown {
+  return East.compile(patchesOf(rec.type).diff, [])(before as never, after as never);
+}
+
+/**
+ * The same write with each row it updates replaced whole: the patch's `update`
+ * of a row a `replace` of it, before and after, which the index can only
+ * compare whole.
+ */
+function replacingRows(rec: RecordDef, before: unknown, after: unknown): unknown {
+  const patch = diffOf(rec, before, after) as variant<string, unknown>;
+  if (patch.type !== 'patch') return patch;
+  const { keyType } = entryOf(rec);
+  const held = before as SortedMap<unknown, unknown>;
+  const next = after as SortedMap<unknown, unknown>;
+  const ops = [...(patch.value as SortedMap<unknown, variant<string, unknown>>)].map(([key, op]): [unknown, unknown] =>
+    [key, op.type === 'update' ? variant('update', variant('replace', { before: held.get(key), after: next.get(key) })) : op]);
+  return variant('patch', new SortedMap(ops, compareFor(keyType)));
+}
+
 /**
  * Asserts a write keeps an index as a rebuild builds it: the write's ops for
  * the index, applied to its entries before, are its entries after, byte for
- * byte as e3 stores them — and returns the ops.
+ * byte as e3 stores them; and the same write with each row it updates
+ * replaced whole, which the index compares whole, gives the same ops — and
+ * returns the ops.
  */
 function maintainedIsRebuilt(rec: RecordDef, index: RecordIndexDef, before: unknown, after: unknown, what: string): SortedMap<unknown, variant<string, unknown>> {
   const patch = mutation.patch(rec as never);
@@ -512,13 +536,19 @@ function maintainedIsRebuilt(rec: RecordDef, index: RecordIndexDef, before: unkn
   const { keyType } = entryOf(rec);
   const entryKey = StructType({ ik: index.keyType, k: keyType });
   const collection = DictType(entryKey, index.valueType);
+  const opsType = patchTypeOf(collection);
+  if (opsType.type !== 'Variant') throw new Error(`a Dict's patch is a variant, not ${printType(opsType)}`);
+  const deltaType = opsType.cases.patch!;
+  const opsOf = (sent: unknown) => new SortedMap(written(assembled, patch, before, sent)
+    .filter((change) => change.target === index.name).map((change) => [change.key, change.op]) as never, compareFor(entryKey));
   const held = new SortedMap(emitted(index, rec.type, before) as never, compareFor(entryKey));
   const rebuilt = new SortedMap(emitted(index, rec.type, after) as never, compareFor(entryKey));
-  const ops = new SortedMap(written(assembled, patch, before, after)
-    .filter((change) => change.target === index.name).map((change) => [change.key, change.op]) as never, compareFor(entryKey));
+  const ops = opsOf(diffOf(rec, before, after));
   const apply = East.compile(patchesOf(collection).apply, []);
   const maintained = apply(held, variant('patch', ops));
   assert.deepEqual(encodeBeast2PagedFor(collection)(maintained as never), encodeBeast2PagedFor(collection)(rebuilt as never), `${what}: maintained is rebuilt`);
+  const print = printFor(deltaType);
+  assert.equal(print(opsOf(replacingRows(rec, before, after)) as never), print(ops as never), `${what}: by the patch, the delta compared whole`);
   return ops as SortedMap<unknown, variant<string, unknown>>;
 }
 
@@ -643,5 +673,117 @@ describe('e3.recordIndex.series, nested — through a write and a rebuild', () =
     maintainedIsRebuilt(rec, index, one, other, 'the jobs replaced');
     maintainedIsRebuilt(rec, index, state(Machines, {}), one, 'inserted from none');
     maintainedIsRebuilt(rec, index, one, state(Machines, {}), 'deleted to none');
+  });
+});
+
+// ── A write by its patch ─────────────────────────────────────────────────────
+
+/**
+ * What an index's write by its patch makes of a row: `whole` where it cannot
+ * say what the patch touched, or the entries it compares, before and after.
+ */
+function byPatch(index: RecordIndexDef, key: string, held: unknown, next: unknown, patch?: unknown): variant<string, unknown> {
+  const { keyType, rowType } = entryOf(index.record);
+  const nested = index.nested;
+  if (nested === undefined) throw new Error(`'${index.name}' is no nested series index`);
+  const entriesType = DictType(index.keyType, index.valueType);
+  const run = East.compile(functionAt(nested.byPatch, [keyType, rowType, rowType, patchTypeOf(rowType)], NestedPatchedType(entriesType)), []);
+  const sent = patch ?? East.compile(patchesOf(rowType).diff, [])(held as never, next as never);
+  return run(key, held, next, sent) as variant<string, unknown>;
+}
+
+/** Asserts a write by its patch compared the entries expected, before and after, each Dict written as East prints one. */
+function assertCompared(index: RecordIndexDef, compared: variant<string, unknown>, before: string, after: string): void {
+  assert.equal(compared.type, 'changed', 'by the patch');
+  const both = compared.value as { before: unknown; after: unknown };
+  const entriesType = DictType(index.keyType, index.valueType);
+  assertEast(entriesType, both.before, parsed(entriesType, before), 'the entries before');
+  assertEast(entriesType, both.after, parsed(entriesType, after), 'the entries after');
+}
+
+describe('e3.recordIndex.series, nested — a write by its patch', () => {
+  const OCT_2 = '2026-10-02T06:00:00.000';
+  const OCT_2_NIGHT = '2026-10-02T14:00:00.000';
+  const NOV_3 = '2026-11-03T06:00:00.000';
+  const NOV_3_NIGHT = '2026-11-03T14:00:00.000';
+
+  it('compares only the items the patch names, and the totals of the tiles they touch', () => {
+    const index = machinesInTime(machines());
+    const others = { 'j-2': job('2026-10-12T06:00:00.000'), 'j-3': job('2026-12-01T06:00:00.000') };
+    const load = { '2026-10-05T00:00:00.000': 0.82 };
+    const held = parsed(Machine, machine({ 'j-1': job(OCT_2, OCT_2_NIGHT), ...others }, load));
+    const next = parsed(Machine, machine({ 'j-1': job(NOV_3, NOV_3_NIGHT), ...others }, load));
+    assertCompared(index, byPatch(index, 'M-7', held, next), `{
+      (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.items, level=.week, tile=2026-09-28T00:00:00.000, item=.id "j-1"):
+        .item .jobs ${job(OCT_2, OCT_2_NIGHT)},
+      (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none):
+        .totals (count=2, ms=28800000, values=.none)
+    }`, `{
+      (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.items, level=.week, tile=2026-11-02T00:00:00.000, item=.id "j-1"):
+        .item .jobs ${job(NOV_3, NOV_3_NIGHT)},
+      (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none):
+        .totals (count=1, ms=0, values=.none),
+      (collection=.step (key="jobs", rest=.end), row="M-7", path=.end, run=.totals, level=.month, tile=2026-11-01T00:00:00.000, item=.none):
+        .totals (count=1, ms=28800000, values=.none)
+    }`);
+  });
+
+  it('compares a member\'s value, its members\' totals of its month and its hall\'s subtotals, and no other member\'s value', () => {
+    const index = hallsInTime(halls());
+    const hall = (load: string) => parsed(Hall,
+      `(name="Hall 1", site="North", members={"m-3":(name="Ada", load={2026-10-05T00:00:00.000:${load}}), "m-4":(name="Bo", load={2026-10-05T00:00:00.000:0.6})})`);
+    const member = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key="m-3", rest=.end)';
+    const other = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key="m-4", rest=.end)';
+    const parent = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.end, run=.subtotals (fold=.mean, aggregate=.mean)';
+    const entries = (load: number) => `{
+      ${member}, run=.items, level=.day, tile=2026-10-05T00:00:00.000, item=.at 2026-10-05T00:00:00.000): .item .members .load ${load},
+      ${member}, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none):
+        .totals (count=1, ms=0, values=.some (sum=${load}, min=${load}, max=${load}, last=${load})),
+      ${other}, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none):
+        .totals (count=1, ms=0, values=.some (sum=0.6, min=0.6, max=0.6, last=0.6)),
+      ${parent}, level=.day, tile=2026-10-05T00:00:00.000, item=.none): .subtotal ${(load + 0.6) / 2},
+      ${parent}, level=.week, tile=2026-10-05T00:00:00.000, item=.none): .subtotal ${(load + 0.6) / 2},
+      ${parent}, level=.month, tile=2026-10-01T00:00:00.000, item=.none): .subtotal ${(load + 0.6) / 2},
+      ${parent}, level=.quarter, tile=2026-10-01T00:00:00.000, item=.none): .subtotal ${(load + 0.6) / 2},
+      ${parent}, level=.year, tile=2026-01-01T00:00:00.000, item=.none): .subtotal ${(load + 0.6) / 2}
+    }`;
+    assertCompared(index, byPatch(index, 'H1', hall('0.82'), hall('0.7')), entries(0.82), entries(0.7));
+  });
+
+  it('compares a child row inserted whole, beside what else its patch names', () => {
+    const index = assembliesInTime(assemblies());
+    const held = parsed(Assembly, `(name="Assembly 1", parts={"p1":(name="p1", jobs={"j-1":${job(OCT_2, OCT_2_NIGHT)}}, parts={:})})`);
+    const next = parsed(Assembly, `(name="Assembly 1", parts={"p1":(name="p1", jobs={"j-1":${job(OCT_2, OCT_2_NIGHT)}}, parts={:}), ` +
+      `"p2":(name="p2", jobs={:}, parts={"p2.1":(name="p2.1", jobs={"j-7":${job(NOV_3, NOV_3_NIGHT)}}, parts={:})})})`);
+    const compared = byPatch(index, 'A-1', held, next);
+    assert.equal(compared.type, 'changed', 'by the patch');
+    const both = compared.value as { before: SortedMap<unknown, unknown>; after: SortedMap<unknown, unknown> };
+    const jobsOf = (all: SortedMap<unknown, unknown>) => [...all.keys()].flatMap((key) => {
+      const item = (key as { item: variant<string, unknown> }).item;
+      return item.type === 'none' ? [] : [printFor(index.keyType)(key as never)];
+    });
+    assert.deepEqual(jobsOf(both.before), [], 'no item compared before: p1\'s j-1 is not touched');
+    const after = jobsOf(both.after);
+    assert.equal(after.length, 3, `j-7 under p2.1, and under p2 and the row in the subtree: ${after.join('; ')}`);
+    assert.ok(after.every((key) => key.includes('"j-7"')), 'only j-7');
+  });
+
+  it('leaves the row to be compared whole where a replace is on the way, as a recursive child row\'s change always is', () => {
+    const machinesIndex = machinesInTime(machines());
+    const one = parsed(Machine, machine({ 'j-1': job(OCT_2, OCT_2_NIGHT) }));
+    const other = parsed(Machine, machine({ 'j-2': job(NOV_3, NOV_3_NIGHT) }));
+    assert.equal(byPatch(machinesIndex, 'M-7', one, other, variant('replace', { before: one, after: other })).type, 'whole', 'the row replaced');
+    assert.equal(byPatch(machinesIndex, 'M-7', one, other).type, 'whole', 'its jobs replaced, none of their keys kept');
+    const assembliesIndex = assembliesInTime(assemblies());
+    const assembly = (start: string, end: string) =>
+      parsed(Assembly, `(name="Assembly 1", parts={"p1":(name="p1", jobs={:}, parts={"p1.2":(name="p1.2", jobs={"j-9":${job(start, end)}}, parts={:})})})`);
+    assert.equal(byPatch(assembliesIndex, 'A-1', assembly(OCT_2, OCT_2_NIGHT), assembly(NOV_3, NOV_3_NIGHT)).type, 'whole',
+      'a part\'s job moved: East patches a part only whole');
+  });
+
+  it('compares nothing where the patch names none of what the index files', () => {
+    const index = machinesInTime(machines());
+    const jobs = { 'j-1': job(OCT_2, OCT_2_NIGHT) };
+    assertCompared(index, byPatch(index, 'M-7', parsed(Machine, machine(jobs)), parsed(Machine, machine(jobs, {}, 'down'))), '{:}', '{:}');
   });
 });

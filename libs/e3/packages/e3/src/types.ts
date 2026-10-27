@@ -352,17 +352,21 @@ export interface RecordIndexDef<
   readonly summary?: { readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
   /** What a nested series index files (#1434): every collection the record's
    *  rows nest, as written; its tile and summary tile; its declaration as an
-   *  East value, the field names as data, which the binding reads (#1435); and
-   *  the lean row, `(K, V) -> V`, which the record's other indexes carry beside
-   *  it in place of none or the row (`builtIndex`). Its key is e3-types'
-   *  `NestedEntryKeyType`, its value `NestedEntryType`, and its {@link keyFn}
-   *  a row's entries, `(K, V) -> Dict<IK, P>`. */
+   *  East value, the field names as data, which the binding reads (#1435); the
+   *  lean row, `(K, V) -> V`, which the record's other indexes carry beside it
+   *  in place of none or the row (`builtIndex`); and a write's entries by its
+   *  patch, `(K, V, V, Patch) -> Variant<{ whole, changed: { before, after } }>`,
+   *  given the row before and after and the patch between them, which a write
+   *  maintains the index by where the patch can say what it touched. Its key
+   *  is e3-types' `NestedEntryKeyType`, its value `NestedEntryType`, and its
+   *  {@link keyFn} a row's entries, `(K, V) -> Dict<IK, P>`. */
   readonly nested?: {
     readonly collections: unknown;
     readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year';
     readonly summary: 'day' | 'week' | 'month' | 'quarter' | 'year' | undefined;
     readonly declaration: RecordNestedDecl;
     readonly lean: { toIR(): unknown };
+    readonly byPatch: { toIR(): unknown };
   } | undefined;
   /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi} — or, for a
    *  summary, `(K, V) -> Dict<IK, Totals>`, and for a nested series index a
