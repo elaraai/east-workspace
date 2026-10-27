@@ -650,6 +650,57 @@ describe("the presses narrowed by hall through their source of the rail (#1424)"
     });
 });
 
+describe("the footer's one loading line over the paged presses and their jobs' cells (retest C7, 27 Oct 2026)", () => {
+    /** The presses' windows, and the jobs' cells of the presses in view: the two waits a jump to presses not read yet makes. */
+    const pressPages = (request: E3Request) => request.dataset === HALL_PRESSES && request.kind === "page";
+    const jobCells = (request: E3Request) => request.dataset === JOBS && (request.query.get("index") ?? undefined) === SERIES.name;
+    const busy = (c: HTMLElement) => slot(c, "main").getAttribute("aria-busy");
+    /**
+     * A jump's two waits, each held in turn: its presses' windows, which the line says by their places, then — the
+     * presses drawn, their plots washed — the jobs' cells of those in view, which it says by their events; main busy
+     * through both, and the line idle once the cells land.
+     */
+    async function waits(c: HTMLElement, jump: () => Promise<void>, places: string) {
+        await waitFor(() => expect(loadingLine(c).hasAttribute("data-idle")).toBe(true));
+        const presses = h.e3.hold(pressPages);
+        const cells = h.e3.hold(jobCells);
+        await jump();
+        await presses.holding;
+        await waitFor(() => expect(loadingLine(c).textContent).toMatch(new RegExp(`^Loading presses ${places}`)));
+        expect(busy(c)).toBe("true");
+        await act(async () => { presses.release(); });
+        await cells.holding;
+        await settle();
+        await waitFor(() => expect(loadingLine(c).textContent).toMatch(/^Loading print job events…/));
+        expect(busy(c)).toBe("true");
+        await act(async () => { cells.release(); });
+        await settle();
+        await waitFor(() => expect(loadingLine(c).hasAttribute("data-idle")).toBe(true), { timeout: 10_000 });
+        expect(busy(c)).toBe("false");
+    }
+
+    test("a jump of the timeline's rows to presses not read yet: the footer's line says their places — `Loading presses 1,801–2,000` — then, the presses drawn, their jobs' cells — `Loading print job events…` — main busy until they land", async () => {
+        const { container: c } = await h.mount(cw.calendarWindowsByHall, { storageKey: "windows-line-rows" });
+        await settle();
+        // Nine tenths of the way down: the 1,851st press, in the last window of two hundred.
+        await waits(c, () => scrollTimeline(c, { top: lineOf(1850) }), "1,801–2,000");
+        expect(pressRows(c)).toContain(`Press ${pressAt(1850).slice(2)}`);
+    });
+
+    test("a jump of the Resources view's columns to presses not read yet: the footer's line says their places — `Loading presses 1,401–1,600` — then their jobs' cells, main busy until they land", async () => {
+        const { container: c } = await h.mount(cw.calendarWindowsByHall, { storageKey: "windows-line-columns" });
+        await settle();
+        await press(c, "radio", "Resources");
+        const grid = c.querySelector<HTMLElement>("[data-calendar-time-grid]")!;
+        // Three quarters of the way along: the 1,501st press's column, in the eighth window of two hundred — its columns
+        // reported once the view's scroll has rested a moment.
+        await waits(c, async () => {
+            await act(async () => { grid.scrollLeft = 1500 * RESOURCE_COLUMN; fireEvent.scroll(grid); });
+            await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); });
+        }, "1,401–1,600");
+    });
+});
+
 describe("Search Records over the presses narrowed by hall (#1398)", () => {
     /** Search Records' box, in the toolbar's row. */
     const searchBox = (c: HTMLElement) => slot(c, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search']")!;
