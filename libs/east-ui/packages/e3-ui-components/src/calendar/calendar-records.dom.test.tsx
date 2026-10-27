@@ -33,6 +33,7 @@ import { SEARCH_DELAY_MS } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
 import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
+import { setOverlapsProbe } from "../shared/schedule/overlaps.js";
 import { DAY, eventKey, parseEventKey } from "./model.js";
 import { TIMELINE_GUTTER, timelineDays, timelinePixels } from "./timeline.js";
 import { setBookedProbe, setEventBlockRenderProbe } from "./views.js";
@@ -631,6 +632,23 @@ describe("the timeline draws only what moves (#1398, CL9)", () => {
             expect(summed).toBe(0);
         } finally {
             setBookedProbe(undefined);
+        }
+    });
+
+    test("a day crossed reads the overlaps in the days the view shows off their pairs indexed by day, made once a read: it examines no pair outside those days and prints no event's key", async () => {
+        const { container, timeline } = await openTimeline("month", "overlaps-by-day");
+        expect(slot(container, "toolbar").querySelector("[data-calendar-overlaps]")?.getAttribute("aria-label")).toMatch(/^\d+ overlaps$/);
+        // A day on: the overlaps of the read have been read over the days shown already.
+        await scrollTo(timeline, timeline.scrollLeft + timelinePixels("month"));
+        const did = { inside: 0, outside: 0, printed: 0 };
+        setOverlapsProbe(what => { did[what] += 1; });
+        try {
+            for (let day = 0; day < 4; day++) await scrollTo(timeline, timeline.scrollLeft + timelinePixels("month"));
+            // What the chip, the View's words and the inspector count was examined — those pairs alone, their keys printed before.
+            expect(did.inside).toBeGreaterThan(0);
+            expect({ outside: did.outside, printed: did.printed }).toEqual({ outside: 0, printed: 0 });
+        } finally {
+            setOverlapsProbe(undefined);
         }
     });
 });

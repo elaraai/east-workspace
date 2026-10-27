@@ -78,6 +78,21 @@ const compareString = compareFor(StringType);
 const compareResource = compareFor(ScheduleResourceRefType);
 const printEvent = printFor(ScheduleEventRefType);
 
+/**
+ * Test-only probe — lets "a span's overlaps are read off their pairs indexed by day" be asserted as what reading them
+ * does (#1398, CL9): each pair examined, inside the span or outside it, and each event's key printed. `undefined`
+ * outside tests.
+ */
+let overlapsProbe: ((did: "inside" | "outside" | "printed") => void) | undefined;
+/**
+ * Install (or clear) the overlaps probe. Test use only.
+ *
+ * @param fn - Called with what a read of the overlaps did — a pair examined, inside its span or outside it, or an event's key printed; `undefined` clears it
+ */
+export function setOverlapsProbe(fn: ((did: "inside" | "outside" | "printed") => void) | undefined): void {
+    overlapsProbe = fn;
+}
+
 /** Earliest first: by start, then by key. */
 function byStart<I extends ScheduleItemValue>(a: Spanned<I>, b: Spanned<I>): number {
     return compareDateTime(a.start, b.start) || compareString(a.ref, b.ref);
@@ -91,6 +106,7 @@ function byStart<I extends ScheduleItemValue>(a: Spanned<I>, b: Spanned<I>): num
  * @returns Its key
  */
 export function scheduleEventKey(item: ScheduleItemValue): string {
+    overlapsProbe?.("printed");
     return printEvent({ kind: item.kind, key: item.key });
 }
 
@@ -153,7 +169,9 @@ export function scheduleOverlaps<I extends ScheduleItemValue>(groups: Iterable<r
  * @returns Whether they overlap within it
  */
 export function scheduleOverlapMeets(pair: ScheduleOverlapPair<ScheduleItemValue>, from: Date, to: Date): boolean {
-    return compareDateTime(pair.from, to) < 0 && compareDateTime(pair.to, from) > 0;
+    const meets = compareDateTime(pair.from, to) < 0 && compareDateTime(pair.to, from) > 0;
+    overlapsProbe?.(meets ? "inside" : "outside");
+    return meets;
 }
 
 /**
