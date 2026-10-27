@@ -529,6 +529,21 @@ Each wire changed under this rule, with the kind it is.
   re-exported, and the dataflow computes each UI task's output again under the
   new type. A UI task's output is not stored state, so no repository upgrade
   step ships with it.
+- **e3-ui's `Plan` reads its rows' collections by name, and a table's values
+  take typed numbers (#1436)** — package-borne. `Plan.Types.Drop` gains `id`,
+  after its other fields: the new item's id, which the renderer mints as the
+  card lands and the series puts the item into its collection under.
+  `Plan.Types.Gesture` gains the case `value` (`Plan.Types.ValueEdit`: the
+  row, the table position, the bucket's start and the number typed, or `none`
+  for a cleared cell), which sorts after `drop` and `move`, so their tags are
+  kept. `Plan.Types.RowEdits` gains `values`, after `move`: the table
+  positions whose values take a typed number. Each travels in the `Plan`
+  extension's payload — a drop, a row's edits, and each editable series'
+  write, which takes the gesture — so a UI value encoded under either type
+  does not decode under the other: packages are re-exported, and the
+  dataflow computes each UI task's output again under the new type. A UI
+  task's output is not stored state, so no repository upgrade step ships with
+  it.
 - **e3's generated index keys nest the row's fields under `on`, e3's parts
   beside them (#1432)** — package-borne. An interval index's key is
   `{ on, node, at }`, an area index's `{ on, area }`, and a series or a
