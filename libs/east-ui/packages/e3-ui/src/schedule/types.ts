@@ -506,6 +506,7 @@ export type PlanEventRolesType = typeof PlanEventRolesType;
  * @property planItems - Its events overlapping `[from, to)` as Plan draws them, as `items` reads them: the drafts in place, from the entries a reader read by its cells when it is given them, else over the window; `none` while a read is in flight
  * @property planUnscheduled - Its backlog as Plan draws it, as `unscheduled` reads it
  * @property planEvent - One event by its key's text, the drafts in place (#1197): as Plan draws it, and its row, as `event` reads it; `none` when there is no such event
+ * @property planRows - Its events' rows over `[from, to)` and its backlog's beside them, by key, the drafts in place, read once (#1409, R24): beast2 of `DictType(keyType, rowType)`, the record's own key and row types — the reads `planEvent` finds one row in, so a run's request finds every event's row there rather than reading them all again an event; `none` while a read is in flight. It reads the window, never a reader's cells: a kind read by its cells carries no request
  * @property inspector - Its own inspector for one event (PB60, #1197): the event's row and a writer of the edited row, as bytes, to what the inspector shows in place of the kind's form; `none`, the form
  */
 export const PlanEventKindType = StructType({
@@ -517,6 +518,7 @@ export const PlanEventKindType = StructType({
     planItems: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType))),
     planUnscheduled: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType))),
     planEvent: FunctionType([StringType, ScheduleDraftsType, DateTimeType, DateTimeType, OptionType(OptionType(BlobType))], OptionType(PlanEventReadType)),
+    planRows: FunctionType([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(BlobType)),
     inspector: OptionType(RowInspectorType),
 });
 

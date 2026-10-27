@@ -664,9 +664,10 @@ export function usePlanCanvas({
     // The eye and its parts (#1409): the window's label is the period. The eye is listed only where the window can be
     // optimised (ruled 25 Oct 2026) — event kinds on a time axis; it waits, disabled, while the kinds' rows are read.
     const periodName = planWindow === undefined ? "" : format.range(planWindow.from, new Date(planWindow.to.getTime() - 1));
-    // What a run's request reads (R24, #1039): every kind's events in the window, its backlog and each event's row — held
-    // among the rows the canvas reads over its range, which the eye waits for, so no row is read by its key and the eye
-    // asks e3 for windows alone, whatever the number of events. The eye waits while one is on its way, and stays disabled
+    // What a run's request reads (R24, #1039): every kind's events in the window, its backlog and each event's row — the
+    // kind's rows over the range the canvas reads, read once a kind and found there by key, which the eye waits for, so no
+    // row is read by its key and the eye asks e3 for windows alone, whatever the number of events, and the click's work
+    // grows with the events plus the rows. The eye waits while one is on its way, and stays disabled
     // for a window no request carries whole — a kind past the cap over it, or read by its cells — never sending a run the
     // events it was not shown. Read only while an optimiser is bound, in a component of its own (`PlanOptimiseReader`, in
     // `provide`), which hands the canvas whether the request can be made only as that moves: the read lands in as many
@@ -677,7 +678,7 @@ export function usePlanCanvas({
         run, landing, period: periodName,
         readOnly: kinds.length === 0 || planWindow === undefined,
         busy: readLead === undefined || lead.error !== undefined || frameBusy || !requestHeld,
-        request: (n) => planOptimiseRequest(latestOptimise.current.kinds, latestOptimise.current.resources, latestOptimise.current.eventEditing, planWindow!, n),
+        request: (n) => planOptimiseRequest(latestOptimise.current.kinds, latestOptimise.current.resources, latestOptimise.current.eventEditing, planWindow!, eventRange!, n),
         landKey: lead,
     });
     landAfter.current = optimiseParts.landAfter;

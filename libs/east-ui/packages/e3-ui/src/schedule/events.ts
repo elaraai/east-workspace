@@ -1414,6 +1414,53 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             });
         return { items, unscheduled, event };
     };
+    /**
+     * A kind's events' rows over a window and its backlog's beside them, by key, the drafts in place, read once (#1409,
+     * R24): the reads `event` finds one row in — the window's rows, then the backlog's where it is read apart from them —
+     * as the record's own Dict's bytes, so a run's request finds every event's row there rather than reading them all
+     * again an event. `none` while a read is in flight. It reads the window, never a reader's cells: a kind read by them
+     * carries no request.
+     */
+    const rowsOver = (reads: Reads) => {
+        // A backlog read apart from the window's rows — a backlog index's, beside a day index — is read beside them; one
+        // read through the kind's source is read with them, and a record read whole holds it already.
+        const apart = reads.backlog !== undefined && !Object.is(reads.backlog, reads.days) && !reads.pagedBacklog;
+        // The entries held, the drafts in place, as the record's own Dict, by key: its bytes.
+        const heldBytes = East.function([ArrayType(EntryRowType)], BlobType, ($, entries) => {
+            const out = $.let(new Map(), HeldType);
+            $.for(entries, ($2, entry) => { $2(out.insert(entry.key as never, entry.row as never)); });
+            return East.Blob.encodeBeast(out, "v2");
+        });
+        return East.function([DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(BlobType), ($, from, to, drafts) => {
+            const inPlace = $.const(reads.withDrafts as unknown as ExprType<FunctionType<[DictType<EastType, EastType>, typeof ScheduleDraftsType], ArrayType<typeof EntryRowType>>>);
+            const bytesOf = $.const(heldBytes);
+            const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
+            let read: ExprType<OptionType<DictType<EastType, EastType>>>;
+            if (reads.days === undefined) {
+                read = $.let(East.value(some(readAll()), OptionType(HeldType)));
+            } else {
+                const days = $.const(reads.days);
+                read = $.let(days(from, to));
+            }
+            $.match(read, {
+                some: ($2, rows) => {
+                    if (!apart) {
+                        $2.assign(result, East.value(some(bytesOf(inPlace(rows, drafts))), OptionType(BlobType)));
+                        return;
+                    }
+                    const backlog = $2.const(reads.backlog!);
+                    $2.match(backlog(from, to), {
+                        some: ($3, more) => {
+                            const all = $3.let(rows.copy());
+                            $3(all.unionInPlace(more, (_$4, held) => held));
+                            $3.assign(result, East.value(some(bytesOf(inPlace(all, drafts))), OptionType(BlobType)));
+                        },
+                    });
+                },
+            });
+            return result;
+        });
+    };
     // The `.east` text of the value the resource field holds for a resource, or for none: what a series or a summary
     // index of the record files the resource's events under (#1039), the key a reader's cells search for.
     const seriesKey = East.function([RefOption], OptionType(StringType), ($, ref) => {
@@ -1884,6 +1931,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 planItems: plan.items,
                 planUnscheduled: plan.unscheduled,
                 planEvent: plan.event,
+                // Every event's row at once, for a run's request (#1409, R24): read once, never once an event.
+                planRows: rowsOver(parts.reads),
                 inspector: inspector === undefined ? East.value(none, OptionType(RowInspectorType)) : East.value(some(inspector), OptionType(RowInspectorType)),
             } as never, PlanEventKindType);
         },

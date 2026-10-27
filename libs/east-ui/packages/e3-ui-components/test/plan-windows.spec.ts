@@ -22,7 +22,9 @@
  * - one event by its key (`planEvent`): first among the rows the windows hold
  *   over the canvas's range and the backlog's, with no read of its own, then
  *   through the record's own entries — its key sought, then a one-row page —
- *   a draft read as drafted with no read at all; and the kind's editing over
+ *   a draft read as drafted with no read at all; every event's row over the
+ *   range and the backlog's at once (`planRows`, #1409), from the windows
+ *   alone, none by its key; and the kind's editing over
  *   the record's revision: no snapshot, an entry read by its key, the
  *   record's revision and its largest key;
  * - a resource kind over a paged read of its resources, as the windows example
@@ -48,7 +50,7 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BlobType, DateTimeType, East, Expr, IntegerType, OptionType, SortedMap, StringType,
+    ArrayType, BlobType, DateTimeType, DictType, East, Expr, IntegerType, OptionType, SortedMap, StringType,
     compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
     type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
@@ -363,6 +365,25 @@ describe("one event by its key, never the record whole (#1199)", () => {
         assert.equal(read("W-0999")().type, "none", "a key the record does not hold");
         assert.deepEqual(sought(JOBS).map((request) => request.query.getAll("key")), [[printKey("W-0014")], [printKey("W-0999")]]);
         assert.deepEqual(pagesOf(JOBS), [["13", "1"]], "no page for it");
+    });
+
+    test("every event's row over the range and the backlog's, read at once — by key, the drafts in place — from the days' window and the backlog's alone, none by its key: where a run's request finds each event's row (#1409, R24)", async () => {
+        const jobs = await kindOf(windowedJobs);
+        const Rows = DictType(StringType, PrintJob);
+        const rowsOf = async (drafts = NO_DRAFTS) => decodeBeast2For(Rows)(await h.ready(() => jobs.planRows(FROM, TO, drafts)));
+        const held = await heldJobs();
+        const rows = await rowsOf();
+        // The jobs filed under the range's days and the backlog's, each as e3 holds it.
+        assert.deepEqual([...rows.keys()], ["W-0004", "W-0009", "W-0011", "W-0017", "W-0018", "W-0019", "W-0020"]);
+        assert.deepEqual([...rows].filter(([key, job]) => !jobEqual(job, held.get(key)!)).map(([key]) => key), []);
+        // Through the day index and the backlog index alone: no search of the record's own entries, no one-row page,
+        // never the record whole.
+        assert.deepEqual([sought(JOBS).length, pagesOf(JOBS).length, wholeReads(JOBS)], [0, 0, 0]);
+        // The drafts in place: one moved into the range there, one deleted gone.
+        const into = { ...held.get("W-0014")!, start: some(at("2026-10-08T06:00:00Z")), end: some(at("2026-10-08T08:00:00Z")) };
+        const drafted = await rowsOf(draftsOf([["W-0014", jobDraft(variant("value", into))], ["W-0011", jobDraft(variant("missing", null))]]));
+        assert.deepEqual([...drafted.keys()], ["W-0004", "W-0009", "W-0014", "W-0017", "W-0018", "W-0019", "W-0020"]);
+        assert.ok(jobEqual(drafted.get("W-0014")!, into));
     });
 
     test("a drafted event reads as drafted, and a deleted one as none, with no read at all", async () => {
