@@ -38,6 +38,15 @@ export type TrackedResult<T> = { ok: true; value: T } | { ok: false; error: unkn
  * Errors thrown by `fn` are captured (with the dependencies read up to the
  * throw, so the evaluation re-runs when they change) rather than propagated.
  *
+ * An evaluation runs once a change of what it read: its result is held while
+ * the keys it read keep the versions they had as it ran, so the render that
+ * re-keys the subscription after it reads a key it had not — a paged reader
+ * walking on to its next window — evaluates nothing again. A key it had read
+ * before that moved while it ran holds nothing; one it read for the first time
+ * is held at its version once it is done, as no tracker moves a key while it
+ * is read (the paging runtime's launch, the channel stores' and the dataset
+ * cache's notifications all come after the read).
+ *
  * @param fn - The closure to evaluate — memoise it (`useCallback`) so the
  *   evaluation is not redone every host render.
  * @returns The current {@link TrackedResult} plus the dependency-version
@@ -60,6 +69,21 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
     // signature is what re-keys `subscribe` when the set actually moves.
     const depsSigRef = useRef<string>("");
     const [depsSig, setDepsSig] = useState("");
+    // The last evaluation: the versions of the keys it read as it ran — none while one it had read before moved meanwhile
+    // — and the snapshot it ran at, which keys its result while those versions hold.
+    const ranRef = useRef<{ readonly read: string | undefined; readonly at: string } | undefined>(undefined);
+
+    // The versions of a set of keys now, across the trackers: a snapshot of them.
+    const versionsOf = useCallback((deps: ReadonlyMap<string, string[]>): string => {
+        const parts: string[] = [];
+        for (const t of trackers) {
+            const store = t.getStore();
+            if (!store) continue;
+            const keys = deps.get(t.id) ?? [];
+            parts.push(keys.map(k => `${t.id}:${k}:${store.getKeyVersion(k)}`).join(","));
+        }
+        return parts.join("|");
+    }, [trackers]);
 
     // Execute fn with dependency tracking for all registered trackers.
     // Returns either a successful result or an error to display.
@@ -108,22 +132,25 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
     }, [trackers, depsSig]);
 
     // Snapshot based on our dependencies' versions across all trackers
-    const getSnapshot = useCallback(() => {
-        const parts: string[] = [];
-        for (const t of trackers) {
-            const store = t.getStore();
-            if (!store) continue;
-            const keys = depsRef.current.get(t.id) ?? [];
-            parts.push(keys.map(k => `${t.id}:${k}:${store.getKeyVersion(k)}`).join(","));
-        }
-        return parts.join("|");
-    }, [trackers]);
+    const getSnapshot = useCallback(() => versionsOf(depsRef.current), [versionsOf]);
 
     const snapshot = useSyncExternalStore(subscribe, getSnapshot);
 
+    // What the result is keyed on: the snapshot the last evaluation ran at, while the keys it read keep the versions they
+    // had as it ran — the render that re-keys the subscription reads them over a key set of its own, the same versions —
+    // else the snapshot now.
+    const ran = ranRef.current;
+    const at = ran !== undefined && ran.read === snapshot ? ran.at : snapshot;
+
     // trackersVersion forces re-evaluation when trackers change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const result = useMemo(() => executeWithTracking(), [executeWithTracking, snapshot, trackersVersion]);
+    const result = useMemo(() => {
+        const before = depsRef.current;
+        const held = versionsOf(before);
+        const next = executeWithTracking();
+        ranRef.current = { read: versionsOf(before) === held ? versionsOf(depsRef.current) : undefined, at };
+        return next;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [executeWithTracking, versionsOf, at, trackersVersion]);
 
     // Publish the key set the evaluation just read, so `subscribe` re-keys and
     // covers a newly-discovered key. Set DURING RENDER (React's documented
@@ -134,7 +161,7 @@ export function useTrackedEvaluation<T>(fn: () => T): { result: TrackedResult<T>
     // dependency-set change, none once the set settles.
     if (depsSigRef.current !== depsSig) setDepsSig(depsSigRef.current);
 
-    return { result, snapshot };
+    return { result, snapshot: at };
 }
 
 /** A stable signature of the key set an evaluation read, per tracker. Order is
