@@ -32,14 +32,17 @@ import { rowId, rowKey, testKeyOf } from "../plan.test-utils.js";
 
 const ROW_PX = 32;
 
-/** One paged block's rows (#823) — a data series' share of a window. */
-function paged(rows: PlanWireRow[], parent?: string): PlanWireBlock {
-    return { fixed: false, parent: parent !== undefined ? some(rowId(parent)) : none, rows } as unknown as PlanWireBlock;
+/** One paged block's rows (#823) — a data series' share of a window, each entry making `charts` chart rows where it
+ *  says so (#1398). */
+function paged(rows: PlanWireRow[], parent?: string, charts?: bigint): PlanWireBlock {
+    return {
+        fixed: false, parent: parent !== undefined ? some(rowId(parent)) : none, charts: charts !== undefined ? some(charts) : none, rows,
+    } as unknown as PlanWireBlock;
 }
 
 /** A fixed block — rows no entry produces, the same in every window. */
 function fixed(rows: PlanWireRow[]): PlanWireBlock {
-    return { fixed: true, parent: none, rows } as unknown as PlanWireBlock;
+    return { fixed: true, parent: none, charts: none, rows } as unknown as PlanWireBlock;
 }
 
 /** A skeleton carrying what these tests measure by — a row count. The model's
@@ -1163,6 +1166,19 @@ describe("paging driver — blocks page apart (#823)", () => {
         // at the rate window 0 drew (2 rows × 32px over 200 elements, floored
         // at 1px per element) — the header is in none of them.
         expect(tail(snap(), 1)!.px).toBe(47 * 200);
+    });
+
+    test("each paged block says what each entry makes of chart rows, as its shape says it; a fixed block says nothing (#1398)", () => {
+        const value = {
+            id: "charted",
+            page: () => some([fixed([wire("hdr")]), paged([wire("a")], undefined, 2n), paged([wire("b")])]),
+            total: () => some(BigInt(PLAN_PAGE_SIZE)),
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        } as unknown as PlanPagedSourceValue;
+        const { snap } = drive(value);
+        expect(snap().blocks.map((b) => b.charts)).toEqual([undefined, 2, undefined]);
     });
 
     test("an unvisited window is estimated at the REST rate, a visited one at what it draws now", () => {

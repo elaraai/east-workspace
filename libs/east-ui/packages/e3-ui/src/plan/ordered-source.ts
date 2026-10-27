@@ -23,7 +23,7 @@ type Ordered = Extract<ResolvedRowSource, { kind: "ordered" }>;
  * source (#1344).
  */
 export const planIndexOrder = East.function([PlanBlocksType, ArrayType(StringType)], PlanBlocksType, (_$, blocks, ids) => blocks.map((_$2, block) => ({
-    fixed: block.fixed, parent: block.parent, rows: block.fixed.ifElse(() => block.rows, ($3) => {
+    fixed: block.fixed, parent: block.parent, charts: block.charts, rows: block.fixed.ifElse(() => block.rows, ($3) => {
         const grouped = $3.const(block.rows.groupToArrays((_$4, r) => r.id.match({
             entry: (_$5, id) => id.path.get(0n), section: (_$5, id) => id.path.get(0n),
         })));

@@ -30,7 +30,9 @@
  *   payload's `paged` — the kind's place in the event kinds' blocks, the events
  *   placed on its resources, a window of them as one paged block, its key
  *   search and its size — its rows never read whole, and one resource read by
- *   its key;
+ *   its key; and what a window's block says each resource makes of chart rows
+ *   (#1398): its chart measures the viewer shows, and none while one's `match`
+ *   decides by resource;
  * - a kind's window counted first, and read only within the 10,000 events a
  *   Plan draws (#1039): a kind read whole counted in memory, one read through
  *   its source through its interval index — the count its read asks first —
@@ -57,7 +59,7 @@ import { datasetGetStatus } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
 import { Data, Plan, PlanEventReadsType, PlanEventShadingType, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
-import { PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PrintJob, PrintPress } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { E3Request } from "../src/e3-web.test-utils.js";
 import { datasetPathToString } from "../src/platform/dataset-store.js";
 import { e3Spec } from "./fixtures/e3.js";
@@ -424,13 +426,40 @@ describe("a resource kind paged on the canvas (PB55)", () => {
             events: { job: railJobs($ as never) },
         });
     });
-    /** The payload, built as a UI task's preview builds it, its slice made on the record Slice's platform over e3's pages. */
-    async function payloadOf(): Promise<Payload> {
-        const { platform } = await h.platform(program);
+    /**
+     * The same Plan, each press with measures under it (#1398): a chart of its speed, which every press makes; a heat
+     * of its load, which is no chart; and a chart only of the fast presses, whose `match` decides by press.
+     */
+    const measured = East.function([], PlanPayloadType, ($) => {
+        const presses = $.let(Data.bindPaged(ex.planWindowPresses));
+        const slice = $.let(Slice.bindRecords("spec.windows.measured", {
+            job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }), range: "start" },
+        }));
+        return Plan.Payload({
+            axis: Plan.axis({ window: AXIS_WINDOW, resolution: "day" }),
+            slice: { slice: slice as never },
+            resources: {
+                presses: Schedule.resources(presses, {
+                    name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall),
+                    measures: [
+                        Plan.series.chart(PrintPress, { key: "speed", title: "Speed", label: () => "Speed", layers: () => [] }),
+                        Plan.series.heat(PrintPress, { key: "load", title: "Load", label: () => "Load", cells: () => Plan.heatCells([]) }),
+                        Plan.series.chart(PrintPress, {
+                            key: "fast", title: "Fast", label: () => "Fast", match: (p) => p.sheets_per_hour.greater(12_000.0), layers: () => [],
+                        }),
+                    ],
+                }),
+            },
+            events: { job: railJobs($ as never) },
+        });
+    });
+    /** A payload, built as a UI task's preview builds it, its slice made on the record Slice's platform over e3's pages. */
+    async function payloadOf(of: typeof program = program): Promise<Payload> {
+        const { platform } = await h.platform(of);
         StateRuntime.initializeStore(new UIStore());
         const implementations = [...platform];
         implementations.push(...createRecordSliceImplementation(() => implementations));
-        return East.compile(program, implementations)() as Payload;
+        return East.compile(of, implementations)() as Payload;
     }
     const pagedOf = (payload: Payload) => payload.paged.type === "some" ? payload.paged.value : assert.fail("expected the paged rows");
 
@@ -496,6 +525,31 @@ describe("a resource kind paged on the canvas (PB55)", () => {
         // A hidden event kind places nothing.
         const unplaced = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), ["events.job"], NO_READS));
         assert.deepEqual([...unplaced.get("span")!.keys()], []);
+    });
+
+    test("a window of the presses says how many chart rows each press makes, where each makes as many: as many as the chart measures the viewer shows, none while one's `match` decides by press (#1398)", async () => {
+        const paged = pagedOf(await payloadOf(measured));
+        const placed = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), [], NO_READS));
+        const factsEqual = equalFor(ArrayType(OptionType(IntegerType)));
+        /** The window's blocks as the viewer hides `hidden`: what each says its presses make, and the chart rows it holds. */
+        const read = async (hidden: string[]) => {
+            const blocks = await h.ready(() => paged.rows(0n, 200n, placed, NO_SHADING, hidden));
+            return { facts: blocks.map((b) => b.charts), charts: blocks.map((b) => b.rows.filter((row) => row.kind.type === "chart").length) };
+        };
+        // The fast presses' chart is drawn for 60 of the window's 200: a press makes one chart row, or two.
+        const shown = await read([]);
+        assert.ok(factsEqual(shown.facts, [none]), "no number of them while a chart's `match` decides");
+        assert.deepEqual(shown.charts, [260]);
+        // Hidden in the Series tab, it is no press's: each makes its speed's.
+        const speed = await read(["measures.fast"]);
+        assert.ok(factsEqual(speed.facts, [some(1n)]));
+        assert.deepEqual(speed.charts, [200]);
+        // A heat is no chart: with the speed hidden too, each makes none.
+        const bare = await read(["measures.fast", "measures.speed"]);
+        assert.ok(factsEqual(bare.facts, [some(0n)]));
+        assert.deepEqual(bare.charts, [0]);
+        // A hidden kind's place stands empty: its presses make none.
+        assert.ok(factsEqual((await read(["resources.presses"])).facts, [some(0n)]));
     });
 
     test("names a resource by its key: its window's key search, then a one-row page — never the kind whole", async () => {

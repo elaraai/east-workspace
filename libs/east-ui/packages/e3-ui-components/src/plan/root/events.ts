@@ -172,7 +172,7 @@ function timeMs(t: PlanInstantValue): number | undefined {
 
 /** `count` empty fixed blocks — what stands in for the rows until they are read. */
 function emptyBlocks(count: number): readonly PlanWireBlock[] {
-    return Array.from({ length: count }, (): PlanWireBlock => ({ fixed: true, parent: none, rows: [] }));
+    return Array.from({ length: count }, (): PlanWireBlock => ({ fixed: true, parent: none, charts: none, rows: [] }));
 }
 
 /** The range the canvas reads its event kinds' rows over. */
@@ -337,9 +337,10 @@ export function PlanEventsReader({ events, scale, hidden, drafts, shown, kinds, 
     return null;
 }
 
-/** A block that every window serves alike, drawn once. */
+/** A block that every window serves alike, drawn once — no entry of the paged kind's makes it, so it says nothing of
+ *  what one makes (#1398). */
 function fixedBlock(block: PlanWireBlock): PlanWireBlock {
-    return block.fixed ? block : { ...block, fixed: true };
+    return block.fixed ? block : { ...block, fixed: true, charts: none };
 }
 
 /**

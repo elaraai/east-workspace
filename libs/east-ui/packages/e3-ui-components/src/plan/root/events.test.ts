@@ -88,7 +88,7 @@ const marks = rowId("a1", "presses.marks");
 /** The event kinds' rows: a job's bar and a check's tile on Press A1, a shift's chip on Crew 1, a stop's mark on Press A1. */
 const BLOCKS: PlanWireBlock[] = [
     {
-        fixed: true, parent: none, rows: [
+        fixed: true, parent: none, charts: none, rows: [
             row(bars, variant("span", {
                 runs: [{ key: elementKey("job", "J-1"), start: at("2026-10-05"), end: at("2026-10-06"), label: "Job", quantity: none, state: confirmed, status: none, moved: none, icon: none }],
                 decisions: [], ports: [], rollup: none,
@@ -105,11 +105,11 @@ const BLOCKS: PlanWireBlock[] = [
         ],
     },
     {
-        fixed: true, parent: none, rows: [
+        fixed: true, parent: none, charts: none, rows: [
             row(chips, variant("cards", { chips: [{ key: elementKey("shift", "SH-1"), from: at("2026-10-05"), to: at("2026-10-06"), label: "Early", state: confirmed, icon: none }] })),
         ],
     },
-    { fixed: true, parent: none, rows: [] },
+    { fixed: true, parent: none, charts: none, rows: [] },
 ] as unknown as PlanWireBlock[];
 
 describe("a link's event ends (#1192)", () => {
@@ -164,8 +164,8 @@ describe("the event kinds' rows over the range the canvas draws (#1192)", () => 
     const scale = planScale({ kind: "time", window: { min: utcAt("2026-10-05T00:00:00"), max: utcAt("2026-11-02T00:00:00") }, resolution: "day" }) as PlanScale;
     /** A resource kind's block of a bar row per key, and the Unassigned rows'. */
     const blocksOf = (...keys: string[]): PlanWireBlock[] => [
-        { fixed: true, parent: none, rows: keys.map((k) => row(rowId(k, "presses.span"), variant("span", { runs: [], decisions: [], ports: [], rollup: none }))) },
-        { fixed: true, parent: none, rows: [] },
+        { fixed: true, parent: none, charts: none, rows: keys.map((k) => row(rowId(k, "presses.span"), variant("span", { runs: [], decisions: [], ports: [], rollup: none }))) },
+        { fixed: true, parent: none, charts: none, rows: [] },
     ] as unknown as PlanWireBlock[];
 
     test("read over the window and the periods laid out beyond it; until one answers, empty fixed blocks stand in; equal rows hold, and a read in flight or failed keeps the last", () => {

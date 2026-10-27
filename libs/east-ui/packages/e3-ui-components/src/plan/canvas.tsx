@@ -976,6 +976,22 @@ export function usePlanCanvas({
             },
         };
     }, [paged, paging.blocks, controller]);
+    // What the narrow list's Measures tab counts over a paged source (#1398, ruled 27 Oct 2026, "Exact where it can be"):
+    // the source's count times the chart rows each of its entries makes across the paged blocks, beside the chart rows
+    // of the blocks no entry makes — where every entry makes as many (`PlanPagedBlock.charts`); not counted where some
+    // block's entries make no fixed number of them; nothing yet while the source has not counted itself, or a new
+    // narrowing's rows are read. Never what has loaded.
+    const pagedMeasures = useMemo((): number | "notCounted" | undefined => {
+        if (!paged || paging.replacing || paging.total === undefined) return undefined;
+        let each = 0;
+        for (const block of paging.blocks) {
+            if (block.fixed) continue;
+            if (block.charts === undefined) return "notCounted";
+            each += block.charts;
+        }
+        const fixed = rows.filter((row) => paging.blocks[row.block]?.fixed === true && row.kind.type === "chart").length;
+        return paging.total * each + fixed;
+    }, [paged, paging.replacing, paging.total, paging.blocks, rows]);
     // What the toolbar reports (#811) — everything the canvas carried on past,
     // the event kinds' rows that could not be read among it (#1192). The
     // narrow list has no scroll target, so there the rows chip states the
@@ -1714,6 +1730,9 @@ export function usePlanCanvas({
                     // The Rows tab counts what a paged source does once it has counted itself — the rail's count — and
                     // waits while a new narrowing's rows are read, the last one's standing in (#1398, CL13).
                     pagedCount={paged && !paging.replacing ? paging.total : undefined}
+                    // The Measures tab counts the chart rows the source makes — exact where each entry makes as many, not
+                    // counted where that varies — never what has loaded (#1398).
+                    pagedMeasures={pagedMeasures}
                     failures={paging.failures} onRetry={controller.retry}
                     paging={narrowPaging} marks={marks} noun={rowsNoun}
                 />

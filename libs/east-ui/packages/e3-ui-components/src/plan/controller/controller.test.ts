@@ -1074,8 +1074,8 @@ describe("a key search looks among the source's elements (#1192)", () => {
         const source = {
             id: "c1192-seek",
             page: (offset: bigint, limit: bigint) => some([
-                { fixed: true, parent: none, rows: lead },
-                { fixed: false, parent: none, rows: elements.slice(Number(offset), Number(offset + limit)) },
+                { fixed: true, parent: none, charts: none, rows: lead },
+                { fixed: false, parent: none, charts: none, rows: elements.slice(Number(offset), Number(offset + limit)) },
             ]),
             total: () => some(3n),
             seek: some(() => some({ found: true, row: 2n, count: 1n })),

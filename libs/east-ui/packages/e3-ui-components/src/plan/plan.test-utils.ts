@@ -160,7 +160,8 @@ export const NO_EDITS = { drop: false, move: none } as const;
 /**
  * A test's rows as the canvas the IR carries (#823) — ONE paged block of them,
  * at the top of the canvas. A row that says nothing of the gestures it takes
- * takes none, as the IR's rows do (#880).
+ * takes none, as the IR's rows do (#880). Hand-built rows are no series', so
+ * the block says nothing of how many chart rows an entry makes (#1398).
  *
  * @param rows - The rows, in stream order
  * @returns The canvas's blocks
@@ -169,7 +170,7 @@ export function oneBlock(rows: readonly unknown[]): PlanWireBlock[] {
     let blocks = blocksOfRows.get(rows);
     if (blocks === undefined) {
         const complete = rows.map((row) => ("edits" in (row as object) ? row : { ...(row as object), edits: NO_EDITS }));
-        blocks = [{ fixed: false, parent: none, rows: complete as PlanWireRow[] } as unknown as PlanWireBlock];
+        blocks = [{ fixed: false, parent: none, charts: none, rows: complete as PlanWireRow[] } as unknown as PlanWireBlock];
         blocksOfRows.set(rows, blocks);
     }
     return blocks;

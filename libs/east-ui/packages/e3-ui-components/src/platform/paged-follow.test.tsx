@@ -102,7 +102,7 @@ function planOver(handle: Record<string, unknown>): PlanRootValue {
         page: (offset: bigint, limit: bigint) => {
             const win = bound.page(offset, limit);
             if (win.type !== "some" || win.value === undefined) return none;
-            return some([{ fixed: false, parent: none, rows: [...win.value].map(([k, v]) => rowOf(k, v.label)) }]);
+            return some([{ fixed: false, parent: none, charts: none, rows: [...win.value].map(([k, v]) => rowOf(k, v.label)) }]);
         },
         total: bound.total,
         seek: none,

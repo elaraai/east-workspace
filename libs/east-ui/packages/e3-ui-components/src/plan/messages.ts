@@ -379,6 +379,9 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     tabMeasures: () => string;
     /** A tab's count — "…" in its place over a partial prefix, until the source's read completes (#1398, CL13). */
     tabCount: (p: { n: number; count: string }) => string;
+    /** A tab's count where a paged source's entries make no fixed number of what it lists — the Measures tab's, where
+     *  some entries make more chart rows than others (#1398): `not counted`, as the Plan's event counts say theirs. */
+    tabNotCounted: () => string;
     /** The card and section for rows in no group. */
     otherRows: () => string;
     /** Back to the group list. */
@@ -691,6 +694,7 @@ export const planMessages: PlanMessages = {
     tabRows: () => "Rows",
     tabMeasures: () => "Measures",
     tabCount: ({ count }) => count,
+    tabNotCounted: () => "not counted",
     otherRows: () => "Other rows",
     backToGroups: () => "← Groups",
     backToAllRows: () => "← All rows",

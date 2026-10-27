@@ -67,7 +67,7 @@ function row(kind: unknown, opts?: RowOpts & { key?: string }): PlanRowValue {
 
 /** One WIRE block (#823) — a data series' rows unless `fixed`. */
 function block(rows: PlanWireRow[], opts?: { fixed?: boolean }): PlanWireBlock {
-    return { fixed: opts?.fixed === true, parent: none, rows } as unknown as PlanWireBlock;
+    return { fixed: opts?.fixed === true, parent: none, charts: none, rows } as unknown as PlanWireBlock;
 }
 
 function visible(r: PlanRowValue, opts?: { collapsed?: boolean }): VisibleRow {

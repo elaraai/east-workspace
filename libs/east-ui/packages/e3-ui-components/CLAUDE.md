@@ -1235,7 +1235,16 @@ placeholder cards, its Backlog `…` over placeholder cards. A Backlog tab's cou
 says `…` while what a narrowing hides of it is still counted, too — a cold load
 with a narrowing restored draws `Backlog …`, then `Backlog 1 of 8`, never a bare
 `Backlog` between (#1424; the Plan's and the Calendar's, each tested by every
-state its tab is drawn in).
+state its tab is drawn in). Over a paged source the narrow Plan's tabs count
+the source, never what has loaded (ruled 27 Oct 2026, "Exact where it can
+be"): Rows its own count, as the rail counts it, and Measures the chart rows
+it makes — its count times what each entry makes across the paged blocks,
+beside the chart rows of the blocks no entry makes — where every entry makes as
+many, as each block says of its series (the IR's `charts`: a chart series' one,
+a views entry's chart members, a paged resource kind's chart measures the
+viewer shows), and `not counted`, as the Plan's event counts say theirs, where
+a `match` or children decide it by entry; `…` while the source has not counted
+itself or a new narrowing's rows are read (`plan-narrow.dom.test.tsx`).
 
 A period builder — the Roster, the Calendar, the Allocation — draws its
 period through one read state (`shared/loading.ts`' `periodRead`, #1398):

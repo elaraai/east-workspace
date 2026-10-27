@@ -777,6 +777,14 @@ interface PlanSeriesSpec {
     readonly nested: readonly PlanSeriesSpec[];
     /** Whether the series declares `children`. */
     readonly nests: boolean;
+    /**
+     * How many chart rows each of its entries makes, when every entry makes as many — a fact of its definition
+     * (#1398): a chart series' entry one, a `views` entry one a chart member, a section's its members' together, `0`
+     * where nothing in its tree is a chart. `undefined` where it varies by entry: a `match` — its own, or a chart
+     * member's — on a series that makes one, children whose rows hold one (as many as the data's), or hand-built rows,
+     * whose kinds the build does not see. What a block of its entries says (`PlanBlockType.charts`).
+     */
+    readonly charts: number | undefined;
     /** This series' rows for entries of `collection`, as ONE stream — what an
      *  entry's subtree holds when a step-down lays the series out below it. */
     emitter(collection: EastType, where: string): EmitFn;
@@ -851,13 +859,48 @@ function segmentOf(keyType: EastType): (key: ExprType<EastType>) => ExprType<Str
  * @param collection - The collection type the rows are built for
  * @param rows - The series' rows emitter for that collection
  * @param fixed - Whether no entry produces the rows
+ * @param charts - How many chart rows each entry makes, when every entry makes as many (#1398) — a fixed block's none
  * @returns The block list's emitter
  */
-function oneBlock(collection: EastType, rows: EmitFn, fixed: boolean): BlocksFn {
+function oneBlock(collection: EastType, rows: EmitFn, fixed: boolean, charts: number | undefined): BlocksFn {
+    const each = fixed || charts === undefined ? none : some(BigInt(charts));
     return East.function([collection, PathType, IdOptType], PlanBlocksType, ($, coll, prefix, parent) => {
-        const block = $.let(East.value({ fixed, parent, rows: rows(coll, prefix, parent) }, PlanBlockType), PlanBlockType);
+        const block = $.let(East.value({ fixed, parent, charts: each, rows: rows(coll, prefix, parent) }, PlanBlockType), PlanBlockType);
         return East.value([block], PlanBlocksType);
     }) as unknown as BlocksFn;
+}
+
+/**
+ * The chart rows an entry makes across a list of series, when each makes a fixed number (#1398).
+ *
+ * @param specs - The series
+ * @returns Their sum; `undefined` where one of them varies by entry
+ */
+function chartsOf(specs: readonly Pick<PlanSeriesSpec, "charts">[]): number | undefined {
+    let sum = 0;
+    for (const spec of specs) {
+        if (spec.charts === undefined) return undefined;
+        sum += spec.charts;
+    }
+    return sum;
+}
+
+/**
+ * How many chart rows each entry of a series makes (#1398): its own rows' and those below them — where the rows
+ * below hold any, as many as the data's children, which no definition fixes — and a `match` deciding by entry
+ * whether it makes them.
+ *
+ * @param own - The chart rows its entry's own rows make: `undefined` where they vary by entry
+ * @param below - The chart rows its children's rows hold for each child: `0` where they hold none, else how many
+ *   (`undefined` where that varies)
+ * @param matched - Whether a `match` decides which entries it takes
+ * @returns The entry's chart rows; `undefined` where they vary by entry
+ */
+function entryCharts(own: number | undefined, below: number | undefined, matched: boolean): number | undefined {
+    // Rows below an entry come one set a child, and the data decides how many children an entry has.
+    if (own === undefined || below !== 0) return undefined;
+    // A match makes an entry's rows or none — as many either way only when they hold no chart.
+    return matched && own > 0 ? undefined : own;
 }
 
 /** A cache of built functions by East type. */
@@ -1158,6 +1201,11 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         }
     }
     const nested = steps.flatMap((s) => s.series.map((x) => nestedSpec(x, `${where} › children`)));
+    // How many chart rows each entry makes (#1398): a chart series' own row, and below it a bare accessor's walk of
+    // more of this series' rows, or a step-down's series' over the child collection.
+    const ownCharts = recipe.arm === "chart" ? 1 : 0;
+    const charts = entryCharts(ownCharts,
+        children === undefined ? 0 : typeof children === "function" ? ownCharts : chartsOf(nested), cfg.match !== undefined);
     // A recursive entry reaches the accessors as its NODE (`PlanEntryExpr`),
     // so they read its fields directly at every depth.
     const recursive = (rowType as { type: string }).type === "Recursive";
@@ -1633,6 +1681,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         arm: recipe.arm,
         nested,
         nests: children !== undefined,
+        charts,
         emitter(collection, at) {
             return emitters.get(collection, () => {
                 const { entry, key: kt } = shapeOf(collection, at);
@@ -1676,7 +1725,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         },
         // One block of the entries' rows — what a paged canvas pages (#823).
         blocks(collection, at) {
-            return blockLists.get(collection, () => oneBlock(collection, spec.emitter(collection, at), false));
+            return blockLists.get(collection, () => oneBlock(collection, spec.emitter(collection, at), false, charts));
         },
         entryParts(entry, kt, at) {
             assertEntry(entry, rowType, at);
@@ -1905,12 +1954,19 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
                 return result;
             }) as unknown as WriteFn;
     });
+    // How many chart rows each entry makes (#1398): a row a member — a chart member's own `match` deciding by entry
+    // whether its row shows — and below them a bare accessor's walk of more of the views' entries, each its members'
+    // rows, or a step-down's series' over the child collection.
+    const memberCharts = chartsOf(memberSpecs);
+    const charts = entryCharts(memberCharts,
+        cfg.children === undefined ? 0 : bare !== undefined ? memberCharts : chartsOf(host.nested), cfg.match !== undefined);
     const spec: PlanSeriesSpec = {
         key: cfg.key,
         title: cfg.title,
         arm: "views",
         nested: [...memberSpecs, ...host.nested],
         nests: cfg.children !== undefined,
+        charts,
         emitter(collection, at) {
             return emitters.get(collection, () => {
                 const { entry, key: kt } = shapeOf(collection, at);
@@ -1985,7 +2041,7 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
         },
         // One block of the entries' view rows — what a paged canvas pages (#823).
         blocks(collection, at) {
-            return blockLists.get(collection, () => oneBlock(collection, spec.emitter(collection, at), false));
+            return blockLists.get(collection, () => oneBlock(collection, spec.emitter(collection, at), false, charts));
         },
         // An entry's view rows are its members' own (each at the entry's path,
         // under its member's key), and the rows below them the views' (#880).
@@ -2049,6 +2105,8 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
         arm: "section",
         nested: memberSpecs,
         nests: false,
+        // Each entry makes its members' rows; the header is no entry's (#1398).
+        charts: chartsOf(memberSpecs),
         emitter(collection, at) {
             return emitters.get(collection, () => {
                 const blocks = memberSpecs.map((m) => m.emitter(collection, `${at} › ${where}`));
@@ -2071,7 +2129,7 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
                 return East.function([collection, PathType, IdOptType], PlanBlocksType, ($, coll, prefix, parent) => {
                     const id = $.let(East.value(variant("section", { series: cfg.key, path: prefix }), PlanRowIdType), PlanRowIdType);
                     const under = $.let(East.value(some(id), IdOptType), IdOptType);
-                    const head = $.let(East.value({ fixed: true, parent, rows: [header(id, parent)] }, PlanBlockType), PlanBlockType);
+                    const head = $.let(East.value({ fixed: true, parent, charts: none, rows: [header(id, parent)] }, PlanBlockType), PlanBlockType);
                     const out = $.let(East.value([head], PlanBlocksType), PlanBlocksType);
                     for (const member of members) $(out.append(member(coll, prefix, under)));
                     return out;
@@ -2117,11 +2175,14 @@ function rowsSpec(identity: PlanSeriesIdentity, rows: PlanRowsValue): PlanSeries
         arm: "rows",
         nested: [],
         nests: false,
+        // Its rows' kinds are an East value the build does not read (#1398): laid out below an entry, their chart rows are
+        // not known.
+        charts: undefined,
         emitter,
         // A FIXED block: no entry produces hand-built rows, so every window
         // serves them alike and the canvas draws them once (#823).
         blocks(collection) {
-            return blockLists.get(collection, () => oneBlock(collection, emitter(collection), true));
+            return blockLists.get(collection, () => oneBlock(collection, emitter(collection), true, undefined));
         },
         // No entry produces them, so no gesture is written into one (#880).
         writer() {
@@ -2286,6 +2347,7 @@ export function checkSeries(series: PlanSeriesInput, where: string): void {
  * @property title - Its title
  * @property nests - Whether it declares `children`
  * @property writes - Whether anything in its tree takes a gesture over the collection: an `edit`
+ * @property charts - How many chart rows each of its entries makes, when every entry makes as many (#1398); `undefined` where that varies by entry
  */
 export interface PlanSeriesFacts {
     readonly arm: PlanSeriesArm;
@@ -2293,6 +2355,7 @@ export interface PlanSeriesFacts {
     readonly title: string;
     readonly nests: boolean;
     readonly writes: boolean;
+    readonly charts: number | undefined;
 }
 
 /**
@@ -2308,7 +2371,10 @@ export interface PlanSeriesFacts {
 export function planSeriesFacts(series: unknown, collection: EastType, where: string): PlanSeriesFacts | undefined {
     const spec = specOf(series);
     if (spec === undefined) return undefined;
-    return { arm: spec.arm, key: spec.key, title: spec.title, nests: spec.nests, writes: spec.writer(collection, where) !== undefined };
+    return {
+        arm: spec.arm, key: spec.key, title: spec.title, nests: spec.nests, writes: spec.writer(collection, where) !== undefined,
+        charts: spec.charts,
+    };
 }
 
 /**

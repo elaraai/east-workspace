@@ -390,12 +390,12 @@ describe("Plan narrow layout (§10 / #570)", () => {
         // FIXED block, its member series a block under it, and the group
         // strips' series a block of its own.
         const w0 = [
-            { fixed: true, parent: none, rows: [planRow("sec", groupKind, { id: sec, gutter: gutter("Hall 1") })] },
-            { fixed: false, parent: some(sec), rows: [
+            { fixed: true, parent: none, charts: none, rows: [planRow("sec", groupKind, { id: sec, gutter: gutter("Hall 1") })] },
+            { fixed: false, parent: some(sec), charts: none, rows: [
                 planRow("s1", heatKind([40, 60]), { parentId: sec }),
                 planRow("s2", heatKind([50, 70]), { parentId: sec }),
             ] },
-            { fixed: false, parent: none, rows: [
+            { fixed: false, parent: none, charts: none, rows: [
                 planRow("g1", groupKind, { gutter: gutter("Hall 2") }),
                 planRow("a", heatKind([70, 98]), { parent: "g1" }),
                 planRow("b", heatKind([60, 80]), { parent: "g1" }),
@@ -435,6 +435,54 @@ describe("Plan narrow layout (§10 / #570)", () => {
         const header = container.querySelector(rowSel("g1", "data-plan-section"))!.textContent;
         expect(header).toContain("2 rows");
         expect(header).not.toContain("~");
+    });
+
+    /**
+     * A paged source of 450 entries whose first window alone lands (#1398): a hand-built chart row leading every
+     * window — a fixed block, which no entry makes — then each entry's rows in two blocks, a chart row each in the
+     * first and a span row each in the second. `perEntry` is what the first block says each of its entries makes of
+     * chart rows: as the IR says it of a chart series, or nothing, as of one whose `match` decides by entry.
+     */
+    function measuredPlan(id: string, perEntry: bigint | undefined): PlanRootValue {
+        const entries = Array.from({ length: 200 }, (_u, i) => i);
+        const w0 = [
+            { fixed: true, parent: none, charts: none, rows: [planRow("target", chartKind, { gutter: gutter("TARGET", { id: true }) })] },
+            { fixed: false, parent: none, charts: perEntry === undefined ? none : some(perEntry), rows: entries.map((i) => planRow(`c${i}`, chartKind)) },
+            { fixed: false, parent: none, charts: some(0n), rows: entries.map((i) => planRow(`s${i}`, spanKind([]))) },
+        ];
+        const source = {
+            // Window 0 lands; the 250 entries past it never do.
+            page: (offset: bigint) => (offset === 0n ? some(w0) : none),
+            total: () => some(450n),
+            id,
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        };
+        return { ...planRoot([]), rows: variant("paged", source) } as unknown as PlanRootValue;
+    }
+    /** A narrow tab's count, as it reads and as it says it. */
+    const tabCount = (container: HTMLElement, tab: string) => {
+        const count = container.querySelector(`[data-plan-tab='${tab}'] [data-plan-tabcount]`)!;
+        return [count.textContent, count.getAttribute("data-plan-tabcount")];
+    };
+
+    test("over a paged source whose entries each make as many chart rows, Measures counts what the source makes — its count times theirs, beside the rows no entry makes — never what has loaded (#1398, ruled 27 Oct 2026)", async () => {
+        const { container } = renderPlan(measuredPlan("narrow-measures-exact", 1n), "plan-1398-measures-exact");
+        await waitFor(() => expect(container.querySelector("[data-plan-tab='measures']")).toBeTruthy());
+        // 450 entries a chart row each, and the hand-built one: never the 201 of them the first window holds, nor `…`
+        // while the rest are read.
+        expect(container.querySelector("[data-plan-body][data-plan-partial]")).not.toBeNull();
+        expect(tabCount(container, "measures")).toEqual(["451", "451"]);
+        expect(tabCount(container, "rows")).toEqual(["450", "450"]);
+    });
+
+    test("over a paged source whose entries make no fixed number of chart rows, Measures says they are not counted (#1398, ruled 27 Oct 2026)", async () => {
+        const { container } = renderPlan(measuredPlan("narrow-measures-varies", undefined), "plan-1398-measures-varies");
+        await waitFor(() => expect(container.querySelector("[data-plan-tab='measures']")).toBeTruthy());
+        expect(tabCount(container, "measures")).toEqual(["not counted", "notCounted"]);
+        // The rows are still the source's own count.
+        expect(tabCount(container, "rows")).toEqual(["450", "450"]);
     });
 
     test("the shared fold control remains available on both the narrow list and the wide canvas", () => {

@@ -403,6 +403,7 @@ const shadedRows = East.function([PlanBlocksType, PlanEventShadingType, SetType(
     return blocks.map(($2, b) => East.value({
         fixed: b.fixed,
         parent: b.parent,
+        charts: b.charts,
         rows: b.rows.map(($3, row) => row.id.match({
             section: (_$4, _at) => row,
             entry: (_$4, at) => shading.tryGet(at.series).match({
@@ -630,6 +631,22 @@ function resourceBlocks(
         blocks = applySeries([views], roots as unknown as ExprType<EastType>);
     }
 
+    // ── What each resource makes of chart rows (#1398) ──
+    // A paged kind's window is its source's entries, a resource each, and a paged kind nests and groups none: each
+    // makes its measures' chart rows that the viewer shows — a chart measure's one, or as many as its own `match`
+    // takes, which no definition fixes. A kind read whole is fixed blocks, which no entry makes.
+    const charts = $.let(East.value(fixed ? none : some(0n), OptionType(IntegerType)), OptionType(IntegerType));
+    if (!fixed) {
+        for (const facts of kind.measures.map((m) => planSeriesFacts(m, collection, where)!)) {
+            const each = facts.charts;
+            if (each === 0) continue;
+            $.if(hidden.has(planHideId.measures(facts.key)).not(), ($2) => {
+                if (each === undefined) $2.assign(charts, none);
+                else $2.match(charts, { some: ($3, n) => { $3.assign(charts, some(n.add(BigInt(each)))); } });
+            });
+        }
+    }
+
     // ── What the viewer hides (PB29): rows by their series' key ──
     // A measure's rows, and a way of drawing's after the first once all its
     // kinds are hidden: each a leaf, since a resource's children nest under its
@@ -642,7 +659,7 @@ function resourceBlocks(
         }),
     ];
     if (hiders.length === 0) {
-        return $.let(blocks.map(($2, b) => ({ fixed, parent: b.parent, rows: b.rows })), PlanBlocksType);
+        return $.let(blocks.map(($2, b) => ({ fixed, parent: b.parent, charts, rows: b.rows })), PlanBlocksType);
     }
     const dropped = $.let(new Set<string>(), SetType(StringType));
     for (const [series, ids] of hiders) {
@@ -652,6 +669,7 @@ function resourceBlocks(
     return $.let(blocks.map(($2, b) => ({
         fixed,
         parent: b.parent,
+        charts,
         rows: b.rows.filter(($3, row) => dropped.has(row.id.match({
             entry: (_$4, at) => at.series,
             section: (_$4, at) => at.series,
@@ -691,7 +709,7 @@ function unassignedBlock(
             })));
         });
     });
-    return $.let({ fixed: true, parent: none, rows }, PlanBlockType);
+    return $.let({ fixed: true, parent: none, charts: none, rows }, PlanBlockType);
 }
 
 /**
@@ -794,8 +812,9 @@ export function createEventBlocks(
             for (const [slot, kind] of resources) {
                 if (paged.has(slot)) {
                     // A paged kind's place (#1199): the one block that is not fixed, which the payload's
-                    // `paged` fills a window at a time — there whether or not the viewer hides the kind.
-                    $2(blocks.pushLast(East.value({ fixed: false, parent: none, rows: [] }, PlanBlockType)));
+                    // `paged` fills a window at a time — there whether or not the viewer hides the kind. What its
+                    // resources make of chart rows is the window's block's to say (#1398).
+                    $2(blocks.pushLast(East.value({ fixed: false, parent: none, charts: none, rows: [] }, PlanBlockType)));
                     continue;
                 }
                 // A hidden resource kind draws no rows; its events stay its own, off the Unassigned row.
@@ -960,8 +979,8 @@ export function createEventPaged(
             const result = $.let(none, OptionType(PlanBlocksType));
             const hidden = $.let(hiding.toSet(), SetType(StringType));
             $.if(hidden.has(planHideId.resources(slot)), ($2) => {
-                // A hidden kind draws no rows: its place stands empty in every window.
-                $2.assign(result, some(East.value([{ fixed: false, parent: none, rows: [] }], PlanBlocksType)));
+                // A hidden kind draws no rows: its place stands empty in every window, and its resources make no chart row (#1398).
+                $2.assign(result, some(East.value([{ fixed: false, parent: none, charts: some(0n), rows: [] }], PlanBlocksType)));
             }).else(($2) => {
                 const read = $2.const(pages.read);
                 const shade = $2.const(shadedRows);

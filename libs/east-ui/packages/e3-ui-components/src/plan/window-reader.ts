@@ -59,6 +59,10 @@ export interface BlockShape {
     /** The key of the row its top rows nest under — the header of the section
      *  it sits in — or `undefined` at the top of the canvas. */
     readonly parent: RowKey | undefined;
+    /** How many chart rows each of its entries makes, when every entry makes as many (#1398, the block's `charts`):
+     *  what the narrow layout's Measures tab counts a paged source by; `undefined` where that varies by entry, and for a
+     *  fixed block, which no entry makes. */
+    readonly charts: number | undefined;
 }
 
 /** One window, read: each block's rows and shape, in layout order. */
@@ -89,6 +93,7 @@ export function readWindow(blocks: readonly PlanWireBlock[]): WindowRead {
         shape: blocks.map((b) => ({
             fixed: b.fixed,
             parent: b.parent.type === "some" ? rowKeyOf(b.parent.value) : undefined,
+            charts: b.charts.type === "some" ? Number(b.charts.value) : undefined,
         })),
     };
 }

@@ -41,11 +41,13 @@ function wire(key: string, parent?: string): PlanWireRow {
     } as unknown as PlanWireRow;
 }
 
-/** One wire block — a data series' rows unless `fixed`, under `parent` (#823). */
-function block(rows: PlanWireRow[], opts?: { fixed?: boolean; parent?: string }): PlanWireBlock {
+/** One wire block — a data series' rows unless `fixed`, under `parent` (#823), each entry making `charts` chart rows
+ *  where it says so (#1398). */
+function block(rows: PlanWireRow[], opts?: { fixed?: boolean; parent?: string; charts?: bigint }): PlanWireBlock {
     return {
         fixed: opts?.fixed === true,
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
+        charts: opts?.charts !== undefined ? some(opts.charts) : none,
         rows,
     } as unknown as PlanWireBlock;
 }
@@ -199,10 +201,10 @@ describe("window reader — a failure belongs to its window (#811)", () => {
 });
 
 describe("window reader — a window is the canvas's blocks (#823)", () => {
-    test("each block is kept apart and keyed on its own, and names its shape", () => {
+    test("each block is kept apart and keyed on its own, and names its shape — what each entry makes of chart rows among it (#1398)", () => {
         const read = readWindow([
             block([wire("hdr")], { fixed: true }),
-            block([wire("a", "hdr"), wire("b", "hdr")], { parent: "hdr" }),
+            block([wire("a", "hdr"), wire("b", "hdr")], { parent: "hdr", charts: 2n }),
             block([wire("a"), wire("c")]),
         ]);
         expect(read.blocks.map(keys)).toEqual([["hdr"], ["a", "b"], ["a", "c"]]);
@@ -212,9 +214,9 @@ describe("window reader — a window is the canvas's blocks (#823)", () => {
         // within a block, the window keys it as ever.
         expect(read.blocks[2]![0]!.key).toBe(rowKey("a"));
         expect(read.shape).toEqual([
-            { fixed: true, parent: undefined },
-            { fixed: false, parent: rowKey("hdr") },
-            { fixed: false, parent: undefined },
+            { fixed: true, parent: undefined, charts: undefined },
+            { fixed: false, parent: rowKey("hdr"), charts: 2 },
+            { fixed: false, parent: undefined, charts: undefined },
         ]);
     });
 });

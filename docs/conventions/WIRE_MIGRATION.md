@@ -505,3 +505,16 @@ Each wire changed under this rule, with the kind it is.
   types each builder's `Types` constructs (`OptimiseRequest`, `OptimiseResult`)
   are new, and an app's optimiser is an `e3.function` of its own package: no
   earlier release wrote either, so no form of them moves.
+- **e3-ui's `Plan` blocks say what each entry makes of chart rows (#1398)** —
+  package-borne. `Plan.Types.Block` gains `charts`, after `parent`: how many
+  chart rows each of the block's entries makes, where every entry makes as
+  many (`Option<Integer>`), `none` where that varies by entry — a `match` on a
+  series that makes one, children whose rows hold one — and for a fixed
+  block, which no entry makes. The narrow layout's Measures tab counts a paged
+  source by it. It travels in the `Plan` extension's payload — the canvas's
+  rows, a paged source's windows, the event kinds' blocks and a paged resource
+  kind's — and `rows` moves down one after it, so a UI value encoded under
+  either type does not decode under the other: packages are re-exported, and
+  the dataflow computes each UI task's output again under the new type. A UI
+  task's output is not stored state, so no repository upgrade step ships with
+  it.

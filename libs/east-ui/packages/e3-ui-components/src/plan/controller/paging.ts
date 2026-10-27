@@ -208,6 +208,10 @@ export interface PlanPagedBlock {
     /** The key of the row its top rows nest under — the header of the section
      *  it sits in — if any. Its bands hide with that row's subtree. */
     parent: RowKey | undefined;
+    /** How many chart rows each of the source's entries makes in it, when every entry makes as many — its shape's
+     *  (#1398): what the narrow layout's Measures tab counts the source by; `undefined` where that varies by entry, and
+     *  for a fixed block. */
+    charts: number | undefined;
     /** Every element above its run (#876) — not resident, still loading, or
      *  past a window still loading — if any. */
     head: PlanBand | undefined;
@@ -499,7 +503,7 @@ function samePieces(a: readonly Piece[], b: readonly Piece[]): boolean {
 }
 
 function sameShape(a: readonly BlockShape[], b: readonly BlockShape[]): boolean {
-    return a.length === b.length && a.every((x, i) => x.fixed === b[i]!.fixed && x.parent === b[i]!.parent);
+    return a.length === b.length && a.every((x, i) => x.fixed === b[i]!.fixed && x.parent === b[i]!.parent && x.charts === b[i]!.charts);
 }
 
 function sameLoading(a: PlanBand["loading"], b: PlanBand["loading"]): boolean {
@@ -542,7 +546,7 @@ function sameResident(a: PlanResidentSpan | undefined, b: PlanResidentSpan | und
 }
 
 function sameBlock(a: PlanPagedBlock, b: PlanPagedBlock): boolean {
-    return a.index === b.index && a.fixed === b.fixed && a.parent === b.parent && a.head === b.head
+    return a.index === b.index && a.fixed === b.fixed && a.parent === b.parent && a.charts === b.charts && a.head === b.head
         && a.tail === b.tail && a.failures === b.failures && a.resident === b.resident;
 }
 
@@ -1000,6 +1004,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             index: b,
             fixed: false,
             parent: shape?.[b]?.parent,
+            charts: shape?.[b]?.charts,
             head: prev !== undefined && sameBand(prev.head, head) ? prev.head : head,
             tail: prev !== undefined && sameBand(prev.tail, tail) ? prev.tail : tail,
             failures: failed.length === 0 ? NO_FAILURES
@@ -1066,7 +1071,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             const lane = lanes.get(b);
             if (shape?.[b]?.fixed === true || lane === undefined) {
                 const fixed: PlanPagedBlock = {
-                    index: b, fixed: true, parent: shape?.[b]?.parent,
+                    index: b, fixed: true, parent: shape?.[b]?.parent, charts: undefined,
                     head: undefined, tail: undefined, failures: NO_FAILURES, resident: undefined,
                 };
                 blocks.push(before !== undefined && sameBlock(before, fixed) ? before : fixed);

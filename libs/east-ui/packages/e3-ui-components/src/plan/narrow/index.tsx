@@ -109,6 +109,10 @@ const OTHER_SCOPE = " other";
 
 type NarrowTab = "groups" | "rows" | "measures";
 
+/** What a tab counts: a number; `pending` while it would count only what has landed (`…`, #1398, CL13); `notCounted`
+ *  where the source's entries make no fixed number of what it lists. */
+type TabCount = number | "pending" | "notCounted";
+
 /** One run of row cards on the Rows tab — under a group header when the
  *  list is unscoped, bare when it is one group's rows. */
 interface RowSection {
@@ -131,9 +135,9 @@ export interface PlanNarrowProps {
     expandGutterBody: UIValue | null;
     /** Whether the root declares `expandRender` at all. */
     canExpand: boolean;
-    /** Whether the source is not yet exhausted (`PlanTransport.partial`) — the
-     *  tab counts, and a top-level section's member count, then cover only the
-     *  loaded windows (`spansWindows`, #822). */
+    /** Whether the source is not yet exhausted (`PlanTransport.partial`) — a
+     *  tab count of what has loaded is then `…`, and a top-level section's
+     *  member count a placeholder (`spansWindows`, #822, #1398 CL13). */
     partial: boolean | undefined;
     /**
      * A paged source's own count, once a completed read says it (#1398, CL13):
@@ -142,6 +146,14 @@ export interface PlanNarrowProps {
      * known — or is a new narrowing's, the last narrowing's rows standing in.
      */
     pagedCount?: number | undefined;
+    /**
+     * What the Measures tab counts over a paged source (#1398, ruled 27 Oct 2026, "Exact where it can be"): the chart
+     * rows the source makes — its count times what each of its entries makes across the paged blocks, where every entry
+     * makes as many, beside the blocks no entry makes — or `"notCounted"`, where some block's entries make no fixed
+     * number of them, which the tab says. Never what has loaded: `undefined` while the source has not counted itself, or
+     * a new narrowing's rows are read, and on an inline canvas.
+     */
+    pagedMeasures?: number | "notCounted" | undefined;
     /** A bounded frame — the list scrolls inside it. */
     fill: boolean;
     /** Windows whose read failed (#811) — a card each, with a Retry. */
@@ -188,7 +200,7 @@ function PendingTail({ tail, watch, onLoadMore, styles }: {
 /** The narrow shell: tabs · ruler · card list. */
 export function PlanNarrow({
     styles, index, derived, view, dense, storageKey,
-    expandBody, expandGutterBody, canExpand, partial, pagedCount, fill,
+    expandBody, expandGutterBody, canExpand, partial, pagedCount, pagedMeasures, fill,
     failures, onRetry, paging, marks, noun,
 }: PlanNarrowProps) {
     const scale = usePlanScale();
@@ -529,13 +541,18 @@ export function PlanNarrow({
     // re-declaring it, and brings Zag's keyboard and tabpanels (#819).
     // Counts ride each label as plain numerals (never a tinted pill). Over a paged source the Rows tab counts what the
     // source does, once its count is read — the rail's count, never the rows read so far — and a count that covers only
-    // what has landed is `…` (#1398, CL13).
+    // what has landed is `…` (#1398, CL13). Its Measures tab counts the chart rows the source makes where each of its
+    // entries makes as many, and says they are not counted where that varies, as the Plan's event counts say theirs
+    // (ruled 27 Oct 2026) — never what has loaded either.
     const rowCount = allDataRows(index).length;
-    const tabs: Array<{ key: NarrowTab; label: string; count: number; known: boolean }> = [
-        ...(hasGroups ? [{ key: "groups" as const, label: words.m.tabGroups(), count: rootGroups.length, known: true }] : []),
-        pagedCount !== undefined ? { key: "rows" as const, label: words.m.tabRows(), count: pagedCount, known: true }
-            : { key: "rows" as const, label: words.m.tabRows(), count: rowCount, known: partial !== true },
-        ...(hasMeasures ? [{ key: "measures" as const, label: words.m.tabMeasures(), count: chartRows.length, known: partial !== true }] : []),
+    const loaded = (n: number): TabCount => (partial !== true ? n : "pending");
+    const tabs: Array<{ key: NarrowTab; label: string; count: TabCount }> = [
+        ...(hasGroups ? [{ key: "groups" as const, label: words.m.tabGroups(), count: rootGroups.length }] : []),
+        { key: "rows" as const, label: words.m.tabRows(), count: pagedCount ?? loaded(rowCount) },
+        ...(hasMeasures ? [{
+            key: "measures" as const, label: words.m.tabMeasures(),
+            count: paging === undefined ? loaded(chartRows.length) : pagedMeasures ?? "pending",
+        }] : []),
     ];
 
     return (
@@ -546,9 +563,11 @@ export function PlanNarrow({
                     {tabs.map((t) => (
                         <Tabs.Trigger key={t.key} value={t.key} data-plan-tab={t.key}>
                             {t.label}
-                            {/* "…" while it counts only what has landed: never a count the read has not finished (#1398, CL13). */}
+                            {/* "…" while it counts only what has landed: never a count the read has not finished (#1398, CL13);
+                                words where the source's entries make no fixed number of what it counts. */}
                             <Box as="span" css={styles.narrowTabCount} data-plan-tabcount={t.count}>
-                                {t.known ? words.m.tabCount({ n: t.count, count: words.number(t.count) }) : "…"}
+                                {typeof t.count === "number" ? words.m.tabCount({ n: t.count, count: words.number(t.count) })
+                                    : t.count === "notCounted" ? words.m.tabNotCounted() : "…"}
                             </Box>
                         </Tabs.Trigger>
                     ))}

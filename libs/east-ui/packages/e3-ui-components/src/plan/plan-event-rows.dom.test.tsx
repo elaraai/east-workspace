@@ -445,7 +445,7 @@ describe("the event kinds' rows beside `data`'s editing session (#880)", () => {
     /** Event rows leading every window — one resource kind's block, then the Unassigned rows' — its machine keyed `p200`. */
     const LEAD: PlanEventRows = {
         count: 2,
-        blocks: () => some([{ fixed: true, parent: none, rows: [machine("p200")] }, { fixed: true, parent: none, rows: [] }]),
+        blocks: () => some([{ fixed: true, parent: none, charts: none, rows: [machine("p200")] }, { fixed: true, parent: none, charts: none, rows: [] }]),
     };
 
     test("a job dropped on a paged entry is drafted from the window its own row came from — never from an event row whose path names its key", async () => {

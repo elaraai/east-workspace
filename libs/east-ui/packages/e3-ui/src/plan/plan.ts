@@ -93,7 +93,9 @@ import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { PlanRootType } from "./ir.js";
-import { PlanAxisType, PlanBlocksType, PlanLinkType, PlanRowsCollectionType, PlanRunRefType, type PlanAxisKindLiteral, type PlanRowsValue } from "./types.js";
+import {
+    PlanAxisType, PlanBlockType, PlanBlocksType, PlanLinkType, PlanRowsCollectionType, PlanRunRefType, type PlanAxisKindLiteral, type PlanRowsValue,
+} from "./types.js";
 import { WINDOWLESS_AXES, axisKindOf, linkEventKinds } from "./builders.js";
 import { buildPlanRoot, type PlanConfig } from "./root.js";
 import { overSeriesKeys, type PlanOverRows } from "./over.js";
@@ -333,11 +335,13 @@ function rowsBlocks(rows: readonly unknown[]): ExprType<PlanBlocksType> {
     return rows.map((item, i) => {
         const value = East.value(item as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
         const type = Expr.type(value as unknown as Expr) as EastType;
+        // No entry of `data` makes them, so they say nothing of what one makes (#1398).
         if (isTypeEqual(type, PlanBlocksType)) {
-            return (value as unknown as ExprType<PlanBlocksType>).map((_$, block) => ({ fixed: true, parent: block.parent, rows: block.rows }));
+            return (value as unknown as ExprType<PlanBlocksType>).map((_$, block) =>
+                East.value({ fixed: true, parent: block.parent, charts: none, rows: block.rows }, PlanBlockType));
         }
         if (isTypeEqual(type, PlanRowsCollectionType)) {
-            return East.value([{ fixed: true, parent: none, rows: value as unknown as ExprType<PlanRowsCollectionType> }], PlanBlocksType);
+            return East.value([{ fixed: true, parent: none, charts: none, rows: value as unknown as ExprType<PlanRowsCollectionType> }], PlanBlocksType);
         }
         throw new Error(`Plan: rows[${i}] is a row a kind factory builds (Plan.chart, Plan.span, …) or Plan.over(data, [series…]) — and this one is ${printType(type)}`);
     }).reduce<ExprType<PlanBlocksType>>((all, part) => all.concat(part) as ExprType<PlanBlocksType>, East.value([], PlanBlocksType));
