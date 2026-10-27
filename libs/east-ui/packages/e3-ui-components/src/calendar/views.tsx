@@ -65,7 +65,7 @@ import type { CalendarBucket } from "./cells.js";
 import { NowChip, NowLine } from "../shared/time/now-line.js";
 import { drawSpan } from "../shared/time/drag.js";
 import { timeScale, timeWords } from "../shared/time/scale.js";
-import { TimeRulerRow, timeRulerUnits } from "../shared/time/ruler.js";
+import { TimeRulerRow, createViewStart, timeRulerUnits } from "../shared/time/ruler.js";
 import { packLanes } from "../shared/time/lanes.js";
 import { shadeBands } from "../shared/time/shading.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
@@ -1511,10 +1511,14 @@ function Timeline(props: CalendarViewsProps) {
     spanRef.current = span;
     // Where the view's middle was, exactly, as it was last published: which way a scroll moves it is the way it travels.
     const middle = useRef<number | undefined>(undefined);
+    // Where the view starts, published as it scrolls to the ruler's bands alone (CL9): the caption of the period it starts
+    // in sticks beside the resource column, and only that one and its neighbours are sticky.
+    const [viewStart] = useState(createViewStart);
     const publish = (scrolled: boolean) => {
         const element = scroll.current;
         if (element === null || element.clientWidth <= 0) return;
         const visible = timelineVisible(range, element.scrollLeft, element.clientWidth, view.period);
+        viewStart.set(visible.from.getTime());
         const at = (visible.from.getTime() + visible.to.getTime()) / 2;
         // A scroll of a pixel or more travels; a step, a re-centre or a resize places the view, and moves the mark alone.
         if (scrolled && middle.current !== undefined && Math.abs(at - middle.current) >= DAY / pixelsPerDay) props.travel?.set(at > middle.current ? 1 : -1);
@@ -1696,8 +1700,8 @@ function Timeline(props: CalendarViewsProps) {
     const ticks = useMemo(() => timeScale({ window: { min: range.from, max: range.to }, resolution: view.period === "day" ? "hour" : "day", words })!, [range.from, range.to, view.period, words]);
     const units = useMemo(() => timeRulerUnits(ticks, words, view.period === "day" ? "day" : view.period === "week" ? "week" : "month")!, [ticks, words, view.period]);
     const header = <Box css={styles.head} data-calendar-header="" data-timeline=""><Box css={styles.headerCaption} data-calendar-header-caption="">Resources</Box><Box css={styles.ruler}>
-        <TimeRulerRow scale={units} styles={styles} band="units" owner="calendar" sticky />
-        <TimeRulerRow scale={ticks} styles={styles} band="ticks" owner="calendar" sticky />
+        <TimeRulerRow scale={units} styles={styles} band="units" owner="calendar" sticky={viewStart} />
+        <TimeRulerRow scale={ticks} styles={styles} band="ticks" owner="calendar" sticky={viewStart} />
     </Box></Box>;
     return <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.scroll} scrollElRef={scroll} onScroll={onScroll}
         rootProps={{ "data-calendar-timeline": "", "data-calendar-unread": props.read.state === "held" ? undefined : props.read.state } as Record<string, string | undefined>}

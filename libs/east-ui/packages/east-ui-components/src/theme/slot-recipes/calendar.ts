@@ -139,7 +139,11 @@ export const calendarSlotRecipe = defineSlotRecipe({
         ruler: { flex: 1, minWidth: 0 },
         rulerRow: timeRulerBase.rulerRow,
         rulerTick: { ...timeRulerBase.rulerTick, justifyContent: "flex-start", padding: "0 4px", overflow: "clip", textOverflow: "ellipsis", borderLeftWidth: "1px", borderColor: "border.subtle" },
-        rulerLabel: { ...timeRulerBase.rulerLabel, position: "sticky", left: "188px", background: "bg.surface", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis" },
+        // A caption stands where its column starts; the caption of the period the timeline's view starts in, and its
+        // neighbours (`data-sticks`), stick inside their columns beside the resource column (#1398, CL9). A sticky caption
+        // is a layer of the compositor's own: never one a period.
+        rulerLabel: { ...timeRulerBase.rulerLabel, background: "bg.surface", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis",
+            "&[data-sticks]": { position: "sticky", left: "188px" } },
         title: { textStyle: "body.sm", fontWeight: "semibold", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 },
         detail: { textStyle: "mono.xs", color: "fg.muted", overflowWrap: "anywhere" },
         resize: {

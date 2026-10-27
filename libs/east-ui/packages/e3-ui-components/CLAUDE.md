@@ -1780,7 +1780,16 @@ main — and the commands are withheld meanwhile, so no read draws every event
 off and back on; the recipe draws a retained event inert to the pointer, the
 default cursor over it and its edges rather than the grab and the resize ones
 (the `event` slot's retained rule); where the read failed, main takes the
-pointer for its Retry, and the events carry no handle. Its
+pointer for its Retry, and the events carry no handle. Its ruler
+sticks only the captions about where its view starts (`shared/time/ruler.tsx`'
+`TimeRulerRow` over a store of where the view starts, which the timeline
+publishes as it scrolls and the ruler's bands alone read): in each band the
+caption of the period the view starts in stays beside the resource column, and
+its neighbours either side are sticky too, so a scroll the compositor draws
+ahead of the page finds the next one sticky already; every other caption
+stands where its column starts. A sticky caption is a layer of the
+compositor's own, and a band of them, one a period — 375 at Day — was most of
+what a frame of a glide spent compositing (`calendar.spec.ts` counts them). Its
 scroll publishes the days it shows to a store only what says them reads
 (`calendar/visible.ts`: the navigator's date and label, the count, each row's
 hours, the overlaps chip and the inspector's overlaps), so a scroll draws
