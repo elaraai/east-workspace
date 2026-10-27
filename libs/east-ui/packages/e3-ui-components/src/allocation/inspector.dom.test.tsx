@@ -17,7 +17,7 @@ import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DateTimeType, FloatType, SortedMap, StringType, compareFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
-import { editingMessages } from "@elaraai/east-ui-components";
+import { editingMessages, formatters } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import { act, allocationHarness, offering, settle, slot, TUE } from "./harness.test-utils.js";
@@ -738,6 +738,21 @@ describe("a published day", () => {
         expect(within(details(c)).queryAllByRole("spinbutton")).toHaveLength(0);
         expect(details(c).querySelector<HTMLButtonElement>("[data-allocation-resource-field]")!.disabled).toBe(true);
         expect([...details(c).querySelectorAll("[data-allocation-alternative] button")]).toHaveLength(0);
+    });
+    test("a bin's lane and time are printed as the rest of its form is — no stepper and no lane segments, which looked editable — and nothing moves it (the hand retest)", async () => {
+        const c = await open(ex.allocationPublished);
+        await press(card(c, "3001"));
+        const section = details(c).querySelector<HTMLElement>("[data-allocation-bin-section]")!;
+        expect(section.querySelector("[data-allocation-stepper]")).toBeNull();
+        expect(within(section).queryAllByRole("radio")).toHaveLength(0);
+        /** A field as the form draws it: its editor, whether its box is read only, and what it prints. */
+        const field = (name: string) => {
+            const el = section.querySelector<HTMLElement>(`[data-field="${name}"]`)!;
+            return [el.getAttribute("data-editor"), el.querySelector("input")?.readOnly, el.querySelector("input")?.value];
+        };
+        expect(field("lane")).toEqual(["readonly", true, "B-1"]);
+        expect(field("at")).toEqual(["readonly", true, formatters().dateTime(new Date(Date.UTC(2027, 4, 4, 6, 15)))]);
+        expect(c.querySelector('[data-allocation-card="3001"]')).not.toBeNull();
     });
 });
 
