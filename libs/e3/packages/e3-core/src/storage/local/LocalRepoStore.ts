@@ -40,6 +40,7 @@ import {
   isTransientFsError,
   noteUnreachable,
   objectPath,
+  readReplacedFile,
   renameWithRetry,
   restoreAside,
   unlinkWithRetry,
@@ -123,12 +124,13 @@ export class LocalRepoStore implements RepoStore {
 
   /**
    * Read a repository's metadata, refusing a repository whose metadata does
-   * not read: an e3 older than this layout wrote it.
+   * not read: an e3 older than this layout wrote it. Read in its file's turn
+   * (`readReplacedFile`), as a status change renames over it.
    */
   private async readMetadata(repo: string): Promise<RepoMetadata> {
     let data: Buffer;
     try {
-      data = await fs.readFile(this.getMetadataPath(repo));
+      data = await readReplacedFile(this.getMetadataPath(repo));
     } catch (err) {
       if (isNotFoundError(err)) throw new RepoLayoutError(this.getRepoPath(repo), null);
       throw err;
@@ -480,9 +482,11 @@ export class LocalRepoStore implements RepoStore {
     await atomicWriteFile(gcRunPath(repo, run, name), data);
   }
 
+  /** Reads a part in its file's turn (`readReplacedFile`), as a write of it
+   *  renames over it. */
   async gcRunRead(repo: string, run: string, name: string): Promise<Uint8Array | null> {
     try {
-      return await fs.readFile(gcRunPath(repo, run, name));
+      return await readReplacedFile(gcRunPath(repo, run, name));
     } catch (err) {
       if (isNotFoundError(err)) return null;
       throw err;

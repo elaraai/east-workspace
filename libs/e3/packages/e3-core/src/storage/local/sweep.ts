@@ -18,7 +18,7 @@ import * as path from 'path';
 import { decodeExecutionStatus } from '@elaraai/e3-types';
 import type { GcBackendSweepOptions, GcBackendSweepResult } from '../interfaces.js';
 import {
-  GC_ASIDE_SUFFIX, executionPath, gcDir, objectPath, restoreAside, runOf, runningAttemptOf, transferStagingDir,
+  GC_ASIDE_SUFFIX, executionPath, gcDir, objectPath, readReplacedFile, restoreAside, runOf, runningAttemptOf, transferStagingDir,
 } from './localHelpers.js';
 import { isNotFoundError } from '../../errors.js';
 import { isObjectHash } from '../../objects.js';
@@ -177,7 +177,7 @@ async function sweepStaleRunning(repoPath: string): Promise<void> {
       const status = path.join(executionPath(repoPath, taskHash, attempt.inputsHash, attempt.executionId), 'status.beast2');
       let running: boolean;
       try {
-        running = decodeExecutionStatus(await fs.readFile(status)).type === 'running';
+        running = decodeExecutionStatus(await readReplacedFile(status)).type === 'running';
       } catch (err) {
         if (!isNotFoundError(err)) continue;
         running = false;

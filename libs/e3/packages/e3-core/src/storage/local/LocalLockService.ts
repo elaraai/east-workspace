@@ -17,7 +17,9 @@
  * - Shared: one `shared.<pid>.<token>.beast2` per holder;
  * - Progress: `progress.beast2`, what the exclusive holder last reported,
  *   stamped with its holder and acquisition, written whole by a rename — a
- *   file of its own, so a report never rewrites the lock;
+ *   file of its own, so a report never rewrites the lock — and read in its
+ *   turn (`readReplacedFile`), so a poll in the reporting process never holds
+ *   it open across a report's rename;
  * - Stale detection: the holder's process is gone (pid, start time and boot);
  * - Release: unlink the file, and the directory once it is empty.
  */
@@ -32,7 +34,7 @@ import {
 } from '@elaraai/e3-types';
 import { WorkspaceLockError, checkName, lockStateToHolderInfo, type LockHolderInfo } from '../../errors.js';
 import { getBootId, getPidStartTime, isProcessAlive } from '../../execution/processHelpers.js';
-import { atomicWriteFile, isTransientFsError } from './localHelpers.js';
+import { atomicWriteFile, isTransientFsError, readReplacedFile } from './localHelpers.js';
 import type { LockHandle, LockService } from '../interfaces.js';
 
 /** Sleep helper for bounded filesystem-operation backoff. */
@@ -611,7 +613,7 @@ export class LocalLockService implements LockService {
     if (state === null) return null;
     let record: ReturnType<typeof decodeProgressRecord>;
     try {
-      record = decodeProgressRecord(await fs.readFile(path.join(lockDir(repo, resource), PROGRESS)));
+      record = decodeProgressRecord(await readReplacedFile(path.join(lockDir(repo, resource), PROGRESS)));
     } catch {
       return null;
     }
