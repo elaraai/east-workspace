@@ -514,7 +514,7 @@ function CalendarFrame(props: HostProps) {
     const chooser = useMemo((): CalendarChooser | undefined => {
         if (pagedValue === undefined || pagedKind === undefined) return undefined;
         const names = new Map(pagedRows.flatMap(row => row.resource.type === "some" ? [[row.resource.value.key, row.label] as const] : []));
-        return { paged: pagedValue, noun: pagedKind.name.toLocaleLowerCase(format.locale), nameOf: key => names.get(key) ?? key, part: sourcePart(chrome, pagedValue.kind) };
+        return { paged: pagedValue, noun: pagedKind.name.toLocaleLowerCase(format.locale), nameOf: key => names.get(key), part: sourcePart(chrome, pagedValue.kind) };
     }, [pagedValue, pagedKind, pagedRows, format.locale, chrome]);
     const shownRows = useMemo(() => [...resourceRows(shown), UNASSIGNED], [shown]);
     const overlaps = useMemo(() => scheduleOverlaps([items.filter(item => value.events.find(kind => kind.key === item.kind)?.overlaps.type === "warn")]), [items, value.events]);

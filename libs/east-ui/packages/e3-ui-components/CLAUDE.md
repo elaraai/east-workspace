@@ -1548,9 +1548,13 @@ hides, as the other Choosers leave out what the rail hides (ruled 27 Oct
 2026) — which of each page it lists the choices hold asked of e3, a request a
 page (`recordSliceWithinAt`), the rest dropped but the resource the field
 holds, an event's own; a step onto one they hide picks nothing, and its count
-is the kind's, searched whole by key; an event — drawn, or its Backlog card — names
-its resource by the windows held, else by its key (`model.ts`'
-`resourceLabel`). A new event takes the resource it is dropped on or chosen;
+is the kind's, searched whole by key. Its box names the resource the field
+holds by the windows held, else by the resource's own row, read by its key
+through the kind's own read (`byKey`), so a narrowing that leaves the
+resource out of every window held never turns its name into its key (retest
+C6) — its key only while that read is in flight. An event — drawn, or its
+Backlog card — names its resource by the windows held, else by its key
+(`model.ts`' `resourceLabel`), reading nothing for a name. A new event takes the resource it is dropped on or chosen;
 with none chosen it lands on the first resource of the windows held free then,
 as a kind read whole lands on its first free row (`actions.ts`'
 `firstResource`) — free only where its events are read: the cells reader's

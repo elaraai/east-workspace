@@ -12,8 +12,12 @@
  * that offers the paged kind draws it in a field's place (`FieldForm`'s
  * `renderControl`): the placement's resource, an event's reference field to
  * the kind, and the bulk edit's resource. The frame gives it the paged kind
- * through {@link CalendarChooserContext}, with the name of a resource by its
- * key: its row's label once a window the frame holds has it, else its key.
+ * through {@link CalendarChooserContext}, with the name of a resource a window
+ * the frame holds has. The box names the resource the field holds by it, else
+ * by the resource's own row, read by its key through the kind's own read
+ * (`byKey`) — a narrowing of the kind's windows, which leaves out the
+ * resources its choices hide, an event's own among them, never turns its name
+ * into its key (retest C6) — and by its key only while that read is in flight.
  *
  * It leaves out what the kind's source of the slice hides, as the Calendar's
  * other Choosers leave out what the rail hides (ruled 27 Oct 2026): which of
@@ -32,7 +36,7 @@ import { Box } from "@chakra-ui/react";
 import { StringType, equalFor, toEastTypeValue, type EastTypeValue, type ValueTypeOf } from "@elaraai/east";
 import type { FieldSpecValue } from "@elaraai/east-ui";
 import type { DatasetKeyMatchRange, DatasetKeyQuery, RecordSliceBindType } from "@elaraai/east-ui/internal";
-import { DatasetKeySearch, useSliceReactivity } from "@elaraai/east-ui-components";
+import { DatasetKeySearch, useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { awaitTracked, recordSliceWithinAt, toSeekQuery } from "@elaraai/east-ui-components/internal";
 import type { CalendarPagedValue } from "./pages.js";
 
@@ -48,8 +52,8 @@ export interface CalendarChooser {
     readonly paged: CalendarPagedValue;
     /** Its name, as running text writes it: `presses`. */
     readonly noun: string;
-    /** A resource's name by its key: its row's label once a window the frame holds has it, else its key. */
-    readonly nameOf: (key: string) => string;
+    /** A resource's name by its key: its row's label once a window the frame holds has it; `undefined` while none does. */
+    readonly nameOf: (key: string) => string | undefined;
     /**
      * The kind's source of the slice, named after its slot: its Choosers leave out what its choices hide; `undefined`
      * with none, every resource offered.
@@ -99,7 +103,15 @@ export function PagedChooser({ chooser, chosen, onPick, readOnly = false }: {
             .then(([[picked], held]) => { if (picked !== undefined && offered(picked.key, held?.[0])) onPick(picked.key); })
             .catch((error: unknown) => { console.error("[Calendar] the resource picked could not be read:", error); });
     }, [paged, heldAt, offered, onPick]);
-    const name = chosen === undefined ? "Unassigned" : nameOf(chosen);
+    // The resource the field holds, named by a window the frame holds, else by its own row read by its key (retest C6).
+    const held = chosen === undefined ? undefined : nameOf(chosen);
+    const readName = useCallback((): string | undefined => {
+        if (chosen === undefined || held !== undefined) return undefined;
+        const row = paged.byKey(chosen);
+        return row.type === "some" && row.value.type === "some" ? row.value.value.label : undefined;
+    }, [paged, chosen, held]);
+    const { result: read } = useTrackedEvaluation(readName);
+    const name = chosen === undefined ? "Unassigned" : held ?? (read.ok ? read.value : undefined) ?? chosen;
     if (readOnly) return <Box data-calendar-chooser="" data-readonly="">{name}</Box>;
     return <Box data-calendar-chooser="">
         <DatasetKeySearch keyType={KEY_TYPE} label={name} onFind={find} onListRange={listRange} onJump={jump} browseQuery={BROWSE} relist={moved}
