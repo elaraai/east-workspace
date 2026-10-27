@@ -51,11 +51,16 @@
  * `rowsAll` the rows of several keys of a Dict, `runsAll` the entries of
  * several runs — and `joinAll` a Dict's rows under the keys some runs of one
  * of a record's indexes name, the keys read by the server, none sent (#1393).
- * A batch is one request and one channel, which re-fires its readers once.
- * What it answers serves the single reads too: each search's bounds land in
- * that search's own channel, each row is held at its position — a search by
- * its key, or a one-row window at its row, is answered from it — and a window
- * inside one of a runs read's runs is cut from it. A record Slice over a
+ * A batch is one request and one channel, named by a digest of what it asks,
+ * which re-fires its readers once and holds its answer as a landed window
+ * does, bounded with them. What it answers serves the single reads too: each
+ * search's bounds are held at the revision — the last
+ * {@link MAX_LANDED_SEARCHES} of them, a search's own answer among them once
+ * no reader holds its channel — each row is held at its position — a search
+ * by its key, or a one-row window at its row, is answered from it — and a
+ * window inside one of a runs read's runs is cut from it. A channel no reader
+ * holds goes once it holds nothing — aborted, evicted, or a batch whose
+ * answer is held elsewhere — and its version with it. A record Slice over a
  * binding the indexed runtime built reads a plan's searches, and a window
  * across several runs, through them. A read by another record's runs is
  * pinned to both datasets' revisions, its channel both snapshots': a move of
@@ -95,12 +100,14 @@ import {
     none,
     parseFor,
     printFor,
+    sha256Hex,
     some,
     type EastTypeValue,
     type option,
 } from "@elaraai/east";
 import { type PlatformFunction, EastTypeType } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
+import { MAX_LANDED_SEARCHES } from "@elaraai/east-ui/internal";
 import { bindPagedPinnedPlatformFn, bindPagedPlatformFn, DataPagedPrimitives } from "@elaraai/e3-ui/internal";
 import {
     registerReactiveTracker,
@@ -397,6 +404,9 @@ interface PageEntry {
     total?: number;
     /** Where a key query landed — the answer on a seek channel. */
     range?: DatasetFindResult;
+    /** A batch of key searches' answer (#1351): every search it asks's
+     *  bounds, in the order asked — the answer on a `seekAll` channel. */
+    ranges?: DatasetFindResult[];
     /** A rows read's answer, every key asked's row in order — the answer on a
      *  rows batch's channel (#1351). */
     rows?: readonly PagedRow[];
@@ -409,6 +419,10 @@ interface PageEntry {
     failedAtMs?: number;
     /** No retry can help while the source holds the same content. */
     permanent?: boolean;
+    /** The snapshots whose channels hold it: its dataset's, and for a read by
+     *  another record's runs that record's too (#1393) — what a channel let go
+     *  leaves. */
+    owners?: Set<Snapshot>;
 }
 
 /** Where a landed window sits in its source's row space (#1217). */
@@ -536,6 +550,12 @@ interface Snapshot {
     findFailedAtMs?: number;
     /** The channels of the current revision, dropped when it moves. */
     readonly channels: Set<string>;
+    /** The bounds of searches the revision holds apart from a channel, by the
+     *  search's channel key, the least recently used first: what batches
+     *  answered (#1351), and a search's own answer once no reader holds its
+     *  channel — at most {@link MAX_LANDED_SEARCHES}, as the record Slice keeps
+     *  its own. Dropped when it moves. */
+    readonly searches: Map<string, DatasetFindResult>;
     /** The rows reads by key have held at this revision, by the family of the
      *  rows they read (#1351): a search by one of their keys, and a one-row
      *  page at one's position, answer from them. Dropped when it moves. */
@@ -564,6 +584,43 @@ interface HeldRows {
 /** The most rows a family holds from reads by key; past it, what it held goes
  *  and the newest read's rows are held alone. */
 const MAX_HELD_ROWS = 20_000;
+
+/**
+ * Keep a search's bounds among those a revision holds apart from a channel
+ * (#1351), the most recently used; past {@link MAX_LANDED_SEARCHES}, the least
+ * recently used go.
+ *
+ * @param snapshot - The revision's snapshot
+ * @param key - The search's channel key
+ * @param range - Its bounds
+ */
+function landSearch(snapshot: Snapshot, key: string, range: DatasetFindResult): void {
+    snapshot.searches.delete(key);
+    snapshot.searches.set(key, range);
+    if (snapshot.searches.size > MAX_LANDED_SEARCHES) snapshot.searches.delete(snapshot.searches.keys().next().value!);
+}
+
+/**
+ * A search's bounds the revision holds apart from a channel, now its most
+ * recently used.
+ *
+ * @param snapshot - The revision's snapshot
+ * @param key - The search's channel key
+ * @returns Its bounds, or `undefined` when the revision holds none of it
+ */
+function heldSearch(snapshot: Snapshot, key: string): DatasetFindResult | undefined {
+    const range = snapshot.searches.get(key);
+    if (range === undefined) return undefined;
+    snapshot.searches.delete(key);
+    snapshot.searches.set(key, range);
+    return range;
+}
+
+/** What a channel holds that a read answers from, besides a failure: nothing at all, and a read of it asks again. */
+function holdsNothing(entry: PageEntry): boolean {
+    return entry.status !== "failed" && entry.window === undefined && entry.rows === undefined && entry.range === undefined
+        && entry.ranges === undefined && entry.placement === undefined && entry.total === undefined;
+}
 
 /** How many windows of a placement are asked at once (#1349). */
 const PLACE_CONCURRENCY = 4;
@@ -959,7 +1016,27 @@ export function pagedTotalKey(workspace: string, path: TreePath, revision: strin
 export function pagedSeekKey(
     workspace: string, path: TreePath, revision: string, query: DatasetFindQuery, selector: PagedSelector = NO_INDEX,
 ): string {
-    return `paged:${workspace}:${datasetPathToString(path)}${selectorKey(selector)}@${revision}#seek:${seekQueryText(query)}`;
+    return seekKeyIn(pagedWindowFamily(workspace, path, revision, selector), seekQueryText(query));
+}
+
+/** A search's channel key, from the family of the rows it searches and its text. */
+function seekKeyIn(family: string, text: string): string {
+    return `${family}#seek:${text}`;
+}
+
+/** Encodes what a batch asks, for its digest. */
+const batchText = new TextEncoder();
+
+/**
+ * What names a batch's channel: the SHA-256 of what it asks, each part's
+ * length beside it so no two lists of parts read alike — a key as long however
+ * much the batch asks (#1351).
+ *
+ * @param parts - What it asks, each in its channel text
+ * @returns The digest, as hex
+ */
+function digestOf(parts: readonly string[]): string {
+    return sha256Hex(batchText.encode(parts.map((part) => `${part.length}:${part}`).join("")));
 }
 
 /** A key query's form and literals, as a channel's key names it. */
@@ -976,7 +1053,9 @@ function seekQueryText(query: DatasetFindQuery): string {
 /**
  * Tracked-channel key for one batch of reads of one revision (#1351): several
  * key searches, the rows of several keys — or of those another record's runs
- * name (#1393) — or the entries of several runs, each batch by what it asks.
+ * name (#1393) — or the entries of several runs, each batch named by a digest
+ * of what it asks, never by its text: a batch of ten thousand searches is a
+ * key as short as one of two.
  *
  * @param workspace - The workspace
  * @param path - The dataset's path
@@ -990,13 +1069,13 @@ export function pagedBatchKey(
     workspace: string, path: TreePath, revision: string, selector: PagedSelector,
     kind: "seekAll" | "rows" | "joins" | "runs" | "place" | "within", parts: readonly string[],
 ): string {
-    return `${pagedWindowFamily(workspace, path, revision, selector)}#${kind}:${parts.join("\u0001")}`;
+    return `${pagedWindowFamily(workspace, path, revision, selector)}#${kind}:${digestOf(parts)}`;
 }
 
 /** The family of a narrowing's membership answers (#1349): the runs of one
- *  of a record's indexes, at one revision. */
+ *  of a record's indexes, at one revision, named by their digest. */
 function withinFamily(workspace: string, path: TreePath, revision: string, selector: PagedSelector, runs: readonly PagedRun[]): string {
-    return `${pagedWindowFamily(workspace, path, revision, selector)}#within:${runs.map(([row, count]) => `${row}+${count}`).join(",")}`;
+    return `${pagedWindowFamily(workspace, path, revision, selector)}#within:${digestOf(runs.map(([row, count]) => `${row}+${count}`))}`;
 }
 
 /** A key query as a batch's wire takes it: its form alone, the index and the
@@ -1210,6 +1289,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 findSeq: 0,
                 finding: false,
                 channels: new Set(),
+                searches: new Map(),
                 held: new Map(),
                 within: new Map(),
                 pinning: new Map(),
@@ -1238,6 +1318,8 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         if (this.fetching.has(key)) {
             queueMicrotask(() => { if (!this.isSubscribed(key)) this.abortFetch(key); });
         }
+        // What the channel holds that no reader waits on goes too, once the reader re-subscribing has done so (#1351).
+        queueMicrotask(() => this.letGo(key));
         const snapshot = this.snapshots.get(key);
         if (snapshot?.unwatch === undefined) return;
         // A reader re-subscribing lets every channel go before it subscribes
@@ -1325,10 +1407,14 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         for (const key of snapshot.channels) {
             // A read of the old revision still in flight lands nowhere (its pin no longer holds): it is no longer the channel's.
             this.fetching.delete(key);
+            // A read by another record's runs is that record's channel too: it goes from both.
+            for (const owner of this.entries.get(key)?.owners ?? []) if (owner !== snapshot) owner.channels.delete(key);
             this.entries.delete(key);
             this.loadedWindows.delete(key);
+            this.forgetVersion(key);
         }
         snapshot.channels.clear();
+        snapshot.searches.clear();
         snapshot.held.clear();
         snapshot.within.clear();
         snapshot.pinning.clear();
@@ -1383,7 +1469,50 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     /** A channel of the snapshot's current revision, dropped when it moves. */
     private channel(snapshot: Snapshot, key: string): PageEntry {
         snapshot.channels.add(key);
-        return this.entry(key);
+        const entry = this.entry(key);
+        (entry.owners ??= new Set()).add(snapshot);
+        return entry;
+    }
+
+    /**
+     * Let a channel go (#1351): its entry, its place among its snapshots'
+     * channels and the window cache, and — once nothing subscribes to it — its
+     * version. A read of it makes it again, idle, and asks for it afresh.
+     * Never a channel in flight: its callers let go only what no fetch waits on.
+     *
+     * @param key - The channel
+     */
+    private dropChannel(key: string): void {
+        for (const owner of this.entries.get(key)?.owners ?? []) owner.channels.delete(key);
+        this.entries.delete(key);
+        this.loadedWindows.delete(key);
+        this.forgetVersion(key);
+    }
+
+    /**
+     * What a channel no reader holds any longer leaves (#1351), once the
+     * reader re-subscribing has done so: nothing of a channel let go but its
+     * version, which goes; a search's answer, which the revision holds apart
+     * from its channel ({@link Snapshot.searches}), as it holds what batches
+     * answered; and a channel holding nothing — aborted, evicted, or a batch
+     * whose answer is held elsewhere — which goes. A landed window stays, bounded
+     * by the windows retained, and so do a failure, a total and a placement.
+     *
+     * @param key - The channel
+     */
+    private letGo(key: string): void {
+        if (this.isSubscribed(key) || this.fetching.has(key)) return;
+        const entry = this.entries.get(key);
+        if (entry === undefined) {
+            this.forgetVersion(key);
+            return;
+        }
+        if (entry.status === "loaded" && entry.range !== undefined) {
+            for (const owner of entry.owners ?? []) landSearch(owner, key, entry.range);
+            this.dropChannel(key);
+            return;
+        }
+        if (holdsNothing(entry)) this.dropChannel(key);
     }
 
     /** Whether a channel is due a fetch: never fetched, evicted, or failed
@@ -1581,10 +1710,16 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             // Never evict a window that is still in flight — its settle would
             // land on an entry the next read has already relaunched.
             if (entry === undefined || entry.status !== "loaded") continue;
+            // A window no reader holds goes whole (#1351); one a reader holds is idle for it, and asked again as it reads.
+            if (!this.isSubscribed(candidate)) {
+                this.dropChannel(candidate);
+                continue;
+            }
             this.loadedWindows.delete(candidate);
             entry.status = "idle";
             delete entry.window;
             delete entry.rows;
+            delete entry.ranges;
         }
     }
 
@@ -1666,19 +1801,20 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * same rows at the same revision (#1217), a window's or one run of a runs
      * read's (#1351): the cut lands in the window's own channel, so it keeps
      * one identity, and nothing is fetched. The channel is the snapshot's, so
-     * a move drops the cut with every window.
+     * a move drops the cut with every window. Only the landed windows are
+     * looked at — at most {@link MAX_RETAINED_WINDOWS}, beside those the read
+     * in hand holds — never every channel of the revision.
      *
      * @param sourceType - The source's type
-     * @param snapshot - The source's snapshot
      * @param family - The window's family
      * @param offset - The window's first element
      * @param limit - How many elements it asks for
      * @param into - The window's channel, not loaded
      */
     private cutFromCovering(
-        sourceType: EastTypeValue, snapshot: Snapshot, family: string, offset: number, limit: number, into: PageEntry,
+        sourceType: EastTypeValue, family: string, offset: number, limit: number, into: PageEntry,
     ): void {
-        for (const key of snapshot.channels) {
+        for (const key of this.loadedWindows.keys()) {
             pagedRuntimeProbe?.looked?.();
             const covering = this.entries.get(key);
             if (covering === undefined || covering === into || covering.status !== "loaded" || covering.window === undefined) continue;
@@ -1753,13 +1889,19 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * asked — `none` while any is in flight.
      *
      * @remarks
-     * A query the runtime already holds — one a search asked, or an earlier
-     * batch answered — is answered from its channel; the rest go in one
+     * The batch is one channel, named by a digest of what it asks, which
+     * holds its answer — every query's bounds, in order — kept as a landed
+     * window is, bounded with them. A query the runtime already holds — one a
+     * search's channel holds, or the revision holds apart from a channel
+     * ({@link Snapshot.searches}) — is answered from it; the rest go in one
      * `findKeys` request (one for each {@link DATASET_BATCH_MAX} of them), whose
-     * readers track the batch's one channel. As the answer lands, each query's
-     * bounds go into its own channel, so a search asked later answers from it,
-     * and the batch's channel re-fires once, with every reader waiting on one of
-     * its queries.
+     * readers track the batch's channel. As the answer lands, each query's
+     * bounds go into a search's channel waiting on it and among those the
+     * revision holds — the last {@link MAX_LANDED_SEARCHES} of them — so a
+     * search asked later answers from them, and the batch's channel re-fires
+     * once, with every reader waiting on one of its queries. A reader walking
+     * on leaves no search of its own behind: what it asked goes with its
+     * batch's channel, and its searches' bounds with the least recently used.
      *
      * @param source - The rows searched: a dataset's own, or one of a record's indexes
      * @param queries - The searches, as e3's wire takes them; their index is the source's
@@ -1772,29 +1914,41 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         const revision = this.revisionFor(workspace, path);
         if (typeof revision !== "string") return none;
         const snapshot = this.snapshotOf(workspace, path);
-        const keys = queries.map((query) => pagedSeekKey(workspace, path, revision, query, selector));
-        const results: DatasetFindResult[] = new Array<DatasetFindResult>(queries.length);
-        const missing: number[] = [];
-        for (const [i, key] of keys.entries()) {
-            const entry = this.entries.get(key);
-            if (entry?.status === "loaded" && entry.range !== undefined) results[i] = entry.range;
-            else missing.push(i);
-        }
-        if (missing.length === 0) return some(results);
-        const batchKey = pagedBatchKey(workspace, path, revision, selector, "seekAll", queries.map(seekQueryText));
+        const texts = queries.map(seekQueryText);
+        const batchKey = pagedBatchKey(workspace, path, revision, selector, "seekAll", texts);
         this.track(batchKey);
         const batch = this.channel(snapshot, batchKey);
-        // Landed, and a query's channel lost since: it is asked again.
-        if (batch.status === "loaded") batch.status = "idle";
-        if (this.due(batch)) {
-            this.launchSeekBatch(workspace, path, snapshot, revision, selector, batchKey,
-                missing.map((i) => ({ query: queries[i]!, key: keys[i]! })));
+        if (batch.status === "loaded" && batch.ranges !== undefined) {
+            this.touchWindow(batchKey);
+            return some(batch.ranges);
         }
-        return this.answer<DatasetFindResult[]>(batch, undefined);
+        const family = pagedWindowFamily(workspace, path, revision, selector);
+        const keys = texts.map((text) => seekKeyIn(family, text));
+        const known = keys.map((key) => this.landedSearch(snapshot, key));
+        if (known.every((range): range is DatasetFindResult => range !== undefined)) {
+            // Every search is held already: the answer is what is held, kept on the batch's channel for its reader.
+            batch.status = "loaded";
+            batch.ranges = known;
+            delete batch.error;
+            this.touchWindow(batchKey);
+            return some(known);
+        }
+        if (this.due(batch)) this.launchSeekBatch(workspace, path, snapshot, revision, selector, batchKey, queries, keys, known);
+        return this.answer(batch, batch.ranges);
     }
 
-    /** Launch a batch's key searches: one request for each
-     *  {@link DATASET_BATCH_MAX} of them, the answers landing together. */
+    /** A search's bounds the runtime holds: its channel's, or what the revision holds apart from a channel. */
+    private landedSearch(snapshot: Snapshot, key: string): DatasetFindResult | undefined {
+        const own = this.entries.get(key);
+        if (own?.status === "loaded" && own.range !== undefined) return own.range;
+        return heldSearch(snapshot, key);
+    }
+
+    /**
+     * Launch a batch's key searches not already held: one request for each
+     * {@link DATASET_BATCH_MAX} of them, the answers landing together on the
+     * batch's channel beside those held as it launched.
+     */
     private launchSeekBatch(
         workspace: string,
         path: TreePath,
@@ -1802,17 +1956,20 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         revision: string,
         selector: PagedSelector,
         batchKey: string,
-        asked: readonly { query: DatasetFindQuery; key: string }[],
+        queries: readonly DatasetFindQuery[],
+        keys: readonly string[],
+        known: readonly (DatasetFindResult | undefined)[],
     ): void {
         const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey));
         const api = this.api;
+        const asked = known.flatMap((range, i) => (range === undefined ? [i] : []));
         void (async () => {
             const answers: DatasetFindResult[] = [];
             try {
                 if (api === null) throw new Error("no PagedApi installed");
                 for (let at = 0; at < asked.length; at += DATASET_BATCH_MAX) {
                     const { results, hash } = await api.findKeys(workspace, path, {
-                        queries: asked.slice(at, at + DATASET_BATCH_MAX).map(({ query }) => searchOf(query)),
+                        queries: asked.slice(at, at + DATASET_BATCH_MAX).map((i) => searchOf(queries[i]!)),
                         hash: revision,
                         ...(selector.index !== null && { index: selector.index }),
                     }, signal);
@@ -1830,14 +1987,23 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 this.fail(batchKey, seq, `Data.bindPaged: ${datasetPathToString(path)}: ${asked.length} key searches were asked, and ${answers.length} answered`, true);
                 return;
             }
-            if (!this.apply(batchKey, seq, (e) => { e.status = "loaded"; delete e.error; })) return;
-            for (const [i, { key }] of asked.entries()) {
-                const entry = this.channel(snapshot, key);
-                entry.status = "loaded";
-                entry.range = answers[i]!;
-                delete entry.error;
+            const ranges = [...known] as DatasetFindResult[];
+            for (const [n, i] of asked.entries()) ranges[i] = answers[n]!;
+            if (!this.apply(batchKey, seq, (e) => { e.status = "loaded"; e.ranges = ranges; delete e.error; })) return;
+            this.touchWindow(batchKey);
+            // Each answer serves a later search of it: a search's channel waiting on it, and what the revision holds.
+            const answered = [batchKey];
+            for (const [n, i] of asked.entries()) {
+                const key = keys[i]!;
+                landSearch(snapshot, key, answers[n]!);
+                const own = this.entries.get(key);
+                if (own === undefined) continue;
+                own.status = "loaded";
+                own.range = answers[n]!;
+                delete own.error;
+                answered.push(key);
             }
-            this.notifyAll([batchKey, ...asked.map(({ key }) => key)]);
+            this.notifyAll(answered);
         })();
     }
 
@@ -1882,7 +2048,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         }
         const family = pagedWindowFamily(workspace, path, revision, selector);
         const held = this.heldRowsOf(snapshot, family, keyType);
-        const known = keys.map((key) => held.byKey.get(key) ?? this.rowInWindows(snapshot, family, keyType, key));
+        const known = keys.map((key) => held.byKey.get(key) ?? this.rowInWindows(family, keyType, key));
         if (known.every((row): row is PagedRow => row !== undefined)) {
             // Every key is held already: the answer is what is held.
             batch.status = "loaded";
@@ -1982,7 +2148,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
             [datasetPathToString(of.path), index, runsRevision, ...runs.map(([row, count]) => `${row}+${count}`)]);
         this.track(batchKey);
         // The channel is both snapshots': a move of either drops it.
-        runsSnapshot.channels.add(batchKey);
+        this.channel(runsSnapshot, batchKey);
         const batch = this.channel(snapshot, batchKey);
         if (batch.status === "loaded" && batch.rows !== undefined) {
             this.touchWindow(batchKey);
@@ -2361,18 +2527,22 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     /**
      * What the runtime holds now (test use only, through a subclass, as
      * {@link withinHeld} is): the channels it keeps, the versions it keeps of
-     * channels, the longest channel's key, and how many narrowings' membership
-     * answers a source's dataset holds at its revision — what its specs hold
-     * the runtime's bounds to.
+     * channels, the longest channel's key, and of a source's dataset at its
+     * revision the searches' bounds it holds apart from a channel and how many
+     * narrowings' membership answers it holds — what its specs hold the
+     * runtime's bounds to.
      *
      * @param source - Any source of the dataset
      * @returns What it holds
      */
-    protected holding(source: PagedSource): { channels: number; versions: number; longestKey: number; narrowings: number } {
+    protected holding(source: PagedSource): { channels: number; versions: number; longestKey: number; searches: number; narrowings: number } {
         const snapshot = this.snapshots.get(pagedRevisionKey(this.resolveWorkspace(), source.path));
         let longestKey = 0;
         for (const key of this.entries.keys()) longestKey = Math.max(longestKey, key.length);
-        return { channels: this.entries.size, versions: this.versionsKept(), longestKey, narrowings: snapshot?.within.size ?? 0 };
+        return {
+            channels: this.entries.size, versions: this.versionsKept(), longestKey,
+            searches: snapshot?.searches.size ?? 0, narrowings: snapshot?.within.size ?? 0,
+        };
     }
 
     /** Launch a membership read of the keys not held: a request for each group
@@ -2473,10 +2643,12 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     }
 
     /** The row a landed Dict window of a family holds under a key — or the
-     *  key's absence, when the window's span takes it in — and its position. */
-    private rowInWindows(snapshot: Snapshot, family: string, keyType: EastTypeValue, key: unknown): PagedRow | undefined {
+     *  key's absence, when the window's span takes it in — and its position.
+     *  Only the landed windows are looked at, never every channel of the
+     *  revision. */
+    private rowInWindows(family: string, keyType: EastTypeValue, key: unknown): PagedRow | undefined {
         const cmp = compareFor(fromEastTypeValue(keyType)) as (a: unknown, b: unknown) => number;
-        for (const channelKey of snapshot.channels) {
+        for (const channelKey of this.loadedWindows.keys()) {
             pagedRuntimeProbe?.looked?.();
             const entry = this.entries.get(channelKey);
             const span = entry?.span;
@@ -2542,7 +2714,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     // A window a landed one covers is answered from it, never fetched (#1217).
                     const own = this.channel(snapshot, key);
                     if (own.status !== "loaded") {
-                        this.cutFromCovering(sourceType, snapshot, family, offset, limit, own);
+                        this.cutFromCovering(sourceType, family, offset, limit, own);
                     }
                     // A one-row window at a row a read by key holds is answered from it (#1351).
                     if (own.status !== "loaded" && limit === 1 && selector.index === null && sourceType.type === "Dict") {
@@ -2581,8 +2753,16 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                     const key = pagedSeekKey(workspace, path, revision, query, selector);
                     this.track(key);
                     const snapshot = this.snapshotOf(workspace, path);
-                    // A key a read by key holds is answered from it, never searched (#1351).
                     const own = this.channel(snapshot, key);
+                    // A search a batch answered, or this one's own answer its channel left, is answered from what the
+                    // revision holds, never searched (#1351).
+                    const landed = own.status === "loaded" ? undefined : heldSearch(snapshot, key);
+                    if (landed !== undefined) {
+                        own.status = "loaded";
+                        own.range = landed;
+                        delete own.error;
+                    }
+                    // A key a read by key holds is answered from it, never searched (#1351).
                     if (own.status !== "loaded" && selector.index === null && "key" in query) {
                         const held = this.heldRow(snapshot, pagedWindowFamily(workspace, path, revision, selector), sourceType, query.key);
                         if (held !== undefined) {

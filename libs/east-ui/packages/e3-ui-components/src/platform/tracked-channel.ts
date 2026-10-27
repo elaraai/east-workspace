@@ -106,6 +106,18 @@ export abstract class TrackedChannelStore<E extends ChannelEntry> {
         return this.keyVersions.size;
     }
 
+    /**
+     * Let a channel's version go, once nothing subscribes to it: a channel a
+     * subclass let go is versioned no longer, so the versions kept are those
+     * of the channels it holds and those a reader subscribes to. A reader
+     * still subscribed keeps the version it read until it lets the channel go.
+     *
+     * @param key - The channel
+     */
+    protected forgetVersion(key: string): void {
+        if (!this.keySubscribers.has(key)) this.keyVersions.delete(key);
+    }
+
     /** Whether anything is subscribed to a channel. */
     protected isSubscribed(key: string): boolean {
         return this.keySubscribers.has(key);

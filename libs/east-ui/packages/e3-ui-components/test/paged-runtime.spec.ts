@@ -43,6 +43,7 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { PagedSourceType, PinnedSourceType, type SeekQueryType } from "@elaraai/east-ui";
+import { MAX_LANDED_SEARCHES } from "@elaraai/east-ui/internal";
 import { datasetGetStatus, type DatasetFindQuery } from "@elaraai/e3-api-client";
 import { datasetRowsType, indexWindowType, type TreePath } from "@elaraai/e3-types";
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
@@ -1810,11 +1811,30 @@ describe("PagedRuntime — what a revision keeps of the searches batches answer 
     test("a revision's batched searches are let go as their reader moves on, each batch's channel named by what it asks, never by its text", async () => {
         const { runtime, series } = await seriesOf();
         await walk(runtime, series);
-        const { channels, versions, longestKey } = runtime.held(series);
+        const { channels, versions, longestKey, searches } = runtime.held(series);
         assert.ok(channels <= MAX_RETAINED_WINDOWS && versions <= MAX_RETAINED_WINDOWS + 1,
             `after the reader moved on from ${BLOCKS - 1} blocks (${BLOCKS * 750} searches landed) the runtime holds ${channels} channels, `
             + `and ${versions} versions of channels`);
         assert.ok(longestKey < 256, `a batch's channel is named by its searches, not their text: its key is ${longestKey} characters`);
+        assert.equal(searches, MAX_LANDED_SEARCHES, "the revision holds the last searches' bounds apart from a channel, as many as the record Slice keeps");
+        // The last block, read again, is answered from its batch's channel; the first, gone with its channel, is asked again.
+        assert.equal(runtime.seekAll(series, blockQueries(BLOCKS - 1)).type, "some");
+        assert.equal(runtime.seekAll(series, blockQueries(0)).type, "none");
+        await h.settle();
+        assert.equal(h.requests("find", "records.indexed_jobs").length, BLOCKS + 1);
+    });
+
+    test("a batch's answers serve a later search of them, and a later batch, with nothing asked; past what the revision holds, a search is asked again", async () => {
+        const { runtime, series } = await seriesOf();
+        const block = blockQueries(0);
+        await h.ready(() => runtime.seekAll(series, block));
+        // A single search of one, and a batch of some in another order: answered from what the first batch answered.
+        const seek = handleOf(runtime, SeriesWindowType, jobs.path, "pinned", SERIES).seek;
+        const query = block[3]!;
+        assert.ok(seek.type === "some" && "fields" in query);
+        assert.equal(seek.value(variant("fields", { values: query.fields, prefix: none })).type, "some", "a single search the batch answered");
+        assert.equal(runtime.seekAll(series, [block[7]!, block[3]!]).type, "some", "a batch of searches it answered");
+        assert.equal(h.requests("find", "records.indexed_jobs").length, 1, "nothing asked");
     });
 
     test("a read of a window not yet landed, and of rows by key, looks at the landed windows of its rows alone — never every channel of the revision", async () => {

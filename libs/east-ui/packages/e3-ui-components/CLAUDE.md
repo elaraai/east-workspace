@@ -260,7 +260,8 @@ frame at every settle (#1343). A batch re-fires its readers once, as it lands;
 single searches of one source's rows launched in one turn are a burst, whose
 answers the paging runtime applies as they land, re-firing the burst's readers
 once its last member is done (#1360). Windows are applied to their readers once
-a frame (#1398, CL9): each lands in its channel at once, and those landing
+a frame (#1398, CL9) — windows by offset and windows across a narrowing's runs
+alike: each lands in its channel at once, and those landing
 before the next frame — a fling coming to rest, the windows read ahead either
 side — re-fire their readers together, so a reader draws once for them, never
 once a window; jsdom draws no frame a test waits on, so the mount harness
@@ -533,12 +534,26 @@ Save. The Roster and the Allocation save each record's drafts by their own
 keys and calculate over every person, resource and event of the period,
 whatever the indexed visibility query hides.
 
-Keep page eviction enabled and independent of sessions. `PagedRuntime` retains
-at most 24 decoded windows; record Slice retains 32 windows capped at 2,048 rows
-each, and the bounds of at most 1,024 landed searches a revision, so a read
-again asks only the searches still pending (#1360); it keeps the counts of at
-most 1,024 cells a revision, and a cell or a run a request in flight asks
-waits on it — at most 32 of them — rather than being asked again (#1039). The Sheet's lens has at
+Keep page eviction enabled and independent of sessions. `PagedRuntime` keeps,
+beside what the read in hand holds: at most 24 landed windows
+(`MAX_RETAINED_WINDOWS`) — a window by offset, a window across a narrowing's
+runs, and a batch's answer, of searches or of rows — a window no reader holds
+going whole once evicted; the bounds of at most 1,024 searches a revision apart
+from a channel (`MAX_LANDED_SEARCHES`, as record Slice keeps its own: what
+batches answered, and a search's own answer once no reader holds its channel);
+at most 40,000 membership answers over every narrowing of a revision, the least
+recently used narrowing's going first, beside what at most 16 batches keep for
+their readers; and 20,000 rows of reads by key a family. A batch's channel is
+named by a digest of what it asks, never its text, and a read seeking a landed
+window that covers it, or one holding a key's row, looks at the landed windows
+alone, never every channel of the revision. A channel no reader holds goes once
+it holds nothing — aborted, evicted, or a batch whose answer is held elsewhere —
+and its version with it, as a move drops the old revision's (#1351). Record
+Slice retains 32 windows capped at 2,048 rows each, and the bounds of at most
+1,024 landed searches a revision, so a read again asks only the searches still
+pending (#1360); it keeps the counts of at most 1,024 cells a revision, and a
+cell or a run a request in flight asks waits on it — at most 32 of them —
+rather than being asked again (#1039). The Sheet's lens has at
 most 16 pages in flight (`LENS_BUDGET`), reading the segments a view wants a
 turn at a time and keeping only what that view wants (#1349). The Schematic
 keeps what a kind read by area's `rowsOf` made of its rows — and its details'
