@@ -48,8 +48,9 @@ task later, so a window of thousands of rows landing never stutters the page
 sought by key, one read through its source through e3, never what the canvas
 draws (#1404), a pick shown in the box by its key, asked again only as what
 its lines say moves — and the steps), its footer (`footer.tsx`: only what is live,
-ruled 23 Oct 2026 — a kind drawn as its density, a refused gesture's words,
-each Save's notice and where Find's pick landed off the canvas) and its words
+ruled 23 Oct 2026 — a kind drawn as its density, a refused gesture's words
+until the viewer's next action (hand retest, 27 Oct 2026), each Save's notice
+and where Find's pick landed off the canvas) and its words
 (`messages.ts`) — and its canvas (`canvas/`: the canvas itself,
 `view.tsx`, and what it draws, the camera, the painter, the selection, the
 model, the layers, the colours and the theme bridge), whose invariants are
@@ -83,8 +84,13 @@ selected (`inspect.ts`), its rows read in a component of their own
 the fields no role writes, or its kind's own `inspector` in its place, its
 details record's beside it, an item's position, a link's ends as Choosers, a
 net's sides as tags, several by kind and, with nothing selected, the
-drawing's counts and saves — and Issues (`issues.ts`, pure), each selecting
-what it names; every edit there is one step of the history. Its narrowing
+drawing's counts and saves — a kind read by area counted by its source's
+indexes, never its window (`area-counts.ts`) — and Issues (`issues.ts`, pure),
+each selecting what it names, over what the drawing holds, one line naming the
+kinds read by area whose rows out of view it checks only as the view reaches
+them (ruled 27 Oct 2026); every edit there is one step of the history, and a
+control whose view goes with it leaves the keyboard on the heading of the view
+drawn in its place (`shared/focus-home.ts`). Its narrowing
 (#1392) is pure in `narrowing.ts`: each kind's source of the rail, its shown
 keys read through `FollowSources` while the narrowing dims or looks at its
 matches. Hidden, a kind reads only its narrowing, and a link or a net whose
@@ -662,14 +668,34 @@ view the index's density raster (`schematicRaster`). `made-rows.ts` makes a
 window's rows a budget a read, a frame drawing between, and keeps at most
 `MAX_MADE_ROWS`. The Backlog pages the index's unplaced clause
 (`backlog-pages.ts`) and the Index reads a zone's items by its box
-(`index-area.ts`). Never read the record whole for any of them, and keep the
-record slice's bounds on landed searches.
+(`index-area.ts`), each with the drafts laid over what it reads as the canvas
+draws them: a drafted row with no position listed wherever the window is, told
+by the row its session began from (`DraftedRow.began`), and a row a draft
+moves under the zone it now stands in (`index-tree.ts`' `indexSearchHolds`).
+The drawing's counts read the kind by its source's indexes (`area-counts.ts`:
+`countWhere` less the unplaced clause's count, no row read), its drafts laid
+over them (`counts.ts`' `draftedAreaCounts`), and name what no read can count,
+never a number. Issues checks what the drawing holds — the window's rows and
+the drafts drawn — and says which kinds' rows out of view it checks only as
+the view reaches them (ruled 27 Oct 2026). `fit` flies to the box the
+narrowing's rows stand in, from the area index's counts (`area.ts`' `fitBox`,
+through `recordSliceBounds`), never to what the window draws. Never read the
+record whole for any of them, and keep the record slice's bounds on landed
+searches.
 
 Every gesture writes through `editing.ts`' sessions, one a record, by original
 key, and `drafted.ts` draws the drafts over the stored rows: a drafted row no
-window holds draws where its draft places it, so Find's pick flies to it
-there; a row Find finds that nothing draws is flown to where its record
-stands, and selected once it draws.
+window holds draws where its draft places it — while the narrowing holds the
+row its session began from, asked in one `within` a kind
+(`drafts-narrowing.ts`): hidden, one it leaves out waits in its session;
+dimmed, it draws as context — so Find's pick flies to it there; a row Find
+finds that nothing draws is flown to where its record stands, and selected
+once it draws. A selected row the window leaves stays selected
+(`selected-rows.ts`): kept as the window held it, read again by its key once
+the revision moves, and let go of only as a read proves it gone — its record
+holds none of it, it has no position, its narrowing leaves it out — as its
+drafts delete or unplace it, or as a layer hides or locks it; `onSelect` hears
+no camera move, and Details reads it by its key.
 
 Below 480px of main (`useContainerBelow` on the canvas's element, committed
 before paint, #1394) the canvas registers no drag: the tools in force drop
@@ -704,6 +730,20 @@ reach the same commands and shared sessions. Reuse the shared Save label,
 banners, validation, conflict and unknown-outcome retry behavior. Keep domain
 actions such as Publish separate from Save, following Studio/Query. Use shared
 anchored forms/popovers; follow the library's prohibition on modal dialogs.
+
+Every builder's Details keeps the keyboard (`shared/focus-home.ts`'
+`useFocusHome`: the Schematic's, the Flowchart's, the Plan's, the Calendar's,
+the Roster's and the Allocation's). A control whose view goes with it —
+Delete, Unplace, Duplicate, Return to backlog, Remove, Accept proposal, Back
+to Arrivals, Unlink — leaves the focus on the heading of the view drawn in its
+place: the shared inspector head's `home`, or the view itself where it has no
+head (`FOCUS_HOME_PROPS`: the Plan's Nothing selected, the Calendar's empty
+state), focusable by script, out of the tab order, ringed by the inspector
+recipe's inset focus ring. A focus that left the region, or a press outside
+it, is let be, and the Plan's Delete hands the keyboard to the canvas's row.
+The region is a component that mounts with its element, the hook's effect
+running at mount. A builder's test presses each such control and asserts where
+the focus lands, never the page's body.
 
 BuilderFrame collapsing its panes does not supply the main area's mobile UX.
 Define narrow content using the available **main-panel width**, as Plan does;
@@ -1024,8 +1064,11 @@ comes and goes; measure that it stays one line at narrow widths. (The Sheet's
 and the Plan's footers also carry their counts, pending changes and saved
 times. The Schematic's holds only what is live, ruled 23 Oct 2026: a kind drawn
 as its density, how many rows it shades in the view — `Density: 20,000 racks —
-zoom in to draw them` — a refused gesture's words, each Save's notice and where
-Find's pick landed off the canvas; its counts and saves are the inspector's,
+zoom in to draw them` — a refused gesture's words, until the viewer's next
+action — a press on the canvas, a move of its camera (the canvas's
+`onAction`), a Find pick — never a resize alone (hand retest, 27 Oct 2026),
+each Save's notice and where Find's pick landed off the canvas; its counts and
+saves are the inspector's,
 its changes waiting the history's. Its notices are one item of its rail
 (`data-footer-slack`) beside the shared line — `Loading racks in view`,
 `Loading counts`, `Loading details for 12 racks`, `Filtering racks…`,
