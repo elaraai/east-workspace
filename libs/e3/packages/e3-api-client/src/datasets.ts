@@ -824,7 +824,8 @@ export interface DatasetFindKeysResult {
  * @throws {DatasetHashMismatchError} When the batch is pinned to a hash the
  *   dataset no longer holds; its `currentHash` names the one it does
  * @throws {ApiError} On application-level errors: more than
- *   {@link DATASET_BATCH_MAX} queries, or a query a single search refuses
+ *   {@link DATASET_BATCH_MAX} queries, a body past the 16 MiB a batch's body
+ *   holds (`payload_too_large`), or a query a single search refuses
  * @throws {AuthError} On 401 Unauthorized
  */
 export async function datasetFindKeys(
@@ -931,7 +932,8 @@ export interface DatasetRows {
  * @throws {RunsHashMismatchError} When the runs are pinned to a hash their
  *   record no longer holds; its `currentHash` names the one it does
  * @throws {ApiError} On application-level errors: more than
- *   {@link DATASET_BATCH_MAX} keys or runs, a key that is no literal of the key
+ *   {@link DATASET_BATCH_MAX} keys or runs, a body past the 16 MiB a batch's
+ *   body holds (`payload_too_large`), a key that is no literal of the key
  *   type, a dataset that is not a Dict, runs that are not ascending, disjoint
  *   and inside the index, an index the record does not hold, one whose
  *   entries name no row (a summary) or keys of another type
@@ -1017,7 +1019,8 @@ export interface DatasetRuns {
  *   dataset no longer holds; its `currentHash` names the one it does
  * @throws {ApiError} On application-level errors: runs that are not ascending,
  *   disjoint and inside the collection, more than {@link DATASET_BATCH_MAX} of
- *   them, an index the record does not hold
+ *   them, a body past the 16 MiB a batch's body holds (`payload_too_large`),
+ *   an index the record does not hold
  * @throws {AuthError} On 401 Unauthorized
  */
 export async function datasetGetRuns(
@@ -1113,7 +1116,9 @@ export interface DatasetPlacement {
  *   record no longer holds; its `currentHash` names the one it does
  * @throws {ApiError} On application-level errors: runs that are not ascending,
  *   disjoint and inside the index, more than {@link DATASET_BATCH_MAX} of them,
- *   an index the record does not hold
+ *   a body past the 16 MiB a batch's body holds (`payload_too_large`), an
+ *   index the record does not hold, or a summary, whose entries name no row
+ *   to place
  * @throws {AuthError} On 401 Unauthorized
  */
 export async function datasetPlace(
@@ -1189,8 +1194,9 @@ export interface DatasetWithin {
  *   record no longer holds; its `currentHash` names the one it does
  * @throws {ApiError} On application-level errors: runs that are not ascending,
  *   disjoint and inside the index, more than {@link DATASET_BATCH_MAX} runs or
- *   keys, a key that is no literal of the index's entry key, an index the
- *   record does not hold
+ *   keys, a body past the 16 MiB a batch's body holds (`payload_too_large`), a
+ *   key that is no literal of the index's entry key, an index the record does
+ *   not hold, or a summary, whose entries name no row to answer of
  * @throws {AuthError} On 401 Unauthorized
  */
 export async function datasetWithin(
