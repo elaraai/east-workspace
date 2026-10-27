@@ -351,8 +351,9 @@ function RosterFrame(props: FrameProps) {
     }, [history, locked, acted]);
     // The keyboard stays on the board as what it was on goes, as the Calendar's does: Delete on the duty or the proposal the
     // focus is on — its chip, its tile, its card — and the board takes the focus, never the page's body, where the history's
-    // keys, the Undo that brings it back, go unheard.
+    // keys, the Undo that brings it back, go unheard. A saved duty stays, its tombstone, and the focus with it.
     const keepOnBoard = (kind: "assignment" | "proposal", key: string) => {
+        if (kind === "assignment" && held.assignments.has(key)) return;
         const board = main.current;
         const active = board?.ownerDocument.activeElement;
         if (board === null || !(active instanceof HTMLElement) || !board.contains(active)) return;
