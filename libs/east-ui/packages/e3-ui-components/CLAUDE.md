@@ -1799,7 +1799,10 @@ views' `bookedHours`), so a day crossed sums none of its events again. The
 overlaps chip counts the
 overlaps in the days shown (`shared/schedule/overlaps.ts`'
 `scheduleOverlapsIn`, #1398), so it moves as days come into view and never as
-the window re-centres; the frame hears only whether there is one to show. Its
+the window re-centres; the frame hears only whether there is one to show
+(`scheduleOverlapsAnyIn`). Each reads them off the read's pairs indexed by the
+days their overlaps touch, made once a read with each pair's events' keys, so
+a day crossed reads the pairs of the days shown alone and prints no key. Its
 scroll, and a step of its dates, publish which way it travels to a store of its
 own, which the window's read alone reads, to read ahead the next window of its
 grid that way.

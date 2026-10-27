@@ -10,9 +10,11 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { none, printFor, some } from "@elaraai/east";
+import { DateTimeType, none, printFor, some } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
-import { scheduleEventKey, scheduleOverlaps, scheduleOverlapsIn, type ScheduleItemValue } from "./overlaps.js";
+import {
+    scheduleEventKey, scheduleOverlapMeets, scheduleOverlaps, scheduleOverlapsAnyIn, scheduleOverlapsIn, type ScheduleItemValue, type ScheduleOverlaps,
+} from "./overlaps.js";
 
 /** An hour of Monday 5 October 2026, UTC. */
 const hour = (h: number) => new Date(Date.UTC(2026, 9, 5, h));
@@ -163,5 +165,44 @@ describe("the overlaps in a span (#1398)", () => {
     test("a span every pair meets gives the overlaps as they are, and one none meets the one empty result", () => {
         expect(scheduleOverlapsIn(all, hour(0), hour(24))).toBe(all);
         expect(scheduleOverlapsIn(all, hour(18), hour(20))).toBe(scheduleOverlaps([]));
+    });
+});
+
+describe("the overlaps in a span of several days, read off the pairs by the days they touch (#1398, CL9)", () => {
+    /** An hour of a day from Monday 5 October 2026, UTC. */
+    const at = (day: number, h: number) => new Date(Date.UTC(2026, 9, 5 + day, h));
+    const over = (key: string, from: Date, to: Date, on: string): ScheduleItemValue => ({
+        kind: "job", key, title: `${key} title`, start: some(from), end: some(to), resource: some({ kind: "presses", key: on }), status: none, minutes: 0n, due: none,
+    });
+    // On a1, L-1 runs three days and meets each of the others in turn, D-2 across a midnight; on a2, N-1 and N-2 cross one together.
+    const all = scheduleOverlaps([[
+        over("L-1", at(0, 6), at(3, 6), "a1"), over("D-1", at(0, 9), at(0, 11), "a1"), over("D-2", at(1, 22), at(2, 2), "a1"),
+        over("D-3", at(2, 10), at(2, 12), "a1"), over("N-1", at(0, 20), at(1, 4), "a2"), over("N-2", at(0, 23), at(1, 1), "a2"),
+    ]]);
+    const time = printFor(DateTimeType);
+    /** A result's pairs, by their events' keys, and each event's peers, as they are listed. */
+    const said = (found: ScheduleOverlaps<ScheduleItemValue>) => ({
+        pairs: found.pairs.map((p) => `${p.first.key}+${p.second.key}`),
+        peers: [...found.peers].map(([ref, peers]) => `${ref}: ${peers.map((p) => p.key).join(" ")}`),
+    });
+
+    test("are each pair whose overlap meets the span, once, in the pairs' order, as a sweep of every pair finds them — whether one does too", () => {
+        expect(said(all).pairs).toEqual(["L-1+D-1", "L-1+D-2", "L-1+D-3", "N-1+N-2"]);
+        const spans = [[at(0, 0), at(3, 0)], [at(1, 0), at(2, 0)], [at(0, 12), at(1, 23)], [at(1, 2), at(2, 11)], [at(2, 0), at(9, 0)], [at(1, 1), at(1, 2)]] as const;
+        for (const [from, to] of spans) {
+            const swept = all.pairs.filter((pair) => scheduleOverlapMeets(pair, from, to));
+            const peers = new Map<string, string[]>();
+            for (const { first, second } of swept) {
+                peers.set(scheduleEventKey(first), [...(peers.get(scheduleEventKey(first)) ?? []), second.key]);
+                peers.set(scheduleEventKey(second), [...(peers.get(scheduleEventKey(second)) ?? []), first.key]);
+            }
+            expect(said(scheduleOverlapsIn(all, from, to)), `${time(from)} to ${time(to)}`).toEqual({
+                pairs: swept.map((p) => `${p.first.key}+${p.second.key}`), peers: [...peers].map(([ref, keys]) => `${ref}: ${keys.join(" ")}`),
+            });
+            expect(scheduleOverlapsAnyIn(all, from, to), `${time(from)} to ${time(to)}`).toBe(swept.length > 0);
+        }
+        // Every pair, and none: the result as it is, and the one empty result.
+        expect(scheduleOverlapsIn(all, at(0, 0), at(3, 0))).toBe(all);
+        expect(scheduleOverlapsIn(all, at(1, 1), at(1, 2))).toBe(scheduleOverlaps([]));
     });
 });

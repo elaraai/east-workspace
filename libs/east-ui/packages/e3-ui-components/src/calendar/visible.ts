@@ -22,7 +22,7 @@
  */
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
-import { scheduleOverlapMeets, scheduleOverlapsIn, type ScheduleItemValue, type ScheduleOverlaps } from "../shared/schedule/overlaps.js";
+import { scheduleOverlapsAnyIn, scheduleOverlapsIn, type ScheduleItemValue, type ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { DAY, dayStart, type CalendarRange } from "./model.js";
 
 /** What a timeline shows, in whole days: the first day it shows, the day after the last, and the day under its centre. */
@@ -131,8 +131,9 @@ export function useShownOverlaps<I extends ScheduleItemValue>(overlaps: Schedule
 
 /**
  * Whether there is an overlap to show (#1398): outside the timeline, any; on
- * it, any that falls in the days it shows, once what it draws covers them. A
- * frame reads it as the days move, and draws again only as it turns.
+ * it, any that falls in the days it shows, once what it draws covers them —
+ * read off the pairs indexed by day (CL9). A frame reads it as the days move,
+ * and draws again only as it turns.
  *
  * @param overlaps - The overlaps among the events drawn
  * @param store - The days the timeline shows; `undefined` outside it
@@ -147,7 +148,7 @@ export function useOverlapsShown<I extends ScheduleItemValue>(overlaps: Schedule
         const shown = store.get();
         if (!coversShown(covered, range, shown)) return false;
         const from = shown?.from ?? range.from, to = shown?.to ?? range.to;
-        return overlaps.pairs.some(pair => scheduleOverlapMeets(pair, from, to));
+        return scheduleOverlapsAnyIn(overlaps, from, to);
     }, [store, overlaps, covered, range]);
     return useSyncExternalStore(store?.subscribe ?? NOTHING, get, get);
 }
