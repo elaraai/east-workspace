@@ -192,6 +192,25 @@ describe("StagedStore — reactive subscriptions", () => {
         assert.equal(store.getKeyVersion(key), 3);
     });
 
+    test("a write of the bytes its entry holds already moves nothing — no version, no notification, nothing saved — as the UI store's write of an equal value", async () => {
+        const h = makeOrderedAdapter();
+        const store = new StagedStore(h.adapter);
+        await store.ready();
+        const key = "test-workspace.policy";
+        store.write(ws, policyPath, new Uint8Array([1]), new Uint8Array([2]));
+        await store.flushPending();
+        let calls = 0;
+        store.subscribe(key, () => { calls++; });
+        const saves = h.completed.length;
+        store.write(ws, policyPath, new Uint8Array([9]), new Uint8Array([2]));
+        await store.flushPending();
+        assert.deepEqual([store.getKeyVersion(key), calls, h.completed.length - saves], [1, 0, 0]);
+        // New bytes move it, as before.
+        store.write(ws, policyPath, new Uint8Array([9]), new Uint8Array([3]));
+        await store.flushPending();
+        assert.deepEqual([store.getKeyVersion(key), calls, h.completed.length - saves], [2, 1, 1]);
+    });
+
     test("unsubscribe stops notifications", async () => {
         const { store } = await newStore();
         let calls = 0;

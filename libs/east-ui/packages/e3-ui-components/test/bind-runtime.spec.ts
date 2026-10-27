@@ -195,6 +195,22 @@ describe("BindRuntime — reactive tracking", () => {
         assert.ok(runtime.keyVersion(key) > before, "the staged write moved the dataset past it");
     });
 
+    test("an evaluation that writes in staged mode as it reads settles: the run its write moved reads the dataset at the version it left, and writing the same bytes again moves nothing", async () => {
+        const { runtime } = await seeded(10);
+        const handle = runtime.buildRawHandle(floatTypeValue, sourcePath, undefined, "staged");
+        /** One run, as a tracked evaluation runs one: it reads the dataset and stages 50, and says whether a key it read moved since it read it. */
+        const run = (): boolean => {
+            runtime.enableTracking();
+            handle.read();
+            handle.write(50);
+            return [...runtime.disableTracking()].some(([key, version]) => runtime.keyVersion(key) !== version);
+        };
+        // The first run read 10 and staged 50: the dataset moved past what it read, so it runs again.
+        assert.equal(run(), true);
+        // The second reads 50 and stages 50: nothing moves, so it is the last.
+        assert.equal(run(), false);
+    });
+
     test("has() is tracked as a read of the source, in every mode and patch shape", async () => {
         // A view that renders an unset dataset's empty branch on has() must
         // re-render when the value lands, so has() subscribes to the source.
