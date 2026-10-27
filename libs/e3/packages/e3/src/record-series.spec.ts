@@ -459,6 +459,17 @@ describe('e3.recordIndex.series — its declaration', () => {
       assert.throws(() => recordIndex.series('led_by_key', jobs(), { on: ['press'], key: 'press', from: 'start', to: 'end', tile: 'week' }), /'press' follows the leading fields, and cannot be one/);
     });
 
+    it('the start or the end among the leading fields: a leading field is matched exactly, before the tile they are cut by', () => {
+      // Led by its own start, a series' entries of one tile on a block of keys
+      // are a range for each instant an event starts at, never one range.
+      assert.throws(() => recordIndex.series('led_by_start', jobs(), { on: ['start'], key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        /e3\.recordIndex\.series 'led_by_start': 'start' is the event's start, which its tiles are cut by, and cannot be a leading field/);
+      assert.throws(() => recordIndex.series('led_by_end', jobs(), { on: ['state', 'end'], key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        /e3\.recordIndex\.series 'led_by_end': 'end' is the event's end, which its tiles are cut by, and cannot be a leading field/);
+      assert.throws(() => recordIndex.summary('totals_led_by_start', jobs(), { on: ['start'], key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        /e3\.recordIndex\.summary 'totals_led_by_start': 'start' is the event's start, which its tiles are cut by, and cannot be a leading field/);
+    });
+
     it('a value, a row field named __tile, and the guards every index applies to its name and its record', () => {
       // @ts-expect-error — a series index carries the whole row, and takes no value
       assert.throws(() => recordIndex.series('valued', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'week', value: East.function([StringType, JobRow], StringType, (_$, k) => k) }),
