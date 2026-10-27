@@ -21,6 +21,7 @@ import {
   packageZipOpen,
   LocalStorage,
   WorkspaceExistsError,
+  type TaskStatus,
   type WorkspaceStatusResult,
   LocalTaskRunner,
   type Budget,
@@ -50,7 +51,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { DateTimeType, printFor, type EastTypeValue } from '@elaraai/east';
 import e3, { DatasetFileTypeMismatchError, readDatasetFileHeader, sha256File } from '@elaraai/e3';
-import { treePath, type PackageObject, type TreePath } from '@elaraai/e3-types';
+import { treePath, type ApiTaskStatus, type PackageObject, type TreePath } from '@elaraai/e3-types';
 import { parseRepoLocation, parsePackageSpec, formatError, exitError, type RepoLocation } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
 import { createProgress, formatBytes, type Progress } from '../progress.js';
@@ -358,7 +359,7 @@ export const workspaceCommand = {
           } : null,
           datasets: remoteStatus.datasets.map(d => ({
             path: d.path,
-            status: d.status as WorkspaceStatusResult['datasets'][0]['status'],
+            status: { type: d.status.type },
             hash: d.hash.type === 'some' ? d.hash.value : null,
             isTaskOutput: d.isTaskOutput,
             producedBy: d.producedBy.type === 'some' ? d.producedBy.value : null,
@@ -366,7 +367,7 @@ export const workspaceCommand = {
           tasks: remoteStatus.tasks.map(t => ({
             name: t.name,
             hash: t.hash,
-            status: convertTaskStatus(t.status),
+            status: remoteTaskStatus(t.status),
             inputs: t.inputs,
             output: t.output,
             dependsOn: t.dependsOn,
@@ -996,50 +997,50 @@ async function deployFromSource(
 }
 
 /**
- * Convert remote task status to local format.
+ * A task's status as a server answers it, in the form a local status takes.
+ *
+ * @param status - The status the server answered
+ * @returns The local status
  */
-
-function convertTaskStatus(status: any): WorkspaceStatusResult['tasks'][0]['status'] {
+export function remoteTaskStatus(status: ApiTaskStatus): TaskStatus {
   switch (status.type) {
     case 'up-to-date':
-      return { type: 'up-to-date', cached: Boolean(status.cached) };
+      return { type: 'up-to-date', cached: status.value.cached };
     case 'ready':
       return { type: 'ready' };
     case 'waiting':
-      return { type: 'waiting', reason: String(status.reason ?? '') };
+      return { type: 'waiting', reason: status.value.reason };
     case 'in-progress':
       return {
         type: 'in-progress',
-        pid: status.pid?.type === 'some' ? Number(status.pid.value) : undefined,
-        startedAt: status.startedAt?.type === 'some' ? status.startedAt.value : undefined,
+        pid: status.value.pid.type === 'some' ? Number(status.value.pid.value) : undefined,
+        startedAt: status.value.startedAt.type === 'some' ? status.value.startedAt.value : undefined,
       };
     case 'failed':
       return {
         type: 'failed',
-        exitCode: Number(status.exitCode ?? 0),
-        completedAt: status.completedAt?.type === 'some' ? status.completedAt.value : undefined,
+        exitCode: Number(status.value.exitCode),
+        completedAt: status.value.completedAt.type === 'some' ? status.value.completedAt.value : undefined,
       };
     case 'error':
       return {
         type: 'error',
-        message: String(status.message ?? ''),
-        completedAt: status.completedAt?.type === 'some' ? status.completedAt.value : undefined,
+        message: status.value.message,
+        completedAt: status.value.completedAt.type === 'some' ? status.value.completedAt.value : undefined,
       };
     case 'stale-running':
       return {
         type: 'stale-running',
-        pid: status.pid?.type === 'some' ? Number(status.pid.value) : undefined,
-        startedAt: status.startedAt?.type === 'some' ? status.startedAt.value : undefined,
+        pid: status.value.pid.type === 'some' ? Number(status.value.pid.value) : undefined,
+        startedAt: status.value.startedAt.type === 'some' ? status.value.startedAt.value : undefined,
       };
-    default:
-      return { type: 'ready' };
   }
 }
 
 /**
  * Format task status for display.
  */
-export function formatTaskStatus(status: WorkspaceStatusResult['tasks'][0]['status']): string {
+export function formatTaskStatus(status: TaskStatus): string {
   switch (status.type) {
     case 'up-to-date':
       return status.cached ? 'up-to-date (cached)' : 'up-to-date';
