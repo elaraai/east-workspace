@@ -45,11 +45,9 @@ const LEGACY_EAST_VALUES = [
   'packages/e3/src/export.ts',
   'packages/e3/src/mutation-programs.spec.ts',
   'packages/e3/src/package.ts',
-  'packages/e3/src/record-programs.ts',
   'test/integration/src/segmentation-bench.spec.ts',
 ];
 const LEGACY_EAST_PROGRAMS = [
-  'packages/e3/src/record-programs.ts',
 ];
 const LEGACY_ANY = [
   'packages/e3-api-client/src/platform.ts',
@@ -73,11 +71,9 @@ const LEGACY_ANY = [
   'packages/e3/src/functions-link.spec.ts',
   'packages/e3/src/functions-resolve.ts',
   'packages/e3/src/migration.ts',
-  'packages/e3/src/mutation.ts',
   'packages/e3/src/open-beast-link.spec.ts',
   'packages/e3/src/output.ts',
   'packages/e3/src/package.ts',
-  'packages/e3/src/record-programs.ts',
   'packages/e3/src/record.spec.ts',
   'packages/e3/src/task.ts',
   'packages/e3/src/types.ts',

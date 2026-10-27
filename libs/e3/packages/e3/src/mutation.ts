@@ -22,17 +22,16 @@
  */
 
 import type {
-  AsyncFunctionExpr,
   CallableFunctionExpr,
   EastType,
   FunctionExpr,
   PatchTypeOf,
 } from '@elaraai/east';
-import { Expr, NullType, PatchType, printType } from '@elaraai/east';
+import { NullType, PatchType, printType } from '@elaraai/east';
 import { editTypeOf } from '@elaraai/e3-types';
 import type { MutationDef, RecordDef } from './types.js';
 import { hasKeyedDelta } from './record-programs.js';
-import { checkPure, sameEastType } from './record-guards.js';
+import { checkPure, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
 /** A mutation's name is an identifier, as a migration's and an index's are: it
@@ -54,13 +53,13 @@ function checkName(surface: string, name: string): void {
  *  parameter is the record's state. Returns the body's signature. */
 function checkBody(
   surface: string, name: string, rec: RecordDef, fn: { toIR(): unknown },
-): { inputs: EastType[]; output: EastType } {
+): { inputs: readonly EastType[]; output: EastType } {
   checkName(surface, name);
   checkPure(`e3.${surface} '${name}' body`, fn, {
     async: 'an async body implies platform IO, which the compare-and-swap retry loop cannot safely re-run against fresher state.',
     platform: 'the compare-and-swap retry loop re-runs the mutation, so a platform call makes the committed record non-deterministic across retries.',
   });
-  const signature = Expr.type(fn as unknown as Expr<any>) as { inputs: EastType[]; output: EastType };
+  const signature = signatureOf(fn);
   if (signature.inputs.length < 1 || !sameEastType(rec.type, signature.inputs[0]!)) {
     const got = signature.inputs.length ? printType(signature.inputs[0]!) : 'no parameters';
     throw new Error(
@@ -139,7 +138,7 @@ function reduce<Name extends string, T extends EastType, Args extends EastType[]
 function reduce(
   name: string,
   rec: RecordDef,
-  fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
+  fn: IndexFunction,
   config?: { runner?: FunctionRunner },
 ): MutationDef {
   const runner = config?.runner ?? DEFAULT_RUNNER;
@@ -228,7 +227,7 @@ function edit<Name extends string, T extends EastType, Args extends EastType[], 
 function edit(
   name: string,
   rec: RecordDef,
-  fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
+  fn: IndexFunction,
   config?: { runner?: FunctionRunner },
 ): MutationDef {
   const runner = config?.runner ?? DEFAULT_RUNNER;

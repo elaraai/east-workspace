@@ -26,7 +26,7 @@ import {
 import { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
 import { record } from './record.js';
 import { recordIndex } from './record-index.js';
-import { indexFunctionAt } from './record-guards.js';
+import { functionAt } from './record-guards.js';
 import { buildMutationProgram, indexBuildProgram } from './record-programs.js';
 import { mutation } from './mutation.js';
 import { package_ } from './package.js';
@@ -318,7 +318,7 @@ describe('recordIndex — a generated key reserves no field name (#1432)', () =>
     // An interval index: the instant filed once, at the tree's root, by its start.
     const interval = recordIndex.interval('named_by_time', rec, { on, from: 'start', to: 'end' });
     assert.equal(printType(interval.keyType), printType(StructType({ on: LeadingType, node: IntegerType, at: DateTimeType })));
-    const intervalKeys = East.compile(indexFunctionAt(interval.keyFn, [StringType, Named], SetType(interval.keyType)), []);
+    const intervalKeys = East.compile(functionAt(interval.keyFn, [StringType, Named], SetType(interval.keyType)), []);
     assert.ok(equalFor(SetType(interval.keyType))(intervalKeys('r', row),
       new SortedSet([{ on: leading, node: 0n, at: start }], compareFor(interval.keyType))), 'the interval');
 
@@ -326,20 +326,20 @@ describe('recordIndex — a generated key reserves no field name (#1432)', () =>
     const area = recordIndex.area('named_by_area', rec, { on, x: 'x', y: 'y', cell: 1 });
     const unled = recordIndex.area('by_area', rec, { x: 'x', y: 'y', cell: 1 });
     assert.equal(printType(area.keyType), printType(StructType({ on: LeadingType, area: IntegerType })));
-    const code = East.compile(indexFunctionAt(unled.keyFn, [StringType, Named], unled.keyType), [])('r', row).area;
-    const areaKey = East.compile(indexFunctionAt(area.keyFn, [StringType, Named], area.keyType), []);
+    const code = East.compile(functionAt(unled.keyFn, [StringType, Named], unled.keyType), [])('r', row).area;
+    const areaKey = East.compile(functionAt(area.keyFn, [StringType, Named], area.keyType), []);
     assert.ok(equalFor(area.keyType)(areaKey('r', row), { on: leading, area: code }), 'the area');
 
     // A series index, and a summary's totals: the press, then the week the instant falls in — the series' at its level (#1433).
     const series = recordIndex.series('named_by_week', rec, { on, key: 'press', from: 'start', to: 'end', tile: 'week' });
     assert.equal(printType(series.keyType), printType(StructType({ on: LeadingType, key: StringType, level: RecordLevelType, tile: DateTimeType })));
-    const seriesKeys = East.compile(indexFunctionAt(series.keyFn, [StringType, Named], SetType(series.keyType)), []);
+    const seriesKeys = East.compile(functionAt(series.keyFn, [StringType, Named], SetType(series.keyType)), []);
     assert.ok(equalFor(SetType(series.keyType))(seriesKeys('r', row),
       new SortedSet([{ on: leading, key: 'P-1001', level: variant('week', null), tile: week }], compareFor(series.keyType))), 'the series');
     const summary = recordIndex.summary('named_by_week_totals', rec, { on, key: 'press', from: 'start', to: 'end', tile: 'week' });
     assert.equal(printType(summary.keyType), printType(StructType({ on: LeadingType, key: StringType, tile: DateTimeType })));
     const totalsType = DictType(summary.keyType, RecordSummaryTotalsType);
-    const contributions = East.compile(indexFunctionAt(summary.keyFn, [StringType, Named], totalsType), []);
+    const contributions = East.compile(functionAt(summary.keyFn, [StringType, Named], totalsType), []);
     assert.ok(equalFor(totalsType)(contributions('r', row),
       new SortedMap([[{ on: leading, key: 'P-1001', tile: week }, { count: 1n, ms: 0n }]], compareFor(summary.keyType))), 'the summary');
 

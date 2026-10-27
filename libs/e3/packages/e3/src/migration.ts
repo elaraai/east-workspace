@@ -21,12 +21,12 @@
  */
 
 import type {
-  AsyncFunctionExpr, CallableFunctionExpr, EastIR, EastType, FunctionExpr, StructType,
+  CallableFunctionExpr, EastIR, EastType, FunctionExpr, StructType,
 } from '@elaraai/east';
-import { ArrayType, DictType, Expr, SetType, printType } from '@elaraai/east';
+import { ArrayType, DictType, SetType, printType } from '@elaraai/east';
 import type { MigrationForm } from '@elaraai/e3-types';
 import type { MigrationDef, RecordDef } from './types.js';
-import { checkPure, sameEastType } from './record-guards.js';
+import { checkPure, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
 /**
@@ -59,7 +59,7 @@ function declare(
   rec: RecordDef,
   fn: { toIR(): unknown },
   config: MigrationConfig | undefined,
-  recordTypes: (inputs: EastType[], output: EastType) => { from: EastType; to: EastType },
+  recordTypes: (inputs: readonly EastType[], output: EastType) => { from: EastType; to: EastType },
 ): MigrationDef {
   const surface = `e3.migration.${form}`;
   if (!IDENTIFIER.test(name)) {
@@ -77,7 +77,7 @@ function declare(
     platform: 'a migration runs again in every workspace that has not applied it, a piece at a time, so a platform call makes the migrated record depend on where and when it ran.',
   });
 
-  const { inputs, output } = Expr.type(fn as unknown as Expr<any>) as { inputs: EastType[]; output: EastType };
+  const { inputs, output } = signatureOf(fn);
   let types: { from: EastType; to: EastType };
   try {
     types = recordTypes(inputs, output);
@@ -169,7 +169,7 @@ function value<Name extends string, T extends EastType, From extends EastType, T
 function value(
   name: string,
   rec: RecordDef,
-  fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
+  fn: IndexFunction,
   config?: MigrationConfig,
 ): MigrationDef {
   return declare('value', name, rec, fn, config, (inputs, output) => {
@@ -230,7 +230,7 @@ function rows<Name extends string, T extends EastType, K extends EastType, V1 ex
 function rows(
   name: string,
   rec: RecordDef,
-  fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
+  fn: IndexFunction,
   config?: MigrationConfig,
 ): MigrationDef {
   return declare('rows', name, rec, fn, config, (inputs, output) => {
@@ -300,7 +300,7 @@ function rekey<
 function rekey(
   name: string,
   rec: RecordDef,
-  fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
+  fn: IndexFunction,
   config?: MigrationConfig,
 ): MigrationDef {
   return declare('rekey', name, rec, fn, config, (inputs, output) => {

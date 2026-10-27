@@ -31,7 +31,7 @@ import {
   MAX_EVENT_TILES, RECORD_TILES, SHORTEST_MS, checkTile, eventFilings, tileNext, tileShares, tileStart, type RecordTile,
 } from './record-tiles.js';
 import { buildMutationProgram, indexBuildProgram, summaryMergeProgram } from './record-programs.js';
-import { indexFunctionAt } from './record-guards.js';
+import { functionAt } from './record-guards.js';
 import { mutation } from './mutation.js';
 import { package_ } from './package.js';
 import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
@@ -471,9 +471,9 @@ describe('e3.recordIndex.series — its keys', () => {
     const byPressWeek = recordIndex.series('jobs_by_press_week', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'week' });
     const byStatePressWeek = recordIndex.series('jobs_by_state_press_week', jobs(), { on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week' });
     const byCrewPressWeek = recordIndex.series('jobs_by_crew_press_week', jobs(), { on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'week' });
-    const keysByPressWeek = East.compile(indexFunctionAt(byPressWeek.keyFn, [StringType, JobRow], SetType(byPressWeek.keyType)), []);
-    const keysByStatePressWeek = East.compile(indexFunctionAt(byStatePressWeek.keyFn, [StringType, JobRow], SetType(byStatePressWeek.keyType)), []);
-    const keysByCrewPressWeek = East.compile(indexFunctionAt(byCrewPressWeek.keyFn, [StringType, JobRow], SetType(byCrewPressWeek.keyType)), []);
+    const keysByPressWeek = East.compile(functionAt(byPressWeek.keyFn, [StringType, JobRow], SetType(byPressWeek.keyType)), []);
+    const keysByStatePressWeek = East.compile(functionAt(byStatePressWeek.keyFn, [StringType, JobRow], SetType(byStatePressWeek.keyType)), []);
+    const keysByCrewPressWeek = East.compile(functionAt(byCrewPressWeek.keyFn, [StringType, JobRow], SetType(byCrewPressWeek.keyType)), []);
     // Wednesday 06:00 to the next Tuesday 06:00: six days, a week's length, under the week of 5 October that holds its start.
     const row = scheduled('2026-10-07T06:00:00.000', '2026-10-13T06:00:00.000');
     const oct5 = at('2026-10-05T00:00:00.000');
@@ -498,7 +498,7 @@ describe('e3.recordIndex.series — its keys', () => {
     const keysType = SetType(def.keyType);
     const order = compareFor(def.keyType);
     const oct5 = { on: {}, key: 'P-1001', level: variant('week', null), tile: at('2026-10-05T00:00:00.000') };
-    const keys = East.compile(indexFunctionAt(def.keyFn, [StringType, JobRow], keysType), []);
+    const keys = East.compile(functionAt(def.keyFn, [StringType, JobRow], keysType), []);
     assertEast(keysType, keys('W-0001', scheduled('2026-10-07T06:00:00.000', null)), new SortedSet([oct5], order), 'no end');
     assertEast(keysType, keys('W-0001', scheduled('2026-10-07T06:00:00.000', '2026-10-01T00:00:00.000')), new SortedSet([oct5], order), 'an end before its start');
     assertEast(keysType, keys('W-0001', scheduled('2026-10-07T06:00:00.000', '2026-10-07T06:00:00.000')), new SortedSet([oct5], order), 'an end at its start');
@@ -509,7 +509,7 @@ describe('e3.recordIndex.series — its keys', () => {
   it('reads a plain DateTime start and end as an Option\'s', () => {
     const def = recordIndex.series('shifts_by_press_day', shifts(), { key: 'press', from: 'start', to: 'end', tile: 'day' });
     const shift = decodeBeast2For(ShiftRow)(encodeBeast2For(ShiftRow)({ press: 'P-1002', start: at('2026-10-05T22:00:00.000'), end: at('2026-10-06T06:00:00.000') }));
-    const keys = East.compile(indexFunctionAt(def.keyFn, [StringType, ShiftRow], SetType(def.keyType)), []);
+    const keys = East.compile(functionAt(def.keyFn, [StringType, ShiftRow], SetType(def.keyType)), []);
     assertEast(SetType(def.keyType), keys('S-1', shift), new SortedSet([
       { on: {}, key: 'P-1002', level: variant('day', null), tile: at('2026-10-05T00:00:00.000') },
     ], compareFor(def.keyType)), 'a night shift, eight hours, is filed once, under the day it starts');
@@ -606,8 +606,8 @@ describe('e3.recordIndex.summary — its contributions and declaration', () => {
   it('counts an event once under each tile it touches, with the milliseconds of it covered; an instant covers none; no start counts nowhere', () => {
     const def = recordIndex.summary('jobs_by_press_week_totals', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'week' });
     const byCrew = recordIndex.summary('jobs_by_crew_press_week_totals', jobs(), { on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'week' });
-    const contribute = East.compile(indexFunctionAt(def.keyFn, [StringType, JobRow], DictType(def.keyType, RecordSummaryTotalsType)), []);
-    const contributeByCrew = East.compile(indexFunctionAt(byCrew.keyFn, [StringType, JobRow], DictType(byCrew.keyType, RecordSummaryTotalsType)), []);
+    const contribute = East.compile(functionAt(def.keyFn, [StringType, JobRow], DictType(def.keyType, RecordSummaryTotalsType)), []);
+    const contributeByCrew = East.compile(functionAt(byCrew.keyFn, [StringType, JobRow], DictType(byCrew.keyType, RecordSummaryTotalsType)), []);
     const contributions = DictType(def.keyType, RecordSummaryTotalsType);
     const order = compareFor(def.keyType);
     const oct5 = at('2026-10-05T00:00:00.000');

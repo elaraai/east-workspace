@@ -596,7 +596,7 @@ export const DELTA_CONFLICT = '$conflict';
  * @param targets - the primary and each index, in canonical case order
  * @returns `Dict<DeltaKey, DeltaOp>`
  */
-export function mutationDeltaType(targets: readonly DeltaTarget[]): EastType {
+export function mutationDeltaType(targets: readonly DeltaTarget[]): DictType<VariantType<Record<string, EastType>>, VariantType<Record<string, EastType>>> {
   const keys: Record<string, EastType> = { [DELTA_CONFLICT]: StringType };
   const ops: Record<string, EastType> = { [DELTA_CONFLICT]: NullType };
   for (const target of targets) {

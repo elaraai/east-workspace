@@ -10,34 +10,33 @@
  * migration changes a row; what actually runs is a program built from those
  * declarations — an ordinary East function assembled at export time from the
  * author's own expressions, as a stream task's output kind builds its merge
- * function. It is linked and
- * encoded like any other body, runs on the runner the author chose, and is
- * what keeps e3 out of the business of evaluating user East: the engine runs a
- * program and applies what it emits.
+ * function. It is linked and encoded like any other body, runs on the runner
+ * the author chose, and is what keeps e3 out of the business of evaluating
+ * user East: the engine runs a program and applies what it emits.
+ *
+ * Each program is assembled from typed East functions, each built from the
+ * declaration's types: the record's key and row, an index's key and
+ * projection, a mutation's arguments. Where a declaration chooses — a
+ * mutation's form, whether its record has indexes, which kind each index is —
+ * the choice is made as the program is built, never inside it. The author's
+ * functions are bound as function values and CALLED, never spliced: a spliced
+ * expression tree would be re-evaluated per reference and could capture the
+ * wrong bindings.
  *
  * @packageDocumentation
  */
 
 import {
-  DictType,
-  East,
-  FunctionType,
-  NullType,
-  OptionType,
-  PatchType,
-  SetType,
-  StructType,
-  VariantType,
-  none,
-  some,
-  variant,
-  withLocationCapture,
-  type EastIR,
-  type EastType,
+  ArrayType, BooleanType, DictType, East, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StructType,
+  VariantType, none, printType, some, variant, withLocationCapture,
+  type EastIR, type EastType, type FunctionExpr,
 } from '@elaraai/east';
 import {
-  DELTA_CONFLICT, RecordSummaryTotalsType, editTypeOf, indexCollectionType, mutationDeltaType, patchOpsType, type DeltaTarget,
+  DELTA_CONFLICT, RecordSummaryTotalsType, editTypeOf, indexCollectionType, mutationDeltaType, type DeltaTarget,
 } from '@elaraai/e3-types';
+import { functionAt, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
+import { argumentsType, callWithArguments, programOverArguments } from './record-arguments.js';
+import { patchTypeOf, patchesOf, type Patches } from './record-patches.js';
 import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
 /**
@@ -54,8 +53,8 @@ import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './typ
  * @param build - Builds the program
  * @returns The program's IR bundle
  */
-function locationFree(build: () => { toIR(): unknown }): EastIR<any, any> {
-  return withLocationCapture(false, () => build().toIR() as EastIR<any, any>);
+function locationFree<I extends EastType[], O extends EastType>(build: () => FunctionExpr<I, O>): EastIR<I, O> {
+  return withLocationCapture(false, () => build().toIR());
 }
 
 /**
@@ -71,8 +70,31 @@ function locationFree(build: () => { toIR(): unknown }): EastIR<any, any> {
  * @param indexKeyType - the index key
  * @returns the entry key type
  */
-export function indexEntryKeyType(keyType: EastType, indexKeyType: EastType): EastType {
+export function indexEntryKeyType(keyType: EastType, indexKeyType: EastType): StructType<{ ik: EastType; k: EastType }> {
   return StructType({ ik: indexKeyType, k: keyType });
+}
+
+/** A Dict record's key and row types; any other record is refused, naming `what` reads it. */
+function dictEntry(recordType: EastType, what: string): { keyType: EastType; valueType: EastType } {
+  if (recordType.type !== 'Dict') throw new Error(`${what} reads a Dict record, not ${printType(recordType)}`);
+  return { keyType: recordType.key, valueType: recordType.value };
+}
+
+/** An index's keys for a row: `(K, V) → Set<IK>` — its `keys` function, or its `key` function's one key. */
+function indexKeys(index: RecordIndexDef, keyType: EastType, valueType: EastType) {
+  const keysType = SetType(index.keyType);
+  if (index.multi) return functionAt(index.keyFn, [keyType, valueType], keysType);
+  const key = functionAt(index.keyFn, [keyType, valueType], index.keyType);
+  return East.function([keyType, valueType], keysType, ($, k, v) => {
+    const keyOf = $.const(key);
+    return new Set([keyOf(k, v)]);
+  });
+}
+
+/** An index's projection of a row: `(K, V) → P` — its `value` function, or `Null` where it carries none. */
+function indexProjection(index: RecordIndexDef, keyType: EastType, valueType: EastType) {
+  if (index.valueFn !== undefined) return functionAt(index.valueFn, [keyType, valueType], index.valueType);
+  return East.function([keyType, valueType], NullType, () => null);
 }
 
 /**
@@ -85,50 +107,44 @@ export function indexEntryKeyType(keyType: EastType, indexKeyType: EastType): Ea
  * output through its RunSorter, which sorts what it is given, so the program
  * holds no more than the row in hand.
  *
- * The author's key and value functions are bound as function values and
- * CALLED, never spliced into the loop: a spliced expression tree would be
- * re-evaluated per reference and could capture the wrong bindings.
+ * A summary's program emits each row's contributions under their keys, `k`
+ * Null (#1039). Two rows, in one piece or two, contribute to one key: the
+ * build's output names the merge that sums them ({@link summaryMergeProgram}).
  *
  * @param recordType - the record's state type, `Dict<K, V>`
  * @param def - the index declaration
  * @returns the program's IR bundle
  */
-export function indexBuildProgram(recordType: EastType, def: RecordIndexDef): EastIR<any, any> {
-  const dict = recordType as unknown as { type: string; key: EastType; value: EastType };
+export function indexBuildProgram(recordType: EastType, def: RecordIndexDef) {
+  const { keyType, valueType } = dictEntry(recordType, `index '${def.name}'`);
+  const pieceType = DictType(keyType, valueType);
   if (def.summary !== undefined) {
-    // A summary (#1039): each row's contributions under their keys, `k` Null.
-    // Two rows, in one piece or two, contribute to one key: the build's
-    // output names the merge that sums them ({@link summaryMergeProgram}).
-    const summaryKey = indexEntryKeyType(NullType, def.keyType);
-    const emitSummary = FunctionType([summaryKey as never, RecordSummaryTotalsType], NullType);
-    return locationFree(() => East.function([recordType as never, emitSummary], NullType, ($: any, piece: any, emit: any) => {
-      const contribute = $.const(def.keyFn);
-      $.for(piece, ($: any, row: any, key: any) => {
-        $.for(contribute(key, row), ($: any, totals: any, ik: any) => {
+    const contributions = functionAt(def.keyFn, [keyType, valueType], DictType(def.keyType, RecordSummaryTotalsType));
+    const emitType = FunctionType([indexEntryKeyType(NullType, def.keyType), RecordSummaryTotalsType], NullType);
+    return locationFree(() => East.function([pieceType, emitType], NullType, ($, piece, emit) => {
+      const contribute = $.const(contributions);
+      $.for(piece, ($, row, key) => {
+        $.for(contribute(key, row), ($, totals, ik) => {
           $(emit({ ik, k: null }, totals));
         });
       });
-      return null;
     }));
   }
-  const entryKey = indexEntryKeyType(dict.key, def.keyType);
-  const emitType = FunctionType([entryKey as never, def.valueType], NullType);
-
-  return locationFree(() => East.function([recordType as never, emitType], NullType, ($: any, piece: any, emit: any) => {
-    const indexKey = $.const(def.keyFn);
-    const project = def.valueFn === undefined ? undefined : $.const(def.valueFn);
-    $.for(piece, ($: any, row: any, key: any) => {
-      const value = project === undefined ? null : $.const(project(key, row));
-      if (def.multi) {
-        $.for(indexKey(key, row), ($: any, ik: any) => {
+  const emitType = FunctionType([indexEntryKeyType(keyType, def.keyType), def.valueType], NullType);
+  return locationFree(() => {
+    const keys = indexKeys(def, keyType, valueType);
+    const projection = indexProjection(def, keyType, valueType);
+    return East.function([pieceType, emitType], NullType, ($, piece, emit) => {
+      const keysOf = $.const(keys);
+      const project = $.const(projection);
+      $.for(piece, ($, row, key) => {
+        const value = $.let(project(key, row));
+        $.for(keysOf(key, row), ($, ik) => {
           $(emit({ ik, k: key }, value));
         });
-      } else {
-        $(emit({ ik: indexKey(key, row), k: key }, value));
-      }
+      });
     });
-    return null;
-  }));
+  });
 }
 
 /**
@@ -142,10 +158,26 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef): Ea
  * @returns The merge's IR bundle
  * @throws {Error} When the index is not a summary
  */
-export function summaryMergeProgram(def: RecordIndexDef): EastIR<any, any> {
-  const merge = def.mergeFn;
-  if (def.summary === undefined || merge === undefined) throw new Error(`index '${def.name}' is not a summary, and its build merges nothing`);
+export function summaryMergeProgram(def: RecordIndexDef) {
+  if (def.summary === undefined || def.mergeFn === undefined) throw new Error(`index '${def.name}' is not a summary, and its build merges nothing`);
+  const totals = RecordSummaryTotalsType;
+  const merge = functionAt(def.mergeFn, [indexEntryKeyType(NullType, def.keyType), totals, totals], totals);
   return locationFree(() => merge);
+}
+
+/**
+ * A Dict `rekey` step's function as `(K, V) → { key, value }`, whichever order
+ * the entry it returns declares its two fields in.
+ */
+function rekeyStep(fn: IndexFunction, fromKey: EastType, fromValue: EastType, toKey: EastType, toValue: EastType) {
+  const entryType = StructType({ key: toKey, value: toValue });
+  if (sameEastType(signatureOf(fn).output, entryType)) return functionAt(fn, [fromKey, fromValue], entryType);
+  const swapped = functionAt(fn, [fromKey, fromValue], StructType({ value: toValue, key: toKey }));
+  return East.function([fromKey, fromValue], entryType, ($, key, row) => {
+    const step = $.const(swapped);
+    const entry = $.let(step(key, row));
+    return { key: entry.key, value: entry.value };
+  });
 }
 
 /**
@@ -161,41 +193,67 @@ export function summaryMergeProgram(def: RecordIndexDef): EastIR<any, any> {
  * `array` output in the order emitted, so the program holds no more than the
  * row in hand.
  *
- * The author's function is bound as a function value and CALLED, never
- * spliced: a spliced expression tree would be re-evaluated per reference and
- * could capture the wrong bindings.
- *
  * @param def - the migration, a `rows` or `rekey` step
  * @returns the program's IR bundle
  * @throws {Error} When the step is a `value` step, whose own function runs.
  */
-export function migrationProgram(def: MigrationDef): EastIR<any, any> {
+export function migrationProgram(def: MigrationDef) {
   if (def.form === 'value') {
     throw new Error(`e3.migration.value '${def.name}' runs its own function, and has no program`);
   }
-  const to = def.to as unknown as { type: string; key: EastType; value: EastType };
-  const emitType = to.type === 'Dict'
-    ? FunctionType([to.key as never, to.value as never], NullType)
-    : FunctionType([(to.type === 'Array' ? to.value : to.key) as never], NullType);
-
-  return locationFree(() => East.function([def.from as never, emitType], NullType, ($: any, piece: any, emit: any) => {
-    const step = $.const(def.fn);
-    if (to.type !== 'Dict') {
-      $.for(piece, ($: any, element: any) => {
-        $(emit(step(element)));
-      });
-    } else if (def.form === 'rows') {
-      $.for(piece, ($: any, row: any, key: any) => {
-        $(emit(key, step(key, row)));
-      });
-    } else {
-      $.for(piece, ($: any, row: any, key: any) => {
-        const entry = $.let(step(key, row));
-        $(emit(entry.key, entry.value));
-      });
+  const from: EastType = def.from;
+  const to: EastType = def.to;
+  if (from.type === 'Dict' && to.type === 'Dict') {
+    const fromKey: EastType = from.key;
+    const fromValue: EastType = from.value;
+    const toKey: EastType = to.key;
+    const toValue: EastType = to.value;
+    const emitType = FunctionType([toKey, toValue], NullType);
+    if (def.form === 'rows') {
+      // Each row under its own key.
+      const step = functionAt(def.fn, [fromKey, fromValue], toValue);
+      return locationFree(() => East.function([DictType(fromKey, fromValue), emitType], NullType, ($, piece, emit) => {
+        const stepFn = $.const(step);
+        $.for(piece, ($, row, key) => {
+          $(emit(key, stepFn(key, row)));
+        });
+      }));
     }
-    return null;
-  }));
+    // Each row under the key its step gives it.
+    return locationFree(() => {
+      const step = rekeyStep(def.fn, fromKey, fromValue, toKey, toValue);
+      return East.function([DictType(fromKey, fromValue), emitType], NullType, ($, piece, emit) => {
+        const stepFn = $.const(step);
+        $.for(piece, ($, row, key) => {
+          const entry = $.let(stepFn(key, row));
+          $(emit(entry.key, entry.value));
+        });
+      });
+    });
+  }
+  if (from.type === 'Set' && to.type === 'Set') {
+    const fromKey: EastType = from.key;
+    const toKey: EastType = to.key;
+    const step = functionAt(def.fn, [fromKey], toKey);
+    return locationFree(() => East.function([SetType(fromKey), FunctionType([toKey], NullType)], NullType, ($, piece, emit) => {
+      const stepFn = $.const(step);
+      $.for(piece, ($, element) => {
+        $(emit(stepFn(element)));
+      });
+    }));
+  }
+  if (from.type === 'Array' && to.type === 'Array') {
+    const fromValue: EastType = from.value;
+    const toValue: EastType = to.value;
+    const step = functionAt(def.fn, [fromValue], toValue);
+    return locationFree(() => East.function([ArrayType(fromValue), FunctionType([toValue], NullType)], NullType, ($, piece, emit) => {
+      const stepFn = $.const(step);
+      $.for(piece, ($, element) => {
+        $(emit(stepFn(element)));
+      });
+    }));
+  }
+  throw new Error(`e3.migration.${def.form} '${def.name}' migrates a Dict, a Set or an Array, from ${printType(from)} to ${printType(to)}`);
 }
 
 /**
@@ -211,14 +269,17 @@ export function migrationProgram(def: MigrationDef): EastIR<any, any> {
  * @returns the targets, in canonical case order
  */
 export function deltaTargets(recordType: EastType, indexes: readonly RecordIndexDef[]): DeltaTarget[] {
-  const collection = recordType as unknown as { key: EastType };
+  if (recordType.type !== 'Dict' && recordType.type !== 'Set') {
+    throw new Error(`a mutation delta addresses a Dict or a Set by key, not ${printType(recordType)}`);
+  }
+  const keyType: EastType = recordType.key;
   const targets: DeltaTarget[] = [
-    { name: 'primary', keyType: collection.key, collectionType: recordType },
+    { name: 'primary', keyType, collectionType: recordType },
   ];
   for (const index of indexes) {
     // A summary's entry stands for every row of its key, so its `k` is Null,
     // and its arm carries what to add to each total (#1039).
-    const k = index.summary !== undefined ? NullType : collection.key;
+    const k = index.summary !== undefined ? NullType : keyType;
     targets.push({
       name: index.name,
       keyType: indexEntryKeyType(k, index.keyType),
@@ -229,24 +290,59 @@ export function deltaTargets(recordType: EastType, indexes: readonly RecordIndex
   return targets.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
 
-/** The foldable op an `edit` body records per key, before the state resolves it
- *  into an insert / delete / update. `set` is deliberately not one of those:
- *  which it becomes depends on whether the record already holds the key, and
- *  the body is not the place that knows. */
-function editOpsType(valueType: EastType): EastType {
-  return VariantType({ set: valueType, delete: NullType, update: PatchType(valueType) });
-}
-
 /** Whether a record's own collection has a delta at all: one addressed by key,
  *  which is what lets a commit rebuild only the segments it touched. An Array
  *  record's patch is positional, and a scalar's is a replace. */
 export function hasKeyedDelta(recordType: EastType): boolean {
-  const t = (recordType as unknown as { type: string }).type;
-  return t === 'Dict' || t === 'Set';
+  return recordType.type === 'Dict' || recordType.type === 'Set';
+}
+
+/** The foldable op an `edit` body records per key, before the state resolves it
+ *  into an insert / delete / update. `set` is deliberately not one of those:
+ *  which it becomes depends on whether the record already holds the key, and
+ *  the body is not the place that knows. */
+function editOpsType(valueType: EastType, rows: Patches) {
+  return VariantType({ set: valueType, delete: NullType, update: rows.patchType });
+}
+
+/** The emit a write's program hands its delta to, entry by entry: `(DeltaKey, DeltaOp) → Null`. */
+function deltaEmitType(recordType: EastType, indexes: readonly RecordIndexDef[]) {
+  const delta = mutationDeltaType(deltaTargets(recordType, indexes));
+  return FunctionType([delta.key, delta.value], NullType);
 }
 
 /**
- * Folds a `PatchType(State)` into the program's per-key op dict.
+ * The types a Dict record's write is built over: its state; its rows'
+ * patches; its patch and its ops, typed to the depth a write reads them — an
+ * op's `update` is its row's patch, which the write passes on whole — and
+ * checked to be East's own; the rows a write touches; and the emit.
+ */
+function dictWrite(keyType: EastType, valueType: EastType, indexes: readonly RecordIndexDef[]) {
+  const stateType = DictType(keyType, valueType);
+  const rows = patchesOf(valueType);
+  const opsType = DictType(keyType, VariantType({ delete: valueType, insert: valueType, update: rows.patchType }));
+  const patchType = VariantType({ unchanged: NullType, replace: StructType({ before: stateType, after: stateType }), patch: opsType });
+  if (!sameEastType(patchType, patchTypeOf(stateType))) {
+    throw new Error(`a write's patch of ${printType(stateType)} is not East's ${printType(patchTypeOf(stateType))}`);
+  }
+  return {
+    keyType,
+    valueType,
+    stateType,
+    rows,
+    patchType,
+    opsType,
+    /** The rows a write touches: under each key it changes, the row before and after. */
+    changesType: DictType(keyType, StructType({ held: OptionType(valueType), next: OptionType(valueType) })),
+    emitType: deltaEmitType(stateType, indexes),
+  };
+}
+
+/** The types a Dict record's write is built over. */
+type DictWrite = ReturnType<typeof dictWrite>;
+
+/**
+ * Folds a patch of a Dict record into per-key ops: `(State, Patch, verify, Emit) → Ops`.
  *
  * @remarks
  * A patch has three arms and the delta has one shape, so all three land here.
@@ -255,57 +351,495 @@ export function hasKeyedDelta(recordType: EastType): boolean {
  * ops against the state rather than carried through, which is what keeps the
  * apply's cost proportional to what actually differs. A client's `replace`
  * whose `before` the record no longer holds is a stale write, emitted as the
- * delta's conflict.
+ * delta's conflict; `verify` asks for that check, which a diff of the state
+ * needs no more than its own `before`.
  */
-function collectOps(
-  $: any, state: any, patchExpr: any, ops: any, keyed: 'Dict' | 'Set', verifyBefore: boolean, emit: any,
-): void {
-  const patch = $.let(patchExpr);
-  $.match(patch, {
-    patch: ($: any, entries: any) => {
-      $.for(entries, ($: any, op: any, key: any) => {
-        $(ops.insertOrUpdate(key, op));
+export function dictPatchOps(types: DictWrite) {
+  const { stateType, rows, patchType, opsType, emitType } = types;
+  return East.function([stateType, patchType, BooleanType, emitType], opsType, ($, state, patch, verify, emit) => {
+    const diff = $.const(rows.diff);
+    const ops = $.let(new Map(), opsType);
+    $.match(patch, {
+      unchanged: () => {},
+      patch: ($, entries) => {
+        $.assign(ops, entries);
+      },
+      replace: ($, whole) => {
+        $.if(verify.and(() => East.notEqual<EastType>(whole.before, state)), ($) => {
+          $(emit(variant(DELTA_CONFLICT, 'the patch replaces a state the record no longer holds'), variant(DELTA_CONFLICT, null)));
+        });
+        $.for(state, ($, value, key) => {
+          $.if(whole.after.has(key).not(), ($) => {
+            $(ops.insertOrUpdate(key, variant('delete', value)));
+          });
+        });
+        $.for(whole.after, ($, value, key) => {
+          $.match(state.tryGet(key), {
+            none: ($) => {
+              $(ops.insertOrUpdate(key, variant('insert', value)));
+            },
+            some: ($, held) => {
+              $.if(East.notEqual<EastType>(held, value), ($) => {
+                $(ops.insertOrUpdate(key, variant('update', diff(held, value))));
+              });
+            },
+          });
+        });
+      },
+    });
+    return ops;
+  });
+}
+
+/**
+ * The rows a write touches: `(State, Ops, Emit) → Changes`, under each key it
+ * changes the row before it and the row after.
+ *
+ * @remarks
+ * Applying a patch verifies the row it was made against, and a row that no
+ * longer matches is a stale write — the conflict the engine reports when it
+ * applies an unindexed record's patch — emitted as the delta's conflict, its
+ * row after then `none`. Named in words every runtime shares: each one's own
+ * apply message is different.
+ */
+function rowChanges(types: DictWrite) {
+  const { valueType, stateType, rows, opsType, changesType, emitType } = types;
+  return East.function([stateType, opsType, emitType], changesType, ($, state, ops, emit) => {
+    const apply = $.const(rows.apply);
+    const changes = $.let(new Map(), changesType);
+    $.for(ops, ($, op, key) => {
+      const held = $.let(state.tryGet(key));
+      const next = $.let(none, OptionType(valueType));
+      $.match(op, {
+        insert: ($, value) => {
+          $.assign(next, some(value));
+        },
+        update: ($, patch) => {
+          $.match(held, {
+            some: ($, value) => {
+              $.try(($) => {
+                $.assign(next, some(apply(value, patch)));
+              }).catch(($) => {
+                $(emit(
+                  variant(DELTA_CONFLICT, East.str`update of ${East.print(key)}, whose row no longer matches the patch`),
+                  variant(DELTA_CONFLICT, null)));
+              });
+            },
+            none: () => {},
+          });
+        },
+        delete: () => {},
+      });
+      $(changes.insert(key, { held, next }));
+    });
+    return changes;
+  });
+}
+
+/**
+ * One index's entry changes for a write's touched rows: `(Changes, Emit) → Null`.
+ *
+ * @remarks
+ * An index entry is `{ik, k}`, so a row moving from one index key to another is
+ * a delete at the old entry and an insert at the new one — not an update. Only
+ * an entry that keeps its index key and whose covering projection changed is an
+ * update, and an index carrying no projection, whose projection is Null, has
+ * none of those at all. The three sets are disjoint and `k` is this row's, so
+ * no entry is emitted twice.
+ */
+function indexChanges(index: RecordIndexDef, types: DictWrite) {
+  const { keyType, valueType, changesType, emitType } = types;
+  const keys = indexKeys(index, keyType, valueType);
+  const projection = indexProjection(index, keyType, valueType);
+  const projected = patchesOf(index.valueType);
+  // A row's entries: its index keys and its projection; none for no row.
+  const entriesType = StructType({ keys: SetType(index.keyType), value: OptionType(index.valueType) });
+  const entriesOf = East.function([keyType, OptionType(valueType)], entriesType, ($, key, row) => {
+    const keysOf = $.const(keys);
+    const project = $.const(projection);
+    $.match(row, {
+      some: ($, value) => {
+        $.return({ keys: keysOf(key, value), value: some(project(key, value)) });
+      },
+      none: () => {},
+    });
+    return { keys: new Set([]), value: none };
+  });
+  return East.function([changesType, emitType], NullType, ($, changes, emit) => {
+    const entries = $.const(entriesOf);
+    const diff = $.const(projected.diff);
+    $.for(changes, ($, change, key) => {
+      const before = $.let(entries(key, change.held));
+      const after = $.let(entries(key, change.next));
+      $.for(before.keys.difference(after.keys), ($, ik) => {
+        $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('delete', before.value.unwrap()))));
+      });
+      $.for(after.keys.difference(before.keys), ($, ik) => {
+        $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('insert', after.value.unwrap()))));
+      });
+      $.for(before.keys.intersection(after.keys), ($, ik) => {
+        const was = $.let(before.value.unwrap());
+        const is = $.let(after.value.unwrap());
+        $.if(East.notEqual<EastType>(was, is), ($) => {
+          $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('update', diff(was, is)))));
+        });
+      });
+    });
+  });
+}
+
+/** `(totals, sign) → sign × totals`: a row's contribution given, `1`, or taken away, `−1`. */
+const signedTotals = East.function([RecordSummaryTotalsType, IntegerType], RecordSummaryTotalsType, (_$, totals, sign) =>
+  ({ count: totals.count.multiply(sign), ms: totals.ms.multiply(sign) }));
+
+/** `(a, b) → a + b`: two changes to one key's totals. */
+const addedTotals = East.function([RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType, (_$, a, b) =>
+  ({ count: a.count.add(b.count), ms: a.ms.add(b.ms) }));
+
+/**
+ * One summary's change for a write's touched rows (#1039): `(Changes, Emit) →
+ * Null`, under each key the rows it replaced contributed to, or it writes do,
+ * what those took away and these give, summed.
+ *
+ * @remarks
+ * A write reads the record, never the summary, so it says what changed rather
+ * than what a total becomes; the apply adds it to the total held. The change
+ * of a key two rows share is summed here, so the delta holds it once, and a
+ * change of nothing is not emitted.
+ */
+function summaryChanges(index: RecordIndexDef, types: DictWrite) {
+  const { keyType, valueType, changesType, emitType } = types;
+  const totalsType = DictType(index.keyType, RecordSummaryTotalsType);
+  const contributions = functionAt(index.keyFn, [keyType, valueType], totalsType);
+  return East.function([changesType, emitType], NullType, ($, changes, emit) => {
+    const contribute = $.const(contributions);
+    const signed = $.const(signedTotals);
+    const add = $.const(addedTotals);
+    const sums = $.let(new Map(), totalsType);
+    $.for(changes, ($, change, key) => {
+      $.match(change.held, {
+        some: ($, row) => {
+          $(sums.unionInPlace(contribute(key, row).map(($, part) => signed(part, -1n)), ($, was, part) => add(was, part)));
+        },
+        none: () => {},
+      });
+      $.match(change.next, {
+        some: ($, row) => {
+          $(sums.unionInPlace(contribute(key, row), ($, was, part) => add(was, part)));
+        },
+        none: () => {},
+      });
+    });
+    $.for(sums, ($, change, ik) => {
+      $.if(change.count.notEqual(0n).or(() => change.ms.notEqual(0n)), ($) => {
+        $(emit(variant(index.name, { ik, k: null }), variant(index.name, variant('add', change))));
+      });
+    });
+  });
+}
+
+/**
+ * Every index's changes for a write's touched rows, each index in turn:
+ * `(Changes, Emit) → Null`, a function calling the ones before it and then
+ * its own index's.
+ */
+function indexesChanges(indexes: readonly RecordIndexDef[], types: DictWrite) {
+  const { changesType, emitType } = types;
+  return indexes.reduce(
+    (earlier, index) => {
+      const own = index.summary === undefined ? indexChanges(index, types) : summaryChanges(index, types);
+      return East.function([changesType, emitType], NullType, ($, changes, emit) => {
+        const before = $.const(earlier);
+        const these = $.const(own);
+        $(before(changes, emit));
+        $(these(changes, emit));
       });
     },
-    replace: ($: any, whole: any) => {
-      if (verifyBefore) {
-        $.if(East.notEqual(whole.before, state), ($: any) => {
-          $(emit(
-            variant(DELTA_CONFLICT, 'the patch replaces a state the record no longer holds'),
-            variant(DELTA_CONFLICT, null)));
-        });
-      }
-      if (keyed === 'Set') {
-        $.for(state, ($: any, key: any) => {
-          $.if(whole.after.has(key).not(), ($: any) => {
-            $(ops.insertOrUpdate(key, variant('delete', null)));
+    East.function([changesType, emitType], NullType, () => null),
+  );
+}
+
+/** A write's own ops, each under its key: `(Ops, Emit) → Null`. */
+function primaryOps(opsType: DictType<EastType, EastType>, emitType: DictWrite['emitType']) {
+  return East.function([opsType, emitType], NullType, ($, ops, emit) => {
+    $.for(ops, ($, op, key) => {
+      $(emit(variant('primary', key), variant('primary', op)));
+    });
+  });
+}
+
+/** The delta of a write whose record has no indexes, once its ops are known: `(State, Ops, Emit) → Null`, each op under its key. */
+function primaryApply(stateType: EastType, opsType: DictType<EastType, EastType>, emitType: DictWrite['emitType']) {
+  const primary = primaryOps(opsType, emitType);
+  return East.function([stateType, opsType, emitType], NullType, ($, _state, ops, emit) => {
+    const own = $.const(primary);
+    $(own(ops, emit));
+  });
+}
+
+/**
+ * The delta of a Dict record's write, once its ops are known: `(State, Ops,
+ * Emit) → Null`, each op under its key and, where the record has indexes, each
+ * index's changes for the rows the ops touch.
+ */
+function dictApply(indexes: readonly RecordIndexDef[], types: DictWrite) {
+  const { stateType, opsType, emitType } = types;
+  if (indexes.length === 0) return primaryApply(stateType, opsType, emitType);
+  const primary = primaryOps(opsType, emitType);
+  const touched = rowChanges(types);
+  const maintain = indexesChanges(indexes, types);
+  return East.function([stateType, opsType, emitType], NullType, ($, state, ops, emit) => {
+    const own = $.const(primary);
+    const rows = $.const(touched);
+    const indexed = $.const(maintain);
+    $(own(ops, emit));
+    const changes = $.let(rows(state, ops, emit));
+    $(indexed(changes, emit));
+  });
+}
+
+/**
+ * Runs an `edit` body against a capability that folds its writes, then resolves
+ * the fold into per-key ops: `(State, Args, Emit) → Ops`.
+ *
+ * @remarks
+ * `set` is the reason the fold has its own op type: whether it becomes an
+ * insert or an update is a fact about the record, not about the body, and the
+ * body is not asked to know. Resolving it here is also where a `delete` or an
+ * `update` of a key the record does not hold is found — emitted as the
+ * delta's conflict naming the key, as an apply would name it, rather than
+ * reaching the apply as an op that cannot be represented.
+ */
+function editOps(fn: IndexFunction, argTypes: readonly EastType[], types: DictWrite) {
+  const { keyType, valueType, stateType, rows, opsType, emitType } = types;
+  // The capability, typed as the ops are: its `update` takes the row's patch, checked to be East's own.
+  const editType = StructType({
+    set: FunctionType([keyType, valueType], NullType),
+    delete: FunctionType([keyType], NullType),
+    update: FunctionType([keyType, rows.patchType], NullType),
+  });
+  const declared: EastType = stateType;
+  if (!sameEastType(editType, editTypeOf(declared))) {
+    throw new Error(`an edit's capability over ${printType(stateType)} is not ${printType(editTypeOf(declared))}`);
+  }
+  const editsType = DictType(keyType, editOpsType(valueType, rows));
+  const argsType = argumentsType(argTypes);
+  const body = callWithArguments(fn, stateType, argTypes, [editType], NullType);
+  const resolve = East.function([stateType, editsType, emitType], opsType, ($, state, edits, emit) => {
+    const diff = $.const(rows.diff);
+    const ops = $.let(new Map(), opsType);
+    $.for(edits, ($, edit, key) => {
+      const held = $.let(state.tryGet(key));
+      $.match(edit, {
+        set: ($, value) => {
+          $.match(held, {
+            some: ($, prior) => {
+              // A `set` of what the record already holds changed nothing, and a
+              // delta says what changed: an op here would re-cut the segment to
+              // the bytes it already has and count itself in the history.
+              $.if(East.notEqual<EastType>(prior, value), ($) => {
+                $(ops.insertOrUpdate(key, variant('update', diff(prior, value))));
+              });
+            },
+            none: ($) => {
+              $(ops.insertOrUpdate(key, variant('insert', value)));
+            },
           });
-        });
-        $.for(whole.after, ($: any, key: any) => {
-          $.if(state.has(key).not(), ($: any) => {
-            $(ops.insertOrUpdate(key, variant('insert', null)));
+        },
+        delete: ($) => {
+          $.match(held, {
+            some: ($, prior) => {
+              $(ops.insertOrUpdate(key, variant('delete', prior)));
+            },
+            none: ($) => {
+              $(emit(
+                variant(DELTA_CONFLICT, East.str`delete of ${East.print(key)}, which the record does not hold`),
+                variant(DELTA_CONFLICT, null)));
+            },
           });
-        });
-        return;
-      }
-      $.for(state, ($: any, value: any, key: any) => {
-        $.if(whole.after.has(key).not(), ($: any) => {
-          $(ops.insertOrUpdate(key, variant('delete', value)));
-        });
+        },
+        update: ($, patch) => {
+          $.match(held, {
+            some: ($) => {
+              $(ops.insertOrUpdate(key, variant('update', patch)));
+            },
+            none: ($) => {
+              $(emit(
+                variant(DELTA_CONFLICT, East.str`update of ${East.print(key)}, which the record does not hold`),
+                variant(DELTA_CONFLICT, null)));
+            },
+          });
+        },
       });
-      $.for(whole.after, ($: any, value: any, key: any) => {
-        $.match(state.tryGet(key), {
-          none: ($: any) => {
-            $(ops.insertOrUpdate(key, variant('insert', value)));
+    });
+    return ops;
+  });
+  return East.function([stateType, argsType, emitType], opsType, ($, state, args, emit) => {
+    const apply = $.const(rows.apply);
+    const compose = $.const(rows.compose);
+    const edits = $.let(new Map(), editsType);
+    const capability = $.const({
+      set: East.function([keyType, valueType], NullType, ($, key, value) => {
+        $(edits.insertOrUpdate(key, variant('set', value)));
+      }),
+      delete: East.function([keyType], NullType, ($, key) => {
+        $.if(state.has(key), ($) => {
+          $(edits.insertOrUpdate(key, variant('delete', null)));
+        }).else(($) => {
+          // The record does not hold the key, so a pending `set` of it is this
+          // body creating it: deleting it again leaves the record as it was, and
+          // there is nothing to write. Anything else is a delete of a key the
+          // record does not hold, which resolving refuses.
+          $.match(edits.tryGet(key), {
+            some: ($, prior) => {
+              $.match(prior, {
+                set: ($) => {
+                  $(edits.delete(key));
+                },
+                delete: ($) => {
+                  $(edits.insertOrUpdate(key, variant('delete', null)));
+                },
+                update: ($) => {
+                  $(edits.insertOrUpdate(key, variant('delete', null)));
+                },
+              });
+            },
+            none: ($) => {
+              $(edits.insertOrUpdate(key, variant('delete', null)));
+            },
+          });
+        });
+      }),
+      update: East.function([keyType, rows.patchType], NullType, ($, key, patch) => {
+        $.match(edits.tryGet(key), {
+          none: ($) => {
+            $(edits.insertOrUpdate(key, variant('update', patch)));
           },
-          some: ($: any, held: any) => {
-            $.if(East.notEqual(held, value), ($: any) => {
-              $(ops.insertOrUpdate(key, variant('update', East.diff(held, value))));
+          some: ($, prior) => {
+            $.match(prior, {
+              set: ($, value) => {
+                $(edits.insertOrUpdate(key, variant('set', apply(value, patch))));
+              },
+              update: ($, first) => {
+                $(edits.insertOrUpdate(key, variant('update', compose(first, patch))));
+              },
+              delete: ($) => {
+                $.error(East.str`update of ${East.print(key)}, which this mutation already deleted`);
+              },
             });
           },
         });
-      });
-    },
+      }),
+    }, editType);
+    const run = $.const(body);
+    const resolveFn = $.const(resolve);
+    $(run(state, args, capability));
+    return resolveFn(state, edits, emit);
+  });
+}
+
+/**
+ * Folds a patch of a Set record into per-key ops: `(State, Patch, verify,
+ * Emit) → Ops`, as {@link dictPatchOps} folds a Dict's.
+ */
+function setPatchOps(keyType: EastType, emitType: DictWrite['emitType']) {
+  const stateType = SetType(keyType);
+  const patchType = PatchType(stateType);
+  const opsType = patchType.cases.patch;
+  return East.function([stateType, patchType, BooleanType, emitType], opsType, ($, state, patch, verify, emit) => {
+    const ops = $.let(new Map(), opsType);
+    $.match(patch, {
+      unchanged: () => {},
+      patch: ($, entries) => {
+        $.assign(ops, entries);
+      },
+      replace: ($, whole) => {
+        $.if(verify.and(() => East.notEqual<EastType>(whole.before, state)), ($) => {
+          $(emit(variant(DELTA_CONFLICT, 'the patch replaces a state the record no longer holds'), variant(DELTA_CONFLICT, null)));
+        });
+        $.for(state, ($, key) => {
+          $.if(whole.after.has(key).not(), ($) => {
+            $(ops.insertOrUpdate(key, variant('delete', null)));
+          });
+        });
+        $.for(whole.after, ($, key) => {
+          $.if(state.has(key).not(), ($) => {
+            $(ops.insertOrUpdate(key, variant('insert', null)));
+          });
+        });
+      },
+    });
+    return ops;
+  });
+}
+
+/** What a write's program is built from, whatever its record's collection: its types, and its steps. */
+interface WriteSteps {
+  readonly stateType: EastType;
+  /** The state's patch type, as a client's patch arrives. */
+  readonly patchType: EastType;
+  /** The per-key ops a write's delta carries for its record's own collection. */
+  readonly opsType: EastType;
+  readonly emitType: DictWrite['emitType'];
+  /** `(before, after) → the patch between two states` */
+  readonly diff: FunctionExpr<[EastType, EastType], EastType>;
+  /** `(State, Patch, verify, Emit) → Ops` */
+  readonly patchOps: FunctionExpr<[EastType, EastType, BooleanType, EastType], EastType>;
+  /** `(State, Ops, Emit) → Null`: the delta, once the ops are known. */
+  readonly apply: FunctionExpr<[EastType, EastType, EastType], NullType>;
+}
+
+/** A Dict record's write steps. */
+function dictSteps(types: DictWrite, indexes: readonly RecordIndexDef[]): WriteSteps {
+  return {
+    stateType: types.stateType,
+    patchType: types.patchType,
+    opsType: types.opsType,
+    emitType: types.emitType,
+    diff: patchesOf(types.stateType).diff,
+    patchOps: dictPatchOps(types),
+    apply: dictApply(indexes, types),
+  };
+}
+
+/** A Set record's write steps: it is indexed by nothing, so its delta is its own ops. */
+function setSteps(keyType: EastType): WriteSteps {
+  const stateType = SetType(keyType);
+  const patchType = PatchType(stateType);
+  const opsType = patchType.cases.patch;
+  const emitType = deltaEmitType(stateType, []);
+  return {
+    stateType,
+    patchType,
+    opsType,
+    emitType,
+    diff: patchesOf(stateType).diff,
+    patchOps: setPatchOps(keyType, emitType),
+    apply: primaryApply(stateType, opsType, emitType),
+  };
+}
+
+/** A mutation's body; a `patch` mutation has none. */
+function bodyOf(mut: MutationDef): IndexFunction {
+  if (mut.fn === undefined) throw new Error(`e3 mutation '${mut.name}' has no body to build its program from`);
+  return mut.fn;
+}
+
+/**
+ * A reducer's ops: `(State, Args, Emit) → Ops`, the per-key ops a diff of the
+ * whole new state it returns gives — the diff's `before` is the state, so it
+ * needs no check.
+ */
+function reduceOps(fn: IndexFunction, argTypes: readonly EastType[], steps: WriteSteps) {
+  const { stateType, opsType, emitType, diff, patchOps } = steps;
+  const reduce = callWithArguments(fn, stateType, argTypes, [], stateType);
+  const argsType = argumentsType(argTypes);
+  return East.function([stateType, argsType, emitType], opsType, ($, state, args, emit) => {
+    const reduceFn = $.const(reduce);
+    const diffFn = $.const(diff);
+    const opsOf = $.const(patchOps);
+    const next = $.let(reduceFn(state, args));
+    return opsOf(state, diffFn(state, next), false, emit);
   });
 }
 
@@ -322,9 +856,9 @@ function collectOps(
  *
  * The three forms differ only in how the per-key ops are reached — a diff of
  * the reducer's result, the folded writes of an `edit` body, or the client's
- * own patch — after which the tail is shared: for each touched key, emit its
- * op, then resolve the old and new row and ask each index what its entry was
- * and what it becomes.
+ * own patch — after which the rest is shared: each op emitted under its key,
+ * then each touched key's old and new row, and each index asked what its
+ * entries were and what they become.
  *
  * A write the state moved under — a patch whose `before` the record no longer
  * holds, an update of a row that no longer matches, a delete or update of a
@@ -332,294 +866,65 @@ function collectOps(
  * naming it, which sorts first, rather than failing the program: a caller
  * resubmits a conflict and gives up on a failure.
  *
- * The author's functions are bound as function values and CALLED, never
- * spliced: a spliced tree would be re-evaluated per reference and could
- * capture the wrong bindings.
- *
  * @param rec - the record, carrying its indexes
  * @param mut - the mutation declaration
  * @returns the program's IR bundle
- * @throws {Error} When the record's collection has no keyed delta, or an
- *   `edit` / `patch` mutation has no body where one is required.
+ * @throws {Error} When the record's collection has no keyed delta, an `edit`
+ *   mutation writes a Set, or an `edit` / `reduce` mutation has no body.
  */
-export function buildMutationProgram(rec: RecordDef, mut: MutationDef): EastIR<any, any> {
-  const collection = rec.type as unknown as { type: string; key: EastType; value: EastType };
-  if (!hasKeyedDelta(rec.type)) {
+export function buildMutationProgram(rec: RecordDef, mut: MutationDef) {
+  const recordType: EastType = rec.type;
+  if (recordType.type !== 'Dict' && recordType.type !== 'Set') {
     throw new Error(
       `e3.mutation.${mut.form} '${mut.name}' writes a delta, ` +
-      `which addresses a Dict or a Set by key; record '${rec.name}' holds ${collection.type}.`);
+      `which addresses a Dict or a Set by key; record '${rec.name}' holds ${recordType.type}.`);
   }
-  const keyed = collection.type as 'Dict' | 'Set';
-  const indexes = Object.values(rec.indexes)
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
-  const delta = mutationDeltaType(deltaTargets(rec.type, indexes)) as unknown as { key: EastType; value: EastType };
-  const emitType = FunctionType([delta.key as never, delta.value as never], NullType);
-  const primaryOps = patchOpsType(rec.type);
-  const opsType = DictType(collection.key as never, primaryOps as never);
-  const argTypes: EastType[] = mut.form === 'patch' ? [PatchType(rec.type)] : [...mut.argTypes];
-  if (mut.form !== 'patch' && mut.fn === undefined) {
-    throw new Error(`e3 mutation '${mut.name}' has no body to build its program from`);
+  // A Set record is indexed by nothing, and written by a patch or a reducer: an edit writes a Dict.
+  if (recordType.type === 'Set' && mut.form === 'edit') {
+    throw new Error(`e3.mutation.edit '${mut.name}' writes a Dict record; '${rec.name}' holds a Set`);
   }
+  if (mut.form !== 'patch') bodyOf(mut);
+  return locationFree(() => writeProgram(rec, mut));
+}
 
-  return locationFree(() => East.function(
-    [rec.type as never, ...(argTypes as never[]), emitType], NullType,
-    ($: any, ...params: any[]) => {
-      const state = params[0];
-      const emit = params[params.length - 1];
-      const args = params.slice(1, params.length - 1);
-      const ops = $.let(new Map(), opsType);
-
-      if (mut.form === 'patch') {
-        collectOps($, state, args[0], ops, keyed, true, emit);
-      } else if (mut.form === 'reduce') {
-        const reduce = $.const(mut.fn);
-        const next = $.let(reduce(state, ...args));
-        collectOps($, state, East.diff(state, next), ops, keyed, false, emit);
-      } else {
-        foldEdits($, state, mut, args, ops, rec.type, emit);
-      }
-
-      const keyFns = indexes.map((index) => $.const(index.keyFn));
-      const valueFns = indexes.map((index) => (index.valueFn === undefined ? undefined : $.const(index.valueFn)));
-      // Each summary's change, summed over the write's rows by its key (#1039):
-      // a key two rows share is one entry of the delta, emitted once all are in.
-      const zero = $.const({ count: 0n, ms: 0n }, RecordSummaryTotalsType);
-      const sums = new Map(indexes.flatMap((index, i) => (index.summary === undefined ? []
-        : [[i, $.let(new Map(), DictType(index.keyType as never, RecordSummaryTotalsType))] as const])));
-
-      $.for(ops, ($: any, op: any, key: any) => {
-        $(emit(variant('primary', key), variant('primary', op)));
-        if (indexes.length === 0) return;
-        const held = $.let(state.tryGet(key));
-        const next = $.let(none, OptionType(collection.value));
-        $.match(op, {
-          insert: ($: any, value: any) => {
-            $.assign(next, some(value));
-          },
-          update: ($: any, patch: any) => {
-            $.matchTag(held, 'some', ($: any, value: any) => {
-              // Applying a patch verifies the row it was made against, and a
-              // row that no longer matches is a stale write — the conflict the
-              // engine reports when it applies an unindexed record's patch.
-              // Named in words every runtime shares: each one's own apply
-              // message is different.
-              $.try(($: any) => {
-                $.assign(next, some(East.applyPatch(value, patch)));
-              }).catch(($: any) => {
-                $(emit(
-                  variant(DELTA_CONFLICT, East.str`update of ${East.print(key)}, whose row no longer matches the patch`),
-                  variant(DELTA_CONFLICT, null)));
-              });
-            });
-          },
-        });
-        indexes.forEach((index, i) => {
-          const sum = sums.get(i);
-          if (sum === undefined) maintainIndex($, index, key, held, next, keyFns[i], valueFns[i], emit);
-          else accumulateSummary($, sum, zero, keyFns[i], key, held, next);
-        });
-      });
-      // Each summary's non-zero changes: what its total under each key gains,
-      // which the apply adds to the total it holds.
-      indexes.forEach((index, i) => {
-        const sum = sums.get(i);
-        if (sum === undefined) return;
-        $.for(sum, ($: any, change: any, ik: any) => {
-          $.if(change.count.notEqual(0n).or(() => change.ms.notEqual(0n)), ($: any) => {
-            $(emit(variant(index.name, { ik, k: null }), variant(index.name, variant('add', change))));
-          });
-        });
-      });
-      return null;
+/**
+ * A write's program (see {@link buildMutationProgram}): its record's steps,
+ * its form's ops, and the program the runner calls.
+ */
+function writeProgram(rec: RecordDef, mut: MutationDef): FunctionExpr<EastType[], NullType> {
+  const recordType: EastType = rec.type;
+  let steps: WriteSteps;
+  let argumentOps: FunctionExpr<[EastType, EastType, EastType], EastType> | undefined;
+  if (recordType.type === 'Dict') {
+    const indexes = Object.values(rec.indexes).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const types = dictWrite(recordType.key, recordType.value, indexes);
+    steps = dictSteps(types, indexes);
+    argumentOps = mut.form === 'edit' ? editOps(bodyOf(mut), mut.argTypes, types)
+      : mut.form === 'reduce' ? reduceOps(bodyOf(mut), mut.argTypes, steps)
+      : undefined;
+  } else if (recordType.type === 'Set') {
+    steps = setSteps(recordType.key);
+    argumentOps = mut.form === 'reduce' ? reduceOps(bodyOf(mut), mut.argTypes, steps) : undefined;
+  } else {
+    throw new Error(`a write addresses a Dict or a Set by key, not ${printType(recordType)}`);
+  }
+  const { stateType, patchType, emitType, patchOps, apply } = steps;
+  if (argumentOps === undefined) {
+    // A patch: the client's own, checked against the state it was made from.
+    return East.function([stateType, patchType, emitType], NullType, ($, state, patch, emit) => {
+      const opsOf = $.const(patchOps);
+      const applyFn = $.const(apply);
+      const ops = $.let(opsOf(state, patch, true, emit));
+      $(applyFn(state, ops, emit));
+    });
+  }
+  const opsOfArguments = argumentOps;
+  const argsType = argumentsType(mut.argTypes);
+  return programOverArguments(stateType, mut.argTypes, emitType,
+    East.function([stateType, argsType, emitType], NullType, ($, state, args, emit) => {
+      const opsOf = $.const(opsOfArguments);
+      const applyFn = $.const(apply);
+      const ops = $.let(opsOf(state, args, emit));
+      $(applyFn(state, ops, emit));
     }));
-}
-
-/**
- * Sums one touched row's change to a summary (#1039): its old row's
- * contributions taken away, its new row's given, under each key.
- *
- * @remarks
- * A write reads the record, never the summary, so it says what changed rather
- * than what a total becomes; the apply adds it to the total held. The change
- * of a key two rows share is summed here, so the delta holds it once.
- */
-function accumulateSummary($: any, sums: any, zero: any, contribute: any, key: any, held: any, next: any): void {
-  const add = (sign: bigint) => ($: any, row: any) => {
-    $.for(contribute(key, row), ($: any, totals: any, ik: any) => {
-      const was = $.let(sums.get(ik, () => zero));
-      $(sums.insertOrUpdate(ik, {
-        count: was.count.add(totals.count.multiply(sign)),
-        ms: was.ms.add(totals.ms.multiply(sign)),
-      }));
-    });
-  };
-  $.matchTag(held, 'some', add(-1n));
-  $.matchTag(next, 'some', add(1n));
-}
-
-/**
- * Runs an `edit` body against a capability that folds its writes, then resolves
- * the fold into the per-key ops the tail shares.
- *
- * @remarks
- * `set` is the reason the fold has its own op type: whether it becomes an
- * insert or an update is a fact about the record, not about the body, and the
- * body is not asked to know. Resolving it here is also where a `delete` or an
- * `update` of a key the record does not hold is found — emitted as the
- * delta's conflict naming the key, as an apply would name it, rather than
- * reaching the apply as an op that cannot be represented.
- */
-function foldEdits(
-  $: any, state: any, mut: MutationDef, args: any[], ops: any, recordType: EastType, emit: any,
-): void {
-  const { key: keyType, value: valueType } = recordType as unknown as { key: EastType; value: EastType };
-  const edits = $.let(new Map(), DictType(keyType as never, editOpsType(valueType) as never));
-  const capability = $.const({
-    set: East.function([keyType as never, valueType as never], NullType, ($: any, key: any, value: any) => {
-      $(edits.insertOrUpdate(key, variant('set', value)));
-    }),
-    delete: East.function([keyType as never], NullType, ($: any, key: any) => {
-      $.if(state.has(key), ($: any) => {
-        $(edits.insertOrUpdate(key, variant('delete', null)));
-      }).else(($: any) => {
-        // The record does not hold the key, so a pending `set` of it is this
-        // body creating it: deleting it again leaves the record as it was, and
-        // there is nothing to write. Anything else is a delete of a key the
-        // record does not hold, which resolving refuses.
-        $.match(edits.tryGet(key), {
-          some: ($: any, prior: any) => {
-            $.match(prior, {
-              set: ($: any) => {
-                $(edits.delete(key));
-              },
-              delete: ($: any) => {
-                $(edits.insertOrUpdate(key, variant('delete', null)));
-              },
-              update: ($: any) => {
-                $(edits.insertOrUpdate(key, variant('delete', null)));
-              },
-            });
-          },
-          none: ($: any) => {
-            $(edits.insertOrUpdate(key, variant('delete', null)));
-          },
-        });
-      });
-    }),
-    update: East.function([keyType as never, PatchType(valueType) as never], NullType, ($: any, key: any, patch: any) => {
-      $.match(edits.tryGet(key), {
-        none: ($: any) => {
-          $(edits.insertOrUpdate(key, variant('update', patch)));
-        },
-        some: ($: any, prior: any) => {
-          $.match(prior, {
-            set: ($: any, value: any) => {
-              $(edits.insertOrUpdate(key, variant('set', East.applyPatch(value, patch))));
-            },
-            update: ($: any, first: any) => {
-              $(edits.insertOrUpdate(key, variant('update', East.composePatch(first, patch, valueType))));
-            },
-            delete: ($: any) => {
-              $.error(East.str`update of ${East.print(key)}, which this mutation already deleted`);
-            },
-          });
-        },
-      });
-    }),
-  }, editTypeOf(recordType));
-
-  const body = $.const(mut.fn);
-  $(body(state, ...args, capability));
-
-  $.for(edits, ($: any, edit: any, key: any) => {
-    const held = $.let(state.tryGet(key));
-    $.match(edit, {
-      set: ($: any, value: any) => {
-        $.match(held, {
-          some: ($: any, prior: any) => {
-            // A `set` of what the record already holds changed nothing, and a
-            // delta says what changed: an op here would re-cut the segment to
-            // the bytes it already has and count itself in the history.
-            $.if(East.notEqual(prior, value), ($: any) => {
-              $(ops.insertOrUpdate(key, variant('update', East.diff(prior, value))));
-            });
-          },
-          none: ($: any) => {
-            $(ops.insertOrUpdate(key, variant('insert', value)));
-          },
-        });
-      },
-      delete: ($: any) => {
-        $.match(held, {
-          some: ($: any, prior: any) => {
-            $(ops.insertOrUpdate(key, variant('delete', prior)));
-          },
-          none: ($: any) => {
-            $(emit(
-              variant(DELTA_CONFLICT, East.str`delete of ${East.print(key)}, which the record does not hold`),
-              variant(DELTA_CONFLICT, null)));
-          },
-        });
-      },
-      update: ($: any, patch: any) => {
-        $.match(held, {
-          some: ($: any) => {
-            $(ops.insertOrUpdate(key, variant('update', patch)));
-          },
-          none: ($: any) => {
-            $(emit(
-              variant(DELTA_CONFLICT, East.str`update of ${East.print(key)}, which the record does not hold`),
-              variant(DELTA_CONFLICT, null)));
-          },
-        });
-      },
-    });
-  });
-}
-
-/**
- * Emits one index's entry changes for one touched row.
- *
- * @remarks
- * An index entry is `{ik, k}`, so a row moving from one index key to another is
- * a delete at the old entry and an insert at the new one — not an update. Only
- * an entry that keeps its index key and whose covering projection changed is an
- * update, and an index carrying no projection has none of those at all. The
- * three sets are disjoint and `k` is this row's, so no entry is emitted twice.
- */
-function maintainIndex(
-  $: any, index: RecordIndexDef, key: any, held: any, next: any,
-  indexKey: any, project: any, emit: any,
-): void {
-  const heldKeys = $.let(new Set(), SetType(index.keyType as never));
-  const nextKeys = $.let(new Set(), SetType(index.keyType as never));
-  const heldValue = $.let(none, OptionType(index.valueType));
-  const nextValue = $.let(none, OptionType(index.valueType));
-  const gather = (keys: any, value: any) => ($: any, row: any) => {
-    if (index.multi) {
-      $.for(indexKey(key, row), ($: any, ik: any) => {
-        $(keys.insert(ik));
-      });
-    } else {
-      $(keys.insert(indexKey(key, row)));
-    }
-    $.assign(value, some(project === undefined ? null : project(key, row)));
-  };
-  $.matchTag(held, 'some', gather(heldKeys, heldValue));
-  $.matchTag(next, 'some', gather(nextKeys, nextValue));
-
-  $.for(heldKeys.difference(nextKeys), ($: any, ik: any) => {
-    $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('delete', heldValue.unwrap()))));
-  });
-  $.for(nextKeys.difference(heldKeys), ($: any, ik: any) => {
-    $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('insert', nextValue.unwrap()))));
-  });
-  if (project === undefined) return;
-  $.for(heldKeys.intersection(nextKeys), ($: any, ik: any) => {
-    const before = $.let(heldValue.unwrap());
-    const after = $.let(nextValue.unwrap());
-    $.if(East.notEqual(before, after), ($: any) => {
-      $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('update', East.diff(before, after)))));
-    });
-  });
 }

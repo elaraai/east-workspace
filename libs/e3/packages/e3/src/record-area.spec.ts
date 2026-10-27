@@ -21,7 +21,7 @@ import {
 import { record } from './record.js';
 import { recordIndex, type IndexKeyOf, type IndexOn } from './record-index.js';
 import { AREA_UNPLACED, areaCellExponent, areaCode } from './record-area.js';
-import { indexFunctionAt } from './record-guards.js';
+import { functionAt } from './record-guards.js';
 
 /** The cell code each runtime files a box by: `(cx, cy, side, cell)`. */
 const locate = East.compile(areaCode, []);
@@ -164,10 +164,10 @@ describe('e3.recordIndex.area — its keys (§11.2)', () => {
     const rack = (x: number | null, y: number | null): Rack => ({
       hall: 'H1', tags: new Set(['a', 'b']), x: x === null ? none : some(x), y: y === null ? none : some(y), w: 0.6, h: -1.2, name: 'r',
     });
-    const keyByArea = East.compile(indexFunctionAt(byArea.keyFn, [StringType, RackRow], byArea.keyType), []);
-    const keyByHallArea = East.compile(indexFunctionAt(byHallArea.keyFn, [StringType, RackRow], byHallArea.keyType), []);
-    const keysByTagArea = East.compile(indexFunctionAt(byTagArea.keyFn, [StringType, RackRow], SetType(byTagArea.keyType)), []);
-    const keyByZoneArea = East.compile(indexFunctionAt(zonesByArea.keyFn, [StringType, ZoneRow], zonesByArea.keyType), []);
+    const keyByArea = East.compile(functionAt(byArea.keyFn, [StringType, RackRow], byArea.keyType), []);
+    const keyByHallArea = East.compile(functionAt(byHallArea.keyFn, [StringType, RackRow], byHallArea.keyType), []);
+    const keysByTagArea = East.compile(functionAt(byTagArea.keyFn, [StringType, RackRow], SetType(byTagArea.keyType)), []);
+    const keyByZoneArea = East.compile(functionAt(zonesByArea.keyFn, [StringType, ZoneRow], zonesByArea.keyType), []);
     const decode = decodeBeast2For(RackRow);
     const encode = encodeBeast2For(RackRow);
     const placed = decode(encode(rack(12.34, -5.6)));

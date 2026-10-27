@@ -64,8 +64,8 @@ export function checkPure(subject: string, fn: { toIR(): unknown }, why: { async
 export const RESERVED_INDEX_NAME = 'primary';
 
 /**
- * What an index declaration needs of a function: a way to reach its IR, and
- * through that its signature.
+ * What a declaration — an index, a mutation, a migration — needs of a
+ * function: a way to reach its IR, and through that its signature.
  *
  * @remarks
  * Deliberately the weakest shape that works, because a stronger one silently
@@ -88,7 +88,8 @@ export interface IndexFunction {
 export type IndexConstructor = 'e3.recordIndex' | 'e3.recordIndex.interval' | 'e3.recordIndex.area' | 'e3.recordIndex.series' | 'e3.recordIndex.summary';
 
 /**
- * The signature of a function an index declares, as the guards see it.
+ * The signature of a function a declaration gives — an index's, a mutation's,
+ * a migration's — as the guards see it.
  *
  * @param fn - The function
  * @returns Its parameter types and its output type
@@ -96,14 +97,15 @@ export type IndexConstructor = 'e3.recordIndex' | 'e3.recordIndex.interval' | 'e
  */
 export function signatureOf(fn: IndexFunction): { inputs: readonly EastType[]; output: EastType } {
   const type = fn instanceof Expr ? Expr.type(fn) : undefined;
-  if (type?.type !== 'Function') throw new Error('an index function is an East function');
+  if (type?.type !== 'Function') throw new Error('a declaration\'s function is an East function');
   return { inputs: type.inputs, output: type.output };
 }
 
 /**
- * An index's function as an East function of the signature its caller reads it
- * at — a definition keeps it as an expression ({@link IndexFunction}) —
- * checked to be exactly that.
+ * A declaration's function — an index's key, projection or merge, a migration's
+ * step, a mutation's body — as an East function of the signature its caller
+ * reads it at, checked to be exactly that. A definition keeps it as an
+ * expression ({@link IndexFunction}), whose signature only the run time knows.
  *
  * @param fn - The function
  * @param inputs - Its parameter types
@@ -111,11 +113,11 @@ export function signatureOf(fn: IndexFunction): { inputs: readonly EastType[]; o
  * @returns It, at that signature
  * @throws {Error} When it is not an East function, or not of that signature
  */
-export function indexFunctionAt<I extends EastType[], O extends EastType>(fn: IndexFunction, inputs: [...I], output: O): FunctionExpr<I, O> {
-  if (!(fn instanceof FunctionExpr)) throw new Error('an index function is an East function');
+export function functionAt<I extends EastType[], O extends EastType>(fn: IndexFunction, inputs: [...I], output: O): FunctionExpr<I, O> {
+  if (!(fn instanceof FunctionExpr)) throw new Error('a declaration\'s function is an East function');
   const declared = FunctionType(inputs, output);
   if (!sameEastType(Expr.type(fn), declared)) {
-    throw new Error(`an index function of type ${printType(Expr.type(fn))} is read as ${printType(declared)}`);
+    throw new Error(`a function of type ${printType(Expr.type(fn))} is read as ${printType(declared)}`);
   }
   // Checked above: it was built at the signature asked for.
   return fn as FunctionExpr<I, O>;
