@@ -562,6 +562,16 @@ function opsTable(ops: SortedMap<unknown, variant<string, unknown>>): string[] {
   return words.sort();
 }
 
+/** The ops of a write as {@link opsTable} gives them, each led by its row's key as East prints it. */
+function rowOpsTable(ops: SortedMap<unknown, variant<string, unknown>>): string[] {
+  const words: string[] = [];
+  for (const [key, op] of ops) {
+    const entry = key as { ik: { run: variant<string, unknown>; level: variant<string, unknown> }; k: string };
+    words.push(`${printFor(StringType)(entry.k)} ${op.type} ${entry.ik.run.type} ${entry.ik.level.type}`);
+  }
+  return words.sort();
+}
+
 describe('e3.recordIndex.series, nested — through a write and a rebuild', () => {
   const OCT_2 = '2026-10-02T06:00:00.000';
   const OCT_2_NIGHT = '2026-10-02T14:00:00.000';
@@ -600,6 +610,34 @@ describe('e3.recordIndex.series, nested — through a write and a rebuild', () =
       ['delete items week', 'insert items quarter', 'insert totals month', 'update totals month']);
   });
 
+  it('a job moved from M-7 to M-9: M-7\'s entries deleted and its total updated, M-9\'s inserted', () => {
+    const rec = machines();
+    const index = machinesInTime(rec);
+    const other = { 'j-2': job('2026-10-12T06:00:00.000', '2026-10-14T06:00:00.000') };
+    const before = state(Machines, { 'M-7': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT), ...other }), 'M-9': machine({}) });
+    const after = state(Machines, { 'M-7': machine(other), 'M-9': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT) }) });
+    assert.deepEqual(rowOpsTable(maintainedIsRebuilt(rec, index, before, after, 'moved to another machine')),
+      ['"M-7" delete items week', '"M-7" update totals month', '"M-9" insert items week', '"M-9" insert totals month']);
+  });
+
+  it('a day\'s load changed: its entry and its month\'s total updated', () => {
+    const rec = machines();
+    const index = machinesInTime(rec);
+    const jobs = { 'j-1': job(OCT_2, OCT_2_NIGHT) };
+    const before = state(Machines, { 'M-7': machine(jobs, { '2026-10-05T00:00:00.000': 0.82, '2026-10-06T00:00:00.000': 0.5 }) });
+    const after = state(Machines, { 'M-7': machine(jobs, { '2026-10-05T00:00:00.000': 0.9, '2026-10-06T00:00:00.000': 0.5 }) });
+    assert.deepEqual(opsTable(maintainedIsRebuilt(rec, index, before, after, 'a load changed')), ['update items week', 'update totals month']);
+  });
+
+  it('a machine deleted: every entry of its deleted', () => {
+    const rec = machines();
+    const index = machinesInTime(rec);
+    const kept = machine({ 'j-5': job('2026-09-01T00:00:00.000', '2026-09-30T00:00:00.000') });
+    const before = state(Machines, { 'M-7': machine({ 'j-1': job(OCT_2, OCT_2_NIGHT) }, { '2026-10-05T00:00:00.000': 0.82 }), 'M-8': kept });
+    const ops = maintainedIsRebuilt(rec, index, before, state(Machines, { 'M-8': kept }), 'a machine deleted');
+    assert.deepEqual(rowOpsTable(ops), ['"M-7" delete items week', '"M-7" delete items week', '"M-7" delete totals month', '"M-7" delete totals month']);
+  });
+
   it('a job moved to another machine, one inserted and one deleted, a day\'s load changed, a machine replaced and one deleted', () => {
     const rec = machines();
     const index = machinesInTime(rec);
@@ -634,6 +672,29 @@ describe('e3.recordIndex.series, nested — through a write and a rebuild', () =
     assert.deepEqual(opsTable(ops), ['update items day', 'update subtotals day', 'update subtotals month', 'update subtotals quarter',
       'update subtotals week', 'update subtotals year', 'update totals month']);
     maintainedIsRebuilt(rec, index, changed, moved, 'a member added and one removed');
+  });
+
+  it('a member added to a hall: its load\'s entries inserted under it, and the hall\'s subtotals where its load touches', () => {
+    const rec = halls();
+    const index = hallsInTime(rec);
+    const members = '"m-3":(name="Ada", load={2026-10-05T00:00:00.000:0.7}), "m-4":(name="Bo", load={2026-10-05T00:00:00.000:0.6})';
+    const before = state(Halls, { H1: `(name="Hall 1", site="North", members={${members}})` });
+    const after = state(Halls, { H1: `(name="Hall 1", site="North", members={${members}, "m-9":(name="Cy", load={2026-11-05T00:00:00.000:0.2})})` });
+    assert.deepEqual(opsTable(maintainedIsRebuilt(rec, index, before, after, 'a member added')), ['insert items day', 'insert subtotals day',
+      'insert subtotals month', 'insert subtotals week', 'insert totals month', 'update subtotals quarter', 'update subtotals year']);
+  });
+
+  it('a part\'s job moved, rolled up: its entries under it, and under its ancestors in the subtree run, moved; the months it left and joined totalled', () => {
+    const rec = assemblies();
+    const index = assembliesInTime(rec);
+    const assembly = (start: string, end: string) =>
+      `(name="Assembly 1", parts={"p1":(name="p1", jobs={:}, parts={"p1.2":(name="p1.2", jobs={"j-9":${job(start, end)}}, parts={:})})})`;
+    const before = state(Assemblies, { 'A-1': assembly(OCT_2, OCT_2_NIGHT) });
+    const after = state(Assemblies, { 'A-1': assembly('2026-11-03T06:00:00.000', '2026-11-03T14:00:00.000') });
+    assert.deepEqual(opsTable(maintainedIsRebuilt(rec, index, before, after, 'a part\'s job moved')), [
+      'delete items week', 'delete subtree week', 'delete subtree week', 'delete subtreeTotals month', 'delete subtreeTotals month', 'delete totals month',
+      'insert items week', 'insert subtree week', 'insert subtree week', 'insert subtreeTotals month', 'insert subtreeTotals month', 'insert totals month',
+    ]);
   });
 
   it('a part\'s job moved, rolled up, and a part added and one removed: under every ancestor too', () => {
