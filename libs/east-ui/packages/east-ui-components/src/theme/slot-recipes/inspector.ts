@@ -12,7 +12,8 @@
  * its marks — the view's home, where the keyboard lands as the control it was
  * on goes with the view (#1398), its ring the inset focus ring; a draft's
  * chip; a section's head; the fields; the gestures; the summary of several;
- * the counts and the hints of nothing selected; an empty state; and the
+ * the counts and the hints of nothing selected; an empty state, a view's home
+ * where the view has no head; and the
  * region around a view that keeps the keyboard, no box of its own. Each
  * recipe spreads them under its own slots, beside its own parts.
  *
@@ -117,6 +118,8 @@ export const inspectorBase = {
         paddingLeft: "calc({spacing.4} + 14px)",
     },
     hint: { textStyle: "body.sm", color: "fg.muted", textWrap: "pretty" },
+    /* An empty state — the view's home where it has no head (the Calendar's Nothing selected, #1398), focused by script and
+     * ringed inside its box. */
     empty: {
         flex: 1,
         display: "flex",
@@ -126,6 +129,7 @@ export const inspectorBase = {
         gap: "{spacing.2}",
         padding: "{spacing.6}",
         textAlign: "center",
+        _focusVisible: { outline: "none", boxShadow: "{shadows.focusInset}" },
     },
     emptyTitle: { textStyle: "caption.eyebrow" },
     emptyHint: { textStyle: "body.sm", maxWidth: "220px", color: "fg.muted", textWrap: "pretty" },

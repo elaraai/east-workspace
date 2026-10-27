@@ -6,6 +6,10 @@
 /**
  * Optional Calendar inspector: shared fields over the same Schedule drafts. An event's overlaps are the ones the toolbar
  * counts: on the timeline, those in the days it shows (#1398).
+ *
+ * It keeps the keyboard (#1398): a control that goes with the view it was pressed in — Delete, Return to backlog,
+ * Duplicate, an overlapping event's link, Remove from selection, Delete selected — leaves the focus on the heading of the
+ * view drawn in its place, Nothing selected's included (`../shared/focus-home.ts`), never on the page's body.
  */
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
@@ -13,6 +17,7 @@ import { BlobType, decodeBeast2For, equalFor, fromEastTypeValue, isValueOf, none
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
 import { Schedule } from "@elaraai/e3-ui/internal";
 import { BannerView, EastChakraComponent, FieldForm, useFormatters, useTrackedEvaluation, type BuilderFrameDock, type TrackedResult } from "@elaraai/east-ui-components";
+import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleHeldRows } from "../shared/schedule/editing.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
@@ -108,13 +113,19 @@ export function useCalendarInspector(args: InspectorArgs & { selection: Calendar
     if (!value.inspector) return undefined;
     const events = result.ok ? result.value : [];
     return { label: "Inspector", icon: "sliders", badge: String(refs.length), size: "320px", persist: "local", detail: events.length === 1 ? events[0]!.item.title : undefined, active: refs.length > 0,
-        body: <Box css={styles.root} data-calendar-inspector="">
-            {!result.ok && <Box role="alert" css={args.styles.error}>The selected event could not be read.</Box>}
-            {events.length === 0 && <Box css={styles.empty}><Box css={styles.emptyTitle}>{refs.length > 0 ? "Reading selection…" : "Nothing selected"}</Box><Box css={styles.emptyHint}>Select an event to inspect its schedule and fields.</Box></Box>}
-            {events.length === 1 && <OneEvent key={eventKey(events[0]!.item)} {...args} styles={styles} event={events[0]!} />}
-            {events.length > 1 && <ManyEvents {...args} styles={styles} events={events} />}
-        </Box>,
+        body: <InspectorBody args={args} styles={styles} events={events} />,
     };
+}
+/** The pane's body: what is selected, in a region that keeps the keyboard as a control goes with its view — see the module docs. */
+function InspectorBody({ args, styles, events }: { args: InspectorArgs & { selection: CalendarSelection }; styles: CalendarStyles; events: Inspected[] }) {
+    const { refs, selection: result } = args;
+    const home = useFocusHome();
+    return <Box ref={home.ref} css={styles.root} onFocus={home.onFocus} onBlur={home.onBlur} data-calendar-inspector="">
+        {!result.ok && <Box role="alert" css={args.styles.error}>The selected event could not be read.</Box>}
+        {events.length === 0 && <Box css={styles.empty} {...FOCUS_HOME_PROPS}><Box css={styles.emptyTitle}>{refs.length > 0 ? "Reading selection…" : "Nothing selected"}</Box><Box css={styles.emptyHint}>Select an event to inspect its schedule and fields.</Box></Box>}
+        {events.length === 1 && <OneEvent key={eventKey(events[0]!.item)} {...args} styles={styles} event={events[0]!} />}
+        {events.length > 1 && <ManyEvents {...args} styles={styles} events={events} />}
+    </Box>;
 }
 function OneEvent({ event, value, shown, styles, commands, storageKey, range, overlaps: all, visible, select }: InspectorArgs & { event: Inspected }) {
     const { kind, item } = event;
@@ -154,7 +165,7 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
     return <>
         <ScheduleInspectorHead styles={styles} kind={kind} title={item.title}
             when={item.start.type === "some" ? `${format.weekdayDate(item.start.value)} · ${format.time(item.start.value)}–${item.end.type === "some" ? format.time(item.end.value) : ""}` : "Unscheduled"}
-            status={item.status.type === "some" ? item.status.value : undefined} pending={drafted ? commands?.editing.held(kind.key, item.key) === undefined ? "new" : "pending" : undefined} />
+            status={item.status.type === "some" ? item.status.value : undefined} pending={drafted ? commands?.editing.held(kind.key, item.key) === undefined ? "new" : "pending" : undefined} home />
         {peers.length > 0 && <Box css={styles.section} data-calendar-inspector-overlaps=""><Box css={styles.detail}>Overlaps {peers.length} event{peers.length === 1 ? "" : "s"}</Box>
             {peers.map(peer => <Button key={eventKey(peer)} size="xs" variant="ghost" onClick={() => select([{ kind: peer.kind, key: peer.key }])}>{peer.title}</Button>)}
         </Box>}
@@ -179,7 +190,7 @@ function ManyEvents({ events, commands, styles, select, value, shown }: Inspecto
     const [error, setError] = useState<string>();
     const items = events.map(event => event.item);
     return <>
-        <Box css={styles.head}><Box css={styles.summary}>{events.length} events</Box></Box>
+        <Box css={styles.head} {...FOCUS_HOME_PROPS}><Box css={styles.summary}>{events.length} events</Box></Box>
         {events.map(event => <Button key={eventKey(event.item)} size="xs" variant="ghost" onClick={() => select(events.filter(other => other !== event).map(other => ({ kind: other.item.kind, key: other.item.key })))}>{event.item.title} · Remove from selection</Button>)}
         {commands !== undefined && <Box css={styles.bulk}><Box css={styles.sectionHead}>Bulk edit</Box><BulkFields events={events} value={value} shown={shown} commands={commands} onError={setError} /></Box>}
         {commands !== undefined && <Box css={styles.actions}>

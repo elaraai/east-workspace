@@ -292,7 +292,7 @@ describe("the inspector keeps the keyboard as a control goes with its view (#139
         expect(slot(container, "end").querySelector('[data-calendar-action="unschedule"]')).toBeNull();
         expect(focused).not.toBe(document.body);
         expect([focused.hasAttribute("data-focus-home"), focused.querySelector("[data-inspector-title]")?.textContent, focused.querySelector("[data-inspector-when]")?.textContent])
-            .toEqual([true, "Mounting brackets", "Unscheduled"]);
+            .toEqual([true, "Mounting brackets · batch 42", "Unscheduled"]);
     });
     test("Delete selected takes several away: the focus lands on Nothing selected, never on the page's body", async () => {
         const { container } = await h.mount(ex.calendarOperations);
