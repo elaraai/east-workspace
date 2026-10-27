@@ -14,6 +14,11 @@ import type { PlatformFunction } from "../platform.js";
 import { loopWalk } from "../serialization/beast2/v5/lazy.js";
 import { type ArrayTypeValue, type DictTypeValue, type EastTypeValue, expandTypeValue, type SetTypeValue } from "../type_of_type.js";
 
+/** A child, compiled to run as a statement: a signal a node under it threw is given back. */
+function statement(child: AnalyzedIR, child_ctx: Record<string, EastTypeValue>, fresh_ctx: boolean, platform: Record<string, (...args: any[]) => any>, asyncPlatformFns: Set<string>, platformDef: PlatformFunction[], compilingNodes: Set<IR>): (ctx: RuntimeContext) => any {
+  return asStatement(child, compile_ir(child, child_ctx, platform, asyncPlatformFns, platformDef, fresh_ctx, compilingNodes));
+}
+
 /**
  * Compiles the errors, try/catch, branches, loops, and early exits.
  *
@@ -22,12 +27,8 @@ import { type ArrayTypeValue, type DictTypeValue, type EastTypeValue, expandType
  * control flow is never thrown here (`flow.ts`).
  */
 export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR | MatchIR | WhileIR | ForArrayIR | ForSetIR | ForDictIR | ReturnIR | ContinueIR | BreakIR>, ctx: Record<string, EastTypeValue>, platform: Record<string, (...args: any[]) => any>, asyncPlatformFns: Set<string>, platformDef: PlatformFunction[], compilingNodes: Set<IR>, source_map: SourceMap | null): (ctx: RuntimeContext) => any {
-  // A child run as a statement: a signal a node under it threw is given back.
-  const statement = (child: AnalyzedIR, child_ctx: Record<string, EastTypeValue>, fresh_ctx: boolean) =>
-    asStatement(child, compile_ir(child, child_ctx, platform, asyncPlatformFns, platformDef, fresh_ctx, compilingNodes));
-
   if (ir.type === "Error") {
-    const message_compiled = statement(ir.value.message, ctx, false);
+    const message_compiled = statement(ir.value.message, ctx, false, platform, asyncPlatformFns, platformDef, compilingNodes);
     const err_location = source_map?.resolve(ir.value.loc_id) as Location[] ?? [];
     if (escapesOf(ir.value.message) !== NO_ESCAPES) {
       // A message a control statement leaves raises nothing: the signal leaves the error too.
@@ -50,17 +51,17 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
       return (ctx: RuntimeContext) => { throw new EastError(message_compiled(ctx), { location: err_location }); };
     }
   } else if (ir.type === "TryCatch") {
-    const try_body = statement(ir.value.try_body, Object.create(ctx), true);
+    const try_body = statement(ir.value.try_body, Object.create(ctx), true, platform, asyncPlatformFns, platformDef, compilingNodes);
 
     const new_ctx = Object.create(ctx);
     const message_name = ir.value.message.value.name;
     const stack_name = ir.value.stack.value.name;
     new_ctx[message_name] = ir.value.message.value.type;
     new_ctx[stack_name] = ir.value.stack.value.type;
-    const catch_body = statement(ir.value.catch_body, new_ctx, true);
+    const catch_body = statement(ir.value.catch_body, new_ctx, true, platform, asyncPlatformFns, platformDef, compilingNodes);
 
     // Don't include finally unless necessary (Value nodes are effect free)
-    const finally_body = ir.value.finally_body.type === "Value" ? undefined : statement(ir.value.finally_body, Object.create(ctx), true);
+    const finally_body = ir.value.finally_body.type === "Value" ? undefined : statement(ir.value.finally_body, Object.create(ctx), true, platform, asyncPlatformFns, platformDef, compilingNodes);
     // A signal the finally gives leaves in place of what the try or the catch
     // gave, or threw, as a control statement thrown from the finally did.
     const finally_leaves = finally_body !== undefined && escapesOf(ir.value.finally_body) !== NO_ESCAPES;
@@ -153,11 +154,11 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
         predicateLeaves = true;
       }
       ifs.push({
-        predicate: statement(predicate, ctx, false),
-        body: statement(body, Object.create(ctx), true),
+        predicate: statement(predicate, ctx, false, platform, asyncPlatformFns, platformDef, compilingNodes),
+        body: statement(body, Object.create(ctx), true, platform, asyncPlatformFns, platformDef, compilingNodes),
       });
     }
-    const else_body = statement(ir.value.else_body, Object.create(ctx), true);
+    const else_body = statement(ir.value.else_body, Object.create(ctx), true, platform, asyncPlatformFns, platformDef, compilingNodes);
 
     if (predicateLeaves) {
       // A predicate a control statement leaves gives its signal in place of a branch's value.
@@ -215,7 +216,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
       };
     }
   } else if (ir.type === "Match") {
-    const compiled_variant = statement(ir.value.variant, ctx, false);
+    const compiled_variant = statement(ir.value.variant, ctx, false, platform, asyncPlatformFns, platformDef, compilingNodes);
     const compiled_cases: Record<string, (ctx: RuntimeContext) => any> = {};
     const data_names: Record<string, string> = {};
 
@@ -224,7 +225,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
       const data_name = variable.value.name;
       data_names[k] = data_name;
       ctx2[data_name] = variable.value.type;
-      compiled_cases[k] = statement(body, ctx2, true);
+      compiled_cases[k] = statement(body, ctx2, true, platform, asyncPlatformFns, platformDef, compilingNodes);
     }
 
     if (escapesOf(ir.value.variant) !== NO_ESCAPES) {
@@ -271,9 +272,9 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
       };
     }
   } else if (ir.type === "While") {
-    const compiled_predicate = statement(ir.value.predicate, ctx, false);
+    const compiled_predicate = statement(ir.value.predicate, ctx, false, platform, asyncPlatformFns, platformDef, compilingNodes);
     const ctx2 = Object.create(ctx);
-    const compiled_body = statement(ir.value.body, ctx2, true);
+    const compiled_body = statement(ir.value.body, ctx2, true, platform, asyncPlatformFns, platformDef, compilingNodes);
     const label = ir.value.label.name;
     // Whether the predicate can give a signal, which leaves the loop; and
     // whether the body can give one but its own `continue`, which the loop
@@ -312,13 +313,13 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
     }
   } else if (ir.type === "ForArray") {
     const value_type = (expandTypeValue(ir.value.array.value.type) as ArrayTypeValue).value;
-    const compiled_array = statement(ir.value.array, ctx, false);
+    const compiled_array = statement(ir.value.array, ctx, false, platform, asyncPlatformFns, platformDef, compilingNodes);
     const ctx2 = Object.create(ctx);
     const key_name = ir.value.key.value.name;
     const value_name = ir.value.value.value.name;
     ctx2[key_name] = variant("Integer", null);
     ctx2[value_name] = value_type;
-    const compiled_body = statement(ir.value.body, ctx2, true);
+    const compiled_body = statement(ir.value.body, ctx2, true, platform, asyncPlatformFns, platformDef, compilingNodes);
     const label = ir.value.label.name;
     const loc_id = ir.value.loc_id;
     // As a While's: whether the array can give a signal, and whether the loop must act on what its body gives.
@@ -374,11 +375,11 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
     }
   } else if (ir.type === "ForSet") {
     const key_type = (expandTypeValue(ir.value.set.value.type) as SetTypeValue).value;
-    const compiled_set = statement(ir.value.set, ctx, false);
+    const compiled_set = statement(ir.value.set, ctx, false, platform, asyncPlatformFns, platformDef, compilingNodes);
     const ctx2 = Object.create(ctx);
     const key_name = ir.value.key.value.name;
     ctx2[key_name] = key_type;
-    const compiled_body = statement(ir.value.body, ctx2, true);
+    const compiled_body = statement(ir.value.body, ctx2, true, platform, asyncPlatformFns, platformDef, compilingNodes);
     const label = ir.value.label.name;
     const loc_id = ir.value.loc_id;
     // As a While's: whether the set can give a signal, and whether the loop must act on what its body gives.
@@ -433,13 +434,13 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
   } else if (ir.type === "ForDict") {
     const key_type = (expandTypeValue(ir.value.dict.value.type) as DictTypeValue).value.key;
     const value_type = (expandTypeValue(ir.value.dict.value.type) as DictTypeValue).value.value;
-    const compiled_dict = statement(ir.value.dict, ctx, false);
+    const compiled_dict = statement(ir.value.dict, ctx, false, platform, asyncPlatformFns, platformDef, compilingNodes);
     const ctx2 = Object.create(ctx);
     const key_name = ir.value.key.value.name;
     const value_name = ir.value.value.value.name;
     ctx2[key_name] = key_type;
     ctx2[value_name] = value_type;
-    const compiled_body = statement(ir.value.body, ctx2, true);
+    const compiled_body = statement(ir.value.body, ctx2, true, platform, asyncPlatformFns, platformDef, compilingNodes);
     const label = ir.value.label.name;
     const loc_id = ir.value.loc_id;
     // As a While's: whether the dict can give a signal, and whether the loop must act on what its body gives.
@@ -494,7 +495,7 @@ export function compile_control(ir: AnalyzedIR<ErrorIR | TryCatchIR | IfElseIR |
       };
     }
   } else if (ir.type === "Return") {
-    const compiled_value = statement(ir.value.value, ctx, false);
+    const compiled_value = statement(ir.value.value, ctx, false, platform, asyncPlatformFns, platformDef, compilingNodes);
     // A value a control statement leaves gives its signal in place of the return's.
     const value_leaves = escapesOf(ir.value.value) !== NO_ESCAPES;
     if (ir.value.isAsync) {

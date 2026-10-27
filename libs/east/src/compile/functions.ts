@@ -14,6 +14,11 @@ import type { Location, SourceMap } from "../location.js";
 import type { PlatformFunction } from "../platform.js";
 import type { EastTypeValue } from "../type_of_type.js";
 
+/** An argument, or the function called, compiled: a signal it gives is thrown. */
+function argument(child: AnalyzedIR, ctx: Record<string, EastTypeValue>, platform: Record<string, (...args: any[]) => any>, asyncPlatformFns: Set<string>, platformDef: PlatformFunction[], compilingNodes: Set<IR>): (ctx: RuntimeContext) => any {
+  return asValue(child, compile_ir(child, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes));
+}
+
 /**
  * Compiles the function definitions, calls, and builtin and platform calls.
  *
@@ -24,10 +29,6 @@ import type { EastTypeValue } from "../type_of_type.js";
  * statement an argument leaves is thrown (`asValue`, `flow.ts`).
  */
 export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | CallIR | CallAsyncIR | BuiltinIR | PlatformIR>, ctx: Record<string, EastTypeValue>, platform: Record<string, (...args: any[]) => any>, asyncPlatformFns: Set<string>, platformDef: PlatformFunction[], compilingNodes: Set<IR>, source_map: SourceMap | null): (ctx: RuntimeContext) => any {
-  // An argument, or the function called: a signal it gives is thrown.
-  const argument = (child: AnalyzedIR) =>
-    asValue(child, compile_ir(child, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes));
-
   if (ir.type === "Function") {
     // Compile-time type context for body compilation
     const typeCtx: Record<string, EastTypeValue> = {};
@@ -170,8 +171,8 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
       return fn;
     }
   } else if (ir.type === "Call") {
-    const compiled_f = argument(ir.value.function);
-    const compiled_args = ir.value.arguments.map(argument);
+    const compiled_f = argument(ir.value.function, ctx, platform, asyncPlatformFns, platformDef, compilingNodes);
+    const compiled_args = ir.value.arguments.map(a => argument(a, ctx, platform, asyncPlatformFns, platformDef, compilingNodes));
     const loc_id = ir.value.loc_id;
 
     // A call nested too deeply is an East error at the call; the function
@@ -199,8 +200,8 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
       }
     }
   } else if (ir.type === "CallAsync") {
-    const compiled_f = argument(ir.value.function);
-    const compiled_args = ir.value.arguments.map(argument);
+    const compiled_f = argument(ir.value.function, ctx, platform, asyncPlatformFns, platformDef, compilingNodes);
+    const compiled_args = ir.value.arguments.map(a => argument(a, ctx, platform, asyncPlatformFns, platformDef, compilingNodes));
     const loc_id = ir.value.loc_id;
 
     return async (ctx: RuntimeContext) => {
@@ -221,7 +222,7 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
         argsAsync = true;
       }
 
-      return argument(a);
+      return argument(a, ctx, platform, asyncPlatformFns, platformDef, compilingNodes);
     });
 
     // Special optimization for regex builtins with literal pattern/flags
@@ -426,7 +427,7 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
         argsAsync = true;
       }
 
-      return argument(a);
+      return argument(a, ctx, platform, asyncPlatformFns, platformDef, compilingNodes);
     });
 
     // Look up platform function definition to check if generic

@@ -71,6 +71,9 @@ export const NO_ESCAPES: Escapes = Object.freeze({ returns: false, continues: Ob
  */
 let leaving: Map<IR, Escapes> | undefined;
 
+/** Whether nothing can leave any node of the IR being compiled: {@link leaving} is empty, as it is for most IR. */
+let quiet = true;
+
 /**
  * @internal Runs `compile`, the compile of `root`, knowing what can leave each
  * of its nodes.
@@ -91,13 +94,16 @@ let leaving: Map<IR, Escapes> | undefined;
  */
 export function withControlFlow<T>(root: IR, compile: () => T): T {
   const around = leaving;
+  const aroundQuiet = quiet;
   const known = new Map<IR, Escapes>();
   walk(root, known);
   leaving = known;
+  quiet = known.size === 0;
   try {
     return compile();
   } finally {
     leaving = around;
+    quiet = aroundQuiet;
   }
 }
 
@@ -111,7 +117,7 @@ export function withControlFlow<T>(root: IR, compile: () => T): T {
  */
 export function escapesOf(ir: IR): Escapes {
   if (leaving === undefined) throw new Error(`What can leave an IR node is known only while its compile runs, at loc_id ${ir.value.loc_id}`);
-  return leaving.size === 0 ? NO_ESCAPES : leaving.get(ir) ?? NO_ESCAPES;
+  return quiet ? NO_ESCAPES : leaving.get(ir) ?? NO_ESCAPES;
 }
 
 /** What can leave `ir`, from what can leave its children: each node something can leave is kept in `into`. */
