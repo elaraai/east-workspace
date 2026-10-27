@@ -452,6 +452,46 @@ for (const theme of ["light", "dark"] as const) {
 }
 
 for (const theme of ["light", "dark"] as const) {
+    test(`the Timeline's ruler sticks only the captions about where its view starts: the period it starts in keeps its caption beside the resource column, every other caption stands where its column starts — at every period, wherever it scrolls (#1398, CL9) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
+        const frame = entry.locator('[data-calendar-frame]').first();
+        await viewChoice(page, frame, 'Timeline');
+        const timeline = frame.locator('[data-calendar-timeline]');
+        for (const period of ['Day', 'Week', 'Month']) {
+            await viewChoice(page, frame, period);
+            for (const by of [0, 127, 2000, -700]) {
+                await timeline.evaluate((el, px) => { el.scrollLeft += px; }, by); await settled(page);
+                // A sticky caption is a layer of the compositor's own: a band holds three at most — the caption of the period
+                // the view starts in and its neighbours — and that one stands where a sticky caption stands, 4px past the
+                // resource column, or as far along its column as the column's end lets it.
+                const faults = await timeline.evaluate((el) => {
+                    const edge = el.querySelector('[data-calendar-header-caption]')!.getBoundingClientRect().right;
+                    return [...el.querySelectorAll<HTMLElement>('[data-calendar-ruler]')].flatMap((band) => {
+                        const name = band.getAttribute('data-calendar-ruler');
+                        const labels = [...band.querySelectorAll<HTMLElement>('[data-calendar-ruler-label]')];
+                        const sticky = labels.filter((label) => getComputedStyle(label).position === 'sticky');
+                        const out: string[] = sticky.length > 3 ? [`${name}: ${sticky.length} of its ${labels.length} captions sticky`] : [];
+                        const at = labels.find((label) => {
+                            const column = label.parentElement!.getBoundingClientRect();
+                            return column.left < edge && column.right > edge;
+                        });
+                        if (at === undefined) return out;
+                        const column = at.parentElement!.getBoundingClientRect(), box = at.getBoundingClientRect();
+                        if (!sticky.includes(at)) out.push(`${name}: the caption the view starts in, ${at.textContent}, is not sticky`);
+                        else if (box.left < edge + 4 - 0.5 && Math.abs(box.right - (column.right - 4)) > 0.5) {
+                            out.push(`${name}: ${at.textContent} stands at ${Math.round(box.left - edge)}px from the resource column`);
+                        }
+                        return out;
+                    });
+                });
+                expect(faults, `${period}, scrolled ${by}px`).toEqual([]);
+            }
+        }
+    });
+}
+
+for (const theme of ["light", "dark"] as const) {
     test(`what scrolls under a sticky part passes under it: the today line under the Day's and the Week's head scrolled down and under the hour column scrolled sideways, its dot wholly inside today's column; under the Timeline's resource column scrolled right; a dragged chip under the Month's weekdays (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
