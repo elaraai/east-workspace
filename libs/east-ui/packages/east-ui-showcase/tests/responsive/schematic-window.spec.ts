@@ -32,8 +32,10 @@
  * nothing past the racks, and each rack's dot in its load's status token, in
  * both themes (#1395); and with a hall chosen on the rail, fitted, its 2,000
  * racks drawn as dots packed a metre or two apart paint their status colours,
- * the dots' paper never a block over them, and the hall's eyebrow stands over
- * them, its words on their knockout (ruled 26 Oct 2026, "Legible dots").
+ * the dots' paper never a block over them, overlapping by severity — each hot
+ * rack's centre the danger colour, over every neighbour's — and the hall's
+ * eyebrow stands over them, its words on their knockout (ruled 26 Oct 2026,
+ * "Legible dots").
  *
  * Every wait is a poll on the page's state, never a fixed pause; nothing reads
  * a screenshot.
@@ -98,21 +100,45 @@ function racksIn(box: WorldBox): number {
 }
 
 /**
- * A pixel of the canvas's own paint at a world point, read through its 2D context — sRGBA channels as the page painted
- * them, never a screenshot.
+ * The centres of a hall's hot racks, placed as {@link racksIn} places them and loaded as the example's generator loads
+ * them: 37 × i mod 120 tenths of a kW, hot past 10.8.
+ *
+ * @param hall - The hall, from 0: Hall 2 is 1
+ * @returns Each hot rack's centre, in world units
  */
-function painted(root: Locator, x: number, y: number): Promise<number[]> {
-    return root.evaluate((el, [wx, wy]) => {
+function hotRacks(hall: number): { x: number; y: number }[] {
+    const centres: { x: number; y: number }[] = [];
+    for (let i = 0; i < 20_000; i++) {
+        if (Math.floor(i / 100) % 10 !== hall || (i * 37) % 120 <= 108) continue;
+        centres.push({ x: (hall % 5) * 76 + (i % 100) * 0.7 + 3.3, y: Math.floor(hall / 5) * 126 + Math.floor(i / 1000) * 2.4 + 3.6 });
+    }
+    return centres;
+}
+
+/**
+ * The pixels of the canvas's own paint at world points, read through its 2D context in one pass — sRGBA channels as the
+ * page painted them, never a screenshot.
+ */
+function paintedAt(root: Locator, points: readonly { readonly x: number; readonly y: number }[]): Promise<number[][]> {
+    return root.evaluate((el, at) => {
         const host = el.querySelector<HTMLElement>("[data-schematic-canvas]")!;
         const paint = host.querySelector<HTMLCanvasElement>(":scope > canvas")!;
         const layer = host.querySelector<HTMLElement>("[style*='--cam-ppu']")!;
-        const box = layer.getBoundingClientRect(), at = paint.getBoundingClientRect();
+        const box = layer.getBoundingClientRect(), on = paint.getBoundingClientRect();
         const ppu = Number(layer.style.getPropertyValue("--cam-ppu"));
-        const cx = box.left + parseFloat(layer.style.getPropertyValue("--cam-tx")) + wx * ppu;
-        const cy = box.top + parseFloat(layer.style.getPropertyValue("--cam-ty")) + wy * ppu;
-        const px = Math.floor(((cx - at.left) * paint.width) / at.width), py = Math.floor(((cy - at.top) * paint.height) / at.height);
-        return [...paint.getContext("2d")!.getImageData(px, py, 1, 1).data];
-    }, [x, y] as const);
+        const tx = parseFloat(layer.style.getPropertyValue("--cam-tx")), ty = parseFloat(layer.style.getPropertyValue("--cam-ty"));
+        const ctx = paint.getContext("2d")!;
+        return at.map(({ x, y }) => {
+            const px = Math.floor(((box.left + tx + x * ppu - on.left) * paint.width) / on.width);
+            const py = Math.floor(((box.top + ty + y * ppu - on.top) * paint.height) / on.height);
+            return [...ctx.getImageData(px, py, 1, 1).data];
+        });
+    }, points);
+}
+
+/** A pixel of the canvas's own paint at a world point, as {@link paintedAt} reads it. */
+async function painted(root: Locator, x: number, y: number): Promise<number[]> {
+    return (await paintedAt(root, [{ x, y }]))[0]!;
 }
 
 /** A theme colour token as the page resolves it, as sRGBA channels: painted on a one-pixel canvas and read back, as the canvas's probe reads its palette. */
@@ -417,7 +443,7 @@ test.describe("What the canvas paints, read through its 2D context (#1395)", () 
             expect(await painted(root, 7.5, 3.6), "R100006's dot, warm").toEqual(await token(root, "--chakra-colors-status-warn"));
         });
 
-        test(`a hall chosen on the rail, fitted — 2,000 of the 20,000 racks, each a dot, packed a metre or two apart — paints its racks' status colours, the dots' paper never a block over them, and the hall's eyebrow over them, its words on their knockout (ruled 26 Oct 2026, "Legible dots", ${theme})`, async ({ page }) => {
+        test(`a hall chosen on the rail, fitted — 2,000 of the 20,000 racks, each a dot, packed a metre or two apart — paints its racks' status colours, the dots' paper never a block over them and a hot rack's dot over every neighbour's, and the hall's eyebrow over them, its words on their knockout (ruled 26 Oct 2026, "Legible dots", ${theme})`, async ({ page }) => {
             await page.setViewportSize({ width: 1440, height: 900 });
             const root = await openSchematic(page, RECORD_INDEXES, theme);
             const hall = await recordField(page, root, "hall", "racks");
@@ -439,6 +465,13 @@ test.describe("What the canvas paints, read through its 2D context (#1395)", () 
             expect(racks.length, "Hall 2's racks' pixels").toBeGreaterThan(5_000);
             expect(share((pixel) => same(pixel, paper!)), "the share in the dots' paper").toBeLessThan(0.05);
             expect(share((pixel) => [ok!, warm!, hot!].some((colour) => same(pixel, colour))), "the share in the racks' status colours").toBeGreaterThan(0.75);
+            // Packed so, they overlap by severity, never by the order the racks are read in: a hot rack's dot over every
+            // neighbour's, so each hot rack's centre is the danger colour — behind the front row, which the hall's eyebrow
+            // stands over in part.
+            const hotCentres = await paintedAt(root, hotRacks(1).filter((rack) => rack.y > 4.0));
+            const hidden = hotCentres.filter((pixel) => !same(pixel, hot!));
+            expect(hotCentres.length, "Hall 2's hot racks behind its front row").toBeGreaterThan(150);
+            expect(hidden.length, `hot racks whose centre shows another colour: ${JSON.stringify(hidden.slice(0, 4))}`).toBe(0);
             // Hall 2's eyebrow, over the racks of its front rows: inside its knockout, from just in from its top-left, its
             // ground and its words' ink alone — and the blends between them — never a dot's paper or a dot's colour.
             const eyebrow = await paintedOver(root, { point: { x: 78.0, y: 2.0 }, px: { left: 7, top: -6, right: 33, bottom: 4 } });
