@@ -521,6 +521,20 @@ export function setEventBlockRenderProbe(fn: ((id: string) => void) | undefined)
     eventBlockRenderProbe = fn;
 }
 
+/**
+ * Test-only probe — lets "a block is measured as the browser hands its box over, never in the commit that mounts it" be
+ * asserted as the measures of the events' blocks' fits (#1398, CL9). `undefined` outside tests.
+ */
+let fitMeasureProbe: ((id: string) => void) | undefined;
+/**
+ * Install (or clear) the fit measure probe. Test use only.
+ *
+ * @param fn - Called with an event's key each time its block's fit is measured; `undefined` clears it
+ */
+export function setFitMeasureProbe(fn: ((id: string) => void) | undefined): void {
+    fitMeasureProbe = fn;
+}
+
 /** Each event's element key, printed once an event (#1398, CL9): what its block, its row's plot and its facts name it by. */
 const printedKeys = new WeakMap<CalendarItem, string>();
 /**
@@ -725,6 +739,7 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
     useLayoutEffect(() => {
         const element = block.current; if (element === null) return;
         const measure = () => {
+            fitMeasureProbe?.(id);
             const width = element.clientWidth - 12, height = element.clientHeight;
             // A bar laid out says what the measure takes off its box, for the guesses of the bars after it.
             if (bar && element.offsetWidth > 0) chromeOf.set(styles, { width: element.offsetWidth - width, height: element.offsetHeight - height });
@@ -734,7 +749,7 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
             setFits(before => sameFits(before, next) ? before : next);
         };
         measure(); const observer = new ResizeObserver(measure); observer.observe(element); return () => observer.disconnect();
-    }, [item.title, timeText, resourceText, along, chip, bar, styles]);
+    }, [id, item.title, timeText, resourceText, along, chip, bar, styles]);
     // The event a pick asks to be shown (#1398): drawn — as a timeline brings it into its view — it tells the frame.
     const { revealing, onRevealed } = facts;
     useLayoutEffect(() => { if (revealing && block.current !== null) onRevealed?.(block.current); }, [revealing, onRevealed]);

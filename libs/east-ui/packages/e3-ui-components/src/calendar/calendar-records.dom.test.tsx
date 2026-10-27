@@ -36,7 +36,7 @@ import type { E3Request } from "../e3-web.test-utils.js";
 import { setOverlapsProbe } from "../shared/schedule/overlaps.js";
 import { DAY, eventKey, parseEventKey } from "./model.js";
 import { TIMELINE_GUTTER, timelineDays, timelinePixels } from "./timeline.js";
-import { setBookedProbe, setEventBlockRenderProbe } from "./views.js";
+import { setBookedProbe, setEventBlockRenderProbe, setFitMeasureProbe } from "./views.js";
 import "./index.js";
 
 const h = e3Harness({ "calendar/calendar-records": ex }, { main: "data-calendar-main" });
@@ -574,6 +574,27 @@ describe("the timeline draws only what moves (#1398, CL9)", () => {
             expect([...asked.values()].filter(times => times > 1)).toEqual([]);
         } finally {
             css.mockRestore();
+        }
+    });
+
+    test("a move of the span it mounts measures the blocks it brings in as the browser hands their boxes over, each once — none in the commit that mounts it, which so forces no layout of its own", async () => {
+        const { timeline } = await openTimeline("month", "fit-in-delivery");
+        const measured: string[] = [];
+        setFitMeasureProbe(id => { measured.push(id); });
+        try {
+            const kept = drawnOf(timeline);
+            await scrollTo(timeline, timeline.scrollLeft + 400);
+            const brought = [...drawnOf(timeline)].filter(id => !kept.has(id));
+            expect(brought.length).toBeGreaterThan(0);
+            // The commit that mounts them, and anything before the browser hands their boxes over, measures none.
+            expect(measured.filter(id => brought.includes(id))).toEqual([]);
+            // Their boxes handed over, as the browser hands them over once it has laid the frame out: each measured once.
+            await width(VIEW);
+            const times = new Map<string, number>();
+            for (const id of measured) times.set(id, (times.get(id) ?? 0) + 1);
+            expect(brought.filter(id => times.get(id) !== 1)).toEqual([]);
+        } finally {
+            setFitMeasureProbe(undefined);
         }
     });
 
