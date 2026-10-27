@@ -344,9 +344,10 @@ kept under the canvas's storage key as its folds are
 axis still allows it (`restoredWindow`), else the axis's stated window. A
 record's resolution
 only re-buckets, and the brush commits once a gesture, with no histogram. The
-Plan reads its event kinds' rows, counts and backlog and the selected events in
-components of their own (`PlanEventsReader`, `PlanKindsReader`,
-`PlanSelectionReader`). An event kind placed on a paged resource kind, whose
+Plan reads its event kinds' rows, counts and backlog, the selected events and
+what its eye's request waits on in components of their own
+(`PlanEventsReader`, `PlanKindsReader`, `PlanSelectionReader`,
+`PlanOptimiseReader`). An event kind placed on a paged resource kind, whose
 source lists a series and a summary index (#1039) — the only form the Plan
 takes there — is read a cell at a time by the shared schedule reader
 (`shared/schedule/cells.ts`' `useScheduleCells`, which holds no Plan type, so
@@ -758,11 +759,14 @@ running at mount. A builder's test presses each such control and asserts where
 the focus lands, never the page's body.
 
 The Plan's Elara eye waits, disabled, for what a run's request carries — every
-event kind's events in the window, its backlog and each event's row, read where
-the canvas hears each land (`optimise.ts`' `planOptimiseReady`, in a tracked
-read) — and stays disabled over a window no request carries whole: a kind past
-the cap over it, or one read by its cells, whose events no run was shown
-(#1409, R24).
+event kind's events in the window, its backlog and each event's row — read in a
+component of its own (`optimise.ts`' `PlanOptimiseReader`, a tracked read of
+`planOptimiseReady`), which hears each land and hands the canvas whether the
+request can be made only as that moves: over a kind read a window at a time,
+each search and each event's row read by its key landing re-runs that reader
+alone, never the canvas (#1343) — and stays disabled over a window no request
+carries whole: a kind past the cap over it, or one read by its cells, whose
+events no run was shown (#1409, R24).
 
 BuilderFrame collapsing its panes does not supply the main area's mobile UX.
 Define narrow content using the available **main-panel width**, as Plan does;

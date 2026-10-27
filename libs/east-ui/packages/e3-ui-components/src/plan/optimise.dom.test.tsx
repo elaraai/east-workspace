@@ -14,18 +14,25 @@
  * `in backlog` flashing — and one Undo reverts it all, Redo replays the
  * landing without the banner, Save commits it with everything else (R9, R11).
  * Stop ignores a late answer (R3); nothing to change and a failed call say so
- * (R10).
+ * (R10). What a run's request waits on is read in a component of its own
+ * (#1343): over jobs read a window at a time, each of its reads landing — the
+ * plan window's jobs, each job's row by its key — re-runs that reader alone,
+ * never the canvas or the frame, which draw again as the eye can be used.
  */
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { none, some, variant } from "@elaraai/east";
+import { DateTimeType, East, OptionType, none, printFor, some, variant } from "@elaraai/east";
+import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
+import { Data, Func, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as events from "@elaraai/e3-ui/examples/plan/plan-events";
 import * as opt from "@elaraai/e3-ui/examples/plan/optimise";
 import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import type { E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
-import "./index.js";
+import { setPlanFrameRenderProbe } from "./frame/index.js";
+import { setPlanRootRenderProbe } from "./index.js";
 
 const h = e3Harness({ "plan/plan-events": events, "plan/optimise": opt }, { main: "data-plan-body" });
 const calls = fitCalls(h, { request: opt.PlanOptimiseRequest, result: opt.PlanOptimiseResult });
@@ -210,5 +217,91 @@ describe("the eye in the Plan", () => {
         expect(eye(container)!.disabled).toBe(true);
         await press(eye(container));
         expect(calls.requests()).toEqual([]);
+    });
+});
+
+/** The print works' jobs' record, as a request names it. */
+const JOBS = `records.${events.planPrintJobs.name}`;
+const maybeTime = printFor(OptionType(DateTimeType));
+
+/**
+ * The print works' jobs on its presses, read a window at a time through their source's interval index (#1344) — the
+ * window's jobs and the backlog through it, a job by its key through the record's own entries — and the print works'
+ * optimiser beside them: what a run's request waits on lands in many settles.
+ */
+const windowed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const presses = $.const(Record.bind(events.planPrintPresses, []));
+    const jobs = $.const(Record.bind(events.planPrintJobs, [events.planPrintJobsPatch]));
+    const jobEntries = $.const(Data.bindPaged(events.planPrintJobs));
+    const slice = $.const(Slice.bindRecords("optimise.windowed", {
+        job: { source: Data.bindPaged(events.planPrintJobs, { indexes: [events.planPrintJobsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
+    }));
+    const optimise = $.const(Func.bind(opt.placeJobs));
+    return Plan({
+        axis: Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") }, resolution: "day", now: new Date("2026-10-14T09:00:00Z") }),
+        slice: { slice }, optimise,
+        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+        events: {
+            job: Schedule.events(jobs, {
+                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "presses" }, state: "state",
+                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+                entries: jobEntries,
+            }),
+        },
+        library: [Plan.library.backlog()],
+    });
+}))) };
+
+/** The jobs' window from a day: one batch of some fifty-five key searches through their interval index (#1351), the first from that day. */
+const windowFrom = (day: Date) => (request: E3Request): boolean => {
+    if (request.kind !== "find" || request.dataset !== JOBS || request.query.get("index") !== events.planPrintJobsByTime.name || request.searches.length <= 50) return false;
+    const first = request.searches[0];
+    return first !== undefined && "from" in first && first.from?.at(-1) === maybeTime(some(day));
+};
+/** A job's row, read by its key. */
+const jobByKey = (request: E3Request): boolean => request.kind === "find" && request.dataset === JOBS && request.query.get("index") === null
+    && request.searches.some((search) => "key" in search);
+
+describe("what the eye waits on, read in a component of its own (#1343)", () => {
+    test("R24 — over jobs read a window at a time, what a run's request waits on lands in many settles — the plan window's jobs, then each job's row by its key — and each re-runs the eye's reader alone, never the canvas or the frame; the canvas draws again as the eye can be used", async () => {
+        const { container } = await h.mount(windowed);
+        await waitFor(() => expect(eye(container)!.disabled).toBe(false), { timeout: 10_000 });
+        // The next day's reads: the rows' window over the range the canvas reads — the plan window and a day either
+        // side — held until the end; the eye's over the plan window, and each job's row by its key, let land in turn.
+        const rowsWindow = h.e3.hold(windowFrom(new Date("2026-10-04T00:00:00Z")));
+        const eyeWindow = h.e3.hold(windowFrom(new Date("2026-10-06T00:00:00Z")));
+        const byKey = h.e3.hold(jobByKey);
+        let canvas = 0;
+        let frame = 0;
+        setPlanRootRenderProbe(() => { canvas += 1; });
+        setPlanFrameRenderProbe(() => { frame += 1; });
+        try {
+            await press(toolbar(container).getByRole("button", { name: "Next day" }));
+            expect([rowsWindow.held, eyeWindow.held, eye(container)!.disabled]).toEqual([1, 1, true]);
+            // The plan window's jobs land: the eye reads each one's row by its key, the rows' window still on its way.
+            canvas = 0;
+            frame = 0;
+            await act(async () => { eyeWindow.release(); });
+            await settle();
+            expect([canvas, frame, byKey.held, eye(container)!.disabled]).toEqual([0, 0, 1, true]);
+            // Each job's row landing re-runs the eye's reader alone: the eye still waits, and nothing else draws again.
+            for (let row = 1; row <= 3; row++) {
+                await act(async () => { byKey.releaseOne(); });
+                await settle();
+                expect([canvas, frame, byKey.held, eye(container)!.disabled], `job row ${row}`).toEqual([0, 0, 1, true]);
+            }
+            // The rows' window lands: every job's row is held, and the eye can be used — the canvas draws it so.
+            await act(async () => {
+                byKey.release();
+                rowsWindow.release();
+            });
+            await settle();
+            expect(eye(container)!.disabled).toBe(false);
+            expect(canvas).toBeGreaterThan(0);
+        } finally {
+            setPlanRootRenderProbe(undefined);
+            setPlanFrameRenderProbe(undefined);
+        }
     });
 });
