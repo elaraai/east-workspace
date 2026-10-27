@@ -41,7 +41,8 @@
  * The drafts it is given are the shared schedule reader's (`cells.ts`): those
  * of events a kind's narrowing does not hold left out, so a draft never brings
  * an event of another narrowing into the list. It has no search of its own, as
- * the Schematic's paged Backlog has none: the rail's choices narrow it.
+ * the Schematic's paged Backlog has none: the rail's choices narrow it (ruled
+ * 27 Oct 2026).
  *
  * Every read is a tracked read of the kinds' sources, so the list's reader runs
  * again as a page, a count or a row read by its key lands, and as a narrowing
