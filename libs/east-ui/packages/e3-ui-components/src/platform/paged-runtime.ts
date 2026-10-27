@@ -764,7 +764,30 @@ export type PagedLandingFrame = (apply: () => void) => () => void;
  * (`MAX_RETAINED_PAGES`); this is the cap for the *bound* path, where the
  * renderer holds no cache of its own and the runtime is the only holder.
  */
-const MAX_RETAINED_WINDOWS = 24;
+export const MAX_RETAINED_WINDOWS = 24;
+
+/**
+ * What a spec watches a paging runtime by (test use only), as the Calendar's
+ * frame is watched by its render probe: each landed channel a read looks at as
+ * it seeks one that answers it — a window covering the window it reads
+ * (#1217), or one holding the key it reads the row of (#1351).
+ */
+export interface PagedRuntimeProbe {
+    /** Called for each landed channel a read looks at. */
+    readonly looked?: () => void;
+}
+
+/** The probe a spec installed; `undefined` outside tests. */
+let pagedRuntimeProbe: PagedRuntimeProbe | undefined;
+
+/**
+ * Install (or clear) the probe every paging runtime is watched by. Test use only.
+ *
+ * @param probe - What watches the runtimes; `undefined` clears it
+ */
+export function setPagedRuntimeProbe(probe: PagedRuntimeProbe | undefined): void {
+    pagedRuntimeProbe = probe;
+}
 
 /**
  * Server error codes that no retry can fix while the dataset holds the same
@@ -1622,6 +1645,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         sourceType: EastTypeValue, snapshot: Snapshot, family: string, offset: number, limit: number, into: PageEntry,
     ): void {
         for (const key of snapshot.channels) {
+            pagedRuntimeProbe?.looked?.();
             const covering = this.entries.get(key);
             if (covering === undefined || covering === into || covering.status !== "loaded" || covering.window === undefined) continue;
             const from = coveringAt(covering, family, offset, limit);
@@ -2297,6 +2321,23 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         return { answers, kept, batches };
     }
 
+    /**
+     * What the runtime holds now (test use only, through a subclass, as
+     * {@link withinHeld} is): the channels it keeps, the versions it keeps of
+     * channels, the longest channel's key, and how many narrowings' membership
+     * answers a source's dataset holds at its revision — what its specs hold
+     * the runtime's bounds to.
+     *
+     * @param source - Any source of the dataset
+     * @returns What it holds
+     */
+    protected holding(source: PagedSource): { channels: number; versions: number; longestKey: number; narrowings: number } {
+        const snapshot = this.snapshots.get(pagedRevisionKey(this.resolveWorkspace(), source.path));
+        let longestKey = 0;
+        for (const key of this.entries.keys()) longestKey = Math.max(longestKey, key.length);
+        return { channels: this.entries.size, versions: this.versionsKept(), longestKey, narrowings: snapshot?.within.size ?? 0 };
+    }
+
     /** Launch a membership read of the keys not held: a request for each group
      *  of keys and of runs, a key in any group of the runs being in them. */
     private launchWithin(
@@ -2398,6 +2439,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     private rowInWindows(snapshot: Snapshot, family: string, keyType: EastTypeValue, key: unknown): PagedRow | undefined {
         const cmp = compareFor(fromEastTypeValue(keyType)) as (a: unknown, b: unknown) => number;
         for (const channelKey of snapshot.channels) {
+            pagedRuntimeProbe?.looked?.();
             const entry = this.entries.get(channelKey);
             const span = entry?.span;
             if (entry === undefined || entry.status !== "loaded" || entry.window === undefined || span === undefined || span.family !== family) continue;

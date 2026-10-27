@@ -101,6 +101,11 @@ export abstract class TrackedChannelStore<E extends ChannelEntry> {
         return this.keyVersions.get(key) ?? 0;
     }
 
+    /** How many channels' versions the store keeps: what a spec holds its bounds to, beside its channels. */
+    protected versionsKept(): number {
+        return this.keyVersions.size;
+    }
+
     /** Whether anything is subscribed to a channel. */
     protected isSubscribed(key: string): boolean {
         return this.keySubscribers.has(key);
