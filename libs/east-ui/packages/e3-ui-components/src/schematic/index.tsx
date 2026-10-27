@@ -84,7 +84,10 @@
  *   hiding what it leaves out or drawing it as context; every list — the
  *   Index, the Backlog, the Choosers, what an item is joined to — and every
  *   count shows what it leaves in, Find marks what it leaves out, and the
- *   canvas rings, frames and flies to its matches. A drafted row of a kind
+ *   canvas rings, frames and flies to its matches — `fit` keyed on the
+ *   narrowing itself, each source's choices, and a kind read by area flown to
+ *   by the box its area index finds its narrowing's rows in, never by what its
+ *   window draws (§10.3). A drafted row of a kind
  *   read by area its window doesn't hold is the narrowing's or not as the row
  *   its session began from answers, read in a component of its own
  *   (`drafts-narrowing.ts`);
@@ -120,7 +123,8 @@
 
 import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { ArrayType, StringType, compareFor, equalFor, equivalentFor, none, some, type option } from "@elaraai/east";
+import { ArrayType, StringType, compareFor, equalFor, equivalentFor, none, printFor, some, type option } from "@elaraai/east";
+import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { Schematic, schematicAreaIndexes, schematicKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
@@ -136,12 +140,13 @@ import { createViewportStore, type SchematicViewportStore } from "./area.js";
 import { backlogEntries } from "./backlog.js";
 import { SchematicBacklogPages, type BacklogAreaKind, type BacklogPageCount } from "./backlog-pages.js";
 import {
-    SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasFailure, type SchematicCanvasHandle, type SchematicCanvasNarrowing, type SchematicZoomRange,
+    SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasFailure, type SchematicCanvasFit, type SchematicCanvasHandle, type SchematicCanvasNarrowing,
+    type SchematicZoomRange,
 } from "./canvas/view.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type ItemRoles, type SchematicRef } from "./canvas/drawn.js";
 import { layerState } from "./canvas/layers.js";
 import type { SchematicStanding } from "./canvas/use-canvas-selection.js";
-import { hostZones, zoneHolding } from "./canvas/model.js";
+import { hostZones, zoneHolding, type WorldBox } from "./canvas/model.js";
 import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, areaSlots, type SchematicData, type SchematicValue } from "./data.js";
 import { SchematicAreaCountsReader, NO_AREA_COUNTS } from "./area-counts.js";
 import { draftedAreaCounts, savedRecords, schematicCounts, type SchematicDrawingCount } from "./counts.js";
@@ -178,6 +183,7 @@ const layersEqual = equalFor(ArrayType(Schematic.Types.Layer));
 const narrowedEqual = equalFor(Schematic.Types.Narrowed);
 const stringEqual = equalFor(StringType);
 const compareString = compareFor(StringType);
+const printWhere = printFor(RecordSliceWhereType);
 
 export type { SchematicValue } from "./data.js";
 
@@ -394,6 +400,41 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         [drawing, data.held, sourced, kindKeys, dim, drafted]);
     // The drawing as every list shows it — Find, the Index, the Choosers, what an item is joined to, the counts.
     const listed = useMemo(() => narrowedDrawing(drawing, narrowing.out), [drawing, narrowing.out]);
+    // What `fit` flies the camera to (§10.3): keyed on the narrowing itself — each source's choices, never on which
+    // entities match or where, which a zoom moves over a kind read by area — once what it flies to is read; a kind read by
+    // area by the box its area index finds its narrowing's rows in (#1393).
+    const sourcedParts = useMemo(() => [...sourced].flatMap((slot) => { const part = sourcePart(chrome, slot); return part === undefined ? [] : [part]; }),
+        [sourced, chrome]);
+    const sourcedVersion = useSlicesReactivity(sourcedParts.map((part) => part.key));
+    const fitKey = useMemo(() => {
+        if (!look.fit) return undefined;
+        const wheres = sourcedParts.map((part) => part.read().where);
+        if (wheres.every((where) => where.size === 0)) return undefined;
+        return sourcedParts.map((part, i) => `${part.key}\u0000${printWhere(wheres[i]!)}`).join("\u0001");
+        // `sourcedVersion` moves with each source's choices.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [look.fit, sourcedParts, sourcedVersion]);
+    // Each kind read by area its narrowing narrows: its box, once read under the narrowing it holds now — one read under the
+    // last waits, as the reader's report follows a choice a render behind.
+    const fitAreas = useMemo((): { readonly box: WorldBox | undefined; readonly read: boolean } => {
+        if (fitKey === undefined) return { box: undefined, read: true };
+        let box: WorldBox | undefined;
+        let read = true;
+        for (const slot of areas) {
+            const where = sourcePart(chrome, slot)?.read().where;
+            if (where === undefined || where.size === 0) continue;
+            const found = data.fits.get(slot);
+            if (found === undefined || !stringEqual(found.under, printWhere(where))) { read = false; continue; }
+            if (found.box === null) continue;
+            box = box === undefined ? found.box : {
+                minX: Math.min(box.minX, found.box.minX), minY: Math.min(box.minY, found.box.minY),
+                maxX: Math.max(box.maxX, found.box.maxX), maxY: Math.max(box.maxY, found.box.maxY),
+            };
+        }
+        return { box, read };
+    }, [fitKey, areas, chrome, data.fits]);
+    const fitReading = data.loading || narrowingBusy || data.fitting || !fitAreas.read;
+    const canvasFit = useMemo((): SchematicCanvasFit => ({ key: fitKey, reading: fitReading, box: fitAreas.box }), [fitKey, fitReading, fitAreas.box]);
     const canvasNarrowing = useMemo((): SchematicCanvasNarrowing => ({ context: narrowing.context, out: narrowing.out, matches: narrowing.matches, look }),
         [narrowing, look]);
     // Why the last gesture was refused, until one is recorded or Esc.
@@ -954,7 +995,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                         onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}
                         viewport={areas.size > 0 ? viewport : undefined} density={data.density} overview={data.overview} reading={areas.size > 0 && data.loading}
                         unread={data.unread} failure={canvasFailure} stale={stale} retained={retained} onZoomRange={setZoomRange} narrow={narrow}
-                        standing={standing} onElement={onCanvasElement} />
+                        standing={standing} fit={canvasFit} onElement={onCanvasElement} />
                 </BuilderFrame>
             </LoadingReveal>
         </Box>

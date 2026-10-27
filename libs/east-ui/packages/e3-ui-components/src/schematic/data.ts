@@ -56,11 +56,16 @@
  * no longer holds — the new one in flight — it says so (`filtering`), for the
  * frame to draw it as kept and take no edit on it until the new one lands (CL8).
  *
+ * Under `fit` it reads, for each kind read by area its narrowing narrows, the
+ * box the narrowing's rows stand in, from its area index's counts (`fits`,
+ * §10.3): what the camera flies to as the narrowing changes, never what the
+ * window draws — and says while one is read (`fitting`).
+ *
  * @packageDocumentation
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { StringType, compareFor, equalFor, type ValueTypeOf } from "@elaraai/east";
+import { StringType, compareFor, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { Schematic, schematicAreaIndexes, type SchematicAreaIndexes } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, useTrackedEvaluation } from "@elaraai/east-ui-components";
@@ -84,6 +89,7 @@ const sameLink = equalFor(Schematic.Types.Link);
 const sameNet = equalFor(Schematic.Types.Net);
 const sameDetails = equalFor(Schematic.Types.DetailsRoles);
 const sameWhere = equalFor(RecordSliceWhereType);
+const printWhere = printFor(RecordSliceWhereType);
 const sameString = equalFor(StringType);
 const compareString = compareFor(StringType);
 
@@ -164,6 +170,22 @@ export interface SchematicData {
      * drawing holds, or, where its drawing holds it all, the reach — where the canvas says so, at its top-left (CL11).
      */
     readonly failedAreas: ReadonlyMap<string, readonly WorldBox[]>;
+    /**
+     * Under `fit`, each kind read by area its narrowing narrows, by its slot: the box its narrowing's rows stand in, as its
+     * area index's counts answer it (§10.3) — `null` where it holds none — what the camera flies to, beside the narrowing it
+     * was read under, printed, so a narrowing that has moved since waits for its own.
+     */
+    readonly fits: ReadonlyMap<string, SchematicFit>;
+    /** Whether a kind's box under `fit` is read: the camera waits for it before it flies. */
+    readonly fitting: boolean;
+}
+
+/** The box a kind read by area's narrowing's rows stand in under `fit`, and the narrowing it was read under. */
+export interface SchematicFit {
+    /** The narrowing, printed. */
+    readonly under: string;
+    /** The box, in world units; `null` where the narrowing holds no row. */
+    readonly box: WorldBox | null;
 }
 
 /** The rows a kind's window holds, by key, each its row's bytes, and the revision of the record they were read at. */
@@ -217,12 +239,26 @@ const NO_BOXES: readonly WorldBox[] = [];
 /** No kind read by area failed. */
 const NO_FAILED_AREAS: ReadonlyMap<string, readonly WorldBox[]> = new Map();
 
+/** No kind's box read under `fit`. */
+const NO_FITS: ReadonlyMap<string, SchematicFit> = new Map();
+
 /** The frame's data before its reader first reports: nothing drawn, a read in flight. */
 export const INITIAL_SCHEMATIC_DATA: SchematicData = {
     drawn: EMPTY_DRAWN, loading: true, reading: undefined, filtering: false, ready: false, error: undefined, failures: NO_FAILURES, rows: NO_ROWS, held: NO_HELD,
     unplaced: NO_UNPLACED, windows: NO_WINDOWS, density: NO_DENSITY, overview: NO_DENSITY, matched: NO_MATCHED, unread: NO_BOXES,
-    failedAreas: NO_FAILED_AREAS,
+    failedAreas: NO_FAILED_AREAS, fits: NO_FITS, fitting: false,
 };
+
+/** Whether two kinds' boxes under `fit` say the same. */
+function sameFits(a: ReadonlyMap<string, SchematicFit>, b: ReadonlyMap<string, SchematicFit>): boolean {
+    if (a.size !== b.size) return false;
+    for (const [slot, fit] of a) {
+        const other = b.get(slot);
+        if (other === undefined || !sameString(fit.under, other.under)) return false;
+        if (fit.box === null || other.box === null ? fit.box !== other.box : !sameBoxes([fit.box], [other.box])) return false;
+    }
+    return true;
+}
 
 /**
  * The kinds read by area, by their slots (#1393): each item and zone kind
@@ -556,6 +592,28 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
             }
         }
 
+        // Under `fit`, each kind read by area its narrowing narrows: the box the narrowing's rows stand in, by its area index's
+        // counts over the drawing's extent (§10.3) — never what its window draws. One whose read fails is said as its kind's.
+        const fits = new Map<string, SchematicFit>();
+        let fitting = false;
+        if (value.narrowed.fit) {
+            for (const [sort, kinds] of [["items", value.items], ["zones", value.zones]] as const) {
+                for (const kind of kinds) {
+                    const part = sourcePart(chrome, kind.key);
+                    if (part === undefined || part.read().where.size === 0) continue;
+                    try {
+                        const areas = schematicAreaIndexes(part.config.indexes, kind.box, sort, `Schematic.${sort}: "${kind.name}"`);
+                        if (areas === undefined) continue;
+                        const box = areaReader.fitBox(kind, part, areas, extent);
+                        if (box === READING) fitting = true;
+                        else fits.set(kind.key, { under: printWhere(part.read().where), box });
+                    } catch (error) {
+                        failures.set(kind.key, messageOf(error));
+                    }
+                }
+            }
+        }
+
         // Each kind read by area: its far ends by key through its own paged read, its narrowing asked of its rows and theirs
         // in one request, its rows made its stored rows, and its items' details by the runs its window was read by.
         const areaRows = new Map<string, {
@@ -666,7 +724,7 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
         }
         return {
             held: { value, kinds, inputs, wheres, reaches, drawn } satisfies Held, loading, reading, narrowings, failures, windows, density, overview,
-            matched, unmade: areaReader.unmade, unread, failedAreas, drawable,
+            matched, unmade: areaReader.unmade, unread, failedAreas, drawable, fits, fitting,
         };
     }, [value, attempt, viewport, areaReader, makes]);
     const { result } = useTrackedEvaluation(read);
@@ -737,14 +795,20 @@ export function useSchematicData(value: SchematicValue, attempt = 0, viewport?: 
     const unreadNow = result.ok ? result.value.unread : NO_BOXES;
     const unread = sameBoxes(unreadNow, unreadRef.current) ? unreadRef.current : unreadNow;
     unreadRef.current = unread;
+    // The boxes under `fit`: the same object while they say the same, so the camera hears only a box that moves.
+    const fitsRef = useRef<ReadonlyMap<string, SchematicFit>>(NO_FITS);
+    const fitsNow = result.ok ? result.value.fits : NO_FITS;
+    const fits = sameFits(fitsNow, fitsRef.current) ? fitsRef.current : fitsNow;
+    fitsRef.current = fits;
+    const fitting = result.ok && result.value.fitting;
     return useMemo((): SchematicData => (last === undefined
-        ? { ...INITIAL_SCHEMATIC_DATA, loading, reading, error, unread }
+        ? { ...INITIAL_SCHEMATIC_DATA, loading, reading, error, unread, fits, fitting }
         : {
             drawn: last.drawn, loading, reading, filtering, ready: true, error, failures: last.failures, rows: last.rows, held: last.held,
             unplaced: last.unplaced, windows: last.windows, density: last.density, overview: last.overview, matched: last.matched,
-            unread, failedAreas: last.failedAreas,
+            unread, failedAreas: last.failedAreas, fits, fitting,
         }),
-    [last, loading, reading, filtering, error, unread]);
+    [last, loading, reading, filtering, error, unread, fits, fitting]);
 }
 
 /**

@@ -11,7 +11,8 @@
  * zoom's limit (invariants 23, 24); the interaction-mode machine a gesture
  * supersedes a fly by; the fly, on one clock (invariant 25); a zoom about a
  * point — the toolbar's, about the middle, and the wheel's, about the cursor;
- * Fit; the minimap's jump; the fly to the narrowing's matches (invariant 22);
+ * Fit; the minimap's jump; the fly to the narrowing's matches, keyed on the
+ * narrowing itself (invariant 22);
  * and what the camera tells as it moves — the zone the viewport is in, where
  * the viewport rests, for the reader, and where the zoom stands, for the
  * toolbar. Its maths is `camera.ts`'.
@@ -26,22 +27,20 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { flushSync } from "react-dom";
-import { StringType, compareFor, equalFor } from "@elaraai/east";
+import { StringType, equalFor } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import type { SchematicViewportStore } from "../area.js";
 import { zoneInView } from "../index-tree.js";
-import type { SchematicNarrowedLook } from "../narrowing.js";
 import {
     type CameraEvent, type CameraMode, type RafCoalescer, type ViewTold, type Viewport,
     FLY_DURATION_MS, IDENTITY, cancelsFly, fitView, flyStep, makeRafCoalescer, nextMode, tellsAsItMoves, zoomAbout,
 } from "./camera";
 import type { DrawnItem, DrawnZone } from "./drawn";
-import { cardContentWidth, type LodTier } from "./model";
+import { cardContentWidth, type LodTier, type WorldBox } from "./model";
 import type { Paint } from "./use-paint";
-import type { SchematicZoomRange } from "./view";
+import type { SchematicCanvasFit, SchematicZoomRange } from "./view";
 
 const stringEqual = equalFor(StringType);
-const compareString = compareFor(StringType);
 
 /** The zoom's least limit, from Fit: further only where the drawing's smallest item needs it to draw as a whole card. */
 const MAX_ZOOM = 40;
@@ -172,10 +171,10 @@ export interface CameraMovesProps {
     readonly viewport: SchematicViewportStore | undefined;
     /** Told whether the zoom stands at Fit and at its limit, as either changes (#1393). */
     readonly onZoomRange: ((range: SchematicZoomRange) => void) | undefined;
-    /** How a narrowed-out row draws, and what the matches take: whether the camera flies to them. */
-    readonly look: SchematicNarrowedLook;
-    /** The narrowing's matches, by id (#1392). */
-    readonly matches: ReadonlySet<string>;
+    /** What `fit` flies the camera to as the narrowing changes (§10.3): the narrowing it is keyed on, and whether what it flies to is read. */
+    readonly narrowingFit: SchematicCanvasFit;
+    /** The box `fit` flies to: the matches the canvas draws of the kinds read whole or complete, and each kind read by area's narrowing's. */
+    readonly fitBox: WorldBox | undefined;
     /** The camera ({@link useCamera}'s). */
     readonly camera: Camera;
     /** The commit-phase snapshot and the painter's apply (`use-paint.ts`). */
@@ -190,7 +189,7 @@ export interface CameraMovesProps {
  * @returns The frame applier, a press's draw of a frame still waiting, the mode machine's transition, the fly, Fit, a
  *   zoom about the middle, and the minimap's jump and whether it is dragged
  */
-export function useCameraMoves({ canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, look, matches, camera, paint }: CameraMovesProps) {
+export function useCameraMoves({ canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, narrowingFit, fitBox, camera, paint }: CameraMovesProps) {
     const { size, cameraRef, cameraSnapshot, setCameraSnapshot, fit, home, ppu, maxZoom } = camera;
     const { renderSnapRef, applyCamera } = paint;
     const modeRef = useRef<CameraMode>("idle");
@@ -397,16 +396,22 @@ export function useCameraMoves({ canvasRef, W, H, lod, shownZones, narrowedOut, 
         if (animRef.current !== null) cancelAnimationFrame(animRef.current);
     }, [animRef]);
 
-    // `fit` (§10.3): the camera flies to the matches whenever which they are changes — keyed on them, never on where
-    // they are, so a zoom or a Move never flies it — and once the canvas has its size, so a narrowing a reload restores
-    // is flown to too. A fly over nothing — the narrowing cleared — leaves the camera where it is.
-    const fitSignature = useMemo(() => (look.fit && matches.size > 0 ? [...matches].sort(compareString).join("\u0000") : undefined), [look.fit, matches]);
+    // `fit` (§10.3): the camera flies to the matches as the narrowing changes — keyed on the narrowing itself, each source's
+    // choices, never on which entities match nor where they are, so neither a zoom that moves what a kind read by area's
+    // window draws nor a Move flies it — once what it flies to is read: the matches of the kinds read whole or complete,
+    // and each kind read by area's narrowing's box as its area index answers it. Once the canvas has its size, so a
+    // narrowing a reload restores is flown to too. A narrowing cleared leaves the camera where it is, and one holding
+    // nothing to fly to flies nowhere.
+    const flownRef = useRef<string | undefined>(undefined);
     const sized = size !== null;
     useEffect(() => {
-        if (fitSignature === undefined || !sized) return;
+        const key = narrowingFit.key;
+        if (key === undefined) { flownRef.current = undefined; return; }
+        if (!sized || narrowingFit.reading || (flownRef.current !== undefined && stringEqual(flownRef.current, key))) return;
+        flownRef.current = key;
         const box = renderSnapRef.current.fitBox;
         if (box !== undefined) flyTo({ x: box.minX, y: box.minY, w: Math.max(box.maxX - box.minX, 1e-3), h: Math.max(box.maxY - box.minY, 1e-3) });
-    }, [fitSignature, sized, flyTo, renderSnapRef]);
+    }, [narrowingFit.key, narrowingFit.reading, fitBox, sized, flyTo, renderSnapRef]);
     return { requestRender, drawPending, transition, flyTo, resetView, zoomBy, minimapDragRef, minimapJump };
 }
 

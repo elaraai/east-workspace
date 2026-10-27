@@ -93,7 +93,7 @@ import { placedVertices, type SchematicPaintEffect } from "./paint";
 import { parallelLanes as paintParallelLanes } from "./routes";
 import { EMPTY_STRING_SET, type ItemBox, linkIndex } from "./selection";
 import { type LodTier, type WorldBox, buildCenterTree, declutterTiers, matchesExtent, tierSize } from "./model";
-import type { SchematicDrawn, SchematicRef } from "./drawn";
+import { refOfId, type SchematicDrawn, type SchematicRef } from "./drawn";
 import { boxCss } from "./camera";
 import { SchematicCardLayer } from "./card-layer";
 import { SchematicProbe } from "./theme";
@@ -256,6 +256,8 @@ export interface SchematicCanvasProps {
      * doesn't hold, read by its key — kept selected, never heard of as a camera moves, and deleted by Del with the rest.
      */
     readonly standing?: SchematicStanding | undefined;
+    /** What `fit` flies the camera to as the narrowing changes (§10.3): keyed on the narrowing itself, a kind read by area by its box. */
+    readonly fit?: SchematicCanvasFit | undefined;
     /** What the reads in flight have not drawn yet, in world units, as disjoint boxes (#1398, CL2): washed, under the grid, until they land. */
     readonly unread?: readonly WorldBox[] | undefined;
     /** A read that failed, said once where it happened (CL11), with Retry; `undefined` while none has. */
@@ -299,6 +301,23 @@ export interface SchematicCanvasFailure {
     readonly area: readonly WorldBox[] | undefined;
 }
 
+/**
+ * What `fit` flies the camera to (§10.3, #1393): the narrowing it is keyed on — each source's choices, printed — and
+ * whether what it flies to is read, and the box each kind read by area's narrowing's rows stand in, as its area index
+ * answers it: never what its window draws.
+ */
+export interface SchematicCanvasFit {
+    /** The narrowing the fly is keyed on; `undefined` while nothing narrows, or the Schematic takes no `fit`. */
+    readonly key: string | undefined;
+    /** Whether what it flies to is read: the drawing, a source's matches, a kind read by area's box. */
+    readonly reading: boolean;
+    /** The box the kinds read by area's narrowing's rows stand in, in world units; `undefined` for none. */
+    readonly box: WorldBox | undefined;
+}
+
+/** No fit. */
+const NO_FIT: SchematicCanvasFit = { key: undefined, reading: false, box: undefined };
+
 /** Where the zoom stands (#1393): at Fit, where Zoom out does nothing, and at its limit, where Zoom in does nothing. */
 export interface SchematicZoomRange {
     /** Whether it stands at Fit. */
@@ -316,7 +335,7 @@ export interface SchematicZoomRange {
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
     value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onSelection, onOpen, onZoneInView, drop, connectValues,
-    viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, standing = NO_STANDING, unread = NO_UNREAD, failure, stale = false,
+    viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, standing = NO_STANDING, fit = NO_FIT, unread = NO_UNREAD, failure, stale = false,
     retained = false, onZoomRange, narrow = false, onElement, ref,
 }: SchematicCanvasProps) {
     // The recipe's styles, resolved once a recipe: the canvas renders at every frame its camera moves.
@@ -530,14 +549,19 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         return spanned !== undefined && spanned.count >= 2 ? spanned.box : undefined;
     }, [look.frame, paintValue, items, matches, layerHiddenKeys, centers, lod, ppu]);
     // What fit flies to: the matches' world box, each item by its own box — a lone item's at least the 8 × 6 a fly to
-    // an item frames.
+    // an item frames — of the kinds read whole or complete, and each kind read by area's narrowing's box as its area index
+    // answers it, grown so: never what a window draws, which holds only what is near the view (#1393).
+    const fitMatches = useMemo(() => (areaKinds.size === 0 ? matches
+        : new Set([...matches].filter((id) => { const ref = refOfId(id); return ref === undefined || !areaKinds.has(ref.kind); }))), [matches, areaKinds]);
     const fitBox = useMemo(() => {
         if (!look.fit) return undefined;
-        const spanned = matchesExtent({ ...paintValue, items }, matches, layerHiddenKeys, centers, (item) => ({
+        const spanned = matchesExtent({ ...paintValue, items }, fitMatches, layerHiddenKeys, centers, (item) => ({
             w: Math.max((getSomeorUndefined(item.width) ?? 0) / 2, 4), h: Math.max((getSomeorUndefined(item.height) ?? 0) / 2, 3),
-        }));
-        return spanned?.box;
-    }, [look.fit, paintValue, items, matches, layerHiddenKeys, centers]);
+        }))?.box;
+        const area = fit.box === undefined ? undefined : { minX: fit.box.minX - 4, minY: fit.box.minY - 3, maxX: fit.box.maxX + 4, maxY: fit.box.maxY + 3 };
+        if (spanned === undefined || area === undefined) return spanned ?? area;
+        return { minX: Math.min(spanned.minX, area.minX), minY: Math.min(spanned.minY, area.minY), maxX: Math.max(spanned.maxX, area.maxX), maxY: Math.max(spanned.maxY, area.maxY) };
+    }, [look.fit, paintValue, items, fitMatches, layerHiddenKeys, centers, fit.box]);
     // What the painter draws of it, but the pulse's phase, which its ticker moves without a render: engaged while it
     // draws anything — context, or a match to ring or frame.
     const ringed = look.emphasis !== undefined && matches.size > 0;
@@ -561,7 +585,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         minimapPaintRef,
     } = paint;
     // What moves the camera, and what the camera tells as it moves (`use-camera.ts`).
-    const cameraMoves = useCameraMoves({ canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, look, matches, camera, paint });
+    const cameraMoves = useCameraMoves({ canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, narrowingFit: fit, fitBox, camera, paint });
     const { transition, flyTo, resetView, zoomBy, minimapDragRef, minimapJump } = cameraMoves;
     // What keeps the selection to the drawing, and the steps through its items (`use-canvas-selection.ts`).
     const selectionSteps = useSelectionSteps({ data, layers, inertKeys, narrowedOut, items, shownZones, standing, reading, canvasSelection, renderSnapRef, flyTo });

@@ -56,7 +56,10 @@
  *
  * Beside its window, a kind's overview — its whole drawing's density, which
  * the minimap draws — is counted over the drawing's extent in one request, once
- * a revision and a narrowing ({@link SchematicAreaReader.overview}).
+ * a revision and a narrowing ({@link SchematicAreaReader.overview}); and under
+ * `fit`, the box its narrowing's rows stand in, from the same counts of its
+ * narrowing alone ({@link SchematicAreaReader.fitBox}): what the camera flies
+ * to as the narrowing changes, wherever the window is (§10.3).
  *
  * Its items' details are read at every tier — a dot draws its item's status
  * too (D45) — by the runs its window's rows were read by: the window's cells,
@@ -572,6 +575,10 @@ interface Slot {
     overviewPlanned?: OverviewPlanned;
     /** Its overview: the whole drawing's density, read at a revision for the raster it was planned as. */
     overview?: { readonly planned: OverviewPlanned; readonly revision: string; readonly density: SchematicDensity };
+    /** Its narrowing's raster over the drawing's extent, planned for `fit`. */
+    fitPlanned?: OverviewPlanned;
+    /** The box its narrowing's rows stand in, read at a revision for the raster it was planned as; `null` for none. */
+    fit?: { readonly planned: OverviewPlanned; readonly revision: string; readonly box: WorldBox | null };
     /** Its window as it was last read, for its plan and its revision, and whether its cells hold more rows than a window reads. */
     read?: { readonly planned: Planned; readonly revision: string; readonly read: SchematicWindowRead; readonly capped: boolean };
     /** Its far ends' rows, as the read by key gave them. */
@@ -921,6 +928,55 @@ export class SchematicAreaReader {
         };
         slot.overview = { planned, revision: revision.value, density };
         return density;
+    }
+
+    /**
+     * The box a kind's narrowing's rows stand in (#1393, §10.3), as its area
+     * index's counts over the drawing's extent answer it: the cells of its
+     * narrowing's raster — planned as the overview's is, its narrowing's
+     * choices whatever `narrowed` draws — and of the coarser levels that hold
+     * a row, each cell's part of the extent, in one request of counted ranges,
+     * no row read; what the camera flies
+     * to under `fit`, never what the window draws. A choice the index doesn't
+     * lead isn't counted in it: the box is then that of the choices it leads,
+     * which hold the narrowing's rows among others. Read once a revision and a
+     * narrowing; while a new one's counts are in flight, none stands in.
+     *
+     * @param kind - The kind
+     * @param part - Its source of the slice
+     * @param areas - Its area indexes
+     * @param extent - The drawing's extent, in world units
+     * @returns The box; `null` where the narrowing holds no row; {@link READING} while its counts are in flight
+     */
+    fitBox(kind: SchematicAreaKind, part: Part, areas: SchematicAreaIndexes, extent: WorldBox): WorldBox | null | Reading {
+        const revision = recordSliceRevision(part);
+        if (revision.type !== "some") return READING;
+        const slot = this.slotOf(kind.key);
+        const where = part.read().where;
+        let planned = slot.fitPlanned;
+        if (planned === undefined || !Object.is(planned.config, part.config) || !Object.is(planned.where, where) || !sameBox(planned.extent, extent)) {
+            const plan = schematicWindowPlan(areas, where, extent);
+            const raster = schematicRaster(plan, extent);
+            const ranges = raster.cells.flat().map((cell) => cell.query);
+            planned = { config: part.config, where, extent, plan, raster, cells: ranges.length, queries: [...ranges, ...raster.coarse.map((cell) => cell.query)] };
+            slot.fitPlanned = planned;
+        }
+        const last = slot.fit;
+        if (last !== undefined && Object.is(last.planned, planned) && stringEqual(last.revision, revision.value)) return last.box;
+        const found = recordSliceBounds(part, planned.plan.index.name, planned.queries);
+        if (found.type !== "some") return READING;
+        // Each cell holding a row, the raster's and the coarser levels' alike — a coarser cell's rows anywhere in it — by its
+        // part of the drawing's extent, where its rows lie, else whole.
+        let box: WorldBox | null = null;
+        [...planned.raster.cells.flat(), ...planned.raster.coarse].forEach((cell, i) => {
+            if (found.value[i]!.count <= 0n) return;
+            const whole = { minX: cell.minX, minY: cell.minY, maxX: cell.minX + cell.side, maxY: cell.minY + cell.side };
+            const part = overlap(whole, extent) ?? whole;
+            box = box === null ? part
+                : { minX: Math.min(box.minX, part.minX), minY: Math.min(box.minY, part.minY), maxX: Math.max(box.maxX, part.maxX), maxY: Math.max(box.maxY, part.maxY) };
+        });
+        slot.fit = { planned, revision: revision.value, box };
+        return box;
     }
 
     /**
