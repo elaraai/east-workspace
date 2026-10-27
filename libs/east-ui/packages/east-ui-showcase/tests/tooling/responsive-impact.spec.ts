@@ -93,6 +93,20 @@ test("the Schematic's renderer narrows to its own suites and the shared checks, 
     assert.ok(!flowchart.some(t => /› schematic-(?:drop|editing|frame|library|narrowing|perf|phone|records|window)\.spec\.ts:/.test(t)));
 });
 
+test("the Allocation's renderer narrows to its own suites and the shared checks, and another component's change runs none of the Allocation's, the Calendar's or the Plan's own", () => {
+    const impact = classifyChanges(["libs/east-ui/packages/e3-ui-components/src/allocation/timeline.tsx"]);
+    assert.deepEqual({ mode: impact.mode, components: impact.components }, { mode: "focused", components: ["allocation"] });
+    const selected = selectTests(suite(), impact);
+    for (const spec of ["allocation-frame", "allocation-timeline", "allocation-table", "allocation-split", "optimise-allocation", "builder-loading", "toolbar-fit"]) {
+        const original = suite().filter(t => t.includes(` › ${spec}.spec.ts:`));
+        assert.ok(original.length > 0 && original.every(t => selected.includes(t)), spec);
+    }
+    assert.ok(!selected.some(t => t.includes(" › roster.spec.ts:") || t.includes(" › calendar-search.spec.ts:") || t.includes(" › plan-far-moves.spec.ts:")));
+    // A Flowchart change runs none of the Allocation's own suites, nor the Calendar's or the Plan's.
+    const flowchart = selectTests(suite(), classifyChanges(["libs/east-ui/packages/e3-ui-components/src/flowchart/index.tsx"]));
+    assert.ok(!flowchart.some(t => /› (?:allocation-[a-z-]+|optimise-allocation|calendar-(?:loading|recentre|search|steps|paged-columns)|plan-(?:far-moves|filters|records))\.spec\.ts:/.test(t)));
+});
+
 test("Playwright resolves focused lists and all their smaller shards exactly once", () => {
     const selected = selectTests(suite(), classifyChanges([
         "libs/east-ui/packages/e3-ui-components/src/flowchart/index.tsx",
