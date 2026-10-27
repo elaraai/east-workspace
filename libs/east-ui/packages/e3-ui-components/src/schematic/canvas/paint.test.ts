@@ -11,8 +11,8 @@
  * drop's marks (#1390), the narrowing's context, emphasis and frame (#1392),
  * a marker whose status is unread and the words of what stands in while a new
  * narrowing is read (#1398), the links' look (#1403), and every dot's paper
- * under every dot's colour, a zone's eyebrow over them (ruled 26 Oct 2026,
- * "Legible dots") are
+ * under every dot's colour, their colours by severity, a zone's eyebrow over
+ * them (ruled 26 Oct 2026, "Legible dots") are
  * asserted over a 2D context that records what
  * each stroke and fill draws — its style, width, dash and alpha, and its path's
  * arcs — and each text; the links' routes, each end on an item's edge where it
@@ -348,7 +348,7 @@ describe("the dots draw in batches (#1393)", () => {
     const tints = new Map(racks.map((rack, i): [string, RGB] => [rack.key, i % 2 === 0 ? RED : GREEN]));
     const PAPER = "rgb(8,8,8)", INK = "rgb(3,3,3)", RED_CSS = "rgb(200,0,0)", GREEN_CSS = "rgb(0,200,0)";
 
-    it("draws every dot's paper, then every dot's colour, a look at a time — its style, its width and its alpha — so no dot's paper covers a neighbour's colour; and the selected one last, on its own (ruled 26 Oct 2026, \"Legible dots\")", () => {
+    it("draws every dot's paper, then every dot's colour, a look at a time — its style, its width and its alpha — so no dot's paper covers a neighbour's colour, what draws as context under the rest; and the selected one last, on its own (ruled 26 Oct 2026, \"Legible dots\")", () => {
         const { ctx, drawn } = recorder();
         paintSchematic({
             ctx, value: { items: racks, zones: [], links: [], nets: [] }, cam: { ppu: 20, tx: 10, ty: 10 }, width: 800, height: 500,
@@ -365,8 +365,10 @@ describe("the dots draw in batches (#1393)", () => {
             // The paper: R7's inside — its status an open ring — then every filled dot's ring, R1's faded as context.
             ["fill", PAPER, 0, 1, 5, 1],
             ["stroke", PAPER, 1.5, 1, 5, 997], ["stroke", PAPER, 1.5, 0.35, 5, 1],
-            // Then the colours, over all of it: each filled dot's within its ring, and R7's open ring.
-            ["fill", RED_CSS, 0, 1, DOT_COLOUR_RADIUS, 499], ["fill", GREEN_CSS, 0, 0.35, DOT_COLOUR_RADIUS, 1], ["fill", GREEN_CSS, 0, 1, DOT_COLOUR_RADIUS, 498],
+            // Then the colours, over all of it, each filled dot's within its ring: R1's, as context, under the rest; the
+            // racks showing no status; and R7's open ring, its status danger, over them.
+            ["fill", GREEN_CSS, 0, 0.35, DOT_COLOUR_RADIUS, 1],
+            ["fill", RED_CSS, 0, 1, DOT_COLOUR_RADIUS, 499], ["fill", GREEN_CSS, 0, 1, DOT_COLOUR_RADIUS, 498],
             ["stroke", GREEN_CSS, 2, 1, 5, 1],
         ]);
         // A filled dot's colour reaches its ring's inner edge: on its own, it draws as it did — its colour, then its ring.
@@ -379,6 +381,65 @@ describe("the dots draw in batches (#1393)", () => {
         const selection = drawn.filter(isSelected);
         expect(selection.map((d) => [d.op, d.style, d.arcs[0]!.r])).toEqual([["fill", RED_CSS, 5], ["stroke", PAPER, 5], ["stroke", INK, 7.5]]);
         expect(drawn.indexOf(selection[0]!)).toBeGreaterThan(drawn.indexOf(batched.at(-1)!));
+    });
+});
+
+describe("packed dots overlap by severity, never by the order they come in (\"Legible dots\")", () => {
+    const T = Schematic.Types;
+    /** Its details, which give its status, read: the card roles they give. */
+    const UNREAD = { status: true, meter: false, metric: false, sublabel: false };
+    /** Each status tone a rack's status takes. */
+    const TONES = {
+        success: variant("success", null), neutral: variant("neutral", null), info: variant("info", null),
+        warning: variant("warning", null), danger: variant("danger", null),
+    } as const;
+    /** A rack at a point, its status of a tone — drawn as an open ring with `ring` — or none, and its status unread with `unread`. */
+    const rack = (key: string, x: number, tone?: keyof typeof TONES, { ring = false, unread = false } = {}) => drawnItem({ kind: "racks", key }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y: 2 }), label: key,
+        ...(tone === undefined ? {} : { status: some({ label: tone, tone: TONES[tone], ring }) }),
+    }, undefined, unread ? UNREAD : undefined)!;
+    // Worst first, as a window's rows may come: two danger racks, a tentative warning — an open ring — an info, a neutral
+    // and a success; one showing no status, one whose status is unread, and one the narrowing leaves out, though danger.
+    const racks = [
+        rack("D1", 2, "danger"), rack("D2", 3, "danger"), rack("W", 4, "warning", { ring: true }), rack("I", 5, "info"), rack("N", 6, "neutral"),
+        rack("S", 7, "success"), rack("X", 8), rack("U", 9, undefined, { unread: true }), rack("C", 10, "danger"),
+    ];
+    const context = racks.at(-1)!;
+    /** Each rack's colour, as the bridge resolves it: its status's, else its own; the unread one has none read. */
+    const COLOURS: Readonly<Record<string, RGB>> = {
+        D1: [200, 0, 0], D2: [200, 0, 0], W: [200, 150, 0], I: [0, 0, 200], N: [120, 120, 120], S: [0, 200, 0], X: [150, 0, 150], C: [200, 0, 0],
+    };
+    const tints = new Map(racks.flatMap((r): [string, RGB][] => (COLOURS[r.label] === undefined ? [] : [[r.key, COLOURS[r.label]!]])));
+    /** The paper (`bgSurface`), the muted ink (`fgMuted`) and the placeholders' fill (`bgSubtle`). */
+    const PAPER = "rgb(8,8,8)", MUTED = "rgb(5,5,5)", FILL = "rgb(21,21,21)";
+
+    it("draws every dot's paper first, then their colours a layer at a time — context, a status unread, none, then success, neutral, info, warning and danger — a look one path, so a danger rack is never hidden under a healthier neighbour", () => {
+        const { ctx, drawn } = recorder();
+        paintSchematic({
+            ctx, value: { items: racks, zones: [], links: [], nets: [] }, cam: { ppu: 10, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: racks, tiers: new Map(racks.map((r) => [r.key, "dot" as const])), selected: new Set(), selectedZones: new Set(),
+            centers: new Map(racks.map((r) => [r.key, { x: r.x, y: r.y }])), palette: PALETTE, tints,
+            effect: { excluded: new Set([context.key]), excludedOpacity: 0.35, excludedDesaturate: true, matches: new Set(), emphasis: undefined, pulsePhase: 0, frame: undefined },
+        });
+        const dots = drawn.filter((d) => d.arcs.length > 0);
+        const paper = dots.filter((d) => d.style === PAPER), colours = dots.filter((d) => d.style !== PAPER);
+        // Every dot's paper before any dot's colour.
+        expect(paper.length).toBeGreaterThan(0);
+        expect(dots.indexOf(paper.at(-1)!)).toBeLessThan(dots.indexOf(colours[0]!));
+        // Then the colours, bottom to top, whatever order the racks came in — each look one path, its dots at their racks.
+        expect(colours.map((d) => [d.op, d.style, d.op === "stroke" ? d.width : 0, d.alpha, d.arcs.map((r) => r.x)])).toEqual([
+            // C, left out by the narrowing: under every other, though its status is danger.
+            ["fill", MUTED, 0, 0.35, [100]],
+            // U, its status unread: the placeholders' fill; then X, showing no status, in its own colour.
+            ["fill", FILL, 0, 1, [90]],
+            ["fill", "rgb(150,0,150)", 0, 1, [80]],
+            // Then by its status's tone: S, N and I, W's open ring, and over them all D1 and D2, one path.
+            ["fill", "rgb(0,200,0)", 0, 1, [70]],
+            ["fill", "rgb(120,120,120)", 0, 1, [60]],
+            ["fill", "rgb(0,0,200)", 0, 1, [50]],
+            ["stroke", "rgb(200,150,0)", 2, 1, [40]],
+            ["fill", "rgb(200,0,0)", 0, 1, [20, 30]],
+        ]);
     });
 });
 

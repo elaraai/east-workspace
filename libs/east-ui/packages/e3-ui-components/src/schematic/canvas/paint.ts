@@ -451,6 +451,23 @@ const DOT_RING_PX = 2;
  */
 export const DOT_COLOUR_RADIUS = MARKER_DOT_RADIUS - DOT_PAPER_PX / 2;
 
+/** A status's tone, as an item's status names it. */
+type StatusTone = Extract<DrawnItem["status"], { type: "some" }>["value"]["tone"]["type"];
+
+/**
+ * The layers the dots' colours draw in, bottom to top: what the narrowing leaves out, as context; a status not read
+ * yet, in the placeholders' fill; a dot showing no status; then each status's tone, from success to danger
+ * ({@link DOT_STATUS_LAYER}). Packed dots overlap by severity, never by the order they come in, so a danger rack is
+ * never hidden under a healthy neighbour ("Legible dots").
+ */
+const DOT_CONTEXT_LAYER = 0, DOT_UNREAD_LAYER = 1, DOT_NO_STATUS_LAYER = 2;
+
+/** The layer each status's tone draws its dots' colour in: over context, a status unread and none, danger the top. */
+const DOT_STATUS_LAYER: Readonly<Record<StatusTone, number>> = { success: 3, neutral: 4, info: 5, warning: 6, danger: 7 };
+
+/** How many layers the dots' colours draw in. */
+const DOT_LAYERS = 8;
+
 /** Links hide their mid-path label below this zoom (px per world unit) —
  *  aligned with the item labelled-pin band. */
 export const LINK_LABEL_MIN_PPU = 16;
@@ -1115,12 +1132,14 @@ export function paintSchematic(input: PaintInput): void {
     // ring of it, an open dot's inside — then every dot's colour — a filled dot's, within its ring, and an open dot's
     // ring — so no dot's paper covers a neighbour's colour (ruled 26 Oct 2026, "Legible dots"). Dots packed closer than
     // their paper reaches — a hall's racks at Fit, a metre or two apart — read as their colours, the paper showing only
-    // between them, never merging into a block of it; a dot on its own draws as it ever did. Then each zone's eyebrow,
-    // over the dots, so a hall they pack keeps its name. A pin draws on its own, its save and restore keeping its fade
-    // and its font from the next; and what is selected draws last, over its neighbours, each on its own: the declutter
-    // keeps every other pin clear of every mark, but a selected item takes its form whatever it covers. The marker a
-    // card's drop lands on draws on its own too, its ring about it. Its tint — its status unread (#1398), the
-    // placeholders' fill; drained as context, the muted ink — each colour's words made once a frame.
+    // between them, never merging into a block of it; a dot on its own draws as it ever did. The colours draw a layer at
+    // a time, by severity (`DOT_LAYERS`): context under a status unread, under a dot showing none, under success,
+    // neutral, info, warning and danger, so packed dots overlap with the worst on top, never in the order they came in.
+    // Then each zone's eyebrow, over the dots, so a hall they pack keeps its name. A pin draws on its own, its save and
+    // restore keeping its fade and its font from the next; and what is selected draws last, over its neighbours, each on
+    // its own: the declutter keeps every other pin clear of every mark, but a selected item takes its form whatever it
+    // covers. The marker a card's drop lands on draws on its own too, its ring about it. Its tint — its status unread
+    // (#1398), the placeholders' fill; drained as context, the muted ink — each colour's words made once a frame.
     const surface = css(p.bgSurface), placeholder = css(p.bgSubtle), muted = css(p.fgMuted);
     const colours = new Map<RGB, string>();
     const markerTint = (item: DrawnItem, unread: boolean): string => {
@@ -1132,8 +1151,15 @@ export function paintSchematic(input: PaintInput): void {
         if (words === undefined) colours.set(own, words = css(own));
         return words;
     };
-    // Every dot's paper — its inside, or its ring — and every dot's colour — its own, within its ring, or its ring.
-    const paperInsides: DotBatch = new Map(), paperRings: DotBatch = new Map(), colourFills: DotBatch = new Map(), colourRings: DotBatch = new Map();
+    // Every dot's paper — its inside, or its ring — and every dot's colour — its own, within its ring, or its ring — in
+    // the layer its severity draws in: what the narrowing leaves out, a status unread, none, then its status's tone.
+    const paperInsides: DotBatch = new Map(), paperRings: DotBatch = new Map();
+    const colourLayers = Array.from({ length: DOT_LAYERS }, () => ({ fills: new Map() as DotBatch, rings: new Map() as DotBatch }));
+    const layerOf = (item: DrawnItem, unread: boolean): number => {
+        if (isExcluded(item.key)) return DOT_CONTEXT_LAYER;
+        if (unread) return DOT_UNREAD_LAYER;
+        return item.status.type === "some" ? DOT_STATUS_LAYER[item.status.value.tone.type] : DOT_NO_STATUS_LAYER;
+    };
     const alone: DrawnItem[] = [];
     for (const item of visibleItems) {
         const tier = tiers.get(item.key) ?? "dot";
@@ -1148,19 +1174,22 @@ export function paintSchematic(input: PaintInput): void {
         const ring = statusRing(item.status);
         const alpha = alphaOf(item.key);
         const x = wx(item.x), y = wy(item.y);
+        const colour = colourLayers[layerOf(item, unread)]!;
         if (ring) {
             batchDot(paperInsides, surface, 0, alpha, x, y);
-            batchDot(colourRings, tint, DOT_RING_PX, alpha, x, y);
+            batchDot(colour.rings, tint, DOT_RING_PX, alpha, x, y);
         } else {
             batchDot(paperRings, surface, DOT_PAPER_PX, alpha, x, y);
-            batchDot(colourFills, tint, 0, alpha, x, y);
+            batchDot(colour.fills, tint, 0, alpha, x, y);
         }
     }
     ctx.save();
     paintDots(ctx, paperInsides, "fill", MARKER_DOT_RADIUS);
     paintDots(ctx, paperRings, "stroke", MARKER_DOT_RADIUS);
-    paintDots(ctx, colourFills, "fill", DOT_COLOUR_RADIUS);
-    paintDots(ctx, colourRings, "stroke", MARKER_DOT_RADIUS);
+    for (const colour of colourLayers) {
+        paintDots(ctx, colour.fills, "fill", DOT_COLOUR_RADIUS);
+        paintDots(ctx, colour.rings, "stroke", MARKER_DOT_RADIUS);
+    }
     ctx.restore();
     // Each zone's eyebrow, over the dots, in the mono face: its words in the third ink on the canvas's paper.
     for (const brow of eyebrows) {
