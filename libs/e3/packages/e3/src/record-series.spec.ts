@@ -667,4 +667,18 @@ describe('series and summary indexes — through a write and a rebuild', () => {
     assert.deepEqual(encode(summed(def, [a, b, c])), whole, 'three pieces');
     assert.deepEqual(encode(summed(def, [c, a, b])), whole, 'in another order');
   });
+
+  it('refuses a key\'s totals summed past the largest Integer, naming the summary, the key and a finer tile, rather than wrap', () => {
+    // East's Integer addition wraps, so a build summing past the largest
+    // Integer stored a total below none, which no write could then add to.
+    const def = recordIndex.summary('jobs_by_press_year_totals', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'year' });
+    const merge = summaryMergeProgram(def).compile([]) as (entry: unknown, a: RecordSummaryTotals, b: RecordSummaryTotals) => RecordSummaryTotals;
+    const entry = { ik: { __tile: at('2026-01-01T00:00:00.000'), press: 'P-1001' }, k: null };
+    const most = (1n << 63n) - 1n;
+    assertEast(RecordSummaryTotalsType, merge(entry, { count: 2n, ms: most - 10n }, { count: 1n, ms: 10n }), { count: 3n, ms: most },
+      'a sum at the largest Integer is a total');
+    const past = /^jobs_by_press_year_totals: the totals under \(ik=\(__tile=2026-01-01T00:00:00\.000, press="P-1001"\), k=null\) sum past the largest Integer: declare a finer tile, whose totals are smaller/;
+    assert.throws(() => merge(entry, { count: 2n, ms: most - 10n }, { count: 1n, ms: 11n }), past, 'the time they cover');
+    assert.throws(() => merge(entry, { count: most, ms: 0n }, { count: 1n, ms: 0n }), past, 'the rows touching it');
+  });
 });

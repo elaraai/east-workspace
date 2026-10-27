@@ -456,8 +456,10 @@ describe('applying a mutation delta', () => {
       await assert.rejects(applySummary(hash, [[held, { count: -4n, ms: -3n * HOUR }]]), refusal('-1', '0', 'fewer than no rows'));
       await assert.rejects(applySummary(hash, [[held, { count: -1n, ms: -4n * HOUR }]]), refusal('2', '-3600000', 'less than no time'));
       await assert.rejects(applySummary(hash, [[held, { count: -3n, ms: -2n * HOUR }]]), refusal('0', '3600000', 'time with no row'));
-      await assert.rejects(applySummary(hash, [[held, { count: (1n << 63n) - 1n, ms: 0n }]]),
-        refusal(String((1n << 63n) + 2n), '10800000', 'past the largest Integer'));
+      // A total past the largest Integer agrees with its record, and a rebuild sums it too: the remedy is a finer tile.
+      await assert.rejects(applySummary(hash, [[held, { count: (1n << 63n) - 1n, ms: 0n }]]), (err: unknown) => err instanceof SummaryIntegrityError
+        && err.message === `by_week: the total under (ik=(__tile=5, press="P-1007"), k=null) would be ${(1n << 63n) + 2n} rows covering 10800000 ms — `
+          + 'past the largest Integer, which no total holds and a rebuild sums too: declare a finer tile, whose totals are smaller');
       await assert.rejects(applySummary(hash, [[weekOf(5, `${pressOf(7)}a`), { count: -1n, ms: 0n }]]),
         (err: unknown) => err instanceof SummaryIntegrityError && /under \(ik=\(__tile=5, press="P-1007a"\), k=null\) would be -1 rows/.test(err.message),
         'taking from a key the summary does not hold');
