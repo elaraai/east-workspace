@@ -1563,7 +1563,14 @@ request in a layout effect, and the Sheet lands a key's move in one. A step or
 a page into the window beside the run keeps its rows drawn, live. The focus
 moving on, or a gesture on the ring, meanwhile puts the rows back as they were,
 nothing read again for them (`plan-far-moves.spec.ts`,
-`sheet-far-moves.spec.ts`). A run that holds the focus — a click into it — hands it, as its
+`sheet-far-moves.spec.ts`). Under the Sheet's lens the keys cross the stretches
+it has not read the same way, through the lens's jump: its ends are its own
+(`lensEnds`, the bands past the rows it draws), ↓ and ↑ go into the nearest
+stretch past them, a page crosses into it at its edge — the lens's rows are no
+run of elements — and ⌘End and ⌘Home go to the narrowing's last and first
+match; the rows shown stay drawn, live, while the lens reads there, and the ring
+lands once the stretch it lands in is read, the lens's view put on its row so
+what it read stays read until the frame reports where it rests. A run that holds the focus — a click into it — hands it, as its
 rows land, to the first of them the view shows whole, and a key pressed on it
 waits for them and goes on from there (`wait`); an item a landing takes off the
 canvas leaves the focus on the canvas's surface, never the page's body, until a

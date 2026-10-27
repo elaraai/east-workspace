@@ -925,6 +925,34 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [body]);
     const rowCount = rowSpace.bodyIndexOf.length;
     const colCount = columns.list.length;
+    // Under the lens (#1349): the stretches it has not read — or whose read failed — beyond the rows it draws, by the
+    // record's rows they stand for: the first of them and the last, and the nearest before its first row and past its
+    // last. A key that crosses an end goes into them through the lens's jump, as a paged sheet's goes through its
+    // pages' (#860, #1398, CL10) — never stopping at the rows read.
+    const lensEnds = useMemo(() => {
+        if (!lensDrawn) return undefined;
+        const unread = (it: SheetBodyItem | undefined): { from: number; to: number } | undefined => (it?.kind === "band" ? { from: it.band.from, to: it.band.to }
+            : it?.kind === "failed" ? { from: it.failure.from, to: it.failure.to } : undefined);
+        const firstRow = rowSpace.bodyIndexOf[0] ?? body.length;
+        const lastRow = rowSpace.bodyIndexOf[rowSpace.bodyIndexOf.length - 1] ?? -1;
+        let first: { from: number; to: number } | undefined;
+        let before: { from: number; to: number } | undefined;
+        for (let i = 0; i < firstRow; i++) {
+            const span = unread(body[i]);
+            if (span === undefined) continue;
+            first ??= span;
+            before = span;
+        }
+        let after: { from: number; to: number } | undefined;
+        let last: { from: number; to: number } | undefined;
+        for (let i = body.length - 1; i > lastRow; i--) {
+            const span = unread(body[i]);
+            if (span === undefined) continue;
+            last ??= span;
+            after = span;
+        }
+        return { first, before, after, last };
+    }, [lensDrawn, body, rowSpace]);
     // Each body item's place in its group's rail, once per body (#858): a
     // row is handed its own entry, which holds still until the body moves.
     const memberships = useMemo(() => body.map((_it, i) => membershipAt(body, i)), [body]);
@@ -1081,6 +1109,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const pagedHead = paging.head;
     const pagedTail = paging.tail;
     const jumpToElement = paging.jumpToElement;
+    // The jump in charge of the rows drawn: the lens's under the lens (#1349), else the pages'.
+    const lensJumpTo = lens.jumpToElement;
+    const lensClearJump = lens.clearJump;
+    const jumpTo = lensDrawn ? lensJumpTo : jumpToElement;
+    const clearJump = lensDrawn ? lensClearJump : paging.clearJump;
     const ctx = useMemo<SheetMachineCtx>(() => ({
         rowCount,
         colCount,
@@ -1088,8 +1121,11 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         grouped: group !== undefined,
         // Group insertion uses explicit controls; keyboard padding is flat-only.
         canAppend: exhausted && canInsertRows && editingState.available && group === undefined,
-        // A paged sheet's ends (#860): an unloaded run past the row space is a band.
-        edges: pagedSource === undefined ? undefined : { atStart: pagedHead === undefined, atEnd: pagedTail === undefined },
+        // A paged sheet's ends (#860): an unloaded run past the row space is a band — under the lens, a stretch it has not
+        // read past the rows it draws (#1349).
+        edges: pagedSource === undefined ? undefined
+            : lensEnds !== undefined ? { atStart: lensEnds.before === undefined, atEnd: lensEnds.after === undefined }
+                : { atStart: pagedHead === undefined, atEnd: pagedTail === undefined },
         pageRows,
         editableAt: (r, c) => {
             if (!canEdit || !editingState.available) return false;
@@ -1193,7 +1229,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                 group: g.lines.filter((l) => l.subRows.length > 0).map((l) => lineId(g.id, l.key)),
             };
         },
-    }), [rowCount, colCount, lensDrawn, exhausted, canEdit, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, pageRows]);
+    }), [rowCount, colCount, lensDrawn, exhausted, canEdit, canInsertRows, editingState.available, group, declaredNoun, columns, rows, rowAt, metaAt, parseCtxFor, candidateCtxFor, cellAt, levelAt, words, linkCtxFor, rowOf, idAt, driverColumn, views, narrowing, emptyNarrowing, dirty, rowSpace, body, pagedSource, pagedHead, pagedTail, lensEnds, pageRows]);
     const ctxRef = useRef(ctx);
     ctxRef.current = ctx;
     const uiRef = useRef(ui);
@@ -1822,6 +1858,21 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
                     // Across an unloaded run (#860): the window beyond is fetched the
                     // way a key search jumps, and the ring lands once it is in (below).
                     const step = eff.t === "seek.step";
+                    if (lensEnds !== undefined) {
+                        // Under the lens (#1349): into the stretch it has not read past the rows it draws — a step's or a
+                        // page's the nearest that way, crossing in at its edge, as a grouped sheet's page does, for the
+                        // lens's rows are no run of elements; an end's the narrowing's first or last — read where it is
+                        // by the lens's jump, the rows shown drawn meanwhile, and the ring lands on its row once the lens
+                        // has drawn it (below).
+                        const span = step ? (eff.dir > 0 ? lensEnds.after : lensEnds.before) : eff.edge === "first" ? lensEnds.first : lensEnds.last;
+                        if (span === undefined) break;
+                        const forward = step ? eff.dir > 0 : eff.edge === "first";
+                        const element = forward ? span.from : span.to;
+                        seekIntent.current = { element, window: element, land: forward ? "first" : step ? "last" : "end", c: eff.c, moves: ringMoves.current };
+                        jumpBy.current = "key";
+                        lensJumpTo(element);
+                        break;
+                    }
                     const edge = step
                         ? (eff.dir > 0 ? paging.tail?.from : paging.head?.to)
                         : eff.edge === "first" ? 0 : paging.total !== undefined && paging.total > 0 ? paging.total - 1 : undefined;
@@ -1889,7 +1940,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         try { recordGesture(gestureEvents.current); }
         catch (error) { console.error("Sheet transaction failure", error); dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } }); }
         finally { gestureEvents.current = []; }
-    }, [recordGesture, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement]);
+    }, [recordGesture, writeCells, deleteRows, insertProposal, insertLooseProposals, columns, group, declaredNoun, words, metaAt, blankLineRowOf, canEdit, cellAt, colCount, parseCtxFor, onSelectFn, rowAt, rowOf, rowSpace, store.ui.sel, store.ui.edit, idAt, copilotOn, triggers, requestRun, requestReady, dispatch, declaredViews, onViewsChangeFn, chrome, paging.head, paging.tail, paging.total, jumpToElement, lensEnds, lensJumpTo]);
     const drainedFx = useRef(0);
     useLayoutEffect(() => {
         if (store.fxSeq === drainedFx.current) return;
@@ -2072,13 +2123,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
      * when it is no such move itself, it abandons one still on its way at once, the rows that move holds put back as
      * they were (#1398, CL10): a window landing after the gesture never draws its rows over the place the viewer is at.
      */
-    const pagingClearJump = paging.clearJump;
     const ringGesture = useCallback((seeks = false) => {
         ringMoves.current += 1;
         if (seeks || seekIntent.current === undefined || jumpBy.current !== "key") return;
         seekIntent.current = undefined;
-        pagingClearJump();
-    }, [pagingClearJump]);
+        clearJump();
+    }, [clearJump]);
     const onCellDown = useCallback((r: number, c: number, e: MouseEvent) => {
         if (e.button !== 0) return;
         e.preventDefault();
@@ -2300,10 +2350,6 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // it. A row the narrowing hides is marked so in the box, by the filters that
     // hide it once e3 has said, and a pick of it clears them and goes to it (the
     // hidden pick, below).
-    const lensJumpTo = lens.jumpToElement;
-    const lensClearJump = lens.clearJump;
-    const jumpTo = lensDrawn ? lensJumpTo : jumpToElement;
-    const clearJump = lensDrawn ? lensClearJump : paging.clearJump;
     const searchJump = useCallback((element: number) => { jumpBy.current = "search"; jumpTo(element); }, [jumpTo]);
     const searchClearJump = useCallback(() => { if (jumpBy.current === "search") clearJump(); }, [clearJump]);
     const recordSeek = useMemo(() => (rowsPart === undefined ? undefined : (query: SeekQuery) => seekRecord(rowsPart, query)), [rowsPart]);
@@ -2485,8 +2531,12 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // and then the ring and the view are on the row it went to in the frame
     // that first shows the jump's rows — never a frame of them at the old
     // place. The ring it places is placed in these rows: nothing follows it
-    // there from the rows that stood in.
-    const keyJump = paging.jump;
+    // there from the rows that stood in. Under the lens (#1349) the jump is the
+    // lens's: the rows shown stay drawn while it reads where it goes, and the
+    // ring lands once the stretch it lands in is read — the lens's jump settles
+    // on its own row, and the lens may still be reading the rows beside it.
+    const keyJump = lensDrawn ? lens.jump : paging.jump;
+    const lensView = lens.reportViewport;
     useLayoutEffect(() => {
         const intent = seekIntent.current;
         if (intent === undefined) return;
@@ -2499,6 +2549,19 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             return;
         }
         if (!keyJump.settled) return;
+        if (lensDrawn) {
+            // The first stretch at or past where it goes — or, landing on the last row there, at or before it: a band still
+            // read holds the ring back until it is drawn, so it never lands on a row short of it.
+            const meets = (it: SheetBodyItem): boolean => {
+                const span = spanOf(it);
+                if (span === undefined || (it.kind !== "band" && it.kind !== "failed" && !isRowSpace(it))) return false;
+                return intent.land === "first" ? span.to >= intent.element : span.from <= intent.element;
+            };
+            let at: SheetBodyItem | undefined;
+            if (intent.land === "first") at = body.find(meets);
+            else for (let i = body.length - 1; i >= 0 && at === undefined; i--) if (meets(body[i]!)) at = body[i];
+            if (at?.kind === "band") return;
+        }
         seekIntent.current = undefined;
         const positionOf = (it: SheetBodyItem): number | undefined => (intent.land === "end" ? elementOf(it) ?? undefined : rowPositionOf(it));
         let bi = -1;
@@ -2512,10 +2575,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         const shown = r !== undefined && r >= 0 ? bi : body.findIndex((it) => it.kind === "failed" && it.failure.from <= intent.element && intent.element <= it.failure.to);
         // Nothing to show (a lens hides every row there): the viewport is the viewer's again.
         if (shown < 0) { clearJump(); return; }
+        // Under the lens, the view is where the ring landed from here on, so what it read there stays read — the jump's own
+        // row may be one the narrowing does not hold, which hands the lens no view — until the frame reports where it rests.
+        const landedAt = lensDrawn ? spanOf(body[shown]!) : undefined;
+        if (landedAt !== undefined) lensView(landedAt.from, landedAt.to, false);
         setScrollTarget({ index: shown, align: "auto" });
         setScrollNonce((n) => n + 1);
         handBack.current = true;
-    }, [keyJump, body, rowSpace, dispatch, clearJump, sourceRows, rowSpaceSlots]);
+    }, [keyJump, lensDrawn, lensView, body, rowSpace, dispatch, clearJump, sourceRows, rowSpaceSlots]);
 
     // ── Where the scroll rests (#857) ─────────────────────────────────────
     // The anchor the last session left is restored once its item is in the

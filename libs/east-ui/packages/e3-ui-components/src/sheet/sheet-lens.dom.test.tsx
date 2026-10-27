@@ -274,6 +274,86 @@ test("its reads follow the view: scrolled to the record's end, it reads the segm
     expect(h.requests("read", ORDERS)).toEqual([]);
 });
 
+/** A row's cell under a column — the Job column unless named — the ring's when it has it. */
+const jobCell = (ui: Awaited<ReturnType<typeof setup>>, id: string, key = "job") => ui.row(id)?.querySelector<HTMLElement>(`[data-slot="cell"][data-key="${key}"]`) ?? null;
+/** The grid: what the keys are pressed on. */
+const gridOf = (ui: Awaited<ReturnType<typeof setup>>) => ui.main().querySelector<HTMLElement>("[data-sheet-card]")!;
+/** A work order's key by its place in the record: `JOB-` and its place plus 10,000. */
+const orderAt = (place: number) => `JOB-${place + 10_000}`;
+
+test("⌘End under the lens goes past the stretches it has not read to the narrowing's last match, the rows shown drawn and the ring where it was while it reads there; ⌘Home goes back to its first (#1398, CL10)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.ids()[0]).toBe("JOB-10000"));
+    await settle();
+    fireEvent.mouseDown(jobCell(ui, "JOB-10000")!, { button: 0 });
+    // The record's far segments held on their way: what the lens reads there waits.
+    const far = h.e3.hold((request) => request.kind === "page" && request.dataset === ORDERS && Number(request.query.get("offset") ?? 0) >= 40_000);
+    await act(async () => { fireEvent.keyDown(gridOf(ui), { key: "End", ctrlKey: true }); });
+    await settle();
+    // It reads where the narrowing ends — the rows shown drawn, the ring on its cell, meanwhile.
+    expect(far.held).toBeGreaterThan(0);
+    expect(jobCell(ui, "JOB-10000")?.hasAttribute("data-selected")).toBe(true);
+    await act(async () => { far.release(); });
+    // The last Ready order, the 49,999th row, at its number: the ring on its last cell, the grid's active cell.
+    await waitFor(() => expect(jobCell(ui, "JOB-59998", "quantity")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+    expect(ui.row("JOB-59998")!.querySelector('[data-slot="gutterNumber"]')!.textContent).toBe("49999");
+    expect(document.getElementById(gridOf(ui).getAttribute("aria-activedescendant")!)).toBe(jobCell(ui, "JOB-59998", "quantity"));
+    // ⌘Home: back to the narrowing's first match, its first cell.
+    await act(async () => { fireEvent.keyDown(gridOf(ui), { key: "Home", ctrlKey: true }); });
+    await waitFor(() => expect(jobCell(ui, "JOB-10000", "reference")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+    expect(h.requests("read", ORDERS)).toEqual([]);
+});
+
+/**
+ * The ring on the last row the lens has read near the top, the stretch past it held on its way: the view brought down
+ * to that row — the lens reading on past it, held — and a press on its cell.
+ *
+ * @returns The hold, and the last Ready order read and the first past it, by their places in the record
+ */
+async function onTheLastRowRead(ui: Awaited<ReturnType<typeof setup>>) {
+    // Where the segments the lens read end: the last row of its pages.
+    const end = Math.max(...h.requests("page", ORDERS).map((request) => Number(request.query.get("offset") ?? 0) + Number(request.query.get("limit") ?? 0)));
+    const past = h.e3.hold((request) => request.kind === "page" && request.dataset === ORDERS && Number(request.query.get("offset") ?? 0) >= end);
+    // Ready is every third order from the first: the last read, and the first past them.
+    const last = end - 1 - ((end - 1) % 3);
+    const next = end + ((3 - (end % 3)) % 3);
+    const frame = ui.main().querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+    const pitch = parseFloat(ui.rows()[0]!.style.minHeight);
+    // Its row, the (last / 3)-th the lens draws, at the foot of the view.
+    await act(async () => { frame.scrollTop = (last / 3 + 1) * pitch - 2000; frame.dispatchEvent(new Event("scroll")); });
+    await waitFor(() => expect(ui.row(orderAt(last))).not.toBeNull(), { timeout: 10_000 });
+    await settle();
+    fireEvent.mouseDown(jobCell(ui, orderAt(last))!, { button: 0 });
+    return { past, last, next };
+}
+
+test("↓ from the last row the lens has read goes on into the stretch past it once it is read — never stopping at the rows read (#1398, CL10)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.ids()[0]).toBe("JOB-10000"));
+    await settle();
+    const { past, last, next } = await onTheLastRowRead(ui);
+    await act(async () => { fireEvent.keyDown(gridOf(ui), { key: "ArrowDown" }); });
+    await settle();
+    // The stretch past it on its way: the ring where it was.
+    expect(jobCell(ui, orderAt(last))?.hasAttribute("data-selected")).toBe(true);
+    await act(async () => { past.release(); });
+    // Read: the ring on its first Ready order.
+    await waitFor(() => expect(jobCell(ui, orderAt(next))?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+    expect(document.getElementById(gridOf(ui).getAttribute("aria-activedescendant")!)).toBe(jobCell(ui, orderAt(next)));
+});
+
+test("PageDown from the last row the lens has read crosses into the stretch past it at its edge once it is read — never clamped to the rows read (#1398, CL10)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.ids()[0]).toBe("JOB-10000"));
+    await settle();
+    const { past, last, next } = await onTheLastRowRead(ui);
+    await act(async () => { fireEvent.keyDown(gridOf(ui), { key: "PageDown" }); });
+    await settle();
+    expect(jobCell(ui, orderAt(last))?.hasAttribute("data-selected")).toBe(true);
+    await act(async () => { past.release(); });
+    await waitFor(() => expect(jobCell(ui, orderAt(next))?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+});
+
 test("another narrowing: its matches alone, one after another at their numbers, nothing between them, and the count line its matches", async () => {
     const ui = await setup();
     await waitFor(() => expect(ui.ids()[0]).toBe("JOB-10000"));
