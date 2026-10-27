@@ -42,7 +42,10 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
         disclosureLabel: { textStyle: "caption.eyebrow", color: "fg.subtle" },
         disclosureBody: { padding: "0", paddingTop: "{spacing.2}", maxHeight: "none" },
         disclosureFoot: { padding: "0", paddingTop: "{spacing.2}", borderTopWidth: "0" },
-        choiceList: { display: "flex", flexDirection: "column", gap: "{spacing.1}", minWidth: "0" },
+        // A field's editor: its parts one under another, each its own height. Its search box among them grows along a
+        // toolbar's row from 240px (`sliceFrame.searchCompact`): in this column that basis would be its height, an
+        // empty block some 200px tall under its 28px box.
+        choiceList: { display: "flex", flexDirection: "column", gap: "{spacing.1}", minWidth: "0", "& > [data-scope=combobox][data-part=root]": { flex: "none" } },
         choice: {
             display: "flex", alignItems: "center", gap: "{spacing.2}", width: "full", minWidth: "0",
             paddingX: "{spacing.2}", paddingY: "{spacing.1.5}", borderRadius: "{radii.sm}",

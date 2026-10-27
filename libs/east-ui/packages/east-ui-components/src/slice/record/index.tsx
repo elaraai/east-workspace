@@ -9,7 +9,7 @@ import { Box, Button, Skeleton, useSlotRecipe } from "@chakra-ui/react";
 import { faCalendar, faFilter, faMagnifyingGlass, faUsers } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix, IconProp } from "@fortawesome/fontawesome-svg-core";
 import { DateTimeType, IntegerType, FloatType, lessFor, parseFor, printFor, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
-import { recordChoiceWhere, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType, type RecordSlicesBindType } from "@elaraai/east-ui/internal";
+import { recordChoiceNeeds, recordChoiceWhere, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType, type RecordSlicesBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { SliceSearchInput } from "../search/input.js";
 import { SliceChoiceGroup, SliceCountSummary, SliceFieldActions, SliceFieldChip } from "../choice.js";
@@ -175,10 +175,25 @@ function RecordSourceCount({ slice }: { slice: Bind }) {
     return <Box as="span" role="status" aria-busy="false">{typeof said === "number" ? words.number(said) : said}</Box>;
 }
 
-function proposalFor(slice: Bind, field: Field, choice: Choice, words: ReturnType<typeof useFormatters>): { hint?: string; disabled: boolean } {
+/** What a choice the narrowing as it stands cannot take says, while one chosen first would let it: the fields to choose. */
+const CHOOSE_FIRST = "Choose a preceding field first.";
+
+/**
+ * What a choice would do: replace other fields' choices (its hint), or nothing while it is off — named by the fields to
+ * choose first (`Choose Kiln group first.`), or `never` where no index takes that kind of choice on the field at all,
+ * whatever is chosen first (a prefix of a field only an interval index leads), which the editor then does not offer.
+ */
+function proposalFor(slice: Bind, field: Field, choice: Choice, words: ReturnType<typeof useFormatters>): { hint?: string; disabled: boolean; never?: true } {
     const state = slice.read();
     const next = recordChoiceWhere(slice.config.indexes, state.where, field.fieldId, choice);
-    if (next === null) return { hint: "Choose a preceding field first.", disabled: true };
+    if (next === null) {
+        const offered = new Set(slice.config.fields.map(f => f.fieldId));
+        const needs = recordChoiceNeeds(slice.config.indexes, state.where, field.fieldId, choice.type, offered);
+        if (needs === null) return { disabled: true, never: true };
+        const labels = needs.map(name => slice.config.fields.find(f => f.fieldId === name)?.label ?? name);
+        const named = labels.length < 2 ? labels.join("") : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)!}`;
+        return { hint: labels.length === 0 ? CHOOSE_FIRST : `Choose ${named} first.`, disabled: true };
+    }
     const replaced = slice.config.fields.filter(f => state.where.has(f.fieldId) && !next.has(f.fieldId));
     return { disabled: false, ...(replaced.length === 0 ? {} : { hint: `Replaces ${replaced.map(f => recordChoiceLabel(f, state.where.get(f.fieldId), words)).join("; ")}` }) };
 }
@@ -213,13 +228,18 @@ function StringSearch({ slice, field, run }: { slice: Bind; field: Field; run: (
     useEffect(() => { const timer = setTimeout(() => setQuery(text), SEARCH_DELAY_MS); return () => clearTimeout(timer); }, [text]);
     const words = useFormatters();
     const styles = useSlotRecipe({ key: "sliceEdit" })();
-    const blocked = proposalFor(slice, field, variant("values", [printRecordChoice(field, query)]), words).disabled;
+    // An exact value the narrowing cannot take yet: what to choose first, which the box says in place of its matches.
+    const exact = proposalFor(slice, field, variant("values", [printRecordChoice(field, query)]), words);
+    const blocked = exact.disabled;
+    const chooseFirst = exact.hint ?? CHOOSE_FIRST;
     const read = useCallback(() => blocked ? some([]) : slice.suggest(field.fieldId, query), [slice, field.fieldId, query, blocked]);
     const { result } = useTrackedEvaluation(read);
     const pending = !blocked && (text !== query || (result.ok && result.value.type === "none"));
     const suggestions = !pending && result.ok && result.value.type === "some" ? result.value.value : [];
     const countFailed = suggestions.some(value => value.error.type === "some");
-    const prefix = !field.set && text !== "" ? proposalFor(slice, field, variant("prefix", text), words) : undefined;
+    // Everything starting with the text, where an index takes a prefix of the field: none where none ever does.
+    const starting = !field.set && text !== "" ? proposalFor(slice, field, variant("prefix", text), words) : undefined;
+    const prefix = starting?.never === true ? undefined : starting;
     const items = [
         ...suggestions.map(value => ({ value: `value:${value.value}`, label: value.label,
             meta: value.error.type === "some" ? "Count unavailable" : value.count.type === "some" ? words.number(value.count.value)
@@ -238,12 +258,12 @@ function StringSearch({ slice, field, run }: { slice: Bind; field: Field; run: (
     });
     return <>
         <SliceSearchInput text={text} placeholder={`Search ${field.label.toLocaleLowerCase(words.locale)}…`}
-            busy={pending} emptyText={pending ? "Searching…" : blocked ? "Choose a preceding field first." : "No matching values"}
+            busy={pending} emptyText={pending ? "Searching…" : blocked ? chooseFirst : "No matching values"}
             items={items}
             onInput={next => { setText(next); if (next === "") queueMicrotask(() => run(() => slice.clear(field.fieldId))); }}
             onSelect={id => queueMicrotask(() => choose(id))}
             {...(prefix !== undefined && !prefix.disabled ? { onSubmit: () => queueMicrotask(() => choose("prefix")) } : {})} />
-        {(prefix?.hint || blocked) && <Box css={styles.hint}>{prefix?.hint ?? "Choose a preceding field first."}</Box>}
+        {(prefix?.hint || blocked) && <Box css={styles.hint}>{prefix?.hint ?? chooseFirst}</Box>}
         {!result.ok && <RecordSliceFailure slice={slice} />}
         {countFailed && <RecordSliceFailure slice={slice} message="Could not load suggestion counts" />}
     </>;

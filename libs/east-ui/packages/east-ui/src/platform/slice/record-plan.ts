@@ -175,6 +175,55 @@ export function planRecordSlice(indexes: readonly Index[], where: ReadonlyMap<st
     }) };
 }
 
+/** A choice of each kind the rail makes, as the matcher reads it: its kind and how many values, never what they are. */
+const SAMPLES: Readonly<Record<"values" | "range" | "prefix", Choice>> = {
+    values: variant("values", [""]),
+    range: variant("range", { from: "", to: "" }),
+    prefix: variant("prefix", ""),
+};
+
+/**
+ * What a field's choice of a kind needs chosen first, by the narrowing as it
+ * stands: the fields an index that takes that kind of choice on the field
+ * takes exact choices of beside it — those before it on its path, every
+ * leading field of an interval index, and every Set field it fans out over —
+ * less those the narrowing already chooses so, the index needing the fewest.
+ * An index counts only where each of those is a field the rail offers, and
+ * where the matcher ({@link recordPathMatches}) takes what it would then hold.
+ * `null` where no index takes that kind of choice on the field at all,
+ * whatever else is chosen: a prefix of a field only an interval index leads,
+ * whose leading fields take exact values alone, is one no field chosen first
+ * makes possible.
+ *
+ * @param indexes - Available field paths.
+ * @param current - Current narrowing.
+ * @param field - The field being chosen.
+ * @param kind - The kind of its choice: exact values, a range or a prefix (a window is a read's, never the rail's).
+ * @param offered - The fields the rail offers: one it does not can never be chosen first.
+ * @returns The fields still to choose, in their index's order — none where none is — or null.
+ */
+export function recordChoiceNeeds(indexes: readonly Index[], current: ReadonlyMap<string, Choice>, field: string,
+    kind: Choice["type"], offered: ReadonlySet<string>): string[] | null {
+    if (kind === "window") return null;
+    let best: string[] | null = null;
+    for (const index of indexes) {
+        const at = index.fields.indexOf(field);
+        if (at < 0 || index.series.type === "some" || index.summary.type === "some") continue;
+        const before = index.interval.type === "some" ? index.fields.slice(0, -1) : index.fields.slice(0, at);
+        const needed = [...new Set([...before, ...index.sets])].filter(name => name !== field);
+        if (needed.some(name => !offered.has(name))) continue;
+        const candidate = new Map<string, Choice>(needed.map(name => [name, SAMPLES.values]));
+        candidate.set(field, SAMPLES[kind]);
+        if (!recordPathMatches(index, candidate)) continue;
+        const missing = needed.filter(name => {
+            const chosen = current.get(name);
+            return chosen?.type !== "values" || (index.sets.has(name) && chosen.value.length !== 1);
+        });
+        if (best === null || missing.length < best.length) best = missing;
+    }
+    return best;
+}
+
 /**
  * Keep the largest supported leading path after a choice changes. A new field
  * that cannot follow replaces incompatible clauses; a trailing field with no
