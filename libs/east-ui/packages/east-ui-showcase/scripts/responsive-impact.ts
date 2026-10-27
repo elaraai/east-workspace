@@ -15,9 +15,23 @@ import { listTests } from "./responsive-shards.js";
 // Only these reviewed suites belong exclusively to one component. New or
 // cross-component specs remain shared and run with every component change.
 const componentSpecs = {
-    calendar: ["calendar.spec.ts", "calendar-narrowing.spec.ts", "calendar-records.spec.ts", "optimise-calendar.spec.ts"],
+    // The Allocation's board (#1319–#1333): its frame, Timeline, Table, cards, split, library, inspector, fit, search,
+    // narrowing, loading and eye; its toolbar's fit and its keys run in the shared suites with every builder's.
+    allocation: [
+        "allocation-cards.spec.ts", "allocation-fit.spec.ts", "allocation-frame.spec.ts", "allocation-inspector.spec.ts", "allocation-library.spec.ts",
+        "allocation-loading.spec.ts", "allocation-narrowing.spec.ts", "allocation-search.spec.ts", "allocation-split.spec.ts", "allocation-table.spec.ts",
+        "allocation-timeline.spec.ts", "optimise-allocation.spec.ts",
+    ],
+    calendar: [
+        "calendar.spec.ts", "calendar-glide.spec.ts", "calendar-loading.spec.ts", "calendar-narrowing.spec.ts", "calendar-paged-columns.spec.ts",
+        "calendar-recentre.spec.ts", "calendar-records.spec.ts", "calendar-search.spec.ts", "calendar-steps.spec.ts", "optimise-calendar.spec.ts",
+    ],
     flowchart: ["flowchart-builder.spec.ts", "flowchart-drop.spec.ts", "flowchart-flows.spec.ts", "flowchart-frame.spec.ts", "flowchart-records.spec.ts"],
-    plan: ["optimise-plan.spec.ts", "plan-builder-dnd.spec.ts", "plan-builder.spec.ts", "plan-delete.spec.ts", "plan-frame.spec.ts", "plan-geometry.spec.ts", "plan-narrowing.spec.ts", "plan-run-focus.spec.ts", "plan-time-ruler.spec.ts", "plan-windows.spec.ts"],
+    plan: [
+        "optimise-plan.spec.ts", "plan-builder-dnd.spec.ts", "plan-builder.spec.ts", "plan-delete.spec.ts", "plan-far-moves.spec.ts", "plan-filters.spec.ts",
+        "plan-frame.spec.ts", "plan-geometry.spec.ts", "plan-narrowing.spec.ts", "plan-records.spec.ts", "plan-run-focus.spec.ts", "plan-time-ruler.spec.ts",
+        "plan-windows.spec.ts",
+    ],
     query: ["query-builder.spec.ts", "query-library.spec.ts", "query-runs.spec.ts"],
     roster: ["optimise-roster.spec.ts", "roster.spec.ts", "roster-inspector.spec.ts", "roster-load.spec.ts", "roster-people.spec.ts"],
     // The Schematic's frame (#1387), editing (#1388), library (#1389), drops
