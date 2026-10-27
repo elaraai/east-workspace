@@ -1924,6 +1924,41 @@ describe('the batch routes', () => {
     assert.ok(planned.type === 'success' && planned.value.type === 'upload_parts', `the init is planned as an upload's: ${JSON.stringify(planned.type)}`);
   });
 
+  it('refuse a body past 16 MiB, 413, as its length says so or as its bytes pass it', async () => {
+    // A batch names at most 10,000 queries, keys or runs, and its body was
+    // read whole, however large, before anything looked at it.
+    const storage = new InMemoryStorage();
+    await seedIndexedRecord(storage, 300);
+    const state = await stateOf(storage);
+    const app = serverOf(storage);
+    const at = `/api/repos/${REPO}/workspaces/${WS}/datasets/records/plans?findKeys=true&hash=${state}`;
+    const cap = 16 * 1024 * 1024;
+    // Declared: one query whose key literal alone is the cap's bytes.
+    const huge = JSON.stringify({ queries: [{ key: JSON.stringify('k'.repeat(cap)) }] });
+    const declared = await app.request(at, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': String(huge.length) }, body: huge,
+    });
+    assert.equal(declared.status, 413, `a body its length says is past the cap is refused: got ${declared.status} ${(await declared.clone().text()).slice(0, 200)}`);
+    // Undeclared, sent as it is made: past the cap in whitespace, then a batch.
+    let made = 0;
+    const chunk = new Uint8Array(64 * 1024).fill(0x20);
+    const streamed = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (made > cap) {
+          controller.enqueue(new TextEncoder().encode('{"queries":[]}'));
+          controller.close();
+          return;
+        }
+        made += chunk.byteLength;
+        controller.enqueue(chunk);
+      },
+    });
+    const undeclared = await app.request(at, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: streamed, duplex: 'half',
+    } as RequestInit);
+    assert.equal(undeclared.status, 413, `a body whose bytes pass the cap is refused: got ${undeclared.status} ${(await undeclared.clone().text()).slice(0, 200)}`);
+  });
+
   it('refuse a body not of the batch\'s form, a read of runs pinned to nothing, and two batches at once, and leave every other POST to no route', async () => {
     const storage = new InMemoryStorage();
     await seedIndexedRecord(storage, 300);
