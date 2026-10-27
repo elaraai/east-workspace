@@ -92,6 +92,7 @@ import { useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import { clearHiding } from "../shared/schedule/hidden.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
+import { sourcePart } from "../shared/schedule/visibility.js";
 import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
 import { BacklogServed, CalendarBacklogPages, type BacklogPageCount } from "./backlog-pages.js";
@@ -486,12 +487,14 @@ function CalendarFrame(props: HostProps) {
     // While a run is out (R2) every gesture is refused, the session the views read kept.
     const gestures = !available ? undefined : locked && commands !== undefined ? lockCalendarCommands(commands, optimiseMessages.locked({ period: periodName })) : commands;
     const rows = useMemo(() => [...resourceRows(value.resources), ...pagedRows, UNASSIGNED], [value.resources, pagedRows]);
-    // The paged kind's Choosers search it by key (#1424, `chooser.tsx`), each resource named by a window held, else by its key.
+    // The paged kind's Choosers search it by key (#1424, `chooser.tsx`), each resource named by a window held, else by its key,
+    // and leave out what the kind's source of the slice hides, as the other Choosers leave out what the rail hides.
+    const chrome = dates.chrome;
     const chooser = useMemo((): CalendarChooser | undefined => {
         if (pagedValue === undefined || pagedKind === undefined) return undefined;
         const names = new Map(pagedRows.flatMap(row => row.resource.type === "some" ? [[row.resource.value.key, row.label] as const] : []));
-        return { paged: pagedValue, noun: pagedKind.name.toLocaleLowerCase(format.locale), nameOf: key => names.get(key) ?? key };
-    }, [pagedValue, pagedKind, pagedRows, format.locale]);
+        return { paged: pagedValue, noun: pagedKind.name.toLocaleLowerCase(format.locale), nameOf: key => names.get(key) ?? key, part: sourcePart(chrome, pagedValue.kind) };
+    }, [pagedValue, pagedKind, pagedRows, format.locale, chrome]);
     const shownRows = useMemo(() => [...resourceRows(shown), UNASSIGNED], [shown]);
     const overlaps = useMemo(() => scheduleOverlaps([items.filter(item => value.events.find(kind => kind.key === item.kind)?.overlaps.type === "warn")]), [items, value.events]);
     // Whether the overlaps chip shows (#1398): an overlap among what is drawn — on the timeline, one in the days it shows,

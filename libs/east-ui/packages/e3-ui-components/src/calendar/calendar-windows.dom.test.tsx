@@ -476,6 +476,27 @@ describe("the inspector's resource Chooser over the paged presses (#1424)", () =
         await scrollTimeline(c, { top: lineOf(459) });
         await waitFor(() => expect(pressRow(c, "P-1460")?.querySelector(`[data-calendar-event=${brochure}]`)?.hasAttribute("data-drafted")).toBe(true), { timeout: 10_000 });
     });
+
+    test("over a hall chosen, the Chooser leaves out the presses the presses' source hides — no Hall 4 press offered — and keeps the job's own, asked of e3 a page at a time (ruled 27 Oct 2026)", async () => {
+        const { container: c } = await h.mount(cw.calendarWindowsByHall, { storageKey: "windows-chooser-hall" });
+        await settle();
+        // The brochure run, on Press 1001 in Hall 1, selected; then Hall 2 chosen on the rail, the run still selected.
+        await act(async () => { fireEvent.click(jobEvent(c, "W-0001")!); });
+        await settle();
+        await chooseHall("Hall 2");
+        await waitFor(() => expect(pressRows(c)[0]).toBe("Press 1002"), { timeout: 10_000 });
+        await waitFor(() => expect(chooserBox(c)).not.toBeNull());
+        const since = h.requests().length;
+        await typeIntoChooser(c, "P-100");
+        // Of Presses 1001 to 1009, which the box finds by key, Hall 2's Press 1002 — and Press 1001, the run's own, which
+        // the hall hides: no other hall's press, Press 1004 of Hall 4 among them.
+        await waitFor(() => expect(chooserLines(c)).toEqual(["Press 1001 · P-1001 · Hall 1", "Press 1002 · P-1002 · Hall 2"]), { timeout: 5_000 });
+        // Asked of e3 through the hall index, a request a page the box lists, each of no more presses than the page holds.
+        const reads = h.requests().slice(since).filter((request) => request.dataset === HALL_PRESSES && request.kind === "within")
+            .map((request) => JSON.parse(new TextDecoder().decode(request.body)) as { index: string; keys: string[] });
+        expect(reads.length).toBeGreaterThan(0);
+        expect(reads.filter((read) => read.index !== BY_HALL.name || read.keys.length > 20)).toEqual([]);
+    });
 });
 
 // ============================================================================
