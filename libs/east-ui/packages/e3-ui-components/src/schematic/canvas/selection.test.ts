@@ -116,4 +116,26 @@ describe("linkAt, through the links' R-tree (#1403)", () => {
         expect(linkAt(index, routeOf, { x: 11, y: 5 }, { x: 110, y: 50 }, 10, () => true)).toEqual({ key: feed.key, leg: null });
         expect(linkAt(index, routeOf, { x: 2, y: 3.5 }, { x: 20, y: 35 }, 10, () => true)).toEqual({ key: feed.key, leg: { end: "destination", item: a.key } });
     });
+
+    it("a net is filed under the box its bus spans: a bar standing off its side toward the trunk past every member, the other side level with it, is found (hand retest, 27 Oct 2026)", () => {
+        // A rack into two frames, as a Shift-connect grows a trunk: the frames' bar 0.9 m above them, toward the rack level
+        // with the nearer frame — past every member.
+        const r = at("R", 16.8, 2.9), m = at("M", 24.2, 2.9), o = at("O", 8.4, 9.6);
+        const trunk = drawnNet({ kind: "trunks", key: "t" }, {
+            ...defaultValue<typeof T.Net>(T.Net), sources: [{ kind: "racks", key: "R" }], destinations: [{ kind: "racks", key: "M" }, { kind: "racks", key: "O" }],
+            route: variant("direct", null), style: variant("solid", { tone: none, weight: none }),
+        });
+        const members = [r, m, o];
+        const centres = new Map(members.map((item) => [item.key, { x: item.x, y: item.y }]));
+        const trunkEnv = routeEnv({
+            cam: { ppu: 10, tx: 0, ty: 0 }, centers: centres, items: new Map(members.map((item) => [item.key, item])),
+            tiers: new Map(members.map((item) => [item.key, "dot" as const])), cardSizes: undefined, lanes: new Map(), measure: (text) => text.length * 6,
+        });
+        const index = linkIndex([], [trunk], centres, EMPTY_STRING_SET, new Map());
+        const routeOf = () => netRoutes(trunk, trunkEnv);
+        // The bar, at 2 m, between the rack and the nearer frame: the whole trunk.
+        expect(linkAt(index, routeOf, { x: 20, y: 2 }, { x: 200, y: 20 }, 10, () => true)).toEqual({ key: trunk.key, leg: null });
+        // The nearer frame's leg, from the bar down to its rim: that leg.
+        expect(linkAt(index, routeOf, { x: 24.2, y: 2.2 }, { x: 242, y: 22 }, 10, () => true)).toEqual({ key: trunk.key, leg: { end: "destination", item: m.key } });
+    });
 });

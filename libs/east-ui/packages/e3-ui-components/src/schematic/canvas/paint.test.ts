@@ -1088,3 +1088,28 @@ describe("the links' look (#1403)", () => {
         expect(drawn.some((d) => d.style === LINKS.strong || d.style === LINKS.ring)).toBe(false);
     });
 });
+
+describe("a net is culled by the box its bus spans (hand retest, 27 Oct 2026)", () => {
+    const T = Schematic.Types;
+    const at = (key: string, x: number, y: number) => drawnItem({ kind: "racks", key }, {
+        ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y }), label: key,
+    }, undefined)!;
+    // A rack into two frames, as a Shift-connect grows a trunk: the frames' bar 0.9 m above them, toward the rack level with
+    // the nearer frame — past every member.
+    const r = at("R", 16.8, 2.9), m = at("M", 24.2, 2.9), o = at("O", 8.4, 9.6);
+    const trunk = drawnNet({ kind: "trunks", key: "t" }, {
+        ...defaultValue<typeof T.Net>(T.Net), sources: [{ kind: "racks", key: "R" }], destinations: [{ kind: "racks", key: "M" }, { kind: "racks", key: "O" }],
+        route: variant("direct", null), style: variant("solid", { tone: none, weight: none }),
+    });
+
+    it("draws while its bar crosses the view, every member off it", () => {
+        const { ctx, drawn } = recorder();
+        // 100 px a metre, the view 3 × 2 m over the bar between the rack and the nearer frame: no member in it.
+        paintSchematic({
+            ctx, value: { items: [r, m, o], zones: [], links: [], nets: [trunk] }, cam: { ppu: 100, tx: -1850, ty: -50 }, width: 300, height: 200,
+            visibleItems: [], tiers: new Map(), selected: new Set(), selectedZones: new Set(),
+            centers: new Map([r, m, o].map((item) => [item.key, { x: item.x, y: item.y }])), palette: PALETTE, tints: new Map(),
+        });
+        expect(drawn.some((d) => d.op === "stroke" && d.style === LINKS.ink)).toBe(true);
+    });
+});
