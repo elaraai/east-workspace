@@ -601,24 +601,28 @@ describe("a bounded view of the narrowed presses (#1344)", () => {
             expect(order).toEqual(["P-2501", "P-2511"]);
         });
 
-        test("End from a press reads the last window where the view is — the focus kept on the canvas, never the page's body — then lands on the last press; Home back to the first, its window still held by the page", async () => {
+        test("End from a press reads the last window where the view is — the presses shown standing in, retained, the focus kept on the press it set out from, never the page's body — then lands on the last press; Home back to the first, its window still held by the page (#1398, CL10)", async () => {
             const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
             await settle();
             await act(async () => { pressItem(c, "P-1001")!.focus(); });
             const windows = h.e3.hold((request) => request.dataset === PRESSES && request.kind === "page");
             const watch = watchFocus(c);
             await key("End");
-            // The last window asked for, the first ones' rows gone with the run: the view stays at the top while it is read,
-            // the focus on the canvas's surface.
+            // The last window asked for: the presses shown stand in where they are while it is read — retained in a busy
+            // main — the view at the top and the focus on the press it set out from.
             await windows.holding;
             expect(frameOf(c).scrollTop).toBe(0);
-            expect(focused(c)).toBe("the canvas");
+            expect(pressItem(c, "P-1001")).not.toBeNull();
+            expect(focused(c)).toBe("P-1001");
+            expect(body(c).getAttribute("aria-disabled")).toBe("true");
+            expect(slot(c, "main")!.getAttribute("aria-busy")).toBe("true");
             await act(async () => { windows.release(); });
             await settle();
             // In: the last press, the two thousandth, at the foot of the view — the scroll's end, which the stand-in layout puts
-            // past the rows.
+            // past the rows — and nothing retained.
             await waitFor(() => expect(focused(c)).toBe("P-3000"));
             expect(frameOf(c).scrollTop).toBeGreaterThanOrEqual(2000 * ROW_PX - VIEWPORT);
+            expect(body(c).hasAttribute("aria-disabled")).toBe(false);
             // Home: the first window, which the page still holds, read again at once — the first press, at the top.
             const asked = h.requests().length;
             await key("Home");
@@ -626,9 +630,9 @@ describe("a bounded view of the narrowed presses (#1344)", () => {
             expect(frameOf(c).scrollTop).toBe(0);
             expect(pressesAsked(asked)).toEqual([]);
             watch.stop();
-            // Never the page's body: the canvas's surface held the focus between the presses, where their rows went first.
+            // Never the page's body: the focus stayed on the press it set out from until the last press took it.
             expect(watch.seen.filter((at) => at === "the page's body")).toEqual([]);
-            expect(watch.seen.filter((at, i, all) => i === 0 || at !== all[i - 1]).filter((at) => at !== "the canvas")).toEqual(["P-3000", "P-1001"]);
+            expect(watch.seen.filter((at, i, all) => i === 0 || at !== all[i - 1]).filter((at) => at !== "the canvas")).toEqual(["P-1001", "P-3000", "P-1001"]);
         });
     });
 });

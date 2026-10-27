@@ -96,6 +96,18 @@
  * lands, or its read fails) AND the canvas has committed a snapshot that holds
  * it ({@link PagingDriver.committed}).
  *
+ * # A far key keeps the view it left standing (#1398, CL10)
+ *
+ * Home and End past a run go to the source's first or last window as a jump
+ * does, but fetch, then move: where the jump takes the rows drawn off the run
+ * — its demand rebases there — the view the key left stands in until that
+ * window is in — the snapshot drawn as the key came, whole, its rows where
+ * they were (`standing`) — and the windows it drew stay in the cache, never
+ * pruned for the jump's run. The far window landing (or failing) publishes the
+ * jump's own view in the same settle. A clear before then (`clearJump`) — the
+ * keyboard moving on among the rows that stand in — puts every block back as
+ * it was, the windows it drew still read, so nothing is read again for it.
+ *
  * # A failure belongs to its window (#811)
  *
  * A window whose read throws is one error band at its ledger slot in each
@@ -244,6 +256,11 @@ export interface PlanPagingSnapshot {
     /** Whether the view the last narrowing drew stands in while a new one's
      *  first window is read (#1354): the footer's line says it is filtering. */
     replacing: boolean;
+    /**
+     * Whether the view a far key left stands in while the window it goes to is read (#1398, CL10) — Home or End past
+     * a run: its rows where they were, retained, and the line saying that window is read (`reading`).
+     */
+    standing: boolean;
     /** The narrowing the rows belong to, as a live source names it (`query()`,
      *  #1354) — the stand-in's the last narrowing's until the new one's rows
      *  land (#1344): what the rows in view are reported under, so a reader of
@@ -277,7 +294,7 @@ const NO_BLOCKS: readonly PlanPagedBlock[] = [];
 export const IDLE_PAGING: PlanPagingSnapshot = {
     seq: 0, rows: NO_ROWS, origin: NO_ORIGIN, blocks: NO_BLOCKS,
     total: undefined, resident: undefined, complete: true, loading: false, viewLoading: false, reading: undefined, replacing: false,
-    narrowing: undefined, failures: NO_FAILURES, sourceError: undefined, revision: undefined, dataSnapshot: undefined,
+    standing: false, narrowing: undefined, failures: NO_FAILURES, sourceError: undefined, revision: undefined, dataSnapshot: undefined,
 };
 
 /** Where a row the body does not hold sits (#823): in one of its block's
@@ -320,12 +337,21 @@ export interface PagingDriver {
      *  rebases on a far one (the step policy's `rebaseGap`), so the windows in
      *  between a far jump are never fetched. */
     jumpToElement(element: number): void;
+    /**
+     * Go to a source element the keyboard goes to — Home or End past a run (#1398, CL10): a jump, but while its window
+     * is not in, the view drawn as the key came stands in (`standing`), its windows kept, until it lands; a clear
+     * ({@link clearJump}) before then puts that view back.
+     */
+    standTo(element: number): void;
+    /** Whether a far key's view stands in now ({@link standTo}). */
+    standing(): boolean;
     /** Open at a source element — where a remounted canvas left off (#813).
      *  Like a jump, but the run STARTS there however near the resident one
      *  is: nothing between is fetched for a place the user is not going to
      *  scroll through. With a block, only that block opens there. */
     openAt(element: number, block?: number): void;
-    /** Drop any pending jump pin — a cleared search has no target (#614). */
+    /** Drop any pending jump pin — a cleared search has no target (#614) — or, while a far key's view stands in, put
+     *  that view back as it was: every block where it was, nothing read again for it (#1398). */
     clearJump(): void;
     /**
      * The canvas committed `rendered`: it is on screen, and the canvas has
@@ -423,6 +449,23 @@ function readIdOf(rows: WindowRows): number {
         readIds.set(rows, id);
     }
     return id;
+}
+
+/** Where one paged block stood: what a far key's clear puts back (#1398). */
+type LaneAt = Pick<Lane, "residency" | "viewportWindow" | "viewportAt" | "travel" | "run">;
+
+/**
+ * A far key's jump while its window is not in (#1398, CL10): the window it goes
+ * to, the view drawn as the key came, where each block stood then and the block
+ * the view was in, and the windows that view drew — kept in the cache while it
+ * stands, so a clear draws it again at once.
+ */
+interface Standing {
+    readonly w: number;
+    readonly view: PlanPagingSnapshot;
+    readonly lanes: ReadonlyMap<number, LaneAt>;
+    readonly focusBlock: number;
+    readonly keep: ReadonlySet<number>;
 }
 
 /** One part of the assembled rows — a fixed block's rows, or one window of a paged block's. */
@@ -535,6 +578,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
     // A different narrowing has different positions. Keep the previous view as
     // one bounded stand-in until the replacement's first window or error lands.
     let transition: PlanPagingSnapshot | undefined;
+    // A far key's jump whose window is not in: the view it left stands in until it is (#1398, CL10).
+    let standing: Standing | undefined;
     let assembled: { pieces: readonly Piece[]; rows: readonly PlanRowValue[]; origin: ReadonlyMap<string, PlanRowOrigin> } =
         { pieces: [], rows: NO_ROWS, origin: NO_ORIGIN };
     let settling = false;
@@ -585,6 +630,40 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         return [...out];
     }
 
+    /** What the cache keeps when the demand moves: every window some block demands, and, while a far key's view
+     *  stands in, the windows it drew (#1398). */
+    function keptWindows(): Set<number> {
+        const keep = new Set(wantedWindows());
+        if (standing !== undefined) for (const w of standing.keep) keep.add(w);
+        return keep;
+    }
+
+    /** Whether a window is in for the view: landed at this revision or standing in from the last, or failed. */
+    function windowIn(w: number): boolean {
+        return store.windows.has(w) || store.stale?.has(w) === true || store.failures.has(w);
+    }
+
+    /** A far key's view put back as it was (#1398): every block where it stood, the jump's pin gone, and read again —
+     *  from the cache, which kept what it drew. */
+    function standDown(): void {
+        const s = standing;
+        if (s === undefined) return;
+        standing = undefined;
+        for (const [b, lane] of lanes) {
+            const was = s.lanes.get(b);
+            if (was === undefined) continue;
+            lane.residency = unpinAll(was.residency);
+            lane.viewportWindow = was.viewportWindow;
+            lane.viewportAt = was.viewportAt;
+            lane.travel = was.travel;
+            lane.run = was.run;
+        }
+        focusBlock = s.focusBlock;
+        pinsSettled = false;
+        settledSeq = undefined;
+        settle();
+    }
+
     /** Drop every window the cache holds, and what came with them: a source's
      *  rows that another source, or another narrowing, does not serve. */
     function dropWindows(): void {
@@ -599,7 +678,9 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
      *  stands in, whole, until the new one's first window lands; its geometry
      *  starts at zero, so no offset of the old result drives its requests. */
     function startResult(): void {
-        transition = snapshot.rows.length > 0 ? snapshot : transition;
+        // What stands in is the view drawn last, whoever drew it: a far key's stand-in gives way to the new result's.
+        transition = standing !== undefined ? standing.view : snapshot.rows.length > 0 ? snapshot : transition;
+        standing = undefined;
         total = 0;
         totalRevision = undefined;
         shape = undefined;
@@ -739,6 +820,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 lane.skeletons.clear();
             }
             located.clear();
+            // The geometry a far key's view was drawn in is gone with it: the source's own view is drawn from here.
+            standing = undefined;
             return true;
         }
         // The same total at this revision: the geometry holds for it.
@@ -801,7 +884,8 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             // Whatever left every block's residency leaves the cache with it —
             // the half of eviction that actually frees memory. A failure
             // record leaves too: a window demanded again later is asked afresh.
-            store.prune(new Set(wantedWindows()));
+            // What a far key's standing view drew stays while it stands (#1398).
+            store.prune(keptWindows());
         }
         return moved || demanded;
     }
@@ -923,6 +1007,25 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             }
             transition = undefined;
         }
+        if (standing !== undefined) {
+            // Fetch, then move (#1398, CL10): until the far key's window is in — landed, standing in from the last
+            // revision, or failed — or the source has said it cannot be read, the view the key left stands in, whole,
+            // the line saying the window it goes to is read.
+            const s = standing;
+            if (!windowIn(s.w) && last.sourceError === undefined && last.total !== 0) {
+                const known = last.total ?? (total > 0 ? total : undefined);
+                const end = (s.w + 1) * PLAN_PAGE_SIZE;
+                const reading = { from: s.w * PLAN_PAGE_SIZE, to: (known === undefined ? end : Math.min(known, end)) - 1 };
+                if (!snapshot.standing || snapshot.rows !== s.view.rows || !sameLoading(snapshot.reading, reading)) {
+                    snapshot = { ...s.view, seq: ++published, loading: true, viewLoading: true, reading, replacing: false, standing: true };
+                    options.onChange();
+                }
+                return;
+            }
+            // In: the jump's own view is drawn now, and what the stand-in drew leaves the cache with it.
+            standing = undefined;
+            store.prune(keptWindows());
+        }
         const prev = snapshot;
         const landed = new Map(last.resident.map((r) => [r.w, r.read]));
         // What each paged block draws, from what is in now (#876, `runAround`): the stretch of its resident windows that
@@ -988,6 +1091,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             viewLoading,
             reading: sameLoading(prev.reading, reading) ? prev.reading : reading,
             replacing: false,
+            standing: false,
             narrowing,
             failures: failures.length === 0 ? NO_FAILURES
                 : sameFailures(prev.failures, failures) ? prev.failures : failures,
@@ -998,7 +1102,7 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         const changed = next.rows !== prev.rows || next.origin !== prev.origin || next.blocks !== prev.blocks
             || next.total !== prev.total || next.resident !== prev.resident || next.complete !== prev.complete
             || next.loading !== prev.loading || next.viewLoading !== prev.viewLoading || next.reading !== prev.reading
-            || next.replacing !== prev.replacing || next.narrowing !== prev.narrowing
+            || next.replacing !== prev.replacing || next.standing !== prev.standing || next.narrowing !== prev.narrowing
             || next.failures !== prev.failures || next.sourceError !== prev.sourceError
             || next.revision !== prev.revision || next.dataSnapshot !== prev.dataSnapshot;
         if (!changed) return;
@@ -1018,8 +1122,27 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
 
     /** Move the demand to window `w` and pin it until it lands and is shown;
      *  `rebase` starts the run there however near the old one was. Every
-     *  block moves, or only `block`. */
-    function jump(w: number, rebase: boolean, only?: number): void {
+     *  block moves, or only `block`. A far key's jump (`stand`) that takes the
+     *  rows drawn off a block's run — its demand rebases there — leaves the
+     *  view drawn now standing in until its window is in (#1398): the first
+     *  such view, however often the keys go again meanwhile. Any other jump
+     *  takes its place. */
+    function jump(w: number, rebase: boolean, only?: number, stand = false): void {
+        const leaves = (): boolean => [...lanes].some(([b, lane]) => {
+            if ((only !== undefined && b !== only) || lane.run.to < lane.run.from) return false;
+            const next = advanceAtRest(pinTarget(lane.residency, w, rebase), lane.ledger, w, policy, lane.travel).residency;
+            return next.hi < lane.run.from || next.lo > lane.run.to;
+        });
+        if (stand && standing !== undefined) standing = { ...standing, w };
+        else if (stand && transition === undefined && snapshot.rows.length > 0 && leaves()) {
+            const at = new Map<number, LaneAt>();
+            for (const [b, lane] of lanes) {
+                at.set(b, { residency: lane.residency, viewportWindow: lane.viewportWindow, viewportAt: lane.viewportAt, travel: lane.travel, run: lane.run });
+            }
+            standing = { w, view: snapshot, lanes: at, focusBlock, keep: new Set(wantedWindows()) };
+        } else {
+            standing = undefined;
+        }
         isScrolling = false;
         // A block the canvas does not page (yet) — its shape still to land —
         // moves them all.
@@ -1085,7 +1208,10 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
             // The new result starts at zero; offsets from the old result
             // must never drive its requests while those rows stand in.
             if (retainPrevious && next !== undefined && source !== undefined && next.id !== source.id) startResult();
-            else if (!retainPrevious) transition = undefined;
+            else if (!retainPrevious) {
+                transition = undefined;
+                standing = undefined;
+            }
             source = next;
             if (next === undefined) {
                 transition = undefined;
@@ -1139,10 +1265,18 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         jumpToElement(element) {
             jump(windowOf(element), false);
         },
+        standTo(element) {
+            jump(windowOf(element), false, undefined, true);
+        },
+        standing: () => standing !== undefined,
         openAt(element, block) {
             jump(windowOf(element), true, block);
         },
         clearJump() {
+            if (standing !== undefined) {
+                standDown();
+                return;
+            }
             if (pinnedWindows().length === 0) return;
             unpinEvery();
             settle();
@@ -1187,9 +1321,11 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         placeOf(key) {
             const o = located.get(key);
             const lane = o !== undefined ? lanes.get(o.block) : undefined;
-            if (o === undefined || lane === undefined || isEmpty(lane.residency)) return undefined;
+            // While a far key's view stands in, its bands are the ones drawn (#1398).
+            const drawn = o !== undefined ? standing?.lanes.get(o.block) : undefined;
+            if (o === undefined || lane === undefined || isEmpty(drawn?.residency ?? lane.residency)) return undefined;
             // The bands are the run's (#876).
-            const { from, to } = lane.run;
+            const { from, to } = drawn?.run ?? lane.run;
             if (o.w < from) return { block: o.block, at: "head", px: offsetOfWindow(lane.ledger, o.w) };
             if (o.w > to) {
                 return { block: o.block, at: "tail", px: offsetOfWindow(lane.ledger, o.w) - offsetOfWindow(lane.ledger, to + 1) };

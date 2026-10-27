@@ -630,9 +630,10 @@ export function usePlanCanvas({
     // and busy.
     const cold = paged ? paging.rows.length === 0 && paging.total === undefined && failures.length === 0 && pagingError === undefined : undefined;
     const frameBusy = cold !== true && (busy || waits || cellsReading || awaits);
-    // What stands in while a narrowing is read is retained (#1398, CL8): a resource kind's narrowing resolving, or the
-    // view the last narrowing of the paged rows drew while the new one's first window is read (#1344, #1354).
-    const retained = busy || paging.replacing;
+    // What stands in while a narrowing is read is retained (#1398, CL8): a resource kind's narrowing resolving, the
+    // view the last narrowing of the paged rows drew while the new one's first window is read (#1344, #1354), or the
+    // view Home or End left while the window it goes to is read (CL10).
+    const retained = busy || paging.replacing || paging.standing;
     // The eye and its parts (#1409): the window's label is the period. The eye is listed only where the window can be
     // optimised (ruled 25 Oct 2026) — event kinds on a time axis; it waits, disabled, while the kinds' rows are read.
     const periodName = planWindow === undefined ? "" : format.range(planWindow.from, new Date(planWindow.to.getTime() - 1));
@@ -1184,11 +1185,12 @@ export function usePlanCanvas({
                 controller.reportViewport(move.demand, false);
                 break;
             case "edge":
-                // Home / End past a run: the source's first or last window read where it is — the view staying put, its
-                // rows a run while it lands — then the focus lands on its first or last row.
+                // Home / End past a run: the source's first or last window read where it is — the rows shown standing
+                // in where they are, retained, the focus on the item it set out from — then the focus lands on its first
+                // or last row as that window's rows replace them. The focus moving on meanwhile puts the rows back.
                 owedFocus.current = null;
                 navIntent.current = { holder: from, intent: { t: move.edge } };
-                controller.jumpToEdge(move.edge);
+                controller.jumpToEdge(move.edge, from);
                 break;
             case "wait": {
                 // A key on a run holding the focus waits for the run's rows in view, and goes on from the first of them.
@@ -1668,10 +1670,11 @@ export function usePlanCanvas({
             // cover the loaded windows (`PlanTransport.partial`).
             data-plan-partial={partial === true ? "" : undefined}
             // A narrowing resolving (#1344) — a resource kind's, or the
-            // paged rows' own: the rows it showed stay, retained (#1398,
-            // CL8) — readable, focusable and selectable, aria-disabled,
-            // taking no drag, no drop and no carry until it lands — busy,
-            // as the frame's main says.
+            // paged rows' own — or Home or End's window read: the rows it
+            // showed stay, retained (#1398, CL8, CL10) — readable,
+            // focusable and selectable, aria-disabled, taking no drag, no
+            // drop and no carry until it lands — busy, as the frame's main
+            // says.
             aria-disabled={retained ? true : undefined}
             // Bounded, the canvas fills the frame's main and scrolls its
             // own rows. Grown with its rows, it keeps its own height —

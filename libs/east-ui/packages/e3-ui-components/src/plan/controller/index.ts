@@ -279,10 +279,12 @@ export interface PlanController {
     reportViewport(at: PlanViewport, scrolling: boolean): void;
     /**
      * Home or End past a run not read (#1398, CL10): the source's first or last window read where it is — pinned as a
-     * key search's jump is, so the view's reports leave it be — and the view kept where it is until it lands; the
-     * keyboard's intent lands on its row. A source that has not counted itself has no last window to ask for.
+     * key search's jump is, so the view's reports leave it be — and the view the key left standing in, retained, until
+     * it lands (the paging snapshot's `standing`); the keyboard's intent lands on its row. The focus moving to any item
+     * but `from` meanwhile puts that view back and reads nothing for the jump. A source that has not counted itself has
+     * no last window to ask for.
      */
-    jumpToEdge(edge: "first" | "last"): void;
+    jumpToEdge(edge: "first" | "last", from: string): void;
     /** The canvas committed a render of `paging` (the paging driver's
      *  `committed`). Call it after every commit: a jump hands the viewport back
      *  only once the canvas has shown — and scrolled to — its target (#812). */
@@ -475,6 +477,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     let searchJump = 0;
     let nav = NO_NAV;
     let navSeq = 0;
+    // The item a far key set out from while the view it left stands in (#1398, CL10): the focus moving anywhere else
+    // puts that view back.
+    let edgeFrom: string | undefined;
     let announce: PlanAnnouncement | null = null;
     let words: PlanWords = PLAN_WORDS;
     // The snapshot of the paged source's data the canvas last showed (#821, #1199).
@@ -657,6 +662,14 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     /** Put words in the live region (#819) — nothing when there are none. */
     function say(text: string | undefined): void {
         if (text !== undefined) announce = { text, seq: (announce?.seq ?? 0) + 1 };
+    }
+
+    /** The focus is on `key` now (#1398, CL10): an item but the one a far key set out from puts the view that key left
+     *  back, while it stands in — the viewer moved on among its rows, and nothing is read for the jump. */
+    function focusMoved(key: string): void {
+        if (edgeFrom === undefined || key === edgeFrom) return;
+        edgeFrom = undefined;
+        if (paging.standing()) paging.clearJump();
     }
 
     /** Run `fn` as one action: whatever it changes notifies once, at the end. */
@@ -1089,6 +1102,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         },
         focusItem(key, align) {
             batch(() => {
+                focusMoved(key);
                 navSeq += 1;
                 nav = { active: key, request: { key, seq: navSeq } };
                 if (align !== undefined) scroll = { ...scroll, owner: "nav", nav: { key, align, seq: navSeq } };
@@ -1096,7 +1110,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         },
         itemFocused(key) {
             if (nav.active === key) return;
-            batch(() => { nav = { ...nav, active: key }; });
+            batch(() => {
+                focusMoved(key);
+                nav = { ...nav, active: key };
+            });
         },
         focusDone(seq) {
             if (nav.request === null || nav.request.seq !== seq) return;
@@ -1161,11 +1178,13 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             }
             batch(() => paging.reportViewport(at, scrolling));
         },
-        jumpToEdge(edge) {
+        jumpToEdge(edge, from) {
             batch(() => {
                 const total = paging.getSnapshot().total;
-                if (edge === "first") paging.jumpToElement(0);
-                else if (total !== undefined) paging.jumpToElement(Math.max(0, total - 1));
+                const element = edge === "first" ? 0 : total === undefined ? undefined : Math.max(0, total - 1);
+                if (element === undefined) return;
+                edgeFrom = from;
+                paging.standTo(element);
             });
         },
         committed(rendered) {

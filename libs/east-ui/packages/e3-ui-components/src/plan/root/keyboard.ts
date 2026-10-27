@@ -25,10 +25,11 @@
  * waits on the item it set out from, never on the run, and once the rows land
  * it moves on to the row the key was headed for: the next row, or the row a
  * page on, never the last row before the run. Home and End past a run read
- * the source's first or last window where it is, the view staying put, and
- * the focus lands on its first or last row once that is in. A source that
- * reports no total has no bands: there the move waits on the item it started
- * from while a window loads.
+ * the source's first or last window where it is, the rows shown standing in
+ * where they are, retained, the focus on the item it set out from, and the
+ * focus lands on its first or last row as that window's rows replace them. A
+ * source that reports no total has no bands: there the move waits on the item
+ * it started from while a window loads.
  *
  * A run takes the focus only from a click into it (or as the grid's stop): it
  * stands for the rows the view shows there, and a key that moves through them
@@ -167,7 +168,7 @@ export type PlanNavMove =
      * waiting on the item it set out from, never on the run, and the view where it is, until the rows land.
      */
     | { t: "fetch"; demand: PlanViewport; intent: PlanNavIntent }
-    /** Home / End past a run: read the source's first or last window where it is, and land on its first or last row once it is in. */
+    /** Home / End past a run: read the source's first or last window where it is, the rows shown standing in, and land on its first or last row once it is in. */
     | { t: "edge"; edge: "first" | "last" }
     /** A key on a run holding the focus: it waits for the run's rows in view, and goes on from the first of them. */
     | { t: "wait"; key: PlanWaitKey }

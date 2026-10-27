@@ -317,9 +317,9 @@ describe("the canvas is a treegrid (#819)", () => {
 });
 
 // ── Paged sources ─────────────────────────────────────────────────────────
-/** A paged source whose windows past `openUpTo` stay in flight until opened
- *  and their channel fired (the #815 tests' held source) — and, made
- *  `uncounted`, whose count stays in flight until `counted` and `total` fired. */
+/** A paged source whose windows past `openUpTo` — and any it holds `closed` — stay in flight until opened and their
+ *  channel fired (the #815 tests' held source) — and, made `uncounted`, whose count stays in flight until `counted` and
+ *  `total` fired. */
 function heldSource(windows: number, rowsPer: number, openUpTo = 0, opts: { uncounted?: boolean } = {}) {
     const subs = new Map<string, Set<() => void>>();
     let recording: string[] | null = null;
@@ -337,13 +337,13 @@ function heldSource(windows: number, rowsPer: number, openUpTo = 0, opts: { unco
             getKeyVersion: () => 0,
         }),
     };
-    const state = { openUpTo, counted: opts.uncounted !== true };
+    const state = { openUpTo, counted: opts.uncounted !== true, closed: new Set<number>() };
     const source = {
         id: "plan-819-held",
         page: (offset: bigint) => {
             const w = Number(offset) / PLAN_PAGE_SIZE;
             recording?.push(`w${w}`);
-            if (w > state.openUpTo) return none;
+            if (w > state.openUpTo || state.closed.has(w)) return none;
             return some(Array.from({ length: rowsPer }, (_u, i) => planRow(`w${w}r${String(i).padStart(2, "0")}`, span())));
         },
         total: () => {
@@ -657,6 +657,64 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         press("Home");
         await waitFor(() => expect(focusedItem()).toBe("r:w0r00"));
         expect(item(container, "r:w0r00").getAttribute("aria-rowindex")).toBe("1");
+    });
+
+    test("End past rows not read keeps the rows shown standing in — retained, the canvas aria-disabled in a busy main, the focus on the row it set out from — until the source's last window lands, then the focus is on its last row; a move meanwhile puts them back; Home likewise to the first (#1398, CL10)", async () => {
+        // A hundred windows of sixteen rows, the first three read; the rest on the wire until the test lets them land.
+        const held = heldSource(100, 16, 2);
+        const { container } = renderPlan(planRoot([], { source: held.source }), "plan-1398-edges");
+        await waitFor(() => expect(item(container, "r:w2r15")).toBeTruthy());
+        const body = () => container.querySelector("[data-plan-body]")!;
+        const main = () => container.querySelector('[data-frame-slot="main"]')!;
+        /** The rows shown stand in where they were — `row` among them — the focus on `focus`, retained in a busy main. */
+        const standing = (row: string, focus: string) => {
+            expect(item(container, row)).toBeTruthy();
+            expect(focusedItem()).toBe(focus);
+            expect(body().getAttribute("aria-disabled")).toBe("true");
+            expect(main().getAttribute("aria-busy")).toBe("true");
+        };
+        act(() => gridOf(container).focus());
+        press("ArrowDown");
+        expect(focusedItem()).toBe("r:w0r01");
+        press("End");
+        standing("r:w0r00", "r:w0r01");
+        // The line says the last window is read, once the wait passes its reveal.
+        await waitFor(() => expect(footerLine(container).querySelector("[data-line-text]")?.textContent).toBe("Loading rows 19,801–20,000"));
+        // A move among them puts them back as they were — live, the jump dropped — so the last window, landing now, draws
+        // nothing over them.
+        press("ArrowDown");
+        expect(focusedItem()).toBe("r:w0r02");
+        expect(body().hasAttribute("aria-disabled")).toBe(false);
+        act(() => {
+            held.state.openUpTo = 99;
+            held.fire("w99");
+        });
+        expect(item(container, "r:w0r00")).toBeTruthy();
+        expect(item(container, "r:w99r15")).toBeNull();
+        expect(focusedItem()).toBe("r:w0r02");
+        // End again, the windows past the third on the wire once more: the rows stand in until the last lands, then the
+        // focus is on its last row.
+        held.state.openUpTo = 2;
+        press("End");
+        standing("r:w0r00", "r:w0r02");
+        act(() => {
+            held.state.openUpTo = 99;
+            held.fire("w99");
+        });
+        await waitFor(() => expect(focusedItem()).toBe("r:w99r15"));
+        expect(item(container, "r:w0r00")).toBeNull();
+        expect(body().hasAttribute("aria-disabled")).toBe(false);
+        // Home, the first window on the wire: the last rows stand in, the focus on the last row, until it lands; then the
+        // focus is on the first.
+        held.state.closed.add(0);
+        press("Home");
+        standing("r:w99r15", "r:w99r15");
+        act(() => {
+            held.state.closed.delete(0);
+            held.fire("w0");
+        });
+        await waitFor(() => expect(focusedItem()).toBe("r:w0r00"));
+        expect(body().hasAttribute("aria-disabled")).toBe(false);
     });
 });
 
