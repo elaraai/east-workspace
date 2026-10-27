@@ -128,7 +128,7 @@ describe("the rows follow the records", () => {
         expect(container.querySelector(`${rowAt(entry("presses.span", "b3"))} ${el("data-run", "job", "J-3001")}`)).toBeTruthy();
     });
 
-    test("a read that fails leaves the rows standing and says why; the next that reads clears it", async () => {
+    test("a read that fails leaves the rows standing and says why, once, on the footer's line with Retry — never the toolbar's chip — in the rows' words where no kind's own events failed (#1398); the next that reads clears it", async () => {
         const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
@@ -148,22 +148,28 @@ describe("the rows follow the records", () => {
         }))) };
         const { container } = await h.mount(program);
         await settle();
+        /** The footer's one loading line. */
+        const line = () => container.querySelector<HTMLElement>("[data-slot=footer] [data-footer-line]")!;
         const a1 = rowAt(entry("presses.span", "a1"));
         expect(container.querySelector(`${a1} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
-        expect(container.querySelector('[data-plan-diagnostics="source"]')).toBeNull();
+        expect(line().hasAttribute("data-idle")).toBe(true);
         const errors = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
             const more = new Map(PRESSES);
             more.set("c1", { name: "Press C1", hall: "Hall C", sheets_per_hour: 9000.0 });
             await h.commit(ex.planPrintPresses, more);
-            expect(container.querySelector('[data-plan-diagnostics="source"]')!.textContent).toMatch(/^source unavailable — /);
+            // A press's load its measure cannot read: the jobs' own events read, so the line names the rows.
+            expect([line().hasAttribute("data-failed"), line().querySelector("[data-line-text]")?.textContent, line().querySelector("[data-line-retry]") !== null])
+                .toEqual([true, "Couldn't read rows", true]);
+            expect(line().getAttribute("title")).not.toBe("");
+            expect(container.querySelector('[data-plan-diagnostics="source"]')).toBeNull();
             expect(container.querySelector(`${a1} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
             expect(container.querySelector(rowAt(entry("presses.span", "c1")))).toBeNull();
         } finally {
             errors.mockRestore();
         }
         await h.commit(ex.planPrintPresses, PRESSES);
-        expect(container.querySelector('[data-plan-diagnostics="source"]')).toBeNull();
+        expect([line().hasAttribute("data-idle"), container.querySelector('[data-plan-diagnostics="source"]')]).toEqual([true, null]);
         expect(container.querySelector(`${a1} ${el("data-run", "job", "J-1001")}`)).toBeTruthy();
     });
 });

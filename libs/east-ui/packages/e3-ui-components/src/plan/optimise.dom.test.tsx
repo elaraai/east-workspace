@@ -20,8 +20,11 @@
  * its key — whatever the number of jobs in the window, it asks e3 for the
  * windows alone (R24) — each of its reads landing re-running that reader
  * alone, never the canvas or the frame, which draw again as the eye can be
- * used; a rows' window that fails leaves the eye disabled, asking nothing
- * again.
+ * used. A rows' window that fails is said once, on the footer's loading line
+ * in the jobs' words — `Couldn't read print job events` — with Retry, never a
+ * status in the toolbar (#1398): the eye stays disabled, asking nothing again,
+ * until Retry asks e3 again at once and the read lands; beside another kind,
+ * the line names the kind whose window failed.
  */
 
 import { describe, expect, test } from "vitest";
@@ -227,7 +230,10 @@ describe("the eye in the Plan", () => {
 
 /** The print works' jobs' record, as a request names it. */
 const JOBS = `records.${events.planPrintJobs.name}`;
+/** The print works' shifts' record, as a request names it. */
+const SHIFTS = `records.${events.planPrintShifts.name}`;
 const maybeTime = printFor(OptionType(DateTimeType));
+const time = printFor(DateTimeType);
 
 /**
  * The print works' jobs on its presses, read a window at a time through their source's interval index (#1344) — the
@@ -258,12 +264,19 @@ const windowed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
     });
 }))) };
 
-/** The jobs' window from a day: one batch of some fifty-five key searches through their interval index (#1351), the first from that day. */
-const windowFrom = (day: Date) => (request: E3Request): boolean => {
-    if (request.kind !== "find" || request.dataset !== JOBS || request.query.get("index") !== events.planPrintJobsByTime.name || request.searches.length <= 50) return false;
+/**
+ * A record's window from a day: one batch of some fifty-five key searches through its interval index (#1351), the first
+ * from that day — the day as the index files a start, `some` of it where the start is an Option.
+ */
+const windowOver = (dataset: string, index: string, start: (day: Date) => string) => (day: Date) => (request: E3Request): boolean => {
+    if (request.kind !== "find" || request.dataset !== dataset || request.query.get("index") !== index || request.searches.length <= 50) return false;
     const first = request.searches[0];
-    return first !== undefined && "from" in first && first.from?.at(-1) === maybeTime(some(day));
+    return first !== undefined && "from" in first && first.from?.at(-1) === start(day);
 };
+/** The jobs' window from a day: their start an Option, which a job waiting in the backlog holds none of. */
+const windowFrom = windowOver(JOBS, events.planPrintJobsByTime.name, (day) => maybeTime(some(day)));
+/** The shifts' window from a day. */
+const shiftsFrom = windowOver(SHIFTS, events.planPrintShiftsByTime.name, time);
 /** A job's row, read by its key: the key sought among the record's own entries. */
 const jobByKey = (request: E3Request): boolean => request.kind === "find" && request.dataset === JOBS && request.query.get("index") === null
     && request.searches.some((search) => "key" in search);
@@ -347,20 +360,99 @@ describe("what the eye waits on, read in a component of its own (#1343)", () => 
         await waitFor(() => expect(eye(container)!.hasAttribute("data-running")).toBe(false), { timeout: 10_000 });
     });
 
-    test("R24 — a rows' window that fails leaves the eye disabled and its reads settled: no job's row read by its key, nothing asked again, and the toolbar says the jobs could not be read", async () => {
+    test("R24, #1398 — a rows' window that fails is said on the footer's line, `Couldn't read print job events`, with Retry — never the toolbar's chip — the eye disabled and its reads settled, no job's row read by its key and nothing asked again; Retry asks e3 again at once, and once the read lands the eye can be used", async () => {
         const { container } = await h.mount(windowed);
         await waitFor(() => expect(eye(container)!.disabled).toBe(false), { timeout: 10_000 });
-        const restore = h.e3.fail(windowFrom(new Date("2026-10-04T00:00:00Z")));
+        const failing = windowFrom(new Date("2026-10-04T00:00:00Z"));
+        const restore = h.e3.fail(failing);
         const jobRow = h.e3.hold(readsJobRow);
         try {
             const stepped = h.requests().length;
             await press(nextDay(container));
+            // Said once: on the footer's one line, in the jobs' words, why in its title, with Retry — never a status.
+            expect([line(container).hasAttribute("data-failed"), line(container).querySelector("[data-line-text]")?.textContent,
+                line(container).querySelector("[data-line-retry]") !== null]).toEqual([true, "Couldn't read print job events", true]);
+            expect(line(container).getAttribute("title")).toContain(JOBS);
+            expect(slot(container, "toolbar").querySelector('[data-plan-diagnostics="source"]')).toBeNull();
             expect([eye(container)!.disabled, jobRow.held, jobsSince(stepped).filter(readsJobRow).length]).toEqual([true, 0, 0]);
-            expect(slot(container, "toolbar").querySelector('[data-plan-diagnostics="source"]')?.textContent).toContain(JOBS);
             // Nothing is asked again of the jobs while the window stands failed.
             const settled = h.requests().length;
             await settle();
             expect([jobsSince(settled).length, eye(container)!.disabled]).toEqual([0, true]);
+            // e3 answers again, and Retry asks it at once — inside the gap a read alone waits after a failure.
+            restore();
+            const asked = h.requests().filter(failing).length;
+            await act(async () => { fireEvent.click(line(container).querySelector("[data-line-retry]")!); });
+            expect(h.requests().filter(failing).length).toBeGreaterThan(asked);
+            // The read lands: the line goes quiet, and the eye can be used — no job's row read by its key meanwhile.
+            await settle();
+            await waitFor(() => expect(eye(container)!.disabled).toBe(false), { timeout: 10_000 });
+            expect([line(container).hasAttribute("data-idle"), jobsSince(settled).filter(readsJobRow).length]).toEqual([true, 0]);
+        } finally {
+            restore();
+        }
+    });
+});
+
+/**
+ * The print works' jobs on its presses and its crews' shifts on its crews, each kind read a window at a time through
+ * its source's interval index, and no optimiser: one failed read of the event kinds' rows, and the kind it is of.
+ */
+const twoKinds = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const presses = $.const(Record.bind(events.planPrintPresses, []));
+    const crews = $.const(Record.bind(events.planPrintCrews, []));
+    const jobs = $.const(Record.bind(events.planPrintJobs, [events.planPrintJobsPatch]));
+    const shifts = $.const(Record.bind(events.planPrintShifts, [events.planPrintShiftsPatch]));
+    const jobEntries = $.const(Data.bindPaged(events.planPrintJobs));
+    const shiftEntries = $.const(Data.bindPaged(events.planPrintShifts));
+    const slice = $.const(Slice.bindRecords("optimise.two-kinds", {
+        job: { source: Data.bindPaged(events.planPrintJobs, { indexes: [events.planPrintJobsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
+        shift: { source: Data.bindPaged(events.planPrintShifts, { indexes: [events.planPrintShiftsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
+    }));
+    return Plan({
+        axis: Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") }, resolution: "day", now: new Date("2026-10-14T09:00:00Z") }),
+        slice: { slice },
+        resources: {
+            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }),
+            crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: (c) => c.name }),
+        },
+        events: {
+            job: Schedule.events(jobs, {
+                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "presses" }, state: "state",
+                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+                entries: jobEntries,
+            }),
+            shift: Schedule.events(shifts, {
+                name: "Crew shift", icon: "user-clock", draw: "cards", title: "title", start: "start", end: "end",
+                resource: { field: "crew", of: "crews" }, state: "state",
+                entries: shiftEntries,
+            }),
+        },
+    });
+}))) };
+
+describe("an event kind's window that fails, on the footer's line (#1398)", () => {
+    test("beside another kind, the line names the kind whose window failed — `Couldn't read crew shift events`, never the jobs — with Retry, which asks e3 again at once; once the shifts land the line goes quiet", async () => {
+        const { container } = await h.mount(twoKinds);
+        await settle();
+        expect(line(container).hasAttribute("data-idle")).toBe(true);
+        // The shifts' window over the range the canvas reads after a step to the next day: refused.
+        const failing = shiftsFrom(new Date("2026-10-04T00:00:00Z"));
+        const restore = h.e3.fail(failing);
+        try {
+            await press(nextDay(container));
+            expect([line(container).hasAttribute("data-failed"), line(container).querySelector("[data-line-text]")?.textContent])
+                .toEqual([true, "Couldn't read crew shift events"]);
+            expect(line(container).getAttribute("title")).toContain(SHIFTS);
+            expect(slot(container, "toolbar").querySelector('[data-plan-diagnostics="source"]')).toBeNull();
+            // e3 answers again, and Retry asks it for the shifts at once.
+            restore();
+            const asked = h.requests().filter(failing).length;
+            await act(async () => { fireEvent.click(line(container).querySelector("[data-line-retry]")!); });
+            expect(h.requests().filter(failing).length).toBeGreaterThan(asked);
+            await settle();
+            await waitFor(() => expect(line(container).hasAttribute("data-idle")).toBe(true), { timeout: 10_000 });
         } finally {
             restore();
         }
