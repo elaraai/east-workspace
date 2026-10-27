@@ -8,7 +8,8 @@
  * read yet washes its regions (`monthWash` below a month cell's date) and its counts are placeholders (`unreadMeta`); a
  * failed one says so in its timeline's first row (`readLine`), its agenda's other cards blank (`data-blank`); and a newer read of the period shown keeps its events,
  * retained (`data-calendar-stale` on main, CL5): its columns', rows' and cells' rules dashed, its events' and cards' words
- * in the third ink — the shared retained parts. A resource's shading past the cap (#1424): the Plan's booked-vs-free bar
+ * in the third ink — the shared retained parts — and its events and their edges the default cursor, taking no gesture
+ * (CL8). A resource's shading past the cap (#1424): the Plan's booked-vs-free bar
  * along each period (`shadeBar`) and its no-data hatch (`shadeHatch`). A paged resource kind's columns in the Resources
  * view (#1424): each drawn at its own offset in a content box as wide as all of them, only those around the view drawn
  * (`data-paged`); its places not read on the timeline, the shared unloaded run's rows in the timeline's own (`runRow`,
@@ -113,8 +114,9 @@ export const calendarSlotRecipe = defineSlotRecipe({
             "&[data-chip]": { height: "21px", flexShrink: 0 },
             "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
             "&[data-dragging]": { zIndex: 10 },
-            // Retained while a newer read of its period is in flight (#1398, CL5): its words in the third ink, its own edge kept.
-            "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" } },
+            // Retained while a newer read of its period is in flight (#1398, CL5, CL8): its words in the third ink, its own edge
+            // kept, and inert to the pointer — the default cursor over it and its edges, which take no gesture meanwhile.
+            "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" }, "&, &[data-draggable], & [data-edge]": { cursor: "default" } },
         },
         ghost: {
             textStyle: "mono.xs", position: "absolute", borderWidth: "1.5px", borderStyle: "dashed", borderColor: "brand.solid",

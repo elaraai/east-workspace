@@ -1552,8 +1552,10 @@ An event keeps its handle, its edges, its draft and its marks through a read in
 flight (the views' `grips` and `editing`): retained content refuses the gesture
 itself — the shared drag sensors pick nothing up inside the `aria-disabled`
 main — and the commands are withheld meanwhile, so no read draws every event
-off and back on; where the read failed, main takes the pointer for its Retry,
-and the events carry no handle. Its
+off and back on; the recipe draws a retained event inert to the pointer, the
+default cursor over it and its edges rather than the grab and the resize ones
+(the `event` slot's retained rule); where the read failed, main takes the
+pointer for its Retry, and the events carry no handle. Its
 scroll publishes the days it shows to a store only what says them reads
 (`calendar/visible.ts`: the navigator's date and label, the count, each row's
 hours, the overlaps chip and the inspector's overlaps), so a scroll draws
