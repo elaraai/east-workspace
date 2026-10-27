@@ -106,7 +106,7 @@ import {
     rowKeyWords, visibleRows,
     type PlanBand, type PlanBodyItem, type PlanRootValue, type PlanRowIndex, type PlanRowValue, type VisibleRow,
 } from "./model.js";
-import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
+import { PLAN_PAGE_SIZE, bandElements } from "./use-plan-paging.js";
 import type { RowKey } from "./plan-state.js";
 import { entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
 import { usePlanEventEditing } from "./edit/events.js";
@@ -987,12 +987,14 @@ export function usePlanCanvas({
         const more = paging.blocks.filter((b) => b.tail !== undefined);
         return {
             tail: more[more.length - 1]?.tail,
+            // What the list's `N more rows` counts past its rows read: the source's, never what has loaded (#1398).
+            beyond: paging.total === undefined || paging.replacing ? undefined : more.reduce((n, b) => n + bandElements(b.tail!), 0),
             onViewport: (key: string) => controller.reportViewport({ kind: "row", key }, false),
             onLoadMore: () => {
                 for (const b of more) controller.reportViewport({ kind: "band", block: b.index, at: "tail" }, false);
             },
         };
-    }, [paged, paging.blocks, controller]);
+    }, [paged, paging.blocks, paging.total, paging.replacing, controller]);
     // What the narrow list's Measures tab counts over a paged source (#1398, ruled 27 Oct 2026, "Exact where it can be"):
     // the source's count times the chart rows each of its entries makes across the paged blocks, beside the chart rows
     // of the blocks no entry makes — where every entry makes as many (`PlanPagedBlock.charts`); not counted where some

@@ -44,6 +44,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-records";
 import * as sheet from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import type { TreePath } from "@elaraai/e3-types";
 import { searched, type E3Request } from "../e3-web.test-utils.js";
+import { width } from "../e3-web-mount.test-utils.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
 import { rowKeyOf } from "./model.js";
 import { carrySaid } from "./plan-move.test-utils.js";
@@ -556,5 +557,39 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         // A page is ten orders — 400px of view, rows of 42: down two pages and back one leaves it a page on.
         expect(focusedAt(c)).toBe(rowKeyOf(orderRow(ready[first + 10]!)));
         expect(watch.seen).not.toContain("the page's body");
+    });
+
+    test("at a phone's width the Rows tab's `N more rows` counts the source — the rows read and not shown yet and every one past them, never what has loaded — and a tap past the rows read reads the next window, its cards coming as it lands (#1398, ruled 27 Oct 2026)", async () => {
+        // A phone's main: the canvas's body 390px wide, so the Plan draws its narrow list.
+        const realRect = Element.prototype.getBoundingClientRect;
+        vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+            return this.hasAttribute("data-plan-body")
+                ? { x: 0, y: 0, top: 0, left: 0, right: 390, bottom: VIEWPORT, width: 390, height: VIEWPORT, toJSON() {} } as DOMRect
+                : realRect.call(this);
+        });
+        const { container: c } = await h.mount(ex.planRecordIndexes);
+        await width(390);
+        await settle();
+        expect(slot(c, "main")!.querySelector("[data-plan-narrow]")).not.toBeNull();
+        const ready = await ordersOf(["Ready"], FIRST, FORTNIGHT);
+        const cards = () => c.querySelectorAll("[data-plan-card]").length;
+        const more = () => c.querySelector<HTMLElement>('[data-plan-more="rows"]');
+        // The Rows tab counts the narrowing's 2,778 orders; the list shows eight, and says how many more the source holds.
+        await waitFor(() => expect(c.querySelector('[data-plan-tab="rows"] [data-plan-tabcount]')?.getAttribute("data-plan-tabcount")).toBe(String(ready.length)));
+        expect(cards()).toBe(8);
+        expect(more()?.textContent).toBe(`${(ready.length - 8).toLocaleString("en-US")} more rows`);
+        // A tap: eight more cards, eight fewer to come.
+        await act(async () => { fireEvent.click(more()!); });
+        await settle();
+        expect(cards()).toBe(16);
+        expect(more()?.textContent).toBe(`${(ready.length - 16).toLocaleString("en-US")} more rows`);
+        // Taps on, past the windows read: each one past them reads the next, and its cards come as it lands.
+        for (let step = 0; step < 100 && cards() <= 600; step++) {
+            await act(async () => { fireEvent.click(more()!); });
+            await settle();
+        }
+        expect(cards()).toBe(608);
+        expect(c.querySelector(`[data-plan-card=${JSON.stringify(rowKeyOf(orderRow(ready[607]!)))}]`)).not.toBeNull();
+        expect(more()?.textContent).toBe(`${(ready.length - 608).toLocaleString("en-US")} more rows`);
     });
 });

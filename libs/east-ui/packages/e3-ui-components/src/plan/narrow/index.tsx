@@ -41,9 +41,13 @@
  * to report a mounted range, so the cards report themselves: an
  * `IntersectionObserver` watches every row card, and the last one on screen
  * is the viewport the driver pages around — prefetching past it, keeping what
- * is on screen resident. Once a list shows every resident row, its load-more
- * becomes the canvas's tail band in list form: scrolling it into view, or
- * tapping it, loads the next window.
+ * is on screen resident. Once a list shows every resident row, the canvas's
+ * tail band stands after them in list form: scrolling it into view loads the
+ * next window. Its `N more rows` counts the source, never what has loaded —
+ * the rows read and not shown yet, and every one the source holds past them
+ * (`…` while that is not known) — and a tap past the rows read asks for the
+ * next window at once, its cards coming as it lands (#1398, ruled 27 Oct
+ * 2026).
  *
  * The cards (`cards.tsx`), the ruler (`chrome.tsx`), the list demand
  * (`demand.ts`) and the row walks (`lists.ts`) live beside this shell (#815).
@@ -396,8 +400,8 @@ export function PlanNarrow({
 
     const revealMore = (key: NarrowTab) =>
         setReveal((r) => ({ ...r, [key]: r[key] + (key === "groups" ? PAGE_GROUPS : PAGE_ROWS) }));
-    const more = (key: NarrowTab, label: string) => (
-        <Box as="button" css={styles.narrowMore} data-plan-more={key} onClick={() => revealMore(key)}>
+    const more = (key: NarrowTab, label: string, then?: () => void) => (
+        <Box as="button" css={styles.narrowMore} data-plan-more={key} onClick={() => { revealMore(key); then?.(); }}>
             {label}
         </Box>
     );
@@ -501,7 +505,24 @@ export function PlanNarrow({
             }
             for (const row of shown) body.push(renderRowCard(row, false));
         }
-        const rest = total - (rowLimit - Math.max(0, budget));
+        const shownRows = rowLimit - Math.max(0, budget);
+        // What is left to show (#1398, ruled 27 Oct 2026, "Exact where it can be"). Over a paged source not read whole it
+        // is never what has loaded: the rows read and not shown yet, and every one the source holds past them, its run not
+        // read after the rows (`beyond`) — where the list is the source's rows one after another, as the Rows tab counts
+        // them; `…` while the source has not counted itself, and where the rows listed are a group's or the groups' that
+        // run on past the windows read. Else the rows not shown yet, which are all there are.
+        const unreadLeft = paging !== undefined && partial === true
+            && (scope === null || (scopeGroup !== undefined && countPartial(scopeGroup)));
+        const beyond = paging?.beyond;
+        const rest: number | "pending" = !unreadLeft ? total - shownRows
+            : scope === null && !hasGroups && beyond !== undefined ? Math.max(0, total - shownRows) + beyond : "pending";
+        // Past the rows read, the source's tail stands where the next of them go — its placeholder cards, asking for the
+        // window past the run as they come into view — and a tap past them asks for it at once.
+        const pastRead = unreadLeft && shownRows >= total;
+        const moreRows = rest === "pending" || rest > 0
+            ? more("rows", words.m.moreRows(rest === "pending" ? { n: 2, count: "…" } : { n: rest, count: words.number(rest) }),
+                () => { if (unreadLeft && shownRows + PAGE_ROWS > total) paging?.onLoadMore(); })
+            : null;
         list = (
             <>
                 {(scopeGroup !== undefined || scope === OTHER_SCOPE) && (
@@ -521,7 +542,7 @@ export function PlanNarrow({
                 {/* "No rows" only once a completed read says so (#1398, CL13): never while the source holds more. */}
                 {total === 0 && paging?.tail === undefined && <Box css={styles.narrowEmpty}>{words.m.noRows()}</Box>}
                 {body}
-                {rest > 0 ? more("rows", words.m.moreRows({ n: rest, count: words.number(rest) })) : loadMore()}
+                {unreadLeft ? <>{pastRead && loadMore()}{moreRows}</> : moreRows ?? loadMore()}
             </>
         );
     } else {

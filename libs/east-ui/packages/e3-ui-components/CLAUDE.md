@@ -1322,7 +1322,13 @@ many, as each block says of its series (the IR's `charts`: a chart series' one,
 a views entry's chart members, a paged resource kind's chart measures the
 viewer shows), and `not counted`, as the Plan's event counts say theirs, where
 a `match` or children decide it by entry; `…` while the source has not counted
-itself or a new narrowing's rows are read (`plan-narrow.dom.test.tsx`).
+itself or a new narrowing's rows are read (`plan-narrow.dom.test.tsx`). The
+Rows list's `N more rows` counts the source the same way: the rows read and
+not shown yet, and every one the source holds past them (its run not read
+after the rows, `PlanNarrowPaging.beyond`), `…` while the source has not
+counted itself or where the list is a group's rows running past the windows
+read; and a tap past the rows read asks for the next window at once, its
+cards coming as it lands (`plan-record-slice.dom.test.tsx`).
 
 A period builder — the Roster, the Calendar, the Allocation — draws its
 period through one read state (`shared/loading.ts`' `periodRead`, #1398):
