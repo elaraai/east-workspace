@@ -541,9 +541,13 @@ interface Snapshot {
      *  page at one's position, answer from them. Dropped when it moves. */
     readonly held: Map<string, HeldRows>;
     /** Which entry keys a narrowing's runs hold, as membership reads have
-     *  answered them at this revision, by the runs (#1349). Dropped when it
-     *  moves, with what each batch kept for its reader. */
+     *  answered them at this revision, by the runs (#1349), the least recently
+     *  used narrowing first. Dropped when it moves, with what each batch kept
+     *  for its reader. */
     readonly within: Map<string, HeldWithin>;
+    /** Each membership batch keeping keys for its reader, over every
+     *  narrowing, the oldest first, beside the answers it keeps them in. */
+    readonly pinning: Map<string, HeldWithin>;
     /** Stops following the dataset; `undefined` while it is not followed —
      *  nothing reads it, or no adapter is installed. */
     unwatch: (() => void) | undefined;
@@ -568,16 +572,17 @@ const PLACE_CONCURRENCY = 4;
  *  more in parts. */
 export const MAX_WITHIN_KEYS = 20_000;
 
-/** The most entry keys whose membership one narrowing's runs hold answered;
- *  past it, the least recently read go — but never one a batch keeps for its
- *  reader ({@link HeldWithin}), so the answers a read waits on are held when
- *  it reads again, whatever other readers' answers land meanwhile. */
+/** The most membership answers a revision holds, over every narrowing's runs;
+ *  past it, the least recently used narrowing's least recently read answers
+ *  go first — but never one a batch keeps for its reader ({@link HeldWithin}),
+ *  so the answers a read waits on are held when it reads again, whatever other
+ *  readers' answers land meanwhile, under whatever narrowing. */
 const MAX_HELD_WITHIN = 2 * MAX_WITHIN_KEYS;
 
-/** The most membership batches of one narrowing's runs that keep keys for
- *  their readers at once; past it, the oldest batch's keys are trimmed as any
- *  are. What batches keep is bounded by it, so the answers held never pass
- *  {@link MAX_HELD_WITHIN} by more than the keys of this many batches. */
+/** The most membership batches that keep keys for their readers at once, over
+ *  every narrowing of a revision; past it, the oldest batch's keys are trimmed
+ *  as any are. What batches keep is bounded by it, so the answers held never
+ *  pass {@link MAX_HELD_WITHIN} by more than the keys of this many batches. */
 const MAX_PINNING_BATCHES = 16;
 
 /**
@@ -609,26 +614,31 @@ interface KeepingBatch {
     kept: number;
 }
 
-/** The membership answers one narrowing's runs hold, made empty on first use. */
+/**
+ * The membership answers one narrowing's runs hold, made empty on first use:
+ * from now the revision's most recently used narrowing, whose answers a trim
+ * takes last.
+ */
 function heldWithinOf(snapshot: Snapshot, family: string): HeldWithin {
     let held = snapshot.within.get(family);
-    if (held === undefined) {
-        held = { answers: new Map(), pins: new Map(), batches: new Map() };
-        snapshot.within.set(family, held);
-    }
+    if (held === undefined) held = { answers: new Map(), pins: new Map(), batches: new Map() };
+    else snapshot.within.delete(family);
+    snapshot.within.set(family, held);
     return held;
 }
 
 /**
  * Keep keys for a batch until its reader reads them. Past
- * {@link MAX_PINNING_BATCHES}, the oldest batch keeps its keys no longer.
+ * {@link MAX_PINNING_BATCHES} over every narrowing of the revision, the oldest
+ * batch keeps its keys no longer.
  *
+ * @param snapshot - The revision's snapshot
  * @param held - The answers one narrowing's runs hold
  * @param batch - The batch's channel key
  * @param keys - Every key its reader asks of
  * @param kept - The keys it keeps now: those held as it launches, or those its answer brings
  */
-function keepWithin(held: HeldWithin, batch: string, keys: readonly string[], kept: Iterable<string>): void {
+function keepWithin(snapshot: Snapshot, held: HeldWithin, batch: string, keys: readonly string[], kept: Iterable<string>): void {
     let keeping = held.batches.get(batch);
     for (const key of kept) {
         let by = held.pins.get(key);
@@ -641,14 +651,19 @@ function keepWithin(held: HeldWithin, batch: string, keys: readonly string[], ke
         if (keeping === undefined) {
             keeping = { keys, kept: 0 };
             held.batches.set(batch, keeping);
+            snapshot.pinning.set(batch, held);
         }
         keeping.kept += 1;
     }
-    while (held.batches.size > MAX_PINNING_BATCHES) releaseWithin(held, held.batches.keys().next().value!);
+    while (snapshot.pinning.size > MAX_PINNING_BATCHES) {
+        const [oldest, of] = snapshot.pinning.entries().next().value!;
+        releaseWithin(snapshot, of, oldest);
+    }
 }
 
 /** A batch keeps its keys no longer: they are trimmed as any are, unless another batch keeps them. */
-function releaseWithin(held: HeldWithin, batch: string): void {
+function releaseWithin(snapshot: Snapshot, held: HeldWithin, batch: string): void {
+    snapshot.pinning.delete(batch);
     const keeping = held.batches.get(batch);
     if (keeping === undefined) return;
     held.batches.delete(batch);
@@ -665,7 +680,7 @@ function releaseWithin(held: HeldWithin, batch: string): void {
  * many kept it, since the read answers every reader asking of it alike. A
  * batch whose last kept key a read has read keeps nothing, and is done.
  */
-function readWithin(held: HeldWithin, keys: readonly string[]): void {
+function readWithin(snapshot: Snapshot, held: HeldWithin, keys: readonly string[]): void {
     for (const key of keys) {
         const answer = held.answers.get(key);
         if (answer === undefined) continue;
@@ -676,18 +691,34 @@ function readWithin(held: HeldWithin, keys: readonly string[]): void {
         held.pins.delete(key);
         for (const batch of by) {
             const keeping = held.batches.get(batch);
-            if (keeping !== undefined && --keeping.kept === 0) held.batches.delete(batch);
+            if (keeping !== undefined && --keeping.kept === 0) {
+                held.batches.delete(batch);
+                snapshot.pinning.delete(batch);
+            }
         }
     }
-    trimWithin(held);
+    trimWithin(snapshot);
 }
 
-/** Past {@link MAX_HELD_WITHIN}, the least recently read answers go — but none a batch keeps. */
-function trimWithin(held: HeldWithin): void {
-    if (held.answers.size <= MAX_HELD_WITHIN) return;
-    for (const key of held.answers.keys()) {
-        if (held.answers.size <= MAX_HELD_WITHIN) break;
-        if (!held.pins.has(key)) held.answers.delete(key);
+/**
+ * Past {@link MAX_HELD_WITHIN} answers over every narrowing of the revision,
+ * the least recently used narrowing's least recently read answers go first —
+ * but none a batch keeps — and a narrowing left holding none, and with no
+ * batch keeping any, goes with them.
+ */
+function trimWithin(snapshot: Snapshot): void {
+    let total = 0;
+    for (const held of snapshot.within.values()) total += held.answers.size;
+    if (total <= MAX_HELD_WITHIN) return;
+    for (const [family, held] of snapshot.within) {
+        for (const key of held.answers.keys()) {
+            if (total <= MAX_HELD_WITHIN) break;
+            if (held.pins.has(key)) continue;
+            held.answers.delete(key);
+            total -= 1;
+        }
+        if (held.answers.size === 0 && held.batches.size === 0) snapshot.within.delete(family);
+        if (total <= MAX_HELD_WITHIN) return;
     }
 }
 
@@ -1181,6 +1212,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 channels: new Set(),
                 held: new Map(),
                 within: new Map(),
+                pinning: new Map(),
                 unwatch: undefined,
             };
             this.snapshots.set(key, snapshot);
@@ -1299,6 +1331,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         snapshot.channels.clear();
         snapshot.held.clear();
         snapshot.within.clear();
+        snapshot.pinning.clear();
         this.notify(pagedRevisionKey(workspace, path));
     }
 
@@ -2243,11 +2276,13 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
      * again — a segment drawn again, a window panned back — is answered from
      * what is held, and only the keys not held go in a request: one for each
      * {@link DATASET_BATCH_MAX} keys, and for each as many runs, a key in any
-     * group of the runs being in them. Past {@link MAX_HELD_WITHIN} answers the
-     * least recently read go, but a batch keeps every key its reader asks of
-     * until the reader has read them ({@link HeldWithin}): several readers whose
-     * keys together pass the cap each read theirs after one batch, and a reader
-     * whose answers went since asks again for those alone.
+     * group of the runs being in them. Past {@link MAX_HELD_WITHIN} answers
+     * over every narrowing of the revision, the least recently used
+     * narrowing's least recently read go first, but a batch keeps every key
+     * its reader asks of until the reader has read them ({@link HeldWithin}):
+     * several readers whose keys together pass the cap each read theirs after
+     * one batch, and a reader whose answers went since asks again for those
+     * alone.
      *
      * @param source - One of a record's indexes, the runs' rows
      * @param runs - The narrowing's runs: ascending, disjoint, each inside the index
@@ -2279,7 +2314,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         }
         if (missing.size === 0) {
             // Every answer is held: the reader has read them, and no batch keeps them for it any longer.
-            if (held !== undefined) readWithin(held, keys);
+            if (held !== undefined) readWithin(snapshot, heldWithinOf(snapshot, family), keys);
             return some(answers);
         }
         const asked = [...missing];
@@ -2293,8 +2328,8 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
         if (this.due(batch)) {
             // The batch keeps every key its reader asks of: those held now, and those its answer brings.
             const kept = heldWithinOf(snapshot, family);
-            releaseWithin(kept, batchKey);
-            keepWithin(kept, batchKey, [...keys], keys.filter((key) => !missing.has(key)));
+            releaseWithin(snapshot, kept, batchKey);
+            keepWithin(snapshot, kept, batchKey, [...keys], keys.filter((key) => !missing.has(key)));
             this.launchWithin(workspace, path, snapshot, revision, index, family, batchKey, runs, asked);
         }
         return this.answer<readonly boolean[]>(batch, undefined);
@@ -2355,7 +2390,7 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
     ): void {
         // Aborted, the batch keeps nothing for a reader that has let it go.
         const { seq, signal } = this.launchFetch(batchKey, this.channel(snapshot, batchKey),
-            () => { const held = snapshot.within.get(family); if (held !== undefined) releaseWithin(held, batchKey); });
+            () => { const held = snapshot.within.get(family); if (held !== undefined) releaseWithin(snapshot, held, batchKey); });
         const api = this.api;
         void (async () => {
             const within = new Array<boolean>(keys.length).fill(false);
@@ -2385,9 +2420,10 @@ export class PagedRuntime extends TrackedChannelStore<PageEntry> {
                 held.answers.set(key, within[i]!);
             }
             // Its answers are kept for its reader, beside what the batch kept as it launched, until the reader reads
-            // them; past the cap, the least recently read of the rest go.
-            keepWithin(held, batchKey, keys, keys);
-            trimWithin(held);
+            // them; past the cap over every narrowing, the least recently read of the rest go, the least recently used
+            // narrowing's first.
+            keepWithin(snapshot, held, batchKey, keys, keys);
+            trimWithin(snapshot);
             this.settle(batchKey, seq, (e) => { e.status = "loaded"; delete e.error; });
         })();
     }
