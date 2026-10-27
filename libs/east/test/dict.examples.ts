@@ -403,6 +403,15 @@ export const dictFilterMap = example({
     returns: new Map([[1n, "1:a"], [3n, "3:c"]]),
 });
 
+export const dictFilterMapRetype = example({
+    keywords: ["dict", "DictType", "filterMap", "transform", "option", "convert", "type"],
+    description: "Keep some of a dict's entries, each as a value of another type: the result is a Dict of what the function keeps",
+    fn: East.function([DictType(StringType, IntegerType)], DictType(StringType, FloatType), ($, counts) =>
+        counts.filterMap((_$, count) => East.equal(count.remainder(2n), 0n).ifElse(_$ => some(count.toFloat()), _$ => none))),
+    inputs: [new Map([["a", 1n], ["b", 2n], ["c", 3n], ["d", 4n]])],
+    returns: new Map([["b", 2.0], ["d", 4.0]]),
+});
+
 export const dictReduce = example({
     keywords: ["dict", "DictType", "reduce", "fold", "accumulate"],
     description: "Reduce dict entries to a single value",

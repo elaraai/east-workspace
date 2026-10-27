@@ -319,6 +319,7 @@ await describe("Dict", (test) => {
         dictMap: ex.dictMap,
         dictFilter: ex.dictFilter,
         dictFilterMap: ex.dictFilterMap,
+        dictFilterMapRetype: ex.dictFilterMapRetype,
         dictReduce: ex.dictReduce,
         dictScan: ex.dictScan,
         dictSum: ex.dictSum,
@@ -370,6 +371,12 @@ await describe("Dict", (test) => {
         $(assert.equal(
             East.value(new Map([[1n, "a"], [2n, "b"], [3n, "c"], [4n, "d"]])).filterMap(($, value, key) => East.equal(key.remainder(2n), 1n).ifElse(_$ => some(str`${key}:${value}`), _$ => none)),
             new Map([[1n, "1:a"], [3n, "3:c"]])
+        ))
+
+        // filterMap to another value type: a Dict of what the function keeps
+        $(assert.equal(
+            East.value(new Map([["a", 1n], ["b", 2n], ["c", 3n], ["d", 4n]])).filterMap((_$, value) => East.equal(value.remainder(2n), 0n).ifElse(_$ => some(value.toFloat()), _$ => none)),
+            new Map([["b", 2.0], ["d", 4.0]])
         ))
 
         // reduce

@@ -1075,7 +1075,7 @@ export class DictExpr<K extends any, T extends any> extends Expr<DictType<K, T>>
 
     return Expr.fromAst({
       ast_type: "Builtin",
-      type: this[TypeSymbol],
+      type: DictType(this.key_type, someType as EastType),
       loc_id: get_location_id(),
       builtin: "DictFilterMap",
       type_parameters: [this.key_type as EastType, this.value_type as EastType, someType as EastType],
