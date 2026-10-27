@@ -225,6 +225,12 @@ export interface SchematicCanvasProps {
     /** Told why a gesture was refused — a Delete a read-only link or net blocks — or, `undefined`, that one has been recorded since. */
     readonly onRefused: (words: string | undefined) => void;
     /**
+     * Told as the viewer acts on the canvas: a press on it, or a move of its camera — a pan, the wheel, a pinch, a zoom,
+     * Fit, the minimap, a fly. A resize is no action: the camera it moves tells nothing. The frame hears it while the footer
+     * says why a gesture was refused, the words going at the viewer's next action (hand retest, 27 Oct 2026).
+     */
+    readonly onAction?: (() => void) | undefined;
+    /**
      * Told what is selected — the items, the zones, and the link or the net — by their ids, and the net's leg when a
      * stub is selected (#1391), as that changes.
      */
@@ -334,7 +340,7 @@ export interface SchematicZoomRange {
  * the editing's history.
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
-    value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onSelection, onOpen, onZoneInView, drop, connectValues,
+    value, data, layers, narrowing, tool, linkKind, words, editing, onRefused, onAction, onSelection, onOpen, onZoneInView, drop, connectValues,
     viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, standing = NO_STANDING, fit = NO_FIT, unread = NO_UNREAD, failure, stale = false,
     retained = false, onZoomRange, narrow = false, onElement, ref,
 }: SchematicCanvasProps) {
@@ -585,7 +591,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         minimapPaintRef,
     } = paint;
     // What moves the camera, and what the camera tells as it moves (`use-camera.ts`).
-    const cameraMoves = useCameraMoves({ canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, narrowingFit: fit, fitBox, camera, paint });
+    const cameraMoves = useCameraMoves({ canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, onAction, narrowingFit: fit, fitBox, camera, paint });
     const { transition, flyTo, resetView, zoomBy, minimapDragRef, minimapJump } = cameraMoves;
     // What keeps the selection to the drawing, and the steps through its items (`use-canvas-selection.ts`).
     const selectionSteps = useSelectionSteps({ data, layers, inertKeys, narrowedOut, items, shownZones, standing, reading, canvasSelection, renderSnapRef, flyTo });

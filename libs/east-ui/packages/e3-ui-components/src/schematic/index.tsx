@@ -441,8 +441,10 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const canvasFit = useMemo((): SchematicCanvasFit => ({ key: fitKey, reading: fitReading, box: fitAreas.box }), [fitKey, fitReading, fitAreas.box]);
     const canvasNarrowing = useMemo((): SchematicCanvasNarrowing => ({ context: narrowing.context, out: narrowing.out, matches: narrowing.matches, look }),
         [narrowing, look]);
-    // Why the last gesture was refused, until one is recorded or Esc.
+    // Why the last gesture was refused, until one is recorded, Esc, or the viewer's next action: a press on the canvas, a
+    // move of its camera — a pan, a zoom, Fit, a fly — or a Find pick; never a resize alone (hand retest, 27 Oct 2026).
     const [refusal, setRefusal] = useState<string | undefined>(undefined);
+    const dropRefusal = useCallback(() => setRefusal(undefined), []);
 
     // ── The layers: what their author defaults and the viewer's choices hide, lock and dim (#1389) ──
     const layerValues = useDataStable(value.layers, layersEqual);
@@ -544,6 +546,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const hiddenLayers = useMemo(() => new Set(layersNow.flatMap((layer) => (getSomeorUndefined(layer.visible) === false ? [layer.key] : []))), [layersNow]);
     const drawnItems = useMemo(() => new Set(drawing.items.map((item) => item.key)), [drawing.items]);
     const onFound = useCallback((item: FoundItem) => {
+        // A pick is the viewer's action: a refusal's words go with it, wherever the camera goes.
+        setRefusal(undefined);
         const canvas = canvasRef.current;
         const mark = foundMark(item, look.dim, hiddenLayers);
         if (mark === undefined) {
@@ -1000,7 +1004,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                     onKeyDown={onKeyDown}
                 >
                     <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} tool={held.tool} linkKind={held.link}
-                        words={words} editing={canvasEditing} onRefused={setRefusal} onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
+                        words={words} editing={canvasEditing} onRefused={setRefusal} onAction={refusal === undefined ? undefined : dropRefusal}
+                        onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
                         onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}
                         viewport={areas.size > 0 ? viewport : undefined} density={data.density} overview={data.overview} reading={areas.size > 0 && data.loading}
                         unread={data.unread} failure={canvasFailure} stale={stale} retained={retained} onZoomRange={setZoomRange} narrow={narrow}

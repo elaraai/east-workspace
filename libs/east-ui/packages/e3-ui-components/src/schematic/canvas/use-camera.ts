@@ -14,8 +14,9 @@
  * Fit; the minimap's jump; the fly to the narrowing's matches, keyed on the
  * narrowing itself (invariant 22);
  * and what the camera tells as it moves — the zone the viewport is in, where
- * the viewport rests, for the reader, and where the zoom stands, for the
- * toolbar. Its maths is `camera.ts`'.
+ * the viewport rests, for the reader, where the zoom stands, for the toolbar,
+ * and each move the viewer makes, for the frame, whose refusal's words go with
+ * it. Its maths is `camera.ts`'.
  *
  * The commit-phase snapshot reads the camera (`use-paint.ts`, invariant 1), and
  * what moves it reads the snapshot and calls the painter's apply:
@@ -171,6 +172,11 @@ export interface CameraMovesProps {
     readonly viewport: SchematicViewportStore | undefined;
     /** Told whether the zoom stands at Fit and at its limit, as either changes (#1393). */
     readonly onZoomRange: ((range: SchematicZoomRange) => void) | undefined;
+    /**
+     * Told as the viewer acts on the camera — a press, the wheel, a pinch, a zoom, Fit, the minimap, a fly — each its
+     * transition into a mode; never a resize, which moves the camera by none.
+     */
+    readonly onAction: (() => void) | undefined;
     /** What `fit` flies the camera to as the narrowing changes (§10.3): the narrowing it is keyed on, and whether what it flies to is read. */
     readonly narrowingFit: SchematicCanvasFit;
     /** The box `fit` flies to: the matches the canvas draws of the kinds read whole or complete, and each kind read by area's narrowing's. */
@@ -189,7 +195,9 @@ export interface CameraMovesProps {
  * @returns The frame applier, a press's draw of a frame still waiting, the mode machine's transition, the fly, Fit, a
  *   zoom about the middle, and the minimap's jump and whether it is dragged
  */
-export function useCameraMoves({ canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, narrowingFit, fitBox, camera, paint }: CameraMovesProps) {
+export function useCameraMoves({
+    canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, onAction, narrowingFit, fitBox, camera, paint,
+}: CameraMovesProps) {
     const { size, cameraRef, cameraSnapshot, setCameraSnapshot, fit, home, ppu, maxZoom } = camera;
     const { renderSnapRef, applyCamera } = paint;
     const modeRef = useRef<CameraMode>("idle");
@@ -301,9 +309,15 @@ export function useCameraMoves({ canvasRef, W, H, lod, shownZones, narrowedOut, 
     const cancelFlyRaf = useCallback(() => {
         if (animRef.current !== null) { cancelAnimationFrame(animRef.current); animRef.current = null; }
     }, []);
+    // What hears the viewer's action, the latest, read as a transition runs: one heard or let go remakes no handler.
+    const actionRef = useRef(onAction);
+    useLayoutEffect(() => { actionRef.current = onAction; }, [onAction]);
     const transition = useCallback((event: CameraEvent) => {
         if (cancelsFly(modeRef.current, event)) cancelFlyRaf();
         modeRef.current = nextMode(modeRef.current, event);
+        // Into a mode is the viewer's action — every press on the canvas, the wheel, a pinch, a zoom, Fit, the minimap and
+        // a fly enters one; a release and a fly's end leave one, and a resize enters none.
+        if (event !== "pointerUp" && event !== "flyEnd") actionRef.current?.();
     }, [cancelFlyRaf]);
 
     // Animated fly-to: frame a world rect with padding, writing the live camera
