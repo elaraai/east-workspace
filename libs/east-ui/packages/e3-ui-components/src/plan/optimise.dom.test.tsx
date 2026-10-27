@@ -119,6 +119,47 @@ describe("the eye in the Plan", () => {
         expect([lit(container), container.querySelector("[data-optimise-banner]")]).toEqual([false, null]);
     });
 
+    /** Selects the first job the canvas draws, as a click on its bar does, and waits for the inspector to show it: its bar. */
+    async function selectFirstJob(c: HTMLElement): Promise<HTMLElement> {
+        const first = c.querySelector<HTMLElement>("[data-plan-body] [data-run]")!;
+        await press(first);
+        await waitFor(() => expect(slot(c, "end").querySelector('[data-plan-inspector="event"]')).not.toBeNull());
+        return first;
+    }
+    /** A job's bar on the canvas, by its element's key. */
+    const barOf = (c: HTMLElement, key: string) => c.querySelector(`[data-plan-body] [data-run=${JSON.stringify(key)}]`);
+    /** The inspector's edits: the form, Duplicate and Delete, in one fieldset. */
+    const edits = (c: HTMLElement) => slot(c, "end").querySelector<HTMLFieldSetElement>("[data-inspector-edits]")!;
+
+    test("R2 — while the call is out Delete takes nothing: the selected job stays, before the run lands and after", async () => {
+        const { container } = await mounted();
+        const backlog = backlogCount(container);
+        const job = await selectFirstJob(container);
+        const key = job.getAttribute("data-run")!;
+        const hold = calls.hold();
+        await press(eye(container));
+        await hold.holding;
+        await act(async () => { fireEvent.keyDown(job, { key: "Delete" }); });
+        await settle();
+        expect(barOf(container, key)).not.toBeNull();
+        hold.release();
+        await landed(container, backlog);
+        expect(barOf(container, key)).not.toBeNull();
+    });
+
+    test("R2 — while the call is out the inspector's edits are off: its form, Duplicate and Delete take nothing until the run lands", async () => {
+        const { container } = await mounted();
+        await selectFirstJob(container);
+        expect(edits(container).disabled).toBe(false);
+        const hold = calls.hold();
+        await press(eye(container));
+        await hold.holding;
+        expect(edits(container).disabled).toBe(true);
+        hold.release();
+        await waitFor(() => expect(eye(container)!.hasAttribute("data-running")).toBe(false), { timeout: 10_000 });
+        await waitFor(() => expect(edits(container).disabled).toBe(false));
+    });
+
     test("R3 — Stop cancels the call: the footer says so, a late answer is ignored, and nothing is recorded", async () => {
         const { container } = await mounted();
         const hold = calls.hold();

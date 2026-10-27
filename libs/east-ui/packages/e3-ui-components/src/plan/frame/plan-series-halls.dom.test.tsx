@@ -415,6 +415,34 @@ describe("a bounded view of the narrowed presses (#1344)", () => {
         await waitFor(() => expect(bar(c, "W-0003", "P-1002")?.getAttribute("aria-label")).toMatch(/^Museum guide, Oct 7, 2026, 06:00/));
     });
 
+    test("while a choice's first window is read the presses shown stand in, retained, and take no write by any route: the inspector's edits are off and Delete takes nothing, until the window lands (#1398, CL8)", async () => {
+        const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
+        await settle();
+        await chooseHalls(["Hall 2"]);
+        await waitFor(() => expect(bar(c, "W-0003", "P-1002")).not.toBeNull());
+        await act(async () => { fireEvent.click(bar(c, "W-0003", "P-1002")!); });
+        await settle();
+        const edits = () => slot(c, "end")!.querySelector<HTMLFieldSetElement>("[data-inspector-edits]")!;
+        await waitFor(() => expect(edits()).not.toBeNull());
+        expect(edits().disabled).toBe(false);
+        // Hall 4 chosen, its windows held on their way: Hall 2's presses stand in, retained.
+        const windows = h.e3.hold((request) => request.dataset === PRESSES && (request.kind === "page" || request.kind === "runs")
+            && request.query.get("index") === BY_HALL.name);
+        await chooseHalls(["Hall 4"], false);
+        await windows.holding;
+        await settle();
+        expect(body(c).getAttribute("aria-disabled")).toBe("true");
+        expect(edits().disabled).toBe(true);
+        await act(async () => { fireEvent.keyDown(bar(c, "W-0003", "P-1002")!, { key: "Delete" }); });
+        await settle();
+        expect([bar(c, "W-0003", "P-1002") !== null, pending(c)]).toEqual([true, "0 pending"]);
+        // Landed: the presses live again, and the inspector's edits with them.
+        await act(async () => { windows.release(); });
+        await settle();
+        await waitFor(() => expect(body(c).hasAttribute("aria-disabled")).toBe(false));
+        await waitFor(() => expect(edits().disabled).toBe(false));
+    });
+
     test("the view waits for the presses it shows once: from the window under it to the jobs' cells its rows are drawn from, main busy throughout — never idle between the two reads, so the line's reveal clock sees one wait (#1398, CL3)", async () => {
         const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
         await settle();

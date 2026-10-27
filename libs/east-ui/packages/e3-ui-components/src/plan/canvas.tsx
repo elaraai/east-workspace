@@ -1851,6 +1851,8 @@ export function usePlanCanvas({
             cold, busy: frameBusy, pitch: geometry.row,
             history: historyProps, sessions, where,
             events: kinds.length > 0 ? eventEditing : undefined,
+            // No command writes while a run is out (R2), nor while what the canvas shows stands in, retained (CL8).
+            writable: !locked && !retained,
             optimise: kinds.length > 0 ? {
                 toolbarItem: optimiseParts.toolbarItem, banner: optimiseParts.banner, line: optimiseParts.line, legend: optimiseParts.legend,
                 flash: landing.lit && optimised !== undefined, backlogFlash: landing.lit && optimised?.backlogChanged === true,

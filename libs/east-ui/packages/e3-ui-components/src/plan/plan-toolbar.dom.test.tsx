@@ -191,6 +191,8 @@ function Items({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlap
         cold: undefined, busy: false, pitch: 42,
         diagnostics: { skipped: 0 },
         history: undefined, sessions: [], events: undefined, cells: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
+        // Whether a command writes now: the toolbar's items write nothing of their own.
+        writable: true,
         // The inspector's reads: the toolbar takes none.
         inspect: { row: () => undefined, valueAt: () => undefined },
         // The overlaps chip's selection (#1198): its own test hears it.

@@ -404,6 +404,9 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const selectedEvents = usePlanSelector(snapshot => snapshot.store.ui.elements);
     const eventEditing = chrome?.events;
     const selectEvents = chrome?.selectEvents;
+    // Delete writes only while the canvas takes a write: never while a run of the optimiser is out (R2), nor while what
+    // it shows stands in, retained (#1398, CL8).
+    const writable = chrome?.writable === true;
     // The frame owns shortcuts even when no inspector is declared or its pane is collapsed; a key it acts on goes no
     // further than the Plan (#1398).
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
@@ -413,11 +416,11 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
             takeKey(event);
             onAction(action);
         } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === "Delete" || event.key === "Backspace")
-            && removePlanEvents(selectedEvents, eventEditing)) {
+            && writable && removePlanEvents(selectedEvents, eventEditing)) {
             takeKey(event);
             selectEvents?.([]);
         }
-    }, [onAction, selectedEvents, eventEditing, selectEvents]);
+    }, [onAction, selectedEvents, eventEditing, selectEvents, writable]);
     // A Plan with no control to show — no slice, no search, no group to fold, no overlaps, no editing — draws no toolbar.
     const toolbar = items.some((item) => item !== undefined && item !== false) ? items : undefined;
     // Each session's banners, in the history's order: `data`'s, then each event kind's, named — then each source the

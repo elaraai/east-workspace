@@ -56,8 +56,11 @@
  * of each event under a new key, the copies then selected; Delete; and the
  * bulk edit — the state, the resource, a shift of a day or an hour — over every
  * event selected that takes it, across kinds. They sit in one fieldset, off
- * while a selected kind takes no gesture — a write of its with no answer, its
- * drafts out of date.
+ * while the canvas takes no write — a run of the app's optimiser out (#1409,
+ * R2), or what it shows standing in, retained (#1398, CL8) — or a selected
+ * kind takes no gesture — a write of its with no answer, its drafts out of
+ * date — and each gesture asks the same again as it lands, so a control of a
+ * kind's own inspector the fieldset does not reach writes nothing meanwhile.
  *
  * It keeps the keyboard (#1398): a control that goes with the view it was
  * pressed in — Duplicate, which selects the copies, an overlap's line, which
@@ -175,9 +178,17 @@ function stateOfWord(word: PlanStateWord): ValueTypeOf<typeof EventStateType> {
         : variant(word, null) as ValueTypeOf<typeof EventStateType>;
 }
 
-/** Whether the selected events' kinds each take a gesture now: what the edits' fieldset is on for. */
-function writableFor(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined): boolean {
-    return editing !== undefined && events.length > 0 && events.every((event) => editing.available(event.kind.key));
+/**
+ * Whether the selected events take a gesture now: what the edits' fieldset is on for, and what each of its gestures
+ * asks again as it lands.
+ *
+ * @param events - The selected events
+ * @param editing - The event kinds' editing
+ * @param canvas - Whether the canvas takes a write now (`PlanChrome.writable`): no run of the optimiser out, nothing standing in
+ * @returns Whether the canvas takes a write, and every selected event's kind takes a gesture
+ */
+function writableFor(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined, canvas: boolean): boolean {
+    return canvas && editing !== undefined && events.length > 0 && events.every((event) => editing.available(event.kind.key));
 }
 
 /** One selected event, read: its element's key, its kind, and the event as Plan draws it, with its row. */
@@ -629,9 +640,13 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
     const { kind } = event;
     const item = event.item;
     const roles = kind.roles;
-    // Its edits (#1194): steps of the Plan's one history, on while its kind takes a gesture.
+    // Its edits (#1194): steps of the Plan's one history, on while the canvas takes a write and its kind a gesture.
     const editing = chrome?.events;
-    const writable = writableFor([event], editing);
+    const writable = writableFor([event], editing, chrome?.writable === true);
+    // What its gestures ask as they land — this render's — so the kind's own inspector, handed `update`, is not made
+    // again as the edits turn off and on.
+    const writes = useRef(writable);
+    writes.current = writable;
     // What it overlaps (#1198, PB53): its kind's events on its resource at once — a line each, which selects it.
     const peers = counts?.overlaps.peers.get(event.key) ?? [];
     const start = getSomeorUndefined(item.start);
@@ -660,13 +675,14 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
     // A field edited (PB42): one transaction, written through the kind's own `write`, its value as bytes at the field's type.
     const onField = useCallback((path: readonly string[], next: unknown) => {
         const spec = specs.find((s) => samePath(s.path, path));
-        if (editing === undefined || spec === undefined) return;
+        if (editing === undefined || spec === undefined || !writes.current) return;
         const value = encodeBeast2For(spec.type)(next as never);
         editing.record([{ kind: kind.key, id: item.key, gesture: variant("field", { path: [...path], value }) }], "typed", labelOf("Edit", [event]));
     }, [editing, specs, kind.key, item.key, event]);
-    // The kind's own inspector's `update` (PB60): the edited event, whole, one transaction.
+    // The kind's own inspector's `update` (PB60): the edited event, whole, one transaction — none while the edits are off,
+    // whatever control of the kind's own the fieldset does not reach.
     const update = useCallback((edited: Uint8Array): null => {
-        editing?.record([{ kind: kind.key, id: item.key, row: edited }], "typed", labelOf("Edit", [event]));
+        if (writes.current) editing?.record([{ kind: kind.key, id: item.key, row: edited }], "typed", labelOf("Edit", [event]));
         return null;
     }, [editing, kind.key, item.key, event]);
     // The kind's own inspector (PB60): what it returns for the event, in place of the form.
@@ -720,11 +736,11 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                 )}
                 <Box css={styles.actions} data-inspector-actions="">
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled={!canDuplicate([event], editing)}
-                        data-inspector-action="duplicate" onClick={() => duplicateEvents([event], editing, chrome, selection.row)}>
+                        data-inspector-action="duplicate" onClick={() => { if (writes.current) duplicateEvents([event], editing, chrome, selection.row); }}>
                         {m.inspectorAction({ action: "duplicate" })}
                     </chakra.button>
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
-                        onClick={() => deleteEvents([event], editing, chrome)}>
+                        onClick={() => { if (writes.current) deleteEvents([event], editing, chrome); }}>
                         {m.inspectorAction({ action: "delete" })}
                     </chakra.button>
                 </Box>
@@ -746,9 +762,9 @@ interface SeveralProps extends BodyProps {
 function SeveralEvents({ events, kinds, resources, words, styles, chrome, selection, shownResources }: SeveralProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
-    // Its edits (#1194): steps of the Plan's one history, on while every selected kind takes a gesture.
+    // Its edits (#1194): steps of the Plan's one history, on while the canvas takes a write and every selected kind a gesture.
     const editing = chrome?.events;
-    const writable = writableFor(events, editing);
+    const writable = writableFor(events, editing, chrome?.writable === true);
     // Each kind's count, in the kinds' order.
     const counted = kinds
         .map((kind) => ({ kind, n: events.filter((e) => stringEqual(e.kind.key, kind.key)).length }))
@@ -803,7 +819,7 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
     }, [events]);
     // The bulk edit (PB39): over every selected event that takes it, across kinds, one transaction.
     const onBulk = useCallback((path: readonly string[], next: unknown) => {
-        if (editing === undefined) return;
+        if (editing === undefined || !writable) return;
         if (samePath(path, ["state"])) {
             // A state chosen: written into each event whose kind reads one, at its state field.
             const chosen = getSomeorUndefined(next as option<ValueTypeOf<typeof STATE_CHOICE>>);
@@ -831,10 +847,10 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
             });
             editing.record(changes, "move", labelOf("Move", events));
         }
-    }, [editing, events]);
+    }, [editing, events, writable]);
     // A shift in time (PB39): every scheduled event a day or an hour either way, on its resource, one transaction.
     const shift = (by: -1 | 1, unit: "day" | "hour") => {
-        if (editing === undefined) return;
+        if (editing === undefined || !writable) return;
         const ms = by * (unit === "day" ? 86_400_000 : 3_600_000);
         const changes = events.flatMap((e): PlanEventChange[] => {
             const start = getSomeorUndefined(e.item.start);
@@ -883,11 +899,11 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
                 </Box>
                 <Box css={styles.actions} data-inspector-actions="">
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled={!canDuplicate(events, editing)}
-                        data-inspector-action="duplicate" onClick={() => duplicateEvents(events, editing, chrome, selection.row)}>
+                        data-inspector-action="duplicate" onClick={() => { if (writable) duplicateEvents(events, editing, chrome, selection.row); }}>
                         {m.inspectorAction({ action: "duplicate" })}
                     </chakra.button>
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
-                        onClick={() => deleteEvents(events, editing, chrome)}>
+                        onClick={() => { if (writable) deleteEvents(events, editing, chrome); }}>
                         {m.inspectorAction({ action: "delete" })}
                     </chakra.button>
                 </Box>

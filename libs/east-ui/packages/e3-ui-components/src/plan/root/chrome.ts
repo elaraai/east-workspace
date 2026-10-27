@@ -138,6 +138,13 @@ export interface PlanChrome {
     sessions: readonly PlanSessionBanner[];
     /** The event kinds' editing (#1194): their drafts, and their gestures; `undefined` for a Plan without event kinds. */
     events: PlanEventEditing | undefined;
+    /**
+     * Whether the canvas takes a write now: no run of the app's optimiser out (#1409, R2), and nothing on it standing in,
+     * retained (#1398, CL8, CL10) — a resource kind's narrowing resolving, a new narrowing's first window or Home or
+     * End's window read. Every command that writes asks it beside its kind's own `available` — the frame's Delete, the
+     * inspector's edits — as the Sheet's `canEdit` does; its drags are refused by the run's lock and the retained region.
+     */
+    writable: boolean;
     /** A run of the app's optimiser (#1409): what the frame draws of it; `undefined` for a Plan without event kinds. */
     optimise?: PlanOptimiseChrome | undefined;
     /**

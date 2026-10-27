@@ -726,7 +726,13 @@ Use the established 44px row and coarse-pointer targets. Range/date and count
 readouts share one baseline; do not introduce a stacked two-line toolbar label.
 
 All edit routes—pointer, keyboard, explicit mobile actions and inspector—must
-reach the same commands and shared sessions. Reuse the shared Save label,
+reach the same commands and shared sessions, and refuse alike: while a run of
+the app's optimiser is out (#1409, R2), or what the builder shows stands in,
+retained (#1398, CL8), no route writes. The Plan's frame and inspector ask its
+chrome's `writable` (no run out, nothing retained) beside each kind's
+`available` — its Delete key as much as the inspector's form, its kind's own
+inspector's `update`, Duplicate, Delete and bulk edit — as the Sheet's ask its
+`canEdit` beside its session's `available`. Reuse the shared Save label,
 banners, validation, conflict and unknown-outcome retry behavior. Keep domain
 actions such as Publish separate from Save, following Studio/Query. Use shared
 anchored forms/popovers; follow the library's prohibition on modal dialogs.
