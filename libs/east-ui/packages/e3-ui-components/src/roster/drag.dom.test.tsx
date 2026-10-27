@@ -6,7 +6,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import { DateTimeType, IntegerType, SortedMap, StringType, compareFor, equalFor, none, toEastTypeValue } from "@elaraai/east";
-import { pointAt } from "@elaraai/east-ui-components/testing";
+import { announced, pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { act, assignment, at, cell, drop, hover, libraryCard, press, release, rosterHarness, settle, slot, START, warehouseRoster } from "./harness.test-utils.js";
 import { rosterDomain } from "./model.js";
@@ -61,6 +61,14 @@ describe("Roster shared drag layer", () => {
         expect(cell(c, 4, "inbound", "night").querySelector("[data-roster-landing]")?.textContent).not.toContain("rest");
         await act(async () => { fireEvent.keyDown(document, { key: "Escape", code: "Escape" }); }); await settle();
         expect(equalFor(ex.rosterDuties.type)(await h.read(ex.rosterDuties), newer)).toBe(true);
+    });
+    test("a drop is said to a screen reader by where it lands, in the drag layer's words — a shift by its group, its day and its name, a duty by whose it is — never by keys (retest R2)", async () => {
+        const { container: c } = await h.mount(ex.rosterWarehouse);
+        await drop(await libraryCard(c, "N. Ochre"), cell(c, 4, "inbound", "night"));
+        expect(announced()).toBe("N. Ochre was dropped on Inbound · Thu Night.");
+        await press(within(slot(c, "start")).getByRole("tab", { name: "Activities 17" }));
+        await drop(await libraryCard(c, "Unloading"), assignment(c, "s37"));
+        expect(announced()).toBe("Unloading was dropped on C. Clover · Thu Early.");
     });
     test("a drop keeps the inspector collapsed while an explicit inspection click opens it", async () => {
         const { container: c } = await h.mount(ex.rosterWarehouse);

@@ -14,6 +14,7 @@ import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { DateTimeType, East, IntegerType, compareFor } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
+import { announced } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { act, assignment, at, cell, drop, history, hover, press, release, rosterHarness, settle, slot, START, weekDuties, width } from "./harness.test-utils.js";
@@ -155,6 +156,17 @@ describe("a pattern on a person's week (#1406, D4, P17–P19, P21, P11)", () => 
         expect(cell(c, 4, "inbound", "early").hasAttribute("data-drop-invalid")).toBe(true);
         expect(caption()?.textContent).toBe("Drop a pattern on a person's week.");
         await release();
+    });
+    test("a pattern's drop is said to a screen reader by the person's name and the week, in the drag layer's words — on a row in Week and on a cell in Month — never by their keys (retest R2)", async () => {
+        const week = await h.mount(ex.rosterPeople);
+        const person = firstPerson(week.container);
+        const name = nameOf(week.container, person);
+        await drop(await pattern(week.container, "n4s"), day(week.container, person, 2));
+        expect(announced()).toBe(`Night · Sun–Wed was dropped on ${name} · W${weekNumber(START)}.`);
+        week.unmount();
+        const { container: c } = await h.mount(ex.rosterPeopleMonth);
+        await drop(await pattern(c, "n4s"), monthCell(c, person, MARCH.weeks[2]!));
+        expect(announced()).toBe(`Night · Sun–Wed was dropped on ${name} · W${weekNumber(MARCH.weeks[2]!)}.`);
     });
 });
 
