@@ -33,6 +33,12 @@ export function isEastFunctionExprType(type: ts.Type): boolean {
   return someTypeName(type, (name) => name === "FunctionExpr" || name === "AsyncFunctionExpr");
 }
 
+// An East program's IR bundle — what `toIR()` gives (`EastIR`, `AsyncEastIR`): a
+// whole program, serialized. Name-keyed, like `isEastExprType`.
+export function isEastIRType(type: ts.Type): boolean {
+  return someTypeName(type, (name) => name === "EastIR" || name === "AsyncEastIR");
+}
+
 export function isBlockBuilderType(type: ts.Type): boolean {
   const name = type.aliasSymbol?.name ?? type.symbol?.name;
   return name === "BlockBuilder";

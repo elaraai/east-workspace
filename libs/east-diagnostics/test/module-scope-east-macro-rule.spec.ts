@@ -86,6 +86,32 @@ test("still flags a helper whose other return builds IR beside one handing back 
   assert.equal(rule(src).length, 2);
 });
 
+test("silent on a program builder, which returns the program's IR bundle", () => {
+  const src = `${PRELUDE}import type { EastType } from "@elaraai/east";\n` +
+    `export function identityProgram(t: EastType) {\n  return East.function([t], t, ($, x) => x).toIR();\n}\n`;
+  assert.deepEqual(rule(src), []);
+});
+
+test("silent on a function factory, which makes a function from types", () => {
+  const src = `${PRELUDE}import type { EastType } from "@elaraai/east";\n` +
+    `export function identity(t: EastType) {\n  return East.function([t], t, ($, x) => x);\n}\n` +
+    `export const constant = (n: bigint) => East.function([], IntegerType, () => n);\n`;
+  assert.deepEqual(rule(src), []);
+});
+
+test("silent on a function factory composing functions it is given", () => {
+  const src = `${PRELUDE}import type { FunctionExpr } from "@elaraai/east";\n` +
+    `export function twiceOf(f: FunctionExpr<[IntegerType], IntegerType>) {\n` +
+    `  return East.function([IntegerType], IntegerType, ($, x) => {\n    const g = $.const(f);\n    return g(g(x));\n  });\n}\n`;
+  assert.deepEqual(rule(src), []);
+});
+
+test("still flags a helper returning a function that captures an East expression it is given", () => {
+  const src = `${PRELUDE}import type { ExprType } from "@elaraai/east";\n` +
+    `export const twice = (x: ExprType<IntegerType>) => East.function([], IntegerType, () => x.add(x));\n`;
+  assert.equal(rule(src).length, 1);
+});
+
 test("silent on an in-block closure (that is `no-host-in-east-block`'s job)", () => {
   assert.equal(rule(`${PRELUDE}export const f = East.function([], IntegerType, ($) => {\n  const g = (n: bigint) => variant("x", n);\n  return $.const(1n, IntegerType);\n});\n`).length, 0);
 });

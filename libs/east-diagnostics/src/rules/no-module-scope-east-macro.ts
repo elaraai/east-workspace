@@ -4,7 +4,7 @@
  */
 import type * as ts from "typescript";
 import type { EastRule, RuleContext, TsModule } from "../types.js";
-import { isEastExprType, isBlockBuilderType, isEastDefinitionType } from "../east-type.js";
+import { isEastExprType, isBlockBuilderType, isEastDefinitionType, isEastFunctionExprType, isEastIRType } from "../east-type.js";
 import { insideBlockScope } from "../block-scope.js";
 import { chainRootReceiver } from "../east-ir.js";
 import { importDeclarationOf, importsEastPackage, resolvesToEastImport } from "../east-source.js";
@@ -83,6 +83,10 @@ function returnBuildsEast(r: ts.Expression, ctx: RuleContext): boolean {
   // what the host language is FOR. It is not a value macro, even though the
   // definition it returns has East builders (an `East.function` body) inside.
   if (isEastDefinitionType(ctx.checker.getTypeAtLocation(r))) return false;
+  // A PROGRAM builder — a helper returning an IR bundle (`EastIR`, what `toIR()`
+  // gives) — builds a whole program and serializes it: nothing of it is spliced
+  // into a caller's body.
+  if (isEastIRType(ctx.checker.getTypeAtLocation(r))) return false;
   if (isEastValueConstructor(r, ctx)) return true;
   if (isEastExprType(ctx.checker.getTypeAtLocation(r))) return true;
   const root = chainRootReceiver(r, ctx);
@@ -243,6 +247,18 @@ export const noModuleScopeEastMacro: EastRule = {
     const rs = returnExpressions(fn, t).filter((r) => !forwardsParameter(r, fn, ctx));
     if (rs.some((r) => isJsx(r, t))) return; // UI-composition helper
     if (rs.length === 0) return;
+
+    // A FUNCTION factory — every return a function value (`East.function(…)`, or
+    // one a guard checks), made from host data (types, declarations) and other
+    // functions — builds a function a program binds and calls, so nothing expands
+    // inline, and it serializes whole. A parameter that is itself an East value
+    // other than a function would be captured into it, a macro's mark, so a
+    // helper taking one is still checked; a function captures nothing of a body.
+    const takesEast = fn.parameters.some((p) => {
+      const type = ctx.checker.getTypeAtLocation(p.name);
+      return (isEastExprType(type) && !isEastFunctionExprType(type)) || isBlockBuilderType(type);
+    });
+    if (!takesEast && rs.every((r) => isEastFunctionExprType(ctx.checker.getTypeAtLocation(r)))) return;
 
     // IR built in a module-scope helper is a macro wherever it is used; decoded
     // values and composite keys are one where they feed an East program.
