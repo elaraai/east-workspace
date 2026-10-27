@@ -54,7 +54,7 @@ import { statusUnread, type DrawnItem, type DrawnLink, type DrawnNet, type Drawn
 import { MARKER_DOT_RADIUS, markerHitbox } from "./markers";
 import { PIN_DOT_W, PIN_GAP, PIN_PAD_X } from "./model";
 import {
-    edgeWeight, leaveShape, linkRoutes, meetShape, netGeometry, netRoutes, orthogonalize, parallelLanes, routeEnv, type EdgeGeometry, type EdgeRun,
+    edgeWeight, leaveShape, linkRoutes, meetShape, netRoutes, orthogonalize, parallelLanes, routeEnv, type EdgeGeometry, type EdgeRun,
 } from "./routes";
 
 /** An Option's value, or `undefined` — East's `match`, as east-ui-components'
@@ -221,10 +221,6 @@ export interface PaintInput {
      * its marker ringed.
      */
     draftLink?: { from: Pt; to: Pt; fromKey: string; toKey?: string; snapped: boolean; forbiddenKey?: string };
-    /** Open connect-session edges (#176, `connect` mode), world coords. */
-    /** The open connect-session proposal: one pair is a dashed edge; a grown
-     *  session previews as a dashed BUS (same geometry a committed net gets). */
-    session?: { kind: "edge"; from: Pt; to: Pt } | { kind: "net"; sources: readonly Pt[]; destinations: readonly Pt[] };
     /** One-shot connect commit flash (#176); `phase` 0..1. Endpoints may be
      * undefined when an item vanished mid-flash — the painter skips then. */
     connectFlash?: { from: Pt | undefined; to: Pt | undefined; phase: number };
@@ -567,7 +563,7 @@ export function captionText(label: string | undefined, metric: string | undefine
 
 /** Draw the schematic's bulk-shape layer for one frame. Clears first. */
 export function paintSchematic(input: PaintInput): void {
-    const { ctx, value, cam, width, height, visibleItems, tiers, selected, selectedZones, centers, palette: p, tints, effect, layerHiddenKeys, layerAlpha, draftLink, session, connectFlash, selectedLink, dropMark } = input;
+    const { ctx, value, cam, width, height, visibleItems, tiers, selected, selectedZones, centers, palette: p, tints, effect, layerHiddenKeys, layerAlpha, draftLink, connectFlash, selectedLink, dropMark } = input;
     // An entity's colour by its id, as the bridge resolved it; else its kind's ground.
     const tintOf = (key: string, ground: RGB): string => css(tints.get(key) ?? ground);
     // Whether a status unread draws its placeholder now: once the builder's reveal says so (#1398, CL4).
@@ -924,43 +920,13 @@ export function paintSchematic(input: PaintInput): void {
         }
     }
 
-    // ---- connect-tool overlays (#176): session edges, draft edge, flash ------
+    // ---- connect-tool overlays (#176): the draft edge and the flash ----------
     // Drawn above real links, below the narrowing's frame and rings and the
-    // markers. All routed through the SAME orthogonal painter as real links
-    // (shape constraints).
+    // markers. Routed through the SAME orthogonal painter as real links (shape
+    // constraints). A Connect session's links and its net are drafts the
+    // drawing holds (#1388), drawn as the links and nets they are.
     const routeScreen = (a: Pt, b: Pt): Pt[] =>
         orthogonalize([{ x: wx(a.x), y: wy(a.y) }, { x: wx(b.x), y: wy(b.y) }]);
-    if (session !== undefined) {
-        ctx.save();
-        ctx.lineCap = "round";
-        ctx.setLineDash([6, 5]);
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = css(p.brandMark, 0.75);
-        if (session.kind === "edge") {
-            ctx.beginPath();
-            traceRounded(ctx, routeScreen(session.from, session.to), 8);
-            ctx.stroke();
-        } else {
-            // The proposal previews with the SAME bus geometry a committed net
-            // would get — dashed, and without junction dots (it is not real yet).
-            const geo = netGeometry(session.sources, session.destinations, []);
-            const toS = (q: Pt): Pt => ({ x: wx(q.x), y: wy(q.y) });
-            ctx.beginPath();
-            traceRounded(ctx, orthogonalize(geo.trunk.map(toS)), 8);
-            ctx.stroke();
-            for (const bar of geo.bars) {
-                ctx.beginPath();
-                traceRounded(ctx, bar.map(toS), 0);
-                ctx.stroke();
-            }
-            for (const stub of geo.stubs) {
-                ctx.beginPath();
-                traceRounded(ctx, orthogonalize(stub.map(toS)), 8);
-                ctx.stroke();
-            }
-        }
-        ctx.restore();
-    }
     if (draftLink !== undefined) {
         // The shared drag preview (#1403): the brand's line from the item the draft runs from — off its edge — to the
         // pointer, or to the item it snaps to, onto its edge, with a head. A canConnect veto turns it DANGER, and rings

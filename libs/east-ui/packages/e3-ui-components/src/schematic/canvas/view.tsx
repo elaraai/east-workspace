@@ -552,7 +552,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
         density, stale, retained, showMinimap, minimapBox, shownZones, minimapDensities, minimapItems, look, matches, camera, canvasSelection, gestureState,
     });
     const {
-        drawRef, cardSizesRef, cardLayerRef, gridRef, washLayerRef, tintIndex, probeRef, renderSelected, renderSnapRef, applyCamera, onReveal, minimapPaintRef,
+        drawRef, cardSizesRef, applyCardSizes, cardLayerRef, gridRef, washLayerRef, tintIndex, probeRef, renderSelected, renderSnapRef, onReveal,
+        minimapPaintRef,
     } = paint;
     // What moves the camera, and what the camera tells as it moves (`use-camera.ts`).
     const cameraMoves = useCameraMoves({ canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, look, matches, camera, paint });
@@ -695,7 +696,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                         holds the widest card too, which the recipe reads. */}
                     <SchematicCardLayer cardLayerRef={cardLayerRef} styles={styles} visibleItems={visibleItems} tiers={tiers} lod={lod} context={context}
                         look={look} matches={matches} renderSelected={renderSelected} lockedKeys={lockedKeys} layerAlpha={layerAlpha}
-                        connectDraft={connectDraft} dropMark={dropMark} centers={centers} cardSizesRef={cardSizesRef} applyCamera={applyCamera} />
+                        connectDraft={connectDraft} dropMark={dropMark} centers={centers} cardSizesRef={cardSizesRef} applyCamera={applyCardSizes} />
                     {/* Drag box overlay — zoom (#153) or marquee (#159). The marquee
                         carries a live hit-count badge. Screen-space, host-relative. */}
                     {selRect !== null && (

@@ -209,8 +209,13 @@ export interface CanvasSnapshot {
 export interface Paint {
     /** The painted canvas's element. */
     readonly drawRef: RefObject<HTMLCanvasElement | null>;
-    /** Each card's size as the page lays it out, by its item's id (#1403): what the card layer's observer writes, and a link's end meets. */
-    readonly cardSizesRef: RefObject<ReadonlyMap<string, { w: number; h: number }>>;
+    /**
+     * Each card's size as the page lays it out, by its item's id (#1403): what the card layer's observer writes, in place,
+     * and a link's end meets.
+     */
+    readonly cardSizesRef: RefObject<Map<string, { w: number; h: number }>>;
+    /** Draws again as a card's size moves: the card layer tells it so, and the paint's short-circuit hears it (invariant 2). */
+    readonly applyCardSizes: () => void;
     /** The card layer's element: what the apply writes the live camera's custom properties to. */
     readonly cardLayerRef: RefObject<HTMLDivElement | null>;
     /** The grid's element: its cells and its position, as the apply writes them. */
@@ -250,9 +255,12 @@ export function usePaint({
     const { effectiveTool, isBoxTool, selectedLinkEditable, marqueePreview, connectFlashRef } = gestureState;
     const drawRef = useRef<HTMLCanvasElement | null>(null);
     // Each card's size as the page lays it out, by its item's id (#1403): what a link's end meets at card zoom. Heard
-    // by a ResizeObserver as each card is laid out and as its box changes — never in a render — a fresh map each time it
-    // moves (invariant 2); a card it hasn't heard, or one laid out at no size, is reckoned (`tierSize`).
-    const cardSizesRef = useRef<ReadonlyMap<string, { w: number; h: number }>>(new Map());
+    // by a ResizeObserver as each card is laid out and as its box changes — never in a render — written into this one
+    // map in place, and a card the card layer lets go of leaving it; a card it hasn't heard, or one laid out at no size,
+    // is reckoned (`tierSize`). The map stays the same object: its version, moved as a size moves, is what the paint's
+    // short-circuit compares (invariant 2).
+    const cardSizesRef = useRef<Map<string, { w: number; h: number }>>(new Map());
+    const cardSizesVersionRef = useRef(0);
     const cardLayerRef = useRef<HTMLDivElement | null>(null);
     const gridRef = useRef<HTMLDivElement | null>(null);
     // The unread area's layer, under the grid (#1398): its washes follow the camera's custom properties, as the cards do.
@@ -319,7 +327,7 @@ export function usePaint({
         sel: ReadonlySet<string>; zsel: ReadonlySet<string>; pal: SchematicPalette | null; tints: unknown; w: number; h: number; dpr: number; val: unknown;
         lay: unknown; alp: unknown;
         dl: unknown; cf: number; slk: unknown; sle: boolean; dm: unknown; eff: unknown; phase: number;
-        lit: string | undefined; was: string | undefined; cs: unknown; den: unknown; ph: boolean; st: boolean;
+        lit: string | undefined; was: string | undefined; cs: number; den: unknown; ph: boolean; st: boolean;
     } | null>(null);
 
     // Apply the LIVE camera to ALL surfaces in one step: card-layer CSS vars +
@@ -361,6 +369,7 @@ export function usePaint({
         const cf = connectFlashRef.current;
         const cfPhase = cf !== null ? Math.min(1, (performance.now() - cf.t0) / 450) : -1;
         const cardSizes = cardSizesRef.current;
+        const cardSizesVersion = cardSizesVersionRef.current;
         const last = lastPaintRef.current;
         if (last !== null
             && last.zoom === cam.zoom && last.tx === cam.tx && last.ty === cam.ty
@@ -371,7 +380,7 @@ export function usePaint({
             && last.dl === snap.connectDraftWorld && last.cf === cfPhase
             && last.slk === snap.selectedLink && last.sle === snap.selectedLinkEditable && last.dm === snap.dropMark
             && last.eff === snap.paintEffect && last.phase === pulsePhaseRef.current
-            && last.lit === snap.lit && last.was === snap.wasLink && last.cs === cardSizes && last.den === snap.density
+            && last.lit === snap.lit && last.was === snap.wasLink && last.cs === cardSizesVersion && last.den === snap.density
             && last.ph === placeholdersRef.current && last.st === snap.stale) return;
         lastPaintRef.current = {
             zoom: cam.zoom, tx: cam.tx, ty: cam.ty, vis: snap.visibleItems, tiers: snap.tiers,
@@ -380,7 +389,7 @@ export function usePaint({
             dl: snap.connectDraftWorld, cf: cfPhase,
             slk: snap.selectedLink, sle: snap.selectedLinkEditable, dm: snap.dropMark,
             eff: snap.paintEffect, phase: pulsePhaseRef.current,
-            lit: snap.lit, was: snap.wasLink, cs: cardSizes, den: snap.density, ph: placeholdersRef.current, st: snap.stale,
+            lit: snap.lit, was: snap.wasLink, cs: cardSizesVersion, den: snap.density, ph: placeholdersRef.current, st: snap.stale,
         };
         const bw = Math.round(sz.w * dprLive), bh = Math.round(sz.h * dprLive);
         if (canvas.width !== bw || canvas.height !== bh) { canvas.width = bw; canvas.height = bh; }
@@ -426,6 +435,12 @@ export function usePaint({
             console.error("[Schematic] paint failed (frame skipped):", err);
         }
     }, [cameraRef, connectFlashRef]);
+
+    // A card's size moving (#1403): the map is written in place, so its version moves for the short-circuit, then the apply.
+    const applyCardSizes = useCallback(() => {
+        cardSizesVersionRef.current += 1;
+        applyCamera();
+    }, [applyCamera]);
 
     // The builder's reveal flipping (CL4): the painted placeholders show, or go unseen, with no render of the canvas.
     const onReveal = useCallback((shown: boolean) => {
@@ -521,7 +536,7 @@ export function usePaint({
     // because EVERY commit re-snapshots then applies, and the identity
     // short-circuit makes the no-change case free.)
     return {
-        drawRef, cardSizesRef, cardLayerRef, gridRef, washLayerRef, tintIndex, probeRef, renderSelected, renderSnapRef, applyCamera, onReveal,
+        drawRef, cardSizesRef, applyCardSizes, cardLayerRef, gridRef, washLayerRef, tintIndex, probeRef, renderSelected, renderSnapRef, applyCamera, onReveal,
         minimapPaintRef,
     };
 }

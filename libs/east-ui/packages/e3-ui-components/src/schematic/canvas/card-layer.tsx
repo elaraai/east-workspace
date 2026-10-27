@@ -12,7 +12,9 @@
  * apply writes, so a camera move is three property writes on it and never a
  * card's re-layout, and the widest card, which the recipe reads. Each card's
  * size as the page lays it out is heard by a ResizeObserver, for a link's end
- * to meet (invariant 9).
+ * to meet (invariant 9): written into one map in place as it moves, never a
+ * copy of it a batch, and let go of as the layer stops observing the card, so
+ * the map holds the sizes of the cards drawn, no more.
  *
  * @packageDocumentation
  */
@@ -63,9 +65,9 @@ export interface SchematicCardLayerProps {
     readonly dropMark: SchematicDropMark | undefined;
     /** Each item drawn's centre, by its id: where a refusal's caption stands. */
     readonly centers: ReadonlyMap<string, { x: number; y: number }>;
-    /** Each card's size as the page lays it out, by its item's id (#1403): what the observer writes. */
-    readonly cardSizesRef: RefObject<ReadonlyMap<string, { w: number; h: number }>>;
-    /** The apply (`use-paint.ts`): the paint draws again as a card's size moves. */
+    /** Each card's size as the page lays it out, by its item's id (#1403): what the observer writes, in place. */
+    readonly cardSizesRef: RefObject<Map<string, { w: number; h: number }>>;
+    /** Draws the paint again as a card's size moves (`use-paint.ts`' `applyCardSizes`): told the sizes moved, then the apply. */
     readonly applyCamera: () => void;
 }
 
@@ -81,29 +83,35 @@ export function SchematicCardLayer({
     cardSizesRef, applyCamera,
 }: SchematicCardLayerProps) {
     // Each card's size as the page lays it out (#1403): a ResizeObserver hears each card as it is laid out and as its box
-    // changes — a card with an explicit width grows with the zoom — and the paint draws again over a fresh map. Made as
-    // the first card is laid out, and let go with the canvas.
+    // changes — a card with an explicit width grows with the zoom — each size written into the one map in place, and the
+    // paint told once a batch that moved one. A card the layer stops observing — it draws as a pin or a dot now, or left
+    // the view — leaves the map, which so holds the cards drawn, never every card a session has drawn. Made as the first
+    // card is laid out, and let go with the canvas.
     const cardObserverRef = useRef<ResizeObserver | null>(null);
     const observeCard = useCallback((el: HTMLElement | null) => {
         if (el === null || typeof ResizeObserver === "undefined") return undefined;
         cardObserverRef.current ??= new ResizeObserver((entries) => {
-            let next: Map<string, { w: number; h: number }> | undefined;
+            const sizes = cardSizesRef.current;
+            let moved = false;
             for (const entry of entries) {
                 const key = entry.target.getAttribute("data-card-key");
                 const box = entry.borderBoxSize[0];
                 if (key === null || box === undefined || !(box.inlineSize > 0 && box.blockSize > 0)) continue;
-                const was = (next ?? cardSizesRef.current).get(key);
+                const was = sizes.get(key);
                 if (was !== undefined && was.w === box.inlineSize && was.h === box.blockSize) continue;
-                next ??= new Map(cardSizesRef.current);
-                next.set(key, { w: box.inlineSize, h: box.blockSize });
+                sizes.set(key, { w: box.inlineSize, h: box.blockSize });
+                moved = true;
             }
-            if (next === undefined) return;
-            cardSizesRef.current = next;
-            applyCamera();
+            if (moved) applyCamera();
         });
         const observer = cardObserverRef.current;
         observer.observe(el);
-        return () => observer.unobserve(el);
+        // The card it was let go of: a card still drawn so is observed again, its size heard again with it.
+        const key = el.getAttribute("data-card-key");
+        return () => {
+            observer.unobserve(el);
+            if (key !== null) cardSizesRef.current.delete(key);
+        };
     }, [applyCamera, cardSizesRef]);
     useEffect(() => () => { cardObserverRef.current?.disconnect(); cardObserverRef.current = null; }, []);
     return (
