@@ -294,6 +294,35 @@ describe("Plan UI state survives a remount (#813)", () => {
         expect(storedAt("plan-813-paged").charts).toEqual([rowKey("u1999")]);
     });
 
+    test("a paged canvas whose source has shrunk past the anchor's window opens its last window and settles there — the row gone, its clamped index — and keeps the view's place again (#1398)", async () => {
+        // A thousand rows now: five windows, the last u0800–u0999.
+        const source = {
+            id: "dom-1398-shrunk",
+            page: (offset: bigint) => {
+                const from = Number(offset);
+                return some(Array.from({ length: Math.max(0, Math.min(200, 1_000 - from)) }, (_u, i) =>
+                    planRow(`u${pad(from + i, 4)}`, span())));
+            },
+            total: () => some(1_000n),
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        };
+        // The last session rested on u1850, from window 9, while the source held two thousand rows.
+        localStorage.setItem("plan-1398-shrunk", JSON.stringify({
+            collapse: [], charts: [],
+            anchor: { key: rowItem("u1850"), offset: 0, index: 1_850, window: 9 },
+        }));
+        const { container } = renderPlan(planRoot([], { source }), "plan-1398-shrunk");
+        // Window 9 is past the end: the canvas opens the last window, and the place settles on the clamped index —
+        // the last row, at the top of the view.
+        await waitFor(() => expect(frameOf(container).scrollTop).toBe(999 * 32), { timeout: 5_000 });
+        expect(container.querySelector(rowSel("u0999"))).toBeTruthy();
+        // Settled, the place the view rests at is kept again.
+        await scrollAndSettle(container, 900 * 32);
+        expect(storedAt("plan-1398-shrunk").anchor).toMatchObject({ key: rowItem("u0900"), offset: 0 });
+    });
+
     describe("a view resting over rows not read is kept by the element under its top (#1398)", () => {
         /**
          * Two thousand rows of 32px, two hundred a window: those in `held` stay on their way, and those in `failing`

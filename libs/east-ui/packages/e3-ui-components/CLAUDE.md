@@ -1457,7 +1457,10 @@ that element's window, read off the band as it was drawn (the paging driver's
 `unreadPlace`), never the run's key, which names only its side and stands for
 other rows by the time a remount draws it: the remount opens that window where
 it is (`openAt`) and puts the view back on it once it is in, its rows or its
-failure's band (`plan-persistence.dom.test.tsx`). A narrowing keeps the Sheet's anchor row by its
+failure's band (`plan-persistence.dom.test.tsx`). A place saved against a
+longer source — its row's window, or its element's, past the end of one that
+has shrunk since — opens the last window and settles there, on the clamped
+index (the controller's `openedWindow`). A narrowing keeps the Sheet's anchor row by its
 key where the narrowing holds it — drawn already, or sought where it is as a key
 search's jump is, and put back once drawn — and else starts at the top; the
 Allocation's Table keeps the line its view rested on so too, once the

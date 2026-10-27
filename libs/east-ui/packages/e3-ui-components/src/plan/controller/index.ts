@@ -424,6 +424,20 @@ export function elementRowsOf(p: PlanPagingSnapshot): readonly PlanRowValue[] {
 }
 
 /**
+ * The window the paging driver opens for a saved place's window `w` (#1398):
+ * `w` itself, or — `w` past the end of a source that has shrunk since the
+ * place was saved — the source's last window, as `openAt` reads it.
+ *
+ * @param p - The paging snapshot
+ * @param w - The window a saved place names
+ * @returns The window opened for it
+ */
+function openedWindow(p: PlanPagingSnapshot, w: number): number {
+    const windows = p.total !== undefined ? Math.ceil(p.total / PLAN_PAGE_SIZE) : 0;
+    return windows > 0 ? Math.min(w, windows - 1) : w;
+}
+
+/**
  * The UI state as a reconcile against `model` would leave it — what the canvas
  * renders its first frame of a new value with, before `setValue` commits the
  * same transition.
@@ -1255,10 +1269,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                         return;
                     }
                     const snap = paging.getSnapshot();
-                    const windows = snap.total !== undefined ? Math.ceil(snap.total / PLAN_PAGE_SIZE) : 0;
                     // An element past the end — saved against a longer source — is in the last window, as `openAt` reads it.
                     const savedW = Math.floor(saved.element / PLAN_PAGE_SIZE);
-                    const w = windows > 0 ? Math.min(savedW, windows - 1) : savedW;
+                    const w = openedWindow(snap, savedW);
                     const ours = (b: number) => block === undefined || b === block;
                     const first = items.findIndex((it) => {
                         if (it.kind === "failed") return it.failure.w === w && ours(it.failure.block);
@@ -1283,14 +1296,16 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     // A paged canvas may simply not have loaded the row yet:
                     // open its block at the window it came from before calling
                     // it gone — a rebase, not a walk.
-                    const w = saved.window;
                     const block = saved.block ?? undefined;
                     if (anchor.phase === "pending") {
                         anchor = { ...anchor, phase: "seeking" };
-                        paging.openAt(w * PLAN_PAGE_SIZE, block);
+                        paging.openAt(saved.window * PLAN_PAGE_SIZE, block);
                         return;
                     }
                     const snap = paging.getSnapshot();
+                    // A window past the end of a source that has shrunk since — the row gone with it — is its last, as
+                    // `openAt` reads it (#1398): the place settles once that window is in, on the clamped index.
+                    const w = openedWindow(snap, saved.window);
                     const settled = snap.failures.some((f) => f.w === w)
                         || [...snap.origin.values()].some((o) => o.w === w && (block === undefined || o.block === block));
                     if (!settled) return;
