@@ -88,6 +88,11 @@ const NO_ISSUES: Issue[] = [];
 const keyEqual = equalFor(StringType);
 /** The Table's view has rested nowhere yet. */
 const NO_ANCHOR: { table?: RowAnchor | undefined } = {};
+/**
+ * The frame's root takes the focus a click on a part of it holding nothing focusable gives — a pane's empty foot, the
+ * toolbar's gaps — so the keyboard is in the Allocation, never the page's body, as the Calendar's is: not a tab stop.
+ */
+const CLICK_FOCUS: Readonly<Record<string, string>> = { tabIndex: "-1" };
 
 /** What the frame takes from the board around it: the payload, its key, the day, and the editing. */
 interface FrameProps {
@@ -469,6 +474,20 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         acted(action, history?.redoOrigin);
         history?.act(action);
     }, [history, locked, acted]);
+    // The keyboard stays on the board as the bin it was on goes, as the Calendar's does: Delete takes away the bin the focus
+    // is on — its card, its Table row or its narrow card — and the board takes the focus, never the page's body, where the
+    // history's keys, the Undo that brings the bin back, go unheard.
+    const keepOnBoard = (bin: string) => {
+        const board = main.current;
+        const active = board?.ownerDocument.activeElement;
+        if (board === null || !(active instanceof HTMLElement) || !board.contains(active)) return;
+        const card = active.closest("[data-allocation-card]")?.getAttribute("data-allocation-card");
+        const row = active.closest("[data-allocation-row], [data-allocation-row-card]");
+        const rowKey = row?.getAttribute("data-allocation-row") ?? row?.getAttribute("data-allocation-row-card");
+        if ((card !== null && card !== undefined && keyEqual(card, bin)) || (rowKey !== null && rowKey !== undefined && keyEqual(rowKey, `bin:${bin}`))) {
+            board.focus({ preventScroll: true });
+        }
+    };
     // What the footer's loading line says (#1398, CL3): the day being read; a new narrowing — the bins' own, the lanes',
     // the resources' or the arrivals' — which is the board waiting for which of its bins show, so `Filtering bins…`
     // whichever it is, the coordinator's word for them (23 Oct 2026); or why one could not be read, by its source, with
@@ -538,8 +557,8 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
             }
             // Delete unlinks the selected link, else removes the selected bin (A6, A68).
             else if ((event.key === "Delete" || event.key === "Backspace") && link !== undefined && commands.canEdit()) { takeKey(event); commands.unlink(link.bin, link.resource); }
-            else if ((event.key === "Delete" || event.key === "Backspace") && selection?.type === "bin" && commands.canEdit()) { takeKey(event); commands.remove(selection.id); }
-        }} banners={<>
+            else if ((event.key === "Delete" || event.key === "Backspace") && selection?.type === "bin" && commands.canEdit()) { takeKey(event); keepOnBoard(selection.id); commands.remove(selection.id); }
+        }} rootProps={CLICK_FOCUS} banners={<>
             {optimiseParts.banner}
             {editing?.schedule.sessions.map(part => <SessionBanners key={part.key} session={part.session} words={words} name={sessionName(part.kind)} where={where(part.kind)}
                 onAction={action => editing.history.actOn(part.key, action)} />)}
@@ -558,7 +577,10 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
             {/* A gesture's error; a read's is said once, in the board and on the footer's line (#1398, CL11). */}
             {error !== undefined && <Box css={styles.error} role="alert">{error}</Box>}
         </>} footer={<AllocationFooter styles={styles} layout={window.view.layout} line={line} optimise={{ line: optimiseParts.line, legend: optimiseParts.legend }} />}>
-            <Box ref={main} css={styles.main} data-allocation-main="" data-allocation-layout={window.view.layout} data-allocation-day={dayEpoch}
+            {/* The board: the keyboard's surface and its anchor, never a tab stop, as the Calendar's is — a click on a part of
+                it that holds nothing focusable puts the keyboard here, where `[` and `]` step the day, and a bin Delete takes
+                away leaves it here. */}
+            <Box ref={main} css={styles.main} data-allocation-main="" tabIndex={-1} data-allocation-layout={window.view.layout} data-allocation-day={dayEpoch}
                 aria-disabled={retained && read.state !== "failed" ? true : undefined} data-allocation-stale={stale ? "" : undefined}
                 data-allocation-narrow={narrow ? "" : undefined}>
                 {/* Below 480px of main, cards with explicit actions, each one of the board's commands (A78); resizing keeps the layout, the

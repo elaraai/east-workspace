@@ -26,7 +26,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { equalFor, none, some, variant } from "@elaraai/east";
+import { StringType, equalFor, none, some, variant } from "@elaraai/east";
 import { RosterComponent, RosterContextType } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
@@ -75,6 +75,12 @@ const NO_ISSUES: readonly Issue[] = [];
 const sameContext = equalFor(RosterContextType);
 /** No People view has rested anywhere yet. */
 const NO_ANCHOR: RosterAnchor = {};
+const keyEqual = equalFor(StringType);
+/**
+ * The frame's root takes the focus a click on a part of it holding nothing focusable gives — a pane's empty foot, the
+ * toolbar's gaps — so the keyboard is in the Roster, never the page's body, as the Calendar's is: not a tab stop.
+ */
+const CLICK_FOCUS: Readonly<Record<string, string>> = { tabIndex: "-1" };
 
 /** What the frame takes from the Roster around it: the payload as read, the week, the narrowing, and the editing. */
 interface FrameProps {
@@ -343,6 +349,17 @@ function RosterFrame(props: FrameProps) {
         acted(action, history?.redoOrigin);
         history?.act(action);
     }, [history, locked, acted]);
+    // The keyboard stays on the board as what it was on goes, as the Calendar's does: Delete on the duty or the proposal the
+    // focus is on — its chip, its tile, its card — and the board takes the focus, never the page's body, where the history's
+    // keys, the Undo that brings it back, go unheard.
+    const keepOnBoard = (kind: "assignment" | "proposal", key: string) => {
+        const board = main.current;
+        const active = board?.ownerDocument.activeElement;
+        if (board === null || !(active instanceof HTMLElement) || !board.contains(active)) return;
+        const attribute = kind === "assignment" ? "data-roster-assignment" : "data-roster-proposal";
+        const on = active.closest(`[${attribute}]`)?.getAttribute(attribute);
+        if (on !== null && on !== undefined && keyEqual(on, key)) board.focus({ preventScroll: true });
+    };
     const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onAction, onPickerDates: setPickerDates, narrow,
         optimise: optimiseParts.toolbarItem, locked, issuesFlash: landing.lit && optimised !== undefined,
         selectedWeek: pickedWeek === undefined ? undefined : new Date(pickedWeek.start),
@@ -380,8 +397,12 @@ function RosterFrame(props: FrameProps) {
             // `[` and `]` step the span's unit: a week, or a month in Month (#1406, P2).
             else if (event.key === "[" || event.key === "]") { takeKey(event); window.step(event.key === "[" ? -1 : 1); }
             else if (event.key === "Escape" && (selection !== undefined || error !== undefined)) { takeKey(event); setSelection(undefined); setError(undefined); }
-            else if ((event.key === "Delete" || event.key === "Backspace") && (selection?.type === "assignment" || selection?.type === "proposal") && commands.available) { takeKey(event); if (selection.type === "assignment") commands.remove(selection.key); else commands.reject(selection.key); }
-        }} banners={<>
+            else if ((event.key === "Delete" || event.key === "Backspace") && (selection?.type === "assignment" || selection?.type === "proposal") && commands.available) {
+                takeKey(event);
+                keepOnBoard(selection.type === "assignment" ? "assignment" : "proposal", selection.key);
+                if (selection.type === "assignment") commands.remove(selection.key); else commands.reject(selection.key);
+            }
+        }} rootProps={CLICK_FOCUS} banners={<>
             {optimiseParts.banner}
             {editing?.schedule.sessions.map(held => <SessionBanners key={held.key} session={held.session} words={words} name={sessionName(held.kind)} where={where(held.kind)}
                 onAction={action => editing.history.actOn(held.key, action)} />)}
@@ -403,8 +424,10 @@ function RosterFrame(props: FrameProps) {
             {error !== undefined && <Box css={styles.error} role="alert">{error}</Box>}
         </>} footer={<RosterFooter styles={styles} duties={dutyPart} noun={{ singular: `${dutyName} event`, plural: `${dutyName} events` }} line={line}
             optimise={{ line: optimiseParts.line, legend: optimiseParts.legend }} />}>
-            {/* A failed week's main is not retained: its Retry is in it. */}
-            <Box ref={main} css={styles.main} data-roster-main="" aria-disabled={retained && read.state !== "failed" ? true : undefined}
+            {/* A failed week's main is not retained: its Retry is in it. The board is the keyboard's surface and its anchor,
+                never a tab stop, as the Calendar's is: a click on a part of it that holds nothing focusable puts the keyboard
+                here, where `[` and `]` step the week, and what Delete takes away leaves it here. */}
+            <Box ref={main} css={styles.main} data-roster-main="" tabIndex={-1} aria-disabled={retained && read.state !== "failed" ? true : undefined}
                 data-roster-stale={stale ? "" : undefined} data-roster-narrow={narrow ? "" : undefined}>
                 <RosterViews {...viewProps} anchor={anchor} onAnchor={onAnchor} picked={picked} />
             </Box>

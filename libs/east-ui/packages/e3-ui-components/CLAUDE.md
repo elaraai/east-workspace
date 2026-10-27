@@ -788,6 +788,13 @@ Delete, Return to backlog, or a Move from the popover a card opened to another
 of its days, lands on the head of the card drawn in its place — the same
 event's — else of the card after it, else before it, else on the Calendar's
 main; a focus in a popover a card's control opened is the agenda's still.
+The Calendar's, the Roster's and the Allocation's boards are the keyboard's
+surface and its anchor, never a tab stop (their main's `tabIndex={-1}`, and
+the frame's root through `rootProps`): a click on a part of a builder that
+holds nothing focusable puts the keyboard in it, where `[` and `]` step its
+period, and Delete on what the keyboard is on — an event, a duty or a
+proposal, a bin — hands it to the board as it goes, never the page's body,
+where the Undo that brings it back goes unheard (retest C4).
 
 The Plan's Elara eye waits, disabled, for what a run's request carries — every
 event kind's events in the window, its backlog and each event's row — read in a
