@@ -13,9 +13,10 @@
  * search to `find`, a row to a search by its key and a one-row page, a row by
  * runs to a read by the keys the runs' entries name, a run's entries to the
  * pages of its rows by offset — at one content hash, and refused 409 at
- * another, as a pinned page is. What a batch costs a server — each segment
- * read once — is measured in e3-api-server's own specs; this suite pins what a
- * client sees.
+ * another, as a pinned page is. A batch read of a dataset whose path ends as
+ * an upload's init does is a batch still. What a batch costs a server — each
+ * segment read once — is measured in e3-api-server's own specs; this suite
+ * pins what a client sees.
  */
 
 import { describe, it } from 'node:test';
@@ -41,19 +42,31 @@ import {
   datasetGetRows,
   datasetGetRuns,
   datasetGetStatus,
+  datasetSet,
   type DatasetKeySearch,
 } from '@elaraai/e3-api-client';
 
 import { assertMutationCommitted } from '../assertions.js';
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { createBatchReadsPackageZip, ItemGroupKeyType, ItemNoteRowType, ItemRowType, ItemsType } from '../fixtures.js';
+import {
+  CountsType, createBatchReadsPackageZip, createUploadNamedPackageZip, ItemGroupKeyType, ItemNoteRowType, ItemRowType, ItemsType,
+} from '../fixtures.js';
 
 const PKG = 'batch-reads-pkg';
 const VERSION = '1.0.0';
 const WS = 'batch-reads-ws';
 const itemsPath = [variant('field', 'records'), variant('field', 'items')];
 const notesPath = [variant('field', 'records'), variant('field', 'item_notes')];
+const UPLOAD_PKG = 'upload-named-pkg';
+const UPLOAD_WS = 'upload-named-ws';
+const uploadPath = [variant('field', 'inputs'), variant('field', 'upload')];
+
+/** The most bytes a client sets a dataset with inline: a larger value goes
+ *  through the transfer routes, its init a POST to `<path>/upload`. */
+const INLINE_SET_MAX = 1024 * 1024;
+
+const encodeCounts = encodeBeast2For(CountsType);
 
 /** How many items the record holds: more than a page's 10,000 entries, so a
  *  read of every run of the index is cut and read on. */
@@ -117,6 +130,17 @@ export function datasetBatchTests(setup: TestSetup<TestContext>): void {
     const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, WS, notesPath, opts);
     assert.ok(status.hash.type === 'some', 'the notes record holds a state');
     return status.hash.value;
+  };
+
+  /** A deployed input named `upload`, holding its default counts, and the arguments a read of it starts with. */
+  const withUploadNamed = async (t: Parameters<TestSetup<TestContext>>[0]) => {
+    const ctx = await setup(t);
+    const opts = await ctx.opts();
+    const zipPath = await createUploadNamedPackageZip(ctx.tempDir, UPLOAD_PKG, VERSION);
+    await packageImport(ctx.config.baseUrl, ctx.repoName, readFileSync(zipPath), opts);
+    await workspaceCreate(ctx.config.baseUrl, ctx.repoName, UPLOAD_WS, opts);
+    await workspaceDeploy(ctx.config.baseUrl, ctx.repoName, UPLOAD_WS, `${UPLOAD_PKG}@${VERSION}`, opts);
+    return { opts, base: [ctx.config.baseUrl, ctx.repoName, UPLOAD_WS, uploadPath] as const };
   };
 
   describe('dataset batch reads', { concurrency: false }, () => {
@@ -328,6 +352,31 @@ export function datasetBatchTests(setup: TestSetup<TestContext>): void {
       }
       assert.equal(entries.length, Number(ROWS));
       assert.ok(windowEqual(entries, pages), 'read on, the runs hold every entry of the index, in its order');
+    });
+
+    it('a dataset named upload is read in a batch as any dataset is, and its own upload still goes through the transfer routes', async (t) => {
+      const { opts, base } = await withUploadNamed(t);
+      // A batch read is a POST to the dataset's own path, which here ends as
+      // an upload's init does: the batch answers it, as each search alone does.
+      const queries: DatasetKeySearch[] = [{ key: '"b"' }, { key: '"bb"' }, { prefix: 'c' }];
+      const batch = await datasetFindKeys(...base, { queries }, opts);
+      const expected = [];
+      for (const query of queries) {
+        const { found, row, count } = await datasetFindKey(...base, query, opts);
+        expected.push({ found, row, count });
+      }
+      assert.deepEqual(batch.results, expected);
+      assert.deepEqual(batch.results[0], { found: true, row: 1, count: 1 }, '"b" is the second of the defaults');
+
+      // Its upload's init is a POST to `<path>/upload`, which names no batch.
+      const counts = new Map<string, bigint>();
+      for (let i = 0; i < 300_000; i++) counts.set(`k-${String(i).padStart(6, '0')}`, BigInt(i));
+      const bytes = encodeCounts(counts);
+      assert.ok(bytes.byteLength > INLINE_SET_MAX, `past what a client sets inline, so it is set through the transfer routes: ${bytes.byteLength} bytes`);
+      await datasetSet(...base, bytes, opts);
+      const after = await datasetFindKeys(...base, { queries: [{ prefix: 'k-' }, { key: '"b"' }] }, opts);
+      assert.deepEqual(after.results, [{ found: true, row: 0, count: 300_000 }, { found: false, row: 0, count: 0 }],
+        'the batch reads what the upload set');
     });
   });
 }

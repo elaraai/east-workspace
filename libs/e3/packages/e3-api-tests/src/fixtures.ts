@@ -331,6 +331,39 @@ export async function createBatchReadsPackageZip(
   return zipPath;
 }
 
+/** The upload-named fixture's input: counts by name. */
+export const CountsType = DictType(StringType, IntegerType);
+
+/**
+ * Create a package whose dataset is named as an upload's route ends: a
+ * dataset's batch reads are POSTs to its own path, and an upload's init is a
+ * POST to `<path>/upload`, so a batch read of `inputs.upload` is a POST to the
+ * path an upload of `inputs` would begin at.
+ *
+ * Creates a package with:
+ * - Input: "upload" (Dict<String, Integer>, default {a: 1, b: 2, c: 3})
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createUploadNamedPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const upload = e3.input('upload', CountsType, variant('value', new Map([['a', 1n], ['b', 2n], ['c', 3n]])));
+  const pkg = e3.package(name, version, upload);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
 /** The row of the area fixture's record: a rack's hall, where it stands — by its centre — if anywhere yet, and its footprint. */
 export const RackRowType = StructType({ hall: StringType, x: OptionType(FloatType), y: OptionType(FloatType), w: FloatType, h: FloatType });
 /** The area fixture's record: racks by key. */
