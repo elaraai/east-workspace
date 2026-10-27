@@ -801,10 +801,17 @@ event kind's events in the window, its backlog and each event's row — read in 
 component of its own (`optimise.ts`' `PlanOptimiseReader`, a tracked read of
 `planOptimiseReady`), which hears each land and hands the canvas whether the
 request can be made only as that moves: over a kind read a window at a time,
-each search and each event's row read by its key landing re-runs that reader
-alone, never the canvas (#1343) — and stays disabled over a window no request
-carries whole: a kind past the cap over it, or one read by its cells, whose
-events no run was shown (#1409, R24).
+each search landing re-runs that reader alone, never the canvas (#1343). Each
+event's row is held among the rows the canvas reads over its range
+(`eventReadRange`, which covers the window) and in the backlog beside them, so
+the eye waits for those reads, every kind's in one pass, and reads no row by
+its key: whatever the number of events in the window, it asks e3 for windows
+alone. A row read by its key is a key search and a one-row page, a window of
+its own to the paging runtime; read a row at a time past the windows it keeps,
+each would evict one read before it, and the reads would never settle. A
+rows' window that fails leaves the eye disabled, asking nothing again. The eye
+stays disabled over a window no request carries whole: a kind past the cap
+over it, or one read by its cells, whose events no run was shown (#1409, R24).
 
 BuilderFrame collapsing its panes does not supply the main area's mobile UX.
 Define narrow content using the available **main-panel width**, as Plan does;
