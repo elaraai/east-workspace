@@ -16,35 +16,12 @@ const bslPackages = ['e3-core', 'e3-cli', 'e3-api-client', 'e3-api-server', 'e3-
 // list. Nothing is ever added.
 const LEGACY_EAST_VALUES = [
   'packages/e3-api-server/src/handlers/dataflow.ts',
-  'packages/e3-api-server/src/handlers/datasets.spec.ts',
   'packages/e3-api-server/src/handlers/functions.spec.ts',
   'packages/e3-api-server/src/handlers/tasks.ts',
-  'packages/e3-api-tests/src/suites/datasets.ts',
-  'packages/e3-api-tests/src/suites/platform.ts',
-  'packages/e3-api-tests/src/suites/repository.ts',
-  'packages/e3-cli/src/commands/call.ts',
-  'packages/e3-cli/src/commands/repo.ts',
-  'packages/e3-cli/src/path-resolver.spec.ts',
   'packages/e3-core/src/dataflow/api-compat.ts',
   'packages/e3-core/src/dataset-refs.spec.ts',
   'packages/e3-core/src/errors.ts',
-  'packages/e3-core/src/execution/engine.spec.ts',
-  'packages/e3-core/src/gc.ts',
-  'packages/e3-core/src/packages.spec.ts',
-  'packages/e3-core/src/record-apply.ts',
-  'packages/e3-core/src/records.spec.ts',
-  'packages/e3-core/src/records.ts',
-  'packages/e3-core/src/trees.ts',
   'packages/e3-core/src/workspaceStatus.ts',
-  'packages/e3-core/src/workspaces.spec.ts',
-  'packages/e3-types/src/record.ts',
-  'packages/e3-types/src/structure.ts',
-  'packages/e3/src/export.ts',
-  'packages/e3/src/mutation-programs.spec.ts',
-  'packages/e3/src/package.ts',
-  'test/integration/src/segmentation-bench.spec.ts',
-];
-const LEGACY_EAST_PROGRAMS = [
 ];
 const LEGACY_ANY = [
   'packages/e3-api-client/src/platform.ts',
@@ -74,7 +51,6 @@ const LEGACY_ANY = [
   'packages/e3/src/record.spec.ts',
   'packages/e3/src/task.ts',
   'packages/e3/src/types.ts',
-  'test/integration/src/segmentation-bench.spec.ts',
 ];
 const agplPackages = ['e3', 'e3-types'];
 
@@ -355,11 +331,6 @@ export default [
     files: LEGACY_EAST_VALUES,
     plugins: { east },
     rules: { 'east/east-rules': ['warn', { only: hostValueRules }] },
-  }]),
-  ...(LEGACY_EAST_PROGRAMS.length === 0 ? [] : [{
-    files: LEGACY_EAST_PROGRAMS,
-    plugins: { east },
-    rules: { 'east/east-rules': ['warn', {}] },
   }]),
   ...(LEGACY_ANY.length === 0 ? [] : [{
     files: LEGACY_ANY,

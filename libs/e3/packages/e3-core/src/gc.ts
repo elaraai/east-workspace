@@ -104,25 +104,10 @@ export interface GcRetention {
 }
 
 /**
- * Result of garbage collection
+ * Result of garbage collection: each count {@link GcResultType} reports, as a
+ * number (see its properties).
  */
-export interface GcResult {
-  /** Number of objects deleted */
-  deletedObjects: number;
-  /** Number of orphaned staging files deleted */
-  deletedPartials: number;
-  /** Number of objects retained */
-  retainedObjects: number;
-  /** Number of files skipped due to being too young: beside running work,
-   *  unreachable objects still inside the retention window too */
-  skippedYoung: number;
-  /** Total bytes freed */
-  bytesFreed: number;
-  /** Number of dataflow run records deleted */
-  deletedRuns: number;
-  /** Number of execution attempts deleted, each with its owner and logs */
-  deletedExecutions: number;
-}
+export type GcResult = { [K in keyof ValueTypeOf<typeof GcResultType>]: number };
 
 /**
  * Result from sweepBatch — pure decision, no side effects.

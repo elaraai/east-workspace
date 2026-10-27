@@ -135,8 +135,8 @@ function cut(p: Params, sizes: readonly number[], hashes: readonly number[]): nu
 /** Each element's canonical bytes, encoded one at a time — as the element
  *  writer encodes them, with aliasing scoped to the element. */
 function encode(type: EastType, elements: readonly unknown[]): Encoded {
-  const typeValue = toEastTypeValue(type) as { type: string; value: any };
-  const keyType = segmentKeyTypeOf(typeValue as never);
+  const typeValue = toEastTypeValue(type);
+  const keyType = segmentKeyTypeOf(typeValue);
   const out: Encoded = { bytes: [], hashes: [], fences: [] };
   if (typeValue.type === 'Dict') {
     const key = encodeBeast2FenceFor(typeValue.value.key);

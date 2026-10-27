@@ -18,9 +18,9 @@ import * as fs from 'node:fs';
 import * as nodePath from 'node:path';
 import { createHash } from 'node:crypto';
 import yazl from 'yazl';
-import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, decodeFunctionManifest, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
+import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, linkImports, type FunctionManifest, type LinkedImport } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MigrationObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
-import { E3_RELEASE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob } from '@elaraai/e3-types';
+import { E3_RELEASE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob, pathToString } from '@elaraai/e3-types';
 import { buildMutationProgram, hasKeyedDelta, indexBuildProgram, migrationProgram, summaryMergeProgram } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { PackageDef, PackageItem } from './types.js';
@@ -61,9 +61,9 @@ export interface ExportOptions {
   /** Progress callback — receives one event per captured environment member and per resolved import package. */
   onEvent?: (event: ExportEvent) => void;
   /**
-   * Function manifests (#628) built elsewhere — paths to files written by
-   * `east-py export-functions` / `east-node export-functions`, or decoded
-   * values — for packages that are not members of this workspace (a
+   * Function manifests (#628) built elsewhere — what `east-py
+   * export-functions` / `east-node export-functions` write, decoded
+   * (`decodeFunctionManifest`) — for packages that are not members of this workspace (a
    * published package, another repo). A package this workspace holds needs
    * none: every `East.importFunction` naming a member of the governing uv or
    * npm workspace is exported from that member itself at export time (#652 —
@@ -73,7 +73,7 @@ export interface ExportOptions {
    * exact type equality and embedded as pure IR; its platform dependencies
    * must be provided by the consuming task's runner (see `runnerProvides`).
    */
-  functions?: Array<string | FunctionManifest>;
+  functions?: readonly FunctionManifest[];
 }
 
 // Named export_ to avoid conflict with reserved word
@@ -93,8 +93,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   // writes. Each owner links against the manifests exported for ITS
   // runner, whose packages must provide what the embedded functions'
   // platform calls need.
-  const explicit: FunctionManifest[] = (options?.functions ?? []).map((m) =>
-    typeof m === 'string' ? decodeFunctionManifest(new Uint8Array(fs.readFileSync(m))) : m);
+  const explicit = options?.functions ?? [];
   const references: ImportReference[] = [];
   const refer = (bundle: EastIR<any, any> | AsyncEastIR<any, any>, owner: string, runner: Runner | undefined): void => {
     for (const [name, functions] of importedFunctions(bundle.ir)) references.push({ package: name, functions: [...functions], owner, runner });
@@ -193,12 +192,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       // Trees are accumulated in the structure map
 
       // Get parent structure
-      const parentPath = item.path.slice(0, -1).map(segment => {
-        if (segment.type !== 'field') {
-          throw new Error(`Unsupported tree path segment type in path ${item.path}: ${segment.type}`);
-        }
-        return `.${printIdentifier(segment.value)}`;
-      }).join('');
+      const parentPath = pathToString(item.path.slice(0, -1));
 
       const parentStructure = structures.get(parentPath);
       if (!parentStructure || parentStructure.type !== 'struct') {
@@ -206,11 +200,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       }
 
       // Add this tree as a child struct in the structure
-      const segment = item.path[item.path.length - 1];
-      if (segment.type !== 'field') {
-        throw new Error(`Unsupported tree path segment type in path ${item.path}: ${segment.type}`);
-      }
-      const name = segment.value;
+      const name = item.path[item.path.length - 1].value;
       const path = `${parentPath}.${printIdentifier(name)}`;
       const childStructure: Structure = variant('struct', new SortedMap());
       parentStructure.value.set(name, childStructure);
@@ -221,31 +211,17 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
       // package object
 
       // Get parent structure
-      const parentPath = item.path.slice(0, -1).map(segment => {
-        if (segment.type !== 'field') {
-          throw new Error(`Unsupported tree path segment type in path ${item.path}: ${segment.type}`);
-        }
-        return `.${printIdentifier(segment.value)}`;
-      }).join('');
+      const parentPath = pathToString(item.path.slice(0, -1));
 
       const parentStructure = structures.get(parentPath);
       if (!parentStructure || parentStructure.type !== 'struct') {
         throw new Error(`Missing or invalid parent structure at path: ${parentPath}`);
       }
 
-      const segment = item.path[item.path.length - 1];
-      if (segment.type !== 'field') {
-        throw new Error(`Unsupported tree path segment type in path ${item.path}: ${segment.type}`);
-      }
-      const name = segment.value;
+      const name = item.path[item.path.length - 1].value;
 
       // Build the ref path from tree path segments (e.g., "inputs/greeting")
-      const refPath = item.path.map(seg => {
-        if (seg.type !== 'field') {
-          throw new Error(`Unsupported path segment type: ${seg.type}`);
-        }
-        return seg.value;
-      }).join('/');
+      const refPath = item.path.map(seg => seg.value).join('/');
 
       // An input's initial value comes from its SOURCE variant; `default` is
       // the internal inline-value channel (record()'s initial state), which
@@ -371,12 +347,7 @@ export async function export_<D extends Record<string, any>>(pkg: PackageDef<D>,
   const migrationEncoder = encodeBeast2For(MigrationObjectType);
   const recordEncoder = encodeBeast2For(RecordObjectType);
   for (const [rname, rdef] of Object.entries(pkg.records)) {
-    const recordRefPath = rdef.path.map(seg => {
-      if (seg.type !== 'field') {
-        throw new Error(`Unsupported path segment type: ${seg.type}`);
-      }
-      return seg.value;
-    }).join('/');
+    const recordRefPath = rdef.path.map(seg => seg.value).join('/');
 
     // A mutation ships its author body AND the program built from it: the
     // program is what runs, and it emits the delta the engine applies. A

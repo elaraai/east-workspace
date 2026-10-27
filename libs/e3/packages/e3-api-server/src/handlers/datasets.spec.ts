@@ -404,7 +404,7 @@ describe('setDataset (an upload, read as it arrives)', () => {
     for (const [layout, bytes] of layouts) {
       const response = await setDataset(storage, REPO, WS, rowsPath, pieces(bytes));
       const answer = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await response.arrayBuffer()));
-      assert.equal(answer.type, 'success', `${layout}: ${JSON.stringify(answer.value)}`);
+      assert.equal(answer.type, 'success', `${layout}: ${printFor(ResponseType(NullType))(answer)}`);
       assert.equal(await rowsHash(storage), expected, layout);
     }
   });
@@ -431,8 +431,8 @@ describe('setDataset (an upload, read as it arrives)', () => {
     const oversized = await setDataset(storage, REPO, WS, rowsPath, [head.subarray(0, head.length - 5), frameHeader.subarray(0, at)]);
     const cap = decodeBeast2For(ResponseType(NullType))(new Uint8Array(await oversized.arrayBuffer()));
     assert.ok(cap.type === 'error' && cap.value.type === 'internal'
-      && /more than the 67108864 a collection is read in at once/.test((cap.value.value as { message: string }).message),
-      JSON.stringify(cap));
+      && /more than the 67108864 a collection is read in at once/.test(cap.value.value.message),
+      printFor(ResponseType(NullType))(cap));
 
     assert.equal(await rowsHash(storage), seeded, 'the dataset keeps its value');
     assert.equal(await storage.objects.count(REPO), objects, 'nothing was stored');

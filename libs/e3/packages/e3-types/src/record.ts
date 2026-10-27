@@ -520,11 +520,10 @@ export function indexCollectionType(keyType: EastType, indexKeyType: EastType, v
  *   patches are sparse and addressed by key.
  */
 export function patchOpsType(collectionType: EastType): EastType {
-  const collection = collectionType as unknown as { type: string; key: EastType; value: EastType };
-  if (collection.type === 'Dict') return dictPatchOpsType(collection.value);
-  if (collection.type === 'Set') return setPatchOpsType(collection.key);
+  if (collectionType.type === 'Dict') return dictPatchOpsType(collectionType.value);
+  if (collectionType.type === 'Set') return setPatchOpsType(collectionType.key);
   throw new Error(
-    `a mutation delta addresses Dict and Set targets by key; this one holds ${collection.type}`,
+    `a mutation delta addresses Dict and Set targets by key; this one holds ${collectionType.type}`,
   );
 }
 
@@ -636,14 +635,15 @@ export function editTypeOf<K extends EastType, V extends EastType>(recordType: D
 }>;
 export function editTypeOf(recordType: EastType): EastType;
 export function editTypeOf(recordType: EastType): EastType {
-  const dict = recordType as unknown as { type: string; key: EastType; value: EastType };
-  if (dict.type !== 'Dict') {
-    throw new Error(`an edit mutation writes a Dict record; this one holds ${dict.type}`);
+  if (recordType.type !== 'Dict') {
+    throw new Error(`an edit mutation writes a Dict record; this one holds ${recordType.type}`);
   }
+  const keyType: EastType = recordType.key;
+  const valueType: EastType = recordType.value;
   return StructType({
-    set: FunctionType([dict.key, dict.value], NullType),
-    delete: FunctionType([dict.key], NullType),
-    update: FunctionType([dict.key, PatchType(dict.value)], NullType),
+    set: FunctionType([keyType, valueType], NullType),
+    delete: FunctionType([keyType], NullType),
+    update: FunctionType([keyType, PatchType(valueType)], NullType),
   });
 }
 

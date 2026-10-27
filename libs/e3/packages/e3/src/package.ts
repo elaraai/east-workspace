@@ -140,13 +140,9 @@ export function package_(
       let current = datasets;
       for (let i = 0; i < item.path.length - 1; i++) { // TODO should this path be the parent path?
         const segment = item.path[i];
-        if (segment.type === 'field') {
-          current = current[segment.value];
-          if (current === undefined) {
-            throw new Error(`Parent tree not found in package(): ${segment.value}`);
-          }
-        } else {
-          throw new Error(`Unsupported path segment type in package(): ${segment.type satisfies never}`);
+        current = current[segment.value];
+        if (current === undefined) {
+          throw new Error(`Parent tree not found in package(): ${segment.value}`);
         }
       }
 
@@ -156,13 +152,9 @@ export function package_(
       let current = datasets;
       for (let i = 0; i < item.path.length - 1; i++) { // TODO should this path be the parent path?
         const segment = item.path[i];
-        if (segment.type === 'field') {
-          current = current[segment.value];
-          if (current === undefined) {
-            throw new Error(`Parent tree not found in package(): ${segment.value}`);
-          }
-        } else {
-          throw new Error(`Unsupported path segment type in package(): ${segment.type satisfies never}`);
+        current = current[segment.value];
+        if (current === undefined) {
+          throw new Error(`Parent tree not found in package(): ${segment.value}`);
         }
       }
 

@@ -379,7 +379,7 @@ describe('records', () => {
 
     // The head commit is timestamped — the audit trail's `at`.
     const head = (await recordHistory(storage, repo, ws, 'counter'))[0]!.commit;
-    assert.ok(head.at instanceof Date && !Number.isNaN(head.at.getTime()), 'commit.at is a valid timestamp');
+    assert.ok(!Number.isNaN(head.at.getTime()), 'commit.at is a valid timestamp');
   });
 
   it('a failed program commits nothing and leaves history intact', async () => {

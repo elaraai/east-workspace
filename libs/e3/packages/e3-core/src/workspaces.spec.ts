@@ -304,7 +304,7 @@ describe('workspaces', () => {
       assert.strictEqual(state.packageName, 'deploy-test');
       assert.strictEqual(state.packageVersion, '1.0.0');
       assert.strictEqual(state.packageHash.length, 64);
-      assert.ok(state.deployedAt instanceof Date);
+      assert.ok(!Number.isNaN(state.deployedAt.getTime()), 'deployedAt is a valid timestamp');
     });
 
     it('initializes per-dataset refs from package', async () => {

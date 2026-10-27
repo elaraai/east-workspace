@@ -915,7 +915,6 @@ describe('packages', () => {
 
       // Verify task hashes are present (tasks Map contains name -> hash)
       const mergeTaskHash = pkgObject.tasks.get('merge')!;
-      assert.ok(typeof mergeTaskHash === 'string', 'Task hash should be a string');
       assert.strictEqual(mergeTaskHash.length, 64, 'Task hash should be 64 chars (SHA256)');
     });
 

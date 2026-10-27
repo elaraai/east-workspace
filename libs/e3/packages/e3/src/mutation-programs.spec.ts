@@ -21,7 +21,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType,
-  compareFor, equalFor, parseFor, printFor, variant, type EastType, type ValueTypeOf,
+  compareFor, equalFor, isVariant, parseFor, printFor, toEastTypeValue, variant, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import { DELTA_CONFLICT, RecordSummaryOpType, editTypeOf, mutationDeltaType } from '@elaraai/e3-types';
 import e3 from './index.js';
@@ -58,37 +58,60 @@ function indexedPlans(): RecordDef<typeof PlansType> {
 /** The delta a mutation's program writes for `state` and `args`: the
  *  `(key, op)` pairs it emits, sorted by the delta's key as the runner sorts
  *  them, none emitted twice. */
-function emitted(rec: RecordDef, mut: MutationDef, state: unknown, args: unknown[]): [unknown, unknown][] {
+/** A delta's key or op, as the variant it is: the target it is of, and what it carries. */
+function partOf(part: unknown): variant {
+  assert.ok(isVariant(part), 'a delta entry is a variant of its target');
+  return part;
+}
+
+/** One entry a write's program emitted: the target it changes, its key there, and its op. */
+interface Emitted {
+  /** `primary`, an index's name, or the conflict. */
+  readonly target: string;
+  /** The key, as East prints it at the target's key type. */
+  readonly key: string;
+  /** The key's value. */
+  readonly keyValue: unknown;
+  /** The target's op — `insert`, `delete`, `update`, `add` — or a conflict's Null. */
+  readonly op: unknown;
+  /** What went stale, in words, for the conflict's entry. */
+  readonly conflict?: string;
+}
+
+/** What a write's program emits, in the delta's order: a dict, so no key twice. */
+function emitted(rec: RecordDef, mut: MutationDef, state: ValueTypeOf<EastType>, args: ValueTypeOf<EastType>[]): Emitted[] {
   const out: [unknown, unknown][] = [];
-  const run = buildMutationProgram(rec, mut).compile([]) as (...a: unknown[]) => unknown;
+  const run = buildMutationProgram(rec, mut).compile([]);
   run(state, ...args, (key: unknown, op: unknown) => {
     out.push([key, op]);
     return null;
   });
-  const delta = mutationDeltaType(deltaTargets(rec.type, Object.values(rec.indexes))) as unknown as { key: EastType };
-  const compare = compareFor(delta.key) as (a: unknown, b: unknown) => number;
+  const targets = deltaTargets(rec.type, Object.values(rec.indexes));
+  const compare = compareFor(toEastTypeValue(mutationDeltaType(targets).key));
   out.sort(([a], [b]) => compare(a, b));
   for (let i = 1; i < out.length; i++) {
     assert.notEqual(compare(out[i - 1]![0], out[i]![0]), 0, 'the delta is a dict with no merge: no key is emitted twice');
   }
-  return out;
+  const printers = new Map(targets.map((target) => [target.name, printFor(toEastTypeValue(target.keyType))]));
+  printers.set(DELTA_CONFLICT, printFor(toEastTypeValue(StringType)));
+  return out.map(([key, op]) => {
+    const { type: target, value } = partOf(key);
+    const print = printers.get(target);
+    assert.ok(print !== undefined, `the delta's targets name '${target}'`);
+    const conflict: string | undefined = target === DELTA_CONFLICT ? value : undefined;
+    return { target, key: print(value), keyValue: value, op: partOf(op).value, ...(conflict !== undefined && { conflict }) };
+  });
 }
 
-/** The detail of the conflict a delta opens with, or `undefined` when it opens
- *  with none. */
-function conflictOf(out: [unknown, unknown][]): string | undefined {
-  const key = out[0]?.[0] as { type: string; value: unknown } | undefined;
-  return key?.type === DELTA_CONFLICT ? key.value as string : undefined;
+/** The conflict a delta names, if it names one: it sorts first. */
+function conflictOf(out: Emitted[]): string | undefined {
+  return out[0]?.conflict;
 }
 
 /** The delta's `(target, key)` / `(target, op-tag)` pairs, which is what the
  *  apply keys on — the payloads are asserted where they matter. */
-function shape(out: [unknown, unknown][]): string[] {
-  return out.map(([key, op]) => {
-    const k = key as { type: string; value: unknown };
-    const o = op as { type: string; value: { type: string } };
-    return `${k.type}:${JSON.stringify(k.value, (_n, v) => (typeof v === 'bigint' ? String(v) : v))}=${o.value.type}`;
-  });
+function shape(out: Emitted[]): string[] {
+  return out.map((entry) => `${entry.target}:${entry.key}=${partOf(entry.op).type}`);
 }
 
 describe('the mutation delta — targets and canonical order', () => {
@@ -108,7 +131,7 @@ describe('the mutation delta — targets and canonical order', () => {
         return next;
       }));
     assert.deepEqual(shape(emitted(rec, retitle, plans, ['p1', 'Renamed'])), [
-      'by_status:{"ik":{"status":"late","due":"3"},"k":"p1"}=update',
+      'by_status:(ik=(status="late", due=3), k="p1")=update',
       'primary:"p1"=update',
     ]);
   });
@@ -135,7 +158,7 @@ describe('the reduce form', () => {
     }));
     const out = emitted(rec, raise, flags, ['z']);
     assert.deepEqual(shape(out), ['primary:"z"=insert']);
-    assert.equal((out[0]![1] as { value: { value: unknown } }).value.value, null);
+    assert.equal(partOf(out[0]!.op).value, null);
   });
 });
 
@@ -179,8 +202,8 @@ describe('the edit form', () => {
     const row = { title: 'Pour', owner: 'ana', status: 'late', due: new Date('2026-10-01T00:00:00Z'), resources: new Set(['crane']) };
     const state = new SortedMap([['p1', row]], compareFor(StringType));
     assert.deepEqual(shape(emitted(pkg.records.plans!, reschedule, state, ['p1', new Date('2026-11-01T00:00:00Z')])), [
-      'by_status:{"ik":{"status":"late","due":"2026-10-01T00:00:00.000Z"},"k":"p1"}=delete',
-      'by_status:{"ik":{"status":"late","due":"2026-11-01T00:00:00.000Z"},"k":"p1"}=insert',
+      'by_status:(ik=(status="late", due=2026-10-01T00:00:00.000), k="p1")=delete',
+      'by_status:(ik=(status="late", due=2026-11-01T00:00:00.000), k="p1")=insert',
       'primary:"p1"=update',
     ]);
   });
@@ -203,8 +226,7 @@ describe('the edit form', () => {
     }));
     const out = emitted(rec, write, counts, []);
     assert.deepEqual(shape(out), ['primary:"a"=update']);
-    assert.deepEqual((out[0]![1] as { value: { value: { value: unknown } } }).value.value.value,
-      { before: 1n, after: 11n }, 'one op against the state, not two');
+    assert.deepEqual(partOf(partOf(out[0]!.op).value).value, { before: 1n, after: 11n }, 'one op against the state, not two');
   });
 
   it('composes an update after an update', () => {
@@ -213,8 +235,7 @@ describe('the edit form', () => {
       $(edit.update('b', variant('replace', { before: 5n, after: 7n })));
     }));
     const out = emitted(rec, write, counts, []);
-    assert.deepEqual((out[0]![1] as { value: { value: { value: unknown } } }).value.value.value,
-      { before: 2n, after: 7n });
+    assert.deepEqual(partOf(partOf(out[0]!.op).value).value, { before: 2n, after: 7n });
   });
 
   it('writes a conflict naming the key for a delete or update of one the record does not hold', () => {
@@ -298,8 +319,8 @@ describe('index maintenance inside the delta', () => {
       $(edit.set('p1', { status: 'ok', due: row.due, title: row.title }));
     }));
     assert.deepEqual(shape(emitted(rec, move, plans, [])), [
-      'by_status:{"ik":{"status":"late","due":"3"},"k":"p1"}=delete',
-      'by_status:{"ik":{"status":"ok","due":"3"},"k":"p1"}=insert',
+      'by_status:(ik=(status="late", due=3), k="p1")=delete',
+      'by_status:(ik=(status="ok", due=3), k="p1")=insert',
       'primary:"p1"=update',
     ]);
   });
@@ -310,7 +331,7 @@ describe('index maintenance inside the delta', () => {
       $(edit.set('p2', { status: row.status, due: row.due, title: 'Renamed' }));
     }));
     assert.deepEqual(shape(emitted(rec, retitle, plans, [])), [
-      'by_status:{"ik":{"status":"ok","due":"1"},"k":"p2"}=update',
+      'by_status:(ik=(status="ok", due=1), k="p2")=update',
       'primary:"p2"=update',
     ]);
   });
@@ -360,8 +381,8 @@ describe('index maintenance inside the delta', () => {
       ['t1', { tags: new Set(['a', 'b']) }],
     ], compareFor(StringType));
     assert.deepEqual(shape(emitted(rec2, retag, state, [])), [
-      'by_tag:{"ik":"a","k":"t1"}=delete',
-      'by_tag:{"ik":"c","k":"t1"}=insert',
+      'by_tag:(ik="a", k="t1")=delete',
+      'by_tag:(ik="c", k="t1")=insert',
       'primary:"t1"=update',
     ]);
   });
@@ -390,8 +411,8 @@ describe('a series and a summary index inside the delta (#1433)', () => {
       $(edit.set('W-1', { press: 'P-1', start: instant('2026-10-07T06:00:00.000'), end: instant('2026-11-16T06:00:00.000') }));
     }));
     const out = emitted(rec, stretch, state, []);
-    const of = (target: string) => out.filter(([key]) => (key as { type: string }).type === target)
-      .map(([key, op]) => ({ key: (key as { value: unknown }).value, op: (op as { value: variant<string, unknown> }).value }));
+    const of = (target: string) => out.filter((entry) => entry.target === target)
+      .map((entry) => ({ key: entry.keyValue, op: partOf(entry.op) }));
 
     // The series: its week entry deleted, a quarter entry inserted — forty days is past a month's 28, within a quarter's 90.
     const SeriesEntry = StructType({ ik: series.keyType, k: StringType });

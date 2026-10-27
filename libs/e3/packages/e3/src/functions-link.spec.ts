@@ -127,15 +127,13 @@ describe('export_ links East.importFunction references (#628)', () => {
     }
   });
 
-  it('reads manifests from files and accepts a platform dependency the runner provides through its stock family', async () => {
-    const manifestPath = path.join(tempDir, 'pricing.functions.beast2');
-    fs.writeFileSync(manifestPath, East.encodeFunctionManifest(manifest));
+  it('accepts a platform dependency the runner provides through its stock family', async () => {
     const greeting = input('greeting', StringType, variant('value', 'hello'));
     // default runner: east-node + @elaraai/east-node-std, the family of east-py-std
     const use = task('use_shout', [greeting], East.function([StringType], NullType, ($, s) => { $(sh(s)); }));
     const pkg = package_('importer', '1.0.0', use);
     const zipPath = path.join(tempDir, 'importer-file.zip');
-    await export_(pkg, zipPath, { functions: [manifestPath] });
+    await export_(pkg, zipPath, { functions: [manifest] });
     const bundle = programOf(await readZip(zipPath), 'use_shout');
     assert.strictEqual(countImports(bundle.ir), 0);
   });

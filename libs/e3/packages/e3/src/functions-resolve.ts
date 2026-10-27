@@ -319,7 +319,7 @@ export interface ResolvedManifests {
  */
 export function resolveFunctionManifests(
   references: ImportReference[],
-  explicit: FunctionManifest[],
+  explicit: readonly FunctionManifest[],
   anchorDir: string,
   onEvent?: (event: ResolveEvent) => void,
 ): ResolvedManifests {

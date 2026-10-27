@@ -32,6 +32,7 @@ import {
 } from '@elaraai/e3-core';
 import { openRepo, formatError, exitError } from '../utils.js';
 import { loadPackageFile } from './load-package.js';
+import { readFunctionManifests } from './function-manifests.js';
 import { commandBudget, type BudgetFlags } from './budget.js';
 import { inputPlanLine, inputPolicy, recordPlanLine, schemaPolicy } from './workspace.js';
 import { describeUnset } from './start.js';
@@ -126,7 +127,7 @@ export async function watchCommand(
     // Export to temp zip
     const tempZip = path.join(os.tmpdir(), `e3-watch-${Date.now()}.zip`);
     try {
-      await e3.export(pkg, tempZip, { functions: options.functions ?? [] });
+      await e3.export(pkg, tempZip, { functions: readFunctionManifests(options.functions ?? []) });
     } catch (err) {
       console.log(`[${timestamp()}] Error exporting package:`);
       console.log(`  ${formatError(err)}`);

@@ -57,6 +57,7 @@ import { createProgress, formatBytes, type Progress } from '../progress.js';
 import { deployJobText, intakeReporter, uploadReporter } from '../intake.js';
 import { fileTransferSource } from '../file-transfer-source.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
+import { readFunctionManifests } from './function-manifests.js';
 
 export const workspaceCommand = {
   /**
@@ -970,7 +971,7 @@ async function deployFromSource(
     const captureStep = progress.step('capturing package');
     try {
       await e3.export(pkg, tempZip, {
-        functions,
+        functions: readFunctionManifests(functions),
         onEvent: (e) => {
           if (e.kind === 'capture') {
             progress.phase(`captured ${e.member} (${e.tool}, ${formatBytes(e.bytes)})`);
