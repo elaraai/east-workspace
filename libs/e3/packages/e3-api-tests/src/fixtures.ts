@@ -15,8 +15,8 @@ import { join } from 'node:path';
 
 import e3, { type PackageDef } from '@elaraai/e3';
 import {
-  ArrayType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, SetType, StringType, StructType, OptionType, East, variant,
-  some, none,
+  ArrayType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, RecursiveType, SetType, StringType, StructType, OptionType,
+  East, variant, some, none,
 } from '@elaraai/east';
 import { Console, Time } from '@elaraai/east-node-std';
 import { RecordLevelType } from '@elaraai/e3-types';
@@ -571,6 +571,78 @@ export async function createSeriesRecordPackageZip(
   const byPressWeek = e3.recordIndex.series('jobs_by_press_week', jobs, { key: 'press', from: 'start', to: 'end', tile: 'week' });
   const totals = e3.recordIndex.summary('jobs_by_press_week_totals', jobs, { key: 'press', from: 'start', to: 'end', tile: 'week' });
   const pkg = e3.package(name, version, jobs, seed, e3.mutation.patch(jobs), byPressWeek, totals);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/** A job a nested record's rows hold (#1434): a product, from its start to its end. */
+export const NestedJobType = StructType({ product: StringType, start: DateTimeType, end: DateTimeType });
+/** A machine: where it stands, its jobs by id, and its load a day at a time. */
+export const MachineType = StructType({
+  name: StringType, site: StringType, status: StringType, jobs: DictType(StringType, NestedJobType), load: DictType(DateTimeType, FloatType),
+});
+/** The nested fixture's machines. */
+export const MachinesType = DictType(StringType, MachineType);
+/** A hall's member, its load a day at a time. */
+export const MemberType = StructType({ name: StringType, load: DictType(DateTimeType, FloatType) });
+/** A hall: where it stands, and its members by id. */
+export const HallType = StructType({ name: StringType, site: StringType, members: DictType(StringType, MemberType) });
+/** The nested fixture's halls. */
+export const HallsType = DictType(StringType, HallType);
+/** A part: its jobs, and more parts beneath it, to any depth. */
+export const PartType = RecursiveType((self) => StructType({ name: StringType, jobs: DictType(StringType, NestedJobType), parts: DictType(StringType, self) }));
+/** An assembly: its parts by id. */
+export const AssemblyType = StructType({ name: StringType, parts: DictType(StringType, PartType) });
+/** The nested fixture's assemblies. */
+export const AssembliesType = DictType(StringType, AssemblyType);
+
+/**
+ * Create a package of records whose rows nest what a series files (#1434).
+ *
+ * Creates a package with, each record empty and with its patch door:
+ * - Record "machines", and its nested series index "machines_in_time": each
+ *   machine's jobs, things people drag, and its load, a value a day, filed
+ *   from the week up and totalled a month at a time; beside it
+ *   "machines_by_site", which carries each machine without them
+ * - Record "halls", and "halls_in_time": each member's load, rolled up by its
+ *   mean, so each hall keeps its members' mean at every level from the day up
+ * - Record "assemblies", and "assemblies_in_time": each part's jobs, rolled
+ *   up, so each part files its subtree's jobs too
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createNestedSeriesPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const series = e3.recordIndex.series;
+  const machines = e3.record('machines', MachinesType, new Map());
+  const halls = e3.record('halls', HallsType, new Map());
+  const assemblies = e3.record('assemblies', AssembliesType, new Map());
+  const pkg = e3.package(name, version, machines, halls, assemblies,
+    e3.mutation.patch(machines), e3.mutation.patch(halls), e3.mutation.patch(assemblies),
+    series('machines_in_time', machines, {
+      collections: { jobs: series.items({ from: 'start', to: 'end' }), load: series.values() }, tile: 'week', summary: 'month',
+    }),
+    e3.recordIndex('machines_by_site', machines, { on: ['site'] }),
+    series('halls_in_time', halls, {
+      collections: { members: series.rows({ load: series.values({ rollup: 'mean' }) }) }, tile: 'day', summary: 'month',
+    }),
+    series('assemblies_in_time', assemblies, {
+      collections: { parts: series.rows({ jobs: series.items({ from: 'start', to: 'end' }, { rollup: true }), parts: series.recursive() }) },
+      tile: 'week',
+      summary: 'month',
+    }),
+  );
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);
