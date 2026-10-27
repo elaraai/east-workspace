@@ -208,3 +208,23 @@ test("Space on a button of the frame is the button's, even while the pointer res
     fireEvent.keyUp(fit, { key: " ", code: "Space" });
     expect(pressed).toBe(true);
 });
+
+test("Space on a tool's radio is the radio's, the tool held as it was; on the canvas itself it holds Select while it is down", async () => {
+    const { container, getByRole } = await open(floor);
+    const canvas = canvasOf(container);
+    const marquee = getByRole("radio", { name: "Marquee" });
+    await act(async () => { fireEvent.click(marquee); });
+    expect(canvas.getAttribute("data-tool")).toBe("marquee");
+    // The radio focused, the pointer over the canvas: Space is the radio's, and no tool is held for it.
+    marquee.focus();
+    let pressed = true;
+    await act(async () => { pressed = fireEvent.keyDown(marquee, { key: " ", code: "Space" }); });
+    expect([pressed, canvas.getAttribute("data-tool")]).toEqual([true, "marquee"]);
+    await act(async () => { fireEvent.keyUp(marquee, { key: " ", code: "Space" }); });
+    // The canvas focused: Space holds Select while it is down, and lets go as it comes up.
+    canvas.focus();
+    await act(async () => { pressed = fireEvent.keyDown(canvas, { key: " ", code: "Space" }); });
+    expect([pressed, canvas.getAttribute("data-tool")]).toEqual([false, "select"]);
+    await act(async () => { fireEvent.keyUp(canvas, { key: " ", code: "Space" }); });
+    expect(canvas.getAttribute("data-tool")).toBe("marquee");
+});
