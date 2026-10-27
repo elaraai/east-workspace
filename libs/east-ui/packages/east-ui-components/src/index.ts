@@ -570,10 +570,12 @@ export { SlicePredicateBuilder, type SlicePredicateBuilderProps, type SliceField
 export { SliceEditPopover, type SliceEditPopoverProps, type SliceEditPopoverAnchor } from "./slice/edit";
 export { formatPredicate, predicateParts, type PredicateValue } from "./slice/predicate-format";
 export { EastChakraPickPanel, type PickPanelValue } from "./pick/panel/index.js";
-// The one toolbar row every component lays its chrome in (#952), and a
-// gallery's Grid · List switch — for sibling renderer packages (e3-ui-components)
-// whose screens keep one toolbar over several galleries.
-export { Toolbar, DEFAULT_RANK, type ToolbarItem, type ToolbarProps } from "./toolbar/index.js";
+// The one toolbar row every component lays its chrome in (#952), the first rank
+// of the floor below its ladder (a rung an item gives only where the whole
+// ladder leaves the row too wide), and a gallery's Grid · List switch — for
+// sibling renderer packages (e3-ui-components) whose screens keep one toolbar
+// over several galleries.
+export { Toolbar, DEFAULT_RANK, FLOOR_RANK, type ToolbarItem, type ToolbarProps } from "./toolbar/index.js";
 // A toolbar's folded chip (#1229): one chip whose menu holds what a row short
 // of room folds into it — the SnapGrid editor's View, Studio's and the query
 // builder's ⋯ — and the first rank a SnapGrid editor's host's own items fold at.

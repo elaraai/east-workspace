@@ -10,7 +10,7 @@ import { useSlotStyles, type SlotStyles } from "../../theme/slot-styles.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFilter, faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import type { IconProp } from "@fortawesome/fontawesome-svg-core";
-import type { ToolbarItem } from "../../toolbar/index.js";
+import { FLOOR_RANK, type ToolbarItem } from "../../toolbar/index.js";
 import { SliceDensityContext } from "../density.js";
 import { SliceEditPopover } from "../edit/index.js";
 import { SliceClearButton } from "../choice.js";
@@ -120,8 +120,10 @@ const COLLAPSE_RANK: Record<string, number> = {
 };
 
 /** The rail's own fold ranks around {@link COLLAPSE_RANK}: the filter's
- *  clause chips fold first; the merged terminal chip and the icon last. */
-const RAIL_RANK = { chips: 0, terminal: 6, icon: 7 } as const;
+ *  clause chips fold first; the merged terminal chip and the icon last; and,
+ *  below the toolbar's ladder, the icon without its caret — the first rung of
+ *  the row's floor (`FLOOR_RANK`, hand retest, 27 Oct 2026). */
+const RAIL_RANK = { chips: 0, terminal: 6, icon: 7, bare: FLOOR_RANK } as const;
 
 /** One cluster of the rail — one item of the shared toolbar. */
 export interface SliceRailClusterSpec {
@@ -137,12 +139,13 @@ export interface SliceRailClusterSpec {
  * One form of a cluster: how many families have folded (in fold order), how
  * many of the filter's clause chips have folded into `+M more`, and how the
  * folded families show — as their summary chips, merged into the terminal
- * chip, or as the icon alone.
+ * chip, as the icon alone, or, at the row's floor, as the icon without the
+ * trigger's caret.
  */
 interface RailForm {
     folded: number;
     chips: number;
-    show: "chips" | "terminal" | "icon";
+    show: "chips" | "terminal" | "icon" | "bare";
 }
 
 /**
@@ -223,6 +226,10 @@ function railItems(
             forms.push({ folded: kinds.length, chips: chipCount, show: "icon" });
             ranks.push(RAIL_RANK.icon);
         }
+        // The row's floor: every cluster's trigger as its icon alone, without its caret — taken only where the toolbar's
+        // whole ladder leaves the row too wide, so the history and Save stay in it (hand retest, 27 Oct 2026).
+        forms.push({ folded: kinds.length, chips: chipCount, show: "bare" });
+        ranks.push(RAIL_RANK.bare);
 
         // Keep labels and ordering independent of selections: changing a
         // filter must not resize its trigger or move the open popover.
@@ -232,7 +239,8 @@ function railItems(
 
         // What the folded families show: their summary chips in fold order;
         // at the terminal form a stable Filters label; past it the icon
-        // alone. The accessible name and editor retain the selected values.
+        // alone — at the row's floor without the caret too. The accessible
+        // name and editor retain the selected values.
         const trigger = (form: RailForm): ReactNode => {
             if (form.show === "chips") {
                 return foldOrder.slice(0, form.folded).map((o) => {
@@ -244,7 +252,7 @@ function railItems(
             const labels = descriptors.map((d) => d.text);
             const anyActive = descriptors.some((d) => d.active);
             const icon = faFilter;
-            if (form.show === "icon") {
+            if (form.show === "icon" || form.show === "bare") {
                 return (
                     <Box key="icon" as="span" css={chip({ tone: anyActive ? "brand" : "neutral", numeric: true })}
                         title={labels.length > 0 ? labels.join(" · ") : "Slice"} data-rail-rung="icon">
@@ -272,7 +280,7 @@ function railItems(
                     <chakra.button type="button" css={styles.railTrigger} data-slot="railTrigger"
                         aria-label={`Filters: ${folded(form).map((d) => d.text).join(" · ")}`}>
                         {trigger(form)}
-                        <FontAwesomeIcon icon={faChevronDown} data-rail-caret="" />
+                        {form.show !== "bare" && <FontAwesomeIcon icon={faChevronDown} data-rail-caret="" />}
                     </chakra.button>
                 }
             >

@@ -49,7 +49,7 @@ import { settled } from "./settle";
 /** The Schematic's own fold steps, after every step of its rail and its summary's, in order — the history's, which the data centre edits, last (#1388). */
 const OWN = ["tools>1", "seek>1", "tools>2", "tools>3", "zoom>1", "seek>2", "history>1"];
 
-/** What the toolbar says of itself: each item's form of its forms, the ladder, how many steps it took. */
+/** What the toolbar says of itself: each item's form of its forms, the ladder and the floor's rungs below it, how many steps it took. */
 function toolbarOf(root: Locator) {
     return root.evaluate((el) => {
         const bar = el.querySelector("[data-frame-slot='toolbar'] [data-toolbar]")!;
@@ -59,19 +59,24 @@ function toolbarOf(root: Locator) {
                 return [key!, Number(of!.split("/")[0])] as const;
             })) as Record<string, number>,
             ladder: (bar.getAttribute("data-toolbar-ladder") ?? "").split(" ").filter((s) => s !== ""),
+            floor: (bar.getAttribute("data-toolbar-floor") ?? "").split(" ").filter((s) => s !== ""),
             folds: Number(bar.getAttribute("data-toolbar-folds")),
         };
     });
 }
 
-/** What is wrong with the row's folds: each item where its ladder's first steps put it, the rail's steps first, the Schematic's own after them in order. */
+/**
+ * What is wrong with the row's folds: each item where its ladder's first steps — and, past the whole ladder, the
+ * floor's rungs below it (hand retest, 27 Oct 2026) — put it, the rail's steps first, the Schematic's own after them in
+ * order.
+ */
 async function ladderFaults(root: Locator): Promise<string[]> {
-    const { state, ladder, folds } = await toolbarOf(root);
+    const { state, ladder, floor, folds } = await toolbarOf(root);
     const bad: string[] = [];
     const own = ladder.filter((step) => !step.startsWith("record-"));
     if (own.join(" ") !== OWN.join(" ")) bad.push(`its own steps are ${own.join(" ")}`);
     if (ladder.slice(0, ladder.length - own.length).some((step) => !step.startsWith("record-"))) bad.push(`the rail's steps do not come first: ${ladder.join(" ")}`);
-    const prefix = ladder.slice(0, folds);
+    const prefix = [...ladder, ...floor].slice(0, folds);
     for (const [key, form] of Object.entries(state)) {
         const want = prefix.filter((step) => step.startsWith(`${key}>`)).length;
         if (form !== want) bad.push(`${key} at form ${form}, where the ladder's first ${folds} steps put it at ${want}`);

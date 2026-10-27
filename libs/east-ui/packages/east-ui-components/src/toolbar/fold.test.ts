@@ -9,11 +9,14 @@
  * in them, the fewest steps whose row fits, and the width estimates that let
  * the toolbar settle without trying on screen; and the steps of several items
  * that apply together, as one bundle (#1229); and an item held to a range of
- * its forms, taking only the steps inside it.
+ * its forms, taking only the steps inside it; and the floor's rungs below the
+ * ladder (hand retest, 27 Oct 2026).
  */
 
 import { describe, test, expect } from "vitest";
-import { chooseFolds, estimateWidth, foldSequence, formsAt, rowWidth, splitsBundle, type FoldItem, type FoldRange } from "./fold.js";
+import {
+    FLOOR_RANK, chooseFolds, estimateWidth, foldSequence, formsAt, ladderMost, onLadder, rowWidth, splitsBundle, type FoldItem, type FoldRange,
+} from "./fold.js";
 
 /**
  * An item with `widths.length` forms (widest first), its steps ranked by `ranks`; held, when `held` says so, to one form
@@ -244,5 +247,56 @@ describe("bundles — the steps of several items that apply together (#1229)", (
         expect(pick(540)).toEqual([1, 0, 0, 0]);
         expect(pick(470)).toEqual([1, 0, 1, 0]);
         expect(pick(400)).toEqual([1, 0, 1, 1]);
+    });
+});
+
+describe("the floor — rungs below the ladder (hand retest, 27 Oct 2026)", () => {
+    /**
+     * A phone's row: the rail, its icon (rank 7) and then, at the floor, its icon without the caret; the eye, which
+     * leaves the row at the floor, after the rail's rung; the history, folding last of the ladder, to its buttons.
+     */
+    const phone = (): (FoldItem & { widths: readonly (number | null)[] })[] => [
+        item([300, 50, 34], [7, FLOOR_RANK]),
+        item([32, null], FLOOR_RANK + 1),
+        item([220, 136], 100),
+    ];
+
+    test("a floor rung sorts after every step of the ladder — the history's included — the eye's after the rail's", () => {
+        expect(foldSequence(phone()).map((s) => [s.item, s.to, s.rank])).toEqual([
+            [0, 1, 7], [2, 1, 100], [0, 2, FLOOR_RANK], [1, 1, FLOOR_RANK + 1],
+        ]);
+    });
+
+    test("an item's ladder ends before its first floor rung: every step after it is the floor's too", () => {
+        expect(phone().map(ladderMost)).toEqual([1, 0, 1]);
+        // A rung of the floor ranked below an earlier step waits for it, as any step does: still the floor's.
+        expect(ladderMost(item([100, 60, 40, 20], [FLOOR_RANK, 3, 2]))).toBe(0);
+        expect(ladderMost(item([100]))).toBe(0);
+    });
+
+    test("an item kept to its ladder takes no floor rung — held where something holds it, even past its ladder", () => {
+        const [rail, eye, history] = phone();
+        expect([onLadder(rail!).held, onLadder(eye!).held, onLadder(history!)]).toEqual([{ least: 0, most: 1 }, { least: 0, most: 0 }, history]);
+        // Held to its bare icon (its editor open there): it stays where it is held.
+        expect(onLadder({ ...rail!, held: { least: 2, most: 2 } }).held).toEqual({ least: 2, most: 2 });
+        // Held to a range reaching past its ladder: kept to the ladder's end of it.
+        expect(onLadder({ ...rail!, held: { least: 1, most: 2 } }).held).toEqual({ least: 1, most: 1 });
+    });
+
+    test("kept to their ladders, the items fold no further than the ladder's end; with the floor, the fewest rungs that fit", () => {
+        const items = phone();
+        const pick = (available: number, floor: boolean) => {
+            const kept = floor ? items : items.map(onLadder);
+            const seq = foldSequence(kept);
+            return formsAt(kept, seq, chooseFolds(kept, seq, widthsOf(items), available, 10));
+        };
+        // The ladder's end: 50 + 32 + 136 + 20 = 238. A pixel less, the ladder alone runs past it; the floor drops the
+        // rail's caret (34 + 32 + 136 + 20 = 222), then lets the eye go (34 + 136 + 10 = 180).
+        expect(pick(238, false)).toEqual([1, 0, 1]);
+        expect(pick(237, false)).toEqual([1, 0, 1]);
+        expect(pick(237, true)).toEqual([2, 0, 1]);
+        expect(pick(221, true)).toEqual([2, 1, 1]);
+        // Where the ladder fits, the floor takes nothing either.
+        expect(pick(238, true)).toEqual([1, 0, 1]);
     });
 });

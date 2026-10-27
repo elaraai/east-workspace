@@ -17,7 +17,7 @@ import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vite
 import { render, cleanup, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
-import { Toolbar, type ToolbarItem } from "./index.js";
+import { FLOOR_RANK, Toolbar, type ToolbarItem } from "./index.js";
 
 afterEach(cleanup);
 
@@ -339,6 +339,47 @@ describe("the toolbar's one ladder", () => {
         rerenderWith(rerender, findItems(false, true));
         resize(760);
         expect(shown(container)).toEqual(["tools", "zoom", "seek-box", "steps", "history"]);
+    });
+
+    /**
+     * A phone's row (hand retest, 27 Oct 2026): the rail, its icon, and at the row's floor its icon without the caret; the
+     * key search, its box folding to its icon; the Elara eye, which leaves the row at the floor; the history, folding
+     * last of the ladder, to its buttons.
+     */
+    const phoneItems = (query: boolean): ToolbarItem[] => [
+        { key: "rail", forms: [form("rail-live", 300), form("rail-icon", 50), form("rail-bare", 34)], rank: [7, FLOOR_RANK] },
+        { key: "seek", forms: [form("seek-box", 160), form("seek-icon", 45)], rank: 20, foldsLast: query },
+        { key: "eye", side: "end", forms: [form("eye", 32), null], rank: FLOOR_RANK + 1 },
+        { key: "history", side: "end", forms: [form("history", 220), form("history-buttons", 136)], rank: 100 },
+    ];
+    const attr = (container: HTMLElement, name: string) => container.querySelector("[data-toolbar]")!.getAttribute(name);
+
+    test("below the whole ladder the row takes its floor, the fewest rungs that fit — the rail's caret, then the eye — so the history and Save stay in it; listed apart from the ladder", () => {
+        // The ladder's end: 50 + 45 + 32 + 136 + 30 = 293.
+        const { container } = mount(phoneItems(false), 293);
+        expect(shown(container)).toEqual(["rail-icon", "seek-icon", "eye", "history-buttons"]);
+        expect([attr(container, "data-toolbar-ladder"), attr(container, "data-toolbar-floor")]).toEqual(["rail>1 seek>1 history>1", "rail>2 eye>1"]);
+        // A pixel less: the rail drops its caret (34 + 45 + 32 + 136 + 30 = 277), the eye still beside the history.
+        resize(292);
+        expect(shown(container)).toEqual(["rail-bare", "seek-icon", "eye", "history-buttons"]);
+        // Narrower than that: the eye leaves the row (34 + 45 + 136 + 20 = 235); the history stays.
+        resize(276);
+        expect(shown(container)).toEqual(["rail-bare", "seek-icon", "history-buttons"]);
+        // Room for the ladder again: the floor lifts.
+        resize(293);
+        expect(shown(container)).toEqual(["rail-icon", "seek-icon", "eye", "history-buttons"]);
+        resize(800);
+        expect(shown(container)).toEqual(["rail-live", "seek-box", "eye", "history"]);
+    });
+
+    test("an item that folds last folds on before any rung of the floor: the floor lies below the whole ladder (ruled 26 Oct 2026, \"Find folds\"; hand retest, 27 Oct 2026)", () => {
+        // A query holds the box. The rail's icon and the history's buttons beside it: 50 + 160 + 32 + 136 + 30 = 408.
+        const { container } = mount(phoneItems(true), 420);
+        expect(shown(container)).toEqual(["rail-icon", "seek-box", "eye", "history-buttons"]);
+        // Too wide by a little: dropping the rail's caret alone would fit (34 + 160 + 32 + 136 + 30 = 392), but the box
+        // folds first, the floor untouched — and the history has room for its whole form again (50 + 45 + 32 + 220 + 30 = 377).
+        resize(400);
+        expect(shown(container)).toEqual(["rail-icon", "seek-icon", "eye", "history"]);
     });
 
     test("what an item keeps is drawn once whatever form it takes, in no place of the row, and outlives every fold", () => {

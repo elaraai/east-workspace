@@ -63,12 +63,26 @@
  * beside the View its Find's query holds, on a phone, #1395) joins it folded,
  * never pushing the row past its end. A bundle a held range keeps from its
  * step is held too, so none is ever split.
+ *
+ * Below the ladder lies the row's FLOOR (hand retest, 27 Oct 2026): a step
+ * ranked at {@link FLOOR_RANK} or past it is one of its rungs. The toolbar
+ * chooses from the ladder alone first — an item that folds last let go where
+ * the ladder needs it — and only where every step of it leaves the row too
+ * wide does it take the floor's rungs, the fewest that fit: the rail's icon
+ * drops its caret, then the Elara eye leaves the row, so the history and Save
+ * stay in it at a phone's width. The rungs are listed apart from the ladder
+ * (`data-toolbar-floor`), so the ladder still ends with the history's step.
  */
 
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Box, useSlotRecipe } from "@chakra-ui/react";
-import { FIT_TOLERANCE_PX, chooseFolds, estimateWidth, foldSequence, formsAt, rowWidth as widthOfRow, type FoldItem, type FoldRange } from "./fold.js";
+import {
+    FIT_TOLERANCE_PX, FLOOR_RANK, chooseFolds, estimateWidth, foldSequence, formsAt, onLadder, rowWidth as widthOfRow,
+    type FoldItem, type FoldRange,
+} from "./fold.js";
+
+export { FLOOR_RANK } from "./fold.js";
 
 /** A rank past every slice-rail step (0–7): what an item's steps take unless it names its own. */
 export const DEFAULT_RANK = 100;
@@ -84,7 +98,9 @@ export interface ToolbarItem {
     forms: ReadonlyArray<ReactNode>;
     /** Each fold step's rank — one for every step, or one per step (the step
      *  from form `i` to `i + 1` is `rank[i]`). Lower folds first; defaults to
-     *  {@link DEFAULT_RANK}. */
+     *  {@link DEFAULT_RANK}. A step at {@link FLOOR_RANK} or past it is a rung
+     *  of the row's floor, taken only once the whole ladder has applied and the
+     *  row still does not fit. */
     rank?: number | ReadonlyArray<number> | undefined;
     /** Each fold step's bundle, given as `rank` is (`undefined` for a step
      *  with none): steps of several items that share one apply together. A
@@ -337,17 +353,26 @@ export function Toolbar({ items, gap }: ToolbarProps) {
         if (available <= 0) return;
         const widthOf = (i: number, form: number) => estimateWidth(cache.get(list[i]!.key)!.widths, form);
         const gapPx = px(computed.columnGap);
-        /** The fewest steps whose row fits, each item held to its range: the forms they give, and whether their row fits. */
-        const fold = (held: ReadonlyMap<string, FoldRange>) => {
-            const foldItems = list.map((it) => foldItemOf(it, held.get(it.key)));
+        /**
+         * The fewest steps whose row fits, each item held to its range — on the ladder alone, or with the floor's rungs
+         * below it: the forms they give, and whether their row fits.
+         */
+        const fold = (held: ReadonlyMap<string, FoldRange>, floor: boolean) => {
+            const foldItems = list.map((it) => {
+                const item = foldItemOf(it, held.get(it.key));
+                return floor ? item : onLadder(item);
+            });
             const sequence = foldSequence(foldItems);
             const at = formsAt(foldItems, sequence, chooseFolds(foldItems, sequence, widthOf, available, gapPx));
             return { forms: at, fits: widthOfRow(foldItems, at, widthOf, gapPx) <= available + FIT_TOLERANCE_PX };
         };
         // The items that fold last kept to their forms; where even every other step leaves the row too wide, let fold on.
         // The widths are lower bounds until measured, so a row they say is too wide is: none is let go before it must be.
-        const kept = fold(heldWith(false));
-        const forms = kept.fits || last.length === 0 ? kept.forms : fold(heldWith(true)).forms;
+        // Where even the whole ladder leaves it too wide, the floor's rungs below it, the fewest that fit.
+        let choice = fold(heldWith(false), false);
+        if (!choice.fits && last.length > 0) choice = fold(heldWith(true), false);
+        if (!choice.fits) choice = fold(heldWith(last.length > 0), true);
+        const forms = choice.forms;
         if (list.every((it, i) => formOf(it) === forms[i])) {
             passes.current = 0;
             return;
@@ -364,11 +389,15 @@ export function Toolbar({ items, gap }: ToolbarProps) {
     const end = list.filter((it) => it.side === "end");
     // Every item's form of its forms, hidden ones too (`key=form/forms;…`) —
     // what the page says it folded — and the ladder it folds them on, every
-    // step in the order it applies (`key>form …`): for the visual invariants
-    // to hold a host's fold order to, at any width.
+    // step in the order it applies (`key>form …`), and the floor's rungs below
+    // it, likewise: for the visual invariants to hold a host's fold order to,
+    // at any width.
     const state = list.map((it) => `${it.key}=${formOf(it)}/${it.forms.length}`).join(";");
-    const ladder = foldSequence(list.map((it) => foldItemOf(it, undefined)))
+    const steps = foldSequence(list.map((it) => foldItemOf(it, undefined)));
+    const named = (onFloor: boolean) => steps.filter((step) => (step.rank >= FLOOR_RANK) === onFloor)
         .map((step) => `${list[step.item]!.key}>${step.to}`).join(" ");
+    const ladder = named(false);
+    const floor = named(true);
     let folds = 0;
     const render = (it: ToolbarItem, firstEnd: boolean) => {
         const form = formOf(it);
@@ -393,7 +422,7 @@ export function Toolbar({ items, gap }: ToolbarProps) {
     const keeps = list.map((it) => (it.keep === undefined ? null : <Fragment key={it.key}>{it.keep}</Fragment>));
     return (
         <Box ref={rowRef} css={styles.root} data-toolbar="" data-toolbar-folds={folds} data-toolbar-state={state}
-            data-toolbar-ladder={ladder}>
+            data-toolbar-ladder={ladder} data-toolbar-floor={floor === "" ? undefined : floor}>
             {startNodes}
             {endNodes}
             {keeps}

@@ -9,10 +9,11 @@
  * a run yet, its tooltip `Read-only`; one blink, 560ms, each time a result
  * lands with nothing to change; the mark 16px at `md`, 14 at `sm` and at
  * `toolbar`, the builders' rows' 32 × 28; and its place in the toolbar —
- * immediately before the history item, kept
- * in every fold. jsdom lays nothing out, so the toolbar's widths are stubbed
- * from each item's form, and the eye sits in a row of peers that fold before
- * it at 1440, 1024, 768, 390 and 360.
+ * immediately before the history item, kept in every fold of the ladder, and
+ * leaving the row only at its floor, the history and Save kept in it (hand
+ * retest, 27 Oct 2026). jsdom lays nothing out, so the toolbar's widths are
+ * stubbed from each item's form, and the eye sits in a row of peers that fold
+ * before it at 1440, 1024, 768, 390 and 360.
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
@@ -134,14 +135,14 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 /** The stubbed layout: the toolbar row's width. */
 const row = { px: 0 };
 
-/** Each item's width in the form it shows: the eye 32; the history bar 200 whole, 120 as buttons; a peer 300, 100 folded. */
+/** Each item's width in the form it shows: the eye 32; the history bar 200 whole, 120 as buttons; a peer 300, 80 folded. */
 function widthOf(el: Element): number {
     if (el.hasAttribute("data-toolbar")) return row.px;
     switch (el.getAttribute("data-toolbar-item")) {
         case "optimise": return 32;
         case "history": return el.querySelector('[data-history-form="buttons"]') !== null ? 120 : 200;
-        case "rail": return el.querySelector('[data-peer="short"]') !== null ? 100 : 300;
-        case "segments": return el.querySelector('[data-peer="short"]') !== null ? 100 : 300;
+        case "rail": return el.querySelector('[data-peer="short"]') !== null ? 80 : 300;
+        case "segments": return el.querySelector('[data-peer="short"]') !== null ? 80 : 300;
         default: return 0;
     }
 }
@@ -195,22 +196,37 @@ describe("the eye in the toolbar (D4)", () => {
         const keys = [...container.querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
         expect(keys).toEqual(["rail", "segments", "optimise", "history"]);
         const eye = container.querySelector('[data-toolbar-item="optimise"]')!;
-        // The eye leads the end cluster, and is never folded away: it has one form.
+        // The eye leads the end cluster, and the ladder never folds it away: its one step is a rung of the floor.
         expect([eye.hasAttribute("data-toolbar-end"), eye.getAttribute("data-toolbar-form"), eye.querySelector("[data-optimise-button]") !== null]).toEqual([true, "0", true]);
         expect(eye.nextElementSibling!.getAttribute("data-toolbar-item")).toBe("history");
     });
 
+    const state = (container: HTMLElement) => container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-state");
+
     test("the rail and the segments fold first, then the history bar to its buttons; the eye stays whole", () => {
         // Whole: 300 + 300 + 32 + 200 and three gaps of 10.
         const whole = mountToolbar(862);
-        const state = (container: HTMLElement) => container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-state");
-        expect(state(whole.container)).toBe("rail=0/2;segments=0/2;optimise=0/1;history=0/2");
+        expect(state(whole.container)).toBe("rail=0/2;segments=0/2;optimise=0/2;history=0/2");
         cleanup();
-        // A pixel less: the rail folds first (rank 3), then the segments (5), then the history bar (100).
-        expect(state(mountToolbar(861).container)).toBe("rail=1/2;segments=0/2;optimise=0/1;history=0/2");
+        // A pixel less: the rail folds first (rank 3: 80 + 300 + 32 + 200 + 30 = 642), then the segments (5: 422), then the
+        // history bar (100: 342).
+        expect(state(mountToolbar(861).container)).toBe("rail=1/2;segments=0/2;optimise=0/2;history=0/2");
         cleanup();
-        expect(state(mountToolbar(661).container)).toBe("rail=1/2;segments=1/2;optimise=0/1;history=0/2");
+        expect(state(mountToolbar(641).container)).toBe("rail=1/2;segments=1/2;optimise=0/2;history=0/2");
         cleanup();
-        expect(state(mountToolbar(390).container)).toBe("rail=1/2;segments=1/2;optimise=0/1;history=1/2");
+        expect(state(mountToolbar(421).container)).toBe("rail=1/2;segments=1/2;optimise=0/2;history=1/2");
+    });
+
+    test("only below the whole ladder does the eye leave the row, a rung of its floor — the history and Save stay in it (hand retest, 27 Oct 2026)", () => {
+        // The ladder's end: 80 + 80 + 32 + 120 + 30 = 342 — the eye beside the history's buttons.
+        expect(state(mountToolbar(342).container)).toBe("rail=1/2;segments=1/2;optimise=0/2;history=1/2");
+        cleanup();
+        // A pixel less: the eye leaves the row (80 + 80 + 120 + 20 = 300), the history's buttons in it, Save among them.
+        const floor = mountToolbar(341);
+        expect(state(floor.container)).toBe("rail=1/2;segments=1/2;optimise=1/2;history=1/2");
+        const keys = [...floor.container.querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
+        expect(keys).toEqual(["rail", "segments", "history"]);
+        expect(floor.container.querySelector('[data-toolbar-item="history"] button[aria-label="Save"]')).not.toBeNull();
+        expect(floor.container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-floor")).toBe("optimise>1");
     });
 });

@@ -716,6 +716,12 @@ selected (`schematic-phone.spec.ts`, `schematic-records.spec.ts`).
 Let BuilderFrame own pane placement, rails, responsive overlays and focus.
 Supply its named regions; keep main's scrolling inside main. Compose one
 folding Toolbar using shared item ranks and menus, with history folding last.
+Below the ladder the shared toolbar's floor (`FLOOR_RANK`, hand retest, 27 Oct
+2026) takes the rail to its filter icon alone, without its caret, and then the
+Elara eye out of the row, so the history and Save never leave the row at a
+phone's width; an item of a builder's own that can
+give more there gives it as a rung of the floor, as the query builder's Run
+does, its icon alone (`toolbar-fit.spec.ts` holds every builder to it).
 A row with nothing left to fold bundles host controls into the shared key
 search's compact popover, one move, as the Flowchart's orientation and the
 Sheet's views do (#1345); a control there that moves the focus away closes it.
