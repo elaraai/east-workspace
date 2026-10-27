@@ -50,6 +50,15 @@ test("silent on a plain-JS string helper (no East, no composite key)", () => {
   assert.equal(rule(`${PRELUDE}const upper = (x: string): string => x.toUpperCase();\nexport const _u = upper;\n`).length, 0);
 });
 
+test("silent on a module-scope e3 DECLARATION factory of a record's index or migration", () => {
+  // Structural stand-ins for e3's `RecordIndexDef` / `MigrationDef`: `e3.recordIndex` and `e3.migration`
+  // declare a record's structure as `e3.task` declares a dataflow's, East functions inside them.
+  const src = `${PRELUDE}interface RecordIndexDef<K> { name: string; keyFn: unknown; keyType: K }\ninterface MigrationDef<T> { name: string; fn: unknown; to: T }\n` +
+    `export const mkIndex = (name: string): RecordIndexDef<typeof IntegerType> => ({ name, keyFn: East.function([IntegerType], IntegerType, ($, n) => n), keyType: IntegerType });\n` +
+    `export const mkMigration = (name: string): MigrationDef<typeof IntegerType> => ({ name, fn: East.function([IntegerType], IntegerType, ($, n) => n), to: IntegerType });\n`;
+  assert.deepEqual(rule(src), []);
+});
+
 test("silent on a module-scope e3 DECLARATION factory (task / input families)", () => {
   // Structural stand-ins for e3's `TaskDef` / `DatasetDef` (the rule keys on the
   // type NAME, exactly as it would against the real @elaraai/e3 declarations —
@@ -61,6 +70,20 @@ test("silent on a module-scope e3 DECLARATION factory (task / input families)", 
 test("silent on a module-scope platform-definition factory", () => {
   const src = `${PRELUDE}export const mkPlatform = (name: string) => East.platform(name, [IntegerType], IntegerType);\n`;
   assert.equal(rule(src).length, 0);
+});
+
+test("silent on a helper handing back its own parameter at a narrower type — it builds nothing", () => {
+  const src = `${PRELUDE}import { FunctionExpr } from "@elaraai/east";\n` +
+    `export function asFunction(fn: { toIR(): unknown }): FunctionExpr<[IntegerType], IntegerType> {\n` +
+    `  if (!(fn instanceof FunctionExpr)) throw new Error("not an East function");\n  return fn as FunctionExpr<[IntegerType], IntegerType>;\n}\n`;
+  assert.deepEqual(rule(src), []);
+});
+
+test("still flags a helper whose other return builds IR beside one handing back its parameter", () => {
+  const src = `${PRELUDE}import type { ExprType } from "@elaraai/east";\n` +
+    `export const twiceOr = (x: ExprType<IntegerType>, again: boolean) => again ? x.add(x) : x;\n` +
+    `export function twice(x: ExprType<IntegerType>, again: boolean) {\n  if (!again) return x;\n  return x.add(x);\n}\n`;
+  assert.equal(rule(src).length, 2);
 });
 
 test("silent on an in-block closure (that is `no-host-in-east-block`'s job)", () => {

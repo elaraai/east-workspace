@@ -159,6 +159,20 @@ function isValueConstruction(e: ts.Expression, t: TsModule): boolean {
   return t.isCallExpression(r) && t.isIdentifier(r.expression) && VALUE_CONSTRUCTORS.has(r.expression.text);
 }
 
+// A return handing back one of the helper's own parameters — as it is, or at a
+// narrower type (`return fn as FunctionExpr<I, O>`, after a check) — forwards an
+// expression its caller built: the helper builds none.
+function forwardsParameter(r: ts.Expression, fn: FnLike, ctx: RuleContext): boolean {
+  const t = ctx.ts;
+  let e = r;
+  while (t.isParenthesizedExpression(e) || t.isAsExpression(e) || t.isSatisfiesExpression(e) || t.isNonNullExpression(e) || t.isTypeAssertionExpression(e)) {
+    e = e.expression;
+  }
+  if (!t.isIdentifier(e)) return false;
+  const declarations = ctx.checker.getSymbolAtLocation(e)?.declarations ?? [];
+  return declarations.some((d) => t.isParameter(d) && d.parent === fn);
+}
+
 function returnExpressions(fn: FnLike, t: TsModule): ts.Expression[] {
   if (fn.body === undefined) return [];
   if (!t.isBlock(fn.body)) return [fn.body];
@@ -222,7 +236,11 @@ export const noModuleScopeEastMacro: EastRule = {
     const first = fn.parameters[0];
     if (first !== undefined && isBlockBuilderType(ctx.checker.getTypeAtLocation(first.name))) return;
 
-    const rs = returnExpressions(fn, t);
+    // A DECLARATION factory by its declared return type — `(…): RecordIndexDef<…> => ({ …, keyFn: East.function(…) })`
+    // — composes the program's structure, whatever literal it returns (see `returnBuildsEast`).
+    if (fn.type !== undefined && isEastDefinitionType(ctx.checker.getTypeFromTypeNode(fn.type))) return;
+
+    const rs = returnExpressions(fn, t).filter((r) => !forwardsParameter(r, fn, ctx));
     if (rs.some((r) => isJsx(r, t))) return; // UI-composition helper
     if (rs.length === 0) return;
 

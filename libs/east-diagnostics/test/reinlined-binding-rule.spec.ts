@@ -95,6 +95,27 @@ test("no-reinlined: flags one read inside a $.for loop body", () => {
   assert.match(found[0]!.messageText, /loop body/);
 });
 
+test("no-reinlined: silent for a module's East.function read inside other functions' bodies — one function calling another", () => {
+  const src = `${PRELUDE}const double = East.function([IntegerType], IntegerType, ($, x) => x.multiply(2n));\n` +
+    `export const f = East.function([ArrayType(IntegerType)], NullType, ($, arr) => {\n  const d = $.const(double);\n  $(arr.map(($, x) => d(x)));\n  $.return(null);\n});\n` +
+    `export const g = East.function([IntegerType], IntegerType, ($, x) => {\n  const d = $.const(double);\n  return d(x);\n});\n`;
+  assert.deepEqual(rule(src), []);
+});
+
+test("no-reinlined: silent for a function a helper or a conditional gives outside every body, read inside other functions' bodies", () => {
+  const src = `${PRELUDE}const add = (n: bigint) => East.function([IntegerType], IntegerType, ($, x) => x.add(n));\n` +
+    `const step = add(1n);\nconst pick = Math.random() > 2 ? add(2n) : East.function([IntegerType], IntegerType, ($, x) => x);\n` +
+    `export const f = East.function([ArrayType(IntegerType)], NullType, ($, arr) => {\n  const s = $.const(step);\n  const p = $.const(pick);\n  $(arr.map(($, x) => p(s(x))));\n  $.return(null);\n});\n`;
+  assert.deepEqual(rule(src), []);
+});
+
+test("no-reinlined: still flags a function made inside a body and read in a loop — it is made again each time", () => {
+  const found = rule(
+    wrap("  const g = East.function([IntegerType], IntegerType, ($, y) => y.add(1n));\n  $(arr.map(($, x) => g(x)));"),
+  );
+  assert.equal(found.length, 1);
+});
+
 test("no-reinlined: flags one read inside a nested East.function", () => {
   const found = rule(
     wrap("  const offset = arr.size().multiply(2n);\n  const g = $.const(East.function([IntegerType], IntegerType, ($, y) => y.add(offset)));\n  $(log(East.print(g(1n))));"),

@@ -25,6 +25,9 @@ export const noUnexecutedEastExpression: EastRule = {
     if (!t.isExpressionStatement(node)) return;
     const expr = node.expression;
 
+    // An assignment binds its value to the variable it names, as a declaration does.
+    if (t.isBinaryExpression(expr) && expr.operatorToken.kind === t.SyntaxKind.EqualsToken) return;
+
     // Exclude any statement rooted in the block builder `$`: `$(...)`, `$.if(...)`,
     // chained `$.if(...).else(...)`, `$.try(...).catch(...)`, etc. Walk down the
     // call/member chain to its base receiver and check that.

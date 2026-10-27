@@ -26,6 +26,13 @@ export function isEastExprType(type: ts.Type): boolean {
   return false;
 }
 
+// An East function's expression — `East.function(…)` / `East.asyncFunction(…)`, or
+// any expression of their types (`FunctionExpr`, `AsyncFunctionExpr`): a function
+// value, which a program calls. Name-keyed, like `isEastExprType`.
+export function isEastFunctionExprType(type: ts.Type): boolean {
+  return someTypeName(type, (name) => name === "FunctionExpr" || name === "AsyncFunctionExpr");
+}
+
 export function isBlockBuilderType(type: ts.Type): boolean {
   const name = type.aliasSymbol?.name ?? type.symbol?.name;
   return name === "BlockBuilder";
@@ -70,7 +77,9 @@ const E3_DEFINITION_NAMES = new Set([
   "DataTreeDef",
   "FunctionDef",
   "MutationDef",
+  "MigrationDef",
   "RecordDef",
+  "RecordIndexDef",
   "PackageDef",
 ]);
 
