@@ -24,6 +24,7 @@ import { describe, test } from "node:test";
 
 import {
     ArrayType,
+    DateTimeType,
     DictType,
     IntegerType,
     OptionType,
@@ -47,13 +48,16 @@ import { datasetRowsType, indexWindowType, type TreePath } from "@elaraai/e3-typ
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
 import type { E3Request } from "../src/e3-web.test-utils.js";
 import {
+    MAX_RETAINED_WINDOWS,
     MAX_WITHIN_KEYS,
     PagedRuntime,
     createDefaultPagedApi,
+    pagedBatchKey,
     pagedRevisionKey,
     pagedWindowKey,
     pagedTotalKey,
     pagedSeekKey,
+    setPagedRuntimeProbe,
     toFindQuery,
     type PagedApi,
     type PagedRun,
@@ -1131,6 +1135,32 @@ describe("PagedRuntime — windows landing before a frame re-fire their readers 
         assert.deepEqual(seen, [[1, 1, 0], [1, 1, 1]]);
     });
 
+    test("windows of a narrowing read by its runs, landing before a frame, re-fire a reader of both once, as the frame is drawn — as windows by offset do", async () => {
+        const R1 = await hashOf(orders);
+        const { runtime } = await known(new FramedPagedRuntime(), (r) => handleOf(r, toEastTypeValue(orders.type), ordersPath).revision!());
+        const source = runtime.sourceOf(handleOf(runtime, QueueWindowType, ordersPath, "pinned", BY_STATUS).id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        // A narrowing's two windows of the dispatch queue, each across two of its runs, as a record Slice reads a
+        // window of a live source.
+        const first: PagedRun[] = [[0, 2], [5, 2]];
+        const second: PagedRun[] = [[9, 2], [14, 2]];
+        const keysOf = [first, second].map((runs) => pagedBatchKey(h.workspace, ordersPath, R1, BY_STATUS, "runs", runs.map(([row, count]) => `${row}+${count}`)));
+        // One reader of both, as a view's is of the windows it draws.
+        const seen: number[][] = [];
+        const reader = () => { seen.push(keysOf.map((key) => runtime.getKeyVersion(key))); };
+        for (const key of keysOf) runtime.subscribe(key, reader);
+        assert.equal(runtime.runsAll(source, first).type, "none");
+        assert.equal(runtime.runsAll(source, second).type, "none");
+        await h.settle();
+        assert.deepEqual(h.requests("runs", "records.work_orders").length, 2);
+        // Both have landed: each reads as it is, and nothing has re-fired before the frame.
+        assert.equal(runtime.runsAll(source, first).type, "some");
+        assert.equal(runtime.runsAll(source, second).type, "some");
+        assert.deepEqual(seen, [], "no reader re-fires before the frame: never once a window");
+        runtime.frame();
+        assert.deepEqual(seen, [[1, 1]], "once, as the frame is drawn, both windows' versions moved");
+    });
+
     test("a runtime with no frames to draw applies a window as it lands", async () => {
         // Node draws no frames: a reader hears each window at once.
         const R1 = await hashOf(rows);
@@ -1609,9 +1639,10 @@ describe("PagedRuntime — several reads in one request (#1351)", () => {
 describe("PagedRuntime — which entries a narrowing's runs hold, kept for each reader (#1349)", () => {
     /** The most answers one narrowing's runs hold once their readers have read them. */
     const CAP = 2 * MAX_WITHIN_KEYS;
-    /** A runtime that says how many membership answers it holds, and how many it keeps for their readers. */
+    /** A runtime that says how many membership answers it holds, how many it keeps for their readers, and of how many narrowings. */
     class WithinRuntime extends PagedRuntime {
         held(source: PagedSource) { return this.withinHeld(source); }
+        narrowings(source: PagedSource) { return this.holding(source).narrowings; }
     }
     /** The dispatch queue's entry keys: a work order's status and due date, beside its key. */
     const EntryKey = StructType({ ik: ex.WorkQueueKey, k: StringType });
@@ -1707,6 +1738,103 @@ describe("PagedRuntime — which entries a narrowing's runs hold, kept for each 
         assert.deepEqual(runtime.held(source), { answers: READ, kept: 0, batches: 0 });
         assert.deepEqual(asked().map((request) => request.query.get("hash")), [...Array.from({ length: 10 }, () => R1), R2, R2],
             "four batches and the dropped one at the old revision — its second request refused there — and one at the new");
+    });
+
+    test("the answers a revision holds stay within the cap as the viewer tries narrowing after narrowing, the least recently read narrowing's going first", async () => {
+        const R1 = await hashOf(orders);
+        const { runtime } = await known(new WithinRuntime(), (r) => handleOf(r, toEastTypeValue(orders.type), ordersPath).revision!());
+        const source = runtime.sourceOf(handleOf(runtime, QueueWindowType, ordersPath, "pinned", BY_STATUS).id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        // Five narrowings of the queue, each its own runs — the late orders, the open, the planned, and two spans of
+        // them — and under each, the lens asks which of the rows it draws the narrowing holds: as many as one read asks.
+        const narrowings: readonly (readonly PagedRun[])[] = [[[0, 5]], [[5, 7]], [[12, 6]], [[0, 12]], [[5, 13]]];
+        const keysOf = (n: number) => Array.from({ length: MAX_WITHIN_KEYS }, (_, i) =>
+            printEntry({ ik: { status: "late", due: new Date(Date.UTC(2026, 8, 8) + i * 60_000) }, k: `N${n}-${i}` }));
+        for (const [n, runs] of narrowings.entries()) {
+            const keys = keysOf(n);
+            assert.equal(runtime.withinAll(source, runs, keys).type, "none", `narrowing ${n} is asked`);
+            await h.settle();
+            assert.equal(runtime.withinAll(source, runs, keys).type, "some", `narrowing ${n}'s answers have landed, and are read`);
+        }
+        assert.ok(asked().every((request) => request.query.get("hash") === R1), "pinned to the revision");
+        const { answers, kept, batches } = runtime.held(source);
+        assert.ok(answers <= CAP && kept === 0 && batches === 0,
+            `the revision holds ${answers} membership answers (${kept} kept for a reader, by ${batches} batches) of ${runtime.narrowings(source)} narrowings, past the ${CAP} its answers keep to`);
+        // The narrowing read last holds every answer it read: read again, nothing is asked.
+        const before = asked().length;
+        assert.equal(runtime.withinAll(source, narrowings[4]!, keysOf(4)).type, "some");
+        assert.equal(asked().length, before, "the narrowing read last still holds its answers");
+    });
+});
+
+describe("PagedRuntime — what a revision keeps of the searches batches answer (#1351)", () => {
+    /** A runtime that says what it holds: its channels and the versions it keeps of them, and its longest channel key. */
+    class HoldingRuntime extends PagedRuntime {
+        held(source: PagedSource) { return this.holding(source); }
+    }
+    /** The jobs, and their series index: each job under each week it touches and the press it is on. */
+    const jobs = ex.indexedJobs;
+    const JobsType = toEastTypeValue(jobs.type);
+    const SERIES: PagedSelector = { index: ex.jobsByPressWeek.name, join: false };
+    const SeriesWindowType = toEastTypeValue(indexWindowType(StringType, ex.jobsByPressWeek.keyType, ex.IndexedJob, ex.IndexedJob));
+    const printTile = printFor(DateTimeType);
+    const printPress = printFor(OptionType(StringType));
+    /** How many blocks the reader walks down: more than the windows the runtime retains. */
+    const BLOCKS = MAX_RETAINED_WINDOWS + 6;
+    /** A runtime whose jobs have looked their revision up, the source of their series index, and of their own rows. */
+    const seriesOf = async () => {
+        const read = await known(new HoldingRuntime(), (r) => handleOf(r, JobsType, jobs.path).revision!());
+        const series = read.runtime.sourceOf(handleOf(read.runtime, SeriesWindowType, jobs.path, "pinned", SERIES).id);
+        const own = read.runtime.sourceOf(handleOf(read.runtime, JobsType, jobs.path).id);
+        assert.ok(series !== undefined && own !== undefined, "the runtime serves the handles it built");
+        return { ...read, series, own };
+    };
+    /** One block's cell searches, as the Plan's cells reader plans them (`tileCellQueries`): 50 presses × 15 weekly tiles, `[tile, press]` each. */
+    const blockQueries = (block: number): DatasetFindQuery[] => {
+        const queries: DatasetFindQuery[] = [];
+        for (let week = 0; week < 15; week++) {
+            const tile = printTile(new Date(Date.UTC(2026, 9, 5) + week * 7 * 86_400_000));
+            for (let press = 0; press < 50; press++) queries.push({ fields: [tile, printPress(some(`P-${String(block * 50 + press).padStart(6, "0")}`))] });
+        }
+        return queries;
+    };
+    /** The reader walks down a paged resource kind a block at a time, reading each block's searches until they land and never asking a block again. */
+    const walk = async (runtime: PagedRuntime, source: PagedSource) => {
+        for (let block = 0; block < BLOCKS; block++) {
+            const answers = await h.ready(() => runtime.seekAll(source, blockQueries(block)));
+            assert.equal(answers.length, 750, `block ${block}'s searches are answered`);
+        }
+        assert.equal(h.requests("find", "records.indexed_jobs").length, BLOCKS, "a block's searches are one request");
+    };
+
+    test("a revision's batched searches are let go as their reader moves on, each batch's channel named by what it asks, never by its text", async () => {
+        const { runtime, series } = await seriesOf();
+        await walk(runtime, series);
+        const { channels, versions, longestKey } = runtime.held(series);
+        assert.ok(channels <= MAX_RETAINED_WINDOWS && versions <= MAX_RETAINED_WINDOWS + 1,
+            `after the reader moved on from ${BLOCKS - 1} blocks (${BLOCKS * 750} searches landed) the runtime holds ${channels} channels, `
+            + `and ${versions} versions of channels`);
+        assert.ok(longestKey < 256, `a batch's channel is named by its searches, not their text: its key is ${longestKey} characters`);
+    });
+
+    test("a read of a window not yet landed, and of rows by key, looks at the landed windows of its rows alone — never every channel of the revision", async () => {
+        const { runtime, series, own } = await seriesOf();
+        await walk(runtime, series);
+        let looked = 0;
+        setPagedRuntimeProbe({ looked: () => { looked += 1; } });
+        try {
+            // The Backlog pages the jobs' own rows, and the Plan reads a link's events by key: each is answered from a
+            // landed window that holds it, when one does.
+            assert.equal(handleOf(runtime, JobsType, jobs.path).page(0n, 4n).type, "none", "no window holds it: it is asked");
+            const page = looked;
+            looked = 0;
+            assert.equal(runtime.rowsAll(own, ["carry", "month", "late", "nope"]).type, "none", "no window holds them: they are asked");
+            assert.ok(page <= MAX_RETAINED_WINDOWS && looked <= 4 * MAX_RETAINED_WINDOWS,
+                `one page not yet landed looks at ${page} channels, and a read of 4 rows by key at ${looked}`);
+        } finally {
+            setPagedRuntimeProbe(undefined);
+        }
+        await h.settle();
     });
 });
 
