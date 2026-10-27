@@ -12,8 +12,8 @@
  * its marks — the view's home, where the keyboard lands as the control it was
  * on goes with the view (#1398), its ring the inset focus ring; a draft's
  * chip; a section's head; the fields; the gestures; the summary of several;
- * the counts and the hints of nothing selected; an empty state, a view's home
- * where the view has no head; and the
+ * the counts and the hints of nothing selected; an empty state; a view, or an
+ * empty state, ringed as its own home where it has no head; and the
  * region around a view that keeps the keyboard, no box of its own. Each
  * recipe spreads them under its own slots, beside its own parts.
  *
@@ -50,12 +50,15 @@ export const inspectorSlots = [
 
 /** Their base styles. */
 export const inspectorBase = {
+    /* A view — the view's home where it has no head (the Plan's Nothing selected, #1398), focused by script and ringed
+     * inside its box. */
     root: {
         flex: 1,
         minHeight: 0,
         display: "flex",
         flexDirection: "column",
         background: "bg.surface",
+        _focusVisible: { outline: "none", boxShadow: "{shadows.focusInset}" },
     },
     /* The region around a view that keeps the keyboard as the control it is on goes: no box of its own, its view laid out
      * as though it were not there. */

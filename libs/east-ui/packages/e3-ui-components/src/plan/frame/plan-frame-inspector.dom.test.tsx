@@ -462,4 +462,21 @@ describe("the inspector keeps the keyboard as a control goes with its view (#139
         expect([focused.hasAttribute("data-focus-home"), focused.closest("[data-plan-inspector]")?.getAttribute("data-plan-inspector"),
             focused.querySelector("[data-inspector-title]")?.textContent]).toEqual([true, "event", "Spring catalogue"]);
     });
+
+    test("Delete on one event hands the keyboard to the canvas's row, as its selection's command does: the inspector's home never takes it back", async () => {
+        const { container } = await h.mount(ex.planPrintWorks);
+        await settle();
+        fireEvent.click(job(container, "J-1001"));
+        await settle();
+        const remove = edits(container).querySelector<HTMLElement>("button[data-inspector-action='delete']")!;
+        remove.focus();
+        fireEvent.click(remove);
+        await settle();
+        expect(container.querySelector(`${rowAt(A1)} ${el("data-run", "job", "J-1001")}`)).toBeNull();
+        expect(showing(container)).toBe("none");
+        // Press A1's row holds the keyboard, Undo and the grid's arrows a key away.
+        const focused = document.activeElement ?? document.body;
+        expect(focused).not.toBe(document.body);
+        expect(focused.closest("[data-plan-row]")?.getAttribute("data-plan-row")).toBe(rowKey(container, A1));
+    });
 });

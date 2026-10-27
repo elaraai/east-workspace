@@ -59,6 +59,13 @@
  * while a selected kind takes no gesture — a write of its with no answer, its
  * drafts out of date.
  *
+ * It keeps the keyboard (#1398): a control that goes with the view it was
+ * pressed in — Duplicate, which selects the copies, an overlap's line, which
+ * selects what it names — leaves the focus on the heading of the view drawn in
+ * its place (`../../shared/focus-home.ts`), never on the page's body; Nothing
+ * selected, which has no heading, is its own home. Delete hands the keyboard
+ * to the canvas's row instead, as its selection's command does.
+ *
  * Styles are the `planInspector` recipe's, the form's `fieldForm`'s and the
  * buttons the shared `button`'s; the pane — its collapse control and its rail
  * — is the Dock's.
@@ -67,6 +74,7 @@
  */
 
 import { ScheduleInspectorHead } from "../../shared/schedule/inspector-head.js";
+import { FOCUS_HOME_PROPS, useFocusHome } from "../../shared/focus-home.js";
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -386,9 +394,22 @@ interface BodyProps {
     hidden: readonly string[];
 }
 
-/** The pane's body: one event, several, a row, or nothing. */
+/**
+ * The pane's body: one event, several, a row, or nothing — in a region that keeps the keyboard as a control goes with its
+ * view, on the heading of the view drawn in its place (see the module docs).
+ */
 const PlanInspectorBody = memo(function PlanInspectorBody(props: BodyProps) {
     const styles = useSlotRecipe({ key: "planInspector" })() as Styles;
+    const home = useFocusHome();
+    return (
+        <Box ref={home.ref} css={styles.home} onFocus={home.onFocus} onBlur={home.onBlur} data-inspector-home="">
+            {bodyView(props, styles)}
+        </Box>
+    );
+});
+
+/** What the body shows: one event, several, a row, or nothing. */
+function bodyView(props: BodyProps, styles: Styles): ReactNode {
     const { selection, events, chrome } = props;
     // Each event its own view: what one showed never lands on the next.
     if (events.length === 1) return <OneEvent key={events[0]!.key} {...props} styles={styles} event={events[0]!} />;
@@ -398,7 +419,7 @@ const PlanInspectorBody = memo(function PlanInspectorBody(props: BodyProps) {
         if (row !== undefined) return <RowView key={row.key} {...props} styles={styles} chrome={chrome} rowKey={row.key} at={selection.at} />;
     }
     return <NothingSelected styles={styles} counts={props.counts} words={props.words} />;
-});
+}
 
 // ============================================================================
 // Words
@@ -662,7 +683,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
 
     return (
         <Box css={styles.root} data-plan-inspector="event">
-            <ScheduleInspectorHead styles={styles} kind={kind} title={item.title} when={whenText(item, kind.instant, words)} status={status} />
+            <ScheduleInspectorHead styles={styles} kind={kind} title={item.title} when={whenText(item, kind.instant, words)} status={status} home />
             {/* Under the head, as the Calendar's inspector has it (§8) — and out
                 of the edits' fieldset, so its lines select while that is disabled. */}
             {peers.length > 0 && chrome !== undefined && (
@@ -826,7 +847,7 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
     };
     return (
         <Box css={styles.root} data-plan-inspector="events">
-            <Box css={styles.head}>
+            <Box css={styles.head} {...FOCUS_HOME_PROPS}>
                 <Box css={styles.summary} data-inspector-several="">{m.inspectorEvents({ n: events.length, count: words.number(events.length) })}</Box>
                 <Box css={styles.marks}>
                     {counted.map(({ kind, n }) => (
@@ -1059,7 +1080,7 @@ function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles, 
     const eyebrow = target.kind === "resource" ? target.resources.name : target.kind === "unassigned" ? target.event.name : m.inspectorRow();
     return (
         <Box css={styles.root} data-plan-inspector="row">
-            <Box css={styles.head}>
+            <Box css={styles.head} {...FOCUS_HOME_PROPS}>
                 <Box css={styles.eyebrow} data-inspector-kind="">{eyebrow}</Box>
                 <Box css={styles.name} data-inspector-title="">{title}</Box>
                 {lines.map((line, i) => <Box key={i} css={styles.when} data-inspector-line="">{line}</Box>)}
@@ -1134,7 +1155,8 @@ function NothingSelected({ styles, counts, words }: { styles: Styles; counts: Pl
         ...(counts.backlog !== undefined ? [{ stat: "backlog" as const, n: counts.backlog, text: words.number(counts.backlog) }] : []),
     ];
     return (
-        <Box css={styles.root} data-plan-inspector="none">
+        // No heading: the view is its own home, where the keyboard lands as the control it was on goes (#1398).
+        <Box css={styles.root} data-plan-inspector="none" {...FOCUS_HOME_PROPS}>
             {stats.length > 0 && (
                 <Box css={styles.stats} data-inspector-counts="">
                     {stats.map(({ stat, n, text }) => (
