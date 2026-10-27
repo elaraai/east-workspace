@@ -16,8 +16,8 @@
  * brute force: under each week, the block's jobs that touch it and no other,
  * each once with its row, at one content hash; and each total, the jobs that
  * touch its week on its press and the time of it they cover. Then a job moved
- * to another week, read and totalled where it went, and a joined read of the
- * summary refused.
+ * to another week, read and totalled where it went, and a joined read, a
+ * placement and a membership read of the summary refused.
  */
 
 import { describe, it } from 'node:test';
@@ -42,6 +42,8 @@ import {
   datasetGetPage,
   datasetGetRuns,
   datasetGetStatus,
+  datasetPlace,
+  datasetWithin,
   type DatasetKeySearch,
 } from '@elaraai/e3-api-client';
 
@@ -81,6 +83,8 @@ const decodeSeriesWindow = decodeBeast2For(SeriesWindowType);
 const decodeTotalsWindow = decodeBeast2For(TotalsWindowType);
 const printDateTime = printFor(DateTimeType);
 const printString = printFor(StringType);
+/** A summary entry's key, `(ik=…, k=null)`, as a membership read names one. */
+const printTotalsEntryKey = printFor(StructType({ ik: JobWeekPressKeyType, k: NullType }));
 const jobEqual = equalFor(JobRowType);
 const unjoined = equalFor(OptionType(JobRowType));
 const integerEqual = equalFor(IntegerType);
@@ -265,10 +269,11 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       }
     });
 
-    it('totals each week and press as the jobs touching it and the time of it they cover, and refuses a joined read', async (t) => {
+    it('totals each week and press as the jobs touching it and the time of it they cover, and refuses a joined read, a placement and a membership read', async (t) => {
       const { ctx, hash, jobs } = await withJobs(t);
       const opts = await ctx.opts();
-      assertTotals(await readTotals(ctx, hash), jobs);
+      const totals = await readTotals(ctx, hash);
+      assertTotals(totals, jobs);
       // A summary's entry names no row: a joined read of it is refused.
       const base = [ctx.config.baseUrl, ctx.repoName, WS, jobsPath] as const;
       for (const read of [
@@ -278,6 +283,19 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
         await assert.rejects(read, (err: unknown) => {
           assert.ok(err instanceof ApiError && err.code === 'bad_request', `a joined read of a summary is refused, got ${String(err)}`);
           assert.match(String(err.details), /index 'jobs_by_press_week_totals' of 'records\/jobs' is a summary: each entry stands for every row of its key and names none to join — read it without join/);
+          return true;
+        });
+      }
+      // Nor has it a row to place in a record segment, or to answer whether a narrowing holds.
+      const entryKey = printTotalsEntryKey({ ik: totals[0]!.ik, k: null });
+      for (const [read, unnamed] of [
+        [() => datasetPlace(...base, { index: TOTALS, runs: [[0, 10]], hash }, opts), 'to place in a record segment'],
+        [() => datasetWithin(...base, { index: TOTALS, runs: [[0, 10]], keys: [entryKey], hash }, opts), 'to answer whether a narrowing holds it'],
+      ] as const) {
+        await assert.rejects(read, (err: unknown) => {
+          assert.ok(err instanceof ApiError && err.code === 'bad_request', `a summary is refused ${unnamed}, got ${String(err)}`);
+          assert.equal(String(err.details),
+            `index 'jobs_by_press_week_totals' of 'records/jobs' is a summary: each entry stands for every row of its key and names none ${unnamed}`);
           return true;
         });
       }
