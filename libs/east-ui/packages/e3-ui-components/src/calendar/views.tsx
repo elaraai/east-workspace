@@ -523,8 +523,53 @@ interface EventBlockProps {
     readonly item: CalendarItem;
     readonly facts: EventFacts;
     readonly geometry?: CSSProperties | undefined;
+    /**
+     * Its box, px, where its view places it before it is laid out — a timeline bar's (#1398, CL9): what it guesses its fit
+     * from as it mounts, less what a bar laid out showed its measure takes off its box (`chromeOf`), so a bar whose guess
+     * its measure keeps draws once. Measured, the fit is the measure's.
+     */
+    readonly size?: { readonly width: number; readonly height: number } | undefined;
     readonly along?: "x" | "y" | undefined;
     readonly chip?: boolean | undefined;
+}
+/** Which of an event block's parts fit its box: its title, its icon, its time and its resource lines, its title wrapping, one line. */
+interface EventFits {
+    readonly title: boolean;
+    readonly time: boolean;
+    readonly resource: boolean;
+    readonly icon: boolean;
+    readonly wrap: boolean;
+    readonly compact: boolean;
+}
+/** The widths of an event block's lines, as measured: none measured yet, a time or a resource line fits nowhere. */
+const UNMEASURED = { time: Infinity, title: 0, resource: Infinity } as const;
+/**
+ * What an event block's measure takes off its box, px, by the views' styles, as a timeline bar the browser laid out shows
+ * it (#1398, CL9): across, its rule and its padding; down, its rule. A bar's guess takes it off the box its plot gives it,
+ * so the guess reads the recipe's rule and padding off a bar laid out, never repeats them.
+ */
+const chromeOf = new WeakMap<CalendarStyles, { readonly width: number; readonly height: number }>();
+/**
+ * Which of an event block's parts fit its box (see {@link EventFits}): from its inner width — its padding box's less its
+ * padding — its height, and its lines' widths.
+ *
+ * @param width - Its inner width, px
+ * @param height - Its padding box's height, px
+ * @param chip - Whether it is a month's chip
+ * @param along - Which way its view runs
+ * @param lines - Its time, title and resource lines' widths, px
+ * @returns What fits
+ */
+function fitsIn(width: number, height: number, chip: boolean, along: "x" | "y", lines: { readonly time: number; readonly title: number; readonly resource: number }): EventFits {
+    const inline = chip || along === "x" || height < 36;
+    return { title: width >= (inline ? 26 : 46) && height >= (chip ? 18 : 22),
+        icon: width >= (inline ? 46 : 16) && height >= 16, wrap: !inline && width >= 110 && height >= 84, compact: inline,
+        time: height >= (inline ? 18 : 38) && lines.time + (inline ? lines.title + 38 : 0) <= width - (inline ? 0 : 28),
+        resource: !inline && height >= 64 && width >= 80 && lines.resource <= width };
+}
+/** Whether two fits are the same. */
+function sameFits(a: EventFits, b: EventFits): boolean {
+    return a.title === b.title && a.time === b.time && a.resource === b.resource && a.icon === b.icon && a.wrap === b.wrap && a.compact === b.compact;
 }
 const itemEqual = equalFor(Schedule.Types.Item);
 /**
@@ -545,7 +590,7 @@ function sameFields<T extends object>(a: T | undefined, b: T | undefined): boole
  * East compares it — a window read again hands the views its events anew, and those it read as they were draw nothing.
  */
 function sameEventBlock(a: EventBlockProps, b: EventBlockProps): boolean {
-    return a.along === b.along && a.chip === b.chip && sameFields(a.facts, b.facts) && sameFields(a.geometry, b.geometry)
+    return a.along === b.along && a.chip === b.chip && sameFields(a.facts, b.facts) && sameFields(a.geometry, b.geometry) && sameFields(a.size, b.size)
         && (Object.is(a.item, b.item) || itemEqual(a.item, b.item));
 }
 /**
@@ -553,7 +598,7 @@ function sameEventBlock(a: EventBlockProps, b: EventBlockProps): boolean {
  * moves (#1398, CL9: `sameEventBlock`), its handle, its edges, its fit measured again as it resizes, its ring, its marks,
  * its focus a pick hands it and its reveal.
  */
-const EventBlock = memo(function EventBlock({ item, facts, geometry, along = "y", chip = false }: EventBlockProps) {
+const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along = "y", chip = false }: EventBlockProps) {
     const { styles, format, id } = facts;
     eventBlockRenderProbe?.(id);
     const start = new Date(facts.start);
@@ -568,7 +613,15 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, along = "y"
     const title = useRef<HTMLDivElement>(null);
     const time = useRef<HTMLDivElement>(null);
     const resource = useRef<HTMLDivElement>(null);
-    const [fits, setFits] = useState({ title: true, time: false, resource: false, icon: true, wrap: false, compact: chip || along === "x" });
+    // Guessed from its box where its view places it — a timeline bar's — less what a bar laid out showed its measure takes
+    // off its box; else, and before any bar is laid out, every line but the title's taken to fit nowhere until measured.
+    const bar = size !== undefined;
+    const [fits, setFits] = useState((): EventFits => {
+        const chrome = size === undefined ? undefined : chromeOf.get(styles);
+        return size === undefined || chrome === undefined
+            ? { title: true, time: false, resource: false, icon: true, wrap: false, compact: chip || along === "x" }
+            : fitsIn(Math.round(size.width) - chrome.width, size.height - chrome.height, chip, along, UNMEASURED);
+    });
     const kind = facts.kind;
     const timeText = `${facts.continued ? "↳ " : ""}${format.time(start)}${item.end.type === "some" ? `–${format.time(item.end.value)}` : ""}`;
     const resourceText = facts.layout === "resources" ? kind?.name ?? item.kind : facts.resource;
@@ -577,17 +630,16 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, along = "y"
     useLayoutEffect(() => {
         const element = block.current; if (element === null) return;
         const measure = () => {
-            const width = element.clientWidth - 12;
-            const height = element.clientHeight;
-            const inline = chip || along === "x" || height < 36;
-            const next = { title: width >= (inline ? 26 : 46) && height >= (chip ? 18 : 22),
-                icon: width >= (inline ? 46 : 16) && height >= 16, wrap: !inline && width >= 110 && height >= 84, compact: inline,
-                time: height >= (inline ? 18 : 38) && (time.current?.scrollWidth ?? Infinity) + (inline ? (title.current?.scrollWidth ?? 0) + 38 : 0) <= width - (inline ? 0 : 28),
-                resource: !inline && height >= 64 && width >= 80 && (resource.current?.scrollWidth ?? Infinity) <= width };
-            setFits(before => before.title === next.title && before.time === next.time && before.resource === next.resource && before.icon === next.icon && before.wrap === next.wrap && before.compact === next.compact ? before : next);
+            const width = element.clientWidth - 12, height = element.clientHeight;
+            // A bar laid out says what the measure takes off its box, for the guesses of the bars after it.
+            if (bar && element.offsetWidth > 0) chromeOf.set(styles, { width: element.offsetWidth - width, height: element.offsetHeight - height });
+            const next = fitsIn(width, height, chip, along, {
+                time: time.current?.scrollWidth ?? Infinity, title: title.current?.scrollWidth ?? 0, resource: resource.current?.scrollWidth ?? Infinity,
+            });
+            setFits(before => sameFits(before, next) ? before : next);
         };
         measure(); const observer = new ResizeObserver(measure); observer.observe(element); return () => observer.disconnect();
-    }, [item.title, timeText, resourceText, along, chip]);
+    }, [item.title, timeText, resourceText, along, chip, bar, styles]);
     // The event a pick asks to be shown (#1398): drawn — as a timeline brings it into its view — it tells the frame.
     const { revealing, onRevealed } = facts;
     useLayoutEffect(() => { if (revealing && block.current !== null) onRevealed?.(block.current); }, [revealing, onRevealed]);
@@ -1042,6 +1094,8 @@ interface TimelineContext {
     readonly visible: VisibleDaysStore | undefined;
     readonly laneHeight: number;
     readonly duration: number;
+    /** The plot's width, px: its window's days at the period's day. */
+    readonly plotWidth: number;
     readonly now: Date;
     readonly shades: ReturnType<typeof shadeBands>;
     readonly lines: readonly TimelineLine[];
@@ -1146,7 +1200,7 @@ function TimelineRowMeta({ ctx, row, layout, r }: { ctx: TimelineContext; row: C
 const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, span, index }: {
     ctx: TimelineContext; row: CalendarRow; layout: TimelineLayout; span: { readonly from: number; readonly to: number } | undefined; index: number;
 }) {
-    const { view, read, unread, laneHeight, duration, now, shades, lines, shading, bucket, origin, facts } = ctx;
+    const { view, read, unread, laneHeight, duration, plotWidth, now, shades, lines, shading, bucket, origin, facts } = ctx;
     const { styles, range } = view;
     const from = range.from.getTime(), to = range.to.getTime();
     const says = useRowsTop(top => read.state === "failed" && index === firstRowInView(lines, top));
@@ -1175,7 +1229,8 @@ const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, span, index 
             // through a re-centre, and draws nothing again.
             const first = Math.max(from, at.start), last = Math.min(to, at.end);
             return <EventBlock key={keyOf(item)} item={item} facts={facts(item)} along="x" geometry={{ top: 4 + layout.lanes[i]!.lane * laneHeight, height: laneHeight - 4,
-                left: `calc(var(--calendar-origin) + ${(first - origin) / duration * 100}%)`, width: `${(last - first) / duration * 100}%` }} />;
+                left: `calc(var(--calendar-origin) + ${(first - origin) / duration * 100}%)`, width: `${(last - first) / duration * 100}%` }}
+                size={{ width: (last - first) / duration * plotWidth, height: laneHeight - 4 }} />;
         })}
         {ghostsOf({ ...view, items: layout.items }).filter(ghost => onResource(ghost.item, row)).map(ghost => {
             const gs = ghost.item.start.type === "some" ? ghost.item.start.value.getTime() : range.from.getTime();
@@ -1333,10 +1388,10 @@ function Timeline(props: CalendarViewsProps) {
     const unread = useMemo(() => props.covered === undefined || (props.covered.from.getTime() === range.from.getTime() && props.covered.to.getTime() === range.to.getTime())
         ? NO_SPANS : unreadSpans(range, props.covered), [props.covered, range]);
     const uncounted = props.uncounted ?? NOTHING_UNCOUNTED;
-    const ctx = useMemo((): TimelineContext => ({ view: eventView, read: props.read, covered: props.covered, unread, visible: props.visible, laneHeight, duration, now: props.now, shades, lines,
-        uncounted, shading: props.shading, bucket: props.bucket, pagedKind: pagedKey, drawnRows: props.drawnRows, origin, facts }),
-    [eventView, props.read, props.covered, unread, props.visible, laneHeight, duration, props.now, shades, lines, uncounted, props.shading, props.bucket, pagedKey, props.drawnRows,
-        origin, facts]);
+    const ctx = useMemo((): TimelineContext => ({ view: eventView, read: props.read, covered: props.covered, unread, visible: props.visible, laneHeight, duration, plotWidth: width,
+        now: props.now, shades, lines, uncounted, shading: props.shading, bucket: props.bucket, pagedKind: pagedKey, drawnRows: props.drawnRows, origin, facts }),
+    [eventView, props.read, props.covered, unread, props.visible, laneHeight, duration, width, props.now, shades, lines, uncounted, props.shading, props.bucket, pagedKey,
+        props.drawnRows, origin, facts]);
     // The span of the period whose events are mounted (CL9): what the view shows, one view either side, moved as the view
     // nears its edge; every event while the timeline has not laid out.
     const [span, setSpan] = useState<{ from: number; to: number } | undefined>(undefined);

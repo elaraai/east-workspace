@@ -1523,8 +1523,12 @@ event's block is a memo of what it shows (`calendar/views.tsx`' `EventBlock`,
 and the optimiser's marks, its drag handle and edges, a pick's reveal, the
 window it is clipped to and the handlers it calls (`eventFacts`, each made once
 while what it reads holds) — where it stands, and its event as East compares
-it; so a move of the span it mounts draws only the events it brings in, and a
-window read again draws none it holds as it was. Each bar is placed from an
+it; so a move of the span it mounts draws only the events it brings in, each
+once — a bar guesses which of its parts fit from the box its plot gives it
+(`size`), less what a bar the browser laid out showed its measure takes off
+its box (`chromeOf`), never the recipe's rule and padding repeated, so its
+measure keeps the guess — and a window read again draws none it holds as it
+was. Each bar is placed from an
 origin a re-centre never moves, its plot moving by one variable
 (`--calendar-origin`), so a re-centre draws no event both windows hold whole.
 An event keeps its handle, its edges, its draft and its marks through a read in

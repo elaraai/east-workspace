@@ -11,8 +11,10 @@
  * one lands; the Backlog never read again for it, and a reload opening the
  * window again where the view was. The timeline draws only what moves (CL9):
  * a move of the period's span it mounts draws only the events it brings in,
- * and a re-centre none that both windows hold whole, each placed from an
- * origin the re-centre does not move. The view is the page's own: another page
+ * each once, its fit guessed from its box less what a bar laid out showed its
+ * measure takes off, and a re-centre none that both windows hold whole, each
+ * placed from an origin the re-centre does not move.
+ * The view is the page's own: another page
  * keeping one moves neither its date nor its window. The Backlog never blinks:
  * paged through its source (#1424), never with a window, a step, a layout, a
  * period or a re-centre reads nothing of it and leaves it as it is; a
@@ -30,7 +32,7 @@ import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
 import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { DAY, eventKey, parseEventKey } from "./model.js";
-import { TIMELINE_GUTTER, timelinePixels } from "./timeline.js";
+import { TIMELINE_GUTTER, timelineDays, timelinePixels } from "./timeline.js";
 import { setEventBlockRenderProbe } from "./views.js";
 import "./index.js";
 
@@ -543,6 +545,57 @@ describe("the timeline draws only what moves (#1398, CL9)", () => {
             const places = placesOf(timeline);
             expect(whole.filter(id => places.get(id) !== held.get(id))).toEqual([]);
             expect(renders.filter(id => whole.includes(id))).toEqual([]);
+        } finally {
+            setEventBlockRenderProbe(undefined);
+        }
+    });
+
+    test("once the timeline has laid a bar out, a bar a move of the span brings in draws once as it mounts: its fit guessed from the box its plot gives it, less what the bar laid out showed its rule and padding take — which its measure keeps", async () => {
+        // Every timeline bar laid out as a browser lays it, from the first: its box its plot's share of the window — its plot's
+        // days, which name its period, at that period's day — its padding box that less its 1px rule each side, and each of
+        // its lines as wide as its words.
+        const bar = (element: Element): element is HTMLElement => element instanceof HTMLElement && element.hasAttribute("data-calendar-event")
+            && element.closest("[data-calendar-timeline]") !== null;
+        const across = (element: HTMLElement) => {
+            const plot = element.closest<HTMLElement>("[data-calendar-cell]")!;
+            const days = (Number(plot.dataset.calendarTo) - Number(plot.dataset.calendarFrom)) / DAY;
+            const period = (["day", "week", "month"] as const).find(each => timelineDays(each) === days)!;
+            return Math.round(Number.parseFloat(element.style.width) / 100 * days * timelinePixels(period));
+        };
+        const down = (element: HTMLElement) => Number.parseFloat(element.style.height);
+        // The harness's own stubs of the offsets, which lay out the virtualizers' viewports: they answer for all but a bar.
+        const offsetWidth = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get");
+        const offsetHeight = vi.spyOn(HTMLElement.prototype, "offsetHeight", "get");
+        const offset = { width: offsetWidth.getMockImplementation()!, height: offsetHeight.getMockImplementation()! };
+        const client = { width: Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!.get!, height: Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!.get! };
+        const whole = Object.getOwnPropertyDescriptor(Element.prototype, "scrollWidth")!.get!;
+        offsetWidth.mockImplementation(function (this: HTMLElement) {
+            return bar(this) ? across(this) : offset.width.call(this);
+        });
+        offsetHeight.mockImplementation(function (this: HTMLElement) {
+            return bar(this) ? down(this) : offset.height.call(this);
+        });
+        vi.spyOn(Element.prototype, "clientWidth", "get").mockImplementation(function (this: Element) {
+            return bar(this) ? across(this) - 2 : client.width.call(this) as number;
+        });
+        vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(function (this: Element) {
+            return bar(this) ? down(this) - 2 : client.height.call(this) as number;
+        });
+        vi.spyOn(Element.prototype, "scrollWidth", "get").mockImplementation(function (this: Element) {
+            const block = this.closest("[data-calendar-event]");
+            return block !== null && block !== this && bar(block) ? (this.textContent ?? "").length * 7 : whole.call(this) as number;
+        });
+        const { timeline } = await openTimeline("month", "bars-draw-once");
+        const renders: string[] = [];
+        setEventBlockRenderProbe(id => { renders.push(id); });
+        try {
+            const kept = drawnOf(timeline);
+            await scrollTo(timeline, timeline.scrollLeft + 400);
+            const brought = [...drawnOf(timeline)].filter(id => !kept.has(id));
+            expect(brought.length).toBeGreaterThan(0);
+            const times = new Map<string, number>();
+            for (const id of renders) times.set(id, (times.get(id) ?? 0) + 1);
+            expect(brought.filter(id => times.get(id) !== 1)).toEqual([]);
         } finally {
             setEventBlockRenderProbe(undefined);
         }
