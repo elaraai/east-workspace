@@ -1257,7 +1257,15 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                     anchor = { ...anchor, phase: "settled" };
                     return;
                 }
-                if (items.length === 0) return;
+                if (items.length === 0) {
+                    // Nothing drawn yet: what the place is put back against is still to land — unless nothing ever will,
+                    // the rows inline and none of them, or the paged source counted empty under its narrowing (#1398).
+                    // Then there is nothing to seek, and the place settles where the view is.
+                    const snap = paging.getSnapshot();
+                    const empty = value !== undefined && (value.rows.type === "inline" || (snap.total === 0 && !snap.replacing));
+                    if (empty) anchor = { ...anchor, phase: "settled" };
+                    return;
+                }
                 if (saved.element !== undefined && value !== undefined && value.rows.type !== "inline") {
                     // The view rested over rows not read (#1398): its element's window opened where it is — a rebase,
                     // not a walk — and the view put back as many px into that window once it is in, as its rows or as
@@ -1302,13 +1310,11 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
                         paging.openAt(saved.window * PLAN_PAGE_SIZE, block);
                         return;
                     }
-                    const snap = paging.getSnapshot();
-                    // A window past the end of a source that has shrunk since — the row gone with it — is its last, as
-                    // `openAt` reads it (#1398): the place settles once that window is in, on the clamped index.
-                    const w = openedWindow(snap, saved.window);
-                    const settled = snap.failures.some((f) => f.w === w)
-                        || [...snap.origin.values()].some((o) => o.w === w && (block === undefined || o.block === block));
-                    if (!settled) return;
+                    // On its way still. Once the jump has settled — the window opened for it in and drawn: its last, past
+                    // the end of a source that has shrunk since (#1398), its rows or its failure's band — a row it did not
+                    // bring settles the place on the clamped index, as for a row gone: whatever drew none of it, a source
+                    // with no row left or blocks laid out anew, as the element path settles.
+                    if (paging.jumping()) return;
                 }
                 anchor = {
                     ...anchor,

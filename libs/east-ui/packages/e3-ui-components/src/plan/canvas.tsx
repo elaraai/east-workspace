@@ -968,10 +968,11 @@ export function usePlanCanvas({
     // from the OLD position cannot rebase the run back (#812).
     useEffect(() => { controller.committed(paging); });
     // The scroll anchor (#813): placed against the body once it can be — a
-    // paged canvas may first jump to the window its row came from.
+    // paged canvas may first jump to the window its row came from — or, the
+    // source counted empty, settled with nothing to place (#1398).
     useEffect(() => {
         if (anchor.phase !== "settled") controller.placeAnchor(body.items, frameFills && !narrow);
-    }, [controller, anchor.phase, body.items, frameFills, narrow]);
+    }, [controller, anchor.phase, body.items, frameFills, narrow, paging.total, paging.replacing]);
     const onAnchorChange = useCallback(
         (at: { index: number; offset: number }) => controller.anchorChanged(at, body.items),
         [controller, body.items]);

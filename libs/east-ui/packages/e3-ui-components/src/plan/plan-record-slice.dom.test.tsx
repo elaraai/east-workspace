@@ -459,4 +459,49 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         expect(pending(ui.container)).toBe("0 pending");
         expect(seriesAsked(remounted)).toEqual(["runs"]);
     });
+
+    test("a remount whose narrowing holds no order now settles its saved place with nothing to seek: a narrowing chosen after starts at its top — never sent to the order the place was saved on — and the view's place is kept again as it rests (#1398)", async () => {
+        const storageKey = "plan-1398-emptied";
+        /** Where the view rests as the Plan saved it under its storage key: its item's key and its window. */
+        const rested = (): { key: string; window: number | null } | undefined => {
+            for (const at of Object.keys(localStorage)) {
+                if (!at.startsWith(storageKey)) continue;
+                const kept = JSON.parse(localStorage.getItem(at)!) as { anchor?: { key: string; window: number | null } | null };
+                if (kept.anchor !== undefined && kept.anchor !== null) return { key: kept.anchor.key, window: kept.anchor.window };
+            }
+            return undefined;
+        };
+        /** Scrolls the frame and lets it rest: TanStack clears its scrolling flag 150ms after the last scroll event. */
+        const rest = async (c: HTMLElement, top: number) => {
+            await scrollRows(c, top);
+            await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); });
+            await settle();
+        };
+        let ui: RenderResult = await h.mount(ex.planRecordIndexes, { storageKey });
+        await settle();
+        const ready = await ordersOf(["Ready"], FIRST, FORTNIGHT);
+        // At rest on the three hundredth Ready order, in the second window: the place saved by its row.
+        await rest(ui.container, 300 * ROW_PX);
+        await waitFor(() => expect(bar(ui.container, `${ready[300]!}-run`, ready[300]!)).not.toBeNull(), { timeout: 10_000 });
+        await rest(ui.container, 300 * ROW_PX);
+        const saved = `r:${rowKeyOf(orderRow(ready[300]!))}`;
+        await waitFor(() => expect(rested()).toEqual({ key: saved, window: 1 }));
+        ui.unmount();
+        // A status no order has: the narrowing holds none of them now, and the Plan mounted again draws no order.
+        await chooseStatuses(["Cancelled"]);
+        ui = await h.mount(ex.planRecordIndexes, { storageKey });
+        await settle();
+        await waitFor(() => expect(summary(ui.container)).toContain("0 of 50,000 work orders"));
+        expect(orderRows(ui.container)).toEqual([]);
+        // The Ready orders chosen again: their rows drawn from the top, where the view is — the place saved on the three
+        // hundredth settled with nothing to seek, never put back over another narrowing's rows.
+        await chooseStatuses(["Ready"]);
+        await waitFor(() => expect(orderRows(ui.container)[0]).toBe(rowKeyOf(orderRow(ready[0]!))));
+        await settle();
+        expect(frameOf(ui.container).scrollTop).toBe(0);
+        expect(orderRows(ui.container)[0]).toBe(rowKeyOf(orderRow(ready[0]!)));
+        // The view's place is kept again as it rests: the sixth order's row, at the view's top.
+        await rest(ui.container, 5 * ROW_PX);
+        await waitFor(() => expect(rested()?.key).toBe(`r:${rowKeyOf(orderRow(ready[5]!))}`), { timeout: 10_000 });
+    });
 });

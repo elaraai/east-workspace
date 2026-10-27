@@ -1538,7 +1538,11 @@ it is (`openAt`) and puts the view back on it once it is in, its rows or its
 failure's band (`plan-persistence.dom.test.tsx`). A place saved against a
 longer source — its row's window, or its element's, past the end of one that
 has shrunk since — opens the last window and settles there, on the clamped
-index (the controller's `openedWindow`). A narrowing keeps the Sheet's anchor row by its
+index (the controller's `openedWindow`); whatever the window opened for it
+brings — no row of its own, or blocks laid out anew — the place settles once
+that jump has, and a source counted empty settles it at once, with nothing to
+put back: never left waiting with nothing saved again, to send a later
+narrowing's view to the row saved under another. A narrowing keeps the Sheet's anchor row by its
 key where the narrowing holds it — drawn already, or sought where it is as a key
 search's jump is, and put back once drawn — and else starts at the top; the
 Allocation's Table keeps the line its view rested on so too, once the
