@@ -58,6 +58,21 @@ function lineStates(c: HTMLElement): { seen: Set<string>; stop: () => void } {
     note();
     return { seen, stop: () => observer.disconnect() };
 }
+/**
+ * Whether the eye blinks from now on, watched as the DOM moves: its one blink (560 ms) is still seen when the answer's
+ * banner lands after it has gone again on a slow machine — an attribute that came and went before the observer heard
+ * of it by the old value its removal leaves.
+ */
+function blinks(c: HTMLElement): { seen: () => boolean; stop: () => void } {
+    let seen = false;
+    const note = (records: readonly MutationRecord[] = []) => {
+        if (eye(c)?.hasAttribute("data-blink") === true || records.some(record => record.oldValue !== null)) seen = true;
+    };
+    const observer = new MutationObserver(note);
+    observer.observe(c, { subtree: true, childList: true, attributes: true, attributeFilter: ["data-blink"], attributeOldValue: true });
+    note();
+    return { seen: () => seen, stop: () => observer.disconnect() };
+}
 const lit = (c: HTMLElement) => c.querySelector("[data-roster-frame]")!.hasAttribute("data-optimise-lit");
 /** The week, as the eye names it: `Optimise W10`. */
 const period = (c: HTMLElement) => eye(c)!.getAttribute("aria-label")!.replace(/^Optimise /, "");
@@ -229,11 +244,14 @@ describe("the eye in the Roster", () => {
     test("R10 — a result that changes nothing is said so, the eye blinking; a failed call is an alert until the next run", async () => {
         const container = await mounted();
         const { adds } = await landed(container);
-        // The drafts are the next run's input (O5): with every slot filled, the optimiser changes nothing.
+        // The drafts are the next run's input (O5): with every slot filled, the optimiser changes nothing. The eye's one
+        // blink is watched from the press on: on a slow machine the banner can land after it has gone again.
+        const blink = blinks(container);
         await press(eye(container));
         await said(container, "none");
+        blink.stop();
         expect(words(banner(container, "none")!)).toEqual(["No changes", `Elara found nothing to improve in ${period(container)}.`]);
-        expect([banner(container, "none")!.querySelector("[role=status]") !== null, eye(container)!.hasAttribute("data-blink"), calls.requests(RUN).length]).toEqual([true, true, 2]);
+        expect([banner(container, "none")!.querySelector("[role=status]") !== null, blink.seen(), calls.requests(RUN).length]).toEqual([true, true, 2]);
         const restore = calls.fail(RUN);
         await press(eye(container));
         await said(container, "fail");
