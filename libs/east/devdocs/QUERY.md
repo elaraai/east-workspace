@@ -660,7 +660,7 @@ changes `JqType`.
 | `pick` | 1 | `pick(.a.b)` → Struct{a: Struct{b: T}} | one | a struct of the picked fields |
 | `pow` | 2 | two numbers → Float | one | FloatPow |
 | `range` | 1, 2, 3 | Integer bounds → Integer; a Float bound → Float | many | ArrayRange, or a Float loop, streamed |
-| `recurse` | 0, 1, 2 | every value nested in the input; `recurse(f[; c])` → the input, then f again, of the one type a fixpoint settles on | many | a depth-first walk with an explicit stack |
+| `recurse` | 0, 1, 2 | every value nested in the input; `recurse(f[; c])` → the input, then f again, of the one type a fixpoint settles on | many | a depth-first walk with an explicit stack; over a Dict or an Array of the value's own type, flattenTree |
 | `repeat` | 1 | `repeat(f)` → the input, f of it, and so on | many | a loop: the value, then f of it, and so on |
 | `reverse` | 0 | Array<T> → Array<T>; String → String; null → [] | one | ArrayReverse; a string's code points reversed |
 | `rindex` | 1 | String, String → Option<Integer>; Array<T> and a T or an Array<T> → Option<Integer> | one | StringIndexOf in a loop (strings); Equal in a loop (arrays) |
@@ -1416,6 +1416,10 @@ first(.orders[] | select(.total > 1000)) | .id
   Over a recursive type, the stack holds the kinds of value the walk meets as
   the cases of one variant, and needs no recursion in the IR. The walk is
   pre-order, fields in declared order.
+- `recurse(.a.b[])`, `recurse(.[])` and `..` over a value whose `.a.b`, or the
+  value itself, is a Dict or an Array of values of its own type are the value,
+  then East's `flattenTree` of that collection: the same pre-order, with no
+  stack in the IR.
 - `walk(f)` rebuilds bottom-up: a value's parts first, then `f` on the value
   rebuilt, once. Its parts are an option's value, a variant's payload, an
   array's elements, a dict's values and a struct's fields (§13.23). A
