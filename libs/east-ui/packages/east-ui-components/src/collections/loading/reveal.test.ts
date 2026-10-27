@@ -78,6 +78,19 @@ describe("the reveal (CL4)", () => {
         expect([over.shown, over.wakeAt, over.state]).toEqual([false, undefined, REVEAL_IDLE]);
     });
 
+    test("shown late — its timer firing past the delay, the page busy — it holds from when it showed, never from when it was due", () => {
+        const waiting = revealStep(REVEAL_IDLE, true, 0);
+        expect(waiting.wakeAt).toBe(150);
+        // The page was busy: the timer due at 150 fires at 600, the read still in flight. It shows now.
+        const late = revealStep(waiting.state, true, 600);
+        expect(late.shown).toBe(true);
+        // The read lands 10 ms later: what showed stays its hold from 600, to 900 — it never blinks.
+        const ended = revealStep(late.state, false, 610);
+        expect([ended.shown, ended.wakeAt]).toEqual([true, 900]);
+        expect(revealStep(ended.state, false, 899).shown).toBe(true);
+        expect(revealStep(ended.state, false, 900).shown).toBe(false);
+    });
+
     test("other timings follow what they are given", () => {
         const step = revealStep(REVEAL_IDLE, true, 0, { delay: 10, hold: 20 });
         expect(step.wakeAt).toBe(10);
