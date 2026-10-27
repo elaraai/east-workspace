@@ -9,10 +9,12 @@
  * through their source of the rail, are sought in their record's own order
  * through e3 — a find of it, and no whole read — and a frame, read whole, in
  * its rows. A pick shows the rack's key in the box and its place among the
- * matches, and Next steps on from it. A rack the rail hides is listed
- * `hidden`: its pick flies to where it stands, selects nothing, and the footer
- * says so, with Clear filters, which shows it and selects it. A rack with no
- * position says it is in the Backlog.
+ * matches, and Next steps on from it. A rack the rail hides — or, dimmed,
+ * draws as context, which no path selects — is listed with the choice that
+ * hides it, as every builder's Search Records names one (the shared hidden
+ * pick): its pick clears just that choice, flies to where it stands and
+ * selects it once the narrowing it leaves draws it. A rack with no position
+ * says it is in the Backlog.
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin.
@@ -66,9 +68,29 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
     });
 }))) };
 
-/** Mounts the floor, and waits until its racks are drawn. */
-async function open() {
-    const ui = await h.mount(floor);
+/** The floor, a narrowed-out rack drawn as context (`narrowed="dim"`): as {@link floor} otherwise. */
+const dimFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
+    const frames = $.let(Data.bind(ex.schematicFrames));
+    const slice = $.let(Slice.bindRecords(FLOOR, {
+        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByOwner] }), fields: { owner: { label: "Owner" } } },
+    }));
+    return Schematic({
+        id: "findDim",
+        extent: { width: 28, height: 14 },
+        slice: { slice },
+        narrowed: "dim",
+        items: {
+            racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", entries: rackEntries }),
+            network: Schematic.items(frames, { name: "Network frame", icon: "network-wired", x: "x", y: "y", width: "w", height: "h", label: "name" }),
+        },
+    });
+}))) };
+
+/** Mounts a floor — the hidden one by default — and waits until its racks are drawn. */
+async function open(example: { fn: { toIR(): unknown } } = floor) {
+    const ui = await h.mount(example);
     await settle();
     await waitFor(() => expect(card(ui.container, "racks", "A01")).not.toBeNull());
     return ui;
@@ -84,6 +106,15 @@ async function narrow(where: Where) {
     await act(async () => { store.write(key, encodeBeast2For(RecordSliceStateType)({ ...state, preset: none, where })); });
     await settle();
 }
+
+/** The racks' narrowing, as the rail holds it. */
+const whereOf = (): Where => decodeBeast2For(RecordSliceStateType)(StateRuntime.getStore().read(`${FLOOR}.racks`)!).where;
+
+/** Harbour Labs' racks: A01 and A02 — never Northwind Media's A03. */
+const HARBOUR: Where = new SortedMap([["owner", variant("values", [printText("Harbour Labs")])]], compareString);
+
+/** A03's line while Harbour Labs' racks are chosen: the choice that hides it, as the shared hidden pick words it. */
+const A03_HIDDEN = "A03 · Rack · hidden by Owner: Harbour Labs — picking it clears that filter";
 
 /** The racks' record, as its dataset's requests name it. */
 const RACKS_DATASET = `records.${ex.schematicRacks.name}`;
@@ -158,33 +189,52 @@ test("a pick shows the rack's key in the box and its place among the matches; Ne
     expect(input.value).toBe("A04");
 });
 
-test("a rack the rail hides is listed hidden; its pick flies where it stands and selects nothing, the footer saying so, and Clear filters shows it and selects it (#1404)", async () => {
+test("a rack the rail hides is listed with the choice that hides it, as every builder's line names one; its pick clears just that choice, flies to where the rack stands and selects it once the narrowing it leaves draws it (the shared hidden pick)", async () => {
     const { container } = await open();
     const layer = () => card(container, "racks", "A01")?.parentElement ?? null;
-    await narrow(new SortedMap([["owner", variant("values", [printText("Harbour Labs")])]], compareString));
+    await narrow(HARBOUR);
     await waitFor(() => expect(card(container, "racks", "A03")).toBeNull());
     const fitted = Number(layer()!.style.getPropertyValue("--cam-ppu"));
     await typeIntoFind(container, "A03");
-    await waitFor(() => expect(lines()).toEqual(["A03 · Rack · hidden"]), { timeout: 5_000 });
+    await waitFor(() => expect(lines()).toEqual([A03_HIDDEN]), { timeout: 5_000 });
     const input = findBox(container).querySelector<HTMLInputElement>("input")!;
     // The camera flies over animation frames: the test runs them on a clock of its own, so it lands however busy the
     // machine running it is.
     vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
     try {
         fireEvent.keyDown(input, { key: "Enter" });
-        await waitFor(() => expect(foundNotice(container)?.textContent).toBe("A03 is hidden by the filters Clear filters"));
+        // The owner's choice cleared, as the rail clears a choice.
+        await waitFor(() => expect(whereOf().size).toBe(0));
         await act(async () => { vi.advanceTimersByTime(FLY_MS); });
     } finally {
         vi.useRealTimers();
     }
-    // The camera has flown in to where it stands, and nothing is drawn there selected.
+    await settle();
+    // The camera has flown in to where it stands, and the rack, drawn once the narrowing left draws it, is selected.
     expect(Number(layer()!.style.getPropertyValue("--cam-ppu"))).toBeGreaterThan(fitted * 1.5);
-    expect(card(container, "racks", "A03")).toBeNull();
-    expect(container.querySelector("[data-card-key][data-selected]")).toBeNull();
-    // Clear filters: the racks all draw again, A03 selected, and the footer says nothing of it.
-    await act(async () => { fireEvent.click(foundNotice(container)!.querySelector("button")!); });
+    await waitFor(() => expect(card(container, "racks", "A03")?.hasAttribute("data-selected")).toBe(true));
+    // Nothing keeps it off the canvas now: the footer says nothing of it.
+    expect(foundNotice(container)).toBeNull();
+});
+
+test("the same under a dimmed narrowing, whose context no path selects: a rack drawn as context is listed with the choice that hides it, and its pick clears that choice and selects the rack once it draws as itself", async () => {
+    const { container } = await open(dimFloor);
+    await narrow(HARBOUR);
+    await waitFor(() => expect(card(container, "racks", "A03")?.hasAttribute("data-context")).toBe(true));
+    await typeIntoFind(container, "A03");
+    await waitFor(() => expect(lines()).toEqual([A03_HIDDEN]), { timeout: 5_000 });
+    const input = findBox(container).querySelector<HTMLInputElement>("input")!;
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    try {
+        fireEvent.keyDown(input, { key: "Enter" });
+        await waitFor(() => expect(whereOf().size).toBe(0));
+        await act(async () => { vi.advanceTimersByTime(FLY_MS); });
+    } finally {
+        vi.useRealTimers();
+    }
     await settle();
     await waitFor(() => expect(card(container, "racks", "A03")?.hasAttribute("data-selected")).toBe(true));
+    expect(card(container, "racks", "A03")!.hasAttribute("data-context")).toBe(false);
     expect(foundNotice(container)).toBeNull();
 });
 
