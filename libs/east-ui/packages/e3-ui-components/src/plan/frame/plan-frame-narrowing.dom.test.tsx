@@ -25,7 +25,10 @@
  * filter change builds nothing again: the Plan's body runs no more, and no
  * payload is decoded (#1354). The Backlog never blinks (#1398, ruled 25 Oct
  * 2026): a narrowing keeps its cards and its count as one, retained while
- * either is read again, and swaps them whole once both have landed.
+ * either is read again, and swaps them whole once both have landed. Drafts
+ * whose rows the window leaves out are read by their keys, once apiece,
+ * however many more of them there are than the windows the paging runtime
+ * keeps (#1409, R24).
  */
 
 import { describe, expect, test } from "vitest";
@@ -45,6 +48,7 @@ import { act, el, entry, planHarness, programOf, rowAt, settle, slot, tabs } fro
 import { setPlanFrameRenderProbe } from "./index.js";
 import { countBuilds } from "../../shared/builds.test-utils.js";
 import type { E3Request } from "../../e3-web.test-utils.js";
+import { MAX_RETAINED_WINDOWS } from "../../platform/paged-runtime.js";
 
 const h = planHarness();
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
@@ -572,5 +576,58 @@ describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
         } finally {
             states.stop();
         }
+    });
+});
+
+// ============================================================================
+// Drafts the window leaves out are read by their keys, once apiece (#1409, R24)
+// ============================================================================
+
+/** A job's row read by its key: the key sought among the record's own entries. */
+const jobByKey = (request: E3Request) => request.kind === "find" && request.dataset === JOBS && request.query.get("index") === null
+    && request.searches.some((search) => "key" in search);
+/** A job's row read on its own: a one-row page of the record's own entries, at the row its key was found at. */
+const jobRowPage = (request: E3Request) => request.kind === "page" && request.dataset === JOBS && request.query.get("index") === null
+    && request.query.get("limit") === "1";
+/** A paged read of any of the works' records: a search, a page, its rows or its runs, a placement or a membership. */
+const pagedRead = (request: E3Request) => ["find", "page", "rows", "runs", "place", "within"].includes(request.kind);
+
+describe("drafts the window leaves out are read by their keys, once apiece (#1409, R24)", () => {
+    test("more drafts than the windows the paging runtime keeps, each of whose rows a step of the dates leaves out, are read by key once apiece — each job's key sought once and its row's one-row page read once — and the reads settle", async () => {
+        // Another planner adds proof runs on the window's first day, more than the runtime keeps windows, a press apiece in turn.
+        const presses = [["Hall A", "a1"], ["Hall A", "a2"], ["Hall A", "a3"], ["Hall B", "b1"], ["Hall B", "b2"], ["Hall B", "b3"]] as const;
+        const added = Array.from({ length: MAX_RETAINED_WINDOWS + 6 }, (_, i) => ({ key: `J-2${String(i).padStart(3, "0")}`, on: presses[i % presses.length]! }));
+        const jobs = new Map(ex.planPrintJobs.default as ReadonlyMap<string, Job>);
+        for (const [i, { key, on }] of added.entries()) {
+            const start = new Date(FIRST.getTime() + i * 45 * 60_000);
+            jobs.set(key, {
+                title: `Proof run ${i + 1}`, start: some(start), end: some(new Date(start.getTime() + 30 * 60_000)), press: some(on[1]),
+                state: variant("confirmed", null), sheets: 4000.0, customer: "Alder & Finch", stock: variant("coated", null), due: none,
+            });
+        }
+        await h.commit(ex.planPrintJobs, jobs);
+        const { container } = await h.mount(ex.planPrintWorks);
+        await settle();
+        // Each picked, Shift adding it to the selection, and all deleted at once: a draft apiece, its row in the window.
+        for (const [i, { key, on }] of added.entries()) await pick(bar(container, key, on[0], on[1]), i > 0);
+        const first = added[0]!;
+        await act(async () => { fireEvent.keyDown(bar(container, first.key, first.on[0], first.on[1])!, { key: "Delete" }); });
+        await settle();
+        expect(added.every(({ key, on }) => bar(container, key, on[0], on[1]) === null)).toBe(true);
+        // A day on: the window leaves the first day, and every draft's row with it, so each is read by its key. Every paged
+        // read is held on its way to e3 and let land a round at a time, so a read asked again is counted, never run on.
+        const reads = h.e3.hold(pagedRead);
+        const from = h.requests().length;
+        await press(toolbar(container).getByRole("button", { name: "Next day" }));
+        for (let round = 0; round < 16 && reads.held > 0; round++) {
+            await act(async () => { for (let n = reads.held; n > 0; n--) reads.releaseOne(); });
+            await settle();
+        }
+        expect(reads.held, "the reads settle: none asked again").toBe(0);
+        const since = h.requests().slice(from);
+        const sought = since.filter(jobByKey).flatMap((request) => request.searches.flatMap((search) => ("key" in search ? [search.key] : [])));
+        expect(sought.sort(), "each draft's key sought once").toEqual(added.map(({ key }) => text(key)).sort());
+        const rowPages = since.filter(jobRowPage).map((request) => Number(request.query.get("offset")));
+        expect([rowPages.length, new Set(rowPages).size], "each draft's row read once").toEqual([added.length, added.length]);
     });
 });

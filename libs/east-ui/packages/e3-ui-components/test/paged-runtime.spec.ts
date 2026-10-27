@@ -1910,6 +1910,108 @@ describe("PagedRuntime — what a revision keeps of the searches batches answer 
     });
 });
 
+describe("PagedRuntime — a window a reader holds is never evicted under it", () => {
+    // Past the windows the runtime keeps, a landing evicts the least recently read window no reader holds, whole. A
+    // window a reader's last run read stays while the reader holds it: a reader of more windows than the runtime keeps —
+    // rows read a key at a time, each a key search and a one-row page — settles, each read once, where each landing
+    // evicted a window the reader held, which its next run read again, and so on without end.
+
+    /** A runtime that says what it holds of a dataset: its channels among it. */
+    class HoldingRuntime extends PagedRuntime {
+        held(source: PagedSource) { return this.holding(source); }
+    }
+    /** The counts' handle, typed from the contract East declares, with the revision a pinned handle adds. */
+    const keyedHandle = (runtime: PagedRuntime) => handleOf(runtime, KeyedType, countsPath) as unknown as KeyedHandle & Pick<PagedHandle, "revision">;
+    /**
+     * A reader, as a view's is: each run reads under tracking, then lets go of what its last run read and subscribes
+     * to what this one read, in the one turn, as a tracked read runs again; `heard` counts what it has been told since.
+     */
+    const readerOf = <T>(runtime: PagedRuntime, read: () => T) => {
+        let held: (() => void)[] = [];
+        let heard = 0;
+        const tell = () => { heard += 1; };
+        return {
+            run(): T {
+                runtime.enableTracking();
+                try {
+                    return read();
+                } finally {
+                    const tracked = runtime.disableTracking();
+                    for (const leave of held) leave();
+                    held = [...tracked.keys()].map((key) => runtime.subscribe(key, tell));
+                }
+            },
+            get heard() { return heard; },
+            leave() { for (const leave of held.splice(0)) leave(); },
+        };
+    };
+
+    test("windows landing past the cap evict only those no reader holds, the least recently read first, whole: the window a reader holds stays, read again with nothing asked, and its reader is told nothing", async () => {
+        await h.write(rows, Array.from({ length: MAX_RETAINED_WINDOWS + 8 }, (_, i) => BigInt(i)));
+        const { runtime } = await known(new HoldingRuntime());
+        // A reader holds the first row's window.
+        const first = readerOf(runtime, () => callPage(runtime, 0n, 1n));
+        assert.equal(first.run().type, "none");
+        await h.settle();
+        assert.deepEqual(first.run(), some([0n]));
+        const told = first.heard;
+        // More windows than the runtime keeps land after it, one at a time, each read where no reader holds it.
+        for (let row = 1; row <= MAX_RETAINED_WINDOWS + 6; row++) {
+            callPage(runtime, BigInt(row), 1n);
+            await h.settle();
+        }
+        const asked = windows().length;
+        assert.deepEqual(callPage(runtime, 0n, 1n), some([0n]), "the window its reader holds was never evicted under it");
+        assert.equal(windows().length, asked, "nothing asked again");
+        assert.equal(first.heard, told, "its reader is told nothing: nothing it holds moved");
+        const source = runtime.sourceOf(handleOf(runtime, rowsTypeValue, rowsPath).id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        const { channels } = runtime.held(source);
+        assert.ok(channels <= MAX_RETAINED_WINDOWS + 1,
+            `the runtime holds ${channels} channels, past the ${MAX_RETAINED_WINDOWS} windows it keeps, the reader's among them, and the total`);
+        // The windows no reader holds went, the least recently read first, whole: the second row's is asked again.
+        assert.equal(callPage(runtime, 1n, 1n).type, "none");
+        assert.equal(windows().length, asked + 1);
+        await h.settle();
+        first.leave();
+    });
+
+    test("a reader of more rows by key than the windows the runtime keeps — each its key sought, then a one-row page at the row found — settles, each key sought once and each row read once; once it lets them go, the windows no reader holds are back within the cap", async () => {
+        const keyed = Array.from({ length: MAX_RETAINED_WINDOWS + 6 }, (_, i) => `k${String(i).padStart(2, "0")}`);
+        await h.write(counts, new SortedMap(keyed.map((key, i) => [key, BigInt(i)] as const), keys));
+        const { runtime } = await known(new HoldingRuntime(), (r) => keyedHandle(r).revision!());
+        const handle = keyedHandle(runtime);
+        const seek = handle.seek;
+        assert.ok(seek.type === "some", "the source must declare the capability");
+        const literal = printFor(StringType);
+        /** One row by its key, as a builder reads one (`readKeyedEntry`, e3-ui's `scheduleEntryByKey`): its key sought, then a one-row page at the row the search found. */
+        const byKey = (key: string): option<bigint> => {
+            const found = seek.value(variant("key", literal(key)));
+            if (found.type === "none" || !found.value.found) return none;
+            const page = handle.page(found.value.row, 1n);
+            return page.type === "none" ? none : some(page.value.get(key)!);
+        };
+        const reader = readerOf(runtime, () => keyed.map(byKey));
+        let read = reader.run();
+        for (let runs = 1; runs < 16 && read.some((row) => row.type === "none"); runs++) {
+            await h.settle();
+            read = reader.run();
+        }
+        assert.deepEqual(read, keyed.map((_, i) => some(BigInt(i))), "every row read: the reader settled");
+        assert.deepEqual(searches().map((search) => search.key).sort(), keyed.map((key) => literal(key)).sort(), "each key sought once");
+        assert.deepEqual(windows("inputs.preview_counts").map((window) => window.offset).sort((a, b) => a - b), keyed.map((_, i) => i),
+            "each row's one-row page read once");
+        // It lets them go: the windows no reader holds are back within the cap, its searches' bounds held apart from a channel.
+        reader.leave();
+        await h.settle();
+        const source = runtime.sourceOf(handle.id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        const { channels } = runtime.held(source);
+        assert.ok(channels <= MAX_RETAINED_WINDOWS + 1,
+            `once its reader lets them go the runtime holds ${channels} channels, past the ${MAX_RETAINED_WINDOWS} windows it keeps and the total`);
+    });
+});
+
 /**
  * A line of `width` letters no compressor shrinks: a xorshift stream over 64
  * letters, from its seed, so a page of such lines weighs what it holds.
