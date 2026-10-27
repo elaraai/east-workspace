@@ -86,9 +86,15 @@ details record's beside it, an item's position, a link's ends as Choosers, a
 net's sides as tags, several by kind and, with nothing selected, the
 drawing's counts and saves — a kind read by area counted by its source's
 indexes, never its window (`area-counts.ts`) — and Issues (`issues.ts`, pure),
-each selecting what it names, over what the drawing holds, one line naming the
-kinds read by area whose rows out of view it checks only as the view reaches
-them (ruled 27 Oct 2026); every edit there is one step of the history, and a
+each selecting what it names, over what the drawing holds and every unsaved
+change it leaves out — a draft waiting in its session where the narrowing
+leaves out the row it drafts, checked as its draft has it, never drawn
+(`drafted.ts`' `waitingDrafts`), its issue's line naming the choices that hide
+it as the shared hidden pick words them (`hidden-drafts.tsx`) and Go to issue
+clearing just those, then flying to where its draft stands and selecting it once
+it draws — and one line naming the kinds read by area whose rows out of view it
+checks only as the view reaches them (ruled 27 Oct 2026, "Checked in view, said
+so"); every edit there is one step of the history, and a
 control whose view goes with it leaves the keyboard on the heading of the view
 drawn in its place (`shared/focus-home.ts`). Its narrowing
 (#1392) is pure in `narrowing.ts`: each kind's source of the rail, its shown
@@ -677,8 +683,20 @@ The drawing's counts read the kind by its source's indexes (`area-counts.ts`:
 `countWhere` less the unplaced clause's count, no row read), its drafts laid
 over them (`counts.ts`' `draftedAreaCounts`), and name what no read can count,
 never a number. Issues checks what the drawing holds — the window's rows and
-the drafts drawn — and says which kinds' rows out of view it checks only as
-the view reaches them (ruled 27 Oct 2026). `fit` flies to the box the
+the drafts drawn — and every unsaved change it leaves out, each drafted row
+waiting in its session made as its kind draws it, for Issues alone
+(`drafted.ts`' `waitingDrafts`): never by a read of the kind's other rows, nor
+by drawing what the narrowing hides. An issue of a draft the narrowing hides
+says so on a line of its own, as the rail words the choices that hide it —
+`hidden by Owner: Northwind Media — picking it clears that filter` — asked of
+e3 through its kind's source, one component a kind (`hidden-drafts.tsx`, the
+shared hidden pick, `shared/schedule/hidden.ts`); Go to issue clears just those
+choices, every one of the source's while e3 has not said (`clearHiding`), then
+flies to where its draft stands and selects it once the narrowing they leave
+draws it — the canvas's `look` and `select`, the path Find takes to a row
+nothing draws, `select` taking an item, a zone, a link or a net. Issues says
+which kinds' rows out of view it checks only as the view reaches them (ruled 27
+Oct 2026, "Checked in view, said so"). `fit` flies to the box the
 narrowing's rows stand in, from the area index's counts (`area.ts`' `fitBox`,
 through `recordSliceBounds`), never to what the window draws. Never read the
 record whole for any of them, and keep the record slice's bounds on landed
