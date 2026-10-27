@@ -17,7 +17,7 @@
 
 import { expect, test } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import { East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { StateRuntime } from "@elaraai/east-ui-components";
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
@@ -100,6 +100,36 @@ const dimFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
         },
         zones: { areas: Schematic.zones(areas, { name: "Area", icon: "vector-square", x: "x", y: "y", width: "w", height: "h", label: "name" }) },
         library: [Schematic.library.backlog(), Schematic.library.index()],
+    });
+}))) };
+
+/** The floor with the racks' templates, its Templates tab beside the Index: as {@link floor} otherwise, a rack a template makes among its racks. */
+const templatesFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
+    const rackTemplates = $.let(Data.bind(ex.schematicRackTemplates));
+    const areas = $.let(Data.bind(ex.schematicAreas));
+    const slice = $.let(Slice.bindRecords(FLOOR, {
+        racks: {
+            source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByArea, ex.schematicRacksByOwnerArea, ex.schematicRacksByName] }),
+            search: ["name"],
+            fields: { name: { label: "Rack" }, owner: { label: "Owner", hints: ["Harbour Labs", "Northwind Media", "Elmway College"] } },
+        },
+        rackTemplates: { source: Data.bindPaged(ex.schematicRackTemplates, { indexes: [ex.schematicRackTemplatesByGroup] }), fields: { group: { label: "Group", hints: ["Racks", "Half racks"] } } },
+    }));
+    return Schematic({
+        id: "reviewDraftsTemplates",
+        inspector: true,
+        extent: { width: 28, height: 14 },
+        slice: { slice },
+        items: {
+            racks: Schematic.items(racks, {
+                name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", entries: rackEntries, sublabel: (r) => r.model,
+                templates: Schematic.templates(rackTemplates.read(), { name: (t) => t.name, group: (t) => some(t.group), values: (t) => t.values, source: "rackTemplates" }),
+            }),
+        },
+        zones: { areas: Schematic.zones(areas, { name: "Area", icon: "vector-square", x: "x", y: "y", width: "w", height: "h", label: "name" }) },
+        library: [Schematic.library.templates(), Schematic.library.index()],
     });
 }))) };
 
@@ -297,5 +327,29 @@ test("the Index lists a rack read by area where its draft has it, as it lists th
     await openZone(container, "Network room");
     await waitFor(() => expect(indexRows(container)).toEqual([
         "Cage A ▾ 4", "  A02", "  A03", "  A04", "  A05", "Cold aisle A · 1.2 m ▸", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▾ 1", "  A01",
+    ]), { timeout: 5_000 });
+});
+
+test("the Index lists a rack a gesture made in the zone it stands in, and none a draft deleted, over a kind read by area", async () => {
+    const { container } = await open(templatesFloor);
+    const canvas = canvasOf(container);
+    // A02 tapped and deleted with Del: a draft.
+    await tap(canvas, CAM, 6.0, 2.9);
+    canvas.focus();
+    await act(async () => { fireEvent.keyDown(canvas, { key: "Delete", code: "Delete" }); });
+    await settle();
+    expect(unsaved(container)).toBe(true);
+    // A 42U rack's template entered: a new rack at the view's centre, in the cold aisle.
+    await openTab(container, "Templates");
+    const template = panel(container).querySelector<HTMLElement>(`[data-library-item=${JSON.stringify(entityId({ kind: "racks", key: "r42" }))}]`)!;
+    template.focus();
+    await act(async () => { fireEvent.keyDown(template, { key: "Enter", code: "Enter" }); });
+    await settle();
+    // Cage A and the cold aisle opened: Cage A holds A01, A03, A04 and A05, and the cold aisle the new rack, as the canvas draws them.
+    await openTab(container, "Index");
+    await openZone(container, "Cage A");
+    await openZone(container, "Cold aisle A · 1.2 m");
+    await waitFor(() => expect(indexRows(container)).toEqual([
+        "Cage A ▾ 4", "  A01", "  A03", "  A04", "  A05", "Cold aisle A · 1.2 m ▾ 1", "  New 42U rack", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▸",
     ]), { timeout: 5_000 });
 });
