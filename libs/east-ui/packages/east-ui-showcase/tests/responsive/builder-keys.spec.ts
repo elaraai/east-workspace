@@ -47,13 +47,17 @@ const heard = (page: Page): Promise<string[]> => page.evaluate(() => [...((windo
 /** Whether the showcase's sidebar is folded, as it keeps it. */
 const sidebar = (page: Page): Promise<string | null> => page.evaluate((key) => localStorage.getItem(key), SIDEBAR_KEY);
 
-/** Presses keys where an element has the focus, each with it focused again: none reaches the page. */
+/**
+ * Presses keys where an element has the focus, each with it focused again: none reaches the page. The element is named
+ * as it was when its key was pressed — a key may take it away, as Delete takes an event.
+ */
 async function pressedOn(page: Page, at: Locator, keys: readonly string[]): Promise<void> {
     for (const key of keys) {
         await at.focus();
+        const where = await at.evaluate((el) => el.outerHTML.slice(0, 80));
         await listen(page);
         await page.keyboard.press(key);
-        expect(await heard(page), `${key} on ${await at.evaluate((el) => el.outerHTML.slice(0, 80))}`).toEqual([]);
+        expect(await heard(page), `${key} on ${where}`).toEqual([]);
     }
 }
 
