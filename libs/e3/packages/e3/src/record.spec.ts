@@ -247,10 +247,11 @@ describe('e3.record / e3.mutation.reduce', () => {
 
       // structure leaf at .records.counter is non-writable
       const structure = pkgObject.data.structure;
-      assert.strictEqual(structure.type, 'struct');
-      const recordsNode = (structure.value as Map<string, any>).get('records');
-      const leaf = (recordsNode.value as Map<string, any>).get('counter');
-      assert.strictEqual(leaf.type, 'value');
+      assert.ok(structure.type === 'struct');
+      const recordsNode = structure.value.get('records');
+      assert.ok(recordsNode?.type === 'struct');
+      const leaf = recordsNode.value.get('counter');
+      assert.ok(leaf?.type === 'value');
       assert.strictEqual(leaf.value.writable, false);
 
       // the record's initial state ref is present

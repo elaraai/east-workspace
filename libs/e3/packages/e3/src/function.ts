@@ -16,10 +16,12 @@
 import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
 import type {
   AsyncFunctionExpr,
+  AsyncFunctionType,
   CallableAsyncFunctionExpr,
   CallableFunctionExpr,
   EastType,
   FunctionExpr,
+  FunctionType,
 } from '@elaraai/east';
 import { Expr } from '@elaraai/east';
 import type { FunctionDef } from './types.js';
@@ -71,7 +73,7 @@ export function function_<Name extends string, Inputs extends EastType[], Output
 ): FunctionDef<Inputs, Output>;
 export function function_(
   name: string,
-  fn: FunctionExpr<any, any> | AsyncFunctionExpr<any, any>,
+  fn: FunctionExpr<EastType[], EastType> | AsyncFunctionExpr<EastType[], EastType>,
   config?: { runner?: FunctionRunner, environment?: EnvironmentDecl },
 ): FunctionDef {
   if (!name) {
@@ -86,12 +88,12 @@ export function function_(
   // Keep the full EastIR bundle (IR + source map) so export.ts can encode
   // with encodeEastIR and preserve source locations.
   const eastIR = fn.toIR();
-  const fnType = Expr.type(fn as Expr<any>) as { inputs: EastType[]; output: EastType };
+  const fnType = Expr.type<FunctionType<EastType[], EastType> | AsyncFunctionType<EastType[], EastType>>(fn);
 
   return {
     kind: 'function',
     name,
-    body: eastIR as any,
+    body: eastIR,
     inputTypes: fnType.inputs,
     outputType: fnType.output,
     runner,

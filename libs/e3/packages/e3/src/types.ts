@@ -15,6 +15,16 @@
  */
 
 import type { ArrayType, AsyncEastIR, DictType, EastIR, EastType, FunctionType, NullType, SetType, ValueTypeOf, variant } from '@elaraai/east';
+
+/**
+ * A function's IR bundle, whatever its signature — what a definition keeps,
+ * and export links and encodes. Its inputs and output are its IR's: the type
+ * names none, so any function's bundle is one.
+ */
+export type IRBundle = EastIR<EastType[], EastType>;
+
+/** An async function's IR bundle, whatever its signature (see {@link IRBundle}). */
+export type AsyncIRBundle = AsyncEastIR<EastType[], EastType>;
 import type { MigrationForm, MutationForm, TaskRole, TreePath } from '@elaraai/e3-types';
 import type { DatasetSource } from './input.js';
 import type { Runner } from './runner.js';
@@ -137,9 +147,8 @@ export interface DictOutputDef<K extends EastType = EastType, V extends EastType
   /** `emit`'s type: `emit(k, v)`. */
   readonly emit: FunctionType<[K, V], NullType>;
   /** `(K, V, V) -> V`, folding the values of equal keys in input order. Absent
-   *  when a repeated key is an error. Typed loosely, as {@link FunctionDef.body}
-   *  is. */
-  readonly merge?: EastIR<any, any>;
+   *  when a repeated key is an error. */
+  readonly merge?: IRBundle;
 }
 
 /**
@@ -157,7 +166,7 @@ export interface FoldOutputDef<T extends EastType = EastType> {
   /** The value the fold starts from, an identity of {@link combine}. */
   readonly zero: ValueTypeOf<T>;
   /** `(T, T) -> T`, associative. */
-  readonly combine: EastIR<any, any>;
+  readonly combine: IRBundle;
 }
 
 /**
@@ -185,7 +194,7 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
    * keeps its source map.
    */
   readonly body:
-    | { readonly kind: 'east'; readonly program: EastIR<any, any> | AsyncEastIR<any, any> }
+    | { readonly kind: 'east'; readonly program: IRBundle | AsyncIRBundle }
     | { readonly kind: 'command'; readonly command: EastIR<[string[], string], string[]> };
   /** The inputs, in the body's parameter order. A `streamTask`'s may include
    *  datasets its work can be split over. */
@@ -230,10 +239,8 @@ export interface FunctionDef<
   readonly kind: 'function';
   /** Function name (unique within the package) */
   readonly name: string;
-  // EastIR/AsyncEastIR constrain their first param to a MUTABLE any[]; a readonly
-  // generic is rejected (TS2344). Type the field loosely and cast fn.toIR(),
-  // exactly as a task's program is.
-  readonly body: EastIR<any, any> | AsyncEastIR<any, any>;
+  /** The function, as its IR bundle. */
+  readonly body: IRBundle | AsyncIRBundle;
   /** Positional parameter types (the East function's signature) */
   readonly inputTypes: Inputs;
   /** Return type */
@@ -393,10 +400,8 @@ export interface MutationDef<
   /** Which write form this is: a reducer over the whole state, a body writing
    *  through an `edit` capability, or a client-supplied patch. */
   readonly form: MutationForm;
-  // Typed loosely + cast like FunctionDef.body / a task's program (TS2344 on
-  // a readonly first generic param of EastIR).
   /** The author's body; absent for the `patch` form, which has none. */
-  readonly body?: EastIR<any, any> | AsyncEastIR<any, any>;
+  readonly body?: IRBundle | AsyncIRBundle;
   /** The EXTRA positional parameter types (the state type comes from the record). */
   readonly argTypes: Args;
   /** The body as an expression, kept beside its IR so export can compose it
@@ -438,10 +443,8 @@ export interface MigrationDef<
   readonly from: From;
   /** The record's type after it. */
   readonly to: To;
-  // Typed loosely + cast like FunctionDef.body (TS2344 on a readonly first
-  // generic param of EastIR).
   /** The author's function, as its IR bundle. */
-  readonly body: EastIR<any, any>;
+  readonly body: IRBundle;
   /** The function as an expression, kept beside its IR so export can compose
    *  it into the program a `rows` or `rekey` step runs, which reaches it
    *  through its IR alone — so no call signature is claimed here. */
@@ -460,7 +463,7 @@ export type PackageItem = DataTreeDef | DatasetDef | TaskDef;
 /**
  * Extracts the dataset definitions from a package item (such as an input dataset, or task output)
  */
-export type DatasetsOf<Item extends PackageItem | PackageDef<any>> =
+export type DatasetsOf<Item extends PackageItem | PackageDef<Record<string, unknown>>> =
   Item extends PackageDef<infer Ds> ? Ds :
   Item extends DatasetDef<infer T, infer P> ? DatasetAtPath<P, T> :
   Item extends TaskDef<infer T, infer P> ? DatasetAtPath<P, T> :
@@ -476,7 +479,7 @@ export type DatasetAtPath<Path extends TreePath, T extends EastType, FullPath ex
 
 /** Convert a union of types to their intersection (distributed conditional trick). */
 type UnionToIntersection<U> =
-  (U extends any ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
+  (U extends unknown ? (x: U) => void : never) extends (x: infer I) => void ? I : never;
 
 /** Merge all Datasets from the listed package items.
  *
@@ -488,7 +491,7 @@ type UnionToIntersection<U> =
  * element type and `DatasetsOf` falls through to its non-tuple-path branch.
  * The empty-tuple case widens to `Record<string, unknown>`.
  */
-export type MergeDatasets<TItems extends (PackageItem | PackageDef<any>)[]> =
+export type MergeDatasets<TItems extends (PackageItem | PackageDef<Record<string, unknown>>)[]> =
   TItems extends readonly [] ? Record<string, unknown>
   : UnionToIntersection<DatasetsOf<TItems[number]>>;
 
@@ -511,7 +514,7 @@ export type MergeDatasets<TItems extends (PackageItem | PackageDef<any>)[]> =
  * const task = pkg.tasks.myTask;
  * ```
  */
-export interface PackageDef<Datasets extends Record<string, any>> {
+export interface PackageDef<Datasets extends Record<string, unknown>> {
   readonly kind: 'package';
   /** Package name */
   readonly name: string;

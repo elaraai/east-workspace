@@ -21,12 +21,12 @@
  */
 
 import type {
-  CallableFunctionExpr, EastIR, EastType, FunctionExpr, StructType,
+  CallableFunctionExpr, EastType, FunctionExpr, StructType,
 } from '@elaraai/east';
 import { ArrayType, DictType, SetType, printType } from '@elaraai/east';
 import type { MigrationForm } from '@elaraai/e3-types';
 import type { MigrationDef, RecordDef } from './types.js';
-import { checkPure, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
+import { bundleOf, checkPure, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
 /**
@@ -110,7 +110,7 @@ function declare(
     to: types.to,
     // Keep the full EastIR bundle (IR + source map) so export.ts can encode
     // with encodeEastIR and preserve source locations.
-    body: fn.toIR() as EastIR<any, any>,
+    body: bundleOf(fn),
     fn,
     ...(after !== undefined && { after }),
     runner,

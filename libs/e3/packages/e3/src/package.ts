@@ -8,8 +8,9 @@
  */
 
 import { printType } from '@elaraai/east';
-import { nameProblem } from '@elaraai/e3-types';
+import { nameProblem, pathToString } from '@elaraai/e3-types';
 import type {
+  DatasetDef,
   FunctionDef,
   MigrationDef,
   MutationDef,
@@ -57,6 +58,11 @@ import { sameEastType } from './record-guards.js';
  * const helloTask = pkg.tasks.say_hello;
  * ```
  */
+/** A package's datasets as a tree: under each name, a dataset or a tree of more. */
+interface DatasetTree {
+  [name: string]: DatasetTree | DatasetDef;
+}
+
 // NOTE: the return is deliberately `PackageDef<Record<string, unknown>>`, NOT
 // `PackageDef<MergeDatasets<TItems>>`. The precise merged-datasets map (used only
 // for the optional `pkg.datasets.tasks.x.output` typed-access convenience) inlines
@@ -67,7 +73,7 @@ import { sameEastType } from './record-guards.js';
 export function package_(
   name: string,
   version: string,
-  ...items: (PackageItem | FunctionDef | MutationDef | RecordIndexDef | MigrationDef | PackageDef<any>)[]
+  ...items: (PackageItem | FunctionDef | MutationDef | RecordIndexDef | MigrationDef | PackageDef<Record<string, unknown>>)[]
 ): PackageDef<Record<string, unknown>> {
   for (const [kind, value] of [['package', name], ['package version', version]] as const) {
     const problem = nameProblem(kind, value);
@@ -131,34 +137,28 @@ export function package_(
     }
   }
 
-  const datasets: Record<string, any> = {};
+  // The package's datasets as a tree, each under its path's names; each tree
+  // kept by its path too, the root's ''.
+  const datasets: DatasetTree = {};
+  const trees = new Map<string, DatasetTree>([['', datasets]]);
   const tasks: Record<string, TaskDef> = {};
 
-  // all_items is in topological order by construction
+  // all_items is in topological order by construction: a tree before what it holds
   for (const item of all_items) {
-    if (item.kind === 'datatree') {
-      let current = datasets;
-      for (let i = 0; i < item.path.length - 1; i++) { // TODO should this path be the parent path?
-        const segment = item.path[i];
-        current = current[segment.value];
-        if (current === undefined) {
-          throw new Error(`Parent tree not found in package(): ${segment.value}`);
-        }
+    if (item.kind === 'datatree' || item.kind === 'dataset') {
+      const parentPath = pathToString(item.path.slice(0, -1));
+      const parent = trees.get(parentPath);
+      if (parent === undefined) {
+        throw new Error(`Parent tree not found in package(): '${parentPath}'`);
       }
-
-      // the only tree type is struct for now
-      current[item.name] = {};
-    } else if (item.kind === 'dataset') {
-      let current = datasets;
-      for (let i = 0; i < item.path.length - 1; i++) { // TODO should this path be the parent path?
-        const segment = item.path[i];
-        current = current[segment.value];
-        if (current === undefined) {
-          throw new Error(`Parent tree not found in package(): ${segment.value}`);
-        }
+      if (item.kind === 'datatree') {
+        // the only tree type is struct for now
+        const tree: DatasetTree = {};
+        parent[item.name] = tree;
+        trees.set(pathToString(item.path), tree);
+      } else {
+        parent[item.name] = item;
       }
-
-      current[item.name] = item;
     } else if (item.kind === 'task') {
       // TODO - check task inputs and output exist with correct types?
       tasks[item.name] = item;
@@ -259,7 +259,7 @@ export function package_(
     kind: 'package',
     name,
     version,
-    datasets: datasets as any,
+    datasets,
     contents: [...all_items],
     functions,
     records,

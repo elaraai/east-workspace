@@ -35,7 +35,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { walkIR, decodeFunctionManifest, IMPORT_PLATFORM, type FunctionManifest } from '@elaraai/east';
+import { walkIR, decodeFunctionManifest, IMPORT_PLATFORM, type FunctionManifest, type IR } from '@elaraai/east';
 import { STOCK_PLATFORM_FAMILIES, type Runner } from './runner.js';
 import { pythonWorkspaceMember, nodeWorkspaceMember } from './environment-capture.js';
 
@@ -65,26 +65,27 @@ export interface ResolveEvent {
  * The functions an IR imports, by package — every distinct
  * `East.importFunction(pkg, name, …)` in it.
  */
-export function importedFunctions(ir: unknown): Map<string, Set<string>> {
+export function importedFunctions(ir: IR): Map<string, Set<string>> {
   const found = new Map<string, Set<string>>();
-  walkIR(ir as any, (node) => {
+  walkIR(ir, (node) => {
     if (node.type !== 'Platform' || node.value.name !== IMPORT_PLATFORM) return;
-    const [first, second] = node.value.arguments as any[];
-    if (first?.type !== 'Value' || typeof first.value?.value?.value !== 'string') return;
-    if (second?.type !== 'Value' || typeof second.value?.value?.value !== 'string') return;
-    const pkg = first.value.value.value as string;
+    // The package and the function, each a String literal.
+    const [first, second] = node.value.arguments;
+    if (first?.type !== 'Value' || first.value.value.type !== 'String') return;
+    if (second?.type !== 'Value' || second.value.value.type !== 'String') return;
+    const pkg = first.value.value.value;
     let names = found.get(pkg);
     if (names === undefined) {
       names = new Set();
       found.set(pkg, names);
     }
-    names.add(second.value.value.value as string);
+    names.add(second.value.value.value);
   });
   return found;
 }
 
 /** The packages an IR imports from — every distinct `East.importFunction` package name in it. */
-export function importedPackages(ir: unknown): string[] {
+export function importedPackages(ir: IR): string[] {
   return [...importedFunctions(ir).keys()];
 }
 

@@ -21,7 +21,7 @@ import { execFileSync } from 'node:child_process';
 import yauzl from 'yauzl';
 import {
   East, FunctionType, IntegerType, NullType, StringType,
-  decodeBeast2For, decodeEastIR, walkIR, IMPORT_PLATFORM, variant } from '@elaraai/east';
+  decodeBeast2For, decodeEastIR, walkIR, IMPORT_PLATFORM, variant, type IR } from '@elaraai/east';
 import { decodePackageObject, decodeTaskObject } from '@elaraai/e3-types';
 import { export_ } from './export.js';
 import { package_ } from './package.js';
@@ -41,9 +41,9 @@ const manifest = East.exportFunctions('pricing', '1.0.0', { double, shout }, { p
 const dbl = East.importFunction('pricing', 'double', FunctionType([IntegerType], IntegerType));
 const sh = East.importFunction('pricing', 'shout', FunctionType([StringType], NullType));
 
-function countImports(ir: unknown): number {
+function countImports(ir: IR): number {
   let n = 0;
-  walkIR(ir as any, (node) => { if (node.type === 'Platform' && node.value.name === IMPORT_PLATFORM) n += 1; });
+  walkIR(ir, (node) => { if (node.type === 'Platform' && node.value.name === IMPORT_PLATFORM) n += 1; });
   return n;
 }
 
@@ -83,8 +83,8 @@ function programOf(entries: Map<string, Buffer>, name: string) {
   const pkgRef = [...entries.keys()].find((key) => key.startsWith('packages/'))!;
   const pkg = decodePackageObject(object(decodeBeast2For(StringType)(entries.get(pkgRef)!)));
   const task = decodeTaskObject(object(pkg.tasks.get(name)!));
-  assert.strictEqual(task.body.type, 'east');
-  return decodeEastIR(object((task.body.value as { program: string }).program));
+  assert.ok(task.body.type === 'east');
+  return decodeEastIR(object(task.body.value.program));
 }
 
 describe('export_ links East.importFunction references (#628)', () => {
@@ -112,13 +112,13 @@ describe('export_ links East.importFunction references (#628)', () => {
     await export_(package_('importer', '1.0.0', use), zipPath, { functions: [manifest] });
     const bundle = programOf(await readZip(zipPath), 'use_double');
     // every location the embedded `double` names is where it was written
-    let embedded: unknown;
-    walkIR(bundle.ir as any, (node) => {
+    let embedded: IR | undefined;
+    walkIR(bundle.ir, (node) => {
       if (node.type === 'Let' && node.value.variable.value.name.startsWith('_import0_pricing_double')) embedded = node.value.value;
     });
     assert.ok(embedded !== undefined, 'the import is embedded as a Let');
     const named: bigint[] = [];
-    walkIR(embedded as any, (node) => { if (node.value.loc_id > 0n) named.push(node.value.loc_id); });
+    walkIR(embedded, (node) => { if (node.value.loc_id > 0n) named.push(node.value.loc_id); });
     assert.ok(named.length > 0);
     for (const id of named) {
       const [frame] = bundle.source_map!.resolve(id);

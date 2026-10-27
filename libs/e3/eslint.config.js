@@ -33,18 +33,6 @@ const LEGACY_ANY = [
   'packages/e3-core/src/trees.spec.ts',
   'packages/e3-core/src/workspaces.spec.ts',
   'packages/e3-web/src/testing/runner-cases.ts',
-  'packages/e3/src/export.spec.ts',
-  'packages/e3/src/export.ts',
-  'packages/e3/src/function.ts',
-  'packages/e3/src/functions-link.spec.ts',
-  'packages/e3/src/functions-resolve.ts',
-  'packages/e3/src/migration.ts',
-  'packages/e3/src/open-beast-link.spec.ts',
-  'packages/e3/src/output.ts',
-  'packages/e3/src/package.ts',
-  'packages/e3/src/record.spec.ts',
-  'packages/e3/src/task.ts',
-  'packages/e3/src/types.ts',
 ];
 const agplPackages = ['e3', 'e3-types'];
 

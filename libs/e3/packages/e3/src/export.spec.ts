@@ -122,7 +122,7 @@ describe('export_', () => {
   });
 
   it('exports empty package', async () => {
-    const pkg = package_('empty-pkg', '1.0.0') as any;
+    const pkg = package_('empty-pkg', '1.0.0');
     const zipPath = path.join(tempDir, 'empty.zip');
 
     await export_(pkg, zipPath);
@@ -212,9 +212,12 @@ describe('export_', () => {
     assert.strictEqual(pkg.data.refs.get('records/customers')?.type, 'unassigned', 'no value travels in the package');
     assert.strictEqual(pkg.sources.size, 0, 'and no file is named');
     assert.ok(pkg.records.has('customers'), 'the record is declared');
-    const records = (pkg.data.structure.value as Map<string, any>).get('records');
-    const leaf = (records.value as Map<string, any>).get('customers');
-    assert.strictEqual(leaf.type, 'value');
+    const structure = pkg.data.structure;
+    assert.ok(structure.type === 'struct');
+    const records = structure.value.get('records');
+    assert.ok(records?.type === 'struct');
+    const leaf = records.value.get('customers');
+    assert.ok(leaf?.type === 'value');
     assert.strictEqual(leaf.value.writable, false);
   });
 
@@ -614,8 +617,8 @@ describe('the typed task object', () => {
     assert.deepStrictEqual(shoutObject.output, { path: shout.output.path, kind: variant('value', null) });
     assert.deepStrictEqual(shoutObject.role, variant('data', null));
     assert.deepStrictEqual(shoutObject.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }));
-    assert.strictEqual(shoutObject.body.type, 'east');
-    const program = decodeEastIR(object((shoutObject.body.value as { program: string }).program));
+    assert.ok(shoutObject.body.type === 'east');
+    const program = decodeEastIR(object(shoutObject.body.value.program));
     assert.strictEqual(program.compile([])('hi'), 'HI');
 
     // The task's subtree holds its output and nothing else.

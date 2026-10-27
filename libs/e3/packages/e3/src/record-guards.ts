@@ -13,7 +13,7 @@
 
 import type { EastType } from '@elaraai/east';
 import { AsyncEastIR, EastTypeType, Expr, FunctionExpr, FunctionType, equalFor, printType, toEastTypeValue, walkIR } from '@elaraai/east';
-import type { RecordDef } from './types.js';
+import type { IRBundle, RecordDef } from './types.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 
 // Structural East-type equality, the same primitive the redeploy type-change
@@ -121,6 +121,18 @@ export function functionAt<I extends EastType[], O extends EastType>(fn: IndexFu
   }
   // Checked above: it was built at the signature asked for.
   return fn as FunctionExpr<I, O>;
+}
+
+/**
+ * A declaration's function as its IR bundle, which export links and encodes.
+ *
+ * @param fn - The function: an East function, as a declaration's guards have found it
+ * @returns Its IR bundle
+ * @throws {Error} When it is not an East function — an async one is refused before this
+ */
+export function bundleOf(fn: IndexFunction): IRBundle {
+  if (!(fn instanceof FunctionExpr)) throw new Error('a declaration\'s function is an East function');
+  return fn.toIR();
 }
 
 /** Why an index function may be neither async nor reach a platform function:
