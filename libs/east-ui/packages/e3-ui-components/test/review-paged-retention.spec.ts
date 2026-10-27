@@ -29,10 +29,10 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ArrayType, DictType, StringType, toEastTypeValue, variant, type option } from "@elaraai/east";
+import { ArrayType, DictType, StringType, encodeBeast2For, toEastTypeValue, variant, type option } from "@elaraai/east";
 import { MAX_LANDED_SEARCHES } from "@elaraai/east-ui/internal";
 import type { DatasetFindKeysQuery, DatasetFindQuery } from "@elaraai/e3-api-client";
-import { MAX_WITHIN_KEYS, PagedRuntime, type PagedApi, type PagedRun, type PagedSource } from "../src/platform/paged-runtime.js";
+import { MAX_WITHIN_KEYS, PagedRuntime, pagedBatchKey, type PagedApi, type PagedRun, type PagedSource } from "../src/platform/paged-runtime.js";
 
 /** A runtime whose channels the test can count. */
 class Counted extends PagedRuntime {
@@ -141,6 +141,46 @@ test("a read of a window not yet landed, and a read of rows by key, look up what
     assert.ok(page <= 64 && rows <= 640,
         `one Backlog page not yet landed looks up ${page} channels, and a read of 10 rows by key ${rows}: ` +
         "each walks every channel the revision has kept (30,040 here), at every render that reads them");
+});
+
+test("windows of a narrowing read by its runs, landing before a frame, re-fire a reader of both once, at the frame — as windows by offset do (CL9)", async () => {
+    /** A runtime whose frames the test draws, as the runtime spec's `FramedPagedRuntime` is. */
+    class Framed extends PagedRuntime {
+        private frames: (() => void)[] = [];
+        protected override scheduleLanding(apply: () => void): () => void {
+            this.frames.push(apply);
+            return () => { this.frames = this.frames.filter((f) => f !== apply); };
+        }
+        frame(): void { for (const apply of this.frames.splice(0)) apply(); }
+    }
+    const Window = ArrayType(StringType);
+    const encode = encodeBeast2For(Window);
+    const runsApi: PagedApi = {
+        ...api,
+        async getRuns(_workspace, _path, query) {
+            const count = query.runs.reduce((sum, [, n]) => sum + n, 0);
+            return { data: encode(Array.from({ length: count }, (_, i) => `entry-${i}`)), count, runEntries: count, totalElements: 1000, hash: REVISION };
+        },
+    };
+    const runtime = new Framed();
+    runtime.initialize(runsApi, "ws");
+    const narrowed: PagedSource = { path: source.path, selector: { index: "jobs_by_status", join: false }, type: toEastTypeValue(Window) };
+    // A narrowing's two windows, each across two of its runs — as a record Slice reads a window of a live source.
+    const first: PagedRun[] = [[0, 10], [100, 10]];
+    const second: PagedRun[] = [[200, 10], [300, 10]];
+    let fired = 0;
+    for (const runs of [first, second]) {
+        runtime.subscribe(pagedBatchKey("ws", narrowed.path, REVISION, narrowed.selector, "runs", runs.map(([row, count]) => `${row}+${count}`)), () => { fired += 1; });
+    }
+    runtime.runsAll(narrowed, first);
+    runtime.runsAll(narrowed, second);
+    await settle();
+    await settle();
+    assert.equal(runtime.runsAll(narrowed, first).type, "some");
+    assert.equal(runtime.runsAll(narrowed, second).type, "some");
+    assert.equal(fired, 0, `both windows have landed, and the reader of both re-fired ${fired} times before the frame — once a window, never once for both`);
+    runtime.frame();
+    assert.equal(fired, 1);
 });
 
 test("the membership answers a revision holds stay within their cap as the viewer tries narrowing after narrowing", async () => {
