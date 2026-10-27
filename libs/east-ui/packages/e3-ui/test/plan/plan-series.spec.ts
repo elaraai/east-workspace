@@ -478,6 +478,23 @@ describe("a read refuses what it cannot read, in its words (#1436)", () => {
     test("children naming a field of another type than the row's own", () => refuses(() => Plan.series.span(Bad, {
         key: "parts", title: "Parts", label: (r) => r.name, runs: () => [], children: "members" as never,
     }), 'Plan.series.span "parts": children "members" holds { name, load }, not { name, list, jobs, load, members } — step down to it with Plan.children("members", [series…])'));
+
+    test("a table's edit beside cells given as a function", () => refuses(() => Plan.series.table(Ops, {
+        key: "orders", title: "Orders", label: (r) => r.name, edit: true, cells: () => Plan.tableCells([]),
+    }), 'Plan.series.table "orders": edit writes the values its cells read — give cells as Plan.tableCells(Plan.values(field, draw))'));
+
+    test("a table's edit beside a draw giving another number than each value", () => refuses(() => Plan.series.table(Ops, {
+        key: "orders", title: "Orders", label: (r) => r.name, edit: true,
+        cells: Plan.tableCells(Plan.values("delivered", (n) => ({ value: some(n.multiply(1000)) }))),
+    }), 'Plan.series.table "orders": edit writes a typed number as its readings, and its cells draw another number than each reading — draw value: some(v), and show it another way through format'));
+
+    test("a position's edit over values that are no number — each drawn as some other number", () => refuses(() => Plan.series.table(Ops, {
+        key: "orders", title: "Orders", label: (r) => r.name,
+        series: [Plan.tableSeries({ cells: Plan.tableCells(Plan.values("booked", (b) => ({ value: some(b.fraction) }))), edit: true })],
+    }), 'Plan.series.table "orders": edit writes a typed number as its readings, and its cells draw another number than each reading — draw value: some(v), and show it another way through format'));
+
+    test("a position's edit beside cells it was given whole", () => refuses(() => Plan.tableSeries({ cells: [], edit: true } as never),
+        "Plan.tableSeries: edit writes the values its cells read — give cells as Plan.tableCells(Plan.values(field, draw))"));
     void BadRows;
 });
 

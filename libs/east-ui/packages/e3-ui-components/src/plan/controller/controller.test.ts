@@ -52,7 +52,7 @@ function planRow(key: string, kind: unknown = span(), parent?: string, series?: 
         gutter: { label: key, id: false, sub: none, value: none, meta: none, stacked: false, swatches: [] },
         kind,
         collapsed: false, pinned: false, height: none, status: none, expand: none,
-        edits: { drop: false, move: none },
+        edits: { drop: false, move: none, values: [] },
     } as unknown as PlanWireRow;
 }
 

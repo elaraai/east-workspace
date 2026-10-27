@@ -334,9 +334,9 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value("review" in Plan.Types.Root.fields), false));
         $(Assert.equal(East.value("onDrag" in Plan.Types.Root.fields), false));
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Root.fields.editing, OptionType(Plan.Types.Editing))), true));
-        // Every gesture reaches a row through the row's own flags: a drop and a move.
+        // Every gesture reaches a row through the row's own flags: a drop, a move and a typed number (#1436).
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Row.fields.edits, Plan.Types.RowEdits)), true));
-        $(Assert.equal(East.value(Object.keys(Plan.Types.RowEdits.fields)), ["drop", "move"]));
+        $(Assert.equal(East.value(Object.keys(Plan.Types.RowEdits.fields)), ["drop", "move", "values"]));
         $(Assert.equal(East.value("approval" in Plan.Types.Row.fields), false));
     });
 
@@ -386,11 +386,11 @@ describeEast("Plan", (test) => {
         }));
         const rows = $.let(p.rows.unwrap("inline").flatMap((_$, b) => b.rows));
         const moves = some({ items: printFor(EastTypeType)(toEastTypeValue(Mark)), resize: false });
-        $(Assert.equal(rows.get(0n).edits, { drop: false, move: none }));
-        $(Assert.equal(rows.get(1n).edits, { drop: true, move: moves }));
-        $(Assert.equal(rows.get(2n).edits, { drop: false, move: moves }));
+        $(Assert.equal(rows.get(0n).edits, { drop: false, move: none, values: [] }));
+        $(Assert.equal(rows.get(1n).edits, { drop: true, move: moves, values: [] }));
+        $(Assert.equal(rows.get(2n).edits, { drop: false, move: moves, values: [] }));
         // A hand-built row belongs to no entry, so it takes no gesture either.
-        $(Assert.equal(rows.get(3n).edits, { drop: false, move: none }));
+        $(Assert.equal(rows.get(3n).edits, { drop: false, move: none, values: [] }));
     });
 
     test("a series' edit flags its rows with the item type its read names, and whether its elements resize (#825, #1436)", $ => {
@@ -419,7 +419,7 @@ describeEast("Plan", (test) => {
         const rows = $.let(p.rows.unwrap("inline").flatMap((_$, b) => b.rows));
         // The item type as East prints it — no `create`, so no card lands.
         const jobs = printFor(EastTypeType)(toEastTypeValue(Job));
-        $(Assert.equal(rows.get(0n).edits, { drop: false, move: some({ items: jobs, resize: true }) }));
+        $(Assert.equal(rows.get(0n).edits, { drop: false, move: some({ items: jobs, resize: true }), values: [] }));
         // Two series over one item type say so alike: a job moves between their rows.
         $(Assert.equal(rows.get(1n).edits.move, some({ items: jobs, resize: true })));
         // A tile has one instant, and its items are another type.
@@ -594,8 +594,8 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value(isTypeEqual(event.fields.draftChanges, ArrayType(Editing.Types.Change(Editing.Types.DraftField(Row))))), true));
         $(Assert.equal(East.value(isTypeEqual(event.fields.domainChanges, OptionType(ArrayType(Editing.Types.Change(Row))))), true));
         $(Assert.equal(East.value(isTypeEqual(event.fields.origin, Editing.Types.Origin)), true));
-        // A gesture is a drop or a move (#1260: no verdict).
-        $(Assert.equal(East.value(Object.keys(Plan.Types.Gesture.cases)), ["drop", "move"]));
+        // A gesture is a drop, a move or a typed number (#1260: no verdict; #1436).
+        $(Assert.equal(East.value(Object.keys(Plan.Types.Gesture.cases)), ["drop", "move", "value"]));
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Drop.fields.row, Plan.Types.RowId)), true));
         $(Assert.equal(East.value(isTypeEqual(Plan.Types.Drop.fields.at, Plan.Types.Instant)), true));
         // A move or a resize (#825) names its element, the rows it leaves and

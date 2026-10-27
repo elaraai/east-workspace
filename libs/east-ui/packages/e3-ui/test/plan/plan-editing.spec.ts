@@ -16,8 +16,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, DictType, East, FunctionType, IntegerType, NullType, OptionType, StringType, StructType,
-    decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
+    ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType,
+    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing, EditingRequestStore, Paged } from "@elaraai/east-ui/internal";
 import { Plan } from "@elaraai/e3-ui/internal";
@@ -305,6 +305,88 @@ test("a move writes an Option time field as some — an instant leg given an end
     const row: RowId = variant("entry", { series: "legs", path: ["r"] });
     const [out] = optionWire.write([{ id: "r", entry: encodeBeast2For(Route)(ROUTE), rows: [row], gesture: moveOf("l1", row, row, W29, W31) }]);
     assert.ok(out?.type === "some" && equalFor(Route)(decodeBeast2For(Route)(out.value), { legs: new Map([["l1", { start: some(W29), end: some(W31) }]]) }));
+});
+
+// ── A number typed into a table cell (#1436): its position's value at the bucket's start ──
+
+/** A ledger's measure: its readings, planned and counted values by the week's start, and the measures under it by id. */
+const Measure = RecursiveType((self) => StructType({
+    label: StringType,
+    readings: DictType(DateTimeType, FloatType),
+    planned: DictType(DateTimeType, OptionType(FloatType)),
+    counts: DictType(DateTimeType, IntegerType),
+    children: DictType(StringType, self),
+}));
+type MeasureValue = ValueTypeOf<typeof Measure>;
+/** Values by their week, in East's order. */
+const byWeek = <V,>(entries: Iterable<[Date, V]>) => new SortedMap(entries, compareFor(DateTimeType));
+const measure = (label: string, readings: [Date, number][], children: [string, MeasureValue][] = []): MeasureValue =>
+    ({ label, readings: byWeek(readings), planned: byWeek([]), counts: byWeek([]), children: new Map(children) }) as MeasureValue;
+const LEDGERS = new Map([["L1", measure("Orders", [[W27, 10]], [["a", measure("Widgets", [[W27, 4]])]])]]);
+
+/** The ledger: its measures' readings typed into at any depth, and a row of each one's planned and counted values. */
+const LEDGER_SERIES = [
+    Plan.series.table(Measure, {
+        key: "orders", title: "Orders", label: (m) => m.label, children: "children", aggregate: "sum",
+        cells: Plan.tableCells(Plan.values("readings", (v) => ({ value: some(v) }))), edit: true,
+    }),
+    Plan.series.table(Measure, {
+        key: "plan-vs-count", title: "Plan vs count", label: (m) => m.label,
+        series: [
+            Plan.tableSeries({ cells: Plan.tableCells(Plan.values("planned", (p) => ({ value: p }))), edit: true }),
+            Plan.tableSeries({ cells: Plan.tableCells(Plan.values("counts", (n) => ({ value: some(n.toFloat()) }))), edit: true }),
+            // Its readings beside them, read only.
+            Plan.tableSeries({ cells: Plan.tableCells(Plan.values("readings", (v) => ({ value: some(v) }))) }),
+        ],
+    }),
+];
+const ledgerRoot = East.function([], Plan.Types.Root, ($) => Plan.Root({
+    axis, data: $.const(LEDGERS, DictType(StringType, Measure)), series: LEDGER_SERIES, editing: {},
+})).toIR().compile([])();
+const ledger = editingOf(ledgerRoot);
+const sameMeasure = equalFor(Measure);
+const orders = (...path: string[]): RowId => variant("entry", { series: "orders", path });
+const planVsCount = (...path: string[]): RowId => variant("entry", { series: "plan-vs-count", path });
+/** A number typed into a row's position at an instant — or, `undefined`, its cell cleared. */
+const typed = (row: RowId, position: number, at: ValueTypeOf<typeof Plan.Types.Instant>, value: number | undefined): Gesture =>
+    variant("value", { row, position: BigInt(position), at, value: value === undefined ? none : some(value) });
+/** The ledger entry one typed number writes, decoded — `undefined` when it writes nothing. */
+function typeInto(entry: MeasureValue, row: RowId, gesture: Gesture): MeasureValue | undefined {
+    const [out] = ledger.write([{ id: "L1", entry: encodeBeast2For(Measure)(entry), rows: [row], gesture }]);
+    return out?.type === "some" ? decodeBeast2For(Measure)(out.value) : undefined;
+}
+
+test("a number typed into a table cell sets its value at the bucket's start, adds one where none is, and cleared, deletes it — a child measure's written into its parent's entry (#1436)", () => {
+    const entry = LEDGERS.get("L1")!;
+    const widgets = measure("Widgets", [[W27, 4]]);
+    const set = typeInto(entry, orders("L1"), typed(orders("L1"), 0, variant("time", W27), 15));
+    assert.ok(set !== undefined && sameMeasure(set, measure("Orders", [[W27, 15]], [["a", widgets]])));
+    const added = typeInto(entry, orders("L1"), typed(orders("L1"), 0, variant("time", W28), 7));
+    assert.ok(added !== undefined && sameMeasure(added, measure("Orders", [[W27, 10], [W28, 7]], [["a", widgets]])));
+    const cleared = typeInto(entry, orders("L1"), typed(orders("L1"), 0, variant("time", W27), undefined));
+    assert.ok(cleared !== undefined && sameMeasure(cleared, measure("Orders", [], [["a", widgets]])));
+    const child = typeInto(entry, orders("L1", "a"), typed(orders("L1", "a"), 0, variant("time", W27), 5));
+    assert.ok(child !== undefined && sameMeasure(child, measure("Orders", [[W27, 10]], [["a", measure("Widgets", [[W27, 5]])]])));
+    // A cell cleared where the collection holds nothing writes nothing.
+    assert.equal(typeInto(entry, orders("L1"), typed(orders("L1"), 0, variant("time", W29), undefined)), undefined);
+});
+
+test("each position writes its own collection — an Option of a Float's as some, an Integer's when whole; a fraction into an Integer, a position taking no typing and an instant its keys cannot hold write nothing (#1436)", () => {
+    const entry = LEDGERS.get("L1")!;
+    const planned = typeInto(entry, planVsCount("L1"), typed(planVsCount("L1"), 0, variant("time", W27), 12.5));
+    assert.ok(planned !== undefined && sameMeasure(planned, { ...entry, planned: byWeek([[W27, some(12.5)]]) } as MeasureValue));
+    const counted = typeInto(entry, planVsCount("L1"), typed(planVsCount("L1"), 1, variant("time", W27), 3));
+    assert.ok(counted !== undefined && sameMeasure(counted, { ...entry, counts: byWeek([[W27, 3n]]) } as MeasureValue));
+    assert.equal(typeInto(entry, planVsCount("L1"), typed(planVsCount("L1"), 1, variant("time", W27), 2.5)), undefined);
+    assert.equal(typeInto(entry, planVsCount("L1"), typed(planVsCount("L1"), 2, variant("time", W27), 9)), undefined);
+    assert.equal(typeInto(entry, planVsCount("L1"), typed(planVsCount("L1"), 0, variant("ordinal", "W27"), 9)), undefined);
+});
+
+test("a table row says which of its positions take a typed number (#1436)", () => {
+    if (ledgerRoot.rows.type !== "inline") throw new Error("expected an inline canvas");
+    const rows = ledgerRoot.rows.value.flatMap((b) => b.rows);
+    assert.ok(sameIds(rows.map((r) => r.id), [orders("L1"), orders("L1", "a"), planVsCount("L1")]));
+    assert.deepEqual(rows.map((r) => r.edits.values), [[0n], [0n], [0n, 1n]]);
 });
 
 test("derive draws each draft in its entry's place — with none it is the canvas's own blocks, and a draft derives like data", () => {

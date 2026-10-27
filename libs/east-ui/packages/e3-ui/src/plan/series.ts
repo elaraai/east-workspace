@@ -54,6 +54,7 @@ import {
     FloatType,
     FunctionType,
     IntegerType,
+    NullType,
     OptionType,
     RefType,
     StringType,
@@ -132,6 +133,8 @@ import {
     planUseOf,
     type PlanReadSpec,
     type PlanItemsReadSpec,
+    type PlanValuesEdit,
+    type PlanValuesReadSpec,
     type PlanValuesUseSpec,
     type PlanItemsInput,
     type PlanValuesInput,
@@ -810,6 +813,10 @@ export interface PlanTableSeriesOfConfig<
     aggregate?: SubtypeExprOrValue<TableAggregateType> | A;
     /** Numeral format for the rows' values and derived subtotals — a `Format.*` spec. */
     format?: SubtypeExprOrValue<TickFormatType>;
+    /** `true` ⇒ a number typed into one of its `cells` is written as the value at the bucket's start, added where none
+     *  is, deleted when cleared (#1436) — its cells a `Plan.values` read drawing each value as stored, `value: some(v)`.
+     *  A `series` position declares its own (`Plan.tableSeries({ cells, edit: true })`). */
+    edit?: PlanValuesEdit;
 }
 
 /**
@@ -1327,6 +1334,16 @@ interface KindRecipe {
     edit?: EditRecipe | undefined;
     /** The named reads its fields make (#1436). */
     reads?: readonly PlanSeriesRead[];
+    /** The table positions whose values take typed numbers (#1436). */
+    values?: readonly ValuesEditRecipe[];
+}
+
+/** A table position whose values take typed numbers (#1436): where it sits, and the read naming its collection. */
+interface ValuesEditRecipe {
+    /** Its index among the row's table series — `0` for a row's `cells`. */
+    readonly position: number;
+    /** The values read its cells make. */
+    readonly read: PlanValuesReadSpec;
 }
 
 /** A series' `edit`, beside the element field it writes through (#1436). */
@@ -1828,6 +1845,89 @@ function listField(rowType: EastType, input: unknown, makes: PlanValuesUseSpec["
     };
 }
 
+/**
+ * A table's positions whose values take typed numbers (#1436): its `cells`
+ * when the series declares `edit: true`, and each `Plan.tableSeries` position
+ * declaring its own — each drawing every value as it is stored.
+ *
+ * @param rowType - The entry type
+ * @param cfg - The table's `cells`, `series` and `edit`, as given
+ * @param where - The series, for messages
+ * @returns The typed positions, in order
+ * @throws {Error} In the refusals' words: `edit` beside cells given as a function, or over a draw giving another number than each value
+ */
+function tableEditsOf(rowType: EastType, cfg: { readonly cells?: unknown; readonly series?: unknown; readonly edit?: unknown }, where: string): ValuesEditRecipe[] {
+    const out: ValuesEditRecipe[] = [];
+    if (cfg.edit !== undefined) {
+        if (cfg.edit !== true) throw new Error(`${where}: edit is true — its cells' values take typed numbers — or left out`);
+        if (cfg.series !== undefined) {
+            throw new Error(`${where}: edit is its cells' — with positions, each declares its own: Plan.tableSeries({ cells, edit: true })`);
+        }
+        const use = planUseOf(cfg.cells);
+        if (use === undefined) {
+            throw new Error(`${where}: edit writes the values its cells read — give cells as Plan.tableCells(Plan.values(field, draw))`);
+        }
+        out.push({ position: 0, read: use.read });
+    }
+    if (Array.isArray(cfg.series)) {
+        cfg.series.forEach((member: unknown, position) => {
+            const use = planUseOf(member);
+            if (use?.edit === true) out.push({ position, read: use.read });
+        });
+    }
+    for (const typed of out) refuseDrawnOtherwise(rowType, typed.read, where);
+    return out;
+}
+
+/** The value types a typed number is stored as (#1436), and what drawing each as stored looks like. */
+type TypedValueKind = "float" | "option" | "integer";
+
+/**
+ * Refuse a typed position whose cells draw another number than each value
+ * (#1436): a typed number is stored as the value, so each value must draw as
+ * it is — a `Float`'s `some(v)` (or `v`), an `Option` of a `Float`'s `v`, an
+ * `Integer`'s `some(v.toFloat())` (or `v.toFloat()`). Read off the draw's
+ * expression, as an accessor's field is (`childRefOf`).
+ *
+ * @param rowType - The entry type
+ * @param read - The position's values read
+ * @param where - The series, for the message
+ * @throws {Error} In the refusal's words
+ */
+function refuseDrawnOtherwise(rowType: EastType, read: PlanValuesReadSpec, where: string): void {
+    const shape = collectionOfRead(rowType, read, where);
+    const kind: TypedValueKind | undefined = isTypeEqual(shape.item, FloatType) ? "float"
+        : isTypeEqual(shape.item, OptionType(FloatType)) ? "option"
+        : isTypeEqual(shape.item, IntegerType) ? "integer" : undefined;
+    let asStored = false;
+    if (kind !== undefined) {
+        const recursive = (rowType as { type: string }).type === "Recursive";
+        East.function([shape.item, shape.key, rowType], NullType, ($, value, at, row) => {
+            const node = recursive ? $.let((row as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType>) : row;
+            const given = read.draw(value, at, node) as { value?: unknown } | null;
+            const param = Expr.ast(value as unknown as Expr);
+            const astOf = (x: unknown) => (x instanceof Expr ? Expr.ast(x) as unknown as { ast_type: string; builtin?: string; arguments?: unknown[] } : undefined);
+            const isValue = (x: unknown) => astOf(x) === param;
+            const isWidened = (x: unknown) => {
+                const ast = astOf(x);
+                return ast !== undefined && ast.ast_type === "Builtin" && ast.builtin === "IntegerToFloat" && ast.arguments?.[0] === param;
+            };
+            const drawn = given === null || typeof given !== "object" ? undefined : given.value;
+            const wrapped = typeof drawn === "object" && drawn !== null && !(drawn instanceof Expr) && (drawn as { type?: unknown }).type === "some"
+                ? (drawn as { value: unknown }).value : undefined;
+            asStored = kind === "option" ? isValue(drawn)
+                : kind === "float" ? isValue(drawn) || isValue(wrapped)
+                : isWidened(drawn) || isWidened(wrapped);
+            return null;
+        });
+    }
+    if (!asStored) {
+        throw new Error(
+            `${where}: edit writes a typed number as its readings, and its cells draw another number than each reading — ` +
+            "draw value: some(v), and show it another way through format");
+    }
+}
+
 /** Erase a config's entry type for the untyped build machinery. */
 type AnyRowConfig = Omit<PlanSeriesRowConfig<EastType, EastType>, "children"> & { children?: unknown };
 
@@ -1981,7 +2081,18 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     const itemType = editShape?.item;
     const move: MoveFields | undefined = editRead !== undefined ? moveFieldsOf(editRead, editShape!.item as StructType) : undefined;
     const create = edit !== undefined && edit.edit !== true ? edit.edit.create : undefined;
-    const edits = move !== undefined ? { drop: create !== undefined, move: some(move.edits) } : undefined;
+    // What a typed number writes (#1436): each typed position's collection, keyed by the bucket's start.
+    const typedWrites = (recipe.values ?? []).map((typed) => {
+        const shape = collectionOfRead(rowType, typed.read, where);
+        return { position: typed.position, field: typed.read.field, key: shape.key, value: shape.item, keyAs: instantInto(shape.key) };
+    });
+    const edits = move !== undefined || typedWrites.length > 0
+        ? {
+            drop: create !== undefined,
+            move: move !== undefined ? some(move.edits) : none,
+            values: typedWrites.map((typed) => BigInt(typed.position)),
+        }
+        : undefined;
 
     const rows = new ByType<EntryRowFn>();
     const matches = new ByType<MatchFn | undefined>();
@@ -2181,18 +2292,20 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
      * read names, under the id the Plan minted; a moved element's item, found
      * by its id (the element's key), re-timed where it is, taken out of the
      * collection, or put into it under the same id. A collection already
-     * holding the id refuses the item.
+     * holding the id refuses the item. A number typed into one of its table
+     * positions sets that position's value at the bucket's start.
      */
     const ownFor = (kt: EastType): OwnEditFn | undefined => owns.get(kt, () => {
-        if (editRead === undefined || placed === undefined || move === undefined) return undefined;
-        const made = create !== undefined ? createFor(kt, create) : undefined;
-        const field = editRead.field;
-        const item = move.item;
+        const moves = editRead !== undefined && placed !== undefined && move !== undefined;
+        if (!moves && typedWrites.length === 0) return undefined;
+        const made = moves && create !== undefined ? createFor(kt, create) : undefined;
+        const field = editRead?.field ?? "";
+        const item = move?.item;
         type Items = ExprType<DictType<StringType, EastType>>;
         return East.function([rowType, kt, PathType, PlanGestureType, PlanCarriedType], OptionType(rowType),
             ($, value, key, path, gesture, carried) => {
                 const make = made === undefined ? undefined : $.const(made);
-                const place = $.const(placed);
+                const place = moves ? $.const(placed!) : undefined;
                 const result = $.let(none, OptionType(rowType));
                 $.match(gesture, {
                     drop: ($2, drop) => {
@@ -2205,6 +2318,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                         });
                     },
                     move: ($2, mv) => {
+                        if (place === undefined || item === undefined) return;
                         const here = $2.let(East.value(variant("entry", { series: cfg.key, path }), PlanRowIdType), PlanRowIdType);
                         const coll = $2.let(entryAccess(value)[field]! as unknown as Items);
                         $2.if(East.equal(here, mv.from).and(() => East.equal(here, mv.to)), ($3) => {
@@ -2248,6 +2362,48 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                                     },
                                 });
                             });
+                        });
+                    },
+                    // A number typed into a cell (#1436): its position's value at the bucket's start set, or added
+                    // where the collection holds none; cleared, deleted. An Integer collection takes a whole number,
+                    // and an instant on an arm its keys cannot hold writes nothing.
+                    value: ($2, typed) => {
+                        if (typedWrites.length === 0) return;
+                        const here = $2.let(East.value(variant("entry", { series: cfg.key, path }), PlanRowIdType), PlanRowIdType);
+                        $2.if(East.equal(here, typed.row), ($3) => {
+                            for (const write of typedWrites) {
+                                $3.if(typed.position.equal(BigInt(write.position)), ($4) => {
+                                    const keyAs = $4.const(write.keyAs);
+                                    const at = $4.let(keyAs(typed.at), OptionType(write.key));
+                                    $4.match(at, {
+                                        some: ($5, k) => {
+                                            type Values = ExprType<DictType<EastType, EastType>>;
+                                            const coll = $5.let(entryAccess(value)[write.field]! as unknown as Values);
+                                            $5.match(typed.value, {
+                                                some: ($6, n) => {
+                                                    const put = ($7: typeof $6, stored: SubtypeExprOrValue<EastType>) => {
+                                                        $7(coll.insertOrUpdate(k as ExprType<EastType>, stored));
+                                                        $7.assign(result, some(value));
+                                                    };
+                                                    if (isTypeEqual(write.value, IntegerType)) {
+                                                        $6.if(n.remainder(1).equal(0), ($7) => { put($7, n.toInteger()); });
+                                                    } else if (isTypeEqual(write.value, OptionType(FloatType))) {
+                                                        put($6, some(n));
+                                                    } else {
+                                                        put($6, n);
+                                                    }
+                                                },
+                                                none: ($6) => {
+                                                    $6.if(coll.has(k as ExprType<EastType>), ($7) => {
+                                                        $7(coll.delete(k as ExprType<EastType>));
+                                                        $7.assign(result, some(value));
+                                                    });
+                                                },
+                                            });
+                                        },
+                                    });
+                                });
+                            }
                         });
                     },
                 });
@@ -3424,6 +3580,8 @@ export function createSeriesTable<
         : East.value(none, OptionType(TableAggregateType));
     const cells = consumerField(rowType, cfg.cells, "tableCells", where, "cells");
     const positions = listField(rowType, cfg.series, "tableSeries", where, "series");
+    // The positions a typed number writes (#1436), each read checked as it built above.
+    const values = tableEditsOf(rowType, cfg, where);
     const spec = dataSpec(rowType, cfg as AnyRowConfig, {
         arm: "table",
         kind: (node, key, _hasChildren, value) => tableKind({
@@ -3435,6 +3593,7 @@ export function createSeriesTable<
             ...(cfg.emphasis !== undefined ? { emphasis: cfg.emphasis } : {}),
         }, aggregate),
         reads: [...(cells?.reads ?? []), ...(positions?.reads ?? [])],
+        values,
     });
     return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanTableReads<UC, S, FO, A, CT, CU, CF, CS>>
         & PlanFoldsBrand<PlanReadsNormal<PlanFoldsOf<UC, FO> & PlanPositionsFolds<S>>>;

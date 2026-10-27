@@ -54,7 +54,7 @@ const LAST = new Date("2026-11-02T00:00:00Z");
 const WINDOW = { min: FIRST, max: LAST };
 const NO_DRAFTS = new SortedMap<string, Uint8Array>([], compareFor(StringType));
 const rowIds = equalFor(ArrayType(Plan.Types.RowId));
-const NO_EDITS = { drop: false, move: none };
+const NO_EDITS = { drop: false, move: none, values: [] };
 
 /** An event kind's events in the window, by key. */
 function keysIn(kind: EventKind): string[] {

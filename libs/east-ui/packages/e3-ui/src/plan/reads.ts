@@ -355,6 +355,7 @@ export type PlanCellKind = "heat" | "weight" | "segment" | "table" | "point" | "
  * @property cell - The cell each value completes to
  * @property fold - The fold a bucket folds its values by, where it declares one
  * @property rollup - Whether a table position feeds its parent's subtotal
+ * @property edit - Whether a table position's values take typed numbers (`edit: true`)
  * @property wrap - One row's value, from its cells
  */
 export interface PlanValuesUseSpec {
@@ -363,8 +364,18 @@ export interface PlanValuesUseSpec {
     readonly cell: PlanCellKind;
     readonly fold: PlanFoldLiteral | undefined;
     readonly rollup: boolean;
+    readonly edit?: boolean;
     readonly wrap: (cells: ExprType<EastType>) => unknown;
 }
+
+/**
+ * Whether a table position's values take typed numbers (#1436): `true`, on
+ * `Plan.series.table` for its `cells` or on a `Plan.tableSeries` position,
+ * its cells a `Plan.values` read drawing each value as it is stored
+ * (`value: some(v)`). A number typed into a cell sets the collection's value
+ * at the bucket's start, adds one where it holds none, or, cleared, deletes it.
+ */
+export type PlanValuesEdit = true;
 
 const READS = new WeakMap<object, PlanReadSpec>();
 const USES = new WeakMap<object, PlanValuesUseSpec>();

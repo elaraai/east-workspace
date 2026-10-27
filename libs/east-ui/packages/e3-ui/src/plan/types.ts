@@ -1042,6 +1042,32 @@ export const PlanMoveType = StructType({
 export type PlanMoveType = typeof PlanMoveType;
 
 /**
+ * A number typed into a table row's cell (#1436) — the value its position's
+ * collection holds at the bucket's start, the collection's key: set where the
+ * collection holds one there, added where it holds none, deleted when the
+ * cell is cleared.
+ *
+ * @remarks
+ * A position takes typed numbers when its series declares `edit: true` over
+ * a values read — `Plan.series.table`'s `cells`, or a `Plan.tableSeries`
+ * position — which its rows say in {@link PlanRowEditsType}'s `values`. The
+ * number is the value stored: a `Float` collection's as it is, an `Option` of
+ * a `Float`'s as `some`, an `Integer` collection's when it is whole.
+ *
+ * @property row - The row it was typed on
+ * @property position - The position typed into: its index among the row's table series, `0` for its `cells`
+ * @property at - The bucket's start, on the axis arm — the key the value is written under
+ * @property value - The number typed, or `none` when the cell was cleared
+ */
+export const PlanValueEditType = StructType({
+    row:      PlanRowIdType,
+    position: IntegerType,
+    at:       PlanInstantType,
+    value:    OptionType(FloatType),
+});
+export type PlanValueEditType = typeof PlanValueEditType;
+
+/**
  * A gesture on the canvas — what one draft is made by (#880). A series writes
  * it into the entry its row came from, through the collection its elements'
  * read names (#1436): a drop as a new item under its minted id, a move into
@@ -1050,10 +1076,12 @@ export type PlanMoveType = typeof PlanMoveType;
  *
  * @property drop - A library card dropped on a row
  * @property move - A run, chip, tile or mark moved or resized ({@link PlanMoveType}, #825)
+ * @property value - A number typed into a table cell, or the cell cleared ({@link PlanValueEditType}, #1436)
  */
 export const PlanGestureType = VariantType({
     drop:    PlanDropType,
     move:    PlanMoveType,
+    value:   PlanValueEditType,
 });
 export type PlanGestureType = typeof PlanGestureType;
 
@@ -1086,10 +1114,12 @@ export type PlanMoveEditsType = typeof PlanMoveEditsType;
  *
  * @property drop - Its series makes an item of a dropped card (`edit: { create }`)
  * @property move - Its series moves its elements (`edit`, its elements read with `Plan.items`) — {@link PlanMoveEditsType}
+ * @property values - The table positions whose values take a typed number (`edit: true` over a values read, #1436): each an index among the row's table series, `0` for its `cells` — none for another kind
  */
 export const PlanRowEditsType = StructType({
     drop:    BooleanType,
     move:    OptionType(PlanMoveEditsType),
+    values:  ArrayType(IntegerType),
 });
 export type PlanRowEditsType = typeof PlanRowEditsType;
 

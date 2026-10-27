@@ -121,6 +121,7 @@ import {
     planUse,
     planUseOf,
     refuseReadOutsideSeries,
+    type PlanValuesEdit,
     type PlanValuesInput,
     type PlanValuesReadSpec,
     type PlanValuesUse,
@@ -1700,6 +1701,7 @@ export interface PlanTableSeriesInput<K extends PlanAxisKindLiteral = never> {
  * @property strong - Semibold emphasis for its values
  * @property rollup - `true` ⇒ it feeds the parent's subtotal (flag none ⇒ every position does)
  * @property fold - How a bucket folds its values at a coarser resolution (default `"sum"`)
+ * @property edit - `true` ⇒ its values take typed numbers, each drawn as stored (#1436)
  */
 export interface PlanTableSeriesOfValues<R extends EastType, K extends PlanAxisKindLiteral, U, FO extends PlanFoldLiteral, RO extends boolean> {
     /** The position's cells — `Plan.tableCells(Plan.values(field, draw))`. */
@@ -1714,6 +1716,8 @@ export interface PlanTableSeriesOfValues<R extends EastType, K extends PlanAxisK
     rollup?: RO;
     /** How a bucket folds its values at a coarser resolution than theirs (default `"sum"`). */
     fold?: FO;
+    /** `true` ⇒ a number typed into one of its cells is written as the value at the bucket's start (#1436) — its cells' draw giving each value as stored, `value: some(v)`. */
+    edit?: PlanValuesEdit;
 }
 
 /**
@@ -1736,12 +1740,18 @@ export function createTableSeries(input: PlanTableSeriesInput<PlanAxisKindLitera
         if (use.makes !== "tableCells") {
             throw new Error("Plan.tableSeries: its cells are one row's table cells — give cells as Plan.tableCells(Plan.values(field, draw))");
         }
-        const rest = input as PlanTableSeriesOfValues<EastType, PlanAxisKindLiteral, unknown, PlanFoldLiteral, boolean>;
+        const { edit, ...rest } = input as PlanTableSeriesOfValues<EastType, PlanAxisKindLiteral, unknown, PlanFoldLiteral, boolean>;
+        if (edit !== undefined && edit !== true) {
+            throw new Error("Plan.tableSeries: edit is true — its values take typed numbers — or left out");
+        }
         return planUse({
             makes: "tableSeries", read: use.read, cell: "table", fold: foldLiteral(rest.fold, "sum"),
-            rollup: rest.rollup === true,
+            rollup: rest.rollup === true, edit: edit === true,
             wrap: (built) => createTableSeries({ ...(rest as unknown as PlanTableSeriesInput<PlanAxisKindLiteral>), cells: built as ExprType<ArrayType<PlanTableCellType>> }),
         });
+    }
+    if ("edit" in input) {
+        throw new Error("Plan.tableSeries: edit writes the values its cells read — give cells as Plan.tableCells(Plan.values(field, draw))");
     }
     refuseReadOutsideSeries(input.cells);
     return East.value({

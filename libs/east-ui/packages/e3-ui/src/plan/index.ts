@@ -115,6 +115,7 @@ import {
     PlanUiBindType,
     PlanDropType,
     PlanMoveType,
+    PlanValueEditType,
     PlanGestureType,
     PlanMoveEditsType,
     PlanRowEditsType,
@@ -297,6 +298,7 @@ export {
     PlanUiBindType,
     PlanDropType,
     PlanMoveType,
+    PlanValueEditType,
     PlanGestureType,
     PlanMoveEditsType,
     PlanRowEditsType,
@@ -459,6 +461,7 @@ export {
     type PlanItemsInput,
     type PlanValuesInput,
     type PlanValuesUse,
+    type PlanValuesEdit,
 } from "./reads.js";
 
 // ============================================================================
@@ -708,6 +711,8 @@ export interface PlanNamespace extends PlanTagType {
         Drop: typeof PlanDropType;
         /** A run, chip, tile or mark moved or resized — its item's new row and instants (#825). */
         Move: typeof PlanMoveType;
+        /** A number typed into a table cell, or the cell cleared — its position's value at the bucket's start (#1436). */
+        ValueEdit: typeof PlanValueEditType;
         /** Which gestures a row takes (#880). */
         RowEdits: typeof PlanRowEditsType;
         /** How a row's elements move — its item type, and whether they resize (#825). */
@@ -866,6 +871,7 @@ const PLAN_MEMBERS = {
         Gesture: PlanGestureType,
         Drop: PlanDropType,
         Move: PlanMoveType,
+        ValueEdit: PlanValueEditType,
         RowEdits: PlanRowEditsType,
         MoveEdits: PlanMoveEditsType,
         PatchEvent: PlanPatchEventTypeFor,

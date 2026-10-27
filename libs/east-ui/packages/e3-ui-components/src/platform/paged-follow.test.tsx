@@ -81,7 +81,7 @@ function rowOf(key: string, label: string): ValueTypeOf<typeof Plan.Types.Row> {
             decisions: [], ports: [], rollup: none,
         }),
         collapsed: false, pinned: false, height: none, status: none, expand: none,
-        edits: { drop: false, move: none },
+        edits: { drop: false, move: none, values: [] },
     } as unknown as ValueTypeOf<typeof Plan.Types.Row>;
 }
 

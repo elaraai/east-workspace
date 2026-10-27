@@ -705,9 +705,13 @@ collection every element came from, and a gesture writes back into it by id.
 ### The wire
 
 `PlanDropType` (`Plan.Types.Drop`) gains `id: String`: the key the canvas
-mints for a dropped card's item, unique among every element it holds. A `Plan`
-value serialized before it does not decode against it; stored
-`UIComponentType` values re-emit.
+mints for a dropped card's item, unique among every element it holds.
+`PlanGestureType` (`Plan.Types.Gesture`) gains `value(PlanValueEditType)`: a
+number typed into a table cell, `{ row, position, at, value }`, `value`
+`none` when the cell is cleared. `PlanRowEditsType` (`Plan.Types.RowEdits`)
+gains `values: Array<Integer>`, the table positions whose values take typed
+numbers. A `Plan` value serialized before them does not decode against them;
+stored `UIComponentType` values re-emit.
 
 ### Removals and their replacements
 
@@ -731,6 +735,12 @@ rows may still map a collection in one; `edit` needs the named read.
 - **A dropped card's id is minted.** The item `create` builds joins the row's
   collection under `drop.id`, unique among every element the canvas holds,
   where it took whatever key `create` gave it.
+- **A table's values take typed numbers.** `edit: true` on
+  `Plan.series.table` (its `cells`) or on a `Plan.tableSeries` position, its
+  cells a `Plan.values` read drawing each value as stored (`value: some(v)`):
+  a number typed into a cell sets the value at the bucket's start, adds one
+  where none is, and cleared deletes it. Which cells take typing, and how, is
+  the renderer's.
 - **Moves by id.** A move along a row writes the item's named times. A move to
   another row takes the item out of the first row's collection under its id
   and puts it in the second's under the same id. A move onto a row holding the
@@ -745,7 +755,9 @@ rows may still map a collection in one; `edit` needs the named read.
   collection keyed by an instant; `Plan.values` over one keyed by `String` off
   an ordinal axis; a read of a field that is no `Dict`; a read outside a
   series; `edit` beside elements given as a function, or over a read of
-  values; a tree's `children` naming a field of another type than the row's.
+  values; a tree's `children` naming a field of another type than the row's;
+  a table's `edit` beside cells given as a function, or over a draw giving
+  another number than each value.
 
 ## Extracted contracts (do this first when migrating imports)
 

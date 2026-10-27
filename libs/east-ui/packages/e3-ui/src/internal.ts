@@ -284,6 +284,7 @@ export {
     type PlanItemsInput,
     type PlanValuesInput,
     type PlanValuesUse,
+    type PlanValuesEdit,
     type PlanRunLook,
     type PlanDecisionLook,
     type PlanPortLook,
