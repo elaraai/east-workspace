@@ -168,6 +168,19 @@ test("a rack a draft unplaced is the Backlog's wherever the view goes, until Sav
     expect(backlogKeys(container)).toEqual([rack("A01"), rack("A06"), rack("A07")]);
 });
 
+test("Unplace in Details keeps the keyboard in the frame: the button it was pressed on goes, and the focus never falls to the page's body", async () => {
+    const { container } = await open();
+    await tap(canvasOf(container), CAM, 2.4, 2.9);
+    await waitFor(() => expect(inspector(container).querySelector('[data-inspector-action="unplace"]')).not.toBeNull());
+    const unplace = inspector(container).querySelector<HTMLElement>('[data-inspector-action="unplace"]')!;
+    unplace.focus();
+    expect(document.activeElement).toBe(unplace);
+    await act(async () => { fireEvent.click(unplace); });
+    await settle();
+    await waitFor(() => expect(backlogKeys(container)).toContain(rack("A01")));
+    expect(document.activeElement).not.toBe(document.body);
+});
+
 /** Opens a tab of the library, by its name. */
 async function openTab(c: HTMLElement, name: string) {
     const found = [...slot(c, "start").querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent === name || t.textContent?.startsWith(`${name} `));
