@@ -19,8 +19,10 @@
  * steps to its event's period, selects it and brings it into view, and hands it
  * the keyboard where its ring is drawn once the window it is drawn in has landed
  * (`event-focus.ts`); a step through the matches leaves the keyboard in the box.
- * An event its kind's choices hide is named by them, and a pick of it clears
- * just them first, its window kept (the hidden pick, `hidden.tsx`).
+ * An event its kind's choices hide is named by them — and, where the view lays
+ * resources out, one whose resource its resource kind's source hides by that
+ * source's choices too — and a pick of it clears just them first, its window
+ * kept (the hidden pick, `hidden.tsx`).
  * Each layout's view keeps its place across a step and a remount — the time
  * grid's hour, the timeline's line — and Today brings the time grid to the now
  * line. Every key it acts on goes no further than the Calendar: `[` and `]`
@@ -103,7 +105,7 @@ import { useCalendarDrag } from "./drag.js";
 import { EventFocusContext, type EventFocus } from "./event-focus.js";
 import { useCalendarFind, type FoundEvent } from "./find.js";
 import { CalendarFooter } from "./footer.js";
-import { HideEvents, type HiddenEvents } from "./hidden.js";
+import { HideEvents, type CalendarResourcePart, type HiddenEvents } from "./hidden.js";
 import { CalendarPagesReader, createPagedDemand, type CalendarPages } from "./pages.js";
 import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type CalendarSelection } from "./inspector.js";
 import { calendarLibraryId, templatesTab, useCalendarLibrary } from "./library.js";
@@ -131,7 +133,10 @@ interface HostProps extends EastChakraCalendarProps {
     dates: CalendarWindow; now: Date;
     /** The sources the Calendar follows beside its event kinds': what each shows. */
     followed: FollowedSources;
-    /** Each event kind's hidden pick, by its slot: what hides an event Search Records finds that its choices leave out. */
+    /**
+     * Each event kind's hidden pick and each resource kind's, by its slot: what hides an event Search Records finds that
+     * its kind's choices leave out — or, where the view lays resources out, its resource's source.
+     */
     hidden: HiddenEvents;
     editing?: ScheduleEditing;
     /**
@@ -381,6 +386,9 @@ function CalendarFrame(props: HostProps) {
     // The periods a resource's shading is cut into (#1424): the timeline's by its period, the Resources view's day — none in
     // a view with no resource axis, a time grid, the month or the agenda, which shades no resource.
     const bucket: CalendarBucket | undefined = narrow ? undefined : view.layout === "timeline" ? view.period : view.layout === "resources" ? "day" : undefined;
+    // Whether the view lays resources out — the timeline's rows, the Resources view's columns: there an event whose
+    // resource its source of the slice hides is drawn nowhere, and Search Records names that source's choices too.
+    const laysResources = bucket !== undefined;
     const cellResources = useMemo((): readonly ScheduleCellResources[] => bucket === undefined ? NO_CELL_RESOURCES
         : shown.map(kind => ({ key: kind.key, keys: kind.rows.map(row => row.key) })), [bucket, shown]);
     // The kinds past the cap (#1424): none of their events is drawn but their drafts, so every figure that would count
@@ -529,8 +537,9 @@ function CalendarFrame(props: HostProps) {
     // landed — after a step of the dates, that window: the element that stands for it where its ring is drawn takes the
     // focus (`event-focus.ts`). An event the views draw nowhere — one of the backlog — leaves the keyboard where it is, as
     // does a step through the matches. One its kind's choices hide is shown by clearing those of its source that hide it —
-    // those e3 named, else every one of its choices, its window kept — a write of the rail like a chip's (the hidden pick),
-    // and is given the keyboard once the narrowing it leaves draws it.
+    // those e3 named, else every one of its choices, its window kept — a write of the rail like a chip's (the hidden pick);
+    // one whose resource its resource kind's source hides, where the view lays resources out, by clearing that source's
+    // too; and it is given the keyboard once the narrowing it leaves draws it.
     const handOff = usePickHandOff();
     // The event a pick gave the keyboard to: the first element of it drawn takes the focus, once. It waits only while the
     // event is the one selected, and until the viewer does something else (the root's captures below).
@@ -553,15 +562,17 @@ function CalendarFrame(props: HostProps) {
     const [pickLanding, setPickLanding] = useState<string>();
     const found = (event: FoundEvent) => {
         const ref = { kind: event.item.kind, key: event.item.key };
-        const hiding = event.hidden === undefined ? undefined : hiddenEvents.get(event.item.kind);
-        if (event.hidden !== undefined && hiding?.part !== undefined) {
-            try { clearHiding(hiding.part, event.hidden.answer, hiding.window); }
-            catch (reason) {
-                // Not drawn, so nothing takes the keyboard: it stays where it is.
-                handOff.drop();
-                setError(reason instanceof Error ? reason.message : "The filters hiding the event could not be cleared");
-                return;
-            }
+        const { hidden } = event;
+        const kindPick = hidden?.kind === undefined ? undefined : hiddenEvents.kinds.get(event.item.kind);
+        const resourcePick = hidden?.resource === undefined ? undefined : hiddenEvents.resources.get(hidden.resource.kind);
+        try {
+            if (hidden?.kind !== undefined && kindPick?.part !== undefined) clearHiding(kindPick.part, hidden.kind.answer, kindPick.window);
+            if (hidden?.resource !== undefined && resourcePick?.part !== undefined) clearHiding(resourcePick.part, hidden.resource.answer);
+        } catch (reason) {
+            // Not drawn, so nothing takes the keyboard: it stays where it is.
+            handOff.drop();
+            setError(reason instanceof Error ? reason.message : "The filters hiding the event could not be cleared");
+            return;
         }
         select([ref]);
         if (event.item.start.type !== "some") { handOff.drop(); return; }
@@ -569,7 +580,8 @@ function CalendarFrame(props: HostProps) {
         setReveal(ref);
         setPickLanding(eventKey(ref));
     };
-    const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format, onPick: found, held: cellRows, hidden: hiddenEvents });
+    const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format, onPick: found, held: cellRows, hidden: hiddenEvents,
+        laysResources });
     const search = useMemo(() => (finder === undefined ? undefined : handOff.search(finder)), [finder, handOff]);
     useEffect(() => {
         if (pickLanding === undefined || !current || !items.some(item => stringEqual(eventKey(item), pickLanding))) return;
@@ -692,9 +704,16 @@ export function EastChakraCalendar({ value, storageKey }: EastChakraCalendarProp
     // The sources the Calendar follows itself, each read once (one component each, so their hooks keep their order).
     const sources = useMemo(() => followedSources(value), [value]);
     const nouns = useMemo(() => new Map(Object.entries(calendarNouns(value, locale))), [value, locale]);
-    // And each event kind's hidden pick, read through its source (one component each, as the sources are).
-    return <FollowSources chrome={dates.chrome} narrowed={value.narrowed} sources={sources} nouns={nouns} said={calendarSaid}>
-        {followed => <HideEvents parts={dates.eventParts}>
+    // Each resource kind narrowed through its source of the slice, the paged kind's among them.
+    const chrome = dates.chrome;
+    const resourceParts = useMemo(() => value.resources.flatMap((kind): CalendarResourcePart[] => {
+        const part = sourcePart(chrome, kind.key);
+        return part === undefined ? [] : [{ kind: kind.key, part }];
+    }), [value.resources, chrome]);
+    // And each event kind's hidden pick and each resource kind's, read through its source (one component each, as the
+    // sources are), a resource kind's beside what its source shows.
+    return <FollowSources chrome={chrome} narrowed={value.narrowed} sources={sources} nouns={nouns} said={calendarSaid}>
+        {followed => <HideEvents parts={dates.eventParts} resources={resourceParts} followed={followed}>
             {hidden => value.settings.readOnly ? <CalendarFrame value={value} storageKey={key} dates={dates} now={now} followed={followed} hidden={hidden} />
                 : <EditableCalendar value={value} storageKey={key} dates={dates} now={now} followed={followed} hidden={hidden} />}
         </HideEvents>}

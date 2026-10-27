@@ -14,6 +14,13 @@
  * lines follow the choices as they move. A pick of it clears just those
  * choices, its window kept, and goes to the event, selected and given the
  * keyboard once the narrowing it leaves draws it.
+ *
+ * Over the operations' calendar, where the view lays resources out — the
+ * timeline's rows — an event whose resource its resource kind's source hides
+ * is drawn nowhere: its line names that source's choices beside its kind's
+ * own, asked of e3 of the resources the lines stand on that the source hides,
+ * and a pick clears them all. The time grid narrows no event by its resource,
+ * and names none.
  */
 import { expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
@@ -21,13 +28,14 @@ import userEvent from "@testing-library/user-event";
 import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
+import * as ops from "@elaraai/e3-ui/examples/calendar/calendar";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
 import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { eventKey } from "./model.js";
 import "./index.js";
 
-const h = e3Harness({ "calendar/calendar-records": ex }, { main: "data-calendar-main" });
+const h = e3Harness({ "calendar/calendar-records": ex, "calendar/calendar": ops }, { main: "data-calendar-main" });
 /** The jobs' record, as its dataset's requests name it. */
 const EVENTS = "records.indexed_calendar_events";
 /** Where the rail keeps the jobs' source's narrowing. */
@@ -47,17 +55,19 @@ async function open() {
     await settle();
     return { c: container, store };
 }
-const event = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`[data-calendar-event=${JSON.stringify(eventKey({ kind: "job", key }))}]`);
-/** The jobs' source's narrowing, as the store holds it. */
-const whereOf = (store: UIStore) => decodeState(store.read(SOURCE)!).where;
-/** The jobs' Status chosen, as the rail's chip writes it: the window kept. */
-async function chooseStatus(store: UIStore, status: string) {
-    const state = decodeState(store.read(SOURCE)!);
+const event = (c: HTMLElement, key: string, kind = "job") => c.querySelector<HTMLElement>(`[data-calendar-event=${JSON.stringify(eventKey({ kind, key }))}]`);
+/** A source's narrowing, as the store holds it: the jobs' unless another is named. */
+const whereOf = (store: UIStore, source = SOURCE) => decodeState(store.read(source)!).where;
+/** A field of a source chosen, as the rail's chip writes it: the source's other choices — its window among them — kept. */
+async function choose(store: UIStore, source: string, field: string, value: string) {
+    const state = decodeState(store.read(source)!);
     const where = new SortedMap([...state.where], compareFor(StringType));
-    where.set("status", variant("values", [printString(status)]));
-    await act(async () => { store.write(SOURCE, encodeState({ ...state, preset: none, where })); });
+    where.set(field, variant("values", [printString(value)]));
+    await act(async () => { store.write(source, encodeState({ ...state, preset: none, where })); });
     await settle();
 }
+/** The jobs' Status chosen, as the rail's chip writes it: the window kept. */
+const chooseStatus = (store: UIStore, status: string) => choose(store, SOURCE, "status", status);
 
 /** Search Records' box, in the toolbar's row. */
 const searchBox = (c: HTMLElement) => slot(c, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search']")!;
@@ -167,4 +177,77 @@ test("the lines follow the choices: a Status chosen while the box lists the jobs
     await waitFor(() => expect(lines(c).filter(line => line.endsWith(` · ${byDone}`)).map(line => line.split(" · ")[0]))
         .toEqual(TEN.filter(key => !DONE.includes(key))), { timeout: 10_000 });
     expect(lines(c).filter(line => !line.includes("hidden by")).map(line => line.split(" · ")[0])).toEqual(DONE);
+});
+
+/** Where the rail keeps the operations' maintenance's source's narrowing, and the machines'. */
+const SERVICES = "ex.calendarOperations.service";
+const MACHINES = "ex.calendarOperations.machines";
+/** The machines' record, as its dataset's requests name it. */
+const MACHINE_ROWS = "records.calendar_machines";
+
+test("where the view lays resources out, an event its resource's source hides is named by that source's choices beside its kind's own — Machine: press1; Area: Press shop — asked of e3 of the machines the source hides alone; a pick clears them all, the window kept, and goes to it; the time grid, which narrows no event by its resource, names its kind's alone", async () => {
+    const store = new UIStore();
+    StateRuntime.initializeStore(store);
+    const { container: c } = await h.mount(ops.calendarOperations, { storageKey: "calendar-hidden-resource" });
+    await waitFor(() => expect(event(c, "service2", "service")).not.toBeNull());
+    await settle();
+    // The calibration is on Lathe 1, in the Machine shop: the maintenance narrowed to Press 1's, and the machines to the
+    // Press shop's, each as the rail's chip writes it.
+    await choose(store, SERVICES, "machine", "press1");
+    await choose(store, MACHINES, "area", "Press shop");
+    expect(event(c, "service2", "service")).toBeNull();
+    // The week's time grid narrows no event by its machine: the calibration is named by its kind's choice alone, and
+    // nothing is asked of the machines.
+    const before = h.requests("within", MACHINE_ROWS).length;
+    await pasteIntoSearch(c, "service2");
+    await waitFor(() => expect(lines(c)).toEqual(["service2 · Calibration · Maintenance · Fri, Oct 2, 2026 13:00 · hidden by Machine: press1 — picking it clears that filter"]),
+        { timeout: 10_000 });
+    expect(h.requests("within", MACHINE_ROWS).length).toBe(before);
+    await clearSearch(c);
+    // The timeline lays the machines out, Lathe 1's row hidden: the calibration is named by the Area that hides its
+    // machine too. What hides the machines its lines stand on is asked of e3 through the machines' index by area, of the
+    // Machine shop's alone — the Area hides them, as what it shows says — never of a machine it shows.
+    await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("radio", { name: "Timeline" })); });
+    await settle();
+    await pasteIntoSearch(c, "service2");
+    await waitFor(() => expect(lines(c)).toEqual([
+        "service2 · Calibration · Maintenance · Fri, Oct 2, 2026 13:00 · hidden by Machine: press1; Area: Press shop — picking it clears those filters",
+    ]), { timeout: 10_000 });
+    const reads = h.requests("within", MACHINE_ROWS).slice(before).map(withinOf);
+    expect(reads.length).toBeGreaterThan(0);
+    expect(reads.filter(read => read.index !== "calendar_machines_by_area" || read.keys.some(entry => !["lathe1", "lathe2"].includes(rowOf(entry))))).toEqual([]);
+    // Picked: the maintenance's Machine and the machines' Area cleared — its window, the timeline's, kept — and the
+    // calibration drawn on Lathe 1's row, selected and given the keyboard.
+    const window = whereOf(store, SERVICES).get("start");
+    expect(window?.type).toBe("range");
+    await enter(c);
+    await waitFor(() => expect(event(c, "service2", "service")?.getAttribute("aria-pressed")).toBe("true"), { timeout: 10_000 });
+    await waitFor(() => expect(document.activeElement).toBe(event(c, "service2", "service")));
+    expect([...whereOf(store, SERVICES).keys()]).toEqual(["start"]);
+    expect(whereOf(store, SERVICES).get("start")).toEqual(window);
+    expect(whereOf(store, MACHINES).size).toBe(0);
+});
+
+test("an event waiting in the Backlog, which no layout lays on a resource, is hidden by no resource kind's source: on the timeline a job on Press 1 the machines' Area hides is named by it, and the Backlog's job on Press 1 by nothing", async () => {
+    const store = new UIStore();
+    StateRuntime.initializeStore(store);
+    const { container: c } = await h.mount(ops.calendarOperations, { storageKey: "calendar-hidden-backlog" });
+    await waitFor(() => expect(event(c, "job1")).not.toBeNull());
+    await settle();
+    // The machines narrowed to the Machine shop's, Press 1 hidden, and the timeline laying them out.
+    await choose(store, MACHINES, "area", "Machine shop");
+    await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("radio", { name: "Timeline" })); });
+    await settle();
+    expect(event(c, "job1")).toBeNull();
+    // The brackets, on Press 1's row, are drawn nowhere: named by the Area.
+    await pasteIntoSearch(c, "job1");
+    await waitFor(() => expect(lines(c)).toEqual([
+        "job1 · Mounting brackets · batch 42 · Production · Thu, Oct 1, 2026 06:00 · hidden by Area: Machine shop — picking it clears that filter",
+    ]), { timeout: 10_000 });
+    // The torque-test fixtures wait in the Backlog, on Press 1 too: a card of the Backlog, which no Area narrows.
+    await clearSearch(c);
+    await pasteIntoSearch(c, "backlog1");
+    await waitFor(() => expect(lines(c)).toEqual(["backlog1 · Torque-test fixtures · Production · backlog"]), { timeout: 10_000 });
+    await settle();
+    expect(lines(c)).toEqual(["backlog1 · Torque-test fixtures · Production · backlog"]);
 });
