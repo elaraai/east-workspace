@@ -182,8 +182,16 @@ test.describe("a key a builder acts on goes no further than the builder (#1398)"
         const folded = await sidebar(page);
         // The week's brackets batch, by the name its block gives it.
         const brackets = frame.locator("[data-calendar-event][aria-label^='Mounting brackets']");
-        // An event selected by Enter, and Escape letting it go; with nothing left to let go of, Escape goes on.
-        await pressedOn(page, brackets, ["Enter", "Escape"]);
+        const inspector = frame.locator('[data-frame-slot="end"]').first();
+        // An event selected by Enter, which opens its Details (retest C5) — over main at 1440, for lack of room, so the first
+        // Escape closes them, as an overlay pane takes Escape before anything else in the frame — and Escape letting it go;
+        // with nothing left to let go of, Escape goes on.
+        await pressedOn(page, brackets, ["Enter"]);
+        await expect(inspector).toHaveAttribute("data-pane-mode", "overlay");
+        await expect(inspector).not.toHaveAttribute("data-collapsed", "");
+        await pressedOn(page, brackets, ["Escape"]);
+        await expect(inspector).toHaveAttribute("data-collapsed", "");
+        await pressedOn(page, brackets, ["Escape"]);
         await brackets.focus();
         await listen(page);
         await page.keyboard.press("Escape");
