@@ -17,12 +17,14 @@
 
 import { expect, test, vi } from "vitest";
 import { act, fireEvent, waitFor } from "@testing-library/react";
-import { East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, variant, type ValueTypeOf } from "@elaraai/east";
-import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
-import { StateRuntime } from "@elaraai/east-ui-components";
+import {
+    ArrayType, East, NullType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, variant, type ValueTypeOf,
+} from "@elaraai/east";
+import { Reactive, RecordSliceStateType, Slice, State, UIComponentType } from "@elaraai/east-ui/internal";
+import { StateRuntime, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
-import { e3Harness, settle } from "../e3-web-mount.test-utils.js";
+import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { at, cameraOf, card, drawingCounts, fitted, layOutCanvas, near, tap, zoomInto } from "./schematic.test-utils.js";
 import "./index.js";
 
@@ -46,13 +48,43 @@ const FLOOR = "schematic.review.camera";
 /** The racks' record, as its dataset's requests name it. */
 const RACKS = `records.${ex.schematicRacks.name}`;
 
-type Narrowed = "hide" | "dim" | { show: "hide" | "dim"; fit?: boolean };
+/** Where the floor's host keeps the whole selection, as `onSelect` hears it. */
+const KEPT = "schematic.review.camera.selected";
 
 /**
  * The data centre's racks read by area, read only — their source lists their area index, one led by owner, and one by
- * name — the network frames read whole, and the inspector: as `schematic-window-reads.dom.test.tsx`'s floor.
+ * name — the network frames read whole, and the inspector: as `schematic-window-reads.dom.test.tsx`'s floor, a
+ * narrowed-out rack hidden, the host keeping the whole selection `onSelect` hears in a State of its own.
  */
-const floorOf = (id: string, narrowed: Narrowed) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const racks = $.let(Data.bindPaged(ex.schematicRacks));
+    const frames = $.let(Data.bind(ex.schematicFrames));
+    const selected = $.let(State.bind([ArrayType(Schematic.Types.Ref)], KEPT, []));
+    const onSelect = $.const(East.function([ArrayType(Schematic.Types.Ref)], NullType, ($2, refs) => {
+        $2(selected.write(refs));
+    }));
+    const slice = $.let(Slice.bindRecords(FLOOR, {
+        racks: {
+            source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByArea, ex.schematicRacksByOwnerArea, ex.schematicRacksByName] }),
+            search: ["name"],
+            fields: { name: { label: "Rack" }, owner: { label: "Owner", hints: ["Harbour Labs", "Northwind Media", "Elmway College"] } },
+        },
+    }));
+    return Schematic({
+        id: "reviewCamera",
+        inspector: true,
+        extent: { width: 28, height: 14 },
+        slice: { slice },
+        onSelect,
+        items: {
+            racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name" }),
+            network: Schematic.items(frames, { name: "Network frame", icon: "network-wired", x: "x", y: "y", width: "w", height: "h", label: "name" }),
+        },
+    });
+}))) };
+
+/** The floor, a narrowed-out rack dimmed and the camera flown to the matches as the narrowing changes: as {@link floor} otherwise. */
+const fitFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const racks = $.let(Data.bindPaged(ex.schematicRacks));
     const frames = $.let(Data.bind(ex.schematicFrames));
     const slice = $.let(Slice.bindRecords(FLOOR, {
@@ -63,23 +95,36 @@ const floorOf = (id: string, narrowed: Narrowed) => ({ fn: East.function([], UIC
         },
     }));
     return Schematic({
-        id,
+        id: "reviewFit",
         inspector: true,
         extent: { width: 28, height: 14 },
         slice: { slice },
-        narrowed,
+        narrowed: { show: "dim", fit: true },
         items: {
             racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name" }),
             network: Schematic.items(frames, { name: "Network frame", icon: "network-wired", x: "x", y: "y", width: "w", height: "h", label: "name" }),
         },
     });
-}))) });
+}))) };
 
-/** The floor, a narrowed-out rack hidden. */
-const floor = floorOf("reviewCamera", "hide");
+const keptEqual = equalFor(ArrayType(Schematic.Types.Ref));
 
-/** The floor, a narrowed-out rack dimmed and the camera flown to the matches as the narrowing changes. */
-const fitFloor = floorOf("reviewFit", { show: "dim", fit: true });
+/** Reads what the floor's host keeps of the selection: its State, read through East. */
+const readKept = East.compile(East.function([], ArrayType(Schematic.Types.Ref), ($) => {
+    const kept = $.const(State.bind([ArrayType(Schematic.Types.Ref)], KEPT, []));
+    return kept.read();
+}), getRegisteredPlatformImplementations());
+
+/** What the inspector's Details titles the item it shows; `null` while it shows no item. */
+const detailsTitle = (c: HTMLElement) => slot(c, "end")
+    .querySelector("[role='tabpanel']:not([hidden]) [data-schematic-inspector='item'] [data-inspector-title]")?.textContent ?? null;
+
+/** The item's own fields as Details shows them: whether its section is there, read — not its placeholders, nor that it has no row. */
+const detailsRead = (c: HTMLElement) => {
+    const shown = slot(c, "end").querySelector("[role='tabpanel']:not([hidden]) [data-schematic-inspector='item']");
+    const fields = shown?.querySelector("[data-inspector-fields='row']");
+    return fields !== null && fields !== undefined && !fields.hasAttribute("data-pending") && shown?.querySelector("[data-inspector-fact='row-none']") === null;
+};
 
 /** Where each card the tests press sits, by kind, key and centre in metres. */
 const CENTRES: readonly (readonly [kind: string, key: string, x: number, y: number])[] = [
@@ -159,6 +204,27 @@ test("a zoom lets go of nothing selected: a rack read by area that the zoomed wi
     await settle();
     await waitFor(() => expect(card(container, "racks", "A05")).not.toBeNull(), { timeout: 5_000 });
     expect(selectedCards(container, [["racks", "A05"], ["network", "MMR-1"]])).toEqual([true, true]);
+});
+
+test("a zoom is heard by no onSelect: what the host keeps of the selection stays as the tap left it, the rack off the window", async () => {
+    const { container } = await open(floor);
+    await tap(canvasOf(container), CAM, 16.8, 2.9);
+    await waitFor(() => expect(keptEqual(readKept(), [{ kind: "racks", key: "A05" }])).toBe(true));
+    // A zoom into the cage's left corner, around A01: its window holds no A05.
+    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    expect(card(container, "racks", "A05")).toBeNull();
+    await settle();
+    expect(keptEqual(readKept(), [{ kind: "racks", key: "A05" }])).toBe(true);
+});
+
+test("Details shows a rack read by area that the zoomed window no longer holds, read by its key (§4.5)", async () => {
+    const { container } = await open(floor);
+    await tap(canvasOf(container), CAM, 16.8, 2.9);
+    await waitFor(() => expect([detailsTitle(container), detailsRead(container)]).toEqual(["A05", true]));
+    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    expect(card(container, "racks", "A05")).toBeNull();
+    await settle();
+    await waitFor(() => expect([detailsTitle(container), detailsRead(container)]).toEqual(["A05", true]));
 });
 
 test("fit flies the camera when the narrowing changes, never as a zoom moves the window over a kind read by area (§10.3)", async () => {
