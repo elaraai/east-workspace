@@ -76,6 +76,21 @@ function countOf(node: NavZone): number {
     return node.items.length + node.children.reduce((n, child) => n + countOf(child), 0);
 }
 
+/**
+ * Whether the Index's search holds an item it searches itself — one of a kind read whole, or one a gesture made, which no
+ * source holds: its label, its key or its kind's name holds the query, each in the app's locale's lower case.
+ *
+ * @param item - The item
+ * @param query - The search; empty, every item
+ * @param kindName - An item kind's name, by its slot
+ * @param locale - The app's locale, which the search lowers its text in
+ * @returns Whether it holds the item
+ */
+export function indexSearchHolds(item: DrawnItem, query: string, kindName: (slot: string) => string, locale: string): boolean {
+    const q = query.trim().toLocaleLowerCase(locale);
+    return q === "" || [item.label, item.ref.key, kindName(item.ref.kind)].some((text) => text.toLocaleLowerCase(locale).includes(q));
+}
+
 /** What the Index's rows take of the kinds read by area (#1393, D52). */
 export interface IndexRowsOptions {
     /** The item kinds read by area, by slot: searched through their sources, each of their items listed is a match. */
@@ -97,10 +112,8 @@ export interface IndexRowsOptions {
  */
 export function indexRows(tree: { readonly roots: readonly NavZone[]; readonly floor: readonly DrawnItem[] }, open: ReadonlySet<string>, query: string,
     kindName: (slot: string) => string, locale: string, options: IndexRowsOptions = {}): IndexRow[] {
-    const q = query.trim().toLocaleLowerCase(locale);
-    const searching = q !== "";
-    const matches = (item: DrawnItem): boolean => !searching || options.searched?.has(item.ref.kind) === true
-        || [item.label, item.ref.key, kindName(item.ref.kind)].some((text) => text.toLocaleLowerCase(locale).includes(q));
+    const searching = query.trim() !== "";
+    const matches = (item: DrawnItem): boolean => options.searched?.has(item.ref.kind) === true || indexSearchHolds(item, query, kindName, locale);
     // A zone's items the search keeps, its nested zones' among them.
     const kept = (node: NavZone): number => node.items.filter(matches).length + node.children.reduce((n, child) => n + kept(child), 0);
     const zonesOf = (nodes: readonly NavZone[]): IndexEntry[] => [...nodes].sort((a, b) => byLabel(a.zone, b.zone)).map((node) => ({ kind: "zone", node }));

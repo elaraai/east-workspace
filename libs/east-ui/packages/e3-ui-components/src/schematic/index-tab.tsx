@@ -23,7 +23,13 @@
  *   open zone's by the zone's box, and the search's through the kind's
  *   source's `search` fields, its first matches listed and how many more said
  *   under the tree. A zone holding such items counts them once its box is
- *   read, and one holding more than a window reads says so.
+ *   read, and one holding more than a window reads says so. What it read is
+ *   as the record stores it, so the drafts are laid over it, as the canvas
+ *   draws them: a row a draft holds is listed where its draft has it — moved,
+ *   under the zone it now stands in — a row a gesture made is listed in its
+ *   zone, and the search finds it as it finds a kind read whole's, and a row
+ *   a draft deletes or unplaces is listed nowhere. Its items in no zone are the
+ *   search's and the Backlog's alone.
  * - **The keys** — the tree is one tab stop, pointing at its active row
  *   (`aria-activedescendant`, as the Sheet's grid does): ↑ and ↓ move between
  *   the rows, Home and End to the first and the last, → opens a zone or goes
@@ -52,7 +58,7 @@ import type { DrawnItem, DrawnZone } from "./canvas/drawn.js";
 import { buildNavTree } from "./canvas/model.js";
 import { itemTint, tintAttributes } from "./canvas/tints.js";
 import { NO_INDEX_AREA, type IndexAreaKind, type IndexAreaRead, type SchematicIndexArea } from "./index-area.js";
-import { indexRows, type IndexRow } from "./index-tree.js";
+import { indexRows, indexSearchHolds, type IndexRow } from "./index-tree.js";
 import type { SchematicWords } from "./messages.js";
 
 /** The recipe's slots, as the shared virtual rows take their root's: the Roster's and the Allocation's are typed so too. */
@@ -80,6 +86,13 @@ export interface SchematicIndexAreaProps {
     readonly reader: SchematicIndexArea;
     /** The layers hidden, by key: the Index lists none of the items on them. */
     readonly hiddenLayers: ReadonlySet<string>;
+    /**
+     * The rows of those kinds a draft holds, by id: each is listed as the canvas draws it — moved, edited or made — never
+     * as its record stores it, and none a draft deletes or unplaces.
+     */
+    readonly drafted: ReadonlySet<string>;
+    /** Of them, those a gesture made: no source holds them, so the search finds them as it finds a kind read whole's. */
+    readonly created: ReadonlySet<string>;
 }
 
 /** Props of {@link SchematicIndexTab}. */
@@ -149,11 +162,26 @@ export function SchematicIndexTab({ zones, items, kindName, inView, selected, on
         return () => clearTimeout(timer);
     }, [query]);
     const openZones = useMemo(() => zones.filter((zone) => open.has(zone.key)), [zones, open]);
-    const listed = useMemo(() => (area === undefined ? items : [
-        ...items.filter((item) => !areaSlots.has(item.ref.kind)),
-        ...areaRead.items.filter((item) => { const layer = getSomeorUndefined(item.layer); return layer === undefined || !area.hiddenLayers.has(layer); }),
-    ]), [area, items, areaSlots, areaRead]);
-    const tree = useMemo(() => buildNavTree(zones, listed), [zones, listed]);
+    const searching = query.trim() !== "";
+    const locale = words.locale;
+    const listed = useMemo(() => {
+        if (area === undefined) return items;
+        // What the tab read of the kinds read by area, as their records store them — but a row a draft holds, listed as the
+        // canvas draws it: moved or edited, a stored row the search found; made, one the search holds as a kind read whole's.
+        const read = areaRead.items.filter((item) => {
+            const layer = getSomeorUndefined(item.layer);
+            return !area.drafted.has(item.key) && (layer === undefined || !area.hiddenLayers.has(layer));
+        });
+        const found = new Set(areaRead.items.map((item) => item.key));
+        const drafted = items.filter((item) => areaSlots.has(item.ref.kind) && area.drafted.has(item.key)
+            && (!searching || found.has(item.key) || (area.created.has(item.key) && indexSearchHolds(item, query, kindName, locale))));
+        return [...items.filter((item) => !areaSlots.has(item.ref.kind)), ...read, ...drafted];
+    }, [area, items, areaSlots, areaRead, searching, query, kindName, locale]);
+    const tree = useMemo(() => {
+        const built = buildNavTree(zones, listed);
+        // A kind read by area's items in no zone are the search's and the Backlog's alone (D52).
+        return area === undefined || searching ? built : { ...built, floor: built.floor.filter((item) => !areaSlots.has(item.ref.kind)) };
+    }, [zones, listed, area, searching, areaSlots]);
     // A zone holding items of a kind read by area counts them once its box — or an enclosing zone's — is read.
     const whole = useMemo(() => (area === undefined ? undefined : (key: string) => {
         for (let at: string | undefined = key; at !== undefined; at = tree.parentOf.get(at)) if (areaRead.read.has(at)) return true;

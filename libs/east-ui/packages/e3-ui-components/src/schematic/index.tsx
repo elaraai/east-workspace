@@ -627,10 +627,24 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // The zone the viewport is in, which the Index marks: the canvas tells it only while the library lists the Index.
     const [inView, setInView] = useState<string | undefined>(undefined);
     const listsIndex = value.library.some((tab) => tab.type === "index");
-    // The Index's reads of the item kinds read by area (D52): an open zone's items by its box, and the search's.
+    // The Index's reads of the item kinds read by area (D52): an open zone's items by its box, and the search's — the rows a
+    // draft holds listed as the canvas draws them, never as their records store them.
     const [indexReader] = useState(() => new SchematicIndexArea(kindRows));
+    const areaDrafts = useMemo(() => {
+        const drafted = new Set<string>(), created = new Set<string>();
+        for (const [slot, rows] of editing.drafts.items) {
+            if (!areas.has(slot)) continue;
+            for (const [key, row] of rows) {
+                const id = entityId({ kind: slot, key });
+                drafted.add(id);
+                if (row?.created === true) created.add(id);
+            }
+        }
+        return { drafted, created };
+    }, [editing.drafts.items, areas]);
     const indexArea = useMemo(() => (!listsIndex || areaItemKinds.length === 0 ? undefined
-        : { kinds: areaItemKinds, reader: indexReader, hiddenLayers }), [listsIndex, areaItemKinds, indexReader, hiddenLayers]);
+        : { kinds: areaItemKinds, reader: indexReader, hiddenLayers, drafted: areaDrafts.drafted, created: areaDrafts.created }),
+    [listsIndex, areaItemKinds, indexReader, hiddenLayers, areaDrafts]);
 
     // ── The drops (#1390, §7, §8): the library's cards, onto the canvas ──
     // Each kind, as a drop reads it: its name, and whether it writes — bound with its patch door, the Schematic not read only.
