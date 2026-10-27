@@ -6,7 +6,8 @@
 import { NullType, OptionType, some, none, variant } from '@elaraai/east';
 import { ArrayType } from '@elaraai/east';
 import {
-  PackageJobResponseType, WorkspaceDeployStatusType, WorkspaceStateType, parsePackageRef, type TreePath, type WorkspaceDeployRequest,
+  PackageJobResponseType, WorkspaceDeployStatusType, WorkspaceStateType, parsePackageRef,
+  type ApiTaskStatus, type DatasetStatus as ApiDatasetStatus, type TreePath, type WorkspaceDeployRequest,
 } from '@elaraai/e3-types';
 import {
   workspaceListStates,
@@ -23,7 +24,7 @@ import {
   PackageNotFoundError,
   WorkspaceLockError,
 } from '@elaraai/e3-core/portable';
-import type { StorageBackend, TaskRunner, WorkspaceDeployStore } from '@elaraai/e3-core/portable';
+import type { DatasetStatus, StorageBackend, TaskRunner, TaskStatus, WorkspaceDeployStore } from '@elaraai/e3-core/portable';
 import { sendSuccess, sendError } from '../beast2.js';
 import { conditionalHeaders, sendNotModified, workspaceStatusTag } from '../conditional.js';
 import { errorToVariant } from '../errors.js';
@@ -245,18 +246,17 @@ export async function getWorkspaceStatus(
   }
 }
 
-// Helper to convert dataset status to variant format
-function convertDatasetStatus(status: { type: string }) {
+/** A dataset's status, as the API answers it. */
+function convertDatasetStatus(status: DatasetStatus): ApiDatasetStatus {
   switch (status.type) {
     case 'unset': return variant('unset', null);
     case 'stale': return variant('stale', null);
     case 'up-to-date': return variant('up-to-date', null);
-    default: return variant('unset', null);
   }
 }
 
-// Helper to convert task status to variant format
-function convertTaskStatus(status: any) {
+/** A task's status, as the API answers it. */
+function convertTaskStatus(status: TaskStatus): ApiTaskStatus {
   switch (status.type) {
     case 'up-to-date':
       return variant('up-to-date', { cached: status.cached });
@@ -266,26 +266,24 @@ function convertTaskStatus(status: any) {
       return variant('waiting', { reason: status.reason });
     case 'in-progress':
       return variant('in-progress', {
-        pid: status.pid != null ? some(BigInt(status.pid)) : none,
-        startedAt: status.startedAt ? some(status.startedAt) : none,
+        pid: status.pid === undefined ? none : some(BigInt(status.pid)),
+        startedAt: status.startedAt === undefined ? none : some(status.startedAt),
       });
     case 'failed':
       return variant('failed', {
         exitCode: BigInt(status.exitCode),
-        completedAt: status.completedAt ? some(status.completedAt) : none,
+        completedAt: status.completedAt === undefined ? none : some(status.completedAt),
       });
     case 'error':
       return variant('error', {
         message: status.message,
-        completedAt: status.completedAt ? some(status.completedAt) : none,
+        completedAt: status.completedAt === undefined ? none : some(status.completedAt),
       });
     case 'stale-running':
       return variant('stale-running', {
-        pid: status.pid != null ? some(BigInt(status.pid)) : none,
-        startedAt: status.startedAt ? some(status.startedAt) : none,
+        pid: status.pid === undefined ? none : some(BigInt(status.pid)),
+        startedAt: status.startedAt === undefined ? none : some(status.startedAt),
       });
-    default:
-      return variant('ready', null);
   }
 }
 

@@ -29,6 +29,7 @@ import {
   WorkspaceRecordType,
 } from '@elaraai/e3-types';
 import { createWorkspaceRecordRoutes, type RecordRoutesOptions } from '../routes/records.js';
+import type { Identity } from '../identity.js';
 import { effectiveBudgetMs } from './records.js';
 // Through the handlers entry, as a host reaches it.
 import { mutationResultOf } from './index.js';
@@ -108,17 +109,20 @@ async function seedDeployedRecord(storage: InMemoryStorage): Promise<void> {
 
 type ActorOption = ReturnType<typeof some<string>> | typeof none;
 
+/** What a host's auth sets on a request's context, as the routes read it. */
+type IdentityEnv = { Variables: { identity?: Identity } };
+
 /** Mount the record routes under the host's options, optionally injecting an
  *  authenticated identity. */
 function buildApp(
   storage: InMemoryStorage,
   runner: MockTaskRunner,
-  identity?: { sub: string; email?: string; roles?: string[] },
+  identity?: Identity,
   options: RecordRoutesOptions = {},
-): Hono {
-  const app = new Hono();
+): Hono<IdentityEnv> {
+  const app = new Hono<IdentityEnv>();
   if (identity) {
-    app.use('*', async (c, next) => { (c as any).set('identity', identity); await next(); });
+    app.use('*', async (c, next) => { c.set('identity', identity); await next(); });
   }
   app.route('/api/repos/:repo/workspaces/:ws/records', createWorkspaceRecordRoutes(storage, () => REPO, () => runner, options));
   return app;
@@ -164,7 +168,7 @@ class StalledRunner extends MockTaskRunner {
   }
 }
 
-function postMutate(app: Hono, actor: ActorOption, extraHeaders?: Record<string, string>): Promise<Response> {
+function postMutate(app: Hono<IdentityEnv>, actor: ActorOption, extraHeaders?: Record<string, string>): Promise<Response> {
   return Promise.resolve(app.request(`/api/repos/r/workspaces/${WS}/records/counter/mutations/increment`, {
     method: 'POST',
     headers: { 'Content-Type': BEAST2_CONTENT_TYPE, ...extraHeaders },
@@ -172,7 +176,7 @@ function postMutate(app: Hono, actor: ActorOption, extraHeaders?: Record<string,
   }));
 }
 
-function postCompact(app: Hono): Promise<Response> {
+function postCompact(app: Hono<IdentityEnv>): Promise<Response> {
   return Promise.resolve(app.request(`/api/repos/r/workspaces/${WS}/records/counter/compact`, {
     method: 'POST',
     headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
@@ -180,7 +184,7 @@ function postCompact(app: Hono): Promise<Response> {
   }));
 }
 
-function getHistory(app: Hono, query = ''): Promise<Response> {
+function getHistory(app: Hono<IdentityEnv>, query = ''): Promise<Response> {
   return Promise.resolve(app.request(`/api/repos/r/workspaces/${WS}/records/counter/history${query}`));
 }
 

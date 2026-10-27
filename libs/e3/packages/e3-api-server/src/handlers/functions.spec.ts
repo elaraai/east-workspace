@@ -18,6 +18,9 @@ import {
   variant,
   some,
   none,
+  type EastType,
+  type ValueTypeOf,
+  type VariantType,
 } from '@elaraai/east';
 import { InMemoryTransferBackend, MockTaskRunner, type OneShotGrant } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
@@ -29,7 +32,9 @@ import {
   getSplitCallStatus,
 } from './functions.js';
 import { createOneShotRoutes, createPackageFunctionRoutes, oneShotAccessByRoles, type OneShotAccess } from '../routes/functions.js';
+import type { Identity } from '../identity.js';
 import {
+  ErrorType,
   ResponseType,
   FunctionSignatureType,
   ExecuteResultType,
@@ -48,10 +53,13 @@ const VERSION = '1.0.0';
 
 const encodeInt = encodeBeast2For(IntegerType);
 
-async function decodeResponse<T>(response: Response, type: any): Promise<{ type: string; value: T }> {
-  const body = new Uint8Array(await response.arrayBuffer());
-  return decodeBeast2For(ResponseType(type))(body) as { type: string; value: T };
+/** A route's answer, decoded as the API answers `type`: a success holding a value of it, or an error. */
+async function decodeResponse<T extends EastType>(response: Response, type: T): Promise<ValueTypeOf<VariantType<{ success: T; error: typeof ErrorType }>>> {
+  return decodeBeast2For(ResponseType(type))(new Uint8Array(await response.arrayBuffer()));
 }
+
+/** What a host's auth sets on a request's context, as the routes read it. */
+type IdentityEnv = { Variables: { identity?: Identity } };
 
 /** Seed a repo containing one function `double` (Integer -> Integer). */
 async function seedPackage(storage: InMemoryStorage): Promise<void> {
@@ -95,19 +103,20 @@ describe('function handlers', () => {
 
   it('listPackageFunctions surfaces the signature', async () => {
     const response = await listPackageFunctions(storage, REPO, PKG, VERSION);
-    const result = await decodeResponse<any[]>(response, ArrayType(FunctionSignatureType));
-    assert.equal(result.type, 'success');
+    const result = await decodeResponse(response, ArrayType(FunctionSignatureType));
+    assert.ok(result.type === 'success');
     assert.equal(result.value.length, 1);
-    assert.equal(result.value[0].name, 'double');
-    assert.equal(result.value[0].inputTypes.length, 1);
-    assert.equal(result.value[0].outputType.type, 'Integer');
+    const signature = result.value[0]!;
+    assert.equal(signature.name, 'double');
+    assert.equal(signature.inputTypes.length, 1);
+    assert.equal(signature.outputType.type, 'Integer');
   });
 
   it('describePackageFunction returns task_not_found for unknown functions', async () => {
     const response = await describePackageFunction(storage, REPO, PKG, VERSION, 'nope');
-    const result = await decodeResponse<any>(response, FunctionSignatureType);
-    assert.equal(result.type, 'error');
-    assert.equal((result.value as { type: string }).type, 'task_not_found');
+    const result = await decodeResponse(response, FunctionSignatureType);
+    assert.ok(result.type === 'error');
+    assert.equal(result.value.type, 'task_not_found');
   });
 
   it('callFunctionSync returns the runner result inline', async () => {
@@ -121,10 +130,11 @@ describe('function handlers', () => {
       storage, REPO, runner, PKG, VERSION, 'double',
       callRequest([encodeInt(5n)])
     );
-    const result = await decodeResponse<any>(response, ExecuteResultType);
-    assert.equal(result.type, 'success');
-    assert.equal(result.value.outcome.type, 'success');
-    assert.equal(decodeBeast2For(IntegerType)(result.value.outcome.value.value), 10n);
+    const result = await decodeResponse(response, ExecuteResultType);
+    assert.ok(result.type === 'success');
+    const { outcome } = result.value;
+    assert.ok(outcome.type === 'success');
+    assert.equal(decodeBeast2For(IntegerType)(outcome.value.value), 10n);
     assert.equal(result.value.stdout, 'log line');
 
     // The stored runner reached the spec
@@ -154,7 +164,7 @@ describe('function handlers', () => {
     for (const grant of ['platform_free', 'none'] as const) {
       const response = await callFunctionSync(storage, REPO, runner, PKG, VERSION, 'double',
         callRequest([encodeInt(5n)], some(variant('east_py', { platforms: ['east-py-std'], decode: variant('lazy', null) }))), false, undefined, grant);
-      const result = await decodeResponse<any>(response, ExecuteResultType);
+      const result = await decodeResponse(response, ExecuteResultType);
       assert.equal(result.type, 'error', grant);
       assert.deepEqual(result.value, variant('permission_denied', { path: 'runner' }), grant);
     }
@@ -165,15 +175,17 @@ describe('function handlers', () => {
     for (const grant of ['any', 'platform_free', 'none'] as const) {
       const response = await callFunctionSync(storage, REPO, runner, PKG, VERSION, 'double',
         callRequest([encodeInt(5n)], some(variant('custom', { command: ['sh', '-c', 'echo ran'] }))), false, undefined, grant);
-      const result = await decodeResponse<any>(response, ExecuteResultType);
-      assert.equal(result.value.outcome.type, 'invalid', grant);
-      assert.match(result.value.outcome.value.diagnostics[0].message, /names the custom runtime/, grant);
+      const result = await decodeResponse(response, ExecuteResultType);
+      assert.ok(result.type === 'success', grant);
+      const { outcome } = result.value;
+      assert.ok(outcome.type === 'invalid', grant);
+      assert.match(outcome.value.diagnostics[0]!.message, /names the custom runtime/, grant);
     }
     assert.equal(runner.getDetachedCalls().length, 0, 'nothing ran');
   });
 
   it('holds a runner a call names to the grant its routes\' access gives, and to none without one', async () => {
-    const call = async (access: OneShotAccess | undefined): Promise<{ type: string; value: any }> => {
+    const call = async (access: OneShotAccess | undefined) => {
       const app = new Hono();
       app.route('/api/repos/:repo/packages/:pkg/:version/functions',
         createPackageFunctionRoutes(storage, () => REPO, () => runner, access === undefined ? {} : { access }));
@@ -182,7 +194,7 @@ describe('function handlers', () => {
         headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
         body: encodeBeast2For(FunctionCallRequestType)(callRequest([encodeInt(5n)], some(variant('east_py', { platforms: ['east-py-std'], decode: variant('lazy', null) })))),
       });
-      return decodeResponse<any>(response, ExecuteResultType);
+      return decodeResponse(response, ExecuteResultType);
     };
     assert.deepEqual((await call(undefined)).value, variant('permission_denied', { path: 'runner' }), 'no access: no caller adds a package');
     assert.deepEqual((await call(() => 'platform_free')).value, variant('permission_denied', { path: 'runner' }));
@@ -195,10 +207,11 @@ describe('function handlers', () => {
       storage, REPO, runner, PKG, VERSION, 'double',
       callRequest([encodeInt(1n), encodeInt(2n)])
     );
-    const result = await decodeResponse<any>(response, ExecuteResultType);
-    assert.equal(result.type, 'success');
-    assert.equal(result.value.outcome.type, 'invalid');
-    assert.match(result.value.outcome.value.diagnostics[0].message, /Expected 1 argument/);
+    const result = await decodeResponse(response, ExecuteResultType);
+    assert.ok(result.type === 'success');
+    const { outcome } = result.value;
+    assert.ok(outcome.type === 'invalid');
+    assert.match(outcome.value.diagnostics[0]!.message, /Expected 1 argument/);
     assert.equal(runner.getDetachedCalls().length, 0, 'nothing should have executed');
   });
 
@@ -207,11 +220,12 @@ describe('function handlers', () => {
       storage, REPO, runner, PKG, VERSION, 'double',
       { args: [variant('dataset', [variant('field', 'inputs'), variant('field', 'n')])], runner: none, limits: none }
     );
-    const result = await decodeResponse<any>(response, ExecuteResultType);
-    assert.equal(result.type, 'success');
-    assert.equal(result.value.outcome.type, 'invalid');
+    const result = await decodeResponse(response, ExecuteResultType);
+    assert.ok(result.type === 'success');
+    const { outcome } = result.value;
+    assert.ok(outcome.type === 'invalid');
     assert.equal(
-      result.value.outcome.value.diagnostics[0].message,
+      outcome.value.diagnostics[0]!.message,
       'Argument 0 is the dataset .inputs.n, and a call through the package has no workspace to read it from: '
       + 'call the function through a workspace it is deployed to, at …/workspaces/<ws>/functions/double',
     );
@@ -241,11 +255,11 @@ describe('one-shot access', () => {
 
   /** The one-shot routes behind `access`, with the identity a host's auth
    *  sets, when there is one. */
-  const buildApp = (access: OneShotAccess, runner: MockTaskRunner, roles?: string[]): Hono => {
-    const app = new Hono();
+  const buildApp = (access: OneShotAccess, runner: MockTaskRunner, roles?: string[]): Hono<IdentityEnv> => {
+    const app = new Hono<IdentityEnv>();
     if (roles !== undefined) {
       app.use('*', async (c, next) => {
-        (c as any).set('identity', { sub: 'user', roles });
+        c.set('identity', { sub: 'user', roles });
         await next();
       });
     }
@@ -256,7 +270,7 @@ describe('one-shot access', () => {
     return app;
   };
 
-  const post = (app: Hono, body: Uint8Array = oneShotBody()) =>
+  const post = (app: Hono<IdentityEnv>, body: Uint8Array = oneShotBody()) =>
     app.request('/api/repos/r/workspaces/w/one-shot', {
       method: 'POST',
       headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
@@ -265,10 +279,10 @@ describe('one-shot access', () => {
 
   it('gives an elevated role any one-shot, any other identity a platform-free one, and a request with none nothing', async () => {
     const grantOf = async (roles?: string[], elevated?: readonly string[]): Promise<string> => {
-      const app = new Hono();
+      const app = new Hono<IdentityEnv>();
       if (roles !== undefined) {
         app.use('*', async (c, next) => {
-          (c as any).set('identity', { sub: 'user', roles });
+          c.set('identity', { sub: 'user', roles });
           await next();
         });
       }
@@ -293,7 +307,7 @@ describe('one-shot access', () => {
     ];
     for (const [grant, body] of refused) {
       const runner = new MockTaskRunner();
-      const result = await decodeResponse<any>(await post(buildApp(() => grant, runner), body), ExecuteResultType);
+      const result = await decodeResponse(await post(buildApp(() => grant, runner), body), ExecuteResultType);
       assert.equal(result.type, 'error');
       assert.deepEqual(result.value, variant('permission_denied', { path: 'one-shot' }));
       assert.equal(runner.getDetachedCalls().length, 0, 'nothing ran');
@@ -304,9 +318,9 @@ describe('one-shot access', () => {
     // Past the grant, the request fails on the workspace, which does not exist.
     const runner = new MockTaskRunner();
     const response = await post(buildApp(() => 'any', runner), oneShotBody(logging, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) })));
-    const result = await decodeResponse<any>(response, ExecuteResultType);
-    assert.equal(result.type, 'error');
-    assert.notEqual((result.value as { type: string }).type, 'permission_denied');
+    const result = await decodeResponse(response, ExecuteResultType);
+    assert.ok(result.type === 'error');
+    assert.notEqual(result.value.type, 'permission_denied');
   });
 
   it('launches a split call only under a grant that runs it, and polls one only for a caller with a grant', async () => {
@@ -329,14 +343,14 @@ describe('one-shot access', () => {
         headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
         body,
       });
-      const result = await decodeResponse<any>(response, PackageJobResponseType);
+      const result = await decodeResponse(response, PackageJobResponseType);
       assert.equal(result.type, 'error');
       assert.deepEqual(result.value, variant('permission_denied', { path: 'one-shot' }));
       assert.equal(runner.getCalls().length, 0, 'nothing ran');
     }
 
     const polled = await buildApp(() => 'none', new MockTaskRunner()).request('/api/repos/r/workspaces/w/one-shot/split/job');
-    const status = await decodeResponse<any>(polled, SplitCallStatusType);
+    const status = await decodeResponse(polled, SplitCallStatusType);
     assert.deepEqual(status.value, variant('permission_denied', { path: 'one-shot' }));
   });
 
@@ -353,7 +367,7 @@ describe('one-shot access', () => {
       });
     }
     const poll = async (repo: string, ws: string, id: string, grant: OneShotGrant) =>
-      decodeResponse<any>(await getSplitCallStatus(new InMemoryStorage(), repo, store, repo, ws, id, grant), SplitCallStatusType);
+      decodeResponse(await getSplitCallStatus(new InMemoryStorage(), repo, store, repo, ws, id, grant), SplitCallStatusType);
 
     for (const [repo, ws] of [['r', 'other'], ['other', 'w']] as const) {
       const elsewhere = await poll(repo, ws, 'free', 'any');
