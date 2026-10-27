@@ -34,6 +34,7 @@ import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
 import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { setOverlapsProbe } from "../shared/schedule/overlaps.js";
+import { setNavigatorStylesProbe } from "../shared/time/navigation.js";
 import { DAY, eventKey, parseEventKey } from "./model.js";
 import { TIMELINE_GUTTER, timelineDays, timelinePixels } from "./timeline.js";
 import { setBookedProbe, setEventBlockRenderProbe, setFitMeasureProbe } from "./views.js";
@@ -595,6 +596,26 @@ describe("the timeline draws only what moves (#1398, CL9)", () => {
             expect(brought.filter(id => times.get(id) !== 1)).toEqual([]);
         } finally {
             setFitMeasureProbe(undefined);
+        }
+    });
+
+    test("a day crossed draws the toolbar's date navigator again with its styles made once for the theme: the same styles at every render, never worked out again", async () => {
+        const { container, timeline } = await openTimeline("month", "navigator-styles");
+        const drawn: object[] = [];
+        setNavigatorStylesProbe(styles => { drawn.push(styles); });
+        try {
+            const label = () => slot(container, "toolbar").querySelector("[data-time-navigation=calendar] [data-time-trigger]")?.getAttribute("title");
+            const labels = new Set<string | null | undefined>([label()]);
+            for (let day = 0; day < 4; day++) {
+                await scrollTo(timeline, timeline.scrollLeft + timelinePixels("month"));
+                labels.add(label());
+            }
+            // The navigator drawn again as the days move, with one set of styles every time.
+            expect(labels.size).toBeGreaterThan(1);
+            expect(drawn.length).toBeGreaterThan(1);
+            expect(new Set(drawn).size).toBe(1);
+        } finally {
+            setNavigatorStylesProbe(undefined);
         }
     });
 

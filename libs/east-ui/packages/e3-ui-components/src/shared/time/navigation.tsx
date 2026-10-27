@@ -49,12 +49,27 @@ export interface TimeNavigatorProps {
     onToday?: (() => void) | undefined;
 }
 
+/**
+ * Test-only probe — lets "a navigator drawn again draws with the styles made once for the theme" be asserted as the
+ * styles each render draws with (#1398, CL9). `undefined` outside tests.
+ */
+let navigatorStylesProbe: ((styles: object) => void) | undefined;
+/**
+ * Install (or clear) the navigator styles probe. Test use only.
+ *
+ * @param fn - Called with the styles a navigator draws with, each time it renders; `undefined` clears it
+ */
+export function setNavigatorStylesProbe(fn: ((styles: object) => void) | undefined): void {
+    navigatorStylesProbe = fn;
+}
+
 /** One date/range trigger between arrows, with the same Today action in every popup. */
 export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor, onToday }: TimeNavigatorProps) {
     const format = useFormatters();
     const now = useNow(givenNow);
     const recipe = useSlotRecipe({ key: "timeNavigator" });
     const styles = recipe({});
+    navigatorStylesProbe?.(styles);
     const [open, setOpen] = useState(false);
     const [month, setMonth] = useState(() => monthStart(date));
     const [panel, setPanel] = useState<Panel>(firstPanel(period, initialPanel));
