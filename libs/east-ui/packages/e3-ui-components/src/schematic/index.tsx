@@ -571,8 +571,11 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
 
     // ── The library (#1389, §8): the start pane, when `library` lists a tab ──
     // Every item kind's rows with no position, the drafts in place: the Backlog's — dimmed, its context left out (#1392).
-    const backlog = useMemo(() => backlogEntries(value.items, data.unplaced, data.held, editing.drafts.items).filter((entry) => !narrowing.isContext(entry.ref)),
-        [value.items, data.unplaced, data.held, editing.drafts.items, narrowing]);
+    // A kind read by area's drafted rows with no position are listed wherever its window is, each told by the row its session
+    // began from (#1393).
+    const backlogArea = useMemo(() => ({ kinds: areas, held: drafted }), [areas, drafted]);
+    const backlog = useMemo(() => backlogEntries(value.items, data.unplaced, data.held, editing.drafts.items, backlogArea)
+        .filter((entry) => !narrowing.isContext(entry.ref)), [value.items, data.unplaced, data.held, editing.drafts.items, backlogArea, narrowing]);
     // An item kind with a backlog read through its source: while the rail narrows one, the Backlog says so, with Clear filters.
     const backlogParts = useMemo(() => value.items.flatMap((kind) => {
         const part = kind.backlog ? sourcePart(chrome, kind.key) : undefined;

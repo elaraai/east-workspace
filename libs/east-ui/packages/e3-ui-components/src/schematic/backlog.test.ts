@@ -64,6 +64,25 @@ describe("backlogEntries", () => {
         expect(listed(rackDrafts(new Map([["A09", { roles: row("A09", undefined), created: false }]])))).toEqual(["racks:A06", "racks:A07", "cooling:CRAH-9"]);
     });
 
+    test("a kind read by area lists a drafted row with no position wherever its window is, by the row its session began from", () => {
+        // The window holds none of the racks: A01 and A02 a gesture unplaced, A06 its stored row already with none, new-1 made.
+        const window: SchematicHeldRows = new Map([["racks", new Map()]]);
+        const drafts = rackDrafts(new Map([
+            ["A01", { roles: row("A01", undefined), created: false, began: row("A01", { x: 2, y: 3 }) }],
+            ["A02", { roles: row("A02", undefined), created: false, began: row("A02", { x: 6, y: 3 }) }],
+            ["A06", { roles: { ...row("A06", undefined), label: "A06 · spare" }, created: false, began: row("A06", undefined) }],
+            ["new-1", { roles: row("new-1", undefined), created: true }],
+        ]));
+        const area = (held: (key: string) => boolean | undefined) => ({ kinds: new Set(["racks"]), held: (at: { kind: string; key: string }) => held(at.key) });
+        const listedBy = (held: (key: string) => boolean | undefined) => backlogEntries(KINDS, new Map(), window, drafts, area(held)).map((entry) => entry.ref.key);
+        // A06's stored row has no position: its page lists it, its draft in place.
+        expect(listedBy(() => undefined)).toEqual(["A01", "A02", "new-1"]);
+        // A02's stored row is not the narrowing's: it waits in its session. A row a gesture made is listed whatever the narrowing.
+        expect(listedBy((key) => key !== "A02")).toEqual(["A01", "new-1"]);
+        // A kind read otherwise still waits for its read to hold the row.
+        expect(backlogEntries(KINDS, new Map(), window, drafts).map((entry) => entry.ref.key)).toEqual(["new-1"]);
+    });
+
     test("a drafted row keeps the roles its draft gives it", () => {
         const renamed = { ...row("A07", undefined), label: "A07 · spare" };
         const entry = backlogEntries(KINDS, UNPLACED, HELD, rackDrafts(new Map([["A07", { roles: renamed, created: false }]]))).find((e) => e.ref.key === "A07")!;

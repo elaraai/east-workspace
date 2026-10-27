@@ -40,6 +40,12 @@ export interface DraftedRow<R> {
     readonly roles: R;
     /** Whether a gesture created it: no read holds a row of its key. */
     readonly created: boolean;
+    /**
+     * The roles of the row its session began from — what its record held when the session first read it — as its kind
+     * reads them: where a kind read by area's paged Backlog lists it, by its stored place (`backlog.ts`, #1393).
+     * `undefined` for a row a gesture created, and where the session is not said.
+     */
+    readonly began?: R | undefined;
 }
 
 /** One sort's drafts: by each kind's slot, then by key — the drafted row, or `undefined` for one its draft deletes. */

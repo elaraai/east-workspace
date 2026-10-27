@@ -37,8 +37,10 @@
  *   hands back, whole. A gesture any of whose rows its kind refuses records
  *   nothing.
  * - **Its drafts.** Each draft is decoded once: its roles read through its
- *   kind's `read`, kept while its session keeps the entry's version — what the
- *   frame draws over the stored rows (`drafted.ts`).
+ *   kind's `read`, and the roles of the row its session began from beside
+ *   them, kept while its session keeps the entry's version — what the frame
+ *   draws over the stored rows (`drafted.ts`), and where a kind read by area's
+ *   Backlog lists it (`backlog.ts`).
  * - **What stands in.** While what the canvas draws stands in for a new
  *   narrowing, or a narrowing the frame follows could not be read, it is
  *   retained (#1398, CL8): no record takes an edit — every route asks
@@ -215,8 +217,13 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
                     if (entry === undefined || row === undefined) { rows.set(id, undefined); continue; }
                     let drafted = decoded.current.get(entry) as DraftedRow<R> | undefined;
                     if (drafted === undefined) {
-                        // A row its session found absent before the gesture that wrote it is new.
-                        drafted = { roles: kind.read(codec.encode(row.row), id), created: session?.originals.get(id)?.draft === undefined };
+                        // A row its session found absent before the gesture that wrote it is new; any other began as the row its
+                        // record held then.
+                        const began = draftedRow(session?.originals.get(id))?.row;
+                        drafted = {
+                            roles: kind.read(codec.encode(row.row), id), created: began === undefined,
+                            began: began === undefined ? undefined : kind.read(codec.encode(began), id),
+                        };
                         decoded.current.set(entry, drafted);
                     }
                     rows.set(id, drafted);
