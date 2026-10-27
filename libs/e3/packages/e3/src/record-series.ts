@@ -30,7 +30,7 @@
  * @packageDocumentation
  */
 import {
-  ArrayType, DateTimeType, DictType, East, NullType, OptionType, SetType, StringType, StructType, variant, withLocationCapture,
+  ArrayType, DateTimeType, DictType, East, NullType, SetType, StringType, StructType, variant, withLocationCapture,
   type EastType,
 } from '@elaraai/east';
 import { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
@@ -39,7 +39,7 @@ import {
   INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexConstructor,
 } from './record-guards.js';
 import { checkLeading, checkTimeField, leadingValues, readerOf, type Leading, type OptionField, type RowType } from './record-keys.js';
-import { TileFilingType, TileShareType, checkTile, eventFilings, tileShares, type RecordTile } from './record-tiles.js';
+import { TileFilingType, TileShareType, checkTile, placedFilings, placedShares, type RecordTile } from './record-tiles.js';
 
 /** What a series or a summary index's declaration names (`e3.recordIndex.series`, `e3.recordIndex.summary`). */
 export interface TimeTileSpec {
@@ -102,42 +102,6 @@ function checkTimeTile(constructor: IndexConstructor, name: string, valueType: E
   }
   return { rowType, leading: checkLeading(name, rowType, on), key: { field: spec.key, type: keyType }, start, end, tile };
 }
-
-/**
- * The places a series index files an event (`eventFilings`): none for an event
- * with no start; one with no end is an instant.
- *
- * `(tile, start, end, what) → each place it is filed, in order`
- */
-const placedFilings = East.function(
-  [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType], ArrayType(TileFilingType),
-  ($, tile, start, end, what) => {
-    const file = $.const(eventFilings);
-    $.match(start, {
-      some: ($, from) => { $.return(file(tile, from, end.unwrap('some', () => from), what)); },
-      none: () => {},
-    });
-    return [];
-  },
-);
-
-/**
- * The tiles an event touches, and its share of each (`tileShares`): none for an
- * event with no start; one with no end is an instant.
- *
- * `(tile, start, end, what) → each tile it touches, in order, and the milliseconds of it the event covers`
- */
-const placedShares = East.function(
-  [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType], ArrayType(TileShareType),
-  ($, tile, start, end, what) => {
-    const share = $.const(tileShares);
-    $.match(start, {
-      some: ($, from) => { $.return(share(tile, from, end.unwrap('some', () => from), what)); },
-      none: () => {},
-    });
-    return [];
-  },
-);
 
 /**
  * A series index's definition (`e3.recordIndex.series`): its key function,

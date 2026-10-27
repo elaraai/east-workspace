@@ -155,11 +155,15 @@ export {
 } from './dataset-file.js';
 export { DatasetSourceType, type DatasetSource } from './input.js';
 export { addObject } from './export.js';
-export { indexBuildProgram, buildMutationProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType } from './record-programs.js';
+export { indexBuildProgram, buildMutationProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType, builtIndex } from './record-programs.js';
 export type {
-  RecordIndexSpec, IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, TimeTileOf,
-  IndexFunction, IndexKeyOf, SummaryKeyOf, IndexOn, ProjectionOf,
+  RecordIndexSpec, IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, NestedSeriesIndexSpec, TimeTileOf,
+  IndexFunction, IndexKeyOf, SummaryKeyOf, NestedKeyOf, NestedValueOf, IndexOn, ProjectionOf,
 } from './record-index.js';
+export type {
+  SeriesItems, SeriesValues, SeriesRows, SeriesRecursive, SeriesItemsOptions, SeriesValuesOptions, SeriesFoldLiteral, SeriesAggregateLiteral,
+  SeriesRollupInput, SeriesCollections, SeriesCollectionFor, SeriesTimes, ItemTimeField, DictField, ChildOf, PlacesOf, NestedOf, Misfit,
+} from './record-nested.js';
 export {
   RECORD_TILES, MAX_EVENT_TILES, SHORTEST_MS, TileShareType, TileFilingType, tileStart, tileNext, tileShares, eventFilings, type RecordTile,
 } from './record-tiles.js';

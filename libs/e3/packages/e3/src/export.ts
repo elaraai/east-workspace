@@ -21,7 +21,7 @@ import yazl from 'yazl';
 import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, linkImports, type EastType, type FunctionManifest, type LinkedImport } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MigrationObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
 import { E3_RELEASE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob, pathToString } from '@elaraai/e3-types';
-import { buildMutationProgram, hasKeyedDelta, indexBuildProgram, migrationProgram, summaryMergeProgram } from './record-programs.js';
+import { buildMutationProgram, builtIndex, hasKeyedDelta, indexBuildProgram, migrationProgram, summaryMergeProgram } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { AsyncIRBundle, IRBundle, PackageDef, PackageItem } from './types.js';
 import { bundleOf } from './record-guards.js';
@@ -385,8 +385,11 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
 
     // An index ships its declared functions AND the program built from them:
     // what runs is the program, and it is linked and encoded like any body.
+    // Each as it is built: beside a nested series index, the lean row where it
+    // carries none or the row (#1434).
     const indexes = new SortedMap<string, string>(); // name -> RecordIndexObject hash
-    for (const [iname, idef] of Object.entries(rdef.indexes)) {
+    for (const [iname, declared] of Object.entries(rdef.indexes)) {
+      const idef = builtIndex(rdef, declared);
       const owner = `index "${rname}.${iname}"`;
       const irHash = (expr: { toIR(): unknown }): string =>
         addObject(zipfile, Buffer.from(encodeEastIR(link(bundleOf(expr), owner, idef.runner))));

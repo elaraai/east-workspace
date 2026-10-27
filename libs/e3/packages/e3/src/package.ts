@@ -180,6 +180,17 @@ export function package_(
     return named;
   };
 
+  // One nested series index a record (#1434): it declares every collection the
+  // record's rows nest, and the record's other indexes carry its lean rows.
+  const oneNested = (record: string, indexes: Record<string, RecordIndexDef>): Record<string, RecordIndexDef> => {
+    const nested = Object.values(indexes).filter((index) => index.nested !== undefined);
+    if (nested.length > 1) {
+      throw new Error(`e3.recordIndex.series '${nested[1]!.name}': record '${record}' has a nested series index already, '${nested[0]!.name}' — ` +
+        'one declares every collection a record nests');
+    }
+    return indexes;
+  };
+
   // A record's migrations in the order they run. They are one chain: exactly
   // one step has no `after`, no two name the same one, and the last leaves the
   // record as it is declared, since a deploy leaves a migrated record at the
@@ -236,11 +247,11 @@ export function package_(
           ...Object.values(rec.mutations),
           ...(mutationsByRecord.get(rec.name) ?? []),
         ]),
-        indexes: byName(rec.name, 'indexes', [
+        indexes: oneNested(rec.name, byName(rec.name, 'indexes', [
           ...Object.values(records[rec.name]?.indexes ?? {}),
           ...Object.values(rec.indexes),
           ...(indexesByRecord.get(rec.name) ?? []),
-        ]),
+        ])),
         migrations: chainOf(rec, [
           ...(records[rec.name]?.migrations ?? []),
           ...rec.migrations,

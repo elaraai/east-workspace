@@ -80,6 +80,27 @@ function dictEntry(recordType: EastType, what: string): { keyType: EastType; val
   return { keyType: recordType.key, valueType: recordType.value };
 }
 
+/**
+ * A record's index as it is built and bound (#1434): as declared, but, beside
+ * a nested series index of the record, one that carries nothing — a plain or
+ * an interval index with no `value` — or the row — an area index, a key-form
+ * series index — carries the lean row instead: its rows without the listed
+ * collections, so a page of them reads no nested item and no segment of the
+ * record's own. An index with a `value` of its own carries its own.
+ *
+ * @param rec - The record, its indexes declared
+ * @param index - One of its indexes
+ * @returns The index as it is built
+ */
+export function builtIndex(rec: RecordDef, index: RecordIndexDef): RecordIndexDef {
+  const nested = Object.values(rec.indexes).find((other) => other.nested !== undefined)?.nested;
+  if (nested === undefined || index.nested !== undefined || index.summary !== undefined) return index;
+  const carriesTheRow = index.area !== undefined || index.series !== undefined;
+  if (index.valueFn !== undefined && !carriesTheRow) return index;
+  const { valueType } = dictEntry(rec.type, `index '${index.name}'`);
+  return { ...index, valueFn: nested.lean, valueType };
+}
+
 /** An index's keys for a row: `(K, V) → Set<IK>` — its `keys` function, or its `key` function's one key. */
 function indexKeys(index: RecordIndexDef, keyType: EastType, valueType: EastType) {
   const keysType = SetType(index.keyType);
@@ -110,6 +131,8 @@ function indexProjection(index: RecordIndexDef, keyType: EastType, valueType: Ea
  * A summary's program emits each row's contributions under their keys, `k`
  * Null (#1039). Two rows, in one piece or two, contribute to one key: the
  * build's output names the merge that sums them ({@link summaryMergeProgram}).
+ * A nested series index's emits each row's entries, each with its own value
+ * (#1434).
  *
  * @param recordType - the record's state type, `Dict<K, V>`
  * @param def - the index declaration
@@ -131,6 +154,18 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef) {
     }));
   }
   const emitType = FunctionType([indexEntryKeyType(keyType, def.keyType), def.valueType], NullType);
+  if (def.nested !== undefined) {
+    // A nested series index's row gives its entries with their values (#1434), each under the row's key.
+    const entries = functionAt(def.keyFn, [keyType, valueType], DictType(def.keyType, def.valueType));
+    return locationFree(() => East.function([pieceType, emitType], NullType, ($, piece, emit) => {
+      const entriesOf = $.const(entries);
+      $.for(piece, ($, row, key) => {
+        $.for(entriesOf(key, row), ($, value, ik) => {
+          $(emit({ ik, k: key }, value));
+        });
+      });
+    }));
+  }
   return locationFree(() => {
     const keys = indexKeys(def, keyType, valueType);
     const projection = indexProjection(def, keyType, valueType);
@@ -488,6 +523,55 @@ function indexChanges(index: RecordIndexDef, types: DictWrite) {
   });
 }
 
+/**
+ * A nested series index's entry changes for a write's touched rows (#1434):
+ * `(Changes, Emit) → Null`, each row's entries before and after compared by
+ * key — one gone a delete, one come an insert, one whose value changed an
+ * update. The entries' keys hold the row's own key, so no two rows share one.
+ */
+function nestedChanges(index: RecordIndexDef, types: DictWrite) {
+  const { keyType, valueType, changesType, emitType } = types;
+  const entriesType = DictType(index.keyType, index.valueType);
+  const entries = functionAt(index.keyFn, [keyType, valueType], entriesType);
+  const values = patchesOf(index.valueType);
+  // A row's entries; none for no row.
+  const entriesOf = East.function([keyType, OptionType(valueType)], entriesType, ($, key, row) => {
+    const of = $.const(entries);
+    $.match(row, {
+      some: ($, value) => {
+        $.return(of(key, value));
+      },
+      none: () => {},
+    });
+    return new Map();
+  });
+  return East.function([changesType, emitType], NullType, ($, changes, emit) => {
+    const rowEntries = $.const(entriesOf);
+    const diff = $.const(values.diff);
+    $.for(changes, ($, change, key) => {
+      const before = $.let(rowEntries(key, change.held));
+      const after = $.let(rowEntries(key, change.next));
+      $.for(before, ($, was, ik) => {
+        $.match(after.tryGet(ik), {
+          none: ($) => {
+            $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('delete', was))));
+          },
+          some: ($, is) => {
+            $.if(East.notEqual<EastType>(was, is), ($) => {
+              $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('update', diff(was, is)))));
+            });
+          },
+        });
+      });
+      $.for(after, ($, is, ik) => {
+        $.if(before.has(ik).not(), ($) => {
+          $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('insert', is))));
+        });
+      });
+    });
+  });
+}
+
 /** `(totals, sign) → sign × totals`: a row's contribution given, `1`, or taken away, `−1`. */
 const signedTotals = East.function([RecordSummaryTotalsType, IntegerType], RecordSummaryTotalsType, (_$, totals, sign) =>
   ({ count: totals.count.multiply(sign), ms: totals.ms.multiply(sign) }));
@@ -547,7 +631,9 @@ function indexesChanges(indexes: readonly RecordIndexDef[], types: DictWrite) {
   const { changesType, emitType } = types;
   return indexes.reduce(
     (earlier, index) => {
-      const own = index.summary === undefined ? indexChanges(index, types) : summaryChanges(index, types);
+      const own = index.summary !== undefined ? summaryChanges(index, types)
+        : index.nested !== undefined ? nestedChanges(index, types)
+        : indexChanges(index, types);
       return East.function([changesType, emitType], NullType, ($, changes, emit) => {
         const before = $.const(earlier);
         const these = $.const(own);
@@ -896,7 +982,7 @@ function writeProgram(rec: RecordDef, mut: MutationDef): FunctionExpr<EastType[]
   let steps: WriteSteps;
   let argumentOps: FunctionExpr<[EastType, EastType, EastType], EastType> | undefined;
   if (recordType.type === 'Dict') {
-    const indexes = Object.values(rec.indexes).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const indexes = Object.values(rec.indexes).map((index) => builtIndex(rec, index)).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const types = dictWrite(recordType.key, recordType.value, indexes);
     steps = dictSteps(types, indexes);
     argumentOps = mut.form === 'edit' ? editOps(bodyOf(mut), mut.argTypes, types)

@@ -28,7 +28,7 @@
  *
  * @packageDocumentation
  */
-import { ArrayType, DateTimeType, East, IntegerType, StringType, StructType, variant } from '@elaraai/east';
+import { ArrayType, DateTimeType, East, IntegerType, OptionType, StringType, StructType, variant } from '@elaraai/east';
 import { RecordLevelType } from '@elaraai/e3-types';
 
 /** A tile's length: a day, an ISO week, a calendar month, a quarter or a year. */
@@ -249,3 +249,39 @@ export const eventFilings = East.function([RecordLevelType, DateTimeType, DateTi
   });
   return filed;
 });
+
+/**
+ * The places an event is filed (`eventFilings`) — a series index's, a nested one's item's: none for an event
+ * with no start; one with no end is an instant.
+ *
+ * `(tile, start, end, what) → each place it is filed, in order`
+ */
+export const placedFilings = East.function(
+  [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType], ArrayType(TileFilingType),
+  ($, tile, start, end, what) => {
+    const file = $.const(eventFilings);
+    $.match(start, {
+      some: ($, from) => { $.return(file(tile, from, end.unwrap('some', () => from), what)); },
+      none: () => {},
+    });
+    return [];
+  },
+);
+
+/**
+ * The tiles an event touches, and its share of each (`tileShares`) — a summary's, a nested index's totals': none for an
+ * event with no start; one with no end is an instant.
+ *
+ * `(tile, start, end, what) → each tile it touches, in order, and the milliseconds of it the event covers`
+ */
+export const placedShares = East.function(
+  [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType], ArrayType(TileShareType),
+  ($, tile, start, end, what) => {
+    const share = $.const(tileShares);
+    $.match(start, {
+      some: ($, from) => { $.return(share(tile, from, end.unwrap('some', () => from), what)); },
+      none: () => {},
+    });
+    return [];
+  },
+);

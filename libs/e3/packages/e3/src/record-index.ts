@@ -20,13 +20,15 @@
  * one to the byte.
  */
 
-import type { DateTimeType, DictType, EastType, Expr, FloatType, FunctionType, IntegerType, OptionType, SetType, StructType } from '@elaraai/east';
+import type { DateTimeType, DictType, EastType, Expr, FloatType, FunctionType, IntegerType, OptionType, SetType, StructType, VariantType } from '@elaraai/east';
 import { NullType } from '@elaraai/east';
-import type { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
+import type { NestedEntryKeyType, RecordLevelType, RecordNestedTotalsType, RecordSummaryTotalsType } from '@elaraai/e3-types';
 import type { RecordDef, RecordIndexDef } from './types.js';
 import { intervalDefinition } from './record-interval.js';
 import { areaDefinition } from './record-area.js';
 import { seriesDefinition, summaryDefinition } from './record-series.js';
+import { items, recursive, rows, values, type NestedOf, type PlacesOf, type SeriesCollections } from './record-nested.js';
+import { nestedDefinition } from './record-nested-programs.js';
 import type { RecordTile } from './record-tiles.js';
 import { indexFunctions, indexedEntry, onlyOptions } from './record-guards.js';
 import type { IndexFunction } from './record-guards.js';
@@ -39,6 +41,8 @@ export type { IndexFunction } from './record-guards.js';
 type RowFields<T> = T extends DictType<unknown, StructType<infer F>> ? F : Record<never, never>;
 /** A Dict record's row type. */
 type RowOf<T> = T extends DictType<unknown, infer V extends EastType> ? V : EastType;
+/** A Dict record's key type. */
+type KeyOf<T> = T extends DictType<infer K extends EastType, unknown> ? K : EastType;
 /** A Set field indexes its elements; every other field indexes its value. */
 type FieldKey<T> = T extends SetType<infer K extends EastType> ? K : T extends EastType ? T : never;
 /**
@@ -167,6 +171,40 @@ export interface SeriesIndexSpec<T extends EastType = EastType> {
   /** Refused: a series index carries the whole row as its projection. */
   value?: never;
 }
+
+/**
+ * What the nested form of a series index files (#1434): every collection a
+ * record's rows nest, each declared with a builder of `e3.recordIndex.series`,
+ * typed against its field from the record's type alone.
+ *
+ * @typeParam T - The owning record's state type (a Dict of Struct rows)
+ */
+export interface NestedSeriesIndexSpec<T extends EastType = EastType> {
+  /** The collections a row nests, each by its field ({@link SeriesCollections}). */
+  collections: SeriesCollections<RowOf<T>>;
+  /** The finest level an item is filed at, and the finest a parent's subtotals are kept at: `day`, `week` (ISO, from
+   *  Monday), `month`, `quarter` or `year`, in UTC. */
+  tile: RecordTile;
+  /** The tile each node's totals are kept by; omitted, none are kept. */
+  summary?: RecordTile;
+  /** Refused: the key form's fields, beside `collections`. */
+  key?: never;
+  /** Refused: the key form's fields, beside `collections`. */
+  from?: never;
+  /** Refused: the key form's fields, beside `collections`. */
+  to?: never;
+  /** Refused: no field leads a nested index. */
+  on?: never;
+  /** Refused: each entry carries its own item, totals or subtotal. */
+  value?: never;
+}
+
+/** A nested series index's entry key, at the record's key type (e3-types' `NestedEntryKeyType`). */
+export type NestedKeyOf<T extends EastType> = ReturnType<typeof NestedEntryKeyType<KeyOf<T>>>;
+
+/** A nested series index's entry value (e3-types' `NestedEntryType`), its items' variant nesting as `S` declares. */
+export type NestedValueOf<T extends EastType, S extends NestedSeriesIndexSpec<T>> =
+  VariantType<{ item: PlacesOf<RowOf<T>, S['collections']>; totals: typeof RecordNestedTotalsType; subtotal: FloatType }>;
 
 /**
  * What a summary index totals a record's events by (`e3.recordIndex.summary`,
@@ -508,6 +546,20 @@ export interface TimeTileOf<S> {
  * It carries its rows: each entry's projection is the whole row, so a cell
  * reads the index alone and no record segment. It takes no `value`.
  *
+ * **The nested form** (#1434), `{ collections, tile, summary? }`, files instead
+ * every collection a record's rows nest, each field declared with a builder
+ * hung on this function: `items(times, options?)` for things people drag,
+ * `values(options?)` for a value per instant, `rows(collections)` for child
+ * rows and `recursive()` for more rows of the row's own type. Each item is
+ * filed once (or once a year past a year) by its collection, its row, the node
+ * holding it and its time, carrying the item; each node's totals are kept a
+ * `summary` tile at a time; every parent's subtotals of a collection of values
+ * declared with a rollup are kept at every level from `tile` up; and each item
+ * of a collection declared `{ rollup: true }` is filed under every ancestor
+ * too. The record's other indexes then carry its rows without the listed
+ * collections. A record has one nested series index; no field leads it, and
+ * it takes no `value`.
+ *
  * @typeParam Name - Index name (literal type)
  * @typeParam T - The owning record's state type (a Dict of Struct rows)
  * @typeParam S - The spec as written, from which the index key type is read
@@ -516,13 +568,16 @@ export interface TimeTileOf<S> {
  * @param spec - `key`, the field naming what an event is on (any but a Set);
  *   `from` and `to`, its DateTime (or Option<DateTime>) start and end fields;
  *   `tile`, `day`, `week`, `month`, `quarter` or `year`; and optional exact
- *   leading `on` fields
+ *   leading `on` fields — or the nested form's `collections`, `tile` and
+ *   optional `summary`
  * @param config - Optional runner selection (known runtimes only)
  * @returns A RecordIndexDef to pass to `e3.package`, its key `{ on: { …on }, key, level, tile }`, its projection the row
+ *   — or, nested, its key e3-types' `NestedEntryKeyType` and its value `NestedEntryType`
  * @throws {Error} When a field is not of its option's type, naming the option,
  *   the field and its type; when the tile is not one of the five; when the key
- *   is a leading field; or on any guard `e3.recordIndex` applies to a name and
- *   a record
+ *   is a leading field; where a nested declaration does not fit its field,
+ *   naming the collection and what to write; or on any guard `e3.recordIndex`
+ *   applies to a name and a record
  *
  * @example
  * ```ts
@@ -531,16 +586,38 @@ export interface TimeTileOf<S> {
  * const jobsByPressWeek = e3.recordIndex.series('jobs_by_press_week', jobs, {
  *   key: 'press', from: 'start', to: 'end', tile: 'week',
  * });
+ *
+ * // Every collection a machine nests, filed from a week up and totalled a month at a time:
+ * const machinesInTime = e3.recordIndex.series('machines_in_time', machines, {
+ *   collections: {
+ *     jobs: e3.recordIndex.series.items({ from: 'start', to: 'end' }),
+ *     load: e3.recordIndex.series.values(),
+ *   },
+ *   tile: 'week',
+ *   summary: 'month',
+ * });
  * ```
  */
+function seriesIndex<Name extends string, T extends EastType, const S extends NestedSeriesIndexSpec<T>>(
+  name: Name,
+  rec: RecordDef<T>,
+  spec: S,
+  config?: { runner?: FunctionRunner },
+): RecordIndexDef<Name, T, NestedKeyOf<T>, NestedValueOf<T, S>, readonly []> & { readonly nested: NestedOf<S> };
 function seriesIndex<Name extends string, T extends EastType, const S extends SeriesIndexSpec<T>>(
   name: Name,
   rec: RecordDef<T>,
   spec: S,
   config?: { runner?: FunctionRunner },
-): RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { series: TimeTileOf<S> } {
-  // Built from the spec at run time; the type restates, from the spec as written, what it built.
-  return seriesDefinition(name, rec, spec, config) as RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { series: TimeTileOf<S> };
+): RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { series: TimeTileOf<S> };
+function seriesIndex(
+  name: string,
+  rec: RecordDef,
+  spec: SeriesIndexSpec | NestedSeriesIndexSpec,
+  config?: { runner?: FunctionRunner },
+): RecordIndexDef {
+  // Built from the spec at run time; each overload restates, from the spec as written, what it built.
+  return 'collections' in spec ? nestedDefinition(name, rec, spec, config) : seriesDefinition(name, rec, spec, config);
 }
 
 /**
@@ -601,4 +678,9 @@ function summaryIndex<Name extends string, T extends EastType, const S extends S
  * (the events of a block of keys over a span of time tiles) and
  * `e3.recordIndex.summary` (their totals per key and tile).
  */
-export const recordIndex = Object.assign(plainIndex, { interval: intervalIndex, area: areaIndex, series: seriesIndex, summary: summaryIndex });
+export const recordIndex = Object.assign(plainIndex, {
+  interval: intervalIndex,
+  area: areaIndex,
+  series: Object.assign(seriesIndex, { items, values, rows, recursive }),
+  summary: summaryIndex,
+});
