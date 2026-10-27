@@ -276,10 +276,11 @@ test("fit flies the camera when the narrowing changes, never as a zoom moves the
         vi.useRealTimers();
     }
     // The viewer zooms in on the cage's left corner, around A01, whose window holds A01 to A04 but not A05. The narrowing
-    // stands as it was: nothing may fly the camera from where they put it.
+    // stands as it was: nothing may fly the camera from where they put it. Its window's read is counted from before the
+    // zoom, as `zoomAndLand` counts it: on a busy machine the read starts before the zoom returns.
+    const before = windowReads();
     await zoomInto(canvasOf(container), cameraOf(container), { minX: 1, minY: 2, maxX: 5, maxY: 4 });
     const zoomed = cameraOf(container);
-    const before = windowReads();
     vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
     try {
         await waitFor(() => expect(windowReads()).toBeGreaterThan(before), { timeout: 5_000 });
