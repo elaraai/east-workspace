@@ -973,6 +973,14 @@ Use the shared move-preview component and `time/move-ghost.ts` recipe for event
 dragging/resizing. The preview sizes to its content independently of the source
 bar or edge handle. Test a short timeline event: its title must not wrap into
 a few characters per line. Preserve the shared destination/refusal caption.
+Every drop cell names itself (`DropCellOptions.name`) for what the drag layer
+says to a screen reader, in the layer's words for a cell, as the builder shows
+it — never its coordinate's keys, which the layer falls back to: the Roster's
+(`roster/drag.ts`), the Calendar's lanes by their resource's name — the
+Unassigned row's, or none in a view of no resources — and the time
+(`calendar/views.tsx`' `DropLane`), and the Allocation's targets by their
+lane and time, their resource, or their Table row's bin (`allocation/drag.ts`'
+`name`).
 
 ### The app's own records: sessions per record
 

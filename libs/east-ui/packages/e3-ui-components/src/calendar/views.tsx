@@ -53,7 +53,7 @@ import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { equalFor, none } from "@elaraai/east";
 import { Schedule } from "@elaraai/e3-ui/internal";
 import { tileNext } from "@elaraai/east-ui/internal";
-import { optimiseMessages, takeKey, useDragEventChip, useDragEventEdge, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
+import { optimiseMessages, takeKey, useDragEventChip, useDragEventEdge, useDragMessages, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import {
     LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, UnloadedRun, VirtualRows, devicePixels, loadingLineText, useRowsTop,
     type RowRuns, type RunCell, type RunFailure,
@@ -83,7 +83,7 @@ import { calendarOpOf, type CalendarOptimised } from "./optimise.js";
 import { opKey } from "../shared/func/optimise-diff.js";
 import type { CalendarCommands, CalendarPlacement } from "./actions.js";
 import { CALENDAR_PAGE_SIZE, pagedFailureAt, pagedPlaces, pagedRowAt, pagedSegments, type CalendarPagedDemand, type CalendarPages } from "./pages.js";
-import { DAY, NOTHING_UNCOUNTED, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, onResource, resourceKey, resourceLabel,
+import { DAY, NOTHING_UNCOUNTED, QUARTER, chronological, dateText, dayStart, eventKey, inWindow, onResource, resourceKey, resourceLabel, sameResource,
     type CalendarItem, type CalendarKind, type CalendarRange, type CalendarRow, type CalendarStyles, type CalendarUncounted, type CalendarValue,
     type CalendarView } from "./model.js";
 
@@ -813,9 +813,20 @@ function DropLane({ props, from, to, resource, along = "y", wholeDay = false, ch
         const coord = calendarCoord(props.drag.surface, wholeDay ? time : props.drag.adjust(time, payload), resource, element?.getAttribute("data-calendar-event") ?? undefined);
         return unassigned ? { ...coord, row: "unassigned" } : coord;
     };
+    // What the drag layer says of the lane to a screen reader, in its words for a cell: its resource by its name — the
+    // Unassigned row's, or none in a view of no resources — and the time the drag rests at, never their keys.
+    const words = useDragMessages();
+    const name = (coord: CellCoord): string => {
+        const at = props.drag.readTime(coord.slot);
+        const when = at === undefined ? "" : props.format.dateTime(at);
+        if (unassigned) return words.cell({ row: "Unassigned", slot: when });
+        if (resource.type === "none") return words.cell({ row: when, slot: "" });
+        const own = resource.value;
+        return words.cell({ row: props.rows.find(row => row.resource.type === "some" && sameResource(row.resource.value, own))?.label ?? own.key, slot: when });
+    };
     const drop = useDropCell(props.drag.enabled ? calendarCoord(props.drag.surface, from, resource) : null, !props.drag.enabled,
         event => props.drag.run(event, true) === undefined, (x, y, payload) => coordinate(x, y, payload), {
-            caption: props.drag.caption,
+            caption: props.drag.caption, name,
             onHover: (x, y, payload) => {
                 const next = props.drag.preview(coordinate(x, y, payload), payload);
                 setLanding(before => before?.start.getTime() === next?.start.getTime() && before?.end.getTime() === next?.end.getTime() ? before : next);
