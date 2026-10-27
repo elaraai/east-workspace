@@ -830,7 +830,8 @@ describe("a job made on a paged press from a template (#1424)", () => {
         await settle();
         await act(async () => { fireEvent.pointerMove(document, { ...pointer, clientX: x, clientY: 120 }); });
         await settle();
-        expect(document.querySelector("[data-drag-caption]")?.textContent).toBe("Brochure run · 2026-10-08 06:00 UTC");
+        // The caption says the instant in the locale's date and time, as the Calendar prints every date — never East's own text of it.
+        expect(document.querySelector("[data-drag-caption]")?.textContent).toBe(`Brochure run · ${formatters().dateTime(new Date(Date.UTC(2026, 9, 8, 6, 0)))}`);
         await act(async () => { fireEvent.pointerUp(document, { ...pointer, buttons: 0, clientX: x, clientY: 120 }); });
         await settle();
         // Said to a screen reader as the timeline shows the press and the time, in the drag layer's words, never by their keys.
