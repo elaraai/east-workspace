@@ -1307,6 +1307,15 @@ function TimelineRowMeta({ ctx, row, layout, r }: { ctx: TimelineContext; row: C
     return <Box css={styles.columnMeta} data-calendar-booked="">{bookedWords({ uncounted: ctx.uncounted, format }, row, () => layout.hours(from, to))}</Box>;
 }
 /**
+ * A row's plot's shading — its weekends, or at Day its hours off — drawn once while its bands and the styles hold, plain
+ * elements of the shade slot's class (#1398, CL9): a move of the span the timeline mounts, which draws the plot again,
+ * draws none of it again.
+ */
+const PlotShading = memo(function PlotShading({ shades, styles }: { shades: ReturnType<typeof shadeBands>; styles: CalendarStyles }) {
+    const shade = useSlotClass()(styles.shade);
+    return <>{shades.map((band, i) => <div key={i} className={shade} data-along="x" style={{ left: `${band.start * 100}%`, width: `${band.width * 100}%` }} />)}</>;
+});
+/**
  * A resource row's plot: its events in the timeline's mounted span — every one while the timeline has not laid out — its
  * wash while the period is read, or over the days a continuation's held read does not cover, its shading and its now line;
  * and, the first row in view of a failed period, the failure, which it reads itself (#1398, CL9, CL11). Drawn again only
@@ -1335,7 +1344,7 @@ const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, span, index 
             && <ShadeMarks shades={rowShades} bucket={bucket} from={range.from.getTime()} to={range.to.getTime()} along="x" styles={styles} format={view.format} />}
         {read.state === "failed" && says && <Box css={styles.readLine} data-calendar-read-line="">
             <LoadingFailedLine message={read.message} retry={{ onRetry: read.retry }} /></Box>}
-        {shades.map((band, i) => <Box key={i} css={styles.shade} data-along="x" style={{ left: `${band.start * 100}%`, width: `${band.width * 100}%` }} />)}
+        <PlotShading shades={shades} styles={styles} />
         {layout.items.map((item, i) => {
             const at = layout.spans[i]!;
             // Out of the mounted span, or — a continuation's held read — out of the window shown, by the window's own rule.

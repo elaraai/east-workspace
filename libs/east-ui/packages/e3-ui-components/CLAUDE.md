@@ -1772,7 +1772,10 @@ its box (`chromeOf`), never the recipe's rule and padding repeated, so its
 measure keeps the guess — and a window read again draws none it holds as it
 was. It draws plain elements of its slots' classes (east-ui-components'
 `useSlotClass`), never Chakra's styled elements, which work their styles out
-again at every element they draw: a glide mounts a thousand blocks. Each bar is placed from an
+again at every element they draw: a glide mounts a thousand blocks. A row's
+plot draws its shading — its weekends, its hours off — once while its bands
+hold, of the shade slot's class (`PlotShading`), so a move of the span draws
+none of it again. Each bar is placed from an
 origin a re-centre never moves, its plot moving by one variable
 (`--calendar-origin`), so a re-centre draws no event both windows hold whole.
 An event keeps its handle, its edges, its draft and its marks through a read in
