@@ -2403,15 +2403,19 @@ record, a narrowing, the layers — never as the canvas reads a window. A pick
 shows the item's key in the box and its place among the matches (`3 of 7`),
 and Next and Previous step on from it, each showing its match; asked again,
 the box keeps a match wherever the matches still hold it. Each line reads
-the item's key, its label where it is not its key, its kind's name and what
-keeps it off the canvas: `hidden` (`dimmed` under `narrowed="dim"`) where the
-rail's filters leave it out, `on a hidden layer`, or `no position`. A pick
-flies to an item drawn as itself and selects it; to one the canvas doesn't
-show as itself it flies to where it stands, selects nothing, and the footer
-says why — `A07 is hidden by the filters`, with Clear filters, which clears
-its kind's source's choices and selects it once it draws; `A06 has no
-position: it is in the Backlog`. In a toolbar's row the box is 28px, as every
-builder's key search is there.
+the item's key, its label where it is not its key, its kind's name, what
+keeps it off the canvas — `on a hidden layer`, or `no position` — and, where
+the rail's filters leave it out, hidden or dimmed as context, the choices that
+do, as every builder's Search Records names them: `· hidden by Owner:
+Northwind Media — picking it clears that filter`, asked of e3 through the
+kind's indexes, `· hidden by the filters` until it has said. A pick of such an
+item clears just those choices — every choice of its kind's source while e3
+has not said — then goes to it as any pick does, and selects it once the
+narrowing they leave draws it as itself. A pick flies to an item drawn as
+itself and selects it; to one on a hidden layer it flies to where it stands,
+selects nothing, and the footer says why — `A04 is on a hidden layer`; `A06
+has no position: it is in the Backlog`. In a toolbar's row the box is 28px, as
+every builder's key search is there.
 
 The footer says only what is live, and nothing while nothing is (ruled 23 Oct
 2026): a kind drawn as its density in place of items — a kind read by area
