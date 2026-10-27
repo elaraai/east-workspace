@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-records";
+import type { E3Request } from "../e3-web.test-utils.js";
 import { frameScrolls } from "./frame.test-utils.js";
 import { act, settle, sheetHarness } from "./frame/harness.test-utils.js";
 
@@ -148,4 +149,49 @@ test("a scroll far from the rows, every page it shows on its way, is never cover
     expect(numbers.length).toBeGreaterThan(0);
     expect(Math.min(...numbers)).toBeGreaterThan(20_000);
     expect(covered()).toBeNull();
+});
+
+/** A page of the work orders' own entries from `from` on, as the whole sheet reads them a page at a time. */
+const pageFrom = (from: number, to = Number.POSITIVE_INFINITY) => (request: E3Request) => {
+    const at = Number(request.query.get("offset") ?? 0);
+    return request.kind === "page" && request.dataset === ORDERS && request.query.get("index") === null && at >= from && at < to;
+};
+
+test("another session's write while ⌘End's page is on its way keeps what the rows shown were read from: a gesture on them puts them back as they were, never as runs not read, while they are read again (#1398, CL10)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());
+    await settle();
+    // The whole sheet: every order, a page at a time.
+    fireEvent.mouseDown(ui.tab("all"), { button: 0 });
+    await settle();
+    await waitFor(() => expect(ui.row("JOB-10005")).not.toBeNull());
+    const card = ui.container.querySelector<HTMLElement>("[data-sheet-card]")!;
+    const cell = (id: string) => ui.row(id)?.querySelector<HTMLElement>('[data-slot="cell"][data-key="quantity"]') ?? null;
+    fireEvent.mouseDown(cell("JOB-10005")!, { button: 0 });
+    // ⌘End, the record's last page on its way: the rows shown stand in.
+    const last = h.e3.hold(pageFrom(49_800));
+    await act(async () => { fireEvent.keyDown(card, { key: "End", ctrlKey: true }); });
+    await last.holding;
+    await settle();
+    expect(card.getAttribute("aria-disabled")).toBe("true");
+    // Another session changes the last order: the record moves to a new revision while the page is still on its way.
+    const before = await h.read(ex.indexedWorkOrders);
+    const next = new Map(before);
+    const changed = before.get("JOB-59999")!;
+    next.set("JOB-59999", { ...changed, quantity: changed.quantity + 100n });
+    await h.patch(ex.indexedWorkOrders, next);
+    expect(cell("JOB-10005")?.hasAttribute("data-selected")).toBe(true);
+    // A press on the rows standing in puts them back — their pages read again at the new revision, held on their way:
+    // what they were read from stands in for them meanwhile, the rows where they were.
+    const first = h.e3.hold(pageFrom(0, 600));
+    fireEvent.mouseDown(cell("JOB-10005")!, { button: 0 });
+    await first.holding;
+    await settle();
+    expect(card.hasAttribute("aria-disabled")).toBe(false);
+    expect(ui.row("JOB-10000")).not.toBeNull();
+    expect(cell("JOB-10005")?.hasAttribute("data-selected")).toBe(true);
+    await act(async () => { first.release(); last.release(); });
+    await settle();
+    expect(cell("JOB-10005")?.hasAttribute("data-selected")).toBe(true);
+    expect(ui.row("JOB-59999")).toBeNull();
 });

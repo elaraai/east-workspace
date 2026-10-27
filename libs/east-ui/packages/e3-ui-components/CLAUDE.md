@@ -1297,7 +1297,10 @@ ended, so a view sent far and straight back is still on its way
 travels and one behind (`travelOf`). Both drivers, the Sheet's
 (`sheet/paging.ts`) and the Plan's (`plan/controller/paging.ts`), do it through
 one windowed part (`shared/windowed.ts`): the windows read once each, their
-failures and the revision's stand-in, the run around the view and the bands
+failures and the revision's stand-in — and, while a far key's view stands in,
+the windows it drew kept standing in for themselves across another session's
+write (`WindowStore`'s `keep`), so putting that view back never draws it as
+runs not read — the run around the view and the bands
 either side of it, the element a band's report names, a failed window's span,
 the demand at rest, the first window, a jump's pin and Retry. The
 footer's line and the frame's `busy` follow the windows the view shows, never

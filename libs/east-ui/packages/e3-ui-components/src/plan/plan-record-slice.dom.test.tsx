@@ -361,6 +361,47 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         expect(h.requests("read", ORDERS)).toEqual([]);
     });
 
+    test("another planner's write while End's window is on its way keeps what the orders shown were read from: the focus moving on puts them back as they were, never as runs not read, while they are read again (#1398, CL10)", async () => {
+        const { container: c } = await h.mount(ex.planRecordIndexes);
+        await settle();
+        const ready = await ordersOf(["Ready"], FIRST, FORTNIGHT);
+        const start = await placeOf("Ready", FIRST);
+        /** A window of the narrowing's orders through the status/due index, from `from` on and short of `to`. */
+        const windowsFrom = (from: number, to = Number.POSITIVE_INFINITY) => (r: E3Request) => {
+            const at = Number(r.query.get("offset") ?? 0);
+            return r.dataset === ORDERS && r.kind === "page" && r.query.get("index") === BY_STATUS_DUE.name && at >= start + from && at < start + to;
+        };
+        const item = (key: string) => c.querySelector<HTMLElement>(`[data-plan-item=${JSON.stringify(`r:${rowKeyOf(orderRow(key))}`)}]`);
+        await act(async () => { item(ready[0]!)!.focus(); });
+        // End, the narrowing's last windows held on their way — the last and those read beside it: the orders shown stand in.
+        const last = h.e3.hold(windowsFrom(2_000));
+        await key("End");
+        await last.holding;
+        expect(slot(c, "main")!.querySelector("[data-plan-body]")!.getAttribute("aria-disabled")).toBe("true");
+        // Another planner moves the fifty-first order's due time a minute on — later in its day, among the first window's
+        // orders: the windows the orders shown were read from move to a new revision while End's window is on its way.
+        const before = await storedOrders();
+        const next = new Map(before);
+        const changed = before.get(ready[50]!)!;
+        next.set(ready[50]!, { ...changed, due: new Date(changed.due.getTime() + 60_000) });
+        await h.patch(sheet.indexedWorkOrders, next);
+        // The focus moves on among the orders standing in: they are put back — their windows read again at the new
+        // revision, held on their way — and what they were read from stands in for them meanwhile, where they were.
+        const first = h.e3.hold(windowsFrom(0, 600));
+        await key("ArrowDown");
+        await first.holding;
+        await settle();
+        expect(orderRows(c).slice(0, 3)).toEqual(rowsOf(ready.slice(0, 3)));
+        // Down among them, into the windows still read again: their orders drawn, never runs not read.
+        await scrollRows(c, 250 * ROW_PX);
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); });
+        await settle();
+        expect(orderRows(c)).toContain(rowKeyOf(orderRow(ready[250]!)));
+        await act(async () => { first.release(); last.release(); });
+        await settle();
+        expect(orderRows(c)).toContain(rowKeyOf(orderRow(ready[250]!)));
+    });
+
     test("a move drafts the operation in the operations kind's session — kept while the rail hides its order, through Undo and Redo and a remount — and Save commits it through the operations' patch door by its key, the work orders untouched and neither record read whole; a remount reads it back from e3", async () => {
         let ui: RenderResult = await h.mount(ex.planRecordIndexes, { drag: true });
         await settle();

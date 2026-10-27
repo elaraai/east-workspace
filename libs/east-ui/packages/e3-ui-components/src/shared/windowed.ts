@@ -192,13 +192,22 @@ export class WindowStore<R> {
     /**
      * Read at a revision: a new one starts the windows again, the ones held standing in until each lands — or, while
      * nothing is held (a revision the source was still finding), the last ones that had rows — and its failures start
-     * afresh.
+     * afresh. The windows a far key's stand-in drew (`keep`, #1398, CL10) stand in still for as long as it does: the
+     * view it left may be put back before they are read at this revision, and it never draws back as runs not read.
      *
      * @param revision - The revision the source serves now
+     * @param keep - The windows a far key's stand-in drew, while it stands in
      */
-    at(revision: string | undefined): void {
+    at(revision: string | undefined, keep?: ReadonlySet<number>): void {
         if (revision === this.revision) return;
+        // What stood in for the stand-in's windows and has not been read at the last revision: theirs still.
+        const kept = keep === undefined || this.stale === undefined ? [] : [...this.stale].filter(([w]) => keep.has(w) && !this.windows.has(w));
         if (this.windows.size > 0) this.stale = this.windows;
+        if (kept.length > 0) {
+            const stale = this.stale ?? new Map<number, R>();
+            for (const [w, read] of kept) stale.set(w, read);
+            this.stale = stale;
+        }
         this.windows = new Map();
         this.failures = new Map();
         this.revision = revision;
@@ -214,16 +223,22 @@ export class WindowStore<R> {
 
     /**
      * Read windows into the store ({@link readWindows}); once no window stood in, every one reads at this revision,
-     * and the previous one has nothing left to stand in for.
+     * and the previous one has nothing left to stand in for — but the windows a far key's stand-in drew (`keep`, #1398,
+     * CL10), which the jump's windows read now never are: theirs stay, to stand in for them should that view be put
+     * back before they are read at this revision.
      *
      * @param reader - The source's page read and what a landed window is
      * @param windows - The windows to read, ascending
      * @param pageSize - Elements per window
+     * @param keep - The windows a far key's stand-in drew, while it stands in
      * @returns What the read found
      */
-    read<T>(reader: WindowReader<T, R>, windows: Iterable<number>, pageSize: number): WindowReads<R> {
+    read<T>(reader: WindowReader<T, R>, windows: Iterable<number>, pageSize: number, keep?: ReadonlySet<number>): WindowReads<R> {
         const out = readWindows(reader, windows, this.windows, pageSize, this.failures, this.stale);
-        if (!out.stale) this.stale = undefined;
+        if (!out.stale && this.stale !== undefined) {
+            if (keep !== undefined) pruneWindows(this.stale, keep);
+            if (keep === undefined || this.stale.size === 0) this.stale = undefined;
+        }
         return out;
     }
 

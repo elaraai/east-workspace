@@ -752,8 +752,9 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 console.error("[Plan] paged source revision failed:", err);
                 sourceError ??= readFailure(err);
             }
-            // A new revision is read afresh, the windows held standing in until each lands (#821).
-            store.at(current);
+            // A new revision is read afresh, the windows held standing in until each lands (#821) — and those a far key's
+            // standing view drew for as long as it stands, so a clear draws it back from them (#1398, CL10).
+            store.at(current, standing?.keep);
             // The snapshot of the data: the source's own when it names it apart from its revision (#1199), else its
             // revision — with a live source's narrowing, whose rows a key search's answer names (#1354).
             let data = current;
@@ -775,8 +776,9 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
                 console.error("[Plan] paged source total failed:", err);
                 sourceError ??= readFailure(err);
             }
-            // Once every demanded window reads at the new revision, the old snapshot has nothing left to stand in for.
-            const result = store.read(planWindowReader(src), wanted, PLAN_PAGE_SIZE);
+            // Once every demanded window reads at the new revision, the old snapshot has nothing left to stand in for — but
+            // the windows a far key's standing view drew, while it stands (#1398, CL10).
+            const result = store.read(planWindowReader(src), wanted, PLAN_PAGE_SIZE, standing?.keep);
             return {
                 total: t, resident: result.resident, inFlight: result.inFlight, failed: result.failed, sourceError,
                 revision: current, dataSnapshot,

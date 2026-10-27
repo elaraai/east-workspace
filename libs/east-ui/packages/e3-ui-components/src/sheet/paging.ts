@@ -383,7 +383,9 @@ export function useSheetPaging(
             console.error("[Sheet] paged source revision failed:", err);
             sourceError = readFailure(err);
         }
-        held.store.at(revision);
+        // The windows a key's jump holds the rows of stand in for them still, for as long as it holds them (#1398, CL10).
+        const keep = heldRef.current?.keep;
+        held.store.at(revision, keep);
         let total: number | undefined;
         try {
             const t = source.total();
@@ -411,7 +413,7 @@ export function useSheetPaging(
         }
         // Each resident window from the store, or read — one still in flight standing in for the rows it had at the
         // previous revision; a failed one is not asked again by the reader, only by a Retry (#853).
-        const reads = held.store.read(sheetWindows(source), residentWindows(residency), SHEET_PAGE_SIZE);
+        const reads = held.store.read(sheetWindows(source), residentWindows(residency), SHEET_PAGE_SIZE, keep);
         if (reads.resident.some(({ w }) => held.store.windows.has(w))) held.landedOnce = true;
         return {
             total,
