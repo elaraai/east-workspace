@@ -26,7 +26,10 @@
  * `-1`. A row that holds it takes the grid element OUT of the tab order while
  * it is mounted, and puts it back when it unmounts — so when the active row is
  * scrolled out of the virtualizer's window, or has not been chosen yet, the
- * grid itself is the stop, and focusing it hands focus on to a row.
+ * grid itself is the stop, and focusing it hands focus on to a row. A row that
+ * leaves holding the DOM focus hands it to the canvas as it goes, before its
+ * element leaves the page (`leave`, #1398, CL10): the focus never falls to the
+ * page's body.
  *
  * @packageDocumentation
  */
@@ -132,6 +135,12 @@ export interface PlanGridContextValue {
     positions: PlanRowPositions;
     /** The treegrid element — the tab stop while no mounted row holds it. */
     gridRef: RefObject<HTMLElement | null>;
+    /**
+     * A row leaving the grid with the focus in it — a run its rows replace, a row a landing or the virtualizer takes off
+     * — hands it over as it goes, while its element is still on the page (#1398, CL10): the canvas keeps it, never the
+     * page's body.
+     */
+    leave: (key: string) => void;
 }
 
 /** The canvas's grid, provided once by the canvas root. */
@@ -187,6 +196,17 @@ export function usePlanGridRow(itemKey: string, active: boolean, focusSeq: numbe
         sync();
         return grid?.positions.subscribe(sync);
     }, [grid, sync]);
+    // Leaving the grid with the focus in it, the row hands it to the canvas
+    // first (#1398, CL10): a component's layout cleanup runs before its
+    // element leaves the page, so the focus never falls to the page's body.
+    const keyRef = useRef(itemKey);
+    keyRef.current = itemKey;
+    useLayoutEffect(() => {
+        const el = elRef.current;
+        return () => {
+            if (el !== null && el.contains(document.activeElement)) grid?.leave(keyRef.current);
+        };
+    }, [grid]);
     // Taking the tab stop, and handing it back to the grid when this row
     // gives it up — or unmounts, scrolled out of the virtualizer's window.
     useLayoutEffect(() => {

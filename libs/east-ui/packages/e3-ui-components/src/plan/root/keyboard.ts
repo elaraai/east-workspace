@@ -34,7 +34,10 @@
  * A run takes the focus only from a click into it (or as the grid's stop): it
  * stands for the rows the view shows there, and a key that moves through them
  * — ↑ ↓ PgUp PgDn — waits for them (`wait`): once they land the focus goes to
- * the first of them in view, and a page goes on from there.
+ * the first of them in view, and a page goes on from there. Such a key pressed
+ * while a move waits — on the run, or on the row a step or a page set out
+ * from — waits with it, and the canvas plays them in turn once the rows are in
+ * (`goOn`): none is lost.
  *
  * # Widgets
  *

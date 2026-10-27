@@ -146,7 +146,7 @@ import { PLAN_ELEMENT_SELECTOR, PlanOverlays, createOverlayAnchors, refOfElement
 import { PlanGridContext, createRowPositions, gridPlaces, type PlanGridContextValue } from "./root/grid.js";
 import {
     PLAN_WALK_SELECTOR, gridItemOf, planNavItems, planNavKey, plotElements, resolveNavIntent, rowWidgets,
-    type PlanNavEdges, type PlanNavIntent, type PlanNavMove, type PlanWaitKey,
+    type PlanNavEdges, type PlanNavIntent, type PlanNavItem, type PlanNavMove, type PlanWaitKey,
 } from "./root/keyboard.js";
 import { PlanAnnouncer } from "./root/announce.js";
 import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
@@ -883,15 +883,17 @@ export function usePlanCanvas({
     // ── The focus across a landing (#1398, CL10) ──────────────────────────
     // Fetch, then move: a keyboard move past the rows read waits on the item it set out from, never on the run — its
     // intent, served once the rows land (`navIntent`, below). A run holding the focus — a click into it — owes it to the
-    // first of its rows the view shows once they land, and a key pressed on it waits for them (`owedFocus`'s `wait`).
+    // first of its rows the view shows once they land, and a key pressed on it waits for them (`owedFocus`'s `waits`).
+    // Every key that moves through the rows pressed while a move waits — on the run, or on the row the move set out
+    // from — waits with it, in the order pressed, and goes on once the rows are in: none is lost (#1398, CL10).
     // A focused item a landing takes off the canvas leaves the focus on the canvas's surface, never the page's body: an
     // intent waiting takes it on from there, a run owed it does as above, and a row taken off owes it to the first row
     // the view shows. What the view shows takes what is owed as it is reported at rest (`takeOwed`). A key that moves
     // through the rows, pressed on the surface while it holds what is owed, waits as one pressed on the run does — a
     // run the click focused can leave the frame before its rows come, when windows the page still holds land at once
     // beside it as the view comes to rest (`surfaceKey`).
-    const navIntent = useRef<{ holder: string; intent: PlanNavIntent } | null>(null);
-    const owedFocus = useRef<{ band: PlanBand | undefined; wait: PlanWaitKey | undefined } | null>(null);
+    const navIntent = useRef<{ holder: string; intent: PlanNavIntent; then: readonly PlanWaitKey[] } | null>(null);
+    const owedFocus = useRef<{ band: PlanBand | undefined; waits: readonly PlanWaitKey[] } | null>(null);
     const takeOwed = useRef<(shown: readonly PlanBodyItem[]) => void>(() => undefined);
     // The paged kind's rows in view, once the scroll rests (#1039): the reader of its kinds' cells reads the blocks around them
     // — under the narrowing their windows are (#1344), so a choice's reads none for the last one's rows standing in. They are
@@ -1136,7 +1138,19 @@ export function usePlanCanvas({
     // counted itself.
     const gridRef = useRef<HTMLElement | null>(null);
     const [positions] = useState(createRowPositions);
-    const gridCtx = useMemo<PlanGridContextValue>(() => ({ positions, gridRef }), [positions]);
+    // A row leaving the grid with the focus in it hands it over as it goes, its element still on the page (`leave`,
+    // `root/grid.ts`, #1398, CL10): the canvas's surface keeps it — never the page's body, not for a moment — and a row a
+    // landing took off owes it to the first row the view shows, as a dropped focus does (`keepFocus`, below). The grid's
+    // items are this render's (`navItemsNow`), the commit that takes the row off having drawn them.
+    const navItemsNow = useRef<readonly PlanNavItem[]>([]);
+    const leave = useCallback((key: string) => {
+        const bodyEl = focusBodyRef.current;
+        if (bodyEl === null || !bodyEl.isConnected) return;
+        bodyEl.focus({ preventScroll: true });
+        if (owedFocus.current !== null || navIntent.current !== null) return;
+        if (!navItemsNow.current.some((it) => it.key === key)) owedFocus.current = { band: undefined, waits: [] };
+    }, []);
+    const gridCtx = useMemo<PlanGridContextValue>(() => ({ positions, gridRef, leave }), [positions, leave]);
     const counted = !paged || paging.total !== undefined;
     const places = useMemo(
         () => gridPlaces(pinned.map((v) => rowItemKey(v.row.key)), body.items, counted),
@@ -1151,6 +1165,7 @@ export function usePlanCanvas({
     const navItems = useMemo(() => planNavItems({
         pinned, pinnedHeights, items: body.items, heights: body.heights, index, chartsExpanded, focusCtx,
     }), [pinned, pinnedHeights, body.items, body.heights, index, chartsExpanded, focusCtx]);
+    navItemsNow.current = navItems;
     // What the grid knows of its source's ends — a pending band move waits
     // while a window is in flight, and Home / End until the first block's
     // first element / the last block's last element is resident (#823).
@@ -1176,6 +1191,8 @@ export function usePlanCanvas({
     const pagingStanding = paging.standing;
     const stoodIn = useRef(false);
     const resultDrawn = useRef<{ source: string; narrowing: string | undefined } | undefined>(undefined);
+    // The keys pressed while a move waited go on from where it lands (`goOn`, below): this render's.
+    const goOnRef = useRef<(from: string, keys: readonly PlanWaitKey[]) => void>(() => undefined);
     useEffect(() => {
         const standingEnded = stoodIn.current && !pagingStanding;
         stoodIn.current = pagingStanding;
@@ -1198,7 +1215,11 @@ export function usePlanCanvas({
                 const r = resolveNavIntent(navItems, pending.intent, navEdges);
                 if (r.t !== "pending") {
                     navIntent.current = null;
-                    if (r.t === "resolved") controller.focusItem(r.key, "auto");
+                    if (r.t === "resolved") {
+                        controller.focusItem(r.key, "auto");
+                        // The keys pressed while it waited go on from there, in turn.
+                        goOnRef.current(r.key, pending.then);
+                    }
                     return;
                 }
                 if (standingEnded && (pending.intent.t === "first" || pending.intent.t === "last")) navIntent.current = null;
@@ -1236,7 +1257,7 @@ export function usePlanCanvas({
                 // after — the focus waiting on the item it set out from, and the view where it is, until the intent finds
                 // the row it was headed for.
                 owedFocus.current = null;
-                navIntent.current = { holder: from, intent: move.intent };
+                navIntent.current = { holder: from, intent: move.intent, then: [] };
                 controller.reportViewport(move.demand, false);
                 break;
             case "edge":
@@ -1244,13 +1265,14 @@ export function usePlanCanvas({
                 // in where they are, retained, the focus on the item it set out from — then the focus lands on its first
                 // or last row as that window's rows replace them. The focus moving on meanwhile puts the rows back.
                 owedFocus.current = null;
-                navIntent.current = { holder: from, intent: { t: move.edge, from } };
+                navIntent.current = { holder: from, intent: { t: move.edge, from }, then: [] };
                 controller.jumpToEdge(move.edge, from);
                 break;
             case "wait": {
-                // A key on a run holding the focus waits for the run's rows in view, and goes on from the first of them.
+                // A key on a run holding the focus waits for the run's rows in view, after any pressed before it, and goes
+                // on from the first of them.
                 const run = body.items.find((it) => it.kind === "band" && bodyItemKey(it) === from);
-                if (run?.kind === "band") owedFocus.current = { band: owedFocus.current?.band ?? run.band, wait: move.key };
+                if (run?.kind === "band") owedFocus.current = { band: owedFocus.current?.band ?? run.band, waits: [...(owedFocus.current?.waits ?? []), move.key] };
                 break;
             }
             case "event":
@@ -1263,10 +1285,33 @@ export function usePlanCanvas({
                 break;
         }
     };
+    /**
+     * The keys pressed while a move waited, each in turn from the item it landed on (#1398, CL10): over rows read each
+     * moves as it would have, and the first that goes past them fetches — the rest waiting on it as it waits, on the item
+     * the keys had reached. The focus ends where they leave it.
+     */
+    const goOn = (from: string, keys: readonly PlanWaitKey[]): void => {
+        let at = from;
+        for (let i = 0; i < keys.length; i++) {
+            const move = planNavKey(navItems, at, keys[i]!, pageHeight());
+            if (move?.t === "focus") {
+                at = move.key;
+                continue;
+            }
+            if (move?.t !== "fetch") continue;
+            if (at !== from) controller.focusItem(at, "auto");
+            owedFocus.current = null;
+            navIntent.current = { holder: at, intent: move.intent, then: keys.slice(i + 1) };
+            controller.reportViewport(move.demand, false);
+            return;
+        }
+        if (at !== from) controller.focusItem(at, "auto");
+    };
+    goOnRef.current = goOn;
     // What the view shows takes a focus a landing owes it (`owedFocus`), reported at rest — never while a keyboard move
     // waits, whose intent takes the focus on. A run owed it keeps it while its rows in view are on their way; once they
-    // land — or the view leaves it — the first of them in view takes it, else the first row in view, and a page pressed on
-    // the run goes on from there. A focus the viewer moved on meanwhile is owed nothing.
+    // land — or the view leaves it — the first of them in view takes it, else the first row in view, and the keys pressed
+    // on the run go on from there in turn. A focus the viewer moved on meanwhile is owed nothing.
     useLayoutEffect(() => {
         takeOwed.current = (shown) => {
             const owed = owedFocus.current;
@@ -1305,11 +1350,10 @@ export function usePlanCanvas({
             const el = elementOf(key);
             if (el !== undefined) el.focus({ preventScroll: true });
             else controller.focusItem(key);
-            // A page pressed on the run goes on from its row; a step's is the hand-off itself.
-            if (owed.wait === "PageDown" || owed.wait === "PageUp") {
-                const move = planNavKey(navItems, key, owed.wait, pageHeight());
-                if (move !== undefined) runMove(move, key);
-            }
+            // The keys pressed on the run go on from its row in turn: the first a page's from there, or a step's the
+            // hand-off itself.
+            const [first, ...after] = owed.waits;
+            goOn(key, first === "PageDown" || first === "PageUp" ? owed.waits : after);
         };
     });
     // A focused item a render takes off the canvas — a run its rows replace, a row a run evicts — would drop the focus to
@@ -1327,7 +1371,7 @@ export function usePlanCanvas({
             if (bodyEl === null || !bodyEl.isConnected || (at !== null && at !== document.body)) return;
             bodyEl.focus({ preventScroll: true });
             if (owedFocus.current !== null || navIntent.current !== null) return;
-            if (dropped !== undefined && !navItems.some((it) => it.key === dropped)) owedFocus.current = { band: undefined, wait: undefined };
+            if (dropped !== undefined && !navItems.some((it) => it.key === dropped)) owedFocus.current = { band: undefined, waits: [] };
         };
         keepFocus.current = keep;
         const at = document.activeElement;
@@ -1551,11 +1595,25 @@ export function usePlanCanvas({
         }
         controller.elementClick(ref);
     };
+    /**
+     * A key that moves through the rows, pressed on the item a step or a page waits on (#1398, CL10) — `true` when it
+     * took it: it waits with the move, after the keys pressed before it, and goes on once the move has landed. None is
+     * lost.
+     */
+    const waitsWith = (e: KeyboardEvent<HTMLDivElement>, itemKey: string): boolean => {
+        const waiting = navIntent.current;
+        if (waiting === null || waiting.holder !== itemKey || (waiting.intent.t !== "step" && waiting.intent.t !== "page")) return false;
+        if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "PageDown" && e.key !== "PageUp") return false;
+        e.preventDefault();
+        navIntent.current = { ...waiting, then: [...waiting.then, e.key] };
+        return true;
+    };
     /** A key in the grid — `true` when it was the grid's. */
     const gridKeys = (e: KeyboardEvent<HTMLDivElement>, bodyEl: HTMLElement): boolean => {
         const item = gridItemOf(e.target, bodyEl);
         if (item === null || e.altKey || e.ctrlKey || e.metaKey) return false;
         const itemKey = item.getAttribute("data-plan-item") ?? "";
+        if (waitsWith(e, itemKey)) return true;
         if (e.target === item) {
             // The row itself: Tab walks into its widgets; the rest is the map.
             if (e.key === "Tab") {
@@ -1642,7 +1700,7 @@ export function usePlanCanvas({
             ? e.key : undefined;
         if (wait === undefined) return false;
         e.preventDefault();
-        owedFocus.current = { band: owed.band, wait };
+        owedFocus.current = { band: owed.band, waits: [...owed.waits, wait] };
         return true;
     };
 
@@ -1712,7 +1770,7 @@ export function usePlanCanvas({
         if (bodyEl === null || e.target === bodyEl) return;
         const key = gridItemOf(e.target, bodyEl)?.getAttribute("data-plan-item");
         const run = key === null || key === undefined ? undefined : body.items.find((it) => it.kind === "band" && bodyItemKey(it) === key);
-        owedFocus.current = run?.kind === "band" ? { band: run.band, wait: undefined } : null;
+        owedFocus.current = run?.kind === "band" ? { band: run.band, waits: [] } : null;
     };
 
     // A carry whose reader left the canvas ends where it began (#825).

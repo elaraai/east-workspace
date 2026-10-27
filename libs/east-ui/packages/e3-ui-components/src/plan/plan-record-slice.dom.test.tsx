@@ -202,6 +202,26 @@ const rowsOf = (keys: readonly string[]) => keys.map((key) => rowKeyOf(orderRow(
 const summary = (c: HTMLElement) => slot(c, "toolbar")!.querySelector("[data-record-slices-summary]")?.textContent ?? null;
 /** The footer's count of the changes waiting on Save. */
 const pending = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan-count="pending"]')?.textContent ?? null;
+
+/** What has the focus: an order's row, by its id's text — else the canvas's surface, a run, or the page's body. */
+function focusedAt(c: HTMLElement): string {
+    const at = document.activeElement;
+    if (at === null || at === document.body) return "the page's body";
+    if (at === slot(c, "main")!.querySelector("[data-plan-body]")) return "the canvas";
+    if (at.hasAttribute("data-plan-window-band")) return "a run";
+    return at.getAttribute("data-plan-row") ?? at.tagName;
+}
+
+/** What has the focus after each commit from now on — a commit drawing the rows, or a focus moving. */
+function watchFocus(c: HTMLElement): { seen: string[]; stop: () => void } {
+    const seen: string[] = [];
+    const observer = new MutationObserver(() => { seen.push(focusedAt(c)); });
+    observer.observe(c, { subtree: true, childList: true, attributes: true });
+    const onFocus = () => { seen.push(focusedAt(c)); };
+    document.addEventListener("focusin", onFocus);
+    return { seen, stop: () => { observer.disconnect(); document.removeEventListener("focusin", onFocus); } };
+}
+
 /** A button of the history item, by the shared messages' words. */
 const history = (c: HTMLElement, name: string) => within(slot(c, "toolbar")!).getByRole("button", { name }) as HTMLButtonElement;
 
@@ -503,5 +523,38 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         // The view's place is kept again as it rests: the sixth order's row, at the view's top.
         await rest(ui.container, 5 * ROW_PX);
         await waitFor(() => expect(rested()?.key).toBe(`r:${rowKeyOf(orderRow(ready[5]!))}`), { timeout: 10_000 });
+    });
+
+    test("PageDown, PageDown and PageUp pressed on a run holding the focus while its rows are read are none of them lost: once they land the focus goes from the first of them in view a page on, a page on and a page back — never to the page's body (#1398, CL10)", async () => {
+        const { container: c } = await h.mount(ex.planRecordIndexes);
+        await settle();
+        const ready = await ordersOf(["Ready"], FIRST, FORTNIGHT);
+        const start = await placeOf("Ready", FIRST);
+        // The narrowing's windows past the three it opens on held on their way; the view goes seven tenths down among
+        // them and rests there, over the run that stands for them.
+        const far = h.e3.hold((r) => r.dataset === ORDERS && r.kind === "page" && Number(r.query.get("offset") ?? 0) >= start + 600);
+        await scrollRows(c, Math.round(0.7 * ready.length * ROW_PX));
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); });
+        await far.holding;
+        await settle();
+        // A click into the run: it holds the focus, and three keys are pressed on it while its rows are on their way.
+        const run = slot(c, "main")!.querySelector<HTMLElement>("[data-plan-window-band]")!;
+        await act(async () => { run.focus(); });
+        expect(focusedAt(c)).toBe("a run");
+        const watch = watchFocus(c);
+        for (const name of ["PageDown", "PageDown", "PageUp"]) await key(name);
+        expect(focusedAt(c)).toBe("a run");
+        // The rows land: the first of them in view takes the focus, and the keys go on from it in turn.
+        await act(async () => { far.release(); });
+        await settle();
+        await waitFor(() => expect(focusedAt(c)).toMatch(/orders\.span/), { timeout: 10_000 });
+        await settle();
+        watch.stop();
+        const rowsTaken = watch.seen.filter((at, i, all) => (i === 0 || at !== all[i - 1]) && at.includes("orders.span"));
+        const first = ready.findIndex((order) => rowKeyOf(orderRow(order)) === rowsTaken[0]);
+        expect(first).toBeGreaterThan(600);
+        // A page is ten orders — 400px of view, rows of 42: down two pages and back one leaves it a page on.
+        expect(focusedAt(c)).toBe(rowKeyOf(orderRow(ready[first + 10]!)));
+        expect(watch.seen).not.toContain("the page's body");
     });
 });

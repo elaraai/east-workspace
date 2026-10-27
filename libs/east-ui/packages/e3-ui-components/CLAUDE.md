@@ -1595,8 +1595,15 @@ land before any stand-in is drawn); so does a far key's view standing down
 without its window, and Home's or End's wait once the row it set out from is
 gone (`resolveNavIntent`). A run that holds the focus — a click into it — hands it, as its
 rows land, to the first of them the view shows whole, and a key pressed on it
-waits for them and goes on from there (`wait`); an item a landing takes off the
-canvas leaves the focus on the canvas's surface, never the page's body, until a
+waits for them and goes on from there (`wait`). Every key that moves through
+the rows pressed while a move waits — on the run, on the surface owed the
+focus, or on the row a step or a page set out from — waits with it in the
+order pressed, and they go on in turn once the rows are in (`goOn`): three
+PageDowns move three pages, none lost. A row leaving the grid with the focus
+in it hands it to the canvas's surface before its element leaves the page
+(`root/grid.ts`' `leave`, a layout cleanup), so an item a landing or the
+virtualizer takes off the canvas leaves the focus on the surface, never the
+page's body, not for a moment, until a
 row takes it — a key that moves through the rows, pressed on the surface
 meanwhile, waits there as it does on the run: a run a click focused leaves the
 frame before its rows come when windows the page still holds land beside it as
