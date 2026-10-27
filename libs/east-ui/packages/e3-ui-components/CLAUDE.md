@@ -1540,7 +1540,10 @@ and the events carry no handle. Its
 scroll publishes the days it shows to a store only what says them reads
 (`calendar/visible.ts`: the navigator's date and label, the count, each row's
 hours, the overlaps chip and the inspector's overlaps), so a scroll draws
-nothing else, and a day crossed only those. The overlaps chip counts the
+nothing else, and a day crossed only those — a row's hours read off its booked
+time up to each instant its events start or end at, made once a read (the
+views' `bookedHours`), so a day crossed sums none of its events again. The
+overlaps chip counts the
 overlaps in the days shown (`shared/schedule/overlaps.ts`'
 `scheduleOverlapsIn`, #1398), so it moves as days come into view and never as
 the window re-centres; the frame hears only whether there is one to show. Its

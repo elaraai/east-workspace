@@ -13,7 +13,8 @@
  * a move of the period's span it mounts draws only the events it brings in,
  * each once, its fit guessed from its box less what a bar laid out showed its
  * measure takes off, and a re-centre none that both windows hold whole, each
- * placed from an origin the re-centre does not move.
+ * placed from an origin the re-centre does not move; a day crossed sums none
+ * of a row's events again for its booked hours.
  * The view is the page's own: another page
  * keeping one moves neither its date nor its window. The Backlog never blinks:
  * paged through its source (#1424), never with a window, a step, a layout, a
@@ -25,7 +26,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DateTimeType, OptionType, decodeBeast2For, encodeBeast2For, none, printFor, some, variant } from "@elaraai/east";
+import { DateTimeType, OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-records";
@@ -33,7 +34,7 @@ import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.
 import type { E3Request } from "../e3-web.test-utils.js";
 import { DAY, eventKey, parseEventKey } from "./model.js";
 import { TIMELINE_GUTTER, timelineDays, timelinePixels } from "./timeline.js";
-import { setEventBlockRenderProbe } from "./views.js";
+import { setBookedProbe, setEventBlockRenderProbe } from "./views.js";
 import "./index.js";
 
 const h = e3Harness({ "calendar/calendar-records": ex }, { main: "data-calendar-main" });
@@ -598,6 +599,37 @@ describe("the timeline draws only what moves (#1398, CL9)", () => {
             expect(brought.filter(id => times.get(id) !== 1)).toEqual([]);
         } finally {
             setEventBlockRenderProbe(undefined);
+        }
+    });
+
+    test("a row's booked hours over the days the view shows are read off its booked time, made once a read: a day crossed sums none of its events again, and the hours are those its events book there", async () => {
+        const { timeline } = await openTimeline("month", "booked-by-day");
+        const events = await h.read(ex.indexedCalendarEvents);
+        const text = equalFor(StringType);
+        // Press A's jobs, the Ready ones the rail shows.
+        const ready = [...events.values()].filter(row => text(row.machine, "press-a") && text(row.status, "Ready"));
+        const pressA = () => [...timeline.querySelectorAll<HTMLElement>("[data-calendar-resource-row]")]
+            .find(row => row.querySelector("[data-calendar-resource-title]")?.textContent === "Press A")!;
+        const said = () => pressA().querySelector("[data-calendar-booked]")!.textContent!;
+        const hoursSaid = () => Number(/· ([\d,.]+) h booked$/.exec(said())![1]!.replaceAll(",", ""));
+        let summed = 0;
+        setBookedProbe(() => { summed += 1; });
+        try {
+            const lines = new Set<string>();
+            for (let day = 0; day < 4; day++) {
+                // A day on: the days the view shows move, and its booked hours with them.
+                await scrollTo(timeline, timeline.scrollLeft + timelinePixels("month"));
+                lines.add(said());
+                const view = shownSpan(timeline, windowOf(timeline), "month");
+                const from = Math.floor(view.from / DAY) * DAY, to = Math.ceil(view.to / DAY) * DAY;
+                const ms = ready.reduce((sum, row) => row.start.type !== "some" || row.end.type !== "some" ? sum
+                    : sum + Math.max(0, Math.min(row.end.value.getTime(), to) - Math.max(row.start.value.getTime(), from)), 0);
+                expect(hoursSaid()).toBeCloseTo(ms / 3_600_000, 2);
+            }
+            expect(lines.size).toBeGreaterThan(1);
+            expect(summed).toBe(0);
+        } finally {
+            setBookedProbe(undefined);
         }
     });
 });

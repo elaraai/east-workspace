@@ -334,10 +334,101 @@ function rowDrawn(row: CalendarRow, pagedKind: string | undefined, drawnRows: Re
     return drawnRows === undefined || row.resource.type !== "some" || row.resource.value.kind !== pagedKind || drawnRows.has(row.resource.value.key);
 }
 
+/**
+ * Test-only probe — lets "a day crossed on the timeline sums none of a row's events again" be asserted as the sums of a
+ * row's events, event by event, run (#1398, CL9). `undefined` outside tests.
+ */
+let bookedProbe: (() => void) | undefined;
+/**
+ * Install (or clear) the booked-hours probe. Test use only.
+ *
+ * @param fn - Called each time a resource's events are summed event by event; `undefined` clears it
+ */
+export function setBookedProbe(fn: (() => void) | undefined): void {
+    bookedProbe = fn;
+}
+
 /** Booked time is measured within the labelled view, including overnight events only once. */
 function booked(items: readonly CalendarItem[], row: CalendarRow, from: Date, to: Date): number {
+    bookedProbe?.();
     return items.reduce((hours, item) => item.start.type === "some" && item.end.type === "some" && onResource(item, row)
         ? hours + Math.max(0, Math.min(item.end.value.getTime(), to.getTime()) - Math.max(item.start.value.getTime(), from.getTime())) / 3_600_000 : hours, 0);
+}
+
+/**
+ * A row's booked time up to each instant one of its events starts or ends at, in order: the booked ms up to it, and how
+ * many of its events run on from it — what its booked time over any span is read off.
+ */
+interface BookedMarks {
+    readonly at: readonly number[];
+    readonly upTo: readonly number[];
+    readonly running: readonly number[];
+}
+
+/**
+ * A row's {@link BookedMarks}: its events summed once, event by event.
+ *
+ * @param items - The row's events
+ * @param row - The row
+ * @returns Its marks
+ */
+function bookedMarks(items: readonly CalendarItem[], row: CalendarRow): BookedMarks {
+    bookedProbe?.();
+    const edges: { readonly at: number; readonly step: 1 | -1 }[] = [];
+    for (const item of items) {
+        if (item.start.type !== "some" || item.end.type !== "some" || !onResource(item, row)) continue;
+        const start = item.start.value.getTime(), end = item.end.value.getTime();
+        if (end > start) edges.push({ at: start, step: 1 }, { at: end, step: -1 });
+    }
+    edges.sort((a, b) => a.at - b.at);
+    const at: number[] = [], upTo: number[] = [], running: number[] = [];
+    let ms = 0, now = 0;
+    for (const edge of edges) {
+        const last = at.length - 1;
+        if (last < 0 || at[last] !== edge.at) {
+            if (last >= 0) ms += now * (edge.at - at[last]!);
+            at.push(edge.at); upTo.push(ms); running.push(now);
+        }
+        now += edge.step;
+        running[running.length - 1] = now;
+    }
+    return { at, upTo, running };
+}
+
+/**
+ * A timeline row's booked hours over a span (#1398, CL9), as {@link booked} measures them, read off the row's booked time
+ * up to the span's ends ({@link BookedMarks}): its events summed once, as the first span is asked, so a day crossed sums
+ * none of them again.
+ *
+ * @param items - The row's events
+ * @param row - The row
+ * @returns Its booked hours over a span
+ */
+function bookedHours(items: readonly CalendarItem[], row: CalendarRow): (from: Date, to: Date) => number {
+    let marks: BookedMarks | undefined;
+    return (from, to) => {
+        marks ??= bookedMarks(items, row);
+        return Math.max(0, bookedUpTo(marks, to.getTime()) - bookedUpTo(marks, from.getTime())) / 3_600_000;
+    };
+}
+
+/**
+ * A row's booked ms up to an instant, read off its {@link BookedMarks}: the last mark at or before it, and the events
+ * running on from there.
+ *
+ * @param marks - The row's marks
+ * @param t - The instant, as an epoch
+ * @returns The booked ms up to it
+ */
+function bookedUpTo(marks: BookedMarks, t: number): number {
+    const { at, upTo, running } = marks;
+    let low = 0, high = at.length;
+    while (low < high) {
+        const mid = (low + high) >> 1;
+        if (at[mid]! <= t) low = mid + 1;
+        else high = mid;
+    }
+    return low === 0 ? 0 : upTo[low - 1]! + running[low - 1]! * (t - at[low - 1]!);
 }
 
 /**
@@ -345,16 +436,14 @@ function booked(items: readonly CalendarItem[], row: CalendarRow, from: Date, to
  * on its kind, that its hours are not counted (#1424), never a sum that leaves those events out unsaid.
  *
  * @param props - The views' props: what is uncounted, and the app's formatters
- * @param items - The events drawn
  * @param row - The resource's row
- * @param from - The span's start
- * @param to - Its end
+ * @param hours - Its booked hours over the span, asked only where they are said
  * @returns The line
  */
-function bookedWords(props: Pick<CalendarViewsProps, "uncounted" | "format">, items: readonly CalendarItem[], row: CalendarRow, from: Date, to: Date): string {
+function bookedWords(props: Pick<CalendarViewsProps, "uncounted" | "format">, row: CalendarRow, hours: (row: CalendarRow) => number): string {
     const uncounted = props.uncounted ?? NOTHING_UNCOUNTED;
     if (row.resource.type === "some" && uncounted.resources.has(row.resource.value.kind)) return `${row.meta} · hours not counted`;
-    return `${row.meta} · ${props.format.number(booked(items, row, from, to))} h booked`;
+    return `${row.meta} · ${props.format.number(hours(row))} h booked`;
 }
 
 /**
@@ -959,7 +1048,7 @@ function TimeGrid(props: CalendarViewsProps) {
                 </> : <>
                     <Box css={props.styles.resourceHeading} data-calendar-resource-title="">{column.row.icon !== undefined && <FontAwesomeIcon icon={["fas", column.row.icon as IconName]} />} {column.row.label}</Box>
                     <Box css={props.styles.columnMeta} data-calendar-booked="">{props.read.state === "held" && rowDrawn(column.row, pages?.kind, drawnRows)
-                        ? bookedWords(props, props.items, column.row, column.day, new Date(column.day.getTime() + DAY))
+                        ? bookedWords(props, column.row, row => booked(props.items, row, column.day, new Date(column.day.getTime() + DAY)))
                         : <Box as="span" css={props.styles.unreadMeta}>{column.row.meta}<Counted props={props} index={i}>{props.read.state === "held" ? <PlaceholderShape kind="aggregate" index={i} /> : null}</Counted></Box>}</Box>
                 </>}
             </chakra.button>)}</Box>
@@ -1076,12 +1165,16 @@ function placeOfKey(key: string, result: number | undefined): number | undefined
     const at = Number(key.slice(prefix.length));
     return Number.isSafeInteger(at) && at >= 0 ? at : undefined;
 }
-/** A resource row's events laid out once a read (#1398, CL9): the events, their spans, their lanes and the plot's height. */
+/**
+ * A resource row's events laid out once a read (#1398, CL9): the events, their spans, their lanes, the plot's height, and
+ * its booked hours over a span, its events summed once ({@link bookedHours}).
+ */
 interface TimelineLayout {
     readonly items: readonly CalendarItem[];
     readonly spans: readonly { readonly start: number; readonly end: number }[];
     readonly lanes: ReturnType<typeof packLanes>;
     readonly height: number;
+    readonly hours: (from: Date, to: Date) => number;
 }
 /** What a timeline row reads, the same object while what the rows draw holds (CL9). */
 interface TimelineContext {
@@ -1177,7 +1270,8 @@ function firstRowInView(lines: readonly TimelineLine[], top: number | undefined)
     return undefined;
 }
 /**
- * A resource's booked hours over the days the timeline shows, read as they move (CL9); while the days shown are read —
+ * A resource's booked hours over the days the timeline shows, read as they move (CL9) off its booked time, its events
+ * summed once a read (`bookedHours`); while the days shown are read —
  * a period not read yet, or a continuation's days the held read does not cover — or a paged kind's resource whose cells
  * have not landed (#1424), its meta and a placeholder, never 0.
  */
@@ -1188,7 +1282,7 @@ function TimelineRowMeta({ ctx, row, layout, r }: { ctx: TimelineContext; row: C
         return <Box css={styles.columnMeta} data-calendar-booked=""><Box as="span" css={styles.unreadMeta}>{row.meta}{ctx.read.state !== "failed" && <PlaceholderShape kind="aggregate" index={r} />}</Box></Box>;
     }
     const from = shown?.from ?? range.from, to = shown?.to ?? range.to;
-    return <Box css={styles.columnMeta} data-calendar-booked="">{bookedWords({ uncounted: ctx.uncounted, format }, layout.items, row, from, to)}</Box>;
+    return <Box css={styles.columnMeta} data-calendar-booked="">{bookedWords({ uncounted: ctx.uncounted, format }, row, () => layout.hours(from, to))}</Box>;
 }
 /**
  * A resource row's plot: its events in the timeline's mounted span — every one while the timeline has not laid out — its
@@ -1336,7 +1430,8 @@ function Timeline(props: CalendarViewsProps) {
         });
         // A period not read yet: one lane a row, which grows below the row in view as its events land.
         const lanes = packLanes(spans);
-        return [row.key, { items, spans, lanes, height: lanes.reduce((n, lane) => Math.max(n, lane.lanes), 1) * laneHeight + 9 }] as const;
+        const layout: TimelineLayout = { items, spans, lanes, height: lanes.reduce((n, lane) => Math.max(n, lane.lanes), 1) * laneHeight + 9, hours: bookedHours(items, row) };
+        return [row.key, layout] as const;
     })), [props.shownRows, pagedRows, byResource, lanesPeriod, laneHeight]);
     // The lines: each group's band, and its rows unless it is folded — the paged kind's, among the groups in the kinds'
     // order (#1424), the stretches of its places: a row each of the windows held, keyed by its place under the result its
