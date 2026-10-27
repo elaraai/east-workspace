@@ -577,6 +577,24 @@ describe("the timeline draws only what moves (#1398, CL9)", () => {
         }
     });
 
+    test("a move of the span it mounts draws none of a row's shading again: its weekends are drawn once while the window holds them, of their slot's class", async () => {
+        const { timeline } = await openTimeline("month", "shading-once");
+        // Its rows' weekends, shaded: a plot's bands along it that are none of its events, ghosts, drops or now line.
+        const bands = () => timeline.querySelectorAll("[data-calendar-cell] > [data-along='x']:not([data-calendar-event], [data-calendar-ghost], [data-calendar-now], [data-calendar-landing], [data-calendar-draw])").length;
+        expect(bands()).toBeGreaterThan(0);
+        const slots = system.sva(structuredClone(system.getSlotRecipe("calendar")))({}) as Record<string, unknown>;
+        const shade = JSON.stringify(slots["shade"]);
+        const css = vi.spyOn(system, "css");
+        try {
+            await scrollTo(timeline, timeline.scrollLeft + 400);
+            await scrollTo(timeline, timeline.scrollLeft + 400);
+            // Its class made once at most, the first time a shading draws it; never a band's styles worked out again.
+            expect(css.mock.calls.filter(styles => styles.some(style => JSON.stringify(style) === shade)).length).toBeLessThanOrEqual(1);
+        } finally {
+            css.mockRestore();
+        }
+    });
+
     test("once the timeline has laid a bar out, a bar a move of the span brings in draws once as it mounts: its fit guessed from the box its plot gives it, less what the bar laid out showed its rule and padding take — which its measure keeps", async () => {
         // Every timeline bar laid out as a browser lays it, from the first: its box its plot's share of the window — its plot's
         // days, which name its period, at that period's day — its padding box that less its 1px rule each side, and each of
