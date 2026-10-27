@@ -6,9 +6,10 @@
 /**
  * The Optimise run's shared parts (#1409; `Optimise Spec.md`) — what every
  * builder that takes the app's optimiser draws in its own frame: the Elara
- * eye and its button, the eye's toolbar item before the history item, the
- * banner the result lands with, the legend's `Elara change`, the footer
- * line's words while the call is out, and the words table. The run itself,
+ * eye and its button, the eye's toolbar item before the history item, its
+ * entry in the builder's View where the row's floor folds it, the banner the
+ * result lands with, the legend's `Elara change`, the footer line's words
+ * while the call is out, and the words table. The run itself,
  * the one history step and the landing on a builder's entries are the
  * builder's (e3-ui-components).
  *
@@ -18,6 +19,7 @@
 export { ElaraEye, ELARA_EYE_DOTS, type ElaraEyeProps, type ElaraEyeSize } from "./eye.js";
 export { OptimiseButton, OPTIMISE_BLINK_MS, type OptimiseButtonProps, type OptimiseButtonSize } from "./button.js";
 export { optimiseToolbarItem, OPTIMISE_RANK } from "./toolbar-item.js";
+export { OptimiseEntry, type OptimiseEntryProps } from "./entry.js";
 export { OptimiseBanner, OPTIMISE_BANNER_COLLAPSE_MS, type OptimiseBannerProps, type OptimiseOutcome } from "./banner.js";
 export { OptimiseLegendItem, type OptimiseLegendItemProps } from "./legend.js";
 export { optimiseRunningLine, optimiseStoppedLine, optimiseSeconds } from "./line.js";

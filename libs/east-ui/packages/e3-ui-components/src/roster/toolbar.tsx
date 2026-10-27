@@ -3,13 +3,13 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 
-import { useState } from "react";
+import { useState, type ReactElement } from "react";
 import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faTriangleExclamation, faSliders } from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap } from "@elaraai/east";
 import {
-    ChipMenu, historyToolbarItem, useKeySearchToolbarItem, type EditingWords, type HistoryAction, type KeySearchSource, type ToolbarItem,
+    ChipMenu, OPTIMISE_RANK, historyToolbarItem, useKeySearchToolbarItem, type EditingWords, type HistoryAction, type KeySearchSource, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
@@ -26,6 +26,8 @@ const LAYOUTS = [{ key: "shifts", label: "Shifts" }, { key: "people", label: "Pe
 const SHIFT_PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }] as const;
 const PEOPLE_PERIODS = [{ key: "week", label: "Week" }, { key: "month", label: "Month" }] as const;
 const PEOPLE_NARROW_PERIODS = [{ key: "week", label: "Week" }] as const;
+/** The eye's step into the View and the View's step that draws its entry (ruled 27 Oct 2026, "Into the View menu"): one bundle, applied together. */
+const EYE_INTO_VIEW = "roster.optimise";
 interface ToolbarArgs extends RosterWindow {
     value: RosterValue; styles: RosterStyles; commands: RosterCommands; editing: RosterEditing | undefined; words: EditingWords;
     /** Whether main is narrower than a phone: People offers Week alone (#1406, P31). */
@@ -50,6 +52,11 @@ interface ToolbarArgs extends RosterWindow {
     search?: KeySearchSource | undefined;
     /** The Elara eye (#1409): the run's toolbar item, listed between the issues item and the history item; `undefined` with no optimiser. */
     optimise?: ToolbarItem | undefined;
+    /**
+     * The eye's entry (ruled 27 Oct 2026, "Into the View menu"): what the View lists in the eye's place, beside the issues,
+     * where the row's floor folds the eye into it; `undefined` with no eye.
+     */
+    optimiseEntry?: ReactElement | undefined;
     /** Whether a run of the optimiser is out (#1409, R2): the history item stays, its actions locked. */
     locked?: boolean | undefined;
     /** Whether the issues chip flashes (#1409): a run's result landed, and its highlight is on. */
@@ -111,25 +118,30 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         <ChakraMenu.Separator /><ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item>{value.inspector && <ChakraMenu.Item value="issues">{count} issues</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
         {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!publishable}>Publish week</ChakraMenu.Item></>}
     </ChipMenu>;
+    // The Elara eye (#1409) and its entry: at the row's floor the eye goes into the View, which lists it in its place
+    // (ruled 27 Oct 2026, "Into the View menu"); an eye with no entry keeps to the row.
+    const eye = args.optimise !== undefined && args.optimiseEntry !== undefined ? { item: args.optimise, entry: args.optimiseEntry } : undefined;
     // When the frame itself is narrower than a phone viewport, one popover
-    // holds both week and view controls. It folds before the shared history.
-    const controls = <Box css={styles.agendaGroup}>
+    // holds both week and view controls. It folds before the shared history —
+    // and, at the row's floor, holds the eye's entry beside the issues.
+    const controls = (withEye: boolean) => <Box css={styles.agendaGroup}>
         {search?.forms[0]}
         <Seg label="Layout" scope="roster" name="compact-layout" items={LAYOUTS} active={view.layout} onPick={args.setLayout} />
         <Seg label="Period" scope="roster" name="compact-period" items={periods} active={view.period} onPick={period} />
         <ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>
         {value.inspector && <Button size="xs" variant="ghost" onClick={args.onIssues}>{count} issues</Button>}
+        {withEye && eye?.entry}
         {heldPublish && <Button size="xs" variant="solid" disabled={!publishable} onClick={() => commands.publish()}>Publish week</Button>}
     </Box>;
     // The People layout's labels (#1406, P2): the week and its number — `Mar 12 – 18, 2028 · W11` — or the month, its weeks
     // and its range — `March 2028 · W10–W14 · Mar 5 – Apr 1`. Shifts keeps the shared navigator's own words.
     const rangeLabel = view.period === "month" ? monthWords(words, span)
         : view.layout === "people" ? `${words.range(span.start, new Date(span.start.getTime() + 6 * DAY))} · W${words.number(weekNumber(span.start))}` : undefined;
-    const navigation = (compact = false, combined = false) => <TimeNavigator scope="roster" date={view.date} period={unit} rangeLabel={rangeLabel}
+    const navigation = (compact = false, combined = false, withEye = false) => <TimeNavigator scope="roster" date={view.date} period={unit} rangeLabel={rangeLabel}
         sunday={value.settings.weekStart.type === "sunday"} onChange={date => setView({ ...view, date })}
         compact={compact} label={combined ? "View" : "Choose roster week"} initialPanel="week" onWeeks={args.onPickerDates}
         weekMarker={date => { const held = args.picker.get(date); return <Box as="span" css={styles.pickerDot} data-state={held === undefined ? "empty" : held.type === "other" ? "draft" : held.type} />; }}
-        legend="Published · Draft · Not started" controls={combined ? controls : undefined} />;
+        legend="Published · Draft · Not started" controls={combined ? controls(withEye) : undefined} />;
     const daySelect = <Seg label="Day of week" scope="roster" name="days" active={String(args.day)} onPick={day => setView({ ...view, date: start.getTime() + Number(day) * DAY })}
         items={Array.from({ length: 7 }, (_, day) => ({ key: String(day), label: words.weekday(new Date(start.getTime() + day * DAY)) }))} />;
     return [
@@ -139,7 +151,10 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         { key: "roster.period", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<Seg label="Period" scope="roster" name="period" items={periods} active={view.period} onPick={period} />, null] },
         { key: "roster.display", side: "start", rank: HOST_RANK + 1, bundle: "roster.view", forms: [<ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>, null] },
         { key: "roster.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["roster.view", "roster.controls"], forms: [null, menu, null] },
-        { key: "roster.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "roster.controls"], forms: [navigation(), navigation(true), navigation(true, true)] },
+        // The week's navigation: compact, then the View holding the week and view controls; and, with an eye, at the
+        // row's floor the View holding its entry too, in the step that takes the eye from the row (a rung of the floor).
+        { key: "roster.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6, OPTIMISE_RANK], bundle: [undefined, "roster.controls", EYE_INTO_VIEW],
+            forms: [navigation(), navigation(true), navigation(true, true), ...(eye === undefined ? [] : [navigation(true, true, true)])] },
         view.layout === "shifts" && view.period === "day" && { key: "roster.days", side: "start", rank: HOST_RANK + 2, forms: [daySelect, null] },
         // The status, the issues and Publish keep their slots from cold load, whatever the week's read (#1398, CL1): a read
         // landing never shifts the toolbar nor folds it again. Unread, the status and the issues are placeholders.
@@ -151,8 +166,9 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
             : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} data-roster-issues="" data-opn={args.issuesFlash === true ? "" : undefined} onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>
                 : <Box css={styles.heldSlot} data-roster-issues="" aria-hidden="true" />, null] },
         search !== undefined && { ...search, forms: [...search.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "roster.controls"] },
-        // The Elara eye (#1409), between the issues item and the history item, whose actions a run out locks (R2).
-        args.optimise,
+        // The Elara eye (#1409), between the issues item and the history item, whose actions a run out locks (R2): in the row
+        // at every width the ladder and the rail's caret leave it room, and else the View's entry, never out of the toolbar.
+        eye === undefined ? args.optimise : { ...eye.item, forms: [...eye.item.forms, null], rank: OPTIMISE_RANK, bundle: EYE_INTO_VIEW },
         showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction, locked: args.locked === true }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the week can't publish.
         heldPublish && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!publishable} onClick={() => commands.publish()}>Publish</Button>, null] },

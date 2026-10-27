@@ -23,6 +23,13 @@
  *     (`data-blink`): one blink, 560ms. Disabled: `--rule` edge, `--ink-5`
  *     mark. Under reduced motion the running state is its colours alone.
  *   - stop: the 11px stop glyph a running eye shows on hover.
+ *   - entry / entryReason: the eye as an entry of its builder's View, where
+ *     the row's floor folds it (ruled 27 Oct 2026, "Into the View menu") —
+ *     the View's own `xs` ghost button, the 14px mark before its words: the
+ *     iris `elara.ink` under the pointer; running (`data-running`), the mark
+ *     `elara.ink` and the iris `elara`, as the eye's are, under the pointer
+ *     too; and, while it is off, why — `Read-only` — after its words, in the
+ *     subtle mono.
  *   - banner / bannerBox: the result's banner in the frame's banners slot —
  *     the shared banner as every other tone draws it, flush with the frame's
  *     other banners, in the Elara tone (`banner.elara`), fading in over
@@ -115,7 +122,7 @@ const LANDING = {
 
 export const optimiseSlotRecipe = defineSlotRecipe({
     className: "elara-optimise",
-    slots: ["eye", "button", "stop", "banner", "bannerBox", "legendSwatch", "landing"],
+    slots: ["eye", "button", "stop", "entry", "entryReason", "banner", "bannerBox", "legendSwatch", "landing"],
     base: {
         eye: {
             display: "block",
@@ -193,6 +200,19 @@ export const optimiseSlotRecipe = defineSlotRecipe({
             opacity: 0,
             pointerEvents: "none",
             "& svg": { width: "1em", height: "1em" },
+        },
+        // On the View's own button (`xs`, ghost), which lays it out and draws its states: the mark's own colours here — a run
+        // out keeps its running colours under the pointer, as its words say Stop.
+        entry: {
+            gap: "6px",
+            "&:hover:not(:disabled):not([data-running]) [data-eye-iris]": { fill: "elara.ink" },
+            "&[data-running] [data-eye]": { color: "elara.ink" },
+            "&[data-running] [data-eye-iris]": { fill: "elara" },
+        },
+        entryReason: {
+            textStyle: "mono.xs",
+            fontWeight: "normal",
+            color: "fg.subtle",
         },
         banner: {
             display: "grid",

@@ -635,9 +635,10 @@ export {
 } from "./editing/index.js";
 // The Optimise run's shared parts (#1409) — for the sibling renderer packages
 // whose builders take the app's optimiser: the Elara eye and its button, the
-// eye's toolbar item before the history item, the banner the result lands
-// with, the legend's `Elara change`, the footer line's words while the call
-// is out, and the words table.
+// eye's toolbar item before the history item, and its entry in a builder's
+// View where the row's floor folds it (ruled 27 Oct 2026, "Into the View
+// menu"), the banner the result lands with, the legend's `Elara change`, the
+// footer line's words while the call is out, and the words table.
 export {
     ElaraEye,
     ELARA_EYE_DOTS,
@@ -645,6 +646,7 @@ export {
     OPTIMISE_BLINK_MS,
     optimiseToolbarItem,
     OPTIMISE_RANK,
+    OptimiseEntry,
     OptimiseBanner,
     OPTIMISE_BANNER_COLLAPSE_MS,
     OptimiseLegendItem,
@@ -672,6 +674,7 @@ export {
     type ElaraEyeSize,
     type OptimiseButtonProps,
     type OptimiseButtonSize,
+    type OptimiseEntryProps,
     type OptimiseBannerProps,
     type OptimiseOutcome,
     type OptimiseLegendItemProps,

@@ -252,31 +252,34 @@ describe("bundles — the steps of several items that apply together (#1229)", (
 
 describe("the floor — rungs below the ladder (hand retest, 27 Oct 2026)", () => {
     /**
-     * A phone's row: the rail, its icon (rank 7) and then, at the floor, its icon without the caret; the eye, which
-     * leaves the row at the floor, after the rail's rung; the history, folding last of the ladder, to its buttons.
+     * A phone's row: the rail, its icon (rank 7) and then, at the floor, its icon without the caret; a View, which at the
+     * floor lists the eye's entry, and the eye, which goes into it there — the two rungs one bundle, after the rail's
+     * (ruled 27 Oct 2026, "Into the View menu"); the history, folding last of the ladder, to its buttons.
      */
     const phone = (): (FoldItem & { widths: readonly (number | null)[] })[] => [
         item([300, 50, 34], [7, FLOOR_RANK]),
-        item([32, null], FLOOR_RANK + 1),
+        { ...item([30, 30], FLOOR_RANK + 1), bundles: ["eye"] },
+        { ...item([32, null], FLOOR_RANK + 1), bundles: ["eye"] },
         item([220, 136], 100),
     ];
 
-    test("a floor rung sorts after every step of the ladder — the history's included — the eye's after the rail's", () => {
-        expect(foldSequence(phone()).map((s) => [s.item, s.to, s.rank])).toEqual([
-            [0, 1, 7], [2, 1, 100], [0, 2, FLOOR_RANK], [1, 1, FLOOR_RANK + 1],
+    test("a floor rung sorts after every step of the ladder — the history's included — the eye's and its View's after the rail's, side by side in their bundle", () => {
+        expect(foldSequence(phone()).map((s) => [s.item, s.to, s.rank, s.bundle])).toEqual([
+            [0, 1, 7, undefined], [3, 1, 100, undefined], [0, 2, FLOOR_RANK, undefined], [1, 1, FLOOR_RANK + 1, "eye"], [2, 1, FLOOR_RANK + 1, "eye"],
         ]);
     });
 
     test("an item's ladder ends before its first floor rung: every step after it is the floor's too", () => {
-        expect(phone().map(ladderMost)).toEqual([1, 0, 1]);
+        expect(phone().map(ladderMost)).toEqual([1, 0, 0, 1]);
         // A rung of the floor ranked below an earlier step waits for it, as any step does: still the floor's.
         expect(ladderMost(item([100, 60, 40, 20], [FLOOR_RANK, 3, 2]))).toBe(0);
         expect(ladderMost(item([100]))).toBe(0);
     });
 
     test("an item kept to its ladder takes no floor rung — held where something holds it, even past its ladder", () => {
-        const [rail, eye, history] = phone();
-        expect([onLadder(rail!).held, onLadder(eye!).held, onLadder(history!)]).toEqual([{ least: 0, most: 1 }, { least: 0, most: 0 }, history]);
+        const [rail, view, eye, history] = phone();
+        expect([onLadder(rail!).held, onLadder(view!).held, onLadder(eye!).held, onLadder(history!)])
+            .toEqual([{ least: 0, most: 1 }, { least: 0, most: 0 }, { least: 0, most: 0 }, history]);
         // Held to its bare icon (its editor open there): it stays where it is held.
         expect(onLadder({ ...rail!, held: { least: 2, most: 2 } }).held).toEqual({ least: 2, most: 2 });
         // Held to a range reaching past its ladder: kept to the ladder's end of it.
@@ -290,13 +293,24 @@ describe("the floor — rungs below the ladder (hand retest, 27 Oct 2026)", () =
             const seq = foldSequence(kept);
             return formsAt(kept, seq, chooseFolds(kept, seq, widthsOf(items), available, 10));
         };
-        // The ladder's end: 50 + 32 + 136 + 20 = 238. A pixel less, the ladder alone runs past it; the floor drops the
-        // rail's caret (34 + 32 + 136 + 20 = 222), then lets the eye go (34 + 136 + 10 = 180).
-        expect(pick(238, false)).toEqual([1, 0, 1]);
-        expect(pick(237, false)).toEqual([1, 0, 1]);
-        expect(pick(237, true)).toEqual([2, 0, 1]);
-        expect(pick(221, true)).toEqual([2, 1, 1]);
+        // The ladder's end: 50 + 30 + 32 + 136 + 30 = 278. A pixel less, the ladder alone runs past it; the floor drops the
+        // rail's caret (34 + 30 + 32 + 136 + 30 = 262), then takes the eye into its View (34 + 30 + 136 + 20 = 220).
+        expect(pick(278, false)).toEqual([1, 0, 0, 1]);
+        expect(pick(277, false)).toEqual([1, 0, 0, 1]);
+        expect(pick(277, true)).toEqual([2, 0, 0, 1]);
+        expect(pick(261, true)).toEqual([2, 1, 1, 1]);
         // Where the ladder fits, the floor takes nothing either.
-        expect(pick(238, true)).toEqual([1, 0, 1]);
+        expect(pick(278, true)).toEqual([1, 0, 0, 1]);
+    });
+
+    test("the eye's rung and its View's are one bundle: no width takes one without the other", () => {
+        const items = phone();
+        const seq = foldSequence(items);
+        // The prefix that takes the View's rung and leaves the eye's splits the bundle.
+        expect(seq.map((_s, k) => splitsBundle(seq, k))).toEqual([false, false, false, false, true]);
+        for (let w = 400; w >= 0; w -= 1) {
+            const [, view, eye] = formsAt(items, seq, chooseFolds(items, seq, widthsOf(items), w, 10));
+            expect(view === 1, `${w}px`).toBe(eye === 1);
+        }
     });
 });

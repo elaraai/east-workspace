@@ -5,10 +5,13 @@
 
 /**
  * What every builder draws of a run of the app's optimiser (#1409; `Optimise
- * Spec.md` §6, §7): the eye in its toolbar, before the history item; the
- * banner in its banners slot while the highlight is on, or until the next run
- * on failure — a title and one line, no actions and no close, as the mock's
- * alert is; the footer line while the call is out and for 2.5s after Stop;
+ * Spec.md` §6, §7): the eye in its toolbar, before the history item, and its
+ * entry, which a builder whose View bundles the period's controls on a phone
+ * lists in the eye's place where the row's floor needs the eye's room (ruled
+ * 27 Oct 2026, "Into the View menu"); the banner in its banners slot while
+ * the highlight is on, or until the next run on failure — a title and one
+ * line, no actions and no close, as the mock's alert is; the footer line
+ * while the call is out and for 2.5s after Stop;
  * the legend's `Elara change` during the highlight; and the lock while the
  * call is out. One hook over the run (`useOptimise`) and the landing
  * (east-ui-components' `useLanding`), so each builder lists the parts in its
@@ -24,9 +27,9 @@
  * @packageDocumentation
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
 import {
-    OptimiseBanner, optimiseRunningLine, optimiseStoppedLine, optimiseToolbarItem,
+    OptimiseBanner, OptimiseEntry, optimiseRunningLine, optimiseStoppedLine, optimiseToolbarItem,
     type HistoryAction, type Landing, type OptimiseButtonSize, type OptimiseOutcome, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import type { LoadingLineValue } from "@elaraai/east-ui-components/internal";
@@ -69,6 +72,12 @@ export interface OptimisePartsArgs<Req> {
 export interface OptimiseParts {
     /** The eye's toolbar item, to list immediately before the history item; `undefined` with no optimiser, or where the period cannot be optimised. */
     readonly toolbarItem: ToolbarItem | undefined;
+    /**
+     * The eye as an entry of the builder's View (`OptimiseEntry`): what a builder whose View bundles the period's controls
+     * on a phone lists in the eye's place where the row's floor folds the eye into it (ruled 27 Oct 2026, "Into the View
+     * menu") — the same run, its Stop and why it is off. `undefined` wherever {@link OptimiseParts.toolbarItem} is.
+     */
+    readonly entry: ReactElement | undefined;
     /** The banner, for the banners slot; nothing with no optimiser. */
     readonly banner: ReactNode;
     /** The footer line while the call is out or just stopped; `undefined` otherwise, when the builder's own line shows. */
@@ -136,6 +145,10 @@ export function useOptimiseParts<Req>({ run, landing, period, readOnly, busy = f
     const toolbarItem = useMemo(() => run.offered && !readOnly ? optimiseToolbarItem({
         period, running: run.running, blink: run.blinks, disabled: busy, onRun, onStop: run.stop, size,
     }) : undefined, [run.offered, run.running, run.blinks, run.stop, period, readOnly, busy, onRun, size]);
+    // The eye's entry in the View: the same run, named and off as the eye is.
+    const entry = useMemo(() => run.offered && !readOnly
+        ? <OptimiseEntry period={period} running={run.running} disabled={busy} onRun={onRun} onStop={run.stop} />
+        : undefined, [run.offered, run.running, run.stop, period, readOnly, busy, onRun]);
     const shown: OptimiseOutcome | undefined = useMemo(() => {
         if (outcome === undefined) return undefined;
         if (outcome.kind === "fail") return { kind: "fail", period: outcome.period };
@@ -151,6 +164,6 @@ export function useOptimiseParts<Req>({ run, landing, period, readOnly, busy = f
         if (action === "undo" || action === "apply" || action === "discard") end();
         else if (action === "redo" && redoOrigin === "optimise" && outcome?.kind === "done") { setQuiet(true); landAfter(outcome.run); }
     }, [end, outcome, landAfter]);
-    return useMemo(() => ({ toolbarItem, banner, line, legend: lit && outcome?.kind === "done", locked: run.running, landAfter, acted }),
-        [toolbarItem, banner, line, lit, outcome, run.running, landAfter, acted]);
+    return useMemo(() => ({ toolbarItem, entry, banner, line, legend: lit && outcome?.kind === "done", locked: run.running, landAfter, acted }),
+        [toolbarItem, entry, banner, line, lit, outcome, run.running, landAfter, acted]);
 }

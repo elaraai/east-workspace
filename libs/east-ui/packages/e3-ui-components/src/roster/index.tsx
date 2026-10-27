@@ -362,7 +362,7 @@ function RosterFrame(props: FrameProps) {
         if (on !== null && on !== undefined && keyEqual(on, key)) board.focus({ preventScroll: true });
     };
     const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onAction, onPickerDates: setPickerDates, narrow,
-        optimise: optimiseParts.toolbarItem, locked, issuesFlash: landing.lit && optimised !== undefined,
+        optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
         selectedWeek: pickedWeek === undefined ? undefined : new Date(pickedWeek.start),
         status: source.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,
         onDisplay: next => props.setDisplay({ ...props.display, ...next }), search });

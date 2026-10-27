@@ -32,7 +32,8 @@
  * ladder. The toolbar takes a floor rung only once every step of the ladder
  * has applied — the history's last among them — and the row still does not
  * fit, so a row the ladder fits never takes one; its rungs give what the
- * ladder keeps (the rail's icon its caret, the Elara eye its place), so the
+ * ladder keeps (the rail's icon its caret, the Elara eye its place in the
+ * row, into its builder's View — the two items' rungs one bundle), so the
  * history and Save stay in the row where the ladder alone would run it past
  * its end. An item's rungs follow its ladder steps ({@link ladderMost}).
  *

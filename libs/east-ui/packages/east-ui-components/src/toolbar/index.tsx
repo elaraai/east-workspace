@@ -69,9 +69,12 @@
  * chooses from the ladder alone first — an item that folds last let go where
  * the ladder needs it — and only where every step of it leaves the row too
  * wide does it take the floor's rungs, the fewest that fit: the rail's icon
- * drops its caret, then the Elara eye leaves the row, so the history and Save
- * stay in it at a phone's width. The rungs are listed apart from the ladder
- * (`data-toolbar-floor`), so the ladder still ends with the history's step.
+ * drops its caret, then the Elara eye goes into its builder's View, as its
+ * entry there, where that View takes it — the two items' rungs one bundle,
+ * applying together as a bundle's steps do (ruled 27 Oct 2026, "Into the View
+ * menu") — so the history and Save stay in the row at a phone's width. The
+ * rungs are listed apart from the ladder (`data-toolbar-floor`), so the
+ * ladder still ends with the history's step.
  */
 
 import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";

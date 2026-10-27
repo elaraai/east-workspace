@@ -10,10 +10,12 @@
  * lands with nothing to change; the mark 16px at `md`, 14 at `sm` and at
  * `toolbar`, the builders' rows' 32 × 28; and its place in the toolbar —
  * immediately before the history item, kept in every fold of the ladder, and
- * leaving the row only at its floor, the history and Save kept in it (hand
- * retest, 27 Oct 2026). jsdom lays nothing out, so the toolbar's widths are
- * stubbed from each item's form, and the eye sits in a row of peers that fold
- * before it at 1440, 1024, 768, 390 and 360.
+ * never leaving the toolbar (ruled 27 Oct 2026, "Into the View menu"): alone
+ * it takes no step at all, and where its builder's View takes its entry it
+ * goes into the View only below the whole ladder, one step with the View's,
+ * the history and Save kept in the row. jsdom lays nothing out, so the
+ * toolbar's widths are stubbed from each item's form, and the eye sits in a
+ * row of peers that fold before it at 1440, 1024, 768, 390 and 360.
  */
 
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
@@ -29,7 +31,8 @@ import { editingMessages, type EditingWords } from "../editing/messages.js";
 import { EditSession } from "../editing/session.js";
 import { ELARA_EYE_DOTS } from "./eye.js";
 import { OPTIMISE_BLINK_MS, OptimiseButton, type OptimiseButtonProps } from "./button.js";
-import { optimiseToolbarItem } from "./toolbar-item.js";
+import { OptimiseEntry } from "./entry.js";
+import { OPTIMISE_RANK, optimiseToolbarItem } from "./toolbar-item.js";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
@@ -135,11 +138,15 @@ class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 /** The stubbed layout: the toolbar row's width. */
 const row = { px: 0 };
 
-/** Each item's width in the form it shows: the eye 32; the history bar 200 whole, 120 as buttons; a peer 300, 80 folded. */
+/**
+ * Each item's width in the form it shows: the eye 32; a builder's View 30 in either form, its trigger alone in the row;
+ * the history bar 200 whole, 120 as buttons; a peer 300, 80 folded.
+ */
 function widthOf(el: Element): number {
     if (el.hasAttribute("data-toolbar")) return row.px;
     switch (el.getAttribute("data-toolbar-item")) {
         case "optimise": return 32;
+        case "view": return 30;
         case "history": return el.querySelector('[data-history-form="buttons"]') !== null ? 120 : 200;
         case "rail": return el.querySelector('[data-peer="short"]') !== null ? 80 : 300;
         case "segments": return el.querySelector('[data-peer="short"]') !== null ? 80 : 300;
@@ -183,11 +190,25 @@ function editSession(): EditSession<string> {
 /** A builder's own items — the rail and the segments — which fold before the eye and the history item. */
 const peer = (key: string, rank: number): ToolbarItem => ({ key, forms: [<span data-peer="long" />, <span data-peer="short" />], rank });
 
-function mountToolbar(px: number) {
+/** The bundle of the eye's step into the View and the View's step that lists its entry, as a builder names it. */
+const INTO_VIEW = "test.optimise";
+
+/**
+ * A row of peers, the eye and the history item — and, `view`, a builder's View that takes the eye's entry, as the
+ * Roster's and the Allocation's do: the View's second form lists the entry, and the eye's item takes a second form,
+ * none, both steps at the eye's rank in one bundle.
+ */
+function mountToolbar(px: number, view = false) {
     row.px = px;
     const history = historyToolbarItem({ session: editSession(), words: WORDS, editing: false, onAction: noop, onIssue: noop });
-    const eye = optimiseToolbarItem({ period: "W11", running: false, onRun: noop, onStop: noop });
-    return render(<ChakraProvider value={system}><Toolbar items={[peer("rail", 3), peer("segments", 5), eye, history]} /></ChakraProvider>);
+    const props: OptimiseButtonProps = { period: "W11", running: false, onRun: noop, onStop: noop };
+    const eye = optimiseToolbarItem(props);
+    const items = view
+        ? [peer("rail", 3), peer("segments", 5),
+            { key: "view", forms: [<span data-view="" />, <span data-view=""><OptimiseEntry {...props} /></span>], rank: OPTIMISE_RANK, bundle: INTO_VIEW },
+            { ...eye, forms: [...eye.forms, null], rank: OPTIMISE_RANK, bundle: INTO_VIEW }, history]
+        : [peer("rail", 3), peer("segments", 5), eye, history];
+    return render(<ChakraProvider value={system}><Toolbar items={items} /></ChakraProvider>);
 }
 
 describe("the eye in the toolbar (D4)", () => {
@@ -196,37 +217,51 @@ describe("the eye in the toolbar (D4)", () => {
         const keys = [...container.querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
         expect(keys).toEqual(["rail", "segments", "optimise", "history"]);
         const eye = container.querySelector('[data-toolbar-item="optimise"]')!;
-        // The eye leads the end cluster, and the ladder never folds it away: its one step is a rung of the floor.
+        // The eye leads the end cluster, and nothing folds it away: it has one form.
         expect([eye.hasAttribute("data-toolbar-end"), eye.getAttribute("data-toolbar-form"), eye.querySelector("[data-optimise-button]") !== null]).toEqual([true, "0", true]);
         expect(eye.nextElementSibling!.getAttribute("data-toolbar-item")).toBe("history");
     });
 
     const state = (container: HTMLElement) => container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-state");
+    const keysOf = (container: HTMLElement) => [...container.querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
 
     test("the rail and the segments fold first, then the history bar to its buttons; the eye stays whole", () => {
         // Whole: 300 + 300 + 32 + 200 and three gaps of 10.
         const whole = mountToolbar(862);
-        expect(state(whole.container)).toBe("rail=0/2;segments=0/2;optimise=0/2;history=0/2");
+        expect(state(whole.container)).toBe("rail=0/2;segments=0/2;optimise=0/1;history=0/2");
         cleanup();
         // A pixel less: the rail folds first (rank 3: 80 + 300 + 32 + 200 + 30 = 642), then the segments (5: 422), then the
         // history bar (100: 342).
-        expect(state(mountToolbar(861).container)).toBe("rail=1/2;segments=0/2;optimise=0/2;history=0/2");
+        expect(state(mountToolbar(861).container)).toBe("rail=1/2;segments=0/2;optimise=0/1;history=0/2");
         cleanup();
-        expect(state(mountToolbar(641).container)).toBe("rail=1/2;segments=1/2;optimise=0/2;history=0/2");
+        expect(state(mountToolbar(641).container)).toBe("rail=1/2;segments=1/2;optimise=0/1;history=0/2");
         cleanup();
-        expect(state(mountToolbar(421).container)).toBe("rail=1/2;segments=1/2;optimise=0/2;history=1/2");
+        expect(state(mountToolbar(421).container)).toBe("rail=1/2;segments=1/2;optimise=0/1;history=1/2");
     });
 
-    test("only below the whole ladder does the eye leave the row, a rung of its floor — the history and Save stay in it (hand retest, 27 Oct 2026)", () => {
-        // The ladder's end: 80 + 80 + 32 + 120 + 30 = 342 — the eye beside the history's buttons.
-        expect(state(mountToolbar(342).container)).toBe("rail=1/2;segments=1/2;optimise=0/2;history=1/2");
+    test("alone the eye takes no step at all: below the whole ladder it stays in the row beside the history, never out of the toolbar (ruled 27 Oct 2026, \"Into the View menu\")", () => {
+        // The ladder's end: 80 + 80 + 32 + 120 + 30 = 342. A pixel less, no rung lets the row fit, and the eye stays.
+        const { container } = mountToolbar(341);
+        expect(state(container)).toBe("rail=1/2;segments=1/2;optimise=0/1;history=1/2");
+        expect(keysOf(container)).toEqual(["rail", "segments", "optimise", "history"]);
+        expect(container.querySelector("[data-toolbar]")!.hasAttribute("data-toolbar-floor")).toBe(false);
+    });
+
+    test("where its builder's View takes its entry, the eye goes into the View only below the whole ladder — one step with the View's, a rung of the floor — the entry named for the period there, the history and Save in the row (ruled 27 Oct 2026, \"Into the View menu\")", () => {
+        // The ladder's end: 80 + 80 + 30 + 32 + 120 + 40 = 382 — the eye in the row beside the history's buttons, the View its trigger alone.
+        const ladder = mountToolbar(382, true);
+        expect(state(ladder.container)).toBe("rail=1/2;segments=1/2;view=0/2;optimise=0/2;history=1/2");
+        expect(ladder.container.querySelector("[data-optimise-entry]")).toBeNull();
+        expect(ladder.container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-floor")).toBe("view>1 optimise>1");
         cleanup();
-        // A pixel less: the eye leaves the row (80 + 80 + 120 + 20 = 300), the history's buttons in it, Save among them.
-        const floor = mountToolbar(341);
-        expect(state(floor.container)).toBe("rail=1/2;segments=1/2;optimise=1/2;history=1/2");
-        const keys = [...floor.container.querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"));
-        expect(keys).toEqual(["rail", "segments", "history"]);
+        // A pixel less: the eye goes into the View in the View's own step (80 + 80 + 30 + 120 + 30 = 340), the history's
+        // buttons in the row, Save among them.
+        const floor = mountToolbar(381, true);
+        expect(state(floor.container)).toBe("rail=1/2;segments=1/2;view=1/2;optimise=1/2;history=1/2");
+        expect(keysOf(floor.container)).toEqual(["rail", "segments", "view", "history"]);
+        const entry = floor.container.querySelector<HTMLButtonElement>('[data-toolbar-item="view"] [data-optimise-entry]')!;
+        expect([entry.getAttribute("aria-label"), entry.disabled]).toEqual(["Optimise W11", false]);
+        expect(floor.container.querySelector("[data-optimise-button]")).toBeNull();
         expect(floor.container.querySelector('[data-toolbar-item="history"] button[aria-label="Save"]')).not.toBeNull();
-        expect(floor.container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-floor")).toBe("optimise>1");
     });
 });
