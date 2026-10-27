@@ -13,7 +13,8 @@
  *
  * - A wait shorter than the delay shows nothing.
  * - A wait longer than the delay shows from the delay on, until the later of
- *   its end and the hold's.
+ *   its end and the hold's — the hold counted from when it showed, which a
+ *   page too busy to show it at the delay's end puts later.
  * - A wait that starts while the last is still shown — held, or in flight —
  *   keeps it shown: the slot never empties between two reads.
  *
@@ -87,7 +88,9 @@ export function revealStep(state: RevealState, waiting: boolean, now: number, ti
     if (!waiting) return { state: REVEAL_IDLE, shown: false, wakeAt: undefined };
     const since = state.since ?? now;
     const due = since + delay;
-    if (now >= due) return { state: { since, shownAt: due }, shown: true, wakeAt: undefined };
+    // Shown now, its hold from now: a step taken past the delay's end — its timer late, the page busy — shows it no
+    // earlier than this step does.
+    if (now >= due) return { state: { since, shownAt: now }, shown: true, wakeAt: undefined };
     return { state: { since, shownAt: undefined }, shown: false, wakeAt: due };
 }
 
