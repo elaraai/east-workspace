@@ -16,8 +16,10 @@
  *   focused run.
  * - PageDown pressed on the run meanwhile waits for its rows, then goes a page
  *   on from the first of them in view: the view moves only then, and less than
- *   a page.
- * - The keyboard is never on the page's body.
+ *   a page. Several keys pressed meanwhile — PageDown, PageDown, PageUp — go on
+ *   in turn, none lost: a page on.
+ * - The keyboard is never on the page's body — not in a frame, nor after any
+ *   commit of the Plan's (a `MutationObserver` looks after each one).
  *
  * Each frame of the Plan is recorded in the page from the click until a row
  * holds the keyboard.
@@ -99,7 +101,15 @@ async function record(entry: Locator): Promise<void> {
             requestAnimationFrame(tick);
         };
         tick();
-        (window as unknown as Record<string, unknown>)[name] = { frames, stop: () => { on = false; } };
+        // And after every change the Plan's commits make, before the frame paints: a focus that falls to the page's body
+        // for less than a frame is counted too.
+        const fell = { count: 0 };
+        const watch = new MutationObserver(() => {
+            const active = document.activeElement;
+            if (on && (active === null || active === document.body)) fell.count += 1;
+        });
+        watch.observe(root, { subtree: true, childList: true, attributes: true });
+        (window as unknown as Record<string, unknown>)[name] = { frames, fell, stop: () => { on = false; watch.disconnect(); } };
     }, RECORDER);
 }
 
@@ -110,6 +120,11 @@ function recorded(page: Page): Promise<Frame[]> {
         recorder.stop();
         return recorder.frames;
     }, RECORDER);
+}
+
+/** How many of the Plan's commits since the recorder started left the focus on the page's body. */
+function fellToBody(page: Page): Promise<number> {
+    return page.evaluate((name) => (window as unknown as Record<string, { fell: { count: number } }>)[name]!.fell.count, RECORDER);
 }
 
 /** The Plan's frames, in words. */
@@ -174,5 +189,31 @@ test("a run holding the keyboard on a slow e3 hands it to the first of its rows 
     const end = paged.at(-1)!;
     expect(end.focus === "row" && end.whole && end.at >= end.view / 2, `a page on, in view\n${told(paged)}`).toBe(true);
     expect(Math.abs(end.top - again), told(paged)).toBeLessThan(end.view);
+    await releaseE3(page, slowing);
+});
+
+test("PageDown, PageDown and PageUp pressed on a run holding the keyboard while its rows are read on a slow e3 are none of them lost: once the rows land the keyboard goes from the first of them in view down a page, down a page and back up one — a page on — and never to the page's body, not for a commit (#1398, CL10) @desktop", async ({ page }) => {
+    await installE3Faults(page);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const entry = await visitBuilder(page, ROUTE, "[data-plan-frame]", "light");
+    await settled(page);
+    const slowing = await slowE3(page, { kinds: [...RECORD_READS] }, SLOW_MS);
+    // Seven tenths of the way down, the run clicked, and the three keys pressed on it while its rows are on their way.
+    const sent = await clickRunAt(page, entry, 0.7);
+    for (const key of ["PageDown", "PageDown", "PageUp"]) await page.keyboard.press(key);
+    await rowFocused(page);
+    await settled(page, { holding: true });
+    const fell = await fellToBody(page);
+    const frames = await recorded(page);
+    expect(frames.filter((f) => f.focus === "body" || f.focus === "elsewhere"), told(frames)).toEqual([]);
+    expect(fell, `commits that left the keyboard on the page's body\n${told(frames)}`).toBe(0);
+    // The view stays until a row has the keyboard.
+    const first = frames.findIndex((f) => f.focus === "row");
+    expect(frames.slice(0, first).filter((f) => Math.abs(f.top - sent) >= 1), `the view stays while the rows land\n${told(frames)}`).toEqual([]);
+    // Down two pages and back one from the first row in view: the row the keyboard ends on is a page on — whole in the
+    // view, in its lower half — and the view moved less than a page to show it.
+    const end = frames.at(-1)!;
+    expect(end.focus === "row" && end.whole && end.at >= end.view / 2, `a page on, in view\n${told(frames)}`).toBe(true);
+    expect(Math.abs(end.top - sent), told(frames)).toBeLessThan(end.view);
     await releaseE3(page, slowing);
 });
