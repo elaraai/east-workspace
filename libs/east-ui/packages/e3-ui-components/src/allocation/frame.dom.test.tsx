@@ -83,7 +83,8 @@ describe("the board's frame", () => {
         const before = h.requests().length;
         const history = () => h.requests().slice(before).filter(r => r.dataset === "records.yard_day_history");
         fireEvent.click(within(picker).getByRole("button", { name: "Previous month" }));
-        // Counted before anything waits on a timer: reads that evict each other never stop asking, and their landings starve every timer.
+        // Counted before anything waits on a timer, so a month read a day at a time — a key search and a page a day — fails here rather than
+        // keeping the wait busy: the month is one run of keys.
         for (let i = 0; i < 100; i++) await Promise.resolve();
         expect(history().length).toBeLessThanOrEqual(2);
         await settle();
