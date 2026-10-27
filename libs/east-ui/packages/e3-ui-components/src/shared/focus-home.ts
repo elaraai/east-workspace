@@ -17,7 +17,10 @@
  * the control it was on still there, or a press anywhere outside it — is let
  * be.
  *
- * The Schematic's and the Flowchart's Details are such regions.
+ * Every builder's Details is such a region: the Schematic's, the Flowchart's,
+ * the Plan's, the Calendar's, the Roster's and the Allocation's. A view's home
+ * is its head; a view with none — the Plan's Nothing selected, the Calendar's
+ * empty state — is its own.
  *
  * @packageDocumentation
  */

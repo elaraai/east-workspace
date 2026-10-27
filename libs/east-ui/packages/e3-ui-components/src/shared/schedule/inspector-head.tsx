@@ -12,7 +12,7 @@ import { FOCUS_HOME_PROPS } from "../focus-home.js";
 /**
  * The shared Plan/Calendar inspector heading, using the inspector's existing recipe slots; `children` sit under its row, in
  * its section (the Allocation's bin actions). Given `home`, it is its view's home: where the keyboard lands as the control it
- * was on goes with the view (`focus-home.ts`, #1398) — the Schematic's.
+ * was on goes with the view (`focus-home.ts`, #1398), as every builder's Details takes it.
  */
 export function ScheduleInspectorHead({ styles, kind, title, when, status, pending, home = false, children }: {
     styles: Record<string, BoxProps["css"]>;
