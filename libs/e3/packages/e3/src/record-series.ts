@@ -59,8 +59,11 @@ interface Checked {
 /**
  * Checks a series or summary declaration's fields against the record's row:
  * the key is a field that is no Set, the start and the end are DateTime or
- * Option<DateTime> fields, the tile is one an index files by, and neither the
- * row nor the leading fields take `__tile`, the key or the start.
+ * Option<DateTime> fields, the tile is one an index files by, the row has no
+ * field named `__tile`, and the leading fields take neither `__tile`, the key,
+ * the start nor the end. A leading field is matched exactly, before the tile:
+ * led by the start or the end the tiles are cut by, a tile's events on a block
+ * of keys would be a range for each instant, never one.
  *
  * @param constructor - The constructor, as a refusal names it
  * @param name - The index
@@ -94,6 +97,11 @@ export function checkTimeTile(constructor: string, name: string, valueType: East
   const endType = timed('to', spec.to);
   for (const field of [spec.key, TILE_FIELD]) {
     if (on.includes(field)) throw new Error(`${constructor} '${name}': '${field}' follows the leading fields, and cannot be one`);
+  }
+  for (const [field, what] of [[spec.from, 'start'], [spec.to, 'end']] as const) {
+    if (on.includes(field)) {
+      throw new Error(`${constructor} '${name}': '${field}' is the event's ${what}, which its tiles are cut by, and cannot be a leading field`);
+    }
   }
   const fields = Object.fromEntries(on.map((field) => {
     const type = rowType.fields[field]!;
