@@ -21,11 +21,14 @@
  * And what an evaluation runs for: once a change of what it read — never again
  * as its subscription takes up a key it read for the first time, while the
  * versions of the keys it read hold — and again, as before, where a key it read
- * moved while it ran.
+ * moved while it ran, whether it had read the key before or reads it for the
+ * first time: the UI store's tracker moves a key a render writes as it reads it.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
 import { act, render, screen, cleanup, waitFor } from "@testing-library/react";
+import { IntegerType, decodeBeast2For, encodeBeast2For } from "@elaraai/east";
+import { getStore, trackKey } from "../platform/state-runtime.js";
 import { registerReactiveTracker, type ReactiveTracker } from "./tracker.js";
 import { useTrackedEvaluation } from "./index.js";
 
@@ -211,5 +214,43 @@ describe("useTrackedEvaluation — what an evaluation runs for", () => {
         } finally {
             unregister();
         }
+    });
+
+    test("a key it reads for the first time that moved while it ran holds nothing either: the evaluation runs again, and draws what the key holds now", () => {
+        const s = steppedTracker("s3");
+        const unregister = registerReactiveTracker(s.tracker);
+        let runs = 0;
+        // The mount's evaluation reads k0 — a key it had not read — then moves it as it runs, after reading it.
+        const read = () => {
+            runs += 1;
+            const seen = s.versionOf("k0");
+            if (runs === 1) s.move("k0");
+            return seen;
+        };
+        try {
+            render(<Walker read={read} />);
+            expect([screen.getByTestId("loaded").textContent, runs]).toEqual(["1", 2]);
+        } finally {
+            unregister();
+        }
+    });
+
+    test("the UI store's tracker moves a key a render writes as it reads it: the evaluation that read it for the first time runs again, and draws what the store holds now", () => {
+        const store = getStore();
+        const key = "tracked-evaluation:written-as-read";
+        const encode = encodeBeast2For(IntegerType);
+        const decode = decodeBeast2For(IntegerType);
+        store.write(key, encode(0n));
+        let runs = 0;
+        // A render body that reads a State key and, on its first run, writes it — the store moves the key it has just read.
+        const read = () => {
+            runs += 1;
+            trackKey(key);
+            const value = decode(store.read(key)!);
+            if (runs === 1) store.write(key, encode(value + 1n));
+            return Number(value);
+        };
+        render(<Walker read={read} />);
+        expect([screen.getByTestId("loaded").textContent, runs]).toEqual(["1", 2]);
     });
 });
