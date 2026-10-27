@@ -10,7 +10,8 @@
  * and grid keys; the Sheet's grid's, and a key that starts an edit; the
  * Roster's and the Allocation's frame keys — `[` and `]` step the period —
  * their views' and a keyboard drag's; the Schematic's canvas keys, its
- * hovered keys and its Index's; and the Flowchart's canvas keys, its state
+ * hovered keys and its Index's — and a control in its frame keeping its own
+ * Space while the pointer rests over the canvas; and the Flowchart's canvas keys, its state
  * editor's and its history's — and an Escape typed elsewhere on the page never
  * acts on the Flowchart, which hears one from the page itself only with the
  * pointer over its canvas. A key no builder acts on goes on as it came.
@@ -228,6 +229,30 @@ test.describe("a key a builder acts on goes no further than the builder (#1398)"
         // The Index's tree takes its arrows and Enter.
         await openTab(page, root, "Index");
         await pressedOn(page, root.locator("[data-frame-slot='start'] [role='tree']").first(), ["ArrowDown", "Enter"]);
+    });
+
+    test("a control in the Schematic's frame keeps its Space while the pointer rests over the canvas: Space on Fit fits the drawing @desktop", async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        const root = await openSchematic(page, DATA_CENTRE, "light");
+        const canvas = root.locator("[data-schematic-canvas]").first();
+        const toolbar = root.locator("[data-frame-slot='toolbar']");
+        const ppu = () => root.evaluate((el) => Number(el.querySelector<HTMLElement>("[data-schematic-cards]")!.style.getPropertyValue("--cam-ppu")));
+        const atFit = await ppu();
+        // The Marquee tool held, and the view zoomed in from Fit by the toolbar's Zoom in.
+        await toolbar.getByRole("radio", { name: "Marquee" }).click();
+        await expect(canvas).toHaveAttribute("data-tool", "marquee");
+        await toolbar.getByRole("button", { name: "Zoom in" }).click();
+        await expect.poll(ppu, { message: "the view zoomed in" }).toBeGreaterThan(atFit * 1.2);
+        await settled(page);
+        // The pointer resting over the canvas, and Fit focused: Space is the button's — it holds no Select for the canvas,
+        // and as it comes up the browser activates Fit, the camera flying back to it.
+        await canvas.hover();
+        const fit = toolbar.getByRole("button", { name: "Fit" });
+        await fit.focus();
+        await page.keyboard.down("Space");
+        await expect(canvas).toHaveAttribute("data-tool", "marquee");
+        await page.keyboard.up("Space");
+        await expect.poll(ppu, { message: "Space on Fit fits the drawing" }).toBeCloseTo(atFit, 4);
     });
 
     test("the Flowchart's keys: its canvas's Escape and Del, its history's undo and a state's editor's Enter and Escape — and an Escape typed elsewhere on the page never acting on it @desktop", async ({ page }) => {
