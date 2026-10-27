@@ -1329,7 +1329,10 @@ events is read (#1424), by the shared schedule reader through the Calendar's
 adapter (`calendar/cells.ts`), in the same component: within
 `SCHEDULE_EVENT_CAP` over the window the window's read reads it — once its
 count there says so (`scheduleWithinCap`), never by what the reader last
-decided — and past it none is read or drawn but its drafts. A view that lays
+decided — and past it none is read or drawn but its drafts and the events
+selected there, read by their keys as the inspector reads them, so a pick of
+Search Records goes to its event and draws it where it is, the window still
+unread (#1398). A view that lays
 its resources out — the timeline's rows by its period, the Resources view's
 columns by the day — shades each resource of a kind such a kind is placed on
 from the kind's source's summary, the Plan's booked-vs-free bar along each

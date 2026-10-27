@@ -51,7 +51,9 @@
  * throughout: a resident one's search box keeps its query and its focus.
  *
  * Every kind is counted before one of its events is read (#1424): past
- * `SCHEDULE_EVENT_CAP` over the window, none is read or drawn but its drafts. A
+ * `SCHEDULE_EVENT_CAP` over the window, none is read or drawn but its drafts —
+ * and the events selected there, read by their keys, so a pick of Search
+ * Records goes to its event wherever it is and draws it there (#1398). A
  * resource's row on the timeline, or its column in the Resources view, of a
  * kind such a kind is placed on draws its shading in their place — the share
  * of each of the view's periods its events book, from its source's summary —
@@ -115,7 +117,7 @@ import { useCalendarWindow, type CalendarWindow } from "./window.js";
 import { createTravel, createVisibleDays, useOverlapsShown } from "./visible.js";
 import { CalendarViews, calendarHour, type CalendarAnchor } from "./views.js";
 import {
-    NOTHING_UNCOUNTED, calendarRange, dayStart, eventKey, inWindow, NARROW_WIDTH, navigate, periodWords,
+    NOTHING_UNCOUNTED, calendarRange, chronological, dayStart, eventKey, inWindow, NARROW_WIDTH, navigate, periodWords,
     type CalendarItem, type CalendarRange, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarUncounted, type CalendarValue,
     type CalendarView,
 } from "./model.js";
@@ -389,9 +391,20 @@ function CalendarFrame(props: HostProps) {
             resources: new Set(kinds.flatMap(kind => kind.takes)),
         };
     }, [value.events, data.capped, format.locale]);
-    const items = drawn ? data.items : NO_ITEMS;
+    // As the window read, the selection's read reports from a component of its own (#1343).
+    const [selection, setSelection] = useState<CalendarSelection>(NO_SELECTION);
+    const selectedItems = useMemo(() => selection.ok ? selection.value.map(event => event.item) : NO_ITEMS, [selection]);
     // What the drawn events were read over (#1398): the window once read; the held read's, while a continuation's window is read.
     const covered = current ? range : continuing ? data.range : undefined;
+    // The events drawn: the window's read — and, of a kind past the cap, which draws none of its events but its drafts
+    // (#1424), the selected ones the window holds, read by their keys as the inspector reads them and drawn as its drafts
+    // are: a pick of Search Records among them shows it where it is, selected and given the keyboard there (#1398).
+    const items = useMemo(() => {
+        if (covered === undefined) return NO_ITEMS;
+        const picked = selectedItems.filter(item => data.capped.has(item.kind) && inWindow(item, covered.from, covered.to)
+            && !data.items.some(held => stringEqual(eventKey(held), eventKey(item))));
+        return picked.length === 0 ? data.items : chronological([...data.items, ...picked]);
+    }, [covered, selectedItems, data.capped, data.items]);
     // The Backlog (#1424): every kind narrowed through its source a page at a time (`backlog-pages.ts`), through the source
     // with its start Unset — its choices but its window, so no step of the dates reads it again, and it never blinks — after
     // the events in hand: every other kind's, read apart once, whatever the dates.
@@ -480,9 +493,6 @@ function CalendarFrame(props: HostProps) {
         return { paged: pagedValue, noun: pagedKind.name.toLocaleLowerCase(format.locale), nameOf: key => names.get(key) ?? key };
     }, [pagedValue, pagedKind, pagedRows, format.locale]);
     const shownRows = useMemo(() => [...resourceRows(shown), UNASSIGNED], [shown]);
-    // As the window read, the selection's read reports from a component of its own (#1343).
-    const [selection, setSelection] = useState<CalendarSelection>(NO_SELECTION);
-    const selectedItems = useMemo(() => selection.ok ? selection.value.map(event => event.item) : NO_ITEMS, [selection]);
     const overlaps = useMemo(() => scheduleOverlaps([items.filter(item => value.events.find(kind => kind.key === item.kind)?.overlaps.type === "warn")]), [items, value.events]);
     // Whether the overlaps chip shows (#1398): an overlap among what is drawn — on the timeline, one in the days it shows,
     // which the frame hears only as it turns, never as a day is crossed.
