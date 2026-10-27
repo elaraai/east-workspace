@@ -143,7 +143,8 @@ import { layerState } from "./canvas/layers.js";
 import type { SchematicStanding } from "./canvas/use-canvas-selection.js";
 import { hostZones, zoneHolding } from "./canvas/model.js";
 import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, areaSlots, type SchematicData, type SchematicValue } from "./data.js";
-import { savedRecords, schematicCounts } from "./counts.js";
+import { SchematicAreaCountsReader, NO_AREA_COUNTS } from "./area-counts.js";
+import { draftedAreaCounts, savedRecords, schematicCounts, type SchematicDrawingCount } from "./counts.js";
 import { draftedDrawing, type DraftedCache } from "./drafted.js";
 import { NO_DRAFTS_NARROWING, SchematicDraftsReader, draftHeld, type SchematicDraftsNarrowing } from "./drafts-narrowing.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
@@ -740,12 +741,33 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     });
 
     // ── The drawing's counts and saves: the inspector's Details, with nothing selected (#1391) ──
+    // A kind read by area is counted by its source, its drafts laid over its stored rows' count, never by what its window
+    // draws; and a link or a net that may join one of its items is not counted (#1393).
     const counted = useMemo(() => ({
         items: value.items.map((kind) => ({ key: kind.key, name: kind.name })),
         zones: value.zones.length > 0, links: value.links.length > 0, nets: value.nets.length > 0,
-    }), [value.items, value.zones, value.links, value.nets]);
+        areas,
+        linksByArea: value.links.some((kind) => [...kind.ends.from, ...kind.ends.to].some((slot) => areas.has(slot))),
+        netsByArea: value.nets.some((kind) => areas.has(kind.sides.sources) || areas.has(kind.sides.destinations)),
+    }), [value.items, value.zones, value.links, value.nets, areas]);
+    const [areaCounts, setAreaCounts] = useState<ReadonlyMap<string, SchematicDrawingCount>>(NO_AREA_COUNTS);
+    const areaKinds = useMemo(() => [
+        ...value.items.flatMap((kind) => (areas.has(kind.key) ? [{ key: kind.key, sort: "items" as const }] : [])),
+        ...value.zones.flatMap((kind) => (areas.has(kind.key) ? [{ key: kind.key, sort: "zones" as const }] : [])),
+    ], [value.items, value.zones, areas]);
+    const layerHidden = useMemo(() => layersNow.some((layer) => getSomeorUndefined(layer.visible) === false), [layersNow]);
+    // Whether the row a deleted draft's session began from had a position: an item kind's, as its kind reads it; a zone's, always.
+    const heldRow = editing.schedule.held;
+    const deletedPlaced = useCallback((ref: SchematicRef): boolean | undefined => {
+        const row = heldRow(ref.kind, ref.key);
+        if (row === undefined) return undefined;
+        const kind = value.items.find((item) => stringEqual(item.key, ref.kind));
+        return kind === undefined || kind.read(rowCodec(kind.rowType).encode(row), ref.key).position.type === "some";
+    }, [heldRow, value.items]);
+    const areaCounted = useMemo(() => draftedAreaCounts(areaKinds, areaCounts, editing.drafts, drafted, deletedPlaced, layerHidden),
+        [areaKinds, areaCounts, editing.drafts, drafted, deletedPlaced, layerHidden]);
     // What the narrowing leaves out counts nowhere: dimmed context is no match.
-    const counts = useMemo(() => schematicCounts(counted, listed, layers), [counted, listed, layers]);
+    const counts = useMemo(() => schematicCounts(counted, listed, layers, areaCounted), [counted, listed, layers, areaCounted]);
     const records = useMemo(() => savedRecords(value), [value]);
 
     // ── The footer (§6.3): only what is live ────────────────────────────
@@ -906,6 +928,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                 <SchematicDraftsReader value={value} areas={areas} drafts={editing.drafts} original={editing.schedule.held} onRead={setDraftsNarrowing} />
             )}
             {areas.size > 0 && <SchematicSelectedReader value={value} areas={areas} selected={selectedArea} windows={data.windows} onRead={setSelectedRows} />}
+            {value.inspector && areas.size > 0 && <SchematicAreaCountsReader value={value} areas={areas} onRead={setAreaCounts} />}
             {backlogPages !== undefined && <SchematicBacklogCountReader source={backlogPages} parts={backlogPartKeys} onCount={setBacklogCount} />}
             {/* The frame's one reveal clock (CL4): the footer's line, the canvas's wash and placeholders and the inspector's show a
                 read in flight after 150 ms, held 300 ms once shown. */}

@@ -38,6 +38,7 @@
 import type { Formatters } from "@elaraai/east-ui-components";
 import type { LoadingLineText } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
+import { joinedWords } from "../shared/schedule/words.js";
 import type { SchematicIssueWord } from "./issues.js";
 import type { SchematicTool } from "./tools.js";
 
@@ -245,6 +246,13 @@ export interface SchematicMessages extends PagedLoadingMessages {
     inspectorSeveral: (p: SchematicCount) => string;
     /** What the drawing's Details counts, under a count — `Zones`, `Links`, `Nets`, one or several. */
     inspectorCount: (p: { what: "zones" | "links" | "nets"; n: number }) => string;
+    /**
+     * What the drawing's Details says of the counts no read can say (#1393) — `Links not counted: what they join is read as
+     * the view moves`: `names` are the counts' own, as running text writes them in the plural (`racks`, `links`), and `why`
+     * a hidden layer that may hold some of a kind read by area's rows, the items a link or a net joins read as the view
+     * moves, or filters that can't count a kind's rows with no position.
+     */
+    inspectorNotCounted: (p: { names: readonly string[]; why: "layer" | "ends" | "filters" }) => string;
     /** How many of a kind are selected — `3 racks`: `name` is the kind's, as running text writes it. */
     inspectorKindCount: (p: SchematicCount & { name: string }) => string;
     /** A row the record holds none of: an entity whose row is gone. */
@@ -465,6 +473,9 @@ export const schematicMessages: SchematicMessages = {
     inspectorLeg: ({ end }) => (end === "source" ? "Source leg" : "Destination leg"),
     inspectorSeveral: ({ count }) => `${count} selected`,
     inspectorCount: ({ what, n }) => ({ zones: plural(n, "Zone", "Zones"), links: plural(n, "Link", "Links"), nets: plural(n, "Net", "Nets") })[what],
+    inspectorNotCounted: ({ names, why }) => `${capital(joinedWords(names, "and"))} not counted: ${({
+        layer: "a hidden layer may hold some of them", ends: "what they join is read as the view moves", filters: "the filters can't count those with no position",
+    })[why]}`,
     inspectorKindCount: ({ n, count, name }) => `${count} ${plural(n, name, `${name}s`)}`,
     inspectorNoRow: () => "Its record holds no row of it",
     inspectorNoDetails: ({ name }) => `No ${name.toLowerCase()} details`,

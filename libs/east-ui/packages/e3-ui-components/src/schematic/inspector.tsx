@@ -32,7 +32,9 @@
  *   control that selects it, and Remove, which takes it off its side;
  * - **several**: how many of each kind, and Delete;
  * - **nothing**: the drawing — its counts, and each record's last save with
- *   who made it.
+ *   who made it. A kind read by area is counted by its source, never by its
+ *   window (`counts.ts`): a placeholder stands in its count's place while it
+ *   is read, and a line names each count no read can say, and why.
  *
  * A Chooser, a side's tags and what an item is joined to offer only what the
  * rail's narrowing shows (#1392, §10.2).
@@ -96,8 +98,9 @@ import { PlaceholderShape, type PlaceholderKind } from "@elaraai/east-ui-compone
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import { kindPlural } from "../shared/schedule/words.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
-import type { SchematicCounts, SchematicSavedRecord } from "./counts.js";
+import type { SchematicCounts, SchematicDrawingCount, SchematicSavedRecord, SchematicUncounted } from "./counts.js";
 import type { SchematicValue } from "./data.js";
 import {
     NO_SESSION, connectStep, deleteEdits, editKinds, joinedPairs, linkRefusal, retargetEdits, vetoOfPairs,
@@ -980,12 +983,21 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
     const { result } = useTrackedEvaluation(read);
     const saved = result.ok ? result.value : [];
     const today = words.date(new Date());
-    const stats: { key: string; value: number; label: string }[] = [
-        ...counts.kinds.map((kind) => ({ key: kind.slot, value: kind.drawn, label: kind.name })),
-        ...(counts.zones === undefined ? [] : [{ key: "zones", value: counts.zones, label: m.inspectorCount({ what: "zones", n: counts.zones }) }]),
-        ...(counts.links === undefined ? [] : [{ key: "links", value: counts.links, label: m.inspectorCount({ what: "links", n: counts.links }) }]),
-        ...(counts.nets === undefined ? [] : [{ key: "nets", value: counts.nets, label: m.inspectorCount({ what: "nets", n: counts.nets }) }]),
+    // Each count, its label and its name as running text writes it: a number, a placeholder while it is read, or — no
+    // read can say it — a line naming it and why (#1393).
+    const sorts = [
+        ...counts.kinds.map((kind) => ({ key: kind.slot, count: kind.drawn, label: () => kind.name, noun: kindPlural(kind.name.toLocaleLowerCase(words.locale)) })),
+        ...(["zones", "links", "nets"] as const).flatMap((what) => {
+            const count = counts[what];
+            return count === undefined ? [] : [{
+                key: what, count, label: (n: number) => m.inspectorCount({ what, n }), noun: m.inspectorCount({ what, n: 2 }).toLocaleLowerCase(words.locale),
+            }];
+        }),
     ];
+    const stats = sorts.flatMap((sort): { key: string; count: Exclude<SchematicDrawingCount, { kind: "uncounted" }>; label: string }[] =>
+        (sort.count.kind === "uncounted" ? [] : [{ key: sort.key, count: sort.count, label: sort.label(sort.count.kind === "counted" ? sort.count.n : 2) }]));
+    const notCounted = new Map<SchematicUncounted, string[]>();
+    for (const sort of sorts) if (sort.count.kind === "uncounted") notCounted.set(sort.count.why, [...(notCounted.get(sort.count.why) ?? []), sort.noun]);
     return (
         <Box css={styles.root} data-schematic-inspector="drawing">
             <Box css={styles.head} {...FOCUS_HOME_PROPS}>
@@ -993,12 +1005,21 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
             </Box>
             <Box css={styles.stats} data-inspector-counts="">
                 {stats.map((stat) => (
-                    <Box key={stat.key} css={styles.stat} data-count={stat.key}>
-                        <Box as="span" css={styles.statValue}>{words.number(stat.value)}</Box>
+                    <Box key={stat.key} css={styles.stat} data-count={stat.key} data-pending={stat.count.kind === "reading" ? "" : undefined}>
+                        <Box as="span" css={styles.statValue}>
+                            {stat.count.kind === "counted" ? words.number(stat.count.n) : <PlaceholderShape kind="number" index={stat.key.length} />}
+                        </Box>
                         <Box as="span" css={styles.statLabel}>{stat.label}</Box>
                     </Box>
                 ))}
             </Box>
+            {notCounted.size > 0 && (
+                <Box css={styles.section}>
+                    {[...notCounted].map(([why, names]) => (
+                        <Box key={why} css={styles.fact} data-inspector-uncounted={why}>{m.inspectorNotCounted({ names, why })}</Box>
+                    ))}
+                </Box>
+            )}
             {saved.length > 0 && (
                 <Box css={styles.section}>
                     {saved.map((save) => (
