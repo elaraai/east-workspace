@@ -35,6 +35,9 @@
  * - A kind hidden in the Series tab, read by its cells, is in no figure — the
  *   footer's, the pane's, a row's — none of its cells is read, and nothing
  *   says so.
+ * - A series and a summary index led by a field the rail chooses read its
+ *   cells exactly: the field is asked of no event, and past the budget the
+ *   summary it leads shades (#1432).
  */
 
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi, type MockInstance } from "vitest";
@@ -122,6 +125,39 @@ const seriesPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Roo
         job: {
             source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }),
             fields: { start: { label: "Dates" } }, range: "start",
+        },
+    }));
+    return Plan({
+        axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
+        inspector: true, slice: { slice },
+        resources: {
+            presses: Schedule.resources(pressPages, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
+        },
+        events: {
+            job: Schedule.events(jobs, {
+                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+                resource: { field: "press", of: "presses" }, state: "state", quantity: { field: "sheets", unit: "sheets" },
+                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+                entries: jobEntries,
+            }),
+        },
+        library: [Plan.library.backlog()],
+    });
+}))) };
+
+/**
+ * The series Plan with its `job` source's series and summary indexes led by
+ * the stock, the coated stock chosen (#1432): its cells and its totals hold
+ * the coated jobs alone.
+ */
+const stockPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
+    const slice = $.const(Slice.bindRecords("plan.series.stock.dom", {
+        job: {
+            source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByStockTime, ex.planWindowJobsByStockPressWeek, ex.planWindowJobsByStockPressMonth] }),
+            fields: { start: { label: "Dates" }, stock: { label: "Stock" } }, range: "start", initial: { stock: ["coated"] },
         },
     }));
     return Plan({
@@ -717,5 +753,46 @@ describe("past the budget (#1039)", () => {
         const october = [...press1001().querySelectorAll<HTMLElement>("[data-cell]")].find((cell) => named(cell)?.startsWith("Oct"));
         expect(named(october ?? null)).toMatch(/29% booked/);
         expect(press1001().querySelectorAll("[data-run]")).toHaveLength(0);
+    });
+});
+
+// ============================================================================
+// Led by a field (#1432)
+// ============================================================================
+
+describe("a series and a summary index led by a field (#1432)", () => {
+    const BY_STOCK = ex.planWindowJobsByStockPressWeek;
+    const BY_STOCK_TOTALS = ex.planWindowJobsByStockPressMonth;
+    const withins = () => h.requests().filter((request) => request.dataset === JOBS && request.kind === "within");
+
+    test("the stock chosen, its cells are read through the series it leads and it is asked of no event; past the budget, at a month, the summary it leads shades", async () => {
+        const { container: c } = await h.mount(stockPlan);
+        await settle();
+        // The coated jobs' cells, through the index the stock leads: their searches, then their entries — nothing asked of them after.
+        expect(askedOf(BY_STOCK).map((asked) => asked.split(" ")[0])).toEqual(["find", "runs"]);
+        expect(withins()).toEqual([]);
+        expect(bar(c, "W-0001", "P-1001")).not.toBeNull();
+        expect(bar(c, "W-0004", "P-1003")).toBeNull();
+
+        // Another planner books 10,001 coated hour-long proofs on the first fifty presses: more than the Plan draws.
+        const jobs = new Map(await readJobs());
+        const proof = jobs.get("W-0001")!;
+        for (let i = 0; i < 10_001; i++) {
+            const start = new Date(FIRST.getTime() + Math.floor(i / BLOCK) * HOUR);
+            jobs.set(`X-${String(i).padStart(5, "0")}`, {
+                ...proof, title: `Proof ${i}`, press: some(`P-${1001 + (i % BLOCK)}`), start: some(start), end: some(new Date(start.getTime() + HOUR)),
+            });
+        }
+        await h.patch(ex.planWindowJobs, jobs);
+        await settle();
+        await zoomTo(c, "month");
+        // At a month, the coated jobs' totals, from the summary the stock leads: each press's share of each month booked.
+        await waitFor(() => expect(askedOf(BY_STOCK_TOTALS).map((asked) => asked.split(" ")[0])).toEqual(["find", "runs"]), { timeout: 10_000 });
+        await settle();
+        expect(slot(c, "banners")!.querySelector('[data-plan-banner="cells"]')).toBeNull();
+        const october = [...c.querySelector(rowAt(pressRow("P-1001")))!.querySelectorAll<HTMLElement>("[data-cell]")]
+            .find((cell) => named(cell)?.startsWith("Oct"));
+        expect(named(october ?? null)).toMatch(/% booked/);
+        expect(withins()).toEqual([]);
     });
 });

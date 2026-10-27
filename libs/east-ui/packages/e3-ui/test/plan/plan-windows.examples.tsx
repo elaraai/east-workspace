@@ -158,6 +158,23 @@ export const planWindowJobsByPressMonthAgain = e3.recordIndex.summary("plan_wind
 });
 
 /**
+ * The jobs by their stock, then the press each is on and the weeks each
+ * touches, and the same jobs' monthly totals by their stock (#1432): a series
+ * and a summary index led by a field, which a narrowing choosing the stock
+ * reads exactly — its cells hold that stock's jobs alone, so the stock is
+ * asked of none of them, and its totals shade zoomed out. The interval index
+ * led by the stock is what the rail narrows them through, the window beside
+ * the stock.
+ */
+export const planWindowJobsByStockTime = e3.recordIndex.interval("plan_window_jobs_by_stock_time", planWindowJobs, { on: ["stock"], from: "start", to: "end" });
+export const planWindowJobsByStockPressWeek = e3.recordIndex.series("plan_window_jobs_by_stock_press_week", planWindowJobs, {
+    on: ["stock"], key: "press", from: "start", to: "end", tile: "week",
+});
+export const planWindowJobsByStockPressMonth = e3.recordIndex.summary("plan_window_jobs_by_stock_press_month", planWindowJobs, {
+    on: ["stock"], key: "press", from: "start", to: "end", tile: "month",
+});
+
+/**
  * The jobs by the days each touches (`Schedule.days`): a scheduled job is
  * filed under every day it runs into, and a job in the backlog under none —
  * the index a kind with no rail reads the days in view through (`window`), on

@@ -575,7 +575,8 @@ function withoutTiled(where: Where, from: string): Map<string, ValueTypeOf<typeo
 /** The fields of a narrowing an index's cells do not answer: all but its leading fields, and a range of its start. */
 function residualOf(index: Index, where: Where): string[] {
     const tiling = tilingOf(index)!;
-    const leading = index.fields.slice(0, -2);
+    // An index's fields are its leading fields alone, its key's `on` (#1432).
+    const leading = index.fields;
     return [...where].filter(([field, choice]) => !leading.some((l) => stringEqual(l, field)) && !(stringEqual(field, tiling.from) && choice.type === "range"))
         .map(([field]) => field);
 }
