@@ -273,7 +273,7 @@ function RosterFrame(props: FrameProps) {
     useEffect(() => {
         if (pendingSteps === 0 && editing?.history.redoOrigin !== "optimise") setOptimised(undefined);
     }, [pendingSteps, editing?.schedule.version, editing]);
-    const drag = useRosterDrag({ value, commands, week, duties: draftedDuties, weeks: weekStates, context, storageKey: key, narrow, start, onError: setError });
+    const drag = useRosterDrag({ value, commands, week, duties: draftedDuties, weeks: weekStates, context, storageKey: key, narrow, start, format, onError: setError });
     const dutyPart = sourcePart(source.slice.type === "some" ? source.slice.value : undefined, source.duty.kind.key);
     // What the footer's loading line says (#1398, CL3): the week being read, the people's or the activities' new
     // narrowing, or why one could not be read, with Retry — the week's asking again each record the week reads.

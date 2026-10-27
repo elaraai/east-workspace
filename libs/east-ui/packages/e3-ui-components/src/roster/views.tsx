@@ -355,7 +355,7 @@ function AssignmentChip(args: AssignmentChipProps) {
     const enabled = drag.enabled && !removed;
     const handle = useDragEventChip(enabled ? coord : null, ghost, !enabled, name);
     const canDrop = useCallback((event: DragEventValue) => drag.run(event, true) === undefined, [drag]);
-    const drop = useDropCell(enabled ? coord : null, !enabled, canDrop, undefined, { caption: drag.caption });
+    const drop = useDropCell(enabled ? coord : null, !enabled, canDrop, undefined, { caption: drag.caption, name: drag.name });
     const dragRef = handle?.ref;
     const attach = useCallback((element: HTMLDivElement | null) => { dragRef?.(element); drop(element); }, [dragRef, drop]);
     return <AssignmentChipBody {...args} selected={selected} handle={handle} attach={attach} />;
@@ -402,7 +402,7 @@ function DropSlot({ props, slot, children, compact = false }: { props: RosterVie
     const ref = useRef<HTMLDivElement>(null);
     const [landing, setLanding] = useState<ReturnType<RosterDrag["preview"]>>();
     const drop = useDropCell(props.drag.enabled ? rosterCoord(props.drag.surface, slot) : null, !props.drag.enabled,
-        event => props.drag.run(event, true) === undefined, undefined, { caption: props.drag.caption,
+        event => props.drag.run(event, true) === undefined, undefined, { caption: props.drag.caption, name: props.drag.name,
             onHover: (_x, _y, payload) => setLanding(props.drag.preview(rosterCoord(props.drag.surface, slot), payload, true)) });
     const attach = useCallback((element: HTMLDivElement | null) => { ref.current = element; drop(element); }, [drop]);
     // The shared target subscription can change on pointer motion; its body need not.
@@ -636,7 +636,7 @@ function Tile(args: TileProps) {
     const enabled = drag.enabled && !removed;
     const handle = useDragEventChip(enabled ? coord : null, ghost, !enabled, name);
     const canDrop = useCallback((event: DragEventValue) => drag.run(event, true) === undefined, [drag]);
-    const drop = useDropCell(enabled ? coord : null, !enabled, canDrop, undefined, { caption: drag.caption });
+    const drop = useDropCell(enabled ? coord : null, !enabled, canDrop, undefined, { caption: drag.caption, name: drag.name });
     const dragRef = handle?.ref;
     const attach = useCallback((element: HTMLDivElement | null) => { dragRef?.(element); drop(element); }, [dragRef, drop]);
     return <TileBody {...args} selected={selected} handle={handle} attach={attach} />;
@@ -780,7 +780,7 @@ const PersonDay = memo(function PersonDay({ ctx, person, group, day, duties, cur
         payload.kind === "event" && crossRow(payload.from.event) ? "A duty moves along its own row." : drag.caption(coord, payload, allowed), [crossRow, drag]);
     const coord = useMemo(() => drag.enabled ? rosterCoord(drag.surface, initial) : null, [drag.enabled, drag.surface, initial]);
     const onHover = useCallback((_x: number, _y: number, payload: DragPayload) => { if (payload.kind === "item" && isPatternCard(payload, drag.surface)) onPatternHover(payload.from.key); }, [drag.surface, onPatternHover]);
-    const ref = useDropCell(coord, !drag.enabled, canDrop, resolve, { accepts, caption, onHover, onLeave: onPatternLeave });
+    const ref = useDropCell(coord, !drag.enabled, canDrop, resolve, { accepts, caption, name: drag.name, onHover, onLeave: onPatternLeave });
     const drafted = useMemo(() => dayDrafted(ctx.domain, ctx.held, duties), [ctx.domain, ctx.held, duties]);
     // While a pattern hovers the row every day shows the pattern's day dashed, and the days it changes are tinted (P19).
     const changes = preview !== undefined && preview.kind !== "keep";
@@ -1004,7 +1004,7 @@ const MonthCell = memo(function MonthCell({ ctx, person, group, held, days, lett
     const [previewKey, setPreviewKey] = useState<string>();
     const onHover = useCallback((_x: number, _y: number, payload: DragPayload) => { if (payload.kind === "item" && isPatternCard(payload, drag.surface)) setPreviewKey(payload.from.key); }, [drag.surface]);
     const onLeave = useCallback(() => setPreviewKey(undefined), []);
-    const ref = useDropCell(coord, !drag.enabled, canDrop, undefined, { accepts, caption: drag.caption, onHover, onLeave });
+    const ref = useDropCell(coord, !drag.enabled, canDrop, undefined, { accepts, caption: drag.caption, name: drag.name, onHover, onLeave });
     const plan = useMemo(() => previewKey === undefined || person === undefined ? undefined : commands.pattern(person.key, start, previewKey), [previewKey, person, commands, start]);
     const previewDays = typeof plan === "object" ? plan.days : undefined;
     const revealed = useRevealed() === true;

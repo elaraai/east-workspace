@@ -12,18 +12,22 @@
  * start }`. Every drop runs the same commands as the explicit actions; a hover
  * previews what the drop would do, and the ghost's caption says it (B53) —
  * for a pattern, `Early · Mon–Fri → A. Alder · 6 h rest`, `Already matches
- * Early · Mon–Fri`, or why it is refused.
+ * Early · Mon–Fri`, or why it is refused. What the drag layer says of a
+ * destination to a screen reader names it as the grid shows it, never by its
+ * keys (the hand retest, R2): a person's week by the person and the week's
+ * number, a duty by whose it is, a shift by its group, each with its day and
+ * shift.
  *
  * @packageDocumentation
  */
 import { useMemo } from "react";
 import { DateTimeType, SortedMap, StringType, StructType, none, parseFor, printFor, some, variant } from "@elaraai/east";
-import { dropEvent, useDragTarget, type CellCoord, type DragEventValue, type DragPayload } from "@elaraai/east-ui-components";
+import { dropEvent, useDragMessages, useDragTarget, type CellCoord, type DragEventValue, type DragMessages, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import { rosterLibraryId } from "./library.js";
 import { readRosterSource } from "./identity.js";
 import {
-    compareDate, compareString, parseSlot, positionFor, rosterDomain, rosterTimes, sameSlot, slotKey, type Assignment, type Context, type PlacedDuties,
-    type RosterValue, type Slot, type Week, type WeekState,
+    compareDate, compareString, dayOfSlot, parseSlot, positionFor, rosterDomain, rosterTimes, sameSlot, shiftOf, slotKey, weekNumber, type Assignment, type Context,
+    type PlacedDuties, type RosterValue, type Slot, type Week, type WeekState,
 } from "./model.js";
 import type { RosterCommands, RosterSource } from "./actions.js";
 
@@ -65,13 +69,16 @@ export function isPatternCard(payload: DragPayload, storageKey: string): boolean
  * week, its commands and the configuration hold (#1398, CL9): what the grid draws with it draws again only as they
  * change.
  */
-export function useRosterDrag({ value, commands, week, duties, weeks, context, storageKey, narrow, start, onError }: {
+export function useRosterDrag({ value, commands, week, duties, weeks, context, storageKey, narrow, start, format, onError }: {
     value: RosterValue; commands: RosterCommands; week: Week; duties: PlacedDuties; weeks: readonly WeekState[]; context: Context; storageKey: string;
-    narrow: boolean; start: Date; onError: (error: string | undefined) => void;
+    narrow: boolean; start: Date; format: Formatters; onError: (error: string | undefined) => void;
 }) {
     // Drags register on a wide main while a week in view takes a gesture: the week, or any week of the month (#1406, P32).
     const enabled = !narrow && commands.editable;
-    const drag = useMemo(() => rosterDrag({ value, commands, week, duties, weeks, context, storageKey, start, enabled }), [value, commands, week, duties, weeks, context, storageKey, start, enabled]);
+    // The drag layer's own words, a host's translation among them: what a destination's name is said in.
+    const words = useDragMessages();
+    const drag = useMemo(() => rosterDrag({ value, commands, week, duties, weeks, context, storageKey, start, enabled, format, words }),
+        [value, commands, week, duties, weeks, context, storageKey, start, enabled, format, words]);
     const { run } = drag;
     const target = useMemo(() => enabled ? { id: storageKey, sources: value.library.map(tab => rosterLibraryId(storageKey, tab.type === "tab" ? `tab:${tab.value.name}` : tab.type)),
         kinds: { add: true, move: true, resize: false, remove: false, trash: false },
@@ -80,9 +87,10 @@ export function useRosterDrag({ value, commands, week, duties, weeks, context, s
     useDragTarget(target);
     return drag;
 }
-/** The drag's verdicts over one week as it stands: what a drop runs, and what a hover over a destination previews. */
-function rosterDrag({ value, commands, week, duties, weeks, context, storageKey, start, enabled }: {
+/** The drag's verdicts over one week as it stands: what a drop runs, what a hover over a destination previews, and the destination's name. */
+function rosterDrag({ value, commands, week, duties, weeks, context, storageKey, start, enabled, format, words }: {
     value: RosterValue; commands: RosterCommands; week: Week; duties: PlacedDuties; weeks: readonly WeekState[]; context: Context; storageKey: string; start: Date; enabled: boolean;
+    format: Formatters; words: DragMessages;
 }) {
     const patterns = rosterLibraryId(storageKey, "patterns");
     const run = (event: DragEventValue, checkOnly: boolean): string | undefined => {
@@ -212,6 +220,27 @@ function rosterDrag({ value, commands, week, duties, weeks, context, storageKey,
         return result;
     };
     const caption = (coord: CellCoord, payload: DragPayload, allowed: boolean) => preview(coord, payload, allowed).label;
-    return { enabled, surface: storageKey, run, caption, preview, start };
+    /**
+     * A destination's name, for what the drag layer says to a screen reader as a drag rests on it and drops there (the
+     * hand retest, R2), in the layer's words for a cell: a person's week by the person's name and the week's number, as
+     * its Month cell names itself (`A. Alder · W10`); a duty by whose it is and a shift by its group, each with its day
+     * and its shift (`C. Clover · Thu Early`, `Inbound · Thu Early`) — never their keys.
+     */
+    const name = (coord: CellCoord): string => {
+        const personWeek = readPersonWeek(coord.slot);
+        if (personWeek !== undefined) {
+            return words.cell({ row: context.people.get(personWeek.person)?.name ?? "Agency requests", slot: `W${format.number(weekNumber(personWeek.start))}` });
+        }
+        const parsed = parseSlot(coord.slot);
+        if (!parsed.success) return words.cell({ row: coord.row, slot: coord.slot });
+        const slot = parsed.value;
+        const when = `${format.weekday(dayOfSlot(start, slot))} ${shiftOf(value, slot.shift)?.label ?? slot.shift}`;
+        const duty = coord.event === undefined ? undefined : week.assignments.get(coord.event);
+        if (duty === undefined) return words.cell({ row: value.groups.find(g => g.key === slot.group)?.label ?? slot.group, slot: when });
+        const whose = duty.who.type === "person" ? context.people.get(duty.who.value)?.name ?? duty.who.value
+            : `Requested · ${context.agencies.find(agency => agency.key === duty.who.value)?.name ?? duty.who.value}`;
+        return words.cell({ row: whose, slot: when });
+    };
+    return { enabled, surface: storageKey, run, caption, preview, name, start };
 }
 export type RosterDrag = ReturnType<typeof useRosterDrag>;

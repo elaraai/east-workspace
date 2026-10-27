@@ -1052,7 +1052,12 @@ start }`) — is one `Apply pattern` step (`actions.ts`' `pattern` and
 home group at the shift's own times, an off day removes the duties, and a day
 it leaves keeps its duty; the row previews the plan dashed while the card
 hovers it, and the shared caption names the pattern, the person and the first
-warning, or the refusal. A shift's colour token resolves through the theme's
+warning, or the refusal. What the drag layer says to a screen reader names
+each destination as the grid shows it, in the layer's words for a cell, never
+by its keys (`drag.ts`' `name`, every Roster drop cell's, the hand retest): a
+person's week by the person's name and the week's number (`A. Alder · W10`), a
+duty by whose it is and a shift by its group, each with its day and its shift
+(`C. Clover · Thu Early`, `Inbound · Thu Early`). A shift's colour token resolves through the theme's
 palette variables (`model.ts`' `colorTokenCss`), the words on it in the ink
 the shade takes, the same in both colour modes.
 
