@@ -370,6 +370,65 @@ test("below 480px of main Place where the middle of the view is off the drawing 
     expect(rackEqual((await h.read(ex.schematicRacks)).get("A06")!, { ...stored.get("A06")!, x: some(14.0), y: some(7.0) })).toBe(true);
 });
 
+/** What the footer says of a Place where the middle of the view is off the drawing. */
+const OFF_VIEW = "The middle of the view is off the drawing: pan the drawing into view, or Fit";
+
+/** Find's box, in the toolbar's row. */
+const findBox = (c: HTMLElement) => slot(c, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search']")!;
+
+/** Types into Find's box, a key at a time, as a person does. */
+async function typeIntoFind(c: HTMLElement, text: string) {
+    const input = findBox(c).querySelector<HTMLInputElement>("input")!;
+    for (const key of text) {
+        const typed = input.value + key;
+        await userEvent.type(input, key);
+        await waitFor(() => expect(input.value).toBe(typed));
+    }
+}
+
+test("a refusal's words go at the viewer's next action — a press on the canvas, a zoom, a Find pick, Fit — and stand through a resize alone (hand retest, 27 Oct 2026)", async () => {
+    const { container } = await open();
+    const canvas = canvasOf(container);
+    await mainAt(container, 479);
+    // The view panned 17 m past the floor's right, A06 picked from the Backlog: Place refused, the footer saying why.
+    await drag(canvas, [18, 8.4], [1, 8.4]);
+    await libraryTab(container, "Backlog");
+    await click(libraryCard(container, entityId({ kind: "racks", key: "A06" })));
+    const refused = () => footer(container, "data-schematic-refused");
+    const place = async () => {
+        await click(action(container, "place")!);
+        expect(refused()).toBe(OFF_VIEW);
+    };
+    await place();
+    // A resize alone is no action: wide, and narrow again, the words stand.
+    await mainAt(container, 900);
+    expect(refused()).toBe(OFF_VIEW);
+    await mainAt(container, 479);
+    expect(refused()).toBe(OFF_VIEW);
+    // A press on the canvas: they go.
+    await tap(canvas, CAM, 1, 8.4);
+    await settle();
+    expect(refused()).toBeUndefined();
+    // A zoom — the wheel's, about the canvas's middle, which stays off the drawing: they go.
+    await place();
+    await act(async () => { fireEvent.wheel(canvas, { deltaY: -120, clientX: 540, clientY: 270 }); });
+    await settle();
+    expect(refused()).toBeUndefined();
+    // A Find pick — A07, which has no position, so the camera stays where it is: they go.
+    await place();
+    await typeIntoFind(container, "A07");
+    await waitFor(() => expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual(["A07 · Rack · no position"]),
+        { timeout: 5_000 });
+    await act(async () => { fireEvent.click(document.querySelector<HTMLElement>('[role="option"]')!); });
+    await settle();
+    expect(refused()).toBeUndefined();
+    // Fit: they go.
+    await place();
+    await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: "Fit" })); });
+    await settle();
+    expect(refused()).toBeUndefined();
+});
+
 // ============================================================================
 // The veto over Details' ends and sides (#1394)
 // ============================================================================
