@@ -12,7 +12,8 @@
  * What keeps the selection to the drawing — the hygiene effects, letting go of
  * what leaves it, what a layer locks or hides and what the narrowing takes out
  * (invariants 7a, 7b), and an item a drop adds or places, selected once it
- * draws (invariant 19) — and the steps through the items, each flying to the
+ * draws (invariant 19), as is what Find's pick or Go to issue finds off the
+ * drawing, of any sort — and the steps through the items, each flying to the
  * item it selects (invariant 8). A row of a kind read by area the window no
  * longer holds still stands (#1393): the frame says so (`standing`), as a read
  * of it by its key does, and the selection keeps it — a pan or a zoom lets go
@@ -318,24 +319,32 @@ export function useSelectionSteps({ data, layers, inertKeys, narrowedOut, items,
         const idx = anchor !== null ? (indexOf.get(anchor) ?? -1) : -1;
         flyToItem(ordered[(idx + delta + ordered.length) % ordered.length]!);
     }, [itemOrder, flyToItem, selection.anchor]);
-    // An item a drop added or placed (#1390), selected once the drawing draws it — or, a drawing that doesn't, nothing.
+    // An item a drop added or placed (#1390), or what Find's pick or Go to issue found off the drawing (#1404, #1391),
+    // selected once the drawing draws it, alone, where it stands — an item, a zone, or a link or a net, each through its
+    // funnel, as a reveal selects it — or, a drawing that doesn't, nothing.
     const pendingSelectRef = useRef<{ readonly id: string; readonly seen: unknown } | undefined>(undefined);
     const [selectAsked, setSelectAsked] = useState(0);
     useEffect(() => {
         const pending = pendingSelectRef.current;
         if (pending === undefined) return;
-        if (items.some((it) => stringEqual(it.key, pending.id))) {
+        const id = pending.id;
+        const drawnAs = items.some((it) => stringEqual(it.key, id)) ? "item"
+            : shownZones.some((zone) => stringEqual(zone.key, id)) ? "zone"
+                : !layers.hidden.has(id) && (data.links.some((link) => stringEqual(link.key, id)) || data.nets.some((net) => stringEqual(net.key, id))) ? "link"
+                    : undefined;
+        if (drawnAs !== undefined) {
             pendingSelectRef.current = undefined;
-            if (inertKeys.has(pending.id)) return;
-            commitSelection(new Set([pending.id]), { anchor: pending.id });
-            clearZoneSelection();
-            commitLinkSelection(null);
+            if (inertKeys.has(id)) return;
+            commitSelection(drawnAs === "item" ? new Set([id]) : EMPTY_STRING_SET, drawnAs === "item" ? { anchor: id } : {});
+            if (drawnAs === "zone") commitZoneSelection(new Set([id]));
+            else clearZoneSelection();
+            commitLinkSelection(drawnAs === "link" ? { key: id, leg: null } : null);
             return;
         }
         // A new drawing that doesn't draw it — its layer hidden, the rail narrowing it out — selects nothing; while a read
         // is in flight, a window that will hold it among them (#1393), it is waited for.
         if (!Object.is(data, pending.seen) && !reading) pendingSelectRef.current = undefined;
-    }, [items, data, selectAsked, inertKeys, commitSelection, clearZoneSelection, commitLinkSelection, reading]);
+    }, [items, shownZones, layers.hidden, data, selectAsked, inertKeys, commitSelection, clearZoneSelection, commitZoneSelection, commitLinkSelection, reading]);
     return { clearZoneSelection, flyToItem, stepSelection, pendingSelectRef, setSelectAsked };
 }
 

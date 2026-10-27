@@ -66,8 +66,13 @@
  *   history; and Issues (`issues.ts`), each selecting what it names — a kind
  *   read by area checked in the rows read around the view and every unsaved
  *   change, a line naming it and saying its other rows are checked only as the
- *   view reaches them. Enter, or a double-click on an entity, opens Details,
- *   its open tab kept per viewer.
+ *   view reaches them. An unsaved change the drawing leaves out, waiting in its
+ *   session (`drafted.ts`' `waitingDrafts`), is checked as its draft has it,
+ *   never drawn: its issue says which of the rail's choices hide it (the shared
+ *   hidden pick, `hidden-drafts.tsx`), and Go to issue clears them, then flies
+ *   to where its draft stands and selects it once it draws, as Find's pick of a
+ *   row nothing draws does. Enter, or a double-click on an entity, opens
+ *   Details, its open tab kept per viewer.
  *   A selected row of a kind read by area its window no longer holds stays
  *   selected, and Details shows it as its stored row reads, by its key
  *   (`selected-rows.ts`, §4.5): a pan or a zoom lets go of nothing, and only a
@@ -154,7 +159,7 @@ import { hostZones, zoneHolding, type WorldBox } from "./canvas/model.js";
 import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, areaSlots, type SchematicData, type SchematicValue } from "./data.js";
 import { SchematicAreaCountsReader, NO_AREA_COUNTS } from "./area-counts.js";
 import { draftedAreaCounts, savedRecords, schematicCounts, type SchematicDrawingCount } from "./counts.js";
-import { draftedDrawing, type DraftedCache } from "./drafted.js";
+import { draftedDrawing, waitingDrafts, waitingPoint, withWaiting, type DraftedCache } from "./drafted.js";
 import { NO_DRAFTS_NARROWING, SchematicDraftsReader, draftHeld, type SchematicDraftsNarrowing } from "./drafts-narrowing.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
 import { connectVeto, type NetLeg, type SchematicEdit } from "./edits.js";
@@ -385,6 +390,10 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const leftOut = useCallback((ref: SchematicRef) => !dim && drafted(ref) === false, [dim, drafted]);
     const drawing = useMemo(() => draftedDrawing(data.drawn, data.held, editing.drafts, draftedCache.current, areas, leftOut),
         [data.drawn, data.held, editing.drafts, areas, leftOut]);
+    // The drafted rows the drawing leaves out — each waiting in its session, the narrowing leaving out the row it drafts —
+    // as their kinds draw them, never drawn: Issues checks and names every unsaved change, drawn or not (ruled 27 Oct 2026,
+    // "Checked in view, said so").
+    const waiting = useMemo(() => waitingDrafts(data.held, editing.drafts, areas, leftOut), [data.held, editing.drafts, areas, leftOut]);
     const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: editing.record, mint: editing.mint } : undefined),
         [editing.edits, editing.record, editing.mint]);
 
@@ -754,8 +763,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         .map((kind) => [kind.key, { name: kind.name, writes: kind.editable && !value.readOnly }] as const)),
     [value.items, value.zones, value.links, value.nets, value.readOnly]);
     // Each entity's one name, wherever the Schematic says it — a drop's words, the inspector's head and rail, an issue's row
-    // and a session's banners: an item's or a zone's label, a link's ends, a net's label or its ends; never a minted key.
-    const names = useMemo(() => entityNames(inspectorDrawn, words), [inspectorDrawn, words]);
+    // and a session's banners: an item's or a zone's label, a link's ends, a net's label or its ends; never a minted key. An
+    // unsaved change the drawing leaves out is named so too, as its draft has it.
+    const names = useMemo(() => entityNames(withWaiting(inspectorDrawn, waiting), words), [inspectorDrawn, waiting, words]);
     // The zones a point lands in, smallest first, as the Index files an item: what a drop's words name.
     const hosts = useMemo(() => hostZones(shownZones), [shownZones]);
     // A kind takes a drop while its session takes an edit and nothing the canvas draws is retained (#1398, CL8).
@@ -943,8 +953,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // What Details and Issues name, selected through the canvas — and flown to.
     const revealEntity = useCallback((id: string | undefined, at?: NetLeg) => canvasRef.current?.reveal(id, at), []);
     const zoneAt = useCallback((x: number, y: number) => zoneHolding(hosts, x, y)?.label, [hosts]);
-    // The issues: each record's session's first — they block — then the drawing's. Whether an item is held is known for
-    // an item kind read whole: its drawn rows and its backlog, the drafts in place.
+    // The issues: each record's session's first — they block — then the drawing's, every unsaved change the drawing leaves
+    // out checked beside it as its draft has it. Whether an item is held is known for an item kind read whole: its drawn
+    // rows and its backlog, the drafts in place.
     const itemSlots = useMemo(() => new Set(value.items.map((kind) => kind.key)), [value.items]);
     const wholeItems = useMemo(() => new Set(value.items.filter((kind) => kind.entries.type === "none").map((kind) => kind.key)), [value.items]);
     const heldItems = useMemo(() => new Set([...drawing.items.map((item) => item.key), ...backlog.map((entry) => entry.id)]), [drawing.items, backlog]);
@@ -952,12 +963,22 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const issues = useMemo(() => [
         ...sessionIssues(sessions, kindName, (id) => names.get(id)),
         ...drawingIssues({
-            drawn: drawing, extent: value.extent, names: kindName, nameOf: (id) => nameOfEntity(names, id), layers: layerValues, colours: THEME_COLOURS,
-            holds: (ref) => (!itemSlots.has(ref.kind) ? false : wholeItems.has(ref.kind) ? heldItems.has(entityId(ref)) : undefined),
+            drawn: withWaiting(drawing, waiting), extent: value.extent, names: kindName, nameOf: (id) => nameOfEntity(names, id), layers: layerValues,
+            colours: THEME_COLOURS, holds: (ref) => (!itemSlots.has(ref.kind) ? false : wholeItems.has(ref.kind) ? heldItems.has(entityId(ref)) : undefined),
         }),
         // A session's readiness and its Save's issues move with the history's version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    ], [sessions, historyVersion, kindName, names, drawing, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
+    ], [sessions, historyVersion, kindName, names, drawing, waiting, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
+    // Each unsaved change the drawing leaves out, its reference by its id: an issue of one says which of the rail's choices
+    // hide it. Go to issue on one, those choices cleared, flies to where its draft stands and selects it once the narrowing
+    // they leave draws it — Find's path for a row it finds that nothing draws (`look`, then `select`).
+    const waitingRefs = useMemo((): ReadonlyMap<string, SchematicRef> => new Map([...waiting.items, ...waiting.zones, ...waiting.links, ...waiting.nets]
+        .map((entity) => [entity.key, entity.ref] as const)), [waiting]);
+    const goToWaiting = useCallback((id: string) => {
+        const at = waitingPoint(id, waiting, drawing);
+        if (at !== undefined) canvasRef.current?.look(at.x, at.y);
+        canvasRef.current?.select(id);
+    }, [waiting, drawing]);
     // A kind read by area is checked in the rows read around the view, never by a read of its others: Issues names each, its
     // rows out of view checked only as the view reaches them (ruled 27 Oct 2026, "Checked in view, said so").
     const unchecked = useMemo(() => [...value.items, ...value.zones].filter((kind) => areas.has(kind.key))
@@ -969,8 +990,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const enterCard = drop.enter;
     const place = useCallback((id: string) => enterCard(schematicLibraryId(keys, "backlog"), id), [enterCard, keys]);
     const end = schematicInspectorPane({
-        value, inspected, rows: inspectedRows, drawn: inspectorDrawn, names, listed, editing, counts, records, issues, unchecked, zoneAt, reveal: revealEntity,
-        refuse: setRefusal,
+        value, inspected, rows: inspectedRows, drawn: inspectorDrawn, names, listed, editing, counts, records, issues, unchecked, waiting: waitingRefs, goToWaiting,
+        zoneAt, reveal: revealEntity, refuse: setRefusal,
         tab: inspectorTab.tab, onTab: onInspectorTab, storageKey: keys.frame, words,
         narrow, veto, linkKind: connectKind, onLinkKind: pickConnectKind, connectValues, place,
     });

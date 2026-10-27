@@ -80,6 +80,14 @@
  * other rows: while one is, a line over the list names it and says its rows out
  * of view are checked only as the view reaches them, as the drawing's counts
  * say what they don't count (ruled 27 Oct 2026, "Checked in view, said so").
+ * An unsaved change the drawing leaves out — a draft waiting in its session,
+ * the rail's filters leaving out the row it drafts — is checked as its draft
+ * has it, and its issue says on a line of its own which choices hide it, each
+ * as the rail words it, once e3 has said (the shared hidden pick,
+ * `hidden-drafts.tsx`): Go to issue clears just those choices — every choice
+ * of its kind's source while e3 has not said — then flies to where its draft
+ * stands and selects it once the narrowing they leave draws it, as Find's pick
+ * of a row nothing draws does.
  *
  * Styles are the `schematicInspector` recipe's, the form's `fieldForm`'s and
  * the buttons the shared `button`'s; the pane — its tab row, its collapse
@@ -100,8 +108,10 @@ import {
 } from "@elaraai/east-ui-components";
 import { PlaceholderShape, type PlaceholderKind } from "@elaraai/east-ui-components/internal";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
+import { clearHiding, hidingWords, type HiddenState, type SourceHidden } from "../shared/schedule/hidden.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import { sourcePart } from "../shared/schedule/visibility.js";
 import { kindPlural } from "../shared/schedule/words.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicCounts, SchematicDrawingCount, SchematicSavedRecord, SchematicUncounted } from "./counts.js";
@@ -111,6 +121,7 @@ import {
     type ConnectVetoOf, type DeleteSelection, type EditRefusal, type NetLeg, type SchematicEdit, type SchematicFieldWrite,
 } from "./edits.js";
 import { detailsKey, type SchematicEditing } from "./editing.js";
+import { HideDrafts, type SchematicHiddenPart, type SchematicHiddenPicks } from "./hidden-drafts.js";
 import { joinsOf, nameOfEntity, type SchematicDrawnEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
 import { captionText } from "./canvas/paint.js";
 import type { SchematicInspectedRows, SchematicRowRead } from "./inspector-rows.js";
@@ -174,6 +185,18 @@ export interface SchematicInspectorProps {
      * read around the view and says the others are checked only as the view reaches them; none, it says nothing of it.
      */
     readonly unchecked: readonly string[];
+    /**
+     * Each unsaved change the drawing leaves out — a drafted row waiting in its session, the narrowing leaving out the row
+     * it drafts (`drafted.ts`' `waitingDrafts`) — its reference by its id: what Issues checks beside the drawing, and an
+     * issue of which says which of the rail's choices hide it.
+     */
+    readonly waiting: ReadonlyMap<string, SchematicRef>;
+    /**
+     * Goes to an unsaved change the drawing leaves out, by its id, once Go to issue has cleared the choices hiding it: flown
+     * to where its draft stands, and selected once the narrowing they leave draws it — Find's path for a row it finds
+     * that nothing draws (the canvas's `look`, then its `select`).
+     */
+    readonly goToWaiting: (id: string) => void;
     /** The zone holding a point, by its name, as the Index files an item. */
     readonly zoneAt: (x: number, y: number) => string | undefined;
     /** Selects an entity, by its id — a net's leg with it — flying to it; `undefined` selects nothing. */
@@ -1047,12 +1070,86 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
 // ============================================================================
 
 /**
- * The Issues tab: every issue of the drawing, each a control that selects what it names — under a line, while a kind is
- * read by area, saying its rows out of view are checked only as the view reaches them (ruled 27 Oct 2026).
+ * The Issues tab: every issue of the drawing and of its unsaved changes, each a control that selects what it names —
+ * under a line, while a kind is read by area, saying its rows out of view are checked only as the view reaches them
+ * (ruled 27 Oct 2026). An issue of an unsaved change the drawing leaves out says which of the rail's choices hide it,
+ * each kind's asked of e3 through its source (`hidden-drafts.tsx`).
  */
-const SchematicInspectorIssues = memo(function SchematicInspectorIssues({ issues, unchecked, reveal, words }: SchematicInspectorProps) {
+const SchematicInspectorIssues = memo(function SchematicInspectorIssues(props: SchematicInspectorProps) {
+    const { value, issues, waiting } = props;
+    const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
+    // Each kind read through its source of the rail: one whose choices may leave out the row a draft of it changes.
+    const parts = useMemo(() => [...value.items, ...value.zones, ...value.links, ...value.nets].flatMap((kind): SchematicHiddenPart[] => {
+        const part = sourcePart(chrome, kind.key);
+        return part === undefined ? [] : [{ slot: kind.key, part }];
+    }), [value.items, value.zones, value.links, value.nets, chrome]);
+    // The rows of the unsaved changes the drawing leaves out that the issues name, by their kind: what each kind's pick asks.
+    const asked = useMemo(() => {
+        const out = new Map<string, string[]>();
+        for (const issue of issues) {
+            const ref = issue.at === undefined ? undefined : waiting.get(issue.at);
+            if (ref === undefined) continue;
+            const keys = out.get(ref.kind) ?? [];
+            if (!keys.some((key) => stringEqual(key, ref.key))) keys.push(ref.key);
+            out.set(ref.kind, keys);
+        }
+        return out;
+    }, [issues, waiting]);
+    return <HideDrafts parts={parts} asked={asked}>{(picks) => <IssueList {...props} picks={picks} />}</HideDrafts>;
+});
+
+/** What an issue names of an unsaved change the drawing leaves out: its row, its kind's hidden pick, and what that knows of the row. */
+interface WaitingIssue {
+    readonly ref: SchematicRef;
+    readonly pick: SourceHidden | undefined;
+    readonly state: HiddenState | undefined;
+}
+
+/**
+ * The issues, each a control that selects what it names and flies to it — one an unsaved change the drawing leaves out
+ * cleared of the choices hiding it first, then flown to and selected once it draws (`goToWaiting`) — and a line of its
+ * own on such an issue naming those choices.
+ */
+function IssueList({ issues, unchecked, reveal, refuse, words, waiting, goToWaiting, picks }: SchematicInspectorProps & { readonly picks: SchematicHiddenPicks }) {
     const styles = useSlotRecipe({ key: "schematicInspector" })() as Styles;
     const m = words.m;
+    // An issue's unsaved change the drawing leaves out: its kind's pick, and what e3 has said of its row; `undefined` for any other issue.
+    const waitingOf = (issue: SchematicIssue): WaitingIssue | undefined => {
+        const ref = issue.at === undefined ? undefined : waiting.get(issue.at);
+        if (ref === undefined) return undefined;
+        const pick = picks.get(ref.kind);
+        return { ref, pick, state: pick?.rows.stateOf(ref.key) };
+    };
+    // What its line says of the choices that hide its row: each as the rail words it once e3 has said, the filters until then.
+    const hiddenLine = (one: WaitingIssue | undefined): string | undefined => {
+        if (one?.state === undefined || !one.state.hidden) return undefined;
+        const answer = one.state.answer;
+        const part = one.pick?.part, where = one.pick?.where;
+        return answer === undefined || part === undefined || where === undefined ? m.inspectorIssueHidden()
+            : m.inspectorIssueHiddenBy(hidingWords(part.config.fields, where, answer, words));
+    };
+    // Go to issue: what it names selected and flown to — an unsaved change the drawing leaves out first cleared of the choices
+    // hiding it, as the rail clears them: those e3 named, else every choice of its kind's source.
+    const goTo = (issue: SchematicIssue) => {
+        const one = waitingOf(issue);
+        if (issue.at === undefined || one === undefined) {
+            reveal(issue.at);
+            return;
+        }
+        const part = one.pick?.part;
+        const narrowed = one.pick?.where !== undefined && one.pick.where.size > 0;
+        const state = one.state;
+        if (part !== undefined && narrowed && (state === undefined || state.hidden)) {
+            try {
+                clearHiding(part, state?.hidden === true ? state.answer : undefined);
+            } catch (reason) {
+                // The narrowing stands, so nothing will draw it: the footer says why, and nothing is flown to.
+                refuse(reason instanceof Error ? reason.message : m.inspectorIssueUncleared());
+                return;
+            }
+        }
+        goToWaiting(issue.at);
+    };
     // What the list leaves unchecked, said before it: a reader hears it ahead of the issues, or of none.
     const scope = unchecked.length === 0 ? null : (
         <Box css={styles.section}>
@@ -1074,15 +1171,19 @@ const SchematicInspectorIssues = memo(function SchematicInspectorIssues({ issues
         <>
             {scope}
             <Box as="ul" css={styles.issueList} data-inspector-issue-list="">
-                {issues.map((issue, i) => (
-                    <Box as="li" key={i}>
-                        <chakra.button type="button" css={styles.issueItem} data-inspector-issue={issue.word.issue} onClick={() => reveal(issue.at)}>
-                            <Box as="span" css={styles.issueWhere}>{m.issueWhere(issue.where)}</Box>
-                            <Box as="span" css={styles.issueMessage} data-kind={issue.blocking ? "invalid" : "warning"}>{m.issueText(issue.word)}</Box>
-                        </chakra.button>
-                    </Box>
-                ))}
+                {issues.map((issue, i) => {
+                    const hidden = hiddenLine(waitingOf(issue));
+                    return (
+                        <Box as="li" key={i}>
+                            <chakra.button type="button" css={styles.issueItem} data-inspector-issue={issue.word.issue} onClick={() => goTo(issue)}>
+                                <Box as="span" css={styles.issueWhere}>{m.issueWhere(issue.where)}</Box>
+                                <Box as="span" css={styles.issueMessage} data-kind={issue.blocking ? "invalid" : "warning"}>{m.issueText(issue.word)}</Box>
+                                {hidden !== undefined && <Box as="span" css={styles.issueHidden} data-inspector-issue-hidden="">{hidden}</Box>}
+                            </chakra.button>
+                        </Box>
+                    );
+                })}
             </Box>
         </>
     );
-});
+}

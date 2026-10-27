@@ -22,8 +22,10 @@
  * refused, and a drop's step in the history; and its inspector's (#1391): the
  * pane and its tabs, the heads of Details' sections and its own fields, where
  * an entity stands, a gesture's button and its step, a record's last save and
- * who made it, why a net's side stays, each issue's words, and what Issues says
- * of the kinds read by area it checks only in view — and below
+ * who made it, why a net's side stays, each issue's words, what Issues says
+ * of the kinds read by area it checks only in view, and what an issue's line
+ * says of an unsaved change the rail's filters hide — the shared hidden pick's
+ * sentence (`shared/schedule/words.ts`' `hiddenByText`) — and below
  * 480px of main (#1394) its Connect to…, its link kind, and an item with no
  * position, its Place; and the
  * footer's loading line's (#1398, CL3), the shared paged words over a kind's
@@ -39,7 +41,7 @@
 import type { Formatters } from "@elaraai/east-ui-components";
 import type { LoadingLineText } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
-import { joinedWords } from "../shared/schedule/words.js";
+import { hiddenByText, joinedWords } from "../shared/schedule/words.js";
 import type { SchematicIssueWord } from "./issues.js";
 import type { SchematicTool } from "./tools.js";
 
@@ -280,6 +282,18 @@ export interface SchematicMessages extends PagedLoadingMessages {
      * in the plural.
      */
     inspectorUnchecked: (p: { names: readonly string[] }) => string;
+    /**
+     * What an issue's line says of the unsaved change it names where the rail's filters leave out the row it drafts — the
+     * change waiting in its session, drawn nowhere — while e3 has not said which of them do: `hidden by the filters`.
+     */
+    inspectorIssueHidden: () => string;
+    /**
+     * What it says once e3 has (the shared hidden pick): the choices that hide the row, as the rail words them, and those
+     * Go to issue clears with them — `hidden by Owner: Northwind Media — picking it clears that filter`.
+     */
+    inspectorIssueHiddenBy: (p: { filters: readonly string[]; also: readonly string[] }) => string;
+    /** What the footer says where Go to issue could not clear the choices hiding an unsaved change, and the rail gave no words of its own. */
+    inspectorIssueUncleared: () => string;
 }
 
 /** A section of the inspector's Details, as its head names it. */
@@ -496,6 +510,9 @@ export const schematicMessages: SchematicMessages = {
     issueText,
     inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every link names its items, and every shape and colour holds."),
     inspectorUnchecked: ({ names }) => `${capital(joinedWords(names, "and"))} out of view are checked only as the view reaches them`,
+    inspectorIssueHidden: () => "hidden by the filters",
+    inspectorIssueHiddenBy: ({ filters, also }) => hiddenByText(filters, also),
+    inspectorIssueUncleared: () => "The filters hiding it could not be cleared",
 };
 
 /** The words a Schematic speaks: its message table, and its locale's formatters. */

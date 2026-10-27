@@ -7,21 +7,28 @@
  * unplaces it; a new row draws though no read holds it; a drafted row the
  * read does not hold — a narrowing hides it — waits in its session, drawing
  * once a read holds it again; and what a drafted row draws is kept by the
- * roles it was drawn from. Fixtures are real East values typed from the
+ * roles it was drawn from. What waits is made as its draft has it, for Issues
+ * to check beside the drawing, and where it stands is what Go to issue flies
+ * to (ruled 27 Oct 2026). Fixtures are real East values typed from the
  * Schematic's East types, compared through East.
  */
 
 import { describe, expect, test } from "vitest";
-import { ArrayType, defaultValue, equalFor, none, some } from "@elaraai/east";
+import { ArrayType, StringType, defaultValue, equalFor, none, some } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
 import {
-    SchematicDrawnItemType, drawnItem, drawnLink, entityId, type DetailsRoles, type ItemRoles, type LinkRoles, type SchematicDrawn, type SchematicRef,
+    EMPTY_DRAWN, SchematicDrawnItemType, SchematicDrawnLinkType, drawnItem, drawnLink, drawnNet, drawnZone, entityId,
+    type DetailsRoles, type ItemRoles, type LinkRoles, type NetRoles, type SchematicDrawn, type SchematicRef, type ZoneRoles,
 } from "./canvas/drawn.js";
 import type { SchematicHeldRows } from "./data.js";
-import { NO_DRAFTS, draftedDrawing, type DraftedCache, type DraftedRow, type SchematicDrafts } from "./drafted.js";
+import {
+    NO_DRAFTS, draftedDrawing, waitingDrafts, waitingPoint, withWaiting, type DraftedCache, type DraftedRow, type SchematicDrafts,
+} from "./drafted.js";
 
 const T = Schematic.Types;
 const itemsEqual = equalFor(ArrayType(SchematicDrawnItemType));
+const linksEqual = equalFor(ArrayType(SchematicDrawnLinkType));
+const stringEqual = equalFor(StringType);
 
 const ref = (kind: string, key: string): SchematicRef => ({ kind, key });
 const A01 = ref("racks", "A01"), A02 = ref("racks", "A02"), A06 = ref("racks", "A06"), NEW = ref("racks", "new-1");
@@ -128,5 +135,84 @@ describe("draftedDrawing", () => {
         // Its details moving draws it again.
         const loaded: SchematicHeldRows = new Map([...HELD, ["racks", new Map([...HELD.get("racks")!, ["A02", { details: undefined }]])]]);
         expect(draftedDrawing(STORED, loaded, drafts, cache).items[1]).not.toBe(first.items[1]);
+    });
+});
+
+/** The read under a narrowing that hides A02 and u1: it holds A01 alone. */
+const NARROWED_HELD: SchematicHeldRows = new Map([["racks", new Map([["A01", { details: undefined }]])], ["fibre", new Map()]]);
+
+/** The stored drawing under that narrowing: A01. */
+const NARROWED: SchematicDrawn = { items: [stored(A01, 2, 3)], zones: [], links: [], nets: [] };
+
+describe("waitingDrafts", () => {
+    test("a drafted row the narrowing leaves out waits in its session, drawn nowhere, and is made as its draft has it: what Issues checks beside the drawing", () => {
+        const moved = { roles: rack(A02, { x: 30, y: 5 }), created: false };
+        const drafts = rackDrafts(new Map([["A02", moved]]));
+        const waiting = waitingDrafts(NARROWED_HELD, drafts);
+        expect(itemsEqual(waiting.items, [drawnItem(A02, moved.roles, undefined)!])).toBe(true);
+        // The drawing draws none of it; beside it, Issues checks both.
+        const drawing = draftedDrawing(NARROWED, NARROWED_HELD, drafts, new WeakMap());
+        expect(drawing.items.map((item) => item.key)).toEqual([entityId(A01)]);
+        expect(withWaiting(drawing, waiting).items.map((item) => item.key)).toEqual([entityId(A01), entityId(A02)]);
+    });
+
+    test("a drafted row the read holds, and one a gesture created, draw — none waits; a row its draft deletes is no row", () => {
+        const drafts = rackDrafts(new Map<string, DraftedRow<ItemRoles> | undefined>([
+            ["A01", { roles: rack(A01, { x: 9, y: 5 }), created: false }], ["new-1", { roles: rack(NEW, { x: 12, y: 3 }), created: true }], ["A02", undefined],
+        ]));
+        expect(waitingDrafts(NARROWED_HELD, drafts)).toBe(EMPTY_DRAWN);
+        // With nothing waiting, the drawing is what Issues checks.
+        expect(withWaiting(NARROWED, EMPTY_DRAWN)).toBe(NARROWED);
+    });
+
+    test("a kind read by area's drafted row its window doesn't hold waits only while the hidden narrowing leaves it out; an unplaced one is no row of a drawing", () => {
+        const racks = new Set(["racks"]);
+        const offWindow = rackDrafts(new Map([["A02", { roles: rack(A02, { x: 9, y: 5 }), created: false }]]));
+        // The narrowing holds the row its session began from: it draws where its draft has it, and waits for nothing.
+        expect(waitingDrafts(NARROWED_HELD, offWindow, racks).items).toEqual([]);
+        // It leaves it out: it waits.
+        const leftOut = (at: SchematicRef) => stringEqual(at.kind, A02.kind) && stringEqual(at.key, A02.key);
+        expect(waitingDrafts(NARROWED_HELD, offWindow, racks, leftOut).items.map((item) => [item.key, item.x, item.y])).toEqual([[entityId(A02), 9, 5]]);
+        // A draft that unplaces a row draws nowhere on any drawing: no row waits for it.
+        const unplaced = rackDrafts(new Map([["A02", { roles: rack(A02, undefined), created: false }]]));
+        expect(waitingDrafts(NARROWED_HELD, unplaced, racks, leftOut)).toBe(EMPTY_DRAWN);
+    });
+
+    test("a link, a zone and a net wait as an item does, each made as its kind draws it", () => {
+        const run: LinkRoles = { ...defaultValue<typeof T.Link>(T.Link), from: A01, to: ODF };
+        const drafts: SchematicDrafts = { ...NO_DRAFTS, links: new Map([["fibre", new Map([["u1", { roles: run, created: false }]])]]) };
+        expect(linksEqual(waitingDrafts(NARROWED_HELD, drafts).links, [drawnLink(ref("fibre", "u1"), run)])).toBe(true);
+    });
+});
+
+describe("waitingPoint", () => {
+    const hall: ZoneRoles = { ...defaultValue<typeof T.Zone>(T.Zone), label: "Hall 3", x: 2, y: 4, width: 6, height: 2 };
+    const feed: NetRoles = { ...defaultValue<typeof T.Net>(T.Net), sources: [A01], destinations: [A02, A06] };
+    /** What waits: A02 moved to 30, 5; the hall; a run from A01 to ODF-1, one from A01 to A02, one from ODF-1 to a rack nothing places; and a feed. */
+    const WAITING: SchematicDrawn = {
+        items: [drawnItem(A02, rack(A02, { x: 30, y: 5 }), undefined)!],
+        zones: [drawnZone(ref("areas", "hall"), hall)],
+        links: [
+            drawnLink(ref("fibre", "u1"), { ...defaultValue<typeof T.Link>(T.Link), from: A01, to: ODF }),
+            drawnLink(ref("fibre", "u2"), { ...defaultValue<typeof T.Link>(T.Link), from: A01, to: A02 }),
+            drawnLink(ref("fibre", "u9"), { ...defaultValue<typeof T.Link>(T.Link), from: ODF, to: ref("racks", "A99") }),
+        ],
+        nets: [drawnNet(ref("feeds", "feed-a"), feed)],
+    };
+
+    test("an item stands where its draft places it, a zone at its box's centre", () => {
+        expect(waitingPoint(entityId(A02), WAITING, NARROWED)).toEqual({ x: 30, y: 5 });
+        expect(waitingPoint(entityId(ref("areas", "hall")), WAITING, NARROWED)).toEqual({ x: 5, y: 5 });
+    });
+
+    test("a link or a net stands at its placed members' box's centre — each where the drawing or a waiting row places it — and nowhere with none placed", () => {
+        // ODF-1 is placed by neither: the run stands at A01.
+        expect(waitingPoint(entityId(ref("fibre", "u1")), WAITING, NARROWED)).toEqual({ x: 2, y: 3 });
+        // A01 drawn at 2, 3, A02 waiting at 30, 5.
+        expect(waitingPoint(entityId(ref("fibre", "u2")), WAITING, NARROWED)).toEqual({ x: 16, y: 4 });
+        expect(waitingPoint(entityId(ref("feeds", "feed-a")), WAITING, NARROWED)).toEqual({ x: 16, y: 4 });
+        expect(waitingPoint(entityId(ref("fibre", "u9")), WAITING, NARROWED)).toBeUndefined();
+        // What does not wait stands nowhere here.
+        expect(waitingPoint(entityId(A01), WAITING, NARROWED)).toBeUndefined();
     });
 });

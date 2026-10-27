@@ -25,9 +25,13 @@
  * them. Two items of one key in one kind can't arise: each kind is a record
  * keyed by String.
  *
- * What is checked is what the drawing holds: a kind read by area's rows read
- * around the view, and its drafts — never a read of its other rows, which are
- * checked as the view reaches them; the inspector says so (ruled 27 Oct 2026).
+ * What is checked is what the drawing holds — a kind read by area's rows read
+ * around the view, and the drafts drawn — and every unsaved change it leaves
+ * out, waiting in its session where a narrowing leaves out the row it drafts,
+ * as its draft has it (`drafted.ts`' `waitingDrafts`, which the frame hands
+ * beside the drawing): never a read of a kind's other rows, which are checked
+ * as the view reaches them; the inspector says so (ruled 27 Oct 2026, "Checked
+ * in view, said so").
  *
  * @packageDocumentation
  */
@@ -64,7 +68,10 @@ export type SchematicIssueWord =
 
 /** One issue of the drawing, as the Issues tab lists it. */
 export interface SchematicIssue {
-    /** What a click on it selects: an entity, by its id; `undefined` for nothing — a layer, or a row the drawing doesn't draw. */
+    /**
+     * What a click on it selects: an entity, by its id — one the drawing leaves out, waiting in its session, once the
+     * choices that hide it are cleared; `undefined` for nothing — a layer, or a record's words that name no row.
+     */
     readonly at: string | undefined;
     /** Whether it blocks — the app's check holds Save, or a Save was stopped — rather than warns. */
     readonly blocking: boolean;
@@ -76,7 +83,10 @@ export interface SchematicIssue {
 
 /** What the drawing's issues are worked out from. */
 export interface SchematicIssueArgs {
-    /** What the canvas draws: the stored rows, the drafts in place. */
+    /**
+     * What is checked: what the canvas draws — the stored rows, the drafts in place — and the drafted rows it leaves out,
+     * each as its draft has it (`drafted.ts`' `withWaiting`).
+     */
     readonly drawn: SchematicDrawn;
     /** The drawing's world bounds. */
     readonly extent: { readonly width: number; readonly height: number };

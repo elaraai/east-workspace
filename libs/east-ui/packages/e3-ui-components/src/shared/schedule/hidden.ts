@@ -218,21 +218,9 @@ export function hidingWords(fields: readonly Field[], where: Where, answer: Hidd
     return { filters: answer.by.map(label), also: answer.also.map(label) };
 }
 
-/**
- * The English of a row the rail's narrowing hides, by the choices that do —
- * joined as the rail's `Replaces …` joins them — and what a pick of it clears:
- * `hidden by Status: Ready — picking it clears that filter`. A builder's
- * message table says it so in English, and a translation in its own words.
- *
- * @param filters - The choices that hide the row, as the rail words them
- * @param also - The choices a pick clears with them
- * @returns The words
- */
-export function hiddenByText(filters: readonly string[], also: readonly string[]): string {
-    const one = filters.length === 1;
-    const extra = also.length === 0 ? "" : `, and ${also.join("; ")} with ${one ? "it" : "them"}`;
-    return `hidden by ${filters.join("; ")} — picking it clears ${one ? "that filter" : "those filters"}${extra}`;
-}
+// The English of a row the rail's narrowing hides, and what a pick of it clears: pure words, in `words.ts`, so a message
+// table that says it loads with no DOM.
+export { hiddenByText } from "./words.js";
 
 /** What the narrowing holds of a row it was asked of, and — of one it hides — what e3 said hides it, once it has. */
 export type HiddenState =

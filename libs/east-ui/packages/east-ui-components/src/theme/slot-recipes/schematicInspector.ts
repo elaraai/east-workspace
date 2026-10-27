@@ -18,7 +18,8 @@
  * — and facts on lines of their own. Several: how many of each kind, and
  * Delete. Nothing: the counts two to a line and each record's last save. The
  * Issues tab lists the drawing's issues, each a control that selects what it
- * names.
+ * names — an unsaved change the rail's filters hide saying, on a line of its
+ * own, which choices do, as the Sheet's issues say it.
  *
  * Every text stands on a line of its own — never beside another — so none is
  * squeezed to a letter's width in a narrow pane, and a long key breaks only
@@ -43,7 +44,7 @@ export const schematicInspectorSlotRecipe = defineSlotRecipe({
         "headRow", "kindTile", "headText", "when", "status",
         "edits", "custom", "section", "fact", "why",
         "links", "link", "linkText", "linkMeta",
-        "issueList", "issueItem", "issueWhere", "issueMessage",
+        "issueList", "issueItem", "issueWhere", "issueMessage", "issueHidden",
     ],
     base: {
         ...inspectorBase,
@@ -136,5 +137,7 @@ export const schematicInspectorSlotRecipe = defineSlotRecipe({
             overflowWrap: "anywhere",
             "&[data-kind=invalid]": { color: "fg.danger" },
         },
+        /* An issue of an unsaved change the rail's filters hide: which, and that Go to issue clears them. */
+        issueHidden: { textStyle: "body.sm", color: "fg.muted", overflowWrap: "anywhere" },
     },
 });

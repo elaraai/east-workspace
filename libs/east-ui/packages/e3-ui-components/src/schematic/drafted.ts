@@ -25,14 +25,24 @@
  * What a drafted row draws is kept by the roles it was drawn from, so a
  * render that moves no draft draws each the same.
  *
+ * What the drawing leaves out of the drafts — each drafted row waiting in its
+ * session — is made as its kind draws it too (`waitingDrafts`), never for the
+ * canvas: Issues checks it beside the drawing, so every unsaved change is
+ * checked, drawn or not (ruled 27 Oct 2026, "Checked in view, said so"), and
+ * Go to issue flies to where it stands (`waitingPoint`).
+ *
  * @packageDocumentation
  */
 
+import { StringType, equalFor } from "@elaraai/east";
 import {
-    drawnItem, drawnLink, drawnNet, drawnZone, entityId,
+    EMPTY_DRAWN, drawnItem, drawnLink, drawnNet, drawnZone, entityId,
     type CardRoles, type DetailsRoles, type ItemRoles, type LinkRoles, type NetRoles, type SchematicDrawn, type SchematicRef, type ZoneRoles,
 } from "./canvas/drawn.js";
+import { zoneAnchor } from "./canvas/paint.js";
 import type { SchematicHeldRows } from "./data.js";
+
+const stringEqual = equalFor(StringType);
 
 /** A drafted row, as the drawing takes it: its roles, as its kind reads them, and whether a gesture created it. */
 export interface DraftedRow<R> {
@@ -87,6 +97,21 @@ function drafted(drafts: SortDrafts<unknown>): boolean {
 }
 
 /**
+ * Whether a drafted row waits in its session, drawn nowhere (see the module docs): no read holds it, no gesture created
+ * it, and its kind is read otherwise than by area — a source's narrowing leaves it out — or by area, its window not
+ * holding it, while the hidden narrowing leaves out the row its session began from.
+ *
+ * @param kept - What the read holds of it; `undefined` for nothing
+ * @param row - The drafted row
+ * @param windowed - Whether its kind is read by area
+ * @param leftOut - Whether the hidden narrowing leaves it out, asked only of a kind read by area's row its read doesn't hold
+ * @returns Whether it waits in its session
+ */
+function waits(kept: unknown, row: DraftedRow<unknown>, windowed: boolean, leftOut: () => boolean): boolean {
+    return kept === undefined && !row.created && (!windowed || leftOut());
+}
+
+/**
  * One sort's entities with its drafts in place: each drafted entity the read
  * holds drawn from its drafted roles where it was — or nowhere, deleted or
  * unplaced — and each the read does not hold, a gesture created, after them.
@@ -116,12 +141,13 @@ function merged<R extends object, E extends { readonly key: string }>(
             const kept = read?.get(key);
             // A row a narrowing hides waits in its session; a new one draws, and one of a kind read by area its window doesn't
             // hold while its narrowing holds it.
-            if (kept === undefined && !row.created && (!windowed.has(slot) || leftOut(ref))) continue;
+            if (waits(kept, row, windowed.has(slot), () => leftOut(ref))) continue;
             // A drafted card over a row whose details are read holds their places, as the row's own does (#1398).
             const details = kept?.details;
             const pending = kept?.pending;
             const was = cache.get(row.roles);
-            if (was !== undefined && was.details === details && was.pending === pending) { replaced.set(id, was.drawn as E | undefined); continue; }
+            // The very details it was drawn with, as the reader keeps them while they read again as they were.
+            if (was !== undefined && Object.is(was.details, details) && Object.is(was.pending, pending)) { replaced.set(id, was.drawn as E | undefined); continue; }
             const drawn = draw(ref, row.roles, details, pending);
             cache.set(row.roles, { details, pending, drawn });
             replaced.set(id, drawn);
@@ -161,5 +187,87 @@ export function draftedDrawing(stored: SchematicDrawn, held: SchematicHeldRows, 
         links: links ? merged(stored.links, drafts.links, held, windowed, leftOut, cache, (ref, roles) => drawnLink(ref, roles)) : stored.links,
         nets: nets ? merged(stored.nets, drafts.nets, held, windowed, leftOut, cache, (ref, roles) => drawnNet(ref, roles)) : stored.nets,
     };
+}
+
+/**
+ * The drafted rows the drawing leaves out, each waiting in its session — a
+ * narrowing leaves out the row it drafts (see the module docs) — made as
+ * their kinds draw them: what Issues checks beside the drawing, so an unsaved
+ * change carries no issue unseen, wherever it is drawn or not (ruled 27 Oct
+ * 2026, "Checked in view, said so"). Never the canvas's: what the narrowing
+ * hides is drawn nowhere. An item with no position draws nothing here, as on
+ * the canvas; a row its draft deletes is no row.
+ *
+ * @param held - Each kind's rows the read holds
+ * @param drafts - Every kind's drafts
+ * @param windowed - The kinds read by area, by slot, as {@link draftedDrawing} takes them
+ * @param leftOut - Whether the hidden narrowing leaves out a drafted row of a kind read by area its window doesn't hold, as
+ *   {@link draftedDrawing} takes it
+ * @returns The rows, each kind's in its drafts' order — no row while every draft draws
+ */
+export function waitingDrafts(held: SchematicHeldRows, drafts: SchematicDrafts, windowed: ReadonlySet<string> = NONE_WINDOWED,
+    leftOut: (ref: SchematicRef) => boolean = NONE_LEFT_OUT): SchematicDrawn {
+    const sort = <R, E>(sorted: SortDrafts<R>, draw: (ref: SchematicRef, roles: R) => E | undefined): E[] => {
+        const out: E[] = [];
+        for (const [slot, rows] of sorted) {
+            const read = held.get(slot);
+            for (const [key, row] of rows) {
+                const ref = { kind: slot, key };
+                if (row === undefined || !waits(read?.get(key), row, windowed.has(slot), () => leftOut(ref))) continue;
+                const drawn = draw(ref, row.roles);
+                if (drawn !== undefined) out.push(drawn);
+            }
+        }
+        return out;
+    };
+    const items = sort(drafts.items, (ref, roles) => drawnItem(ref, roles, undefined));
+    const zones = sort(drafts.zones, drawnZone);
+    const links = sort(drafts.links, drawnLink);
+    const nets = sort(drafts.nets, drawnNet);
+    return items.length + zones.length + links.length + nets.length === 0 ? EMPTY_DRAWN : { items, zones, links, nets };
+}
+
+/**
+ * The drawing with the drafted rows it leaves out beside it ({@link waitingDrafts}): what Issues checks and names.
+ *
+ * @param drawn - The drawing, the drafts drawn in place
+ * @param waiting - The drafted rows it leaves out
+ * @returns Both, each sort's drawn entities first; the drawing itself while none waits
+ */
+export function withWaiting(drawn: SchematicDrawn, waiting: SchematicDrawn): SchematicDrawn {
+    if (waiting.items.length + waiting.zones.length + waiting.links.length + waiting.nets.length === 0) return drawn;
+    return {
+        items: [...drawn.items, ...waiting.items],
+        zones: [...drawn.zones, ...waiting.zones],
+        links: [...drawn.links, ...waiting.links],
+        nets: [...drawn.nets, ...waiting.nets],
+    };
+}
+
+/**
+ * Where a drafted row waiting in its session stands, as its draft places it: what the camera looks at as Go to issue
+ * goes to it (#1391) — an item's centre; a zone's box's centre, its anchor; a link's or a net's members' box's centre,
+ * each member where the drawing or a waiting row places it.
+ *
+ * @param id - The row's id
+ * @param waiting - The drafted rows waiting in their sessions ({@link waitingDrafts})
+ * @param drawn - The drawing, the drafts drawn in place
+ * @returns Its point; `undefined` for an id no waiting row has, and for a link or a net none of whose members is placed
+ */
+export function waitingPoint(id: string, waiting: SchematicDrawn, drawn: SchematicDrawn): { readonly x: number; readonly y: number } | undefined {
+    const item = waiting.items.find((it) => stringEqual(it.key, id));
+    if (item !== undefined) return { x: item.x, y: item.y };
+    const zone = waiting.zones.find((z) => stringEqual(z.key, id));
+    if (zone !== undefined) return zoneAnchor(zone);
+    const link = waiting.links.find((l) => stringEqual(l.key, id));
+    const net = link === undefined ? waiting.nets.find((n) => stringEqual(n.key, id)) : undefined;
+    const members = link !== undefined ? [link.from, link.to] : net !== undefined ? [...net.sources, ...net.destinations] : [];
+    const placed = members.flatMap((member) => {
+        const at = drawn.items.find((it) => stringEqual(it.key, member)) ?? waiting.items.find((it) => stringEqual(it.key, member));
+        return at === undefined ? [] : [at];
+    });
+    if (placed.length === 0) return undefined;
+    const xs = placed.map((at) => at.x), ys = placed.map((at) => at.y);
+    return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
 }
 

@@ -185,9 +185,10 @@ export interface SchematicCanvasHandle {
      */
     reveal(id: string | undefined, leg?: NetLeg): void;
     /**
-     * Selects an item, by its id, once the drawing draws it — the item a drop added or placed (#1390): selected where it
-     * stands, the camera where it is. One the next drawing doesn't draw — its layer hidden, the rail narrowing it out —
-     * selects nothing.
+     * Selects an entity alone, by its id, once the drawing draws it — the item a drop added or placed (#1390), and what
+     * Find's pick or Go to issue finds off the drawing, the choices that hid it cleared (#1404, #1391): an item, a zone,
+     * or a link or a net, selected where it stands, the camera where it is. One the next drawing doesn't draw — its layer
+     * hidden, the rail narrowing it out — selects nothing.
      */
     select(id: string): void;
     /** The view's centre, at the screen's resolution: where a card's ⏎ adds or places an item (#1390); `undefined` while the canvas has no size. */
@@ -664,7 +665,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             commitLinkSelection({ key: id, leg: leg ?? null });
         },
         select: (id) => {
-            // Asked as the drop records itself: its item draws in the drawing that holds its draft.
+            // Asked as a drop records itself, or as Go to issue clears the choices that hid a draft: it draws in a drawing
+            // to come — the one holding the draft, or the narrowing left.
             pendingSelectRef.current = { id, seen: renderSnapRef.current.drawn };
             setSelectAsked((n) => n + 1);
         },
