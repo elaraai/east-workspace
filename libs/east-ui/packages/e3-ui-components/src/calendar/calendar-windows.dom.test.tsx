@@ -470,13 +470,32 @@ describe("the inspector's resource Chooser over the paged presses (#1424)", () =
         expect(asked.some((read) => read.startsWith("find own"))).toBe(true);
         expect(asked.filter((read) => read.startsWith("read"))).toEqual([]);
         // Picked: the job off Press 1001's row, and drafted on Press 1460's — the press's window not read yet, so the Chooser
-        // names it by its key — drawn there, its draft placing it, once the view comes to it.
+        // names it by its own row, read by its key (retest C6) — drawn there, its draft placing it, once the view comes to it.
         const brochure = JSON.stringify(eventKey({ kind: "job", key: "W-0001" }));
         fireEvent.keyDown(chooserBox(c)!.querySelector("input")!, { key: "Enter" });
         await settle();
         await waitFor(() => expect(pressRow(c, "P-1001")!.querySelector(`[data-calendar-event=${brochure}]`)).toBeNull());
         await scrollTimeline(c, { top: lineOf(459) });
         await waitFor(() => expect(pressRow(c, "P-1460")?.querySelector(`[data-calendar-event=${brochure}]`)?.hasAttribute("data-drafted")).toBe(true), { timeout: 10_000 });
+    });
+
+    test("the Chooser keeps naming the job's press as a hall it is not in is chosen — its own row read by its key, never its bare key (retest C6)", async () => {
+        const { container: c } = await h.mount(cw.calendarWindowsByHall, { storageKey: "windows-chooser-name" });
+        await settle();
+        // The brochure run, on Press 1001 in Hall 1, selected: the Chooser names its press, a window the frame holds having it.
+        await act(async () => { fireEvent.click(jobEvent(c, "W-0001")!); });
+        await settle();
+        const named = () => {
+            const input = chooserBox(c)?.querySelector("input");
+            return input?.getAttribute("aria-label") ?? input?.getAttribute("placeholder") ?? "";
+        };
+        await waitFor(() => expect(named()).toContain("Press 1001"));
+        // Hall 2 chosen: the windows the frame holds are Hall 2's, Press 1001 none of them — and the Chooser still names it.
+        await chooseHall("Hall 2");
+        await waitFor(() => expect(pressRows(c)[0]).toBe("Press 1002"), { timeout: 10_000 });
+        await settle();
+        await waitFor(() => expect(named()).toContain("Press 1001"));
+        expect(named()).not.toContain("P-1001");
     });
 
     test("over a hall chosen, the Chooser leaves out the presses the presses' source hides — no Hall 4 press offered — and keeps the job's own, asked of e3 a page at a time (ruled 27 Oct 2026)", async () => {
@@ -762,7 +781,7 @@ describe("a job made on a paged press from a template (#1424)", () => {
         await act(async () => { fireEvent.pointerUp(document, { ...pointer, buttons: 0, clientX: x, clientY: 120 }); });
         await settle();
         // The form's Chooser: `P-146` typed, a key at a time, and the first press it finds picked — Press 1460, whose window
-        // the frame does not hold, so the Chooser names it by its key.
+        // the frame does not hold, so the Chooser names it by its own row, read by its key (retest C6), never its bare key.
         const form = await openCreate(c);
         const input = form.querySelector<HTMLInputElement>("[data-calendar-chooser] [data-part='dataset-key-search'] input")!;
         for (const key of "P-146") {
@@ -775,7 +794,8 @@ describe("a job made on a paged press from a template (#1424)", () => {
         await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
         await settle();
         const named = () => form.querySelector("[data-calendar-chooser] input")?.getAttribute("aria-label") ?? form.querySelector("[data-calendar-chooser] input")?.getAttribute("placeholder");
-        await waitFor(() => expect(named()).toContain("P-1460"));
+        await waitFor(() => expect(named()).toContain("Press 1460"));
+        expect(named()).not.toContain("P-1460");
         await act(async () => { fireEvent.click(within(form).getByRole("button", { name: "Create" })); });
         await settle();
         expect(await saved(c, before)).toEqual([
