@@ -29,7 +29,7 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DictType, StringType, toEastTypeValue, variant } from "@elaraai/east";
+import { ArrayType, DictType, StringType, toEastTypeValue, variant, type option } from "@elaraai/east";
 import { MAX_LANDED_SEARCHES } from "@elaraai/east-ui/internal";
 import type { DatasetFindKeysQuery, DatasetFindQuery } from "@elaraai/e3-api-client";
 import { MAX_WITHIN_KEYS, PagedRuntime, type PagedApi, type PagedRun, type PagedSource } from "../src/platform/paged-runtime.js";
@@ -44,6 +44,15 @@ class Counted extends PagedRuntime {
     }
     /** The membership answers held of a source's record, over every narrowing's runs. */
     within(source: PagedSource) { return this.withinHeld(source); }
+    /** How many channels a read looks up as it runs. */
+    lookups(read: () => unknown): number {
+        const channels = this.entries;
+        const get = channels.get;
+        let count = 0;
+        channels.get = function (this: typeof channels, key: string) { count++; return get.call(this, key); };
+        try { read(); } finally { channels.get = get; }
+        return count;
+    }
 }
 
 const REVISION = "a".repeat(64);
@@ -108,6 +117,30 @@ test("a revision's batched searches are let go as the reader moves on, as the re
         `the runtime holds ${channels} channels of one revision after the reader moved on from ${BLOCKS - 1} blocks ` +
         `(${BLOCKS * 750} searches landed) — none let go — and its longest channel key is ${longestKey} characters, ` +
         "a batch's key being the text of every query it asked");
+});
+
+test("a read of a window not yet landed, and a read of rows by key, look up what they need — not every channel of the revision", async () => {
+    const runtime = new Counted();
+    runtime.initialize(api, "ws");
+    for (let block = 0; block < 40; block++) {
+        const queries = blockQueries(block);
+        runtime.seekAll(source, queries);
+        await settle();
+        runtime.seekAll(source, queries);
+    }
+
+    // The same record's Backlog pages another of its indexes, and the Plan
+    // reads a link's event ends by key: each is answered from a landed window
+    // that covers it (`cutFromCovering`, `rowInWindows`) — sought by walking
+    // every channel the record's snapshot holds.
+    const backlog = runtime.buildHandle(toEastTypeValue(ArrayType(StringType)), source.path,
+        { index: "jobs_by_start", join: false }, "pinned") as { page(offset: bigint, limit: bigint): option<unknown> };
+    const page = runtime.lookups(() => backlog.page(0n, 32n));
+    const rows = runtime.lookups(() => runtime.rowsAll({ path: source.path, selector: { index: null, join: false }, type: toEastTypeValue(DictType(StringType, StringType)) },
+        Array.from({ length: 10 }, (_, i) => `J-${i}`)));
+    assert.ok(page <= 64 && rows <= 640,
+        `one Backlog page not yet landed looks up ${page} channels, and a read of 10 rows by key ${rows}: ` +
+        "each walks every channel the revision has kept (30,040 here), at every render that reads them");
 });
 
 test("the membership answers a revision holds stay within their cap as the viewer tries narrowing after narrowing", async () => {
