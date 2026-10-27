@@ -54,8 +54,8 @@ export interface RecordSlicePlan {
  * generated index names its leading values as one `on` (#1432), so a narrowing
  * read through it chooses each of them exactly, an interval's start after
  * them. A series or a summary index answers none (#1039): the one files a row
- * under each tile it touches, and the other's entries name no row; a reader
- * reads their cells (`record-series.ts`).
+ * past a year under each year it touches (#1433), and the other's entries name
+ * no row; a reader reads their cells (`record-series.ts`).
  * @param index - Available field path.
  * @param where - Current narrowing.
  * @param area - A read by area's clause, beside the narrowing.

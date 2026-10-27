@@ -76,6 +76,8 @@ const SERIES = ex.planOperationsByWorkWeek;
 
 /** How many orders a cell holds: a block of fifty of the narrowing's, in its index's order. */
 const BLOCK = 50;
+/** The levels the operations' series index files at, the week to the year (#1433): a cell's searches an order. */
+const LEVELS = 4;
 /** A work order's row height, at the default density: a two-line gutter, its status the second line. */
 const ROW_PX = PLAN_GEOMETRY.default.rowStacked;
 
@@ -109,15 +111,15 @@ const seriesAsked = (since = 0) => h.requests().slice(since).filter(through(SERI
 
 /**
  * The work orders whose cells the series index was searched for, from the
- * `since`-th request on: each search's last field, the order's key as the
- * index files it.
+ * `since`-th request on: each search a range an order a level (#1433), from
+ * `[order, level, tile]` — the order's key as the index files it.
  */
 function searchedOrders(since = 0): Set<string> {
     const out = new Set<string>();
     for (const request of h.requests().slice(since).filter(through(SERIES))) {
         if (request.kind !== "find") continue;
         for (const search of request.searches) {
-            const field = "fields" in search ? search.fields.at(-1) : undefined;
+            const field = "from" in search ? search.from?.at(-3) : undefined;
             const order = field === undefined ? undefined : parseString(field);
             if (order?.success === true) out.add(order.value);
         }
@@ -311,7 +313,7 @@ afterEach(() => {
 // ============================================================================
 
 describe("the work orders Plan: the orders a paged resource kind, their operations read a cell at a time", () => {
-    test("opens on the narrowing's work orders a window at a time — the window on screen and the two read ahead, through the status/due index — and the operations' cells of the first fifty orders over the weeks the canvas reads: never either record whole, nor a window of operations", async () => {
+    test("opens on the narrowing's work orders a window at a time — the window on screen and the two read ahead, through the status/due index — and the operations' cells of the first fifty orders over the tiles the canvas reads: never either record whole, nor a window of operations", async () => {
         const { container: c } = await h.mount(ex.planRecordIndexes);
         await settle();
         const ready = await ordersOf(["Ready"], FIRST, FORTNIGHT);
@@ -328,10 +330,11 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         expect(orderRows(c).slice(0, 10)).toEqual(rowsOf(ready.slice(0, 10)));
         expect(named(bar(c, "JOB-10000-run", "JOB-10000"))).toMatch(/^Cut panels, Oct 1, 2026, 06:00 – Oct 1, 2026, 14:00/);
         expect(summary(c)).toContain("2,778 of 50,000 work orders");
-        // The operations' cells: the first block — the narrowing's first fifty orders — over the five weeks the canvas
-        // reads (those of 28 September and 5 and 12 October its range touches, 29 September to 17 October, and one either
-        // side), their searches in one request and the entries of those holding any in one more.
-        expect(seriesAsked()).toEqual([`find ${5 * BLOCK}`, "runs"]);
+        // The operations' cells: the first block — the narrowing's first fifty orders — one range an order at each level
+        // the index files at (#1433), over the tiles the canvas reads (those its range, 29 September to 17 October,
+        // touches, one either side and the one before those), their searches in one request and the entries of those
+        // holding any in one more.
+        expect(seriesAsked()).toEqual([`find ${LEVELS * BLOCK}`, "runs"]);
         expect(searchedOrders()).toEqual(new Set(ready.slice(0, BLOCK)));
         // The interval index serves the rail's count of the window's operations and the bounds of their dates — searches,
         // and pages of one entry — and the record's own entries its count, one entry: never a window of operations.
@@ -351,7 +354,7 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         await scrollRows(c, 100 * ROW_PX);
         await waitFor(() => expect(searchedOrders(near).size).toBeGreaterThan(0), { timeout: 10_000 });
         await settle();
-        expect(seriesAsked(near)).toEqual([`find ${2 * 5 * BLOCK}`, "runs"]);
+        expect(seriesAsked(near)).toEqual([`find ${2 * LEVELS * BLOCK}`, "runs"]);
         expect(searchedOrders(near)).toEqual(new Set(ready.slice(BLOCK, 3 * BLOCK)));
         expect(ordersAsked(near)).toEqual([]);
         // Down to the thousandth order, in the sixth window — past the three read: the windows there, through the index,
@@ -366,7 +369,7 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         expect(pages).toContain(`page ${BY_STATUS_DUE.name} ${start + 1000}+200`);
         const windows = pages.map((page) => /^page by_status_due (\d+)\+200$/.exec(page)?.[1]).map((at) => (at === undefined ? NaN : Number(at)));
         expect(windows.every((at) => at >= start + 600 && (at - start) % 200 === 0), pages.join(", ")).toBe(true);
-        expect(seriesAsked(far)).toEqual([`find ${2 * 5 * BLOCK}`, "runs"]);
+        expect(seriesAsked(far)).toEqual([`find ${2 * LEVELS * BLOCK}`, "runs"]);
         expect(searchedOrders(far)).toEqual(new Set(ready.slice(19 * BLOCK, 21 * BLOCK)));
         expect([h.requests("read", ORDERS), h.requests("read", OPERATIONS)]).toEqual([[], []]);
     });
@@ -389,7 +392,7 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         // The first of them, due on the second of October, with its operation's bar there; the cells of their first block.
         expect(scheduled[0]).toBe("JOB-10073");
         await waitFor(() => expect(named(bar(c, "JOB-10073-run", "JOB-10073"))).toMatch(/^Edge band, Oct 2, 2026, 06:00 – Oct 2, 2026, 14:00/));
-        expect(seriesAsked(opened)).toEqual([`find ${5 * BLOCK}`, "runs"]);
+        expect(seriesAsked(opened)).toEqual([`find ${LEVELS * BLOCK}`, "runs"]);
         expect(searchedOrders(opened)).toEqual(new Set(scheduled.slice(0, BLOCK)));
         expect(h.requests("read", ORDERS)).toEqual([]);
     });

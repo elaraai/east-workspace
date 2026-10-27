@@ -138,11 +138,13 @@ export type RecordSliceTilingType = typeof RecordSliceTilingType;
  *   and `width` and `height` unless the rows are points), whether `x`, `y` is the box's centre or its minimum corner,
  *   the finest cell's side in world units (a power of two), and whether `x` and `y` are Options, which makes the
  *   unplaced clause meaningful. Its entries carry their rows.
- * @property series - A series index (#1039): its events filed by the key they are on and by each tile they touch,
- *   `{ on, tile, key }`, carrying their rows. It never serves the rail's narrowing, which would count an event
- *   once for each tile it touches: a reader reads its cells (`tileCellQueries`).
- * @property summary - A summary index (#1039): under the same keys, how many rows touch the tile and the
- *   milliseconds of it they cover. Its entries name no row, so it never serves the rail's narrowing either.
+ * @property series - A series index (#1039): its events filed by the key they are on and by time, each once at the
+ *   level its length fits from `tile` up, `{ on, key, level, tile }` (#1433), carrying their rows. It never serves
+ *   the rail's narrowing, which would count an event past a year once for each year it is filed under: a reader
+ *   reads its cells (`levelCellQueries`).
+ * @property summary - A summary index (#1039): under each key and tile, `{ on, key, tile }`, how many rows touch
+ *   the tile and the milliseconds of it they cover. Its entries name no row, so it never serves the rail's
+ *   narrowing either; a reader reads its cells (`summaryCellQueries`).
  */
 export const RecordSliceIndexType = StructType({
     name: StringType, fields: ArrayType(StringType), sets: SetType(StringType), structured: BooleanType,

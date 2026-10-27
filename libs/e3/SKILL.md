@@ -622,7 +622,8 @@ parts sit beside it. So no name is reserved: a row may name a field anything,
 |---|---|---|
 | interval | `{ on, node, at }` | the tree node an entry is filed at; the instant it is ordered by, at the `from` field's type |
 | area | `{ on, area }` | the cell's Morton code times 32 plus its level; −1 for a row not yet placed |
-| series, summary | `{ on, tile, key }` | the tile's start; the value of the field `key` names |
+| series | `{ on, key, level, tile }` | the value of the field `key` names; the level an event is filed at, and the start of that level's tile (#1433) |
+| summary | `{ on, key, tile }` | the value of the field `key` names; the tile's start |
 
 A definition's `on` is the leading fields alone; its kind's options say the
 rest (`byTime.interval`, `racksByArea.area`, `jobsByPressWeek.series`).
@@ -698,10 +699,11 @@ misses, which the reader draws or not.
 
 What a planning board reads: the events on a block of keys — a Plan's
 resources — over a span of time, and, zoomed out past what a screen can draw,
-how busy each key is. Both file a row's event by the key it is on and by each
-time tile it touches — `day`, `week` (ISO, from Monday), `month`, `quarter` or
-`year`, in UTC, half-open — their key `{ on, tile, key }`. The tile comes
-before the key, so a block of keys in one tile is one contiguous range:
+how busy each key is. Both file a row's event by the key it is on and by time
+tiles — `day`, `week` (ISO, from Monday), `month`, `quarter` or `year`, in UTC,
+half-open — the key before the time, so a key's entries over any span are
+contiguous: a series index's `{ on, key, level, tile }`, a summary index's
+`{ on, key, tile }`.
 
 ```typescript
 // jobs: Dict<String, { press: String, start: Option<DateTime>, end: Option<DateTime>, … }>
@@ -716,15 +718,21 @@ const jobsByPressMonth = e3.recordIndex.summary('jobs_by_press_month', jobs, {
 | Option | |
 |---|---|
 | `key` | the field naming what an event is on: any field but a Set |
-| `from`, `to` | the event's start and end: DateTime or Option<DateTime> fields. A row with no start is in no tile; no end, or one at or before the start, is an instant, in the one tile holding it |
-| `tile` | `day`, `week`, `month`, `quarter` or `year` |
-| `on` | exact leading fields, before the tile; a Set field fans out |
+| `from`, `to` | the event's start and end: DateTime or Option<DateTime> fields. A row with no start is filed nowhere; no end, or one at or before the start, is an instant |
+| `tile` | a series index's finest level, and a summary index's tile: `day`, `week`, `month`, `quarter` or `year` |
+| `on` | exact leading fields, before the key; a Set field fans out |
 
-**A series index** is an ordinary index whose keys the SDK generates, an entry
-per tile an event touches, and it **carries its rows**, as the area index does:
-a block of keys over a span of tiles reads the index alone, a search a tile, in
-one request. **A summary index** holds, under each key, `{ count, ms }`: how
-many rows touch its tile, and the milliseconds of it they cover — a row's shares
+**A series index** is an ordinary index whose keys the SDK generates, and it
+**carries its rows**, as the area index does. It files each event **once**, at
+the finest level from its `tile` up to the year whose shortest tile holds the
+event's length — a day, a week, 28 days, 90 days, 365 days — under that level's
+tile holding its start; an instant at `tile`; past 365 days, under each year it
+touches. An event filed at a level ends within the tile after the one holding
+its start, so a reader reads a block of keys over any span from the index alone
+as one range a key a level — that level's tiles from two before the span to one
+after it — in one request, whatever the span's width. **A summary index** holds,
+under each key and tile, `{ count, ms }`: how many rows touch the tile, and the
+milliseconds of it they cover — a row's shares
 add up to its length, and an instant's is none. Each entry stands for every row
 of its key and names none, so its window's `key` is Null, a read of it joins
 nothing, and a read that needs its rows — a joined read, a placement
@@ -739,12 +747,14 @@ count below zero, or time with no row — fails the write, naming the total and
 `e3 reindex`, which rebuilds it; a total past the largest Integer fails the
 write or the build, naming a finer tile.
 
-An event touching more than 4,096 tiles — eleven years of days — is refused
-where it is written, naming it, its span and the tile: declare a coarser tile.
-Each option takes only the row's fields of its type, as the area index's do,
-and the definition checks them again; a `value` is refused, and so is an `on`
-field that is the key, the start or the end: the key follows the tile, and the
-tiles are cut by the start and the end.
+A series index files an event past a year under each year it touches, as many
+as 4,096: one touching more is refused where it is written, naming it and its
+span. A summary splits an event over its tiles, as many as 4,096 — eleven years
+of days — and one touching more is refused the same way, naming the tile:
+declare a coarser tile. Each option takes only the row's fields of its type, as
+the area index's do, and the definition checks them again; a `value` is
+refused, and so is an `on` field that is the key, the start or the end: the key
+follows the leading fields, and the tiles are cut by the start and the end.
 
 #### Migrations — how a record's type changes
 

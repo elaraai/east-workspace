@@ -4,24 +4,24 @@
  */
 
 /**
- * The series and summary indexes' planner (#1039): their markers read back as
- * themselves; their tiles are e3's, before 1970 and in the first century too;
- * a cell's searches hold exactly its keys' entries in its tile under each
+ * The series and summary indexes' planner (#1039, #1433): their markers read
+ * back as themselves; their tiles are e3's, before 1970 and in the first
+ * century too; a reader's runs are a level's tiles from two before the range
+ * to one after it, and a summary's from one before; a cell's searches are a
+ * range a key, holding exactly its keys' entries over its run under each
  * combination of the leading fields' chosen values; and neither index ever
  * serves the rail's narrowing.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, NullType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor,
-    printFor, some, variant, type ValueTypeOf,
+    ArrayType, DateTimeType, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
 import { MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere } from "../../src/platform/slice/record-plan.js";
-import { recordOnPrinter } from "../../src/platform/slice/record-on.js";
 import {
-    RECORD_TILES, readTileMarker, tileCellQueries, tileIndexFor, tileIndexServes, tileMarkerFields, tileNext,
-    tileStart, tilesOver, tilingOf, type RecordTile,
+    RECORD_TILES, levelCellQueries, levelRuns, levelsOf, readTileMarker, summaryCellQueries, summaryRun, tileIndexFor, tileIndexServes,
+    tileMarkerFields, tileNext, tileStart, tilingOf, type RecordTile,
 } from "../../src/platform/slice/record-series.js";
 
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
@@ -150,18 +150,39 @@ test("every instant lies in the one tile its start names, whose next tile starts
     }
 });
 
-test("a span's tiles are those it overlaps, in order; an instant's is the one holding it; past the limit there are none", () => {
-    const tiles = tilesOver("week", at("2026-10-07T00:00:00.000"), at("2026-10-26T00:00:00.000"), 10);
-    assert.deepEqual(tiles, ["2026-10-05", "2026-10-12", "2026-10-19"].map(day => at(`${day}T00:00:00.000`)),
-        "its end is exclusive: the week starting on it is not overlapped");
-    assert.deepEqual(tilesOver("week", at("2026-10-07T00:00:00.000"), at("2026-10-26T00:00:00.001"), 10)?.length, 4);
-    assert.deepEqual(tilesOver("month", at("2026-10-07T00:00:00.000"), at("2026-10-07T00:00:00.000"), 10), [at("2026-10-01T00:00:00.000")],
-        "an instant is in the tile holding it");
-    assert.deepEqual(tilesOver("day", at("2026-10-07T00:00:00.000"), at("2026-10-01T00:00:00.000"), 10), [at("2026-10-07T00:00:00.000")],
-        "a span ending before it starts is the instant at its start, as e3 files it");
-    assert.equal(tilesOver("day", at("2026-01-01T00:00:00.000"), at("2027-01-01T00:00:00.000"), 364), undefined);
-    assert.equal(tilesOver("day", at("2026-01-01T00:00:00.000"), at("2027-01-01T00:00:00.000"), 365)?.length, 365);
-    assert.throws(() => tilesOver("day", at("2026-01-01T00:00:00.000"), at("2026-01-02T00:00:00.000"), 0), /one at least/);
+test("a series index files at its tile and every coarser one; a reader reads a run a level, from two tiles before the range to one after it", () => {
+    assert.deepEqual(levelsOf("week"), ["week", "month", "quarter", "year"]);
+    assert.deepEqual(levelsOf("day"), ["day", "week", "month", "quarter", "year"]);
+    assert.deepEqual(levelsOf("year"), ["year"]);
+    const runs = (tile: RecordTile, from: string, to: string) => levelRuns(tile, at(from), at(to))
+        .map(run => [run.level, printInstant(run.from), printInstant(run.to)]);
+    // 1–14 October 2026 over a week tile: the weeks from Mondays 14 September to 19 October, August to November, the
+    // second quarter of 2026 to the first of 2027, and 2024 to 2027 — each run's end the start of the tile after its last.
+    assert.deepEqual(runs("week", "2026-10-01T00:00:00.000", "2026-10-15T00:00:00.000"), [
+        ["week", "2026-09-14T00:00:00.000", "2026-10-26T00:00:00.000"],
+        ["month", "2026-08-01T00:00:00.000", "2026-12-01T00:00:00.000"],
+        ["quarter", "2026-04-01T00:00:00.000", "2027-04-01T00:00:00.000"],
+        ["year", "2024-01-01T00:00:00.000", "2028-01-01T00:00:00.000"],
+    ]);
+    // Across a year's end and a quarter's at a day tile: Sunday 20 December is in the week of Monday the 14th.
+    assert.deepEqual(runs("day", "2026-12-20T00:00:00.000", "2027-01-10T00:00:00.000"), [
+        ["day", "2026-12-18T00:00:00.000", "2027-01-11T00:00:00.000"],
+        ["week", "2026-11-30T00:00:00.000", "2027-01-18T00:00:00.000"],
+        ["month", "2026-10-01T00:00:00.000", "2027-03-01T00:00:00.000"],
+        ["quarter", "2026-04-01T00:00:00.000", "2027-07-01T00:00:00.000"],
+        ["year", "2024-01-01T00:00:00.000", "2029-01-01T00:00:00.000"],
+    ]);
+    // A range ending at or before it starts is the instant at its start.
+    assert.deepEqual(runs("year", "2026-10-07T00:00:00.000", "2026-10-07T00:00:00.000"), [["year", "2024-01-01T00:00:00.000", "2028-01-01T00:00:00.000"]]);
+});
+
+test("a summary's run is its tiles from the one before the range to the one after it", () => {
+    const run = (tile: RecordTile, from: string, to: string) => {
+        const read = summaryRun(tile, at(from), at(to));
+        return [printInstant(read.from), printInstant(read.to)];
+    };
+    assert.deepEqual(run("month", "2026-10-01T00:00:00.000", "2026-10-15T00:00:00.000"), ["2026-09-01T00:00:00.000", "2026-12-01T00:00:00.000"]);
+    assert.deepEqual(run("week", "2026-10-05T00:00:00.000", "2026-10-19T00:00:00.000"), ["2026-09-28T00:00:00.000", "2026-10-26T00:00:00.000"]);
 });
 
 const indexType = ArrayType(RecordSliceIndexType);
@@ -178,10 +199,6 @@ const indexes = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
     { name: "jobs_by_press_month", fields: [], sets: new Set(), structured: true, ...plain, summary: some(month) },
     { name: "jobs_by_state_press_month", fields: ["state"], sets: new Set(), structured: true, ...plain, summary: some(month) },
 ]));
-/** Each index's `on` printer: led by nothing, by a job's state, or by one of its crews (a Set's element). */
-const UNLED = recordOnPrinter(StructType({}));
-const BY_STATE = recordOnPrinter(StructType({ state: VariantType({ late: NullType, held: NullType, done: NullType }) }));
-const BY_CREW = recordOnPrinter(StructType({ crews: StringType }));
 const byName = (name: string) => indexes.find(index => index.name === name)!;
 const values = (...choices: string[]): Choice => variant("values", choices);
 const window = variant("range", { from: "2026-10-05T00:00:00.000", to: "2026-10-19T00:00:00.000" });
@@ -192,41 +209,56 @@ function where(entries: [string, Choice][]): Where {
 const presses = ['.some "P-1005"', '.some "P-1006"', '.some "P-1013"'];
 const monday = at("2026-10-05T00:00:00.000");
 
-test("a cell is a search for each key in its tile, under each combination of the leading fields' chosen values, named as one `on`", () => {
-    assert.deepEqual(tileCellQueries(byName("jobs_by_press_week"), where([]), monday, presses, UNLED), {
-        queries: presses.map(press => variant("fields", { values: ["()", "2026-10-05T00:00:00.000", press], prefix: none })), residual: [],
+const weekRun = levelRuns("week", monday, at("2026-10-19T00:00:00.000"))[0]!;
+const october = summaryRun("month", at("2026-10-01T00:00:00.000"), at("2026-10-15T00:00:00.000"));
+
+test("a series cell is a range a key over its run, under each combination of the leading fields' chosen values, the key flattened", () => {
+    assert.deepEqual(levelCellQueries(byName("jobs_by_press_week"), where([]), weekRun, presses), {
+        queries: presses.map(press => variant("range", {
+            from: [press, ".week", "2026-09-21T00:00:00.000"], to: [press, ".week", "2026-10-26T00:00:00.000"],
+        })), residual: [],
     });
-    const led = tileCellQueries(byName("jobs_by_state_press_week"), where([["state", values(".late", ".held")]]), monday, presses.slice(0, 2), BY_STATE);
-    assert.deepEqual(led.queries, ["(state=.late)", "(state=.held)"].flatMap(on => presses.slice(0, 2).map(press =>
-        variant("fields", { values: [on, "2026-10-05T00:00:00.000", press], prefix: none }))), "the keys inner, in the order given");
-    assert.deepEqual(tileCellQueries(byName("jobs_by_crew_press_week"), where([["crews", values('"C-1"')]]), monday, presses.slice(0, 1), BY_CREW).queries,
-        [variant("fields", { values: ['(crews="C-1")', "2026-10-05T00:00:00.000", presses[0]!], prefix: none })]);
-    assert.deepEqual(tileCellQueries(byName("jobs_by_press_month"), where([]), at("2026-10-01T00:00:00.000"), presses, UNLED).queries.length, 3,
-        "a summary's cell is planned alike");
+    const led = levelCellQueries(byName("jobs_by_state_press_week"), where([["state", values(".late", ".held")]]), weekRun, presses.slice(0, 2));
+    assert.deepEqual(led.queries, [".late", ".held"].flatMap(state => presses.slice(0, 2).map(press => variant("range", {
+        from: [state, press, ".week", "2026-09-21T00:00:00.000"], to: [state, press, ".week", "2026-10-26T00:00:00.000"],
+    }))), "the keys inner, in the order given, the leading values one by one");
+    const year = levelRuns("week", monday, at("2026-10-19T00:00:00.000"))[3]!;
+    assert.deepEqual(levelCellQueries(byName("jobs_by_crew_press_week"), where([["crews", values('"C-1"')]]), year, presses.slice(0, 1)).queries,
+        [variant("range", { from: ['"C-1"', presses[0]!, ".year", "2024-01-01T00:00:00.000"], to: ['"C-1"', presses[0]!, ".year", "2028-01-01T00:00:00.000"] })]);
 });
 
-test("a cell leaves to the reader every choice but its leading fields' and a range of its start, which the tiles cover", () => {
+test("a summary cell is a range a key over its tiles", () => {
+    assert.deepEqual(summaryCellQueries(byName("jobs_by_press_month"), where([]), october, presses.slice(0, 1)), {
+        queries: [variant("range", { from: [presses[0]!, "2026-09-01T00:00:00.000"], to: [presses[0]!, "2026-12-01T00:00:00.000"] })], residual: [],
+    });
+    assert.deepEqual(summaryCellQueries(byName("jobs_by_state_press_month"), where([["state", values(".late")]]), october, presses.slice(0, 2)).queries,
+        presses.slice(0, 2).map(press => variant("range", { from: [".late", press, "2026-09-01T00:00:00.000"], to: [".late", press, "2026-12-01T00:00:00.000"] })));
+});
+
+test("a cell leaves to the reader every choice but its leading fields' and a range of its start, which the runs cover", () => {
     const series = byName("jobs_by_state_press_week");
-    assert.deepEqual(tileCellQueries(series, where([["state", values(".late")], ["start", window]]), monday, presses, BY_STATE).residual, []);
-    assert.deepEqual(tileCellQueries(series, where([["state", values(".late")], ["start", window], ["customer", values('"Acme"')]]), monday, presses, BY_STATE).residual,
+    assert.deepEqual(levelCellQueries(series, where([["state", values(".late")], ["start", window]]), weekRun, presses).residual, []);
+    assert.deepEqual(levelCellQueries(series, where([["state", values(".late")], ["start", window], ["customer", values('"Acme"')]]), weekRun, presses).residual,
         ["customer"]);
-    assert.deepEqual(tileCellQueries(byName("jobs_by_press_week"), where([["state", values(".late")], ["start", values("2026-10-06T00:00:00.000")]]), monday, presses, UNLED).residual,
+    assert.deepEqual(levelCellQueries(byName("jobs_by_press_week"), where([["state", values(".late")], ["start", values("2026-10-06T00:00:00.000")]]), weekRun, presses).residual,
         ["start", "state"], "exact starts and a field the index is not led by are the reader's");
 });
 
 test("a cell it cannot plan is refused, naming why", () => {
     const series = byName("jobs_by_state_press_week");
-    assert.throws(() => tileCellQueries(series, where([]), monday, presses, BY_STATE), /takes exact values of 'state', which leads it/);
-    assert.throws(() => tileCellQueries(series, where([["state", variant("prefix", "la")]]), monday, presses, BY_STATE), /takes exact values of 'state'/);
-    assert.throws(() => tileCellQueries(byName("jobs_by_crew_press_week"), where([["crews", values('"C-1"', '"C-2"')]]), monday, presses, BY_CREW),
+    assert.throws(() => levelCellQueries(series, where([]), weekRun, presses), /takes exact values of 'state', which leads it/);
+    assert.throws(() => levelCellQueries(series, where([["state", variant("prefix", "la")]]), weekRun, presses), /takes exact values of 'state'/);
+    assert.throws(() => levelCellQueries(byName("jobs_by_crew_press_week"), where([["crews", values('"C-1"', '"C-2"')]]), weekRun, presses),
         /takes one value of 'crews', which fans out over a Set/);
-    assert.throws(() => tileCellQueries(series, where([["state", values(...Array.from({ length: MAX_RECORD_SLICE_RUNS + 1 }, (_, i) => `"s${i}"`))]]), monday, presses, BY_STATE),
+    assert.throws(() => levelCellQueries(series, where([["state", values(...Array.from({ length: MAX_RECORD_SLICE_RUNS + 1 }, (_, i) => `"s${i}"`))]]), weekRun, presses),
         /more than 64 searches a key/);
-    assert.throws(() => tileCellQueries(series, where([["state", values(".lost")]]), monday, presses, BY_STATE), /'state' is not a value of its field/,
-        "a leading value is parsed at its field's type, never joined by hand");
-    assert.throws(() => tileCellQueries(byName("jobs_by_press_week"), where([]), at("2026-10-06T00:00:00.000"), presses, UNLED),
-        /2026-10-06T00:00:00\.000 starts no week tile of 'jobs_by_press_week'/);
-    assert.throws(() => tileCellQueries(byName("by_press"), where([]), monday, presses, UNLED), /'by_press' is neither/);
+    assert.throws(() => levelCellQueries(byName("jobs_by_press_week"), where([]), { ...weekRun, from: at("2026-09-22T00:00:00.000") }, presses),
+        /2026-09-22T00:00:00\.000 starts no week tile of 'jobs_by_press_week'/);
+    assert.throws(() => levelCellQueries(byName("jobs_by_press_week"), where([]), levelRuns("day", monday, monday)[0]!, presses),
+        /'jobs_by_press_week' files at week, month, quarter, year: no day run/);
+    assert.throws(() => levelCellQueries(byName("jobs_by_press_month"), where([]), weekRun, presses), /'jobs_by_press_month' is none/);
+    assert.throws(() => summaryCellQueries(byName("jobs_by_press_week"), where([]), october, presses), /'jobs_by_press_week' is none/);
+    assert.throws(() => levelCellQueries(byName("by_press"), where([]), weekRun, presses), /'by_press' is none/);
 });
 
 test("a narrowing's cells are read through the index led by the most of its exact choices, a summary's of a tile the reader takes", () => {

@@ -94,7 +94,7 @@ export const planOperations = e3.record("plan_operations", Operations, East.comp
 export const planOperationsPatch = e3.mutation.patch(planOperations);
 /** The operations over the interval each runs: the canvas's window, and the rail's exact count of the operations in it. */
 export const planOperationsByTime = e3.recordIndex.interval("plan_operations_by_time", planOperations, { from: "start", to: "end" });
-/** The operations by their work order and the weeks they touch: a cell is the operations of fifty orders in one week. */
+/** The operations by their work order and by time, each filed once at the level its length fits: a cell is fifty orders' operations over a level's run (#1433). */
 export const planOperationsByWorkWeek = e3.recordIndex.series("plan_operations_by_work_week", planOperations, {
     key: "work", from: "start", to: "end", tile: "week",
 });

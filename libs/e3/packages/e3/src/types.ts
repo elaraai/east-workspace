@@ -331,16 +331,17 @@ export interface RecordIndexDef<
     readonly cell: number;
   } | undefined;
   /** What a series index files a record's events by (#1039): the field naming
-   *  the key an event is on, its start and end fields, and the time tile. Its
-   *  key is `{ on, tile, key }`, an entry per tile an event touches,
+   *  the key an event is on, its start and end fields, and the time tile, its
+   *  finest level. Its key is `{ on, key, level, tile }`: each event filed
+   *  once, at the level its length fits, or once a year past a year (#1433),
    *  carrying the row. Authoring metadata only: ordinary maintained index
    *  programs store it. */
   readonly series?: { readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
   /** What a summary index totals a record's events by (#1039): the same
-   *  fields and tile as a series index's. It holds, under each key, how many
-   *  rows touch its tile and the milliseconds of it they cover; its
-   *  {@link keyFn} is a row's contributions, `(K, V) -> Dict<IK, Totals>`, and
-   *  its value type `Totals`. */
+   *  fields and tile as a series index's. It holds, under each key and tile,
+   *  `{ on, key, tile }`, how many rows touch the tile and the milliseconds of
+   *  it they cover; its {@link keyFn} is a row's contributions,
+   *  `(K, V) -> Dict<IK, Totals>`, and its value type `Totals`. */
   readonly summary?: { readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
   /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi} — or, for a
    *  summary, `(K, V) -> Dict<IK, Totals>`. Kept as the expression so export

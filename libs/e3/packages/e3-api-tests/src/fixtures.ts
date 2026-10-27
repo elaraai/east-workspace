@@ -19,6 +19,7 @@ import {
   some, none,
 } from '@elaraai/east';
 import { Console, Time } from '@elaraai/east-node-std';
+import { RecordLevelType } from '@elaraai/e3-types';
 
 /**
  * Create a simple compute package for testing.
@@ -516,8 +517,14 @@ export const JOBS_FROM = new Date(Date.UTC(2026, 9, 5));
 export const JobRowType = StructType({ press: StringType, start: DateTimeType, end: DateTimeType, title: StringType });
 /** The series fixture's record: jobs by key. */
 export const JobsType = DictType(StringType, JobRowType);
-/** The key of the series fixture's two indexes: led by no field, its `on` holds none, then a week's start and a press (#1432). */
-export const JobWeekPressKeyType = StructType({ on: StructType({}), tile: DateTimeType, key: StringType });
+/**
+ * The key of the series fixture's series index (#1433): led by no field, its
+ * `on` holds none (#1432), then a press, the level a job is filed at and the
+ * start of that level's tile.
+ */
+export const JobPressLevelTileKeyType = StructType({ on: StructType({}), key: StringType, level: RecordLevelType, tile: DateTimeType });
+/** The key of the series fixture's summary index: its `on`, then a press and a week's start (#1433). */
+export const JobPressWeekKeyType = StructType({ on: StructType({}), key: StringType, tile: DateTimeType });
 
 /**
  * Create a package whose record is read in two dimensions (#1039): a block of
@@ -530,10 +537,12 @@ export const JobWeekPressKeyType = StructType({ on: StructType({}), tile: DateTi
  *   forty presses (`P-1001`…`P-1040`, by `i` mod 40), starting `i` × 7 mod 1,680
  *   hours after {@link JOBS_FROM} — over ten weeks — and running `i` mod 50 + 1
  *   hours, so many run into the next week
- * - Index: "jobs_by_press_week", each job under each week it touches and its
- *   press, carrying its row; and "jobs_by_press_week_totals", how many jobs
- *   touch each week on each press and the time of it they cover. Both are keyed
- *   {@link JobWeekPressKeyType}
+ * - Index: "jobs_by_press_week", each job under its press, filed once at the
+ *   level its length fits — a week, a month, a quarter or a year, from the
+ *   week up — or once a year past a year, carrying its row, keyed
+ *   {@link JobPressLevelTileKeyType}; and "jobs_by_press_week_totals", how many
+ *   jobs touch each week on each press and the time of it they cover, keyed
+ *   {@link JobPressWeekKeyType}
  *
  * @param tempDir - Directory to write the zip file
  * @param name - Package name

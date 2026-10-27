@@ -15,19 +15,24 @@
  *
  * A kind placed on the paged resource kind, whose source of the slice lists a
  * series index of its record, reads the events of the resources in view — and
- * of no resource, its Unassigned row's — tile by tile, never every event over
- * the range. A cell is a block of {@link SCHEDULE_CELL_BLOCK} of the paged
- * kind's resources, in the kind's order, in one tile of the series index: one
- * exact search a resource, `[on, tile, key]` — `on` one literal (#1432, `tileCellQueries`). The cells
- * wanted are the blocks meeting the rows in view and
- * {@link SCHEDULE_CELL_MARGIN} resources either side, by the tiles covering the
- * range read and one tile either side, with the cells of no resource in those
- * tiles. Every wanted cell's searches go in one request, which counts each
- * cell's entries before one is read; the entries of the cells not yet held, in
- * one more. A cell is kept while it is wanted, at the revision it was read at:
- * a pan or a scroll within the cells held reads nothing, and a commit reads the
- * wanted cells again, the old ones standing in until they land. A long event
- * its cells repeat, tile by tile, is one event, kept by its key. A window of
+ * of no resource, its Unassigned row's — a level at a time, never every event
+ * over the range. The series index files each event once, at the level its
+ * length fits (#1433), so a cell is a block of {@link SCHEDULE_CELL_BLOCK} of
+ * the paged kind's resources, in the kind's order, over one level's run of
+ * tiles (`levelRuns`: from two tiles before the range read to one after it):
+ * one range a resource (`levelCellQueries`), whatever the range's width. The
+ * cells wanted are the blocks meeting the rows in view and
+ * {@link SCHEDULE_CELL_MARGIN} resources either side, each a level, with the
+ * cells of no resource. The reader keeps what it read by block, level and
+ * tile — a range's entries split by the tile each names — so a pan or a zoom
+ * asks, a block a level, one range a resource over the tiles it does not hold
+ * (two, when a zoom out grows the run both ways): their searches in one
+ * request, which counts their entries before one is read, beside the entries
+ * of the tiles held; their entries in one more. Tiles are kept while their run
+ * is wanted, at the revision they were read at: a pan or a scroll within the
+ * tiles held reads nothing, and a commit reads the wanted runs again, the old
+ * ones standing in until they land. An event past a year, filed under each
+ * year it touches, is one event, kept by its key. A window of
  * the paged kind's resources whose read failed — the paging runtime throws a
  * `PagedReadError` for it — gives no block, its host saying so where its rows
  * would be, with Retry, until a Retry lands it; anything else a read of it
@@ -106,14 +111,14 @@ import {
 } from "@elaraai/east";
 import { SeekQueryType } from "@elaraai/east-ui";
 import {
-    MAX_RECORD_SLICE_BATCH, tileCellQueries, tileIndexFor, tileNext, tileStart, tilesOver, tilingOf,
-    type RecordSliceBindType, type RecordSliceCell, type RecordSliceCellRuns, type RecordSliceChoiceType, type RecordSliceEntry,
-    type RecordSliceIndexType, type RecordTile,
+    MAX_RECORD_SLICE_BATCH, RecordSliceChoiceType, levelCellQueries, levelRuns, summaryCellQueries, summaryRun, tileIndexFor, tilingOf,
+    type RecordSliceBindType, type RecordSliceCell, type RecordSliceCellRuns, type RecordSliceEntry, type RecordSliceIndexType,
+    type RecordTile, type TileRun,
 } from "@elaraai/east-ui/internal";
 import { SCHEDULE_EVENT_CAP, ScheduleDraftsType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import {
-    recordSliceCellEntries, recordSliceCellRuns, recordSliceOnPrinter, recordSliceRevision, recordSliceRows, recordSliceWithin,
+    recordSliceCellEntries, recordSliceCellRuns, recordSliceRevision, recordSliceRows, recordSliceWithin,
 } from "@elaraai/east-ui-components/internal";
 import { isPagedReadError } from "../../platform/paged-read-error.js";
 import type { TimeResolution } from "../time/scale.js";
@@ -429,23 +434,6 @@ export function wantedBlocks(view: ScheduleCellView, total: number | undefined):
     return hi < lo ? [] : out;
 }
 
-/**
- * The tiles a reader wants over a range: those it overlaps, as e3 files an
- * event over them, and one either side, which a pan reaches first.
- *
- * @param tile - The index's tile
- * @param from - The range's start
- * @param to - Its end, exclusive
- * @param limit - The most tiles to list
- * @returns The tiles' starts, ascending; `undefined` when there are more than `limit`
- */
-export function wantedTiles(tile: RecordTile, from: Date, to: Date, limit: number): Date[] | undefined {
-    const covering = tilesOver(tile, from, to, Math.max(1, limit - 2));
-    if (covering === undefined) return undefined;
-    const before = tileStart(tile, new Date(covering[0]!.getTime() - 1));
-    return [before, ...covering, tileNext(tile, covering[covering.length - 1]!)];
-}
-
 /** The tiles that divide a bucket of each resolution — a bucket is a union of whole ones — the largest first. */
 const DIVIDING: Readonly<Record<TimeResolution, readonly RecordTile[]>> = {
     hour: [],
@@ -591,6 +579,36 @@ interface Block {
     readonly keys: readonly string[];
 }
 
+/** A block of keys a series cell is read for (#1433): a block of the paged kind's resources by its place, or the events on none. */
+interface CellGroup {
+    /** Its name among the groups a read asks for. */
+    readonly id: string;
+    /** Its keys, as `.east` literals of the index's key field, in order. */
+    readonly literals: readonly string[];
+}
+
+/**
+ * A group's tiles of one level a reader holds (#1433): contiguous, from `from`
+ * to `to`, half-open, each tile's entries by its start — a tile no entry is
+ * filed under holds none — and the entries of them all, in the tiles' order.
+ */
+interface Span {
+    /** What its searches were made from: the group's keys and the narrowing's choices of the index's leading fields. */
+    readonly identity: string;
+    readonly from: number;
+    readonly to: number;
+    readonly byTile: ReadonlyMap<number, readonly RecordSliceEntry[]>;
+    readonly entries: readonly RecordSliceEntry[];
+}
+
+/** A series read's outcome (#1433): each group's entries a level, or how many its runs hold, past the cap. */
+type SeriesEntries = { readonly entries: readonly (readonly RecordSliceEntry[])[] } | { readonly count: number };
+
+const printChoice = printFor(RecordSliceChoiceType);
+
+/** The start of the tile an index entry names: a series' or a summary's, its key's `tile`. */
+const tileOf = (entry: RecordSliceEntry): number => (entry.ik.value as { readonly tile: Date }).tile.getTime();
+
 /** Whether a kind is read by its cells: placed on the paged kind, its source listing a series index of its record. */
 function readByCells(kind: ScheduleCellKind, paged: ScheduleCellPaged | undefined): boolean {
     return paged !== undefined && kind.part !== undefined && kind.takes.some((slot) => stringEqual(slot, paged.kind))
@@ -602,8 +620,10 @@ function readByCells(kind: ScheduleCellKind, paged: ScheduleCellPaged | undefine
  * the series keys it has asked its kinds for.
  */
 class CellsReader {
-    /** The cells each kind's read holds, by the kind's slot and index: their entries by their searches' text, at a revision. */
+    /** The cells each kind's summary read holds, by the kind's slot and index: their entries by their searches' text, at a revision. */
     private readonly kept = new Map<string, { revision: string; cells: Map<string, RecordSliceEntry[]> }>();
+    /** The tiles each kind's series read holds (#1433), by the kind's slot and index: each group's span a level, at a revision. */
+    private readonly spans = new Map<string, { revision: string; spans: ReadonlyMap<string, Span> }>();
     private readonly codecs = new WeakMap<object, KindCodec>();
     private readonly literals = new WeakMap<object, Map<string, string | undefined>>();
     private readonly unassigned = new WeakMap<object, { literal: string | undefined }>();
@@ -713,6 +733,92 @@ class CellsReader {
         const wanted = new Set(texts);
         for (const text of [...kept.cells.keys()]) if (!wanted.has(text)) kept.cells.delete(text);
         return some(texts.map((text) => kept.cells.get(text)!));
+    }
+
+    /**
+     * A kind's series cells over the runs wanted, at the record's revision now
+     * (#1433): each group's run of each level, the entries of its tiles held
+     * and of the parts of it not held — one range a key over each part, their
+     * searches in one request that counts them first, then their entries in
+     * one more, each kept under the tile it names — and every span no longer
+     * wanted let go.
+     *
+     * @returns Each group's entries a level, in order; how many the runs hold, past {@link SCHEDULE_EVENT_CAP}, the parts
+     *   not held unread; {@link READING} while the revision, a count or a read is in flight
+     */
+    private seriesEntries(at: string, part: ScheduleCellPart, series: Index, where: Where, groups: readonly CellGroup[], runs: readonly TileRun[]):
+        SeriesEntries | typeof READING {
+        const revision = recordSliceRevision(part);
+        if (revision.type !== "some") return READING;
+        const last = this.spans.get(at);
+        const kept = last !== undefined && stringEqual(last.revision, revision.value) ? last.spans : new Map<string, Span>();
+        const leading = series.fields.map((field) => {
+            const choice = where.get(field);
+            return choice === undefined ? "" : printChoice(choice);
+        }).join("\u0001");
+        // Each group's run of each level: the span of it held, and a cell for each part of it not held.
+        const wanted: { key: string; identity: string; from: number; to: number; held: Span | undefined; cells: RecordSliceCell[] }[] = [];
+        const missing: RecordSliceCell[] = [];
+        for (const group of groups) {
+            const identity = `${group.literals.join("\u0001")}\u0000${leading}`;
+            for (const run of runs) {
+                const key = `${group.id}\u0000${run.level}`;
+                const from = run.from.getTime();
+                const to = run.to.getTime();
+                const span = kept.get(key);
+                const held = span !== undefined && stringEqual(span.identity, identity) && span.from < to && span.to > from ? span : undefined;
+                const parts: [number, number][] = held === undefined ? [[from, to]] : [];
+                if (held !== undefined && from < held.from) parts.push([from, held.from]);
+                if (held !== undefined && held.to < to) parts.push([held.to, to]);
+                const cells = parts.map(([a, b]) => ({
+                    id: `${group.id}@${run.level}@${a}`,
+                    queries: levelCellQueries(series, where, { level: run.level, from: new Date(a), to: new Date(b) }, group.literals).queries,
+                }));
+                missing.push(...cells);
+                wanted.push({ key, identity, from, to, held, cells });
+            }
+        }
+        // Counted first: the entries of the tiles held, and of the parts not held, before one of those is read.
+        let count = 0;
+        for (const { from, to, held } of wanted) {
+            if (held === undefined) continue;
+            for (const [tile, entries] of held.byTile) if (tile >= from && tile < to) count += entries.length;
+        }
+        if (missing.length > 0) {
+            const found = recordSliceCellRuns(part, series.name, missing);
+            if (found.type !== "some") return READING;
+            for (const cell of missing) count += Number(found.value.get(cell.id)?.total ?? 0n);
+        }
+        if (count > SCHEDULE_EVENT_CAP) return { count };
+        let read: ReadonlyMap<string, RecordSliceEntry[]> = new Map();
+        if (missing.length > 0) {
+            const got = recordSliceCellEntries(part, series.name, missing);
+            if (got.type !== "some") return READING;
+            read = got.value;
+        }
+        const spans = new Map<string, Span>();
+        const entries = wanted.map(({ key, identity, from, to, held, cells }) => {
+            let span = held !== undefined && held.from === from && held.to === to ? held : undefined;
+            if (span === undefined) {
+                const byTile = new Map<number, RecordSliceEntry[]>();
+                if (held !== undefined) for (const [tile, list] of held.byTile) if (tile >= from && tile < to) byTile.set(tile, [...list]);
+                for (const cell of cells) {
+                    for (const entry of read.get(cell.id) ?? []) {
+                        const tile = tileOf(entry);
+                        const list = byTile.get(tile);
+                        if (list === undefined) byTile.set(tile, [entry]);
+                        else list.push(entry);
+                    }
+                }
+                const ordered = [...byTile.keys()].sort((a, b) => a - b).flatMap((tile) => byTile.get(tile)!);
+                span = { identity, from, to, byTile, entries: ordered };
+            }
+            spans.set(key, span);
+            return span.entries;
+        });
+        // The spans this read wants, and no other.
+        this.spans.set(at, { revision: revision.value, spans });
+        return { entries };
     }
 
     /**
@@ -925,47 +1031,32 @@ class CellsReader {
         const codec = this.codecOf(kind);
         const series = tileIndexFor(part.config.indexes, where, "series");
         const tiling = series === undefined ? undefined : tilingOf(series);
-        const tiles = tiling === undefined ? undefined : wantedTiles(tiling.tile.type, range.from, range.to, MAX_RECORD_SLICE_BATCH);
-        const cells: RecordSliceCell[] = [];
-        let searches = 0;
-        if (series !== undefined && tiles !== undefined) {
-            const unassigned = this.noResource(kind);
-            // Its cells' searches name the index's leading values as one `on` (#1432).
-            const printOn = recordSliceOnPrinter(part, series.name);
-            for (const tile of tiles) {
-                for (const block of blocks) {
-                    const literals = block.keys.flatMap((key) => {
-                        const literal = this.literal(kind, block.slot, key);
-                        return literal === undefined ? [] : [literal];
-                    });
-                    if (literals.length === 0) continue;
-                    const queries = tileCellQueries(series, where, tile, literals, printOn).queries;
-                    cells.push({ id: `${block.index}@${tile.getTime()}`, queries });
-                    searches += queries.length;
-                }
-                if (unassigned !== undefined) {
-                    const queries = tileCellQueries(series, where, tile, [unassigned], printOn).queries;
-                    cells.push({ id: `none@${tile.getTime()}`, queries });
-                    searches += queries.length;
-                }
-            }
+        // The groups read: each block of resources in view, and the events on none — each a run of each level (#1433).
+        const groups: CellGroup[] = [];
+        for (const block of blocks) {
+            const literals = block.keys.flatMap((key) => {
+                const literal = this.literal(kind, block.slot, key);
+                return literal === undefined ? [] : [literal];
+            });
+            if (literals.length > 0) groups.push({ id: String(block.index), literals });
         }
-        // More searches than one batch: as many events as the summary is for.
-        if (series === undefined || tiles === undefined || searches > MAX_RECORD_SLICE_BATCH) {
+        const unassigned = this.noResource(kind);
+        if (unassigned !== undefined) groups.push({ id: "none", literals: [unassigned] });
+        const runs = tiling === undefined ? [] : levelRuns(tiling.tile.type, range.from, range.to);
+        // A range a key a level, under each combination of the leading values — as many as one key's searches of one
+        // run: more than one batch, as many events as the summary is for.
+        const perKey = series === undefined || runs.length === 0 || groups.length === 0 ? 0
+            : levelCellQueries(series, where, runs[0]!, [groups[0]!.literals[0]!]).queries.length;
+        const searches = groups.reduce((sum, group) => sum + group.literals.length, 0) * runs.length * perKey;
+        if (series === undefined || runs.length === 0 || searches > MAX_RECORD_SLICE_BATCH) {
             return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, undefined, true);
         }
-        const runs = recordSliceCellRuns(part, series.name, cells);
-        if (runs.type !== "some") return READING;
-        let count = 0n;
-        for (const found of runs.value.values()) count += found.total;
-        if (count > BigInt(SCHEDULE_EVENT_CAP)) {
-            return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, Number(count), true);
-        }
-        const read = this.entriesOf(`${kind.key}\u0000${series.name}`, part, series.name, cells);
-        if (read.type !== "some") return READING;
-        // Each event once, by its key: a long one is in every tile it touches.
+        const read = this.seriesEntries(`${kind.key}\u0000${series.name}`, part, series, where, groups, runs);
+        if (read === READING) return READING;
+        if ("count" in read) return this.overBudget(kind, where, blocks, range, buckets, resolution, totals, read.count, true);
+        // Each event once, by its key: one past a year is under every year it touches.
         const rows = new SortedMap<unknown, unknown>([], codec.compareKey);
-        for (const entries of read.value) {
+        for (const entries of read.entries) {
             for (const entry of entries) if (entry.row?.type === "some") rows.set(entry.key, entry.row.value);
         }
         // The events not read whose rows are wanted: those drafted, and those its host wants by key — a link's ends.
@@ -1012,7 +1103,7 @@ class CellsReader {
             else dropped.add(id);
         }
         // Drafts of events whose rows are still in flight show as drafted until they land.
-        const made = this.encode(kind.key, codec, [...read.value, ...storedRows.map((s) => s.row), ...within], rows);
+        const made = this.encode(kind.key, codec, [...read.entries, ...storedRows.map((s) => s.row), ...within], rows);
         return { mode: "cells", cells: made.bytes, held: made.held, dropped };
     }
 
@@ -1070,33 +1161,30 @@ class CellsReader {
         totals: Totals,
     ): true | typeof READING | undefined {
         const tiling = tilingOf(summary)!;
-        const tiles = wantedTiles(tiling.tile.type, range.from, range.to, MAX_RECORD_SLICE_BATCH);
-        if (tiles === undefined) return undefined;
-        const cells: { cell: RecordSliceCell; block: Block; keys: string[]; tile: number }[] = [];
+        // Its tiles over the range, one range a key (#1433): what a resource's totals are split by tile from.
+        const run = summaryRun(tiling.tile.type, range.from, range.to);
+        const cells: { cell: RecordSliceCell; block: Block; keys: string[] }[] = [];
         let searches = 0;
-        const printOn = recordSliceOnPrinter(part, summary.name);
-        for (const tile of tiles) {
-            for (const block of blocks) {
-                const keys: string[] = [];
-                const literals: string[] = [];
-                for (const key of block.keys) {
-                    const literal = this.literal(kind, block.slot, key);
-                    if (literal === undefined) continue;
-                    keys.push(key);
-                    literals.push(literal);
-                }
-                if (literals.length === 0) continue;
-                const queries = tileCellQueries(summary, where, tile, literals, printOn).queries;
-                cells.push({ cell: { id: `${block.slot}:${block.index}@${tile.getTime()}`, queries }, block, keys, tile: tile.getTime() });
-                searches += queries.length;
+        for (const block of blocks) {
+            const keys: string[] = [];
+            const literals: string[] = [];
+            for (const key of block.keys) {
+                const literal = this.literal(kind, block.slot, key);
+                if (literal === undefined) continue;
+                keys.push(key);
+                literals.push(literal);
             }
+            if (literals.length === 0) continue;
+            const queries = summaryCellQueries(summary, where, run, literals).queries;
+            cells.push({ cell: { id: `${block.slot}:${block.index}`, queries }, block, keys });
+            searches += queries.length;
         }
         if (searches > MAX_RECORD_SLICE_BATCH) return undefined;
         const runs = recordSliceCellRuns(part, summary.name, cells.map((c) => c.cell));
         if (runs.type !== "some") return READING;
         const read = this.entriesOf(`${kind.key}\u0000${summary.name}`, part, summary.name, cells.map((c) => c.cell));
         if (read.type !== "some") return READING;
-        cells.forEach(({ cell, block, keys, tile }, n) => {
+        cells.forEach(({ cell, block, keys }, n) => {
             const series = kind.shadeKey(block.slot);
             let held = totals.get(series);
             if (held === undefined) { held = { booked: kind.booked, byKey: new Map() }; totals.set(series, held); }
@@ -1114,6 +1202,8 @@ class CellsReader {
                     let byTile = held.byKey.get(key);
                     if (byTile === "hatch") continue;
                     if (byTile === undefined) { byTile = new Map(); held.byKey.set(key, byTile); }
+                    // The tile its total is of, as the summary keys it.
+                    const tile = tileOf(entry);
                     const was = byTile.get(tile);
                     byTile.set(tile, { count: (was?.count ?? 0) + Number(t.count), ms: (was?.ms ?? 0) + Number(t.ms) });
                 }

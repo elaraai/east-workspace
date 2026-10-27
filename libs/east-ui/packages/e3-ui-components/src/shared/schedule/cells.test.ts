@@ -9,11 +9,12 @@
  *
  * What a schedule's cells' reader wants and decides, worked out with no read
  * (#1039): the blocks of a paged kind's resources around the rows in view, the
- * tiles a range wants, the tiles a summary may shade a host's buckets by, a
+ * tiles a summary may shade a host's buckets by, a
  * resource's shading from its summary's totals, whether a counted kind is
  * within the cap, and a window of the paged kind's resources — its keys, in
  * flight, or a read that failed, which only the paging runtime's
- * `PagedReadError` is. The Plan's DOM tests carry the reader through e3
+ * `PagedReadError` is. The runs a range wants are east-ui's (`levelRuns`,
+ * `summaryRun`, #1433). The Plan's DOM tests carry the reader through e3
  * (`plan/plan-series.dom.test.tsx`, `plan/plan-cap.dom.test.tsx`).
  */
 
@@ -23,7 +24,7 @@ import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
 import { PagedReadError, isPagedReadError } from "../../platform/paged-read-error.js";
 import {
     SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, scheduleWindowKeys, scheduleWithinCap, shadesOf,
-    wantedBlocks, wantedTiles, type ScheduleCellPaged,
+    wantedBlocks, type ScheduleCellPaged,
 } from "./cells.js";
 
 const day = (text: string) => new Date(`${text}T00:00:00Z`);
@@ -45,22 +46,6 @@ describe("the blocks a reader wants (#1039)", () => {
         expect(wantedBlocks({ first: 1_990, last: 1_999 }, 2_000)).toEqual([39]);
         expect(wantedBlocks({ first: 10, last: 12 }, 30)).toEqual([0]);
         expect(wantedBlocks({ first: 0, last: 0 }, 0)).toEqual([]);
-    });
-});
-
-describe("the tiles a reader wants (#1039)", () => {
-    test("those a range overlaps, as e3 files an event over them, and one either side", () => {
-        // Saturday 3 to Wednesday 21 October: the weeks of 28 September to 19 October, and one either side.
-        expect(wantedTiles("week", day("2026-10-03"), day("2026-10-21"), 10_000))
-            .toEqual(["2026-09-21", "2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19", "2026-10-26"].map(day));
-        // A range ending on a tile's start does not touch it.
-        expect(wantedTiles("week", day("2026-10-05"), day("2026-10-12"), 10_000)).toEqual(["2026-09-28", "2026-10-05", "2026-10-12"].map(day));
-        expect(wantedTiles("month", day("2026-10-05"), day("2026-10-19"), 10_000)).toEqual(["2026-09-01", "2026-10-01", "2026-11-01"].map(day));
-    });
-
-    test("none past the most it may list: a range of more is a summary's", () => {
-        expect(wantedTiles("day", day("2026-01-01"), day("2027-01-01"), 100)).toBeUndefined();
-        expect(wantedTiles("day", day("2026-01-01"), day("2026-01-11"), 12)).toHaveLength(12);
     });
 });
 

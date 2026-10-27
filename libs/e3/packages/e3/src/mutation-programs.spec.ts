@@ -21,9 +21,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType,
-  compareFor, variant, type EastType,
+  compareFor, equalFor, parseFor, printFor, variant, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import { DELTA_CONFLICT, editTypeOf, mutationDeltaType } from '@elaraai/e3-types';
+import { DELTA_CONFLICT, RecordSummaryOpType, editTypeOf, mutationDeltaType } from '@elaraai/e3-types';
 import e3 from './index.js';
 import { record } from './record.js';
 import { mutation } from './mutation.js';
@@ -364,5 +364,58 @@ describe('index maintenance inside the delta', () => {
       'by_tag:{"ik":"c","k":"t1"}=insert',
       'primary:"t1"=update',
     ]);
+  });
+});
+
+describe('a series and a summary index inside the delta (#1433)', () => {
+  const JobRow = StructType({ press: StringType, start: DateTimeType, end: DateTimeType });
+  const JobsType = DictType(StringType, JobRow);
+  const instant = (text: string) => {
+    const read = parseFor(DateTimeType)(text);
+    if (!read.success) throw new Error(`'${text}' is not an instant East reads`);
+    return read.value;
+  };
+  const HOUR = 3_600_000n;
+
+  it('moves an event that changes its level as a delete at the old level and an insert at the new, and the summary by what each month lost and gained', () => {
+    const rec = record('jobs', JobsType, new Map());
+    const series = recordIndex.series('jobs_by_press_week', rec, { key: 'press', from: 'start', to: 'end', tile: 'week' });
+    const summary = recordIndex.summary('jobs_by_press_month', rec, { key: 'press', from: 'start', to: 'end', tile: 'month' });
+    (rec.indexes as Record<string, unknown>)[series.name] = series;
+    (rec.indexes as Record<string, unknown>)[summary.name] = summary;
+    // Eight hours on Wednesday 30 September, in the week of the 28th; then moved to 7 October and stretched to forty days.
+    const state = new SortedMap([['W-1', { press: 'P-1', start: instant('2026-09-30T06:00:00.000'), end: instant('2026-09-30T14:00:00.000') }]],
+      compareFor(StringType));
+    const stretch = mutation.edit('stretch', rec, East.function([JobsType, editTypeOf(JobsType)], NullType, ($, _state, edit) => {
+      $(edit.set('W-1', { press: 'P-1', start: instant('2026-10-07T06:00:00.000'), end: instant('2026-11-16T06:00:00.000') }));
+    }));
+    const out = emitted(rec, stretch, state, []);
+    const of = (target: string) => out.filter(([key]) => (key as { type: string }).type === target)
+      .map(([key, op]) => ({ key: (key as { value: unknown }).value, op: (op as { value: variant<string, unknown> }).value }));
+
+    // The series: its week entry deleted, a quarter entry inserted — forty days is past a month's 28, within a quarter's 90.
+    const SeriesEntry = StructType({ ik: series.keyType, k: StringType });
+    const moved = of(series.name);
+    assert.deepEqual(moved.map(({ op }) => op.type).sort(), ['delete', 'insert'], 'one entry out, one in');
+    const expected: Record<string, ValueTypeOf<typeof SeriesEntry>> = {
+      delete: { ik: { on: {}, key: 'P-1', level: variant('week', null), tile: instant('2026-09-28T00:00:00.000') }, k: 'W-1' },
+      insert: { ik: { on: {}, key: 'P-1', level: variant('quarter', null), tile: instant('2026-10-01T00:00:00.000') }, k: 'W-1' },
+    };
+    for (const { key, op } of moved) {
+      assert.ok(equalFor(SeriesEntry)(key as never, expected[op.type]!), `the series' ${op.type}: ${printFor(SeriesEntry)(key as never)}`);
+    }
+
+    // The summary: September loses the job and its eight hours; October and November gain it, and the hours of each it covers.
+    const SummaryEntry = StructType({ ik: summary.keyType, k: NullType });
+    const totals = of(summary.name);
+    const months: Array<[string, bigint, bigint]> = [
+      ['2026-09-01T00:00:00.000', -1n, -8n * HOUR], ['2026-10-01T00:00:00.000', 1n, 594n * HOUR], ['2026-11-01T00:00:00.000', 1n, 366n * HOUR],
+    ];
+    assert.equal(totals.length, months.length, 'one change a month');
+    totals.forEach(({ key, op }, i) => {
+      const [month, count, ms] = months[i]!;
+      assert.ok(equalFor(SummaryEntry)(key as never, { ik: { on: {}, key: 'P-1', tile: instant(month) }, k: null }), `the ${month} total`);
+      assert.ok(equalFor(RecordSummaryOpType)(op as never, variant('add', { count, ms })), `${month}: ${printFor(RecordSummaryOpType)(op as never)}`);
+    });
   });
 });

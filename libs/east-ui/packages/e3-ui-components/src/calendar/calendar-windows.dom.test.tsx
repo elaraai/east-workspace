@@ -107,13 +107,16 @@ const windowReads = (since = 0) => h.requests().slice(since).filter((request: E3
 
 const parsePress = parseFor(OptionType(StringType));
 const parseTile = parseFor(DateTimeType);
-/** Each search of the jobs' series index from the `since`-th request on: the press it names — its last field — and the week — the field before. */
+/**
+ * Each search of the jobs' series index from the `since`-th request on: a range a press a level (#1433), from
+ * `[press, level, tile]` — the press it names and the tile it starts at.
+ */
 function cellSearches(since = 0): { press: string | undefined; tile: number | undefined }[] {
     return h.requests().slice(since).filter((request) => request.dataset === JOBS && request.kind === "find" && request.query.get("index") === SERIES.name)
         .flatMap((request) => request.searches.flatMap((search) => {
-            if (!("fields" in search)) return [];
-            const press = parsePress(search.fields.at(-1) ?? "");
-            const tile = parseTile(search.fields.at(-2) ?? "");
+            if (!("from" in search) || search.from === undefined) return [];
+            const press = parsePress(search.from.at(-3) ?? "");
+            const tile = parseTile(search.from.at(-1) ?? "");
             return [{ press: press.success && press.value.type === "some" ? press.value.value : undefined, tile: tile.success ? tile.value.getTime() : undefined }];
         }));
 }
@@ -264,7 +267,7 @@ describe("a Calendar over 2,000 presses paged, the jobs on them read a cell at a
         for (const job of ["W-0001", "W-0002", "W-0003", "W-0004"]) expect(jobEvent(c, job), job).not.toBeNull();
     });
 
-    test("a scroll down reads the presses' windows and the cells it brings into view alone; a scroll on to the window's end re-centres and reads the weeks it brings in alone", async () => {
+    test("a scroll down reads the presses' windows and the cells it brings into view alone; a scroll on to the window's end re-centres and reads the tiles it brings in alone", async () => {
         const { container: c } = await h.mount(cw.calendarWindows, { storageKey: "windows-scroll" });
         await settle();
         // Down to Press 1201, the first of the second window, held already: the window after it read ahead, and the blocks
@@ -283,16 +286,16 @@ describe("a Calendar over 2,000 presses paged, the jobs on them read a cell at a
         expect(askedOf(PRESSES, since)).toEqual([]);
         expect(searchedPresses(since)).toEqual(pressesFrom(300, 399));
         expect(pressRows(c)).toContain("Press 1333");
-        // Along the timeline to its window's end: it re-centres four weeks on, and reads the weeks it brings in alone.
+        // Along the timeline to its window's end: it re-centres four weeks on, and reads the tiles it brings in alone.
         const was = windowOf(timelineOf(c));
         since = h.requests().length;
         await scrollTimeline(c, { left: timelineOf(c).scrollWidth - VIEW_WIDTH - 100 });
         await waitFor(() => expect(windowOf(timelineOf(c)).from.getTime()).toBe(was.from.getTime() + 28 * DAY));
         await settle();
-        const weeks = [...new Set(cellSearches(since).flatMap(({ tile }) => (tile === undefined ? [] : [tile])))];
-        expect(weeks.length).toBeGreaterThan(0);
-        // The weeks read were the window's last week and the one after it before: none of them is read again.
-        expect(weeks.every((tile) => tile >= was.to.getTime() + 7 * DAY), weeks.map((tile) => new Date(tile).toISOString()).join(", ")).toBe(true);
+        const tiles = [...new Set(cellSearches(since).flatMap(({ tile }) => (tile === undefined ? [] : [tile])))];
+        expect(tiles.length).toBeGreaterThan(0);
+        // Each level's tiles were read before through the one after the tile after the window's last: none is read again.
+        expect(tiles.every((tile) => tile >= was.to.getTime() + 7 * DAY), tiles.map((tile) => new Date(tile).toISOString()).join(", ")).toBe(true);
         expect(searchedPresses(since)).toEqual(pressesFrom(300, 399));
     });
 });

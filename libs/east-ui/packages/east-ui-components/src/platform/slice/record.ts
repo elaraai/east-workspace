@@ -489,7 +489,7 @@ function cellsOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: st
  *
  * @param slice - The record Slice
  * @param index - The series, summary or area index
- * @param cells - The cells, each its searches (`tileCellQueries`, `areaQueries`) under the reader's name for it
+ * @param cells - The cells, each its searches (`levelCellQueries`, `summaryCellQueries`, `areaQueries`) under the reader's name for it
  * @returns Each cell's runs, by its name; none while any is pending
  * @throws {Error} When the binding lists no such index, or two cells share a name
  */

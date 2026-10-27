@@ -10,7 +10,7 @@
  * window, and the jobs on them read a cell at a time through their source's
  * series index (#1039). Its canvas reads the presses a window at a time —
  * those in view and the ring around them first, the next as the canvas
- * scrolls to it — and the jobs' cells as it pans, the weeks a pan brings in,
+ * scrolls to it — and the jobs' cells as it pans, the tiles a pan brings in,
  * and as it scrolls, the presses it brings into view. Nothing on screen moves
  * when a window lands:
  * read frame by frame, every row in view keeps its place and stays drawn, the
@@ -138,7 +138,7 @@ test.describe("a Plan read a window at a time (#1199)", () => {
         await expect(entry.locator("[data-frame-slot='footer']")).not.toContainText("loaded");
     });
 
-    test("planWindows: the jobs read as the canvas pans — the cells of the weeks `n` brings in read through the series index, the ticket books drawn — every bar moved once, by the pan, and every row holding its place", async ({ page }) => {
+    test("planWindows: the jobs read as the canvas pans — the cells of the tiles `n` brings in read through the series index, the ticket books drawn — every bar moved once, by the pan, and every row holding its place", async ({ page }) => {
         const entry = await openExample(page, "planWindows", WINDOWS);
         const tickets = entry.locator("[data-run]", { hasText: "Ticket books" });
         await expect(tickets).toHaveCount(0);

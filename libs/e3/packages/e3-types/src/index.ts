@@ -128,6 +128,8 @@ export {
   type RecordIndexForm,
   RecordSummaryTotalsType,
   type RecordSummaryTotals,
+  RecordLevelType,
+  type RecordLevel,
   RecordSummaryOpType,
   type RecordSummaryOp,
   RECORD_STATE_KIND,

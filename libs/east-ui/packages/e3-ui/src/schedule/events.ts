@@ -1211,8 +1211,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         });
 
     // ── A kind a reader reads by a series index's cells (#1039) ──────────
-    // The reader gives the entries it read as one beast2 of `CellsType`; a long event its cells repeat, tile by tile,
-    // is one entry, held once by its key. Every draft it gives shows: it gives a draft of an entry it did not read only
+    // The reader gives the entries it read as one beast2 of `CellsType`; an event past a year its cells repeat, year by
+    // year, is one entry, held once by its key. Every draft it gives shows: it gives a draft of an entry it did not read only
     // where its narrowing holds the entry, or the record does not.
     /** The entries a reader read by cells, as the record's rows by key. */
     const cellsHeld = East.function([BlobType], HeldType, ($, bytes) => {

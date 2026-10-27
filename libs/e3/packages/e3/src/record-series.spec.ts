@@ -5,12 +5,14 @@
 
 /**
  * `e3.recordIndex.series` and `e3.recordIndex.summary` (#1039): the tiles an
- * event touches and its share of each, against a direct oracle written with
- * the host's calendar rather than East's; the keys and contributions they
- * generate; their declared types; their refusals; and how a write keeps them —
- * a series index equals its rebuild, and a summary's changes, added to the
- * totals it held, equal the totals a rebuild sums. That every runtime files an
- * event alike is e3-core's series spec, which runs the programs on each.
+ * event touches and its share of each, and the places a series index files it
+ * — once, at the level its length fits, or once a year past a year (#1433) —
+ * each against a direct oracle written with the host's calendar rather than
+ * East's; the keys and contributions they generate; their declared types;
+ * their refusals; and how a write keeps them — a series index equals its
+ * rebuild, and a summary's changes, added to the totals it held, equal the
+ * totals a rebuild sums. That every runtime files an event alike is e3-core's
+ * series spec, which runs the programs on each.
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -20,10 +22,14 @@ import {
   printFor, printType, some, variant,
   type EastType, type FunctionExpr, type ValueTypeOf,
 } from '@elaraai/east';
-import { RecordSummaryOpType, RecordSummaryTotalsType, type RecordSummaryOp, type RecordSummaryTotals } from '@elaraai/e3-types';
+import {
+  RecordLevelType, RecordSummaryOpType, RecordSummaryTotalsType, type RecordSummaryOp, type RecordSummaryTotals,
+} from '@elaraai/e3-types';
 import { record } from './record.js';
-import { recordIndex, type IndexKeyOf, type IndexOn } from './record-index.js';
-import { MAX_EVENT_TILES, RECORD_TILES, checkTile, tileNext, tileShares, tileStart, type RecordTile } from './record-tiles.js';
+import { recordIndex, type IndexKeyOf, type IndexOn, type SummaryKeyOf } from './record-index.js';
+import {
+  MAX_EVENT_TILES, RECORD_TILES, SHORTEST_MS, checkTile, eventFilings, tileNext, tileShares, tileStart, type RecordTile,
+} from './record-tiles.js';
 import { buildMutationProgram, indexBuildProgram, summaryMergeProgram } from './record-programs.js';
 import { mutation } from './mutation.js';
 import { package_ } from './package.js';
@@ -137,6 +143,17 @@ function oracleShares(tile: RecordTile, from: bigint, to: bigint): Array<{ tile:
   return shares;
 }
 
+/** Where a series index declared at `tile` files `[from, to)`: once, at the finest level from `tile` whose shortest tile holds its length; past a year, under each year it touches. */
+function oracleFilings(tile: RecordTile, from: bigint, to: bigint): Array<{ level: RecordTile; tile: bigint }> {
+  const length = to - from;
+  for (const level of RECORD_TILES.slice(RECORD_TILES.indexOf(tile))) {
+    if (length <= SHORTEST_MS[level]) return [{ level, tile: oracleStart(level, from) }];
+  }
+  const years: Array<{ level: RecordTile; tile: bigint }> = [];
+  for (let start = oracleStart('year', from); start < to; start = oracleNext('year', start)) years.push({ level: 'year', tile: start });
+  return years;
+}
+
 /** An instant's milliseconds from the epoch, read by East. */
 const millisecondsOf = East.compile(East.function([DateTimeType], IntegerType, (_$, t) => t.toEpochMilliseconds()), []);
 
@@ -145,11 +162,14 @@ function compiled(tile: RecordTile) {
   const startOf = East.compile(tileStart(tile), []);
   const nextOf = East.compile(tileNext(tile), []);
   const sharesOf = East.compile(tileShares(tile), []);
+  const filingsOf = East.compile(eventFilings(tile), []);
   return {
     start: (ms: bigint) => millisecondsOf(startOf(instant(ms))),
     next: (ms: bigint) => millisecondsOf(nextOf(instant(ms))),
     shares: (from: bigint, to: bigint, what: string) => sharesOf(instant(from), instant(to), what)
       .map((share) => ({ tile: millisecondsOf(share.tile), ms: share.ms })),
+    filings: (from: bigint, to: bigint, what: string) => filingsOf(instant(from), instant(to), what)
+      .map((filing) => ({ level: filing.level.type as RecordTile, tile: millisecondsOf(filing.tile) })),
   };
 }
 
@@ -343,7 +363,7 @@ describe('the tiles an event touches', () => {
     }
   });
 
-  it(`refuses an event touching more than ${MAX_EVENT_TILES} tiles, naming it, its span and the tile`, () => {
+  it(`refuses a summary's event touching more than ${MAX_EVENT_TILES} of its tiles, naming it, its span and the tile`, () => {
     const day = compiled('day');
     const noon = monthStart(2026, 0) + DAY / 2n;
     // Noon to noon 4,095 days on touches 4,096 days: the most an event may.
@@ -355,6 +375,86 @@ describe('the tiles an event touches', () => {
   });
 });
 
+// ── Where a series index files an event (#1433) ──────────────────────────────
+
+describe('the places a series index files an event', () => {
+  const noonOct5 = OCT_5 + DAY / 2n;
+  const YEAR = 365n * DAY;
+
+  it('files an event once, at the finest level from its tile whose shortest tile holds its length — or, past a year, under each year it touches', () => {
+    // The lengths the measures name, each from noon on Monday 5 October 2026, at each declared tile.
+    const lengths: Array<[string, bigint]> = [
+      ['an instant', 0n], ['8 hours', 8n * HOUR], ['1 week', WEEK], ['28 days', 28n * DAY], ['29 days', 29n * DAY],
+      ['90 days', 90n * DAY], ['91 days', 91n * DAY], ['365 days', YEAR], ['366 days', YEAR + DAY], ['3 years', 3n * YEAR], ['10 years', 10n * YEAR],
+    ];
+    const expected: Record<RecordTile, string[]> = {
+      day: ['day', 'day', 'week', 'month', 'quarter', 'quarter', 'year', 'year', 'year×2', 'year×4', 'year×11'],
+      week: ['week', 'week', 'week', 'month', 'quarter', 'quarter', 'year', 'year', 'year×2', 'year×4', 'year×11'],
+      month: ['month', 'month', 'month', 'month', 'quarter', 'quarter', 'year', 'year', 'year×2', 'year×4', 'year×11'],
+      quarter: ['quarter', 'quarter', 'quarter', 'quarter', 'quarter', 'quarter', 'year', 'year', 'year×2', 'year×4', 'year×11'],
+      year: ['year', 'year', 'year', 'year', 'year', 'year', 'year', 'year', 'year×2', 'year×4', 'year×11'],
+    };
+    for (const tile of RECORD_TILES) {
+      const { filings } = compiled(tile);
+      const got = lengths.map(([what, length]) => {
+        const placed = filings(noonOct5, noonOct5 + length, what);
+        assert.deepEqual(placed, oracleFilings(tile, noonOct5, noonOct5 + length), `${tile}: ${what}`);
+        return placed.length === 1 ? placed[0]!.level : `${placed[0]!.level}×${placed.length}`;
+      });
+      assert.deepEqual(got, expected[tile], `at ${tile} tiles`);
+    }
+  });
+
+  it('files an instant, or an end at or before the start, at its tile; 23:59:59.999 on a Sunday under that Sunday\'s week; 366 days under both years it touches', () => {
+    const week = compiled('week');
+    const oct5 = OCT_5;
+    assert.deepEqual(week.filings(noonOct5, noonOct5, 'job'), [{ level: 'week', tile: oct5 }], 'an instant');
+    assert.deepEqual(week.filings(noonOct5, noonOct5 - HOUR, 'job'), [{ level: 'week', tile: oct5 }], 'an end before its start');
+    const sunday = oct5 + 7n * DAY - 1n;
+    assert.deepEqual(week.filings(sunday, sunday + 8n * HOUR, 'job'), [{ level: 'week', tile: oct5 }], 'the week holding its start, though it ends in the next');
+    const march = monthStart(2026, 2);
+    assert.deepEqual(week.filings(march, march + YEAR + DAY, 'job'),
+      [{ level: 'year', tile: monthStart(2026, 0) }, { level: 'year', tile: monthStart(2027, 0) }], 'past a year: each year it touches');
+  });
+
+  it('files as the oracle does, before 1970 as after, every length from an instant to twelve years', () => {
+    for (const tile of RECORD_TILES) {
+      const { filings } = compiled(tile);
+      const draw = stream(RECORD_TILES.indexOf(tile) + 3039);
+      const events: Array<[bigint, bigint]> = [[MONDAY, MONDAY], [-1n, 1n], [monthStart(1969, 11), monthStart(1970, 1)]];
+      for (const level of RECORD_TILES) {
+        // Each level's edge: its shortest tile exactly, and a millisecond past it.
+        events.push([OCT_5, OCT_5 + SHORTEST_MS[level]], [OCT_5, OCT_5 + SHORTEST_MS[level] + 1n]);
+      }
+      for (let i = 0; i < 400; i++) {
+        const from = BigInt(Math.floor((draw() * 2 - 1) * SPAN));
+        const length = i % 10 === 0 ? 0n : BigInt(Math.floor(draw() ** 3 * 12 * 366)) * DAY + BigInt(Math.floor(draw() * 24)) * HOUR;
+        events.push([from, from + length], [from, from - length]);
+      }
+      for (const [from, to] of events) {
+        const got = filings(from, to, 'event');
+        assert.deepEqual(got, oracleFilings(tile, from, to), `${tile}: ${from} to ${to}`);
+        // An event filed at a level ends before the end of the tile after the one holding its start.
+        if (got.length === 1 && to > from) {
+          const level = got[0]!.level;
+          assert.ok(to <= oracleNext(level, oracleNext(level, got[0]!.tile)), `${tile}: ${from} to ${to} ends within the ${level} after its own`);
+        }
+      }
+    }
+  });
+
+  it(`files an event under each of as many as ${MAX_EVENT_TILES} years it touches, and refuses one touching more, naming it and its span`, () => {
+    const day = compiled('day');
+    const first = monthStart(2026, 0) + DAY / 2n;
+    const last = monthStart(2026 + 4_095, 6);
+    const placed = day.filings(first, last, 'job W-0001');
+    assert.equal(placed.length, 4096, 'from 2026 to 6121: 4,096 years');
+    assert.deepEqual([placed[0], placed[4095]], [{ level: 'year', tile: monthStart(2026, 0) }, { level: 'year', tile: monthStart(6121, 0) }]);
+    assert.throws(() => day.filings(first, monthStart(2026 + 4_096, 6), 'job W-0001'),
+      /job W-0001, from 2026-01-01T12:00:00\.000 to 6122-07-01T00:00:00\.000, touches more than 4096 year tiles: end it within 4096 years of its start/);
+  });
+});
+
 // ── The series index ─────────────────────────────────────────────────────────
 
 describe('e3.recordIndex.series — its keys', () => {
@@ -363,34 +463,37 @@ describe('e3.recordIndex.series — its keys', () => {
     start: start === null ? none : some(at(start)), end: end === null ? none : some(at(end)), title: 'Brochure run',
   }));
 
-  it('files an event under each tile it touches, its leading fields first and a Set fanned out', () => {
+  it('files an event once, under the level its length fits and the tile holding its start, its leading fields first and a Set fanned out', () => {
     const byPressWeek = recordIndex.series('jobs_by_press_week', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'week' });
     const byStatePressWeek = recordIndex.series('jobs_by_state_press_week', jobs(), { on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week' });
     const byCrewPressWeek = recordIndex.series('jobs_by_crew_press_week', jobs(), { on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'week' });
     const keysByPressWeek = East.compile(byPressWeek.keyFn as FunctionExpr<any, any>, []) as (key: string, row: Job) => unknown;
     const keysByStatePressWeek = East.compile(byStatePressWeek.keyFn as FunctionExpr<any, any>, []) as (key: string, row: Job) => unknown;
     const keysByCrewPressWeek = East.compile(byCrewPressWeek.keyFn as FunctionExpr<any, any>, []) as (key: string, row: Job) => unknown;
-    // Wednesday 06:00 to the next Tuesday 06:00: the weeks of 5 and 12 October.
+    // Wednesday 06:00 to the next Tuesday 06:00: six days, a week's length, under the week of 5 October that holds its start.
     const row = scheduled('2026-10-07T06:00:00.000', '2026-10-13T06:00:00.000');
     const oct5 = at('2026-10-05T00:00:00.000');
-    const oct12 = at('2026-10-12T00:00:00.000');
+    const week = variant('week', null);
     assertEast(SetType(byPressWeek.keyType), keysByPressWeek('W-0001', row), new SortedSet([
-      { on: {}, tile: oct5, key: 'P-1001' }, { on: {}, tile: oct12, key: 'P-1001' },
-    ], compareFor(byPressWeek.keyType)), 'a week, then the next');
+      { on: {}, key: 'P-1001', level: week, tile: oct5 },
+    ], compareFor(byPressWeek.keyType)), 'once, under the week holding its start');
     assertEast(SetType(byStatePressWeek.keyType), keysByStatePressWeek('W-0001', row), new SortedSet([
-      { on: { state: 'confirmed' }, tile: oct5, key: 'P-1001' }, { on: { state: 'confirmed' }, tile: oct12, key: 'P-1001' },
+      { on: { state: 'confirmed' }, key: 'P-1001', level: week, tile: oct5 },
     ], compareFor(byStatePressWeek.keyType)), 'led by its state');
     assertEast(SetType(byCrewPressWeek.keyType), keysByCrewPressWeek('W-0001', row), new SortedSet([
-      { on: { crews: 'north' }, tile: oct5, key: 'P-1001' }, { on: { crews: 'north' }, tile: oct12, key: 'P-1001' },
-      { on: { crews: 'south' }, tile: oct5, key: 'P-1001' }, { on: { crews: 'south' }, tile: oct12, key: 'P-1001' },
+      { on: { crews: 'north' }, key: 'P-1001', level: week, tile: oct5 }, { on: { crews: 'south' }, key: 'P-1001', level: week, tile: oct5 },
     ], compareFor(byCrewPressWeek.keyType)), 'once a crew');
+    // Five weeks long: past a month's 28 days, so under the quarter holding its start.
+    assertEast(SetType(byPressWeek.keyType), keysByPressWeek('W-0001', scheduled('2026-10-07T06:00:00.000', '2026-11-11T06:00:00.000')), new SortedSet([
+      { on: {}, key: 'P-1001', level: variant('quarter', null), tile: at('2026-10-01T00:00:00.000') },
+    ], compareFor(byPressWeek.keyType)), 'a longer event at a coarser level');
   });
 
-  it('files an instant, or an end at or before the start, under the one tile holding its start; an end at a tile\'s start is outside it; no start, under none', () => {
+  it('files an instant, or an end at or before the start, at its tile under the tile holding its start; no start, under none', () => {
     const def = recordIndex.series('jobs_by_press_week', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'week' });
     const keysType = SetType(def.keyType);
     const order = compareFor(def.keyType);
-    const oct5 = { on: {}, tile: at('2026-10-05T00:00:00.000'), key: 'P-1001' };
+    const oct5 = { on: {}, key: 'P-1001', level: variant('week', null), tile: at('2026-10-05T00:00:00.000') };
     const keys = East.compile(def.keyFn as FunctionExpr<any, any>, []) as (key: string, row: Job) => unknown;
     assertEast(keysType, keys('W-0001', scheduled('2026-10-07T06:00:00.000', null)), new SortedSet([oct5], order), 'no end');
     assertEast(keysType, keys('W-0001', scheduled('2026-10-07T06:00:00.000', '2026-10-01T00:00:00.000')), new SortedSet([oct5], order), 'an end before its start');
@@ -404,36 +507,38 @@ describe('e3.recordIndex.series — its keys', () => {
     const shift = decodeBeast2For(ShiftRow)(encodeBeast2For(ShiftRow)({ press: 'P-1002', start: at('2026-10-05T22:00:00.000'), end: at('2026-10-06T06:00:00.000') }));
     const keys = East.compile(def.keyFn as FunctionExpr<any, any>, []) as (key: string, row: unknown) => unknown;
     assertEast(SetType(def.keyType), keys('S-1', shift), new SortedSet([
-      { on: {}, tile: at('2026-10-05T00:00:00.000'), key: 'P-1002' }, { on: {}, tile: at('2026-10-06T00:00:00.000'), key: 'P-1002' },
-    ], compareFor(def.keyType)), 'a night shift is in two days');
+      { on: {}, key: 'P-1002', level: variant('day', null), tile: at('2026-10-05T00:00:00.000') },
+    ], compareFor(def.keyType)), 'a night shift, eight hours, is filed once, under the day it starts');
   });
 });
 
 describe('e3.recordIndex.series — its declaration', () => {
   it('types its key, its fields and its projection from the spec, and carries its fields and tile', () => {
     const def = recordIndex.series('jobs_by_state_press_week', jobs(), { on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week' });
-    const keyType: StructType<{ on: StructType<{ state: typeof StringType }>; tile: typeof DateTimeType; key: typeof StringType }> = def.keyType;
+    const keyType: StructType<{ on: StructType<{ state: typeof StringType }>; key: typeof StringType; level: typeof RecordLevelType; tile: typeof DateTimeType }> = def.keyType;
     const fields: readonly ['state'] = def.on;
     const projection: typeof JobRow = def.valueType;
-    assert.equal(printType(keyType), printType(StructType({ on: StructType({ state: StringType }), tile: DateTimeType, key: StringType })),
-      'its leading fields under on, the tile, then the key');
+    assert.equal(printType(keyType), printType(StructType({ on: StructType({ state: StringType }), key: StringType, level: RecordLevelType, tile: DateTimeType })),
+      'its leading fields under on, the key, the level, then the tile');
     assert.deepEqual(fields, ['state']);
     assert.equal(printType(projection), printType(JobRow), 'it carries the whole row');
     assert.deepEqual(def.series, { key: 'press', from: 'start', to: 'end', tile: 'week' });
-    assert.equal(def.multi, true, 'an entry a tile');
+    assert.equal(def.multi, true, 'an entry a place it is filed');
     assert.equal(def.summary, undefined);
     // The declared types, as the constructor's spec types them.
     type Spec = { on: ['crews']; key: 'press'; from: 'start'; to: 'end'; tile: 'day' };
     const on: IndexOn<Spec> = ['crews'];
-    const key: IndexKeyOf<Spec, typeof JobsType> = StructType({ on: StructType({ crews: StringType }), tile: DateTimeType, key: StringType });
-    assert.ok(on.length === 1 && key.type === 'Struct');
+    const key: IndexKeyOf<Spec, typeof JobsType> = StructType({ on: StructType({ crews: StringType }), key: StringType, level: RecordLevelType, tile: DateTimeType });
+    const totals: SummaryKeyOf<Spec, typeof JobsType> = StructType({ on: StructType({ crews: StringType }), key: StringType, tile: DateTimeType });
+    assert.ok(on.length === 1 && key.type === 'Struct' && totals.type === 'Struct');
   });
 
-  it('projects each entry as its whole row', () => {
+  it('files each scheduled job once, projecting each entry as its whole row', () => {
     const def = recordIndex.series('jobs_by_press_week', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'week' });
     const rows = seededJobs();
     const out = emitted(def, rows);
-    assert.ok(out.length > rows.size, 'the jobs across a week\'s edge are in more than one');
+    const scheduled = [...rows.values()].filter((row) => row.start.type === 'some').length;
+    assert.equal(out.length, scheduled, 'none longer than a year: each once, the jobs across a week\'s edge among them');
     const sameJob = equalFor(JobRow);
     for (const [entry, value] of out) {
       const k = (entry as { k: string }).k;
@@ -479,7 +584,7 @@ describe('e3.recordIndex.series — its declaration', () => {
       const named = record('named', DictType(StringType, Named), new Map());
       const byNamed = recordIndex.series('named_tile', named, { on: ['__tile', 'tile', 'key'], key: 'press', from: 'start', to: 'end', tile: 'day' });
       assert.equal(printType(byNamed.keyType),
-        printType(StructType({ on: StructType({ __tile: IntegerType, tile: StringType, key: StringType }), tile: DateTimeType, key: StringType })));
+        printType(StructType({ on: StructType({ __tile: IntegerType, tile: StringType, key: StringType }), key: StringType, level: RecordLevelType, tile: DateTimeType })));
       assert.throws(() => recordIndex.series('primary', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'day' }), /e3\.recordIndex\.series cannot be named 'primary'/);
       assert.throws(() => recordIndex.series('by tile', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'day' }), /must be an identifier/);
     });
@@ -506,26 +611,27 @@ describe('e3.recordIndex.summary — its contributions and declaration', () => {
     // Wednesday 06:00 to the next Tuesday 06:00: 114 hours of one week, 30 of the next.
     const row = scheduled('2026-10-07T06:00:00.000', '2026-10-13T06:00:00.000');
     assertEast(contributions, contribute('W-0001', row), new SortedMap([
-      [{ on: {}, tile: oct5, key: 'P-1001' }, { count: 1n, ms: 114n * HOUR }],
-      [{ on: {}, tile: oct12, key: 'P-1001' }, { count: 1n, ms: 30n * HOUR }],
+      [{ on: {}, key: 'P-1001', tile: oct5 }, { count: 1n, ms: 114n * HOUR }],
+      [{ on: {}, key: 'P-1001', tile: oct12 }, { count: 1n, ms: 30n * HOUR }],
     ], order), 'a week and the next');
     assertEast(DictType(byCrew.keyType, RecordSummaryTotalsType), contributeByCrew('W-0001', row), new SortedMap([
-      [{ on: { crews: 'north' }, tile: oct5, key: 'P-1001' }, { count: 1n, ms: 114n * HOUR }],
-      [{ on: { crews: 'north' }, tile: oct12, key: 'P-1001' }, { count: 1n, ms: 30n * HOUR }],
-      [{ on: { crews: 'south' }, tile: oct5, key: 'P-1001' }, { count: 1n, ms: 114n * HOUR }],
-      [{ on: { crews: 'south' }, tile: oct12, key: 'P-1001' }, { count: 1n, ms: 30n * HOUR }],
+      [{ on: { crews: 'north' }, key: 'P-1001', tile: oct5 }, { count: 1n, ms: 114n * HOUR }],
+      [{ on: { crews: 'north' }, key: 'P-1001', tile: oct12 }, { count: 1n, ms: 30n * HOUR }],
+      [{ on: { crews: 'south' }, key: 'P-1001', tile: oct5 }, { count: 1n, ms: 114n * HOUR }],
+      [{ on: { crews: 'south' }, key: 'P-1001', tile: oct12 }, { count: 1n, ms: 30n * HOUR }],
     ], compareFor(byCrew.keyType)), 'once a crew');
     assertEast(contributions, contribute('W-0001', scheduled('2026-10-07T06:00:00.000', null)), new SortedMap([
-      [{ on: {}, tile: oct5, key: 'P-1001' }, { count: 1n, ms: 0n }],
+      [{ on: {}, key: 'P-1001', tile: oct5 }, { count: 1n, ms: 0n }],
     ], order), 'an instant');
     assertEast(contributions, contribute('W-0001', scheduled(null, null)), new SortedMap([], order), 'not yet scheduled');
   });
 
   it('types its key from the spec and holds its totals, with no projection to carry', () => {
     const def = recordIndex.summary('jobs_by_state_press_month_totals', jobs(), { on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'month' });
-    const keyType: StructType<{ on: StructType<{ state: typeof StringType }>; tile: typeof DateTimeType; key: typeof StringType }> = def.keyType;
+    const keyType: StructType<{ on: StructType<{ state: typeof StringType }>; key: typeof StringType; tile: typeof DateTimeType }> = def.keyType;
     const fields: readonly ['state'] = def.on;
-    assert.equal(printType(keyType), printType(StructType({ on: StructType({ state: StringType }), tile: DateTimeType, key: StringType })));
+    assert.equal(printType(keyType), printType(StructType({ on: StructType({ state: StringType }), key: StringType, tile: DateTimeType })),
+      'its leading fields under on, the key, then the tile');
     assert.deepEqual(fields, ['state']);
     assert.equal(printType(def.valueType), printType(RecordSummaryTotalsType), 'its value is its totals');
     assert.deepEqual(def.summary, { key: 'press', from: 'start', to: 'end', tile: 'month' });
@@ -654,7 +760,7 @@ describe('series and summary indexes — through a write and a rebuild', () => {
     const add = of(summary.name, written(assembled, patch, before, added));
     assert.equal(add.length, 1, 'two new jobs in one week on one press are one change');
     assertEast(StructType({ ik: summary.keyType, k: NullType }), add[0]!.key,
-      { ik: { on: {}, tile: at('2026-10-05T00:00:00.000'), key: 'P-1001' }, k: null }, 'under their week and press');
+      { ik: { on: {}, key: 'P-1001', tile: at('2026-10-05T00:00:00.000') }, k: null }, 'under their press and week');
     assertEast(RecordSummaryOpType, add[0]!.op, variant('add', { count: 2n, ms: 15n * HOUR }), 'counting both, and their hours');
   });
 
@@ -676,11 +782,11 @@ describe('series and summary indexes — through a write and a rebuild', () => {
     // Integer stored a total below none, which no write could then add to.
     const def = recordIndex.summary('jobs_by_press_year_totals', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'year' });
     const merge = summaryMergeProgram(def).compile([]) as (entry: unknown, a: RecordSummaryTotals, b: RecordSummaryTotals) => RecordSummaryTotals;
-    const entry = { ik: { on: {}, tile: at('2026-01-01T00:00:00.000'), key: 'P-1001' }, k: null };
+    const entry = { ik: { on: {}, key: 'P-1001', tile: at('2026-01-01T00:00:00.000') }, k: null };
     const most = (1n << 63n) - 1n;
     assertEast(RecordSummaryTotalsType, merge(entry, { count: 2n, ms: most - 10n }, { count: 1n, ms: 10n }), { count: 3n, ms: most },
       'a sum at the largest Integer is a total');
-    const past = /^jobs_by_press_year_totals: the totals under \(ik=\(on=\(\), tile=2026-01-01T00:00:00\.000, key="P-1001"\), k=null\) sum past the largest Integer: declare a finer tile, whose totals are smaller/;
+    const past = /^jobs_by_press_year_totals: the totals under \(ik=\(on=\(\), key="P-1001", tile=2026-01-01T00:00:00\.000\), k=null\) sum past the largest Integer: declare a finer tile, whose totals are smaller/;
     assert.throws(() => merge(entry, { count: 2n, ms: most - 10n }, { count: 1n, ms: 11n }), past, 'the time they cover');
     assert.throws(() => merge(entry, { count: most, ms: 0n }, { count: 1n, ms: 0n }), past, 'the rows touching it');
   });

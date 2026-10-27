@@ -5,18 +5,22 @@
 
 /**
  * A record read in two dimensions (#1039): a block of presses over a span of
- * weeks, read through a series index (`e3.recordIndex.series`) as a search a
- * week in one request (`findKeys`) and the runs they select, from the index
- * alone — each entry carries its job's row whole — and, zoomed out, the totals
- * a summary index (`e3.recordIndex.summary`) keeps under each week and press:
- * how many jobs touch it, and the milliseconds of it they cover.
+ * weeks, read through a series index (`e3.recordIndex.series`) as a range a
+ * press a level in one request (`findKeys`) and the runs they select, from the
+ * index alone — each entry carries its job's row whole — and, zoomed out, the
+ * totals a summary index (`e3.recordIndex.summary`) keeps under each press and
+ * week: how many jobs touch it, and the milliseconds of it they cover.
  *
- * The suite works out each job's weeks itself, as its keys are filed — a week
- * from its Monday, in UTC, half-open — so what a server answers is held to a
- * brute force: under each week, the block's jobs that touch it and no other,
- * each once with its row, at one content hash; and each total, the jobs that
- * touch its week on its press and the time of it they cover. Then a job moved
- * to another week, read and totalled where it went, and a joined read, a
+ * The series files each job once (#1433): at the level its length fits, from
+ * the week up, under that level's tile holding its start — or, past a year,
+ * under each year it touches. The suite works out each job's filings and
+ * weeks itself, a week from its Monday, in UTC, half-open, so what a server
+ * answers is held to a brute force: under each level's run of tiles, the
+ * block's jobs filed there and no other, each once with its row, at one
+ * content hash, every job overlapping the weeks among them; and each total,
+ * the jobs that touch its week on its press and the time of it they cover.
+ * Then a job moved to another week, read and totalled where it went; jobs a
+ * hundred days and three years long, each read once; and a joined read, a
  * placement and a membership read of the summary refused.
  */
 
@@ -29,7 +33,7 @@ import {
   decodeBeast2For, diffFor, encodeBeast2For, equalFor, isTypeEqual, isTypeValueEqual, none, printFor, toEastTypeValue, variant,
   type ValueTypeOf,
 } from '@elaraai/east';
-import { RecordSummaryTotalsType, indexWindowType } from '@elaraai/e3-types';
+import { RecordLevelType, RecordSummaryTotalsType, indexWindowType } from '@elaraai/e3-types';
 import {
   ApiError,
   packageImport,
@@ -50,7 +54,7 @@ import {
 import { assertMutationCommitted } from '../assertions.js';
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { createSeriesRecordPackageZip, JOBS_FROM, JobRowType, JobsType, JobWeekPressKeyType } from '../fixtures.js';
+import { createSeriesRecordPackageZip, JOBS_FROM, JobPressLevelTileKeyType, JobPressWeekKeyType, JobRowType, JobsType } from '../fixtures.js';
 
 const PKG = 'series-record-pkg';
 const VERSION = '1.0.0';
@@ -66,13 +70,13 @@ const TOTALS = 'jobs_by_press_week_totals';
 
 type Job = ValueTypeOf<typeof JobRowType>;
 type Jobs = ValueTypeOf<typeof JobsType>;
-type WeekPress = ValueTypeOf<typeof JobWeekPressKeyType>;
+type PressWeek = ValueTypeOf<typeof JobPressWeekKeyType>;
 type Totals = ValueTypeOf<typeof RecordSummaryTotalsType>;
 
-/** A series window's entries: the job's key under a week and a press, its row carried whole. The first test holds it to `indexWindowType`. */
-const SeriesWindowType = ArrayType(StructType({ ik: JobWeekPressKeyType, key: StringType, value: JobRowType, row: OptionType(JobRowType) }));
-/** A summary window's entries: each week and press, standing for every job of it — its `key` Null — with its totals. */
-const TotalsWindowType = ArrayType(StructType({ ik: JobWeekPressKeyType, key: NullType, value: RecordSummaryTotalsType, row: OptionType(JobRowType) }));
+/** A series window's entries: the job's key under a press, a level and a tile, its row carried whole. The first test holds it to `indexWindowType`. */
+const SeriesWindowType = ArrayType(StructType({ ik: JobPressLevelTileKeyType, key: StringType, value: JobRowType, row: OptionType(JobRowType) }));
+/** A summary window's entries: each press and week, standing for every job of it — its `key` Null — with its totals. */
+const TotalsWindowType = ArrayType(StructType({ ik: JobPressWeekKeyType, key: NullType, value: RecordSummaryTotalsType, row: OptionType(JobRowType) }));
 type SeriesEntry = ValueTypeOf<typeof SeriesWindowType>[number];
 type TotalsEntry = ValueTypeOf<typeof TotalsWindowType>[number];
 
@@ -84,23 +88,68 @@ const decodeTotalsWindow = decodeBeast2For(TotalsWindowType);
 const printDateTime = printFor(DateTimeType);
 const printString = printFor(StringType);
 /** A summary entry's key, `(ik=…, k=null)`, as a membership read names one. */
-const printTotalsEntryKey = printFor(StructType({ ik: JobWeekPressKeyType, k: NullType }));
+const printTotalsEntryKey = printFor(StructType({ ik: JobPressWeekKeyType, k: NullType }));
+const printLevel = printFor(RecordLevelType);
 /** A key's `on`, printed whole, as an exact search names it (#1432). */
-const printOn = printFor(JobWeekPressKeyType.fields.on);
+const printOn = printFor(JobPressLevelTileKeyType.fields.on);
 const jobEqual = equalFor(JobRowType);
 const unjoined = equalFor(OptionType(JobRowType));
 const integerEqual = equalFor(IntegerType);
-const dateTimeEqual = equalFor(DateTimeType);
 const stringEqual = equalFor(StringType);
 const stringOrder = compareFor(StringType);
-const weekPressOrder = compareFor(JobWeekPressKeyType);
+const pressWeekOrder = compareFor(JobPressWeekKeyType);
 
-/** A week, in milliseconds. */
-const WEEK_MS = 7 * 86_400_000;
+/** A day, and a week, in milliseconds. */
+const DAY_MS = 86_400_000;
+const WEEK_MS = 7 * DAY_MS;
 
 /** The week holding an instant, by its start: whole weeks from {@link JOBS_FROM}, a Monday. */
 function weekHolding(ms: number): number {
   return JOBS_FROM.getTime() + Math.floor((ms - JOBS_FROM.getTime()) / WEEK_MS) * WEEK_MS;
+}
+
+/** The levels the series files at, from its week tile up, and each one's shortest tile (#1433). */
+const LEVELS = ['week', 'month', 'quarter', 'year'] as const;
+type Level = (typeof LEVELS)[number];
+const SHORTEST_MS: Readonly<Record<Level, number>> = { week: 7 * DAY_MS, month: 28 * DAY_MS, quarter: 90 * DAY_MS, year: 365 * DAY_MS };
+const MONTHS: Readonly<Record<Exclude<Level, 'week'>, number>> = { month: 1, quarter: 3, year: 12 };
+
+/** The start of the level's tile holding an instant: a week from its Monday, a month, a quarter or a year by the UTC calendar. */
+function tileStart(level: Level, ms: number): number {
+  if (level === 'week') return weekHolding(ms);
+  const held = new Date(ms);
+  const month = held.getUTCMonth();
+  return Date.UTC(held.getUTCFullYear(), month - (month % MONTHS[level]), 1);
+}
+
+/** The start of the level's tile `by` tiles on from the one starting at `start` — back, for a negative `by`. */
+function tileStep(level: Level, start: number, by: number): number {
+  if (level === 'week') return start + by * WEEK_MS;
+  const held = new Date(start);
+  return Date.UTC(held.getUTCFullYear(), held.getUTCMonth() + by * MONTHS[level], 1);
+}
+
+/** Where the series files a job: once, at the first level whose shortest tile holds its length; past a year, under each year it touches. */
+function filingsOf(job: Job): Array<{ level: Level; tile: number }> {
+  const start = job.start.getTime();
+  const end = job.end.getTime();
+  for (const level of LEVELS) {
+    if (end - start <= SHORTEST_MS[level]) return [{ level, tile: tileStart(level, start) }];
+  }
+  const years: Array<{ level: Level; tile: number }> = [];
+  for (let year = tileStart('year', start); year < end; year = tileStep('year', year, 1)) years.push({ level: 'year', tile: year });
+  return years;
+}
+
+/** What a reader reads of the series over `[from, to)`: a run a level, from two tiles before the one holding `from` to the one after the tile holding its last instant. */
+function levelRuns(from: number, to: number): Array<{ level: Level; from: number; to: number }> {
+  return LEVELS.map((level) => ({ level, from: tileStep(level, tileStart(level, from), -2), to: tileStep(level, tileStart(level, to - 1), 2) }));
+}
+
+/** A run's search over one press: from its first tile to the start of the one after its last, under the press and the level. */
+function runSearch(press: string, run: { level: Level; from: number; to: number }): DatasetKeySearch {
+  const level = printLevel(variant(run.level, null));
+  return { from: [printString(press), level, printDateTime(new Date(run.from))], to: [printString(press), level, printDateTime(new Date(run.to))] };
 }
 
 /** The weeks a job touches, half-open, by each one's start, with the milliseconds of each it covers. */
@@ -115,22 +164,17 @@ function weeksOf(job: Job): Array<{ week: Date; ms: bigint }> {
   return weeks;
 }
 
-/** The totals a summary of `jobs` holds, worked out from them: under each week and press, the jobs touching it and the time of it they cover. */
-function totalsOf(jobs: Jobs): SortedMap<WeekPress, Totals> {
-  const totals = new SortedMap<WeekPress, Totals>(undefined, weekPressOrder);
+/** The totals a summary of `jobs` holds, worked out from them: under each press and week, the jobs touching it and the time of it they cover. */
+function totalsOf(jobs: Jobs): SortedMap<PressWeek, Totals> {
+  const totals = new SortedMap<PressWeek, Totals>(undefined, pressWeekOrder);
   for (const job of jobs.values()) {
     for (const { week, ms } of weeksOf(job)) {
-      const key = { on: {}, tile: week, key: job.press };
+      const key = { on: {}, key: job.press, tile: week };
       const held = totals.get(key) ?? { count: 0n, ms: 0n };
       totals.set(key, { count: held.count + 1n, ms: held.ms + ms });
     }
   }
   return totals;
-}
-
-/** A week's search over a block of presses: from the block's first press to the one after its last, under the week. */
-function blockSearch(week: Date, from: string, to: string): DatasetKeySearch {
-  return { from: [printDateTime(week), printString(from)], to: [printDateTime(week), printString(to)] };
 }
 
 /** Whether a press is in the block `[from, to)`. */
@@ -229,46 +273,51 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
   };
 
   describe('records read in two dimensions', { concurrency: false }, () => {
-    it('describes its series index carrying its rows and its summary holding its totals, both built, keyed by a week then a press', async (t) => {
+    it('describes its series index carrying its rows and its summary holding its totals, both built, each keyed by a press first', async (t) => {
       const { ctx, hash } = await withJobs(t);
       const opts = await ctx.opts();
       const sig = await workspaceRecordDescribe(ctx.config.baseUrl, ctx.repoName, WS, 'jobs', opts);
       assert.deepEqual(sig.indexes.map(({ name, multi, summary, built }) => [name, multi, summary, built]),
         [[SERIES, true, false, true], [TOTALS, true, true, true]]);
-      for (const index of sig.indexes) {
-        assert.ok(isTypeValueEqual(index.keyType, toEastTypeValue(JobWeekPressKeyType)), `${index.name} is keyed by a week, then a press`);
-      }
+      assert.ok(isTypeValueEqual(sig.indexes[0]!.keyType, toEastTypeValue(JobPressLevelTileKeyType)), 'the series is keyed by a press, a level, then a tile');
+      assert.ok(isTypeValueEqual(sig.indexes[1]!.keyType, toEastTypeValue(JobPressWeekKeyType)), 'the summary by a press, then a week');
       assert.ok(isTypeValueEqual(sig.indexes[0]!.valueType, toEastTypeValue(JobRowType)), 'the series carries the row whole');
       assert.ok(isTypeValueEqual(sig.indexes[1]!.valueType, toEastTypeValue(RecordSummaryTotalsType)), 'the summary holds its totals');
-      assert.ok(isTypeEqual(SeriesWindowType, indexWindowType(StringType, JobWeekPressKeyType, JobRowType, JobRowType)),
+      assert.ok(isTypeEqual(SeriesWindowType, indexWindowType(StringType, JobPressLevelTileKeyType, JobRowType, JobRowType)),
         'the series window is e3-types\' index window');
-      assert.ok(isTypeEqual(TotalsWindowType, indexWindowType(NullType, JobWeekPressKeyType, RecordSummaryTotalsType, JobRowType)),
+      assert.ok(isTypeEqual(TotalsWindowType, indexWindowType(NullType, JobPressWeekKeyType, RecordSummaryTotalsType, JobRowType)),
         'the summary\'s is too, its key Null');
       const page = await datasetGetPage(ctx.config.baseUrl, ctx.repoName, WS, jobsPath, { offset: 0, limit: 1, index: SERIES, hash }, opts);
       assert.ok(page.segmentCount >= 2, `the series spans segments, got ${page.segmentCount}`);
     });
 
-    it('reads a block of presses over three weeks from the series alone: a search a week, every job of the block touching it, each once with its row', async (t) => {
+    it('reads a block of presses over three weeks from the series alone: a range a press a level, every job filed there once with its row, every job of the block overlapping the weeks among them', async (t) => {
       const { ctx, hash, jobs } = await withJobs(t);
-      const weeks = [0, 1, 2].map((w) => new Date(JOBS_FROM.getTime() + w * WEEK_MS));
-      const entries = await readSeries(ctx, weeks.map((week) => blockSearch(week, 'P-1005', 'P-1013')), hash);
-      assert.ok(entries.every((entry) => weeks.some((week) => dateTimeEqual(entry.ik.tile, week))), 'only the weeks searched');
-      for (const week of weeks) {
-        const read = entries.filter((entry) => dateTimeEqual(entry.ik.tile, week));
-        const keys = read.map((entry) => entry.key).sort(stringOrder);
-        assert.equal(new Set(keys).size, keys.length, 'each job once a week');
-        for (const entry of read) {
-          const job = jobs.get(entry.key);
-          assert.ok(job !== undefined && jobEqual(entry.value, job), `${entry.key}'s entry carries its row whole`);
-          assert.ok(unjoined(entry.row, none), `${entry.key} is read from the series alone, never joined`);
-          assert.ok(stringEqual(entry.ik.key, job.press), `${entry.key} is filed under its press`);
-        }
-        const expected = [...jobs]
-          .filter(([, job]) => inBlock(job.press, 'P-1005', 'P-1013') && weeksOf(job).some(({ week: touched }) => dateTimeEqual(touched, week)))
-          .map(([key]) => key).sort(stringOrder);
-        assert.ok(expected.length > 0, 'the block has jobs that week');
-        assert.deepEqual(keys, expected, `the block's jobs touching the week of ${printDateTime(week)}, and no other`);
+      const from = JOBS_FROM.getTime();
+      const to = from + 3 * WEEK_MS;
+      const presses = Array.from({ length: 8 }, (_, i) => `P-${1005 + i}`);
+      const runs = levelRuns(from, to);
+      const searches = presses.flatMap((press) => runs.map((run) => runSearch(press, run)));
+      assert.equal(searches.length, 8 * 4, 'a range a press a level, whatever the span');
+      const entries = await readSeries(ctx, searches, hash);
+      for (const entry of entries) {
+        const job = jobs.get(entry.key);
+        assert.ok(job !== undefined && jobEqual(entry.value, job), `${entry.key}'s entry carries its row whole`);
+        assert.ok(unjoined(entry.row, none), `${entry.key} is read from the series alone, never joined`);
+        assert.ok(stringEqual(entry.ik.key, job.press), `${entry.key} is filed under its press`);
       }
+      // Held to the brute force: under each run, the block's jobs filed there, each once, and no other.
+      const read = entries.map((entry) => `${entry.key} ${printLevel(entry.ik.level)} ${printDateTime(entry.ik.tile)}`).sort(stringOrder);
+      const expected = [...jobs].filter(([, job]) => inBlock(job.press, 'P-1005', 'P-1013')).flatMap(([key, job]) => filingsOf(job)
+        .filter((filed) => runs.some((run) => run.level === filed.level && filed.tile >= run.from && filed.tile < run.to))
+        .map((filed) => `${key} ${printLevel(variant(filed.level, null))} ${printDateTime(new Date(filed.tile))}`)).sort(stringOrder);
+      assert.deepEqual(read, expected, 'every job the runs hold, each once, and no other');
+      // Every job of the block overlapping the weeks is among them: what a reader keeps by its key.
+      const keys = new Set(entries.map((entry) => entry.key));
+      const overlapping = [...jobs].filter(([, job]) => inBlock(job.press, 'P-1005', 'P-1013')
+        && job.start.getTime() < to && Math.max(job.end.getTime(), job.start.getTime() + 1) > from).map(([key]) => key);
+      assert.ok(overlapping.length > 0, 'the block has jobs those weeks');
+      for (const key of overlapping) assert.ok(keys.has(key), `${key}, overlapping the weeks, is read`);
     });
 
     it('totals each week and press as the jobs touching it and the time of it they cover, and refuses a joined read, a placement and a membership read', async (t) => {
@@ -319,20 +368,47 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       const now = await jobsOf(ctx);
       assert.ok(jobEqual(now.get(moved)!, next.get(moved)!), 'the record holds the job where it was moved to');
 
-      // An exact search names the key's own fields: its `on`, empty here, printed whole, then the week and the press (#1432).
-      const exact = (week: Date): DatasetKeySearch => ({ fields: [printOn({}), printDateTime(week), printString(job.press)] });
-      const left = weeksOf(job).map(({ week }) => week);
-      const entered = weeksOf(next.get(moved)!).map(({ week }) => week);
-      for (const week of left) {
-        const read = await readSeries(ctx, [exact(week)], movedHash);
-        assert.ok(!read.some((entry) => stringEqual(entry.key, moved)), `the moved job has left the week of ${printDateTime(week)}`);
+      // An exact search names the key's own fields: its `on`, empty here, printed whole, then the press, the level and the tile (#1432, #1433).
+      const exact = (filed: { level: Level; tile: number }): DatasetKeySearch => ({
+        fields: [printOn({}), printString(job.press), printLevel(variant(filed.level, null)), printDateTime(new Date(filed.tile))],
+      });
+      for (const filed of filingsOf(job)) {
+        const read = await readSeries(ctx, [exact(filed)], movedHash);
+        assert.ok(!read.some((entry) => stringEqual(entry.key, moved)), `the moved job has left the ${filed.level} of ${printDateTime(new Date(filed.tile))}`);
       }
-      for (const week of entered) {
-        const read = await readSeries(ctx, [exact(week)], movedHash);
+      for (const filed of filingsOf(next.get(moved)!)) {
+        const read = await readSeries(ctx, [exact(filed)], movedHash);
         const entry = read.find((e) => stringEqual(e.key, moved));
-        assert.ok(entry !== undefined && jobEqual(entry.value, next.get(moved)!), `it is read in the week of ${printDateTime(week)}, its row as moved`);
+        assert.ok(entry !== undefined && jobEqual(entry.value, next.get(moved)!), `it is read in the ${filed.level} of ${printDateTime(new Date(filed.tile))}, its row as moved`);
       }
       assertTotals(await readTotals(ctx, movedHash), now);
+    });
+
+    it('reads a job a hundred days long, and one three years long, once each among a block\'s runs, each filed where its length fits', async (t) => {
+      const { ctx, jobs } = await withJobs(t);
+      const opts = await ctx.opts();
+      const from = JOBS_FROM.getTime() + WEEK_MS;
+      const long = new SortedMap(jobs, stringOrder);
+      long.set('job-season', { press: 'P-1005', start: new Date(from), end: new Date(from + 100 * DAY_MS), title: 'A season' });
+      long.set('job-years', { press: 'P-1005', start: new Date(from - DAY_MS), end: new Date(from + 3 * 365 * DAY_MS), title: 'Three years' });
+      const patched = await workspaceRecordMutate(ctx.config.baseUrl, ctx.repoName, WS, 'jobs', 'patch',
+        { args: [encodePatch(diffFor(JobsType)(jobs, long))], actor: none, limits: none }, opts);
+      assertMutationCommitted(patched, 'the long jobs');
+      const hash = await hashOf(ctx);
+      // A hundred days is past a quarter's ninety: filed once, under its year; three years under each of the four it touches.
+      assert.deepEqual(filingsOf(long.get('job-season')!).map((filed) => filed.level), ['year']);
+      assert.equal(filingsOf(long.get('job-years')!).length, 4);
+      const runs = levelRuns(from, from + WEEK_MS);
+      const entries = await readSeries(ctx, runs.map((run) => runSearch('P-1005', run)), hash);
+      const ofKey = (key: string) => entries.filter((entry) => stringEqual(entry.key, key));
+      assert.equal(ofKey('job-season').length, 1, 'the season is read once');
+      assert.ok(ofKey('job-years').length >= 1, 'the three years are read under each year the runs hold');
+      assert.deepEqual([...new Set(entries.map((entry) => entry.key))].filter((key) => key === 'job-season' || key === 'job-years').sort(stringOrder),
+        ['job-season', 'job-years'], 'a reader keeps each once, by its key');
+      for (const entry of [...ofKey('job-season'), ...ofKey('job-years')]) {
+        assert.ok(jobEqual(entry.value, long.get(entry.key)!), `${entry.key} carries its row whole`);
+      }
+      assertTotals(await readTotals(ctx, hash), await jobsOf(ctx));
     });
   });
 }

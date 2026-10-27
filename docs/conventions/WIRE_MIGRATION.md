@@ -571,3 +571,14 @@ Each wire changed under this rule, with the kind it is.
   exactly the type it was written with, so one kept or saved under the earlier
   type does not decode, and resets. A UI task's output is not stored state, so
   no repository upgrade step ships with it.
+- **e3's series and summary indexes put the key first, and a series index
+  files each event once, at the level its length fits (#1433)** —
+  package-borne. A series index's key is `{ on, key, level, tile }`: each
+  event filed once, at the finest level from its declared tile up to the year
+  whose shortest tile holds its length, under that level's tile holding its
+  start, or, past a year, under each year it touches — where it was filed
+  under every tile it touched, `{ on, tile, key }`. `level` is e3-types'
+  `RecordLevelType`. A summary index's key is `{ on, key, tile }`, its totals
+  as they were. Each such index a package declares changes type, so it is
+  rebuilt as the package is deployed, as any changed index is; an index is
+  derived from its record, so no repository upgrade step ships.

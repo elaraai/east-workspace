@@ -158,6 +158,8 @@ export { addObject } from './export.js';
 export { indexBuildProgram, buildMutationProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType } from './record-programs.js';
 export type {
   RecordIndexSpec, IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, TimeTileOf,
-  IndexFunction, IndexKeyOf, IndexOn, ProjectionOf,
+  IndexFunction, IndexKeyOf, SummaryKeyOf, IndexOn, ProjectionOf,
 } from './record-index.js';
-export { RECORD_TILES, MAX_EVENT_TILES, TileShareType, tileStart, tileNext, tileShares, type RecordTile } from './record-tiles.js';
+export {
+  RECORD_TILES, MAX_EVENT_TILES, SHORTEST_MS, TileShareType, TileFilingType, tileStart, tileNext, tileShares, eventFilings, type RecordTile,
+} from './record-tiles.js';

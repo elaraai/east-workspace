@@ -186,6 +186,24 @@ export type RecordSummaryTotalsType = typeof RecordSummaryTotalsType;
 export type RecordSummaryTotals = ValueTypeOf<typeof RecordSummaryTotalsType>;
 
 /**
+ * The level a series index files an event at (#1433): the finest, from the
+ * index's tile up, whose shortest tile holds the event's length, or the year
+ * for an event longer than a year. It names a level with the tiles' own
+ * words, as east-ui's `RecordSliceTileType` does.
+ *
+ * @property day - Filed under the UTC day holding its start
+ * @property week - Under the ISO week from Monday holding its start
+ * @property month - Under the UTC month holding its start
+ * @property quarter - Under the UTC quarter holding its start
+ * @property year - Under the UTC year holding its start, or every year it touches
+ */
+export const RecordLevelType = VariantType({
+  day: NullType, week: NullType, month: NullType, quarter: NullType, year: NullType,
+});
+export type RecordLevelType = typeof RecordLevelType;
+export type RecordLevel = ValueTypeOf<typeof RecordLevelType>;
+
+/**
  * Which collection an index builds (#1039).
  *
  * - `entries` — an entry per index key a row has, `Dict<{ik, k}, P>`: the

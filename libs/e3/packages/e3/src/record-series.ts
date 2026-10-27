@@ -5,21 +5,25 @@
 
 /**
  * The keys of a series index and the contributions of a summary index (#1039):
- * a record's events filed by a key — the resource an event is on — and by the
- * time tiles it touches (`record-tiles.ts`).
+ * a record's events filed by a key — the resource an event is on — and by time
+ * (`record-tiles.ts`).
  *
- * Both key an entry `{ on: { …on }, tile, key }`: the exact leading fields,
- * under `on`, then the tile's start and the key's value (#1432). The tile leads the key, so the events of
- * one tile on a contiguous run of keys — a block of a Plan's rows — are one
- * contiguous range of either index: a cell.
+ * Both lead with the exact leading fields under `on` (#1432), then the key's
+ * value, so a key's entries over any span of time are one contiguous range of
+ * either index (#1433):
  *
- * - **A series index** is an ordinary maintained index whose keys the SDK
- *   generates: an entry per tile an event touches, carrying the row. Mutation,
+ * - **A series index** files each event once, `{ on: { …on }, key, level,
+ *   tile }`: at the finest level, from its tile up, whose shortest tile holds
+ *   the event's length, under the tile of that level holding its start — or,
+ *   past a year, under each year it touches (`eventFilings`). A reader reads a
+ *   key one range a level, whatever the span. It is an ordinary maintained
+ *   index whose keys the SDK generates, each entry carrying the row: mutation,
  *   rebuild, storage and transport are the ones every index has.
- * - **A summary index** keeps, for each key, how many rows touch its tile and
- *   the milliseconds of it they cover. Its keys come from a row's
- *   contributions, `(K, V) → Dict<IK, Totals>`: the count 1 and the row's share
- *   of each tile it touches, under each.
+ * - **A summary index** keeps, for each key and tile, how many rows touch the
+ *   tile and the milliseconds of it they cover, `{ on: { …on }, key, tile }`.
+ *   Its keys come from a row's contributions, `(K, V) → Dict<IK, Totals>`: the
+ *   count 1 and the row's share of each tile it touches, under each
+ *   (`tileShares`).
  *
  * A row with no start is in neither: it has no time to file it by.
  *
@@ -29,9 +33,9 @@ import {
   DateTimeType, DictType, East, Expr, NullType, OptionType, SetType, StructType, isTypeEqual, printType, some,
   type EastType, type FunctionExpr,
 } from '@elaraai/east';
-import { RecordSummaryTotalsType } from '@elaraai/e3-types';
+import { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
 import type { IndexFunction } from './record-index.js';
-import { checkTile, tileShares, type RecordTile } from './record-tiles.js';
+import { checkTile, eventFilings, tileShares, type RecordTile } from './record-tiles.js';
 
 /** What a series or a summary index files a row by, as its declaration names the fields. */
 export interface TimeTileFields {
@@ -45,12 +49,15 @@ export interface TimeTileFields {
   readonly tile: RecordTile;
 }
 
-/** A field's type, the row's field types, and the index key's type, once a declaration's fields pass. */
+/** The row's field types, the start's and the end's, and the parts of the index key, once a declaration's fields pass. */
 interface Checked {
   readonly rowType: StructType<Record<string, EastType>>;
   readonly startType: EastType;
   readonly endType: EastType;
-  readonly indexType: StructType<Record<string, EastType>>;
+  /** The leading fields at their key types: the key's `on`. */
+  readonly onType: StructType<Record<string, EastType>>;
+  /** The key field's type. */
+  readonly keyType: EastType;
 }
 
 /**
@@ -58,16 +65,16 @@ interface Checked {
  * the key is a field that is no Set, the start and the end are DateTime or
  * Option<DateTime> fields, the tile is one an index files by, and the leading
  * fields take neither the key — the index orders by it already — nor the start
- * nor the end: a leading field is matched exactly, before the tile, and led by
- * the start or the end the tiles are cut by, a tile's events on a block of
- * keys would be a range for each instant, never one.
+ * nor the end: a leading field is matched exactly, before the key, and led by
+ * the start or the end the tiles are cut by, a key's events over a span would
+ * be a range for each instant, never one range a level.
  *
  * @param constructor - The constructor, as a refusal names it
  * @param name - The index
  * @param valueType - The record's row type
  * @param on - The exact leading fields
  * @param spec - The fields and the tile
- * @returns The types the key is built from
+ * @returns The types the index key is built from
  * @throws {Error} Naming the option, the field and why
  */
 export function checkTimeTile(constructor: string, name: string, valueType: EastType, on: readonly string[], spec: TimeTileFields): Checked {
@@ -99,38 +106,38 @@ export function checkTimeTile(constructor: string, name: string, valueType: East
     const type = rowType.fields[field]!;
     return [field, type.type === 'Set' ? type.key : type];
   }));
-  const indexType = StructType({ on: StructType(fields), tile: DateTimeType, key: keyField });
-  return { rowType, startType, endType, indexType };
+  return { rowType, startType, endType, onType: StructType(fields), keyType: keyField };
 }
 
 /**
- * Builds a function of a row's tiles: `(K, V) → C`, the row's start and end
- * read, each tile it touches and its share, under each combination of its
+ * Builds a function of a row's places in time: `(K, V) → C`, the row's start
+ * and end read, the places `spread` gives the event — a series index's
+ * filings, or a summary index's shares — under each combination of its
  * leading values, folded into `C` by `put`.
  */
-function overTiles(
+function overEvents(
   keyType: EastType, checked: Checked, on: readonly string[], spec: TimeTileFields,
   prefix: { fn: IndexFunction; multi: boolean } | undefined,
   output: EastType, empty: () => unknown,
-  put: ($: any, into: any, ik: any, share: any) => void,
+  spread: ReturnType<typeof eventFilings> | ReturnType<typeof tileShares>,
+  put: ($: any, into: any, leading: Record<string, unknown>, key: unknown, place: any) => void,
 ) {
-  const shares = tileShares(spec.tile);
   const prefixType = prefix === undefined ? undefined : Expr.type(prefix.fn as unknown as Expr) as { output: EastType };
   // Dynamic field names are erased only inside this generated East function,
   // as in the field, interval and area key generators; every type was checked.
   return East.function([keyType as never, checked.rowType], output as never, ($: any, key: any, row: any) => {
-    const tiles = $.const(shares);
+    const places = $.const(spread);
     const into = $.let(empty(), output);
     const start = $.let(checked.startType.type === 'DateTime' ? some(row[spec.from]) : row[spec.from], OptionType(DateTimeType));
     const end = $.let(checked.endType.type === 'DateTime' ? some(row[spec.to]) : row[spec.to], OptionType(DateTimeType));
     $.match(start, {
       some: ($: any, from: any) => {
-        // No end is an instant at the start; the tiles say so of one at or before it.
+        // No end is an instant at the start; the places say so of one at or before it.
         const to = $.let(end.match({ some: (_$: any, to: any) => to, none: () => from }), DateTimeType);
-        const touched = $.let(tiles(from, to, East.print(key)));
+        const placed = $.let(places(from, to, East.print(key)));
         const file = ($: any, leading: Record<string, unknown>) => {
-          $.for(touched, ($: any, share: any) => {
-            put($, into, { on: leading, tile: share.tile, key: row[spec.key] }, share);
+          $.for(placed, ($: any, place: any) => {
+            put($, into, leading, row[spec.key], place);
           });
         };
         if (prefix === undefined) { file($, {}); return; }
@@ -146,9 +153,10 @@ function overTiles(
 }
 
 /**
- * The series index's key function: `(K, V) → Set<IK>`, an entry per tile a
- * row's event touches, `{ on: { …on }, tile, key }` — one per combination of its
- * leading values, a Set among them fanning out, as the interval index's do.
+ * The series index's key function: `(K, V) → Set<IK>`, an entry per place a
+ * row's event is filed (`eventFilings`: once, or once a year past a year),
+ * `{ on: { …on }, key, level, tile }` — one per combination of its leading
+ * values, a Set among them fanning out, as the interval index's do.
  *
  * @param name - The index, for the refusals
  * @param keyType - The record's key type
@@ -162,16 +170,18 @@ function overTiles(
 export function seriesKeys(name: string, keyType: EastType, valueType: EastType, on: readonly string[], spec: TimeTileFields,
   prefix?: { fn: IndexFunction; multi: boolean }) {
   const checked = checkTimeTile('e3.recordIndex.series', name, valueType, on, spec);
-  const keys = SetType(checked.indexType);
-  const fn = overTiles(keyType, checked, on, spec, prefix, keys, () => new Set(),
-    ($, into, ik) => { $(into.tryInsert(ik)); });
-  return { fn, multi: true, indexType: checked.indexType };
+  const indexType = StructType({ on: checked.onType, key: checked.keyType, level: RecordLevelType, tile: DateTimeType });
+  const keys = SetType(indexType);
+  const fn = overEvents(keyType, checked, on, spec, prefix, keys, () => new Set(), eventFilings(spec.tile),
+    ($, into, leading, key, filing) => { $(into.tryInsert({ on: leading, key, level: filing.level, tile: filing.tile })); });
+  return { fn, multi: true, indexType };
 }
 
 /**
  * The summary index's contributions: `(K, V) → Dict<IK, Totals>`, under each
- * tile a row's event touches — once per combination of its leading values —
- * the count 1 and the milliseconds of the tile it covers.
+ * tile a row's event touches, `{ on: { …on }, key, tile }` — once per
+ * combination of its leading values — the count 1 and the milliseconds of the
+ * tile it covers.
  *
  * @param name - The index, for the refusals
  * @param keyType - The record's key type
@@ -185,10 +195,11 @@ export function seriesKeys(name: string, keyType: EastType, valueType: EastType,
 export function summaryContributions(name: string, keyType: EastType, valueType: EastType, on: readonly string[], spec: TimeTileFields,
   prefix?: { fn: IndexFunction; multi: boolean }) {
   const checked = checkTimeTile('e3.recordIndex.summary', name, valueType, on, spec);
-  const totals = DictType(checked.indexType, RecordSummaryTotalsType);
-  const fn = overTiles(keyType, checked, on, spec, prefix, totals, () => new Map(),
-    ($, into, ik, share) => { $(into.insertOrUpdate(ik, { count: 1n, ms: share.ms })); });
-  return { fn, indexType: checked.indexType };
+  const indexType = StructType({ on: checked.onType, key: checked.keyType, tile: DateTimeType });
+  const totals = DictType(indexType, RecordSummaryTotalsType);
+  const fn = overEvents(keyType, checked, on, spec, prefix, totals, () => new Map(), tileShares(spec.tile),
+    ($, into, leading, key, share) => { $(into.insertOrUpdate({ on: leading, key, tile: share.tile }, { count: 1n, ms: share.ms })); });
+  return { fn, indexType };
 }
 
 /** The largest Integer: a summary's total past it is no Integer. */

@@ -129,10 +129,11 @@ export const planWindowJobsPatch = e3.mutation.patch(planWindowJobs);
 export const planWindowJobsByTime = e3.recordIndex.interval("plan_window_jobs_by_time", planWindowJobs, { from: "start", to: "end" });
 
 /**
- * The jobs by the press each is on and the weeks each touches (#1039): a job
- * is filed under every week it runs into, carrying its row, so the jobs of
- * fifty presses over a week are one contiguous range of the index — a cell —
- * and `planWindows` reads only the cells around the rows in view.
+ * The jobs by the press each is on and by time (#1039): a job is filed once,
+ * at the level its length fits from the week up, carrying its row (#1433), so
+ * a press's jobs at a level over any span are one contiguous range of the
+ * index — fifty presses' ranges a cell — and `planWindows` reads only the
+ * cells around the rows in view.
  */
 export const planWindowJobsByPressWeek = e3.recordIndex.series("plan_window_jobs_by_press_week", planWindowJobs, {
     key: "press", from: "start", to: "end", tile: "week",

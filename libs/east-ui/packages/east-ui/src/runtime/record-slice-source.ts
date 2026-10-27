@@ -108,14 +108,15 @@ export interface RecordSlicePlacement {
 }
 
 /**
- * One cell a reader wants of a series or a summary index (#1039): some keys in
- * one tile, its searches as `tileCellQueries` plans them, under a name the
- * reader gives it.
+ * One cell a reader wants of a series, a summary or an area index (#1039,
+ * #1393): some keys over a run of tiles, its searches as `levelCellQueries` or
+ * `summaryCellQueries` plans them (#1433) — or an area's cell, as `areaCells`
+ * does — under a name the reader gives it.
  */
 export interface RecordSliceCell {
     /** The reader's name for it: unique among the cells it asks for at once. */
     readonly id: string;
-    /** Its searches, a key's entries in the tile each. */
+    /** Its searches, a key's entries over the run each. */
     readonly queries: readonly Query[];
 }
 
