@@ -18,7 +18,9 @@ import {
   setDataset,
   type PinnedCache,
 } from '../handlers/datasets.js';
-import { findDatasetKeys, getDatasetRows, getDatasetRuns, type DatasetRowsKeysOf } from '../handlers/dataset-batches.js';
+import {
+  DATASET_BATCH_BODY_MAX, findDatasetKeys, getDatasetRows, getDatasetRuns, type DatasetRowsKeysOf,
+} from '../handlers/dataset-batches.js';
 import { placeDatasetRuns, withinDatasetRuns } from '../handlers/dataset-place.js';
 import type { KeySearchQuery } from '../handlers/key-search.js';
 import { pageError } from '../handlers/dataset-reads.js';
@@ -143,7 +145,8 @@ export function createDatasetRoutes(
   // (`runs=true`), and where a narrowing's runs of an index sit in its record
   // (`place=true`) and which entries they hold (`within=true`). Any other POST
   // is no route of these. The transfer routes, mounted first, pass on every
-  // POST that names a batch, whatever its path ends in (`batchReadsNamed`).
+  // POST that names a batch, whatever its path ends in (`batchReadsNamed`). A
+  // body past DATASET_BATCH_BODY_MAX is refused 413, and never read whole.
   app.post('/*', async (c, next) => {
     const findKeys = c.req.query('findKeys') === 'true';
     const rows = c.req.query('rows') === 'true';
@@ -158,12 +161,9 @@ export function createDatasetRoutes(
     const ws = c.req.param('ws')!;
     const treePath = urlPathToTreePath(datasetPathOf(c));
     const hash = nonEmpty(c.req.query('hash'));
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch (err) {
-      return pageError('bad_request', `The body is not JSON: ${err instanceof Error ? err.message : String(err)}`);
-    }
+    const read = await batchBody(c.req.raw, DATASET_BATCH_BODY_MAX);
+    if (read instanceof Response) return read;
+    const { body } = read;
     const limits = { ...(options?.pageByteBudget !== undefined && { byteBudget: options.pageByteBudget }) };
     if (findKeys) {
       const queries = queriesOf(body);
@@ -245,6 +245,45 @@ async function* bodyChunks(body: ReadableStream<Uint8Array> | null): AsyncGenera
   } finally {
     if (!done) await reader.cancel().catch(() => { /* the body may already be errored */ });
     reader.releaseLock();
+  }
+}
+
+/**
+ * A batch read's body, parsed as JSON; or the refusal of one past `cap` bytes,
+ * 413 `payload_too_large` — as soon as its `Content-Length` says so, or as its
+ * bytes pass the cap, the rest never read and the body cancelled — or of one
+ * that is not JSON, 400.
+ *
+ * @param request - The request
+ * @param cap - The most bytes its body may hold
+ * @returns The parsed body, or the refusal
+ */
+async function batchBody(request: Request, cap: number): Promise<{ body: unknown } | Response> {
+  const declared = request.headers.get('Content-Length');
+  if (declared !== null && Number(declared) > cap) {
+    return pageError('payload_too_large',
+      `A batch read's body is ${declared} bytes, past the ${cap} a batch's body holds at most: split it into smaller batches`, 413);
+  }
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  for await (const chunk of bodyChunks(request.body)) {
+    bytes += chunk.byteLength;
+    if (bytes > cap) {
+      return pageError('payload_too_large',
+        `A batch read's body is past the ${cap} bytes a batch's body holds at most: split it into smaller batches`, 413);
+    }
+    chunks.push(chunk);
+  }
+  const whole = new Uint8Array(bytes);
+  let at = 0;
+  for (const chunk of chunks) {
+    whole.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  try {
+    return { body: JSON.parse(new TextDecoder().decode(whole)) as unknown };
+  } catch (err) {
+    return pageError('bad_request', `The body is not JSON: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 

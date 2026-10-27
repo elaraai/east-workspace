@@ -52,6 +52,7 @@ export {
   getDatasetRows,
   getDatasetRuns,
   DATASET_BATCH_MAX,
+  DATASET_BATCH_BODY_MAX,
   type DatasetFindKeysRequest,
   type DatasetFindKeysResult,
   type DatasetRowsRequest,

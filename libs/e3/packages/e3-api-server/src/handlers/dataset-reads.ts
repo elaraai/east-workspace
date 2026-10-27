@@ -119,7 +119,7 @@ export function pinnedCacheControl(cache: PinnedCache | undefined): string {
 export const BLOB_REFUSAL = /^the collection [0-9a-f]{64} is stored as one blob:/;
 
 /** A refusal, answered as JSON: its type, its message and its status. */
-export function pageError(type: string, message: string, status: 400 | 404 | 409 = 400, headers?: Record<string, string>): Response {
+export function pageError(type: string, message: string, status: 400 | 404 | 409 | 413 = 400, headers?: Record<string, string>): Response {
   return new Response(JSON.stringify({ error: { type, message } }), {
     status,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers },

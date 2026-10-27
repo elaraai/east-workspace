@@ -34,6 +34,19 @@ import { comparators, decodedSegments, firstWhere } from './segments.js';
 /** The most queries, keys or runs one batch read takes: 10,000, a page's cap. */
 export const DATASET_BATCH_MAX = PAGE_MAX_LIMIT;
 
+/**
+ * The most bytes a batch read's JSON body holds: 16 MiB.
+ *
+ * @remarks
+ * A batch names at most {@link DATASET_BATCH_MAX} queries, keys or runs, so a
+ * batch of the most it names has some 1.6 KB of `.east` literals for each,
+ * and the cap is four times a page's byte budget, the most an answer holds. A
+ * body past it is refused 413 `payload_too_large` as soon as its length says
+ * so, or as its bytes pass the cap, the rest never read: no request makes the
+ * server hold more of its body than this.
+ */
+export const DATASET_BATCH_BODY_MAX = 16 * 1024 * 1024;
+
 /** Several key searches of one collection, for {@link findDatasetKeys}. */
 export interface DatasetFindKeysRequest {
   /** The searches, each in exactly one form, answered in this order. */

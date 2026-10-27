@@ -42,8 +42,8 @@ import { createTransferRoutes } from '../routes/transfer.js';
 import { findDatasetKey, getDataset, setDataset, type DatasetFindQuery } from './datasets.js';
 // The page and batch handlers through the handlers entry, as a host reaches them.
 import {
-  decodedSegmentStats, findDatasetKeys, getDatasetPage, getDatasetRows, getDatasetRuns, getValuePage, placeDatasetRuns, withinDatasetRuns,
-  type DatasetPageWindow, type DatasetPlacedSegment, type KeySearchQuery, type PinnedCache,
+  DATASET_BATCH_BODY_MAX, decodedSegmentStats, findDatasetKeys, getDatasetPage, getDatasetRows, getDatasetRuns, getValuePage, placeDatasetRuns,
+  withinDatasetRuns, type DatasetPageWindow, type DatasetPlacedSegment, type KeySearchQuery, type PinnedCache,
 } from './index.js';
 
 /**
@@ -1924,7 +1924,7 @@ describe('the batch routes', () => {
     assert.ok(planned.type === 'success' && planned.value.type === 'upload_parts', `the init is planned as an upload's: ${JSON.stringify(planned.type)}`);
   });
 
-  it('refuse a body past 16 MiB, 413, as its length says so or as its bytes pass it', async () => {
+  it('refuse a body past 16 MiB, 413, as its length says so or as its bytes pass it, never reading the rest', async () => {
     // A batch names at most 10,000 queries, keys or runs, and its body was
     // read whole, however large, before anything looked at it.
     const storage = new InMemoryStorage();
@@ -1932,19 +1932,23 @@ describe('the batch routes', () => {
     const state = await stateOf(storage);
     const app = serverOf(storage);
     const at = `/api/repos/${REPO}/workspaces/${WS}/datasets/records/plans?findKeys=true&hash=${state}`;
-    const cap = 16 * 1024 * 1024;
+    const cap = DATASET_BATCH_BODY_MAX;
+    assert.equal(cap, 16 * 1024 * 1024);
     // Declared: one query whose key literal alone is the cap's bytes.
     const huge = JSON.stringify({ queries: [{ key: JSON.stringify('k'.repeat(cap)) }] });
     const declared = await app.request(at, {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': String(huge.length) }, body: huge,
     });
     assert.equal(declared.status, 413, `a body its length says is past the cap is refused: got ${declared.status} ${(await declared.clone().text()).slice(0, 200)}`);
-    // Undeclared, sent as it is made: past the cap in whitespace, then a batch.
+    const byLength = await refusalOf(declared);
+    assert.equal(byLength.type, 'payload_too_large');
+    assert.equal(byLength.message, `A batch read's body is ${huge.length} bytes, past the ${cap} a batch's body holds at most: split it into smaller batches`);
+    // Undeclared, sent as it is made: whitespace to four times the cap, then a batch.
     let made = 0;
     const chunk = new Uint8Array(64 * 1024).fill(0x20);
     const streamed = new ReadableStream<Uint8Array>({
       pull(controller) {
-        if (made > cap) {
+        if (made > 4 * cap) {
           controller.enqueue(new TextEncoder().encode('{"queries":[]}'));
           controller.close();
           return;
@@ -1957,6 +1961,13 @@ describe('the batch routes', () => {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: streamed, duplex: 'half',
     } as RequestInit);
     assert.equal(undeclared.status, 413, `a body whose bytes pass the cap is refused: got ${undeclared.status} ${(await undeclared.clone().text()).slice(0, 200)}`);
+    const byBytes = await refusalOf(undeclared);
+    assert.equal(byBytes.type, 'payload_too_large');
+    assert.equal(byBytes.message, `A batch read's body is past the ${cap} bytes a batch's body holds at most: split it into smaller batches`);
+    assert.ok(made <= cap + 4 * chunk.byteLength, `the body is read no further than just past the cap: ${made} bytes made`);
+    // A body within it is answered, as every other batch here is.
+    const small = await app.request(at, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '  {"queries":[{"key":"\\"p-000007\\""}]}' });
+    assert.deepEqual((await batchJson<{ results: unknown[] }>(small)).results, [{ found: true, row: 7, count: 1 }]);
   });
 
   it('refuse a body not of the batch\'s form, a read of runs pinned to nothing, and two batches at once, and leave every other POST to no route', async () => {

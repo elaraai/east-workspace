@@ -387,6 +387,12 @@ through the objects route and splices them itself, as e3-api-client's
 `datasetGet` does; see
 [`design/e3-data-architecture.md`](https://github.com/elaraai/east-workspace/blob/main/libs/e3/design/e3-data-architecture.md#dataset-download).
 
+A batch's body is at most 16 MiB (`DATASET_BATCH_BODY_MAX`): some 1.6 KB of
+`.east` literals for each of the most queries, keys or runs a batch names. A
+larger one is refused 413 `payload_too_large` as soon as its `Content-Length`
+says so, or as its bytes pass the cap, and the rest is never read, so no
+request makes the server hold more of its body than that.
+
 A window's reads are a few requests, never one a search, a run or a row: its
 key searches in one `findKeys`, the runs they select in one `runs`, the rows of
 the keys it names in one `rows`, and another record's rows for its runs — a
