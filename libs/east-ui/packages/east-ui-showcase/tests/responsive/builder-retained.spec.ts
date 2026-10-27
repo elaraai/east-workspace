@@ -11,8 +11,11 @@
  * retained (CL8) — `aria-disabled`, never inert, its items readable and
  * focusable — while the toolbar stays live; the retained cells' rules are
  * dashed in the strong rule and the retained items' words are in the third
- * ink (the shared `retainedRow` and `retainedColumn`); and once the read lands
- * every rule is drawn solid again.
+ * ink (the shared `retainedRow` and `retainedColumn`); the Calendar's retained
+ * events look inert to the pointer, which shows the default cursor over them
+ * and their edges rather than the grab and the resize ones (`calendar.ts`'
+ * `event` slot); and once the read lands every rule is drawn solid again, each
+ * cursor as it was.
  */
 
 import { expect, test, type Locator, type Page } from "playwright/test";
@@ -40,6 +43,11 @@ interface Retaining {
     readonly words: string;
     /** What the spec does before it narrows: the view it reads. */
     readonly prepare?: (frame: Locator) => Promise<void>;
+    /**
+     * The retained items whose gestures show a cursor — an item, and an edge of it — and the cursor each shows while main
+     * is live: while it is retained, the default one over both.
+     */
+    readonly gestures?: { readonly item: string; readonly edge: string; readonly live: { readonly item: string; readonly edge: string } };
 }
 
 const BUILDERS: readonly Retaining[] = [
@@ -55,6 +63,7 @@ const BUILDERS: readonly Retaining[] = [
         prepare: async (frame) => {
             await frame.locator('[data-frame-slot="toolbar"]').getByRole("radio", { name: "Week", exact: true }).click();
         },
+        gestures: { item: "[data-calendar-time-grid] [data-calendar-event][data-draggable]", edge: "[data-edge]", live: { item: "grab", edge: "ns-resize" } },
     },
     {
         name: "the Allocation's timeline", route: "e3/allocation/allocation/allocationKilnYard", root: "[data-allocation-frame]", main: "[data-allocation-main]", stale: "data-allocation-stale",
@@ -93,6 +102,24 @@ function focusable(frame: Locator, builder: Retaining) {
     }, builder.words);
 }
 
+/**
+ * The cursor the pointer shows over the first of the builder's gesture items tall enough to show its edges apart from
+ * its middle, and over its first edge: each read off what the page hits at the centre of it, brought into view.
+ */
+function cursors(frame: Locator, gestures: NonNullable<Retaining["gestures"]>) {
+    return frame.evaluate((root, { item: items, edge: edges }) => {
+        const item = [...root.querySelectorAll<HTMLElement>(items)].find((el) => el.querySelector(edges) !== null && el.getBoundingClientRect().height >= 24);
+        if (item === undefined) return undefined;
+        item.scrollIntoView({ block: "center", inline: "center" });
+        const over = (el: HTMLElement) => {
+            const box = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+            return hit !== null && el.contains(hit) ? getComputedStyle(hit).cursor : `not under the pointer: ${hit?.tagName ?? "nothing"}`;
+        };
+        return { item: over(item), edge: over(item.querySelector<HTMLElement>(edges)!) };
+    }, { item: gestures.item, edge: gestures.edge });
+}
+
 /** Chooses the builder's narrowing through its rail, the read already held. */
 async function narrow(page: Page, frame: Locator, builder: Retaining): Promise<number> {
     const editor = await recordField(page, frame, builder.field, builder.source);
@@ -107,7 +134,7 @@ async function narrow(page: Page, frame: Locator, builder: Retaining): Promise<n
 
 for (const theme of ["light", "dark"] as const) {
     for (const builder of BUILDERS) {
-        test(`${builder.name}: while a narrowing is read the period stands in, retained — its rules dashed in the strong rule, its items' words in the third ink, main aria-disabled and never inert, its items focusable, the toolbar live — then drawn as before (#1398, CL5, CL8) (${theme}) @desktop`, async ({ page }) => {
+        test(`${builder.name}: while a narrowing is read the period stands in, retained — its rules dashed in the strong rule, its items' words in the third ink, main aria-disabled and never inert, its items focusable${builder.gestures === undefined ? "" : " and showing no gesture's cursor"}, the toolbar live — then drawn as before (#1398, CL5, CL8) (${theme}) @desktop`, async ({ page }) => {
             test.setTimeout(240_000);
             await installE3Faults(page);
             await page.setViewportSize({ width: 2560, height: 1200 });
@@ -124,6 +151,8 @@ for (const theme of ["light", "dark"] as const) {
             expect(before.items.length, "retained items to measure").toBeGreaterThan(0);
             expect(before.sides.every((side) => side.style === "solid" && side.color === subtle), JSON.stringify(before.sides)).toBe(true);
             expect(before.items.every((color) => color !== muted), JSON.stringify(before.items)).toBe(true);
+            const { gestures } = builder;
+            if (gestures !== undefined) expect(await cursors(frame, gestures), "the cursors over an item and its edge, live").toEqual(gestures.live);
 
             const held = await narrow(page, frame, builder);
             await settled(page, { holding: true });
@@ -135,6 +164,7 @@ for (const theme of ["light", "dark"] as const) {
             expect(kept.items.every((color) => color === muted), JSON.stringify(kept.items)).toBe(true);
             expect([kept.disabled, kept.inert, kept.toolbar]).toEqual([true, false, true]);
             expect(await focusable(frame, builder), "a retained item takes the focus").toBe(true);
+            if (gestures !== undefined) expect(await cursors(frame, gestures), "the cursors over an item and its edge, retained").toEqual({ item: "default", edge: "default" });
 
             await releaseE3(page, held);
             await expect(frame.locator(`[${builder.stale}]`)).toHaveCount(0, { timeout: 30_000 });
@@ -143,6 +173,7 @@ for (const theme of ["light", "dark"] as const) {
             expect(after.sides.length).toBeGreaterThan(0);
             expect(after.sides.every((side) => side.style === "solid" && side.color === subtle), JSON.stringify(after.sides)).toBe(true);
             expect([after.disabled, after.inert, after.toolbar]).toEqual([false, false, true]);
+            if (gestures !== undefined) expect(await cursors(frame, gestures), "the cursors over an item and its edge, live again").toEqual(gestures.live);
         });
     }
 }
