@@ -24,7 +24,8 @@
  * An event its kind's choices hide is named by them — and, where the view lays
  * resources out, one whose resource its resource kind's source hides by that
  * source's choices too — and a pick of it clears just them first, its window
- * kept (the hidden pick, `hidden.tsx`).
+ * kept (the shared hidden pick, `shared/schedule/hidden-pick.tsx`, each kind's
+ * read through its source in `HideSources`).
  * Each layout's view keeps its place across a step and a remount — the time
  * grid's hour, the timeline's line — and Today brings the time grid to the now
  * line. Every key it acts on goes no further than the Calendar: `[` and `]`
@@ -87,14 +88,14 @@ import {
     BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useFormatters,
     usePersistedState, useLanding, useLandingStyles, useTrackedEvaluation, type Formatters,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal, PAGED_LIBRARY_PAGE, usePickHandOff } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, PAGED_LIBRARY_PAGE } from "@elaraai/east-ui-components/internal";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod, type PagedLoading } from "../shared/loading.js";
 import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedule/cells.js";
 import { useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
-import { clearHiding } from "../shared/schedule/hidden.js";
+import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { useNow } from "../shared/time/now-line.js";
@@ -107,7 +108,6 @@ import { useCalendarDrag } from "./drag.js";
 import { EventFocusContext, type EventFocus } from "./event-focus.js";
 import { useCalendarFind, type FoundEvent } from "./find.js";
 import { CalendarFooter } from "./footer.js";
-import { HideEvents, type CalendarResourcePart, type HiddenEvents } from "./hidden.js";
 import { CalendarPagesReader, createPagedDemand, type CalendarPages } from "./pages.js";
 import { CalendarSelectionReader, NO_SELECTION, useCalendarInspector, type CalendarSelection } from "./inspector.js";
 import { calendarLibraryId, templatesTab, useCalendarLibrary } from "./library.js";
@@ -137,10 +137,10 @@ interface HostProps extends EastChakraCalendarProps {
     /** The sources the Calendar follows beside its event kinds': what each shows. */
     followed: FollowedSources;
     /**
-     * Each event kind's hidden pick and each resource kind's, by its slot: what hides an event Search Records finds that
-     * its kind's choices leave out — or, where the view lays resources out, its resource's source.
+     * Each event kind's hidden pick and each resource kind's, by its slot (the shared hidden pick): what hides an event
+     * Search Records finds that its kind's choices leave out — or, where the view lays resources out, its resource's source.
      */
-    hidden: HiddenEvents;
+    picks: HiddenPicks;
     editing?: ScheduleEditing;
     /**
      * Told the rows the cells' reader holds of each kind it reads by its cells (#1424), as they move: where the editing
@@ -318,7 +318,7 @@ export function setCalendarFrameRenderProbe(fn: (() => void) | undefined): void 
 }
 function CalendarFrame(props: HostProps) {
     calendarFrameRenderProbe?.();
-    const { value, storageKey, editing, now, followed, dates, onHeld, onBacklog, hidden: hiddenEvents } = props;
+    const { value, storageKey, editing, now, followed, dates, onHeld, onBacklog, picks } = props;
     const { view, range } = dates;
     // What the timeline shows: exactly, for a change of layout or period to keep its centre; and in whole days, in a store
     // of its own, read only by what says them — so its scroll draws nothing of the frame (#1398, CL9).
@@ -578,14 +578,12 @@ function CalendarFrame(props: HostProps) {
     const step = (by: -1 | 1) => onNavigate(navigate({ ...view, date: (timeline ? visibleDays.get()?.center : undefined) ?? view.date }, by).date);
     const nouns = useMemo(() => calendarNouns(value, format.locale), [value, format.locale]);
     // Search Records (#1398): an event found by its key steps the view to its period, is selected and is brought into view;
-    // a pick gives it the keyboard there, once the box has let it go (`usePickHandOff`) and the window it is drawn in has
-    // landed — after a step of the dates, that window: the element that stands for it where its ring is drawn takes the
-    // focus (`event-focus.ts`). An event the views draw nowhere — one of the backlog — leaves the keyboard where it is, as
-    // does a step through the matches. One its kind's choices hide is shown by clearing those of its source that hide it —
-    // those e3 named, else every one of its choices, its window kept — a write of the rail like a chip's (the hidden pick);
-    // one whose resource its resource kind's source hides, where the view lays resources out, by clearing that source's
-    // too; and it is given the keyboard once the narrowing it leaves draws it.
-    const handOff = usePickHandOff();
+    // a pick gives it the keyboard there, once the box has let it go and the window it is drawn in has landed — after a
+    // step of the dates, that window: the element that stands for it where its ring is drawn takes the focus
+    // (`event-focus.ts`). An event the views draw nowhere — one of the backlog — leaves the keyboard where it is, as does a
+    // step through the matches. One its kind's choices hide, or — where the view lays resources out — whose resource its
+    // resource kind's source hides, is shown by clearing just the choices that hide it, its window kept, and given the
+    // keyboard once the narrowing they leave draws it (the shared hidden pick).
     // The event a pick gave the keyboard to: the first element of it drawn takes the focus, once. It waits only while the
     // event is the one selected, and until the viewer does something else (the root's captures below).
     const [focusAsk, setFocusAsk] = useState<{ readonly id: string }>();
@@ -603,36 +601,29 @@ function CalendarFrame(props: HostProps) {
         if (focusAsk !== undefined && !refs.some(ref => stringEqual(eventKey(ref), focusAsk.id))) setFocusAsk(undefined);
     }, [refs, focusAsk]);
     const dropFocus = focusAsk === undefined ? undefined : () => setFocusAsk(undefined);
-    // The pick's event, waiting for the window it is drawn in to land.
-    const [pickLanding, setPickLanding] = useState<string>();
+    // The pick lands once the window its event is drawn in has landed, the event among what it draws.
+    const hiddenPick = useHiddenPick<string>({
+        onError: setError, uncleared: "The filters hiding the event could not be cleared",
+        landing: { drawn: (id) => current && items.some(item => stringEqual(eventKey(item), id)), focus: (id) => setFocusAsk({ id }) },
+    });
     const found = (event: FoundEvent) => {
         const ref = { kind: event.item.kind, key: event.item.key };
-        const { hidden } = event;
-        const kindPick = hidden?.kind === undefined ? undefined : hiddenEvents.kinds.get(event.item.kind);
-        const resourcePick = hidden?.resource === undefined ? undefined : hiddenEvents.resources.get(hidden.resource.kind);
-        try {
-            if (hidden?.kind !== undefined && kindPick?.part !== undefined) clearHiding(kindPick.part, hidden.kind.answer, kindPick.window);
-            if (hidden?.resource !== undefined && resourcePick?.part !== undefined) clearHiding(resourcePick.part, hidden.resource.answer);
-        } catch (reason) {
-            // Not drawn, so nothing takes the keyboard: it stays where it is.
-            handOff.drop();
-            setError(reason instanceof Error ? reason.message : "The filters hiding the event could not be cleared");
-            return;
-        }
-        select([ref]);
-        if (event.item.start.type !== "some") { handOff.drop(); return; }
-        onNavigate(dayStart(event.item.start.value).getTime());
-        setReveal(ref);
-        setPickLanding(eventKey(ref));
+        hiddenPick.pick(event.hidden, eventKey(ref), () => {
+            select([ref]);
+            if (event.item.start.type !== "some") return false;
+            onNavigate(dayStart(event.item.start.value).getTime());
+            setReveal(ref);
+            return true;
+        });
     };
-    const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format: words, onPick: found, held: cellRows, hidden: hiddenEvents,
-        laysResources });
-    const search = useMemo(() => (finder === undefined ? undefined : handOff.search(finder)), [finder, handOff]);
-    useEffect(() => {
-        if (pickLanding === undefined || !current || !items.some(item => stringEqual(eventKey(item), pickLanding))) return;
-        setPickLanding(undefined);
-        handOff.land(() => setFocusAsk({ id: pickLanding }));
-    }, [pickLanding, current, items, handOff]);
+    // What each resource kind's source shows, where the Calendar follows it: the paged kind's, followed by none, is asked of e3.
+    const resourcesShown = useMemo(() => new Map(value.resources.flatMap(kind => {
+        const keys = followed.get(kind.key)?.shown.keys;
+        return keys === undefined ? [] : [[kind.key, keys] as const];
+    })), [value.resources, followed]);
+    const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format: words, onPick: found, held: cellRows, picks,
+        resourcesShown, laysResources });
+    const search = useMemo(() => (finder === undefined ? undefined : hiddenPick.search(finder)), [finder, hiddenPick]);
     // The window's own count: "…" while the period is read, never a count of another period's (#1398, CL13).
     const toolbar = useCalendarToolbar({ view, setView, onNavigate, navigationDate, rangeLabel, sunday: value.settings.weekStart.type === "sunday", range: displayRange, now,
         count: current ? items.filter(item => inWindow(item, displayRange.from, displayRange.to)).length : undefined, uncounted,
@@ -782,19 +773,23 @@ export function EastChakraCalendar({ value, storageKey }: EastChakraCalendarProp
     // The sources the Calendar follows itself, each read once (one component each, so their hooks keep their order).
     const sources = useMemo(() => followedSources(value), [value]);
     const nouns = useMemo(() => new Map(Object.entries(calendarNouns(value, locale))), [value, locale]);
-    // Each resource kind narrowed through its source of the slice, the paged kind's among them.
+    // The sources the hidden pick asks of, by the kind's slot: each event kind's — its choices but the range the Calendar's
+    // navigation writes, which hides no event — and each resource kind's narrowed through its source of the slice, the paged
+    // kind's among them.
     const chrome = dates.chrome;
-    const resourceParts = useMemo(() => value.resources.flatMap((kind): CalendarResourcePart[] => {
-        const part = sourcePart(chrome, kind.key);
-        return part === undefined ? [] : [{ kind: kind.key, part }];
-    }), [value.resources, chrome]);
-    // And each event kind's hidden pick and each resource kind's, read through its source (one component each, as the
-    // sources are), a resource kind's beside what its source shows.
+    const hiddenSources = useMemo((): HiddenSource[] => [
+        ...dates.eventParts.map(({ kind, part }) => ({ key: kind.key, part, window: part.config.range.type === "some" ? part.config.range.value : undefined })),
+        ...value.resources.flatMap((kind): HiddenSource[] => {
+            const part = sourcePart(chrome, kind.key);
+            return part === undefined ? [] : [{ key: kind.key, part }];
+        }),
+    ], [dates.eventParts, value.resources, chrome]);
+    // And each one's hidden pick, read through its source (one component each, as the sources are).
     return <FollowSources chrome={chrome} narrowed={value.narrowed} sources={sources} nouns={nouns} said={calendarSaid}>
-        {followed => <HideEvents parts={dates.eventParts} resources={resourceParts} followed={followed}>
-            {hidden => value.settings.readOnly ? <CalendarFrame value={value} storageKey={key} dates={dates} now={now} followed={followed} hidden={hidden} />
-                : <EditableCalendar value={value} storageKey={key} dates={dates} now={now} followed={followed} hidden={hidden} />}
-        </HideEvents>}
+        {followed => <HideSources name="Calendar" sources={hiddenSources}>
+            {picks => value.settings.readOnly ? <CalendarFrame value={value} storageKey={key} dates={dates} now={now} followed={followed} picks={picks} />
+                : <EditableCalendar value={value} storageKey={key} dates={dates} now={now} followed={followed} picks={picks} />}
+        </HideSources>}
     </FollowSources>;
 }
 implementUIComponent(CalendarComponent, EastChakraCalendar);

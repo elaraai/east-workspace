@@ -5,9 +5,10 @@
  * Words the schedule builders share (#1424): a kind's name in the plural,
  * words joined as English lists them, what a figure says of the kinds it
  * does not count — the Plan's footer and the Calendar's counts alike, a kind
- * past the cap counted none of, never 0 — and the hidden pick's sentence for a
- * row the rail's narrowing hides (`hidden.ts`), here, with no DOM to load, so
- * a builder's message table that says it loads with none.
+ * past the cap counted none of, never 0 — and the hidden pick's words for a
+ * row the rail's narrowing hides (`hidden.ts`): what a builder's message table
+ * gives its line ({@link HiddenWords}) and their English, here, with no DOM to
+ * load, so a builder's message table that says them loads with none.
  *
  * @packageDocumentation
  */
@@ -50,6 +51,21 @@ export function joinedWords(words: readonly string[], last: "or" | "and"): strin
 export function eventsNotCounted(p: { n: number; count: string | undefined; kinds: readonly string[] }): string {
     const notCounted = `${joinedWords(p.kinds.map(kindPlural), "and")} not counted`;
     return p.count === undefined ? notCounted : `${p.count} ${p.n === 1 ? "event" : "events"}, ${notCounted}`;
+}
+
+/**
+ * A builder's words for a row the rail's narrowing hides, as its line says
+ * it — its message table's, so a translation words them (the hidden pick,
+ * `hidden.ts`' `hiddenLine`).
+ */
+export interface HiddenWords {
+    /** Until e3 has said which choices hide it, for each source that does — `hidden by the filters`. */
+    readonly hiddenByFilters: () => string;
+    /**
+     * Once it has: the choices that hide it, each as the rail words it, and those a pick clears with them — `hidden by
+     * Status: Ready — picking it clears that filter` ({@link hiddenByText} in English).
+     */
+    readonly hiddenBy: (p: { readonly filters: readonly string[]; readonly also: readonly string[] }) => string;
 }
 
 /**

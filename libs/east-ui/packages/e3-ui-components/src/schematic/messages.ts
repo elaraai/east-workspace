@@ -9,9 +9,10 @@
  * through the items, the View popover a phone's row folds them into, and what
  * the rail counts a templates list's source in; what the footer says of a kind
  * drawn as its density (#1393); what the canvas says where a read failed, and
- * its Retry (#1398, CL11); what Find marks an item it found by and what the footer says of
- * one the canvas doesn't show as itself (#1404); the canvas's and the frame's
- * accessible names; and its editing's
+ * its Retry (#1398, CL11); what Find marks an item it found by, the rail's
+ * filters leaving it out, its layer hidden or no position, and what the
+ * footer says of one the canvas doesn't show as itself (#1404); the canvas's
+ * and the frame's accessible names; and its editing's
  * (#1388): what a Save's notice counts a kind's
  * rows in, a details record's banners, why a connection's draft doesn't snap
  * or a Delete is refused, and each gesture's step in the history; and its
@@ -22,12 +23,12 @@
  * refused, and a drop's step in the history; and its inspector's (#1391): the
  * pane and its tabs, the heads of Details' sections and its own fields, where
  * an entity stands, a gesture's button and its step, a record's last save and
- * who made it, why a net's side stays, each issue's words, what Issues says
- * of the kinds read by area it checks only in view, and what an issue's line
- * says of an unsaved change the rail's filters hide — the shared hidden pick's
- * sentence (`shared/schedule/words.ts`' `hiddenByText`) — and below
+ * who made it, why a net's side stays, each issue's words, and what Issues
+ * says of the kinds read by area it checks only in view — and below
  * 480px of main (#1394) its Connect to…, its link kind, and an item with no
- * position, its Place; and the
+ * position, its Place; what Find's line and an issue's line say of a row the
+ * rail's filters hide, and why a pick of one could not clear them — the shared
+ * hidden pick's words (`shared/schedule/words.ts`' `HiddenWords`); and the
  * footer's loading line's (#1398, CL3), the shared paged words over a kind's
  * rows — `Loading racks…`, `Filtering racks…`, `Couldn't read racks` — and
  * its own over a kind's window — `Loading racks in view`, `Loading counts`,
@@ -41,7 +42,7 @@
 import type { Formatters } from "@elaraai/east-ui-components";
 import type { LoadingLineText } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
-import { hiddenByText, joinedWords } from "../shared/schedule/words.js";
+import { hiddenByText, joinedWords, type HiddenWords } from "../shared/schedule/words.js";
 import type { SchematicIssueWord } from "./issues.js";
 import type { SchematicTool } from "./tools.js";
 
@@ -61,8 +62,11 @@ export interface SchematicMembers {
     readonly more: SchematicCount | undefined;
 }
 
-/** The Schematic's message table: its own words, and the footer's loading line's over a kind's rows (`PagedLoadingMessages`). */
-export interface SchematicMessages extends PagedLoadingMessages {
+/**
+ * The Schematic's message table: its own words, the footer's loading line's over a kind's rows (`PagedLoadingMessages`),
+ * and what Find's line and an issue's line say of a row the rail's filters hide (`HiddenWords`).
+ */
+export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
     /** The frame's accessible name, and what its skeleton is the loading of. */
     frameLabel: () => string;
     /** What the footer's loading line names a read of the drawing as a whole that failed — `Couldn't read the drawing`. */
@@ -104,14 +108,12 @@ export interface SchematicMessages extends PagedLoadingMessages {
     /** What Find says when a query finds nothing. */
     findNoMatches: () => string;
     /**
-     * What keeps an item Find found off the canvas, at its line's end (#1404): the rail's filters hide it, or dim it
-     * as context; its layer is hidden; it has no position.
+     * What keeps an item Find found off the canvas, at its line's end (#1404): its layer is hidden; it has no position. One
+     * the rail's filters leave out says which of them do (`hiddenByFilters`, `hiddenBy`).
      */
-    findMark: (p: { mark: "hidden" | "dimmed" | "layer" | "unplaced" }) => string;
-    /** What the footer says of an item a Find's pick landed on that the canvas doesn't show it as itself — `A07 is hidden by the filters`. */
-    foundOff: (p: { item: string; mark: "hidden" | "dimmed" | "layer" | "unplaced" }) => string;
-    /** The footer's action beside a found item the rail's filters leave out: they clear, and the item is selected. */
-    clearFilters: () => string;
+    findMark: (p: { mark: "layer" | "unplaced" }) => string;
+    /** What the footer says of an item a Find's pick landed on that the canvas doesn't show as itself — `A04 is on a hidden layer`. */
+    foundOff: (p: { item: string; mark: "layer" | "unplaced" }) => string;
     /** The View popover's name: a phone's row's tools, zoom, Fit and Find. */
     viewLabel: () => string;
     /** The steps' group's accessible name. */
@@ -283,17 +285,10 @@ export interface SchematicMessages extends PagedLoadingMessages {
      */
     inspectorUnchecked: (p: { names: readonly string[] }) => string;
     /**
-     * What an issue's line says of the unsaved change it names where the rail's filters leave out the row it drafts — the
-     * change waiting in its session, drawn nowhere — while e3 has not said which of them do: `hidden by the filters`.
+     * What the footer says where a pick of a row the rail's filters hide — Find's, or Go to issue's on an unsaved change
+     * waiting in its session — could not clear the choices hiding it, and the rail gave no words of its own.
      */
-    inspectorIssueHidden: () => string;
-    /**
-     * What it says once e3 has (the shared hidden pick): the choices that hide the row, as the rail words them, and those
-     * Go to issue clears with them — `hidden by Owner: Northwind Media — picking it clears that filter`.
-     */
-    inspectorIssueHiddenBy: (p: { filters: readonly string[]; also: readonly string[] }) => string;
-    /** What the footer says where Go to issue could not clear the choices hiding an unsaved change, and the rail gave no words of its own. */
-    inspectorIssueUncleared: () => string;
+    hiddenUncleared: () => string;
 }
 
 /** A section of the inspector's Details, as its head names it. */
@@ -412,14 +407,11 @@ export const schematicMessages: SchematicMessages = {
     fit: () => "Fit",
     findLabel: () => "Find item",
     findNoMatches: () => "No item's key matches. Keys are case-sensitive.",
-    findMark: ({ mark }) => ({ hidden: "hidden", dimmed: "dimmed", layer: "on a hidden layer", unplaced: "no position" })[mark],
+    findMark: ({ mark }) => ({ layer: "on a hidden layer", unplaced: "no position" })[mark],
     foundOff: ({ item, mark }) => ({
-        hidden: `${item} is hidden by the filters`,
-        dimmed: `${item} is dimmed by the filters`,
         layer: `${item} is on a hidden layer`,
         unplaced: `${item} has no position: it is in the Backlog`,
     })[mark],
-    clearFilters: () => "Clear filters",
     viewLabel: () => "View",
     stepLabel: () => "Step through items",
     previousItem: () => "Previous item",
@@ -510,9 +502,9 @@ export const schematicMessages: SchematicMessages = {
     issueText,
     inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every link names its items, and every shape and colour holds."),
     inspectorUnchecked: ({ names }) => `${capital(joinedWords(names, "and"))} out of view are checked only as the view reaches them`,
-    inspectorIssueHidden: () => "hidden by the filters",
-    inspectorIssueHiddenBy: ({ filters, also }) => hiddenByText(filters, also),
-    inspectorIssueUncleared: () => "The filters hiding it could not be cleared",
+    hiddenByFilters: () => "hidden by the filters",
+    hiddenBy: ({ filters, also }) => hiddenByText(filters, also),
+    hiddenUncleared: () => "The filters hiding it could not be cleared",
 };
 
 /** The words a Schematic speaks: its message table, and its locale's formatters. */

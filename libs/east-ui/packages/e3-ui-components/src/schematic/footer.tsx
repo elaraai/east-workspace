@@ -13,9 +13,10 @@
  * recorded — a Delete a read-only link or net blocks, a drop, an inspector
  * edit (#1390, #1391); each Save's notice, the rows it took out of a source's
  * narrowing (`RecordSliceSaveNotice`); and where Find's last pick landed on
- * an item the canvas doesn't show as itself, why — the rail's filters, with
- * Clear filters; its layer; no position (#1404) — while that pick stands: the
- * search cleared, or a new query asked in its place, it goes. With nothing
+ * an item the canvas doesn't show as itself, why — its layer, or no position
+ * (#1404); the rail's filters hiding it the pick cleared, as every builder's
+ * hidden pick does — while that pick stands: the search cleared, or a new
+ * query asked in its place, it goes. With nothing
  * live the rail is empty. The drawing's counts and each record's last save are the
  * inspector's, in its Details with nothing selected (`counts.ts`), and the
  * changes waiting on Save the history's.
@@ -35,7 +36,7 @@
  */
 
 import { useMemo, useRef, useSyncExternalStore } from "react";
-import { Box, Button, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, type SystemStyleObject } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { LoadingLine, RecordSliceSaveNotice, useFooterFit, useRevealed, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
@@ -57,14 +58,6 @@ export interface SchematicNotice {
     readonly plural: string;
 }
 
-/** What the footer says of the item Find's last pick landed on, where the canvas doesn't show it as itself. */
-export interface SchematicFoundNotice {
-    /** Its words: `A07 is hidden by the filters`. */
-    readonly words: string;
-    /** Clears the filters that leave it out, and selects it once it draws; `undefined` where no filter does. */
-    readonly clear: (() => void) | undefined;
-}
-
 /** Props of {@link SchematicFooter}. */
 export interface SchematicFooterProps {
     /** The `schematic` recipe's styles. */
@@ -84,10 +77,10 @@ export interface SchematicFooterProps {
     /** Each kind read through its source that writes: its Save's notice. */
     readonly notices: readonly SchematicNotice[];
     /**
-     * What keeps the item Find's last pick landed on from the canvas as itself (#1404) — the rail's filters, with their
-     * Clear filters; its layer; no position — or `undefined` while nothing does.
+     * What keeps the item Find's last pick landed on from the canvas as itself, the filters hiding it cleared by the pick
+     * (#1404) — `A04 is on a hidden layer`, `A06 has no position: it is in the Backlog` — or `undefined` while nothing does.
      */
-    readonly found?: SchematicFoundNotice | undefined;
+    readonly found?: string | undefined;
     /** What the loading line says: a read in flight, or one that failed, with Retry; `undefined` while nothing is read. */
     readonly line: LoadingLineValue | undefined;
 }
@@ -116,7 +109,7 @@ export function SchematicFooter({ styles, words, density, names, viewport, exten
     const fit = useFooterFit(rail);
     const shown = useRevealed() === true;
     const live = useRef<HTMLDivElement>(null);
-    const wrap = useRailWrap(live, [...dense.map((notice) => notice.text), refusal ?? "", found?.words ?? ""].join("\n"));
+    const wrap = useRailWrap(live, [...dense.map((notice) => notice.text), refusal ?? "", found ?? ""].join("\n"));
     return (
         <Box ref={rail} css={styles.footer} data-schematic-footer="">
             <Box ref={live} css={styles.footerNotices} data-schematic-notices="" data-footer-slack="" data-builder-narrow={wrap ? "" : undefined}>
@@ -125,13 +118,8 @@ export function SchematicFooter({ styles, words, density, names, viewport, exten
                 ))}
                 {refusal !== undefined && <Box as="span" css={styles.footerItem} data-schematic-refused="" role="alert">{refusal}</Box>}
                 {notices.map((notice) => <RecordSliceSaveNotice key={notice.slot} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
-                {/* Where Find's last pick landed, the canvas not showing it as itself: why, and — the filters — their Clear, as the Save notice's Retry. */}
-                {found !== undefined && (
-                    <Box as="span" css={styles.footerItem} data-schematic-found="" role="status">
-                        {found.words}
-                        {found.clear !== undefined && <> <Button size="xs" variant="plain" onClick={found.clear}>{words.m.clearFilters()}</Button></>}
-                    </Box>
-                )}
+                {/* Where Find's last pick landed, the canvas not showing it as itself: why. */}
+                {found !== undefined && <Box as="span" css={styles.footerItem} data-schematic-found="" role="status">{found}</Box>}
             </Box>
             <LoadingLine value={line} shown={shown} form={fit.form} />
         </Box>

@@ -23,16 +23,22 @@
  * matches are one list: each kind's in its keys' order, the kinds in the order
  * the Schematic lists them, each kind's run after the one before. A line names
  * an item by its key, its label where it is not its key, and its kind's name,
- * and says what keeps it off the canvas: the rail's filters, its layer, or no
- * position. A pick hands the frame the item and what it knows of it
- * (`onPick`), and the box shows its key; the pick stands until the search is
- * cleared or a new query asked in its place, which the frame hears
- * (`onCleared`), so what it said of where the pick landed goes with it. The
- * box asks its query again when what its lines are read from moves — a
- * source's record or its narrowing, a kind read whole's rows, the layers
- * hidden or how the narrowing draws — and never when a window of what the
+ * and says what keeps it off the canvas: its layer, or no position — and,
+ * where its kind's source's narrowing leaves it out, which of the rail's
+ * choices do, as every builder's Search Records names them (the shared hidden
+ * pick, `shared/schedule/hidden.ts`): `hidden by Owner: Northwind Media —
+ * picking it clears that filter`, asked of e3 for the rows a list shows that
+ * the narrowing leaves out, by the page the list read them from, and `hidden
+ * by the filters` until it has said. A pick hands the frame the item and what
+ * it knows of it — what hides it among it (`onPick`) — and the box shows its
+ * key; the pick stands until the search is cleared or a new query asked in its
+ * place, which the frame hears (`onCleared`), so what it said of where the
+ * pick landed goes with it. The box asks its query again when what its lines
+ * are read from moves — a source's record or its narrowing, a kind read
+ * whole's rows, the layers hidden — and never when a window of what the
  * canvas draws lands, so a pick's fly keeps its place among the matches: a
- * query asked again leaves the pick standing.
+ * query asked again leaves the pick standing. It lists its lines again as e3
+ * says which choices hide a row (`relist`).
  *
  * @packageDocumentation
  */
@@ -43,6 +49,8 @@ import { RecordSliceWhereType, findKeyInline, type DatasetKeyMatchRange, type Da
 import { useTrackedEvaluation, type KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked, recordSlicePage, recordSliceRevision, recordSliceSeek, recordSliceWithin, toSeekQuery } from "@elaraai/east-ui-components/internal";
 import { entityId, type ItemRoles, type SchematicRef } from "./canvas/drawn.js";
+import { hiddenLine, hiddenOf, useRelist, type RowHidden, type SourceHidden } from "../shared/schedule/hidden.js";
+import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import type { RowCodec } from "../shared/schedule/records.js";
 import type { SchematicWords } from "./messages.js";
 
@@ -117,40 +125,46 @@ export interface FoundItem {
     readonly position: { readonly x: number; readonly y: number } | undefined;
     /** The layer it is on, by the layer's key. */
     readonly layer: string | undefined;
-    /** Whether the rail's narrowing of its kind's source leaves it out. */
-    readonly filtered: boolean;
+    /**
+     * What leaves it out on the rail — its kind's source, and which of its choices e3 has said hide it (the shared hidden
+     * pick) — which a pick of it clears; `undefined` while the narrowing holds it.
+     */
+    readonly hidden: readonly RowHidden[] | undefined;
 }
 
-/** What keeps a found item off the canvas, as its line marks it — or `undefined` while nothing does. */
-export type FoundMark = "hidden" | "dimmed" | "layer" | "unplaced" | undefined;
+/** What keeps a found item off the canvas but the rail's filters, as its line marks it — or `undefined` while nothing does. */
+export type FoundMark = "layer" | "unplaced" | undefined;
 
 /**
- * What keeps a found item off the canvas: no position first, then the rail's filters — `dimmed` where the narrowing
- * draws what it leaves out as context — then a hidden layer.
+ * What keeps a found item off the canvas but the rail's filters, which its line names apart and a pick of it clears: no
+ * position first, then a hidden layer.
  *
  * @param item - The item found
- * @param dim - Whether the narrowing dims what it leaves out
  * @param hiddenLayers - The layers hidden, by key
  * @returns Its mark
  */
-export function foundMark(item: FoundItem, dim: boolean, hiddenLayers: ReadonlySet<string>): FoundMark {
+export function foundMark(item: FoundItem, hiddenLayers: ReadonlySet<string>): FoundMark {
     if (item.position === undefined) return "unplaced";
-    if (item.filtered) return dim ? "dimmed" : "hidden";
     return item.layer !== undefined && hiddenLayers.has(item.layer) ? "layer" : undefined;
 }
 
 /**
- * How a found item reads in Find's list: its key, its label when it is not its key, its kind's name, and what keeps
- * it off the canvas.
+ * How a found item reads in Find's list: its key, its label when it is not its key, its kind's name, what keeps it off
+ * the canvas — its layer, or no position — and, last, which of the rail's choices leave it out, as every builder's line
+ * names them (`hiddenLine`): `hidden by the filters` until e3 has said which.
  *
  * @param item - The item
- * @param mark - What keeps it off the canvas
+ * @param mark - What keeps it off the canvas but the filters
  * @param words - The Schematic's words
  * @returns Its line
  */
 export function foundLine(item: FoundItem, mark: FoundMark, words: SchematicWords): string {
     const parts = keyEqual(item.label, item.ref.key) ? [item.ref.key, item.kind] : [item.ref.key, item.label, item.kind];
-    return [...parts, ...(mark === undefined ? [] : [words.m.findMark({ mark })])].join(" · ");
+    return [
+        ...parts,
+        ...(mark === undefined ? [] : [words.m.findMark({ mark })]),
+        ...(item.hidden === undefined ? [] : [hiddenLine(item.hidden, words, words.m)]),
+    ].join(" · ");
 }
 
 /**
@@ -198,36 +212,51 @@ export function runsAt(runs: readonly FindRun[], row: number, limit: number): { 
     return out;
 }
 
-/** An item found, from its kind's roles of its row. */
-function foundOf(kind: FindKind, key: string, roles: ItemRoles, filtered: boolean): FoundItem {
+/** An item found, from its kind's roles of its row, and what leaves it out on the rail. */
+function foundOf(kind: FindKind, key: string, roles: ItemRoles, hidden: readonly RowHidden[] | undefined): FoundItem {
     const ref = { kind: kind.slot, key };
     const position = someOf(roles.position);
     return {
         id: entityId(ref), ref, label: roles.label, kind: kind.name,
-        position: position === undefined ? undefined : { x: position.x, y: position.y }, layer: someOf(roles.layer), filtered,
+        position: position === undefined ? undefined : { x: position.x, y: position.y }, layer: someOf(roles.layer), hidden,
     };
 }
 
 /**
  * Some of a kind's matches, read: a kind read through its source's rows by position, through e3, and which of them its
- * narrowing leaves out in one request; a kind read whole's from its rows.
+ * narrowing leaves out in one request — those it does asked of e3 which choices do, by the page they were read from
+ * (the kind's hidden pick's `askListed`); a kind read whole's from its rows.
+ *
+ * @param run - The kind's matches
+ * @param offset - The first of them the list shows
+ * @param n - How many
+ * @param pick - The kind's hidden pick; `undefined` for a kind read whole
+ * @returns The items, in order
  */
-async function matchesOf(run: FindRun, offset: number, n: number): Promise<FoundItem[]> {
+async function matchesOf(run: FindRun, offset: number, n: number, pick: SourceHidden | undefined): Promise<FoundItem[]> {
     const { kind } = run;
     if (kind.part === undefined || run.keys !== undefined) {
         const rows = await awaitTracked(() => kind.rows());
         return (run.keys ?? []).slice(offset, offset + n).flatMap((key) => {
             const roles = rows.get(key)?.roles;
-            return roles === undefined ? [] : [foundOf(kind, key, roles, false)];
+            return roles === undefined ? [] : [foundOf(kind, key, roles, undefined)];
         });
     }
     const part = kind.part;
+    const from = run.start + offset;
     // Every record Slice binding reads joined entries of its record's String keys: record.ts' bind refuses any other.
-    const entries = await awaitTracked(() => recordSlicePage(part, WHOLE, BigInt(run.start + offset), BigInt(n))) as readonly RecordEntry[];
-    const rows = entries.flatMap((entry) => { const row = someOf(entry.row); return row === undefined ? [] : [{ key: entry.key, row }]; });
+    const entries = await awaitTracked(() => recordSlicePage(part, WHOLE, BigInt(from), BigInt(n))) as readonly RecordEntry[];
+    const listed = entries.map((entry) => ({ key: entry.key, row: someOf(entry.row) }));
+    const rows = listed.flatMap(({ key, row }) => (row === undefined ? [] : [{ key, row }]));
     const where = part.read().where;
-    const held = where.size === 0 ? undefined : await awaitTracked(() => recordSliceWithin(part, where, rows));
-    return rows.map(({ key, row }, i) => foundOf(kind, key, kind.read(kind.codec.encode(row), key), held !== undefined && !held[i]));
+    const within = where.size === 0 ? undefined : await awaitTracked(() => recordSliceWithin(part, where, rows));
+    // Whether the narrowing holds each row read, in order; every entry of the page with it — one with no row asks nothing.
+    const held = rows.map((_row, i) => within === undefined || within[i] === true);
+    let at = 0;
+    const holds = listed.map(({ row }) => (row === undefined ? true : held[at++]!));
+    if (within !== undefined && pick !== undefined) pick.rows.askListed(from, listed.map(({ key }) => key), holds);
+    return rows.map(({ key, row }, i) => foundOf(kind, key, kind.read(kind.codec.encode(row), key),
+        held[i] || pick === undefined ? undefined : hiddenOf([{ pick, id: key }])));
 }
 
 /** Props of {@link useSchematicFind}. */
@@ -236,8 +265,11 @@ export interface SchematicFindProps {
     readonly kinds: readonly FindKind[];
     /** The Schematic's words. */
     readonly words: SchematicWords;
-    /** Whether the narrowing dims what it leaves out. */
-    readonly dim: boolean;
+    /**
+     * Each kind's hidden pick, by its slot (`hidden-pick.tsx`' `HideSources`): what a kind read through its source asks e3
+     * which of the rail's choices leave out a row its list shows.
+     */
+    readonly picks: HiddenPicks;
     /** The layers hidden, by key. */
     readonly hiddenLayers: ReadonlySet<string>;
     /** Told the item a pick lands on. */
@@ -249,13 +281,13 @@ export interface SchematicFindProps {
 /**
  * Find's source, for the shared key search's toolbar item (see the module docs).
  *
- * @param props - The kinds, the words, how the narrowing and the layers show, the pick, and the pick let go
+ * @param props - The kinds, the words, each kind's hidden pick, the layers hidden, the pick, and the pick let go
  * @returns The source
  */
-export function useSchematicFind({ kinds, words, dim, hiddenLayers, onPick, onCleared }: SchematicFindProps): KeySearchSource {
+export function useSchematicFind({ kinds, words, picks, hiddenLayers, onPick, onCleared }: SchematicFindProps): KeySearchSource {
     // What a find reads, and whom a pick tells: the latest — the box calls what it captured before the find answered.
-    const latest = useRef({ kinds, words, dim, hiddenLayers, onPick, onCleared });
-    useLayoutEffect(() => { latest.current = { kinds, words, dim, hiddenLayers, onPick, onCleared }; });
+    const latest = useRef({ kinds, words, picks, hiddenLayers, onPick, onCleared });
+    useLayoutEffect(() => { latest.current = { kinds, words, picks, hiddenLayers, onPick, onCleared }; });
     // What the last find found, each kind's run; a find answered after a newer one asked finds nothing here.
     const found = useRef<readonly FindRun[]>([]);
     const asked = useRef(0);
@@ -281,13 +313,13 @@ export function useSchematicFind({ kinds, words, dim, hiddenLayers, onPick, onCl
     /** The matches at the list's rows `[row, row + limit)`, each with the row it is at. */
     const itemsAt = useCallback(async (row: number, limit: number): Promise<{ at: number; item: FoundItem }[]> => {
         const parts = await Promise.all(runsAt(found.current, row, limit).map(async ({ run, offset, n, at }) =>
-            (await matchesOf(run, offset, n)).map((item, i) => ({ at: at + i, item }))));
+            (await matchesOf(run, offset, n, latest.current.picks.get(run.kind.slot))).map((item, i) => ({ at: at + i, item }))));
         return parts.flat();
     }, []);
     const listRange = useCallback(async (row: number, limit: number) => {
-        const { words: w, dim: d, hiddenLayers: hidden } = latest.current;
+        const { words: w, hiddenLayers: hidden } = latest.current;
         // A pick shows the item's key in the box: what its query is typed against.
-        return (await itemsAt(row, limit)).map(({ at, item }) => ({ row: at, label: foundLine(item, foundMark(item, d, hidden), w), text: item.ref.key }));
+        return (await itemsAt(row, limit)).map(({ at, item }) => ({ row: at, label: foundLine(item, foundMark(item, hidden), w), text: item.ref.key }));
     }, [itemsAt]);
     const jump = useCallback((row: number) => {
         void itemsAt(row, 1).then(([hit]) => { if (hit !== undefined) latest.current.onPick(hit.item); })
@@ -299,8 +331,7 @@ export function useSchematicFind({ kinds, words, dim, hiddenLayers, onPick, onCl
         latest.current.onCleared();
     }, []);
     // The box asks its query again when what its lines are read from moves: each source's record and its narrowing,
-    // each kind read whole's rows — tracked, so a window the canvas reads moves none of it — the layers hidden and how
-    // the narrowing draws.
+    // each kind read whole's rows — tracked, so a window the canvas reads moves none of it — and the layers hidden.
     const readAnswers = useCallback(() => kinds.map((kind) => (kind.part === undefined
         ? rowsToken(kind.rows())
         : `${someOf(recordSliceRevision(kind.part)) ?? ""}\u0000${printWhere(kind.part.read().where)}`)).join("\n"), [kinds]);
@@ -308,13 +339,16 @@ export function useSchematicFind({ kinds, words, dim, hiddenLayers, onPick, onCl
     const answers = result.ok ? result.value : "";
     const layers = useMemo(() => [...hiddenLayers].sort(compareKey).join("\u0000"), [hiddenLayers]);
     const [requery, setRequery] = useState(0);
-    const seen = useRef({ answers, layers, dim });
+    const seen = useRef({ answers, layers });
     useEffect(() => {
-        if (keyEqual(seen.current.answers, answers) && keyEqual(seen.current.layers, layers) && seen.current.dim === dim) return;
-        seen.current = { answers, layers, dim };
+        if (keyEqual(seen.current.answers, answers) && keyEqual(seen.current.layers, layers)) return;
+        seen.current = { answers, layers };
         setRequery((n) => n + 1);
-    }, [answers, layers, dim]);
+    }, [answers, layers]);
+    // It lists its lines again as e3 says which choices leave out a row they show, or a kind's pick comes to ask.
+    const relist = useRelist(kinds.flatMap((kind) => { const pick = picks.get(kind.slot); return pick === undefined ? [] : [pick]; }));
     const noMatches = words.m.findNoMatches();
-    return useMemo(() => ({ resetKey: "schematic", requery, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY, noMatchesText: noMatches }),
-        [requery, find, listRange, jump, clear, noMatches]);
+    return useMemo(() => ({
+        resetKey: "schematic", requery, relist, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY, noMatchesText: noMatches,
+    }), [requery, relist, find, listRange, jump, clear, noMatches]);
 }

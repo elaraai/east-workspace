@@ -8,12 +8,16 @@
  * query the shared key search's box parsed finds among a kind read whole's
  * keys — a key's start, a quoted key, a range, keys case-sensitive, in East's
  * order — what keeps an item found off the canvas, how an item reads in Find's
- * list, and the kinds' matches addressed as one list.
+ * list — the rail's filters that leave it out last, as every builder's line
+ * names them — and the kinds' matches addressed as one list. The choices a
+ * line names once e3 has said are `schematic-find.dom.test.tsx`'s, on e3.
  */
 
 import { describe, test, expect } from "vitest";
+import { renderHook } from "@testing-library/react";
 import { none } from "@elaraai/east";
 import { formatters } from "@elaraai/east-ui-components";
+import { useSourceHidden, type RowHidden } from "../shared/schedule/hidden.js";
 import { foundLine, foundMark, runsAt, wholeMatches, type FindKind, type FindRun, type FoundItem } from "./find.js";
 import { schematicMessages, type SchematicWords } from "./messages.js";
 
@@ -21,8 +25,14 @@ const words: SchematicWords = { ...formatters("en-US"), m: schematicMessages };
 
 /** An item found, by its kind's slot and name, its key and its label, where it stands and what keeps it off the canvas. */
 const item = (key: string, label: string, over: Partial<FoundItem> = {}): FoundItem => ({
-    id: `racks:${key}`, ref: { kind: "racks", key }, label, kind: "Rack", position: { x: 1, y: 2 }, layer: undefined, filtered: false, ...over,
+    id: `racks:${key}`, ref: { kind: "racks", key }, label, kind: "Rack", position: { x: 1, y: 2 }, layer: undefined, hidden: undefined, ...over,
 });
+
+/** What leaves an item out on the rail before e3 has said which choices do: its kind's hidden pick, which has been told nothing. */
+function unsaid(key: string): readonly RowHidden[] {
+    const { result } = renderHook(() => useSourceHidden("Schematic", undefined));
+    return [{ pick: result.current, id: key, answer: undefined }];
+}
 
 describe("wholeMatches", () => {
     const keys = ["A03", "A01", "B02", "A02", "a04"];
@@ -52,22 +62,23 @@ describe("wholeMatches", () => {
 describe("foundMark", () => {
     const hidden = new Set(["cooling"]);
 
-    test("no position first, then the rail's filters — dimmed where the narrowing draws what it leaves out — then a hidden layer", () => {
-        expect(foundMark(item("A06", "A06", { position: undefined, filtered: true }), false, hidden)).toBe("unplaced");
-        expect(foundMark(item("A03", "A03", { filtered: true, layer: "cooling" }), false, hidden)).toBe("hidden");
-        expect(foundMark(item("A03", "A03", { filtered: true }), true, hidden)).toBe("dimmed");
-        expect(foundMark(item("A04", "A04", { layer: "cooling" }), false, hidden)).toBe("layer");
-        expect(foundMark(item("A01", "A01", { layer: "power" }), false, hidden)).toBeUndefined();
+    test("no position first, then a hidden layer — the rail's filters are no mark of theirs: the line names their choices, and a pick clears them", () => {
+        expect(foundMark(item("A06", "A06", { position: undefined, layer: "cooling" }), hidden)).toBe("unplaced");
+        expect(foundMark(item("A04", "A04", { layer: "cooling" }), hidden)).toBe("layer");
+        expect(foundMark(item("A01", "A01", { layer: "power" }), hidden)).toBeUndefined();
+        expect(foundMark(item("A03", "A03", { hidden: unsaid("A03") }), hidden)).toBeUndefined();
+        expect(foundMark(item("A05", "A05", { hidden: unsaid("A05"), layer: "cooling" }), hidden)).toBe("layer");
     });
 });
 
 describe("foundLine", () => {
-    test("an item reads as its key, its label where it is not its key, its kind's name, and what keeps it off the canvas", () => {
+    test("an item reads as its key, its label where it is not its key, its kind's name, what keeps it off the canvas and, last, the filters that leave it out", () => {
         expect(foundLine(item("A01", "A01"), undefined, words)).toBe("A01 · Rack");
-        expect(foundLine(item("A07", "Rack 7"), "hidden", words)).toBe("A07 · Rack 7 · Rack · hidden");
-        expect(foundLine(item("A07", "Rack 7"), "dimmed", words)).toBe("A07 · Rack 7 · Rack · dimmed");
         expect(foundLine(item("A04", "A04"), "layer", words)).toBe("A04 · Rack · on a hidden layer");
         expect(foundLine(item("A06", "A06"), "unplaced", words)).toBe("A06 · Rack · no position");
+        // Until e3 has said which choices leave it out, the filters do — as every builder's line says.
+        expect(foundLine(item("A07", "Rack 7", { hidden: unsaid("A07") }), undefined, words)).toBe("A07 · Rack 7 · Rack · hidden by the filters");
+        expect(foundLine(item("A05", "A05", { hidden: unsaid("A05") }), "layer", words)).toBe("A05 · Rack · on a hidden layer · hidden by the filters");
     });
 });
 

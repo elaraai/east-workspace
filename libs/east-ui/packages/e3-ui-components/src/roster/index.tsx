@@ -29,14 +29,15 @@ import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, equalFor, none, some, variant } from "@elaraai/east";
 import { RosterComponent, RosterContextType } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
+    BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
     useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal, usePickHandOff } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal } from "@elaraai/east-ui-components/internal";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
-import { clearHiding, useSourceHidden } from "../shared/schedule/hidden.js";
+import { useSourceHidden } from "../shared/schedule/hidden.js";
+import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { publishChange, rosterCommands } from "./actions.js";
@@ -48,6 +49,7 @@ import { sameFind, useRosterFit, type RosterFind } from "./fit.js";
 import { RosterFooter } from "./footer.js";
 import { useRosterInspector } from "./inspector.js";
 import { useRosterLibrary } from "./library.js";
+import { rosterMessages, type RosterWords } from "./messages.js";
 import {
     NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, editableStatus, placeDrafted, placeStored, placeTargets,
     rosterContext, rosterDomain, spanWindow, spanWords, started, statusText, weekBefore, weekKey, weekNumber, weekOf, type DraftedDuty, type Issue, type PlacedDuties, type PlacedPeriod,
@@ -177,7 +179,8 @@ function RosterFrame(props: FrameProps) {
     }, [spanKey, span]);
     const recipe = useSlotRecipe({ key: "rosterBuilder" });
     const styles = useMemo(() => recipe({}) as unknown as RosterStyles, [recipe]);
-    const format = useFormatters(), words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
+    // The Roster's words: its message table — the editing session's, and what its line says of a person the rail hides.
+    const format = useFormatters(), words = useMemo((): RosterWords => ({ ...format, m: rosterMessages }), [format]);
     // The app's pay, a person at a time (§5.6, B17): asked again only for the people a change touched.
     const payCache = useRef(new RosterPayCache());
     const weekPay = useMemo(() => source.pay.type === "some" ? payCache.current.run(domain, source.pay.value, week, start, context) : NO_PAY, [source.pay, domain, week, start, context]);
@@ -305,36 +308,24 @@ function RosterFrame(props: FrameProps) {
         styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read, optimised, lit: landing.lit };
     // Search Records (#1398): a person found by their key is selected — in the People layout their row brought into view
     // once the narrowing draws it, and a pick's person given the keyboard there, once the box has let it go: their name
-    // takes the focus as ↑ / ↓ give it. One the rail's narrowing hides is shown by clearing the choices of the people's
-    // source that hide them — those e3 named, else every one of its choices — a write of the rail like a chip's (the
-    // hidden pick).
-    const handOff = usePickHandOff();
+    // takes the focus as ↑ / ↓ give it. One the rail's narrowing hides is shown by clearing just the choices of the
+    // people's source that hide them, and given the keyboard once the narrowing they leave holds them (the shared hidden
+    // pick).
     const [picked, setPicked] = useState<PeoplePick>();
-    // A pick's person waiting for the view to draw them: at once, or — a hidden pick — once the narrowing it leaves holds them.
-    const [arriving, setArriving] = useState<string>();
+    const shownPeople = value.visiblePeople;
+    const pick = useHiddenPick<string>({
+        onError: setError, uncleared: "The filters hiding the person could not be cleared",
+        landing: {
+            drawn: (key) => !visibility.loading && (shownPeople.type === "none" || shownPeople.value.has(key)),
+            focus: (key) => setPicked(was => ({ key, seq: (was?.seq ?? 0) + 1 })),
+        },
+    });
     const peopleHidden = useSourceHidden("Roster", useMemo(() => rosterPart(source, "people"), [source]));
     const found = useRosterFind({ people: value.people, visible: value.visiblePeople, settled: !visibility.loading, groups: value.groups,
-        hidden: peopleHidden, words: format, onPick: (person: FoundPerson) => {
-            if (person.hidden !== undefined && peopleHidden.part !== undefined) {
-                try { clearHiding(peopleHidden.part, person.hidden.answer); }
-                catch (reason) {
-                    // Not drawn, so nothing takes the keyboard: it stays where it is.
-                    handOff.drop();
-                    setError(reason instanceof Error ? reason.message : "The filters hiding the person could not be cleared");
-                    return;
-                }
-            }
-            select({ type: "person", key: person.person.key });
-            setArriving(person.person.key);
+        hidden: peopleHidden, words, onPick: (person: FoundPerson) => {
+            pick.pick(person.hidden, person.person.key, () => { select({ type: "person", key: person.person.key }); });
         } });
-    const search = useMemo(() => (found === undefined ? undefined : handOff.search(found)), [found, handOff]);
-    const shownPeople = value.visiblePeople;
-    useEffect(() => {
-        if (arriving === undefined || visibility.loading) return;
-        if (shownPeople.type === "some" && !shownPeople.value.has(arriving)) return;
-        setArriving(undefined);
-        handOff.land(() => setPicked(was => ({ key: arriving, seq: (was?.seq ?? 0) + 1 })));
-    }, [arriving, visibility.loading, shownPeople, handOff]);
+    const search = useMemo(() => (found === undefined ? undefined : pick.search(found)), [found, pick]);
     const library = useRosterLibrary({ ...viewProps, storageKey: key, tab: libraryTab, onTab: setLibraryTab,
         find: find === undefined ? undefined : { need: find.need, shown: fit.shown, busy: finding }, onClearFind: () => setFind(undefined), shown: props.shown });
     const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },

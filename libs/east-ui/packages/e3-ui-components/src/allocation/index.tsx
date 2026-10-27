@@ -34,10 +34,11 @@ import {
     BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useFormatters,
     useLanding, useLandingStyles, usePersistedState, useSliceReactivity, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal, formatDatePattern, usePickHandOff } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
+import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { publishPeriod } from "../shared/schedule/records.js";
 import type { RowAnchor } from "../shared/schedule/row-anchor.js";
 import { useSourceShown } from "../shared/schedule/source-tab.js";
@@ -213,41 +214,31 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         resources: table || narrow ? resourcesShown.keys : none,
         arrivals: table || !narrow ? arrivalsShown.keys : none,
     }), [table, narrow, lanesShown.keys, resourcesShown.keys, arrivalsShown.keys]);
-    const hiddenBins = useHiddenBins(value, shownKeys, format);
+    const hiddenBins = useHiddenBins(value, shownKeys);
     // Search Records (#1398): a bin found by its key steps the board to its day, where — once the day is read, after the
     // step's own clearing above, and once the narrowing draws it — it is selected, and the board follows it into view, at
     // its time; a pick gives it the keyboard there, once the box has let it go: the element that stands for it in the
-    // layout shown takes the focus (`bin-focus.ts`). A bin the rail's narrowing hides is drawn by clearing the choices
-    // that hide it: those e3 named, else every choice of each source that hides it — a write of the rail like a chip's.
-    const handOff = usePickHandOff();
-    const [found, setFound] = useState<string>();
+    // layout shown takes the focus (`bin-focus.ts`). A bin the rail's narrowing hides is drawn by clearing just the
+    // choices that hide it, each source's (the shared hidden pick).
     const [binFocus, setBinFocus] = useState<string>();
+    const hiddenPick = useHiddenPick<string>({
+        onError: setError, uncleared: "The filters hiding the bin could not be cleared",
+        landing: {
+            drawn: (key) => {
+                const bin = current ? plan.bins.get(key) : undefined;
+                if (bin === undefined || narrowingLoading) return false;
+                const hides = rowHiding(bin.lane, { arrival: bin.arrival.type === "some" ? bin.arrival.value : undefined, parts: bin.parts.keys() },
+                    shownKeys.lanes, shownKeys.resources, shownKeys.arrivals);
+                return !hides.lanes && !hides.resources && !hides.arrivals;
+            },
+            selects: (key) => inspect({ type: "bin", id: key }),
+            focus: setBinFocus,
+        },
+    });
     const finder = useAllocationFind({ value, domain, part: binsPart, words, hidden: hiddenBins, onPick: (bin: FoundBin) => {
-        const hidden = hiddenBins.of(bin);
-        if (hidden !== undefined) {
-            try { hiddenBins.clear(hidden); }
-            catch (reason) {
-                // Not drawn, so nothing takes the keyboard: it stays where it is.
-                handOff.drop();
-                setError(reason instanceof Error ? reason.message : "The filters hiding the bin could not be cleared");
-                return;
-            }
-        }
-        setFound(bin.key);
-        window.setView({ ...window.view, date: dayStart(bin.at).getTime() });
+        hiddenPick.pick(hiddenBins.of(bin), bin.key, () => { window.setView({ ...window.view, date: dayStart(bin.at).getTime() }); });
     } });
-    const search = useMemo(() => (finder === undefined ? undefined : handOff.search(finder)), [finder, handOff]);
-    useEffect(() => {
-        if (found === undefined || !current) return;
-        const bin = plan.bins.get(found);
-        if (bin === undefined || narrowingLoading) return;
-        const hides = rowHiding(bin.lane, { arrival: bin.arrival.type === "some" ? bin.arrival.value : undefined, parts: bin.parts.keys() },
-            shownKeys.lanes, shownKeys.resources, shownKeys.arrivals);
-        if (hides.lanes || hides.resources || hides.arrivals) return;
-        inspect({ type: "bin", id: found });
-        setFound(undefined);
-        handOff.land(() => setBinFocus(found));
-    }, [found, current, plan, inspect, narrowingLoading, shownKeys, handOff]);
+    const search = useMemo(() => (finder === undefined ? undefined : hiddenPick.search(finder)), [finder, hiddenPick]);
     // The bin given the keyboard waits for its element only while it is the one selected (`useBinFocusTarget`), and until
     // the viewer does something else (the root's captures below).
     useEffect(() => {

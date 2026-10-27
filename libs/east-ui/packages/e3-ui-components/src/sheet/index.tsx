@@ -38,14 +38,15 @@
  * source's narrowing, by the source's name, with a grouped sheet's folds.
  *
  * A row the narrowing hides is reached by clearing the filters that hide it
- * (the hidden pick, `shared/schedule/hidden.ts`): Search Records' line for it, and an issue's
- * line in the Issues tab, name the `rows` source's choices that hide it, as
- * the rail words them — asked of e3 through the record's indexes, and
- * `· hidden by the filters` until it has said — and a pick of it, or Go to
- * issue on it, clears just them, every other choice kept (every choice, while
- * e3 has not said which): a rail change like any other, which a saved view's
- * tab marks dirty and Esc there reverts. The ring lands on the row once the
- * narrowing they leave draws it, at its row number.
+ * (the shared hidden pick, `shared/schedule/hidden.ts`, `hidden-pick.tsx`):
+ * Search Records' line for it, and an issue's line in the Issues tab, name the
+ * `rows` source's choices that hide it, as the rail words them — asked of e3
+ * through the record's indexes, at the lens's revision, and `· hidden by the
+ * filters` until it has said — and a pick of it, or Go to issue on it, clears
+ * just them, every other choice kept (every choice, while e3 has not said
+ * which): a rail change like any other, which a saved view's tab marks dirty
+ * and Esc there reverts. The ring lands on the row once the narrowing they
+ * leave draws it, at its row number, the lens's jump landing it.
  *
  * A source-bound transaction session retains draft gestures and history —
  * the editing session every editable collection shares (`src/editing/`,
@@ -100,7 +101,7 @@ import {
     type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type EditIssue, type HistoryAction, type LandingAttributes, historyToolbarItem, historyShortcut, takeKey,
     type ToolbarItem,
 } from "@elaraai/east-ui-components";
-import { DensityProvider, useDensityHeights, VirtualRows, devicePixels, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type RowsViewport, usePickHandOff, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { DensityProvider, useDensityHeights, VirtualRows, devicePixels, kindOfIssue, recordSliceNoun, recordSliceWithinAt, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import {
@@ -116,7 +117,8 @@ import { clearNarrowing, narrowingEqual, narrowingOf, narrowingQuery, narrowingS
 import { useRecordViewCounts } from "./use-record-view-counts.js";
 import { NOT_PERSISTED, persistedOf, sameAnchor, sameFolds, type SheetAnchor, type SheetPersisted } from "./persisted.js";
 import { useSheetSeek, type SheetSeekNarrowing } from "./use-seek.js";
-import { hidingWords, useHiddenRows, type HiddenAnswer, type HidingWords } from "../shared/schedule/hidden.js";
+import { askHiding, hiddenLine, hiddenOf, useHidden, useRelist } from "../shared/schedule/hidden.js";
+import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { useOptimise, type OptimiseCounts } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
@@ -172,7 +174,6 @@ export type { SheetRootValue, SheetRowValue, SheetCellValue } from "./values.js"
 type Styles = Record<string, Record<string, unknown>>;
 type SheetTransactionsIssue = SheetTransactions["issues"][number];
 type SeekQuery = ValueTypeOf<typeof SeekQueryType>;
-type RowsWhere = ValueTypeOf<typeof RecordSliceWhereType>;
 
 /**
  * A row the `rows` source's narrowing hid, being gone to (the hidden pick):
@@ -190,8 +191,6 @@ interface SheetReveal {
 
 /** The `rows` source's narrowing, as East prints it: what names a narrowing of the rows apart from another (#1349). */
 const printRowsWhere = printFor(RecordSliceWhereType);
-/** No narrowing of the rows. */
-const NO_ROWS_WHERE: RowsWhere = new Map();
 
 /**
  * The record's rows a body item stands for under the lens (#1349): a row's
@@ -2376,9 +2375,9 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // rows, as it did while they were the narrowing's alone (#1345): its source's id names the narrowing too.
     const seekSource = useMemo(() => (recordRows && recordSeek !== undefined && pagedSource !== undefined && pagedSource.seek.type === "none"
         ? { ...pagedSource, id: rowsQuery, seek: some(recordSeek) } : pagedSource), [recordRows, recordSeek, pagedSource, rowsQuery]);
-    // ── The hidden pick (`shared/schedule/hidden.ts`): a row the narrowing hides, named and gone to ──
+    // ── The hidden pick (`shared/schedule/hidden.ts`, `hidden-pick.tsx`): a row the narrowing hides, named and gone to ──
     // Which of the `rows` source's choices hide a row its narrowing hides, asked of e3 through the record's indexes for
-    // the rows the box lists and for the issues' rows — never worked out here — and kept by the revision and the
+    // the rows the box lists and for the issues' rows — never worked out here — and kept by the lens's revision and the
     // narrowing. A row's record key by its id, and its id by its key: a String key's id is the String itself, any other
     // key's its `.east` text.
     const recordKeys = useMemo(() => {
@@ -2395,14 +2394,19 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             idOf: (key: unknown): string => (text ? key as string : printKey(key as never)),
         };
     }, [value.editing.keyType]);
-    const hiddenRows = useHiddenRows({
+    const rowsPick = useHidden({
         name: "Sheet", part: lensWanted ? rowsPart : undefined, where: lensWanted ? rowsWhere : undefined, revision: lens.revision,
         keyOf: recordKeys.keyOf, idOf: recordKeys.idOf,
     });
-    // What hides a row and what a pick of it clears besides, each choice as the rail words it — `Status: Ready`.
-    const hiddenWords = useCallback((answer: HiddenAnswer): HidingWords =>
-        hidingWords(rowsPart?.config.fields ?? [], rowsWhere ?? NO_ROWS_WHERE, answer, words), [rowsPart, rowsWhere, words]);
-    // A pick of a row the narrowing hides — the box's, or Go to issue's — clears the filters hiding it and goes to it.
+    // A pick of a row the narrowing hides — the box's, or Go to issue's — clears the filters hiding it and goes to it: the
+    // lens's jump lands it (below), so the shared pick clears, and hands the keyboard on.
+    const pick = useHiddenPick({
+        onError: (said, reason) => {
+            console.error("[Sheet] the filters hiding a row could not be cleared:", reason);
+            dispatchStore({ t: "patch", patch: { msg: { id: "text", text: said } } });
+        },
+        uncleared: "The filters hiding the row could not be cleared",
+    });
     const [reveal, setReveal] = useState<SheetReveal | undefined>(undefined);
     // The rows' narrowing a reveal wrote: it places the view itself, so a narrowing keeping the row at the view's top
     // leaves it be (below).
@@ -2411,46 +2415,40 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const issueSought = useRef<{ entry: string; row: number } | undefined>(undefined);
     const revealHidden = useCallback((element: number, key: string | undefined, issue: boolean) => {
         if (chrome === undefined || rowsPart === undefined || pagedSource === undefined) return;
-        const state = key === undefined ? undefined : hiddenRows.stateOf(key);
-        const answer = state !== undefined && state.hidden ? state.answer : undefined;
-        // The filters hiding it, as e3 named them — every choice of the `rows` source, until it has — cleared as the rail
-        // clears them: a rail change like any other, which a saved view's tab marks dirty and Esc there reverts.
-        const where: RowsWhere = answer?.where ?? new Map();
-        try {
-            rowsPart.write({ ...rowsPart.read(), where, preset: none });
-        } catch (error) {
-            console.error("[Sheet] the filters hiding a row could not be cleared:", error);
-            dispatchStore({ t: "patch", patch: { msg: { id: "text", text: error instanceof Error ? error.message : String(error) } } });
-            return;
-        }
+        // A row the lens finds hidden: the filters hiding it, as e3 named them — every choice of the `rows` source, until it
+        // has — cleared as the rail clears them: a rail change like any other, which a saved view's tab marks dirty and Esc
+        // there reverts.
+        const state = key === undefined ? undefined : rowsPick.rows.stateOf(key);
+        if (!pick.clear([{ pick: rowsPick, answer: state !== undefined && state.hidden ? state.answer : undefined }])) return;
         // The sheet's own write: the ring goes to the row, never back to the top, and the view with it.
         expectedNarrowing.current = narrowingOf(chrome);
         const to = printNarrowedSource({ source: pagedSource.id, narrowing: printRowsWhere(rowsPart.read().where) });
         revealedQuery.current = to;
         setReveal({ element, from: rowsQuery, to, issue, jumped: false });
-    }, [chrome, rowsPart, pagedSource, hiddenRows, rowsQuery]);
+    }, [chrome, rowsPart, pagedSource, rowsPick, pick, rowsQuery]);
     const revealRef = useRef(revealHidden);
     revealRef.current = revealHidden;
     // The box lists the rows its key finds wherever they are, each read by its place in the record, and says which the
     // `rows` source's narrowing hides (#1398, CL10): under the lens, which of them the narrowing holds — and, once e3 has
-    // said, the filters that hide each.
+    // said, the filters that hide each, in the sheet's words for the line — listing them again as the answers land.
+    const hiddenRelist = useRelist([rowsPick]);
     const seekNarrowing = useMemo<SheetSeekNarrowing | undefined>(() => (lensWanted && rowsPart !== undefined && rowsWhere !== undefined ? {
         held: (from: number, count: number) => recordSliceWithinAt(rowsPart, rowsWhere, BigInt(from), BigInt(count)),
         hiddenLine: (key: string) => {
-            const state = hiddenRows.stateOf(key);
-            const answer = state !== undefined && state.hidden ? state.answer : undefined;
-            return answer === undefined ? words.m.keySearchHidden({ key }) : words.m.keySearchHiddenBy({ key, ...hiddenWords(answer) });
+            const hidden = hiddenOf([{ pick: rowsPick, id: key }]);
+            return hidden === undefined ? key
+                : hiddenLine(hidden, words, { hiddenByFilters: () => words.m.keySearchHidden({ key }), hiddenBy: (p) => words.m.keySearchHiddenBy({ key, ...p }) });
         },
-        askHidden: hiddenRows.askListed,
+        askHidden: rowsPick.rows.askListed,
         reveal: (row: number, key: string) => revealRef.current(row, key, false),
-        version: hiddenRows.version,
-    } : undefined), [lensWanted, rowsPart, rowsWhere, hiddenRows, hiddenWords, words.m]);
+        version: hiddenRelist,
+    } : undefined), [lensWanted, rowsPart, rowsWhere, rowsPick, words, hiddenRelist]);
     const seek = useSheetSeek(seekSource, searchJump, searchClearJump, seekNarrowing);
     // A pick in the key search hands the keyboard to the grid (#1398): the grid's focus lands with the ring, on the picked
     // row's cell, once the row is drawn and the box has let the keyboard go — a hidden pick's once the narrowing it
     // leaves draws the row; a step leaves it in the box.
-    const handOff = usePickHandOff();
-    const pickSearch = useMemo(() => (seek.search === undefined ? undefined : handOff.search(seek.search)), [seek.search, handOff]);
+    const handOff = pick.handOff;
+    const pickSearch = useMemo(() => (seek.search === undefined ? undefined : pick.search(seek.search)), [seek.search, pick]);
     const focusGrid = useCallback(() => { cardRef.current?.focus({ preventScroll: true }); }, []);
     // A jump's target is shown once its window settles (#854): the ring goes
     // to the sought row (no echo — the host hears the move through onSelect),
@@ -3878,14 +3876,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
             // A row the narrowing hides, known so (the hidden pick): the filters hiding it cleared — those e3 named, else
             // every one — and the issue's cell gone to once the narrowing they leave draws its row. Else the row is sought
             // where it is, and a jump that finds it hidden reveals it so.
-            const state = hiddenRows.stateOf(issue.entry);
+            const state = rowsPick.rows.stateOf(issue.entry);
             if (state !== undefined && state.hidden) { revealRef.current(range.row, issue.entry, true); return; }
             issueSought.current = { entry: issue.entry, row: range.row };
             seekSearch.jump(range.row);
         }).catch(() => { /* superseded or cleared */ });
-    }, [onIssue, body, seekSearch, keyIsText, hiddenRows]);
+    }, [onIssue, body, seekSearch, keyIsText, rowsPick]);
     // The issues' rows the narrowing may hide — those the body does not draw — asked of e3 as the Issues tab lists them,
-    // and what an issue's line says of one it hides (the hidden pick).
+    // and what an issue's line says of one it hides, in the sheet's words for an issue (the hidden pick).
     const drawnEntries = useMemo(() => {
         const ids = new Set<string>();
         for (const it of body) {
@@ -3896,15 +3894,14 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     }, [body]);
     const askHidden = useCallback((issues: readonly EditIssue[]) => {
         if (!lensWanted) return;
-        const ids = [...new Set(issues.map((issue) => issue.entry).filter((id) => !drawnEntries.has(id)))];
-        if (ids.length > 0) hiddenRows.askIds(ids);
-    }, [lensWanted, drawnEntries, hiddenRows]);
+        askHiding(issues.flatMap((issue) => (drawnEntries.has(issue.entry) ? [] : [{ pick: rowsPick, id: issue.entry }])), false);
+    }, [lensWanted, drawnEntries, rowsPick]);
     const hiddenNote = useCallback((issue: EditIssue): string | undefined => {
         if (!lensWanted || drawnEntries.has(issue.entry)) return undefined;
-        const state = hiddenRows.stateOf(issue.entry);
+        const state = rowsPick.rows.stateOf(issue.entry);
         if (state === undefined || !state.hidden) return undefined;
-        return state.answer === undefined ? words.m.inspectorIssueHidden() : words.m.inspectorIssueHiddenBy(hiddenWords(state.answer));
-    }, [lensWanted, drawnEntries, hiddenRows, words.m, hiddenWords]);
+        return hiddenLine([{ pick: rowsPick, answer: state.answer }], words, { hiddenByFilters: words.m.inspectorIssueHidden, hiddenBy: words.m.inspectorIssueHiddenBy });
+    }, [lensWanted, drawnEntries, rowsPick, words]);
     const issueList = useMemo((): readonly EditIssue[] => {
         const ready = session.readiness;
         return [...(ready.type === "ready" ? [] : ready.value), ...session.issues];

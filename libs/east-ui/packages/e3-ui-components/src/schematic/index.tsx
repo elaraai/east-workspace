@@ -21,8 +21,12 @@
  *   `toolbar.tsx`) on the frame's one folding row, in §6.1's order: the rail
  *   over its `Slice.bindRecords` and its summary, the tools, Zoom − / + and
  *   Fit, Find over every item kind's record by key (`find.ts`, #1404) — a pick
- *   the canvas doesn't show as itself flown to where it stands, the footer
- *   saying why — and the steps through the items while something is selected.
+ *   of an item the rail's filters leave out clearing the choices that do,
+ *   flying to it and selecting it once the narrowing they leave draws it, as
+ *   every builder's hidden pick does (`shared/schedule/hidden-pick.tsx`), and
+ *   one on a hidden layer or with no position flown to where it stands, the
+ *   footer saying why — and the steps through the items while something is
+ *   selected.
  *   The tool held and the link kind Connect draws are the viewer's, kept under
  *   the Schematic's `id` (`tools.ts`). ⌘F, or Ctrl+F, anywhere in the frame
  *   focuses Find;
@@ -69,10 +73,10 @@
  *   view reaches them. An unsaved change the drawing leaves out, waiting in its
  *   session (`drafted.ts`' `waitingDrafts`), is checked as its draft has it,
  *   never drawn: its issue says which of the rail's choices hide it (the shared
- *   hidden pick, `hidden-drafts.tsx`), and Go to issue clears them, then flies
- *   to where its draft stands and selects it once it draws, as Find's pick of a
- *   row nothing draws does. Enter, or a double-click on an entity, opens
- *   Details, its open tab kept per viewer.
+ *   hidden pick, each kind's read through its source in `SchematicFollows`), and
+ *   Go to issue clears them, then flies to where its draft stands and selects
+ *   it once it draws — the frame's one hidden pick, Find's too. Enter, or a
+ *   double-click on an entity, opens Details, its open tab kept per viewer.
  *   A selected row of a kind read by area its window no longer holds stays
  *   selected, and Details shows it as its stored row reads, by its key
  *   (`selected-rows.ts`, §4.5): a pan or a zoom lets go of nothing, and only a
@@ -91,8 +95,8 @@
  *   its shown keys followed while the narrowing dims or looks at its matches,
  *   hiding what it leaves out or drawing it as context; every list — the
  *   Index, the Backlog, the Choosers, what an item is joined to — and every
- *   count shows what it leaves in, Find marks what it leaves out, and the
- *   canvas rings, frames and flies to its matches — `fit` keyed on the
+ *   count shows what it leaves in, Find names the choices that leave an item
+ *   out, and the canvas rings, frames and flies to its matches — `fit` keyed on the
  *   narrowing itself, each source's choices, and a kind read by area flown to
  *   by the box its area index finds its narrowing's rows in, never by what its
  *   window draws (§10.3). A drafted row of a kind
@@ -141,6 +145,8 @@ import {
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
+import type { SourceHiding } from "../shared/schedule/hidden.js";
+import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
 import { kindPlural } from "../shared/schedule/words.js";
@@ -165,7 +171,7 @@ import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
 import { connectVeto, type NetLeg, type SchematicEdit } from "./edits.js";
 import { recordSlot, useSchematicEditing } from "./editing.js";
 import { foundMark, useSchematicFind, type FindKind, type FoundItem } from "./find.js";
-import { SchematicFooter, type SchematicFoundNotice, type SchematicNotice } from "./footer.js";
+import { SchematicFooter, type SchematicNotice } from "./footer.js";
 import { drawnEntities, entityNames, inspectedEqual, inspectedOf, nameOfEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
 import { schematicInspectorPane } from "./inspector.js";
 import { NO_INSPECTED_ROWS, SchematicInspectedReader, type SchematicInspectedRows } from "./inspector-rows.js";
@@ -297,8 +303,11 @@ function followedSources(value: SchematicValue, words: SchematicWords, chrome: S
 /**
  * The frame, once each source it follows is read (#1389, #1392): what each
  * templates list and each author's tab shows of the source it names, and each
- * kind's matches — one component a source, so a payload naming another set
- * keeps each one's hooks in order.
+ * kind's matches — and each kind's hidden pick, every kind read through its
+ * source of the rail (`HideSources`, the shared hidden pick): what Find's lines
+ * and an issue's say of a row the rail's filters leave out, and what a pick of
+ * one clears — one component a source, so a payload naming another set keeps
+ * each one's hooks in order.
  */
 function SchematicFollows(props: SchematicFrameProps) {
     const { value } = props;
@@ -310,9 +319,18 @@ function SchematicFollows(props: SchematicFrameProps) {
     const { sources, nouns } = useMemo(() => followedSources(value, words, chrome, look), [value, words, chrome, look]);
     // What a source's failed narrowing says, in the Schematic's words.
     const said = useCallback((name: string): KeyVisibilityWords => ({ changed: words.m.sourceChanged({ name }), failed: words.m.sourceFailed({ name }) }), [words]);
+    // Every kind read through its source of the rail, in the Schematic's order of its kinds: each one's hidden pick.
+    const hidden = useMemo(() => [...value.items, ...value.zones, ...value.links, ...value.nets].flatMap((kind): HiddenSource[] => {
+        const part = sourcePart(chrome, kind.key);
+        return part === undefined ? [] : [{ key: kind.key, part }];
+    }), [value.items, value.zones, value.links, value.nets, chrome]);
     return (
         <FollowSources chrome={chrome} narrowed={value.shown} sources={sources} nouns={nouns} said={said}>
-            {(followed) => <SchematicFrame {...props} followed={followed} look={look} />}
+            {(followed) => (
+                <HideSources name="Schematic" sources={hidden}>
+                    {(picks) => <SchematicFrame {...props} followed={followed} look={look} picks={picks} />}
+                </HideSources>
+            )}
         </FollowSources>
     );
 }
@@ -336,9 +354,10 @@ const NO_LINK_CHOICES: readonly SchematicLinkChoice[] = [];
 const THEME_COLOURS: ReadonlySet<string> = new Set(schematicColorTokens);
 
 /** The frame, its regions holding the Schematic's parts over one shared state — see the module docs. */
-function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed, look }: SchematicFrameProps & {
+function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed, look, picks }: SchematicFrameProps & {
     readonly followed: FollowedSources;
     readonly look: SchematicNarrowedLook;
+    readonly picks: HiddenPicks;
 }) {
     // The recipe's styles, resolved once a recipe: the frame renders again as each window lands.
     const recipe = useSlotRecipe({ key: "schematic" });
@@ -492,10 +511,10 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // the inspector shows it — a net's leg with it (#1391).
     const [selection, setSelection] = useState<ReadonlySet<string>>(NOTHING_SELECTED);
     const [leg, setLeg] = useState<NetLeg | null>(null);
-    // Why the item Find's last pick landed on doesn't show as itself — the filters, its layer, no position — while that
-    // pick stands: until the next pick, the search cleared or a new query asked in its place, Clear filters or a selection
-    // (#1404, the footer holding only what is live).
-    const [found, setFound] = useState<SchematicFoundNotice | undefined>(undefined);
+    // Why the item Find's last pick landed on doesn't show as itself, the filters hiding it cleared by the pick — its layer,
+    // no position — while that pick stands: until the next pick, the search cleared or a new query asked in its place, or
+    // a selection (#1404, the footer holding only what is live).
+    const [found, setFound] = useState<string | undefined>(undefined);
     const pickLetGo = useCallback(() => setFound(undefined), []);
     // The Backlog's card picked below 480px of main (#1394, D15), by its id: an item with no position, which Details shows
     // with its Place until the canvas selects something, the card is let go, or it is placed.
@@ -515,6 +534,24 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const zoomBy = useCallback((factor: number) => canvasRef.current?.zoomBy(factor), []);
     const fit = useCallback(() => canvasRef.current?.fit(), []);
     const step = useCallback((delta: 1 | -1) => canvasRef.current?.step(delta), []);
+
+    // ── The hidden pick (the shared one, `shared/schedule/hidden-pick.tsx`) ──
+    // Find's pick of an item the rail's filters leave out, and Go to issue's of an unsaved change they leave out: the
+    // choices hiding it cleared — those e3 named, every choice of its source while it has not said — a clear that throws
+    // said in the footer, as a refused gesture is; then flown to where it stands; then, once the narrowing they leave draws
+    // it as itself — drawn, neither context nor out of the lists, and no longer standing in while a narrowing is read —
+    // selected through the canvas. It hands the canvas no keyboard, as no Find's pick does.
+    const drawnIds = useMemo(() => new Set([...drawing.items, ...drawing.zones, ...drawing.links, ...drawing.nets].map((entity) => entity.key)),
+        [drawing]);
+    const narrowedOut = narrowing.out;
+    const pick = useHiddenPick<string>({
+        onError: (said) => setRefusal(said),
+        uncleared: words.m.hiddenUncleared(),
+        landing: {
+            drawn: (id) => !stale && drawnIds.has(id) && !narrowedOut.has(id),
+            selects: (id) => canvasRef.current?.select(id),
+        },
+    });
 
     // ── The library's selected cards (#1389, #1390): each card tab's, by the tab's key ──
     // A click selects a card, and a click on the selected one lets it go. Below 480px of main a Backlog card selected is
@@ -558,26 +595,25 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         // A pick is the viewer's action: a refusal's words go with it, wherever the camera goes.
         setRefusal(undefined);
         const canvas = canvasRef.current;
-        const mark = foundMark(item, look.dim, hiddenLayers);
-        if (mark === undefined) {
-            setFound(undefined);
-            // The narrowing holds it: drawn, it is flown to and selected; not drawn yet — off a window (#1393) — flown to,
-            // and selected once it draws.
-            if (drawnItems.has(item.id) || item.position === undefined) canvas?.reveal(item.id);
-            else { canvas?.look(item.position.x, item.position.y); canvas?.select(item.id); }
-            return;
-        }
-        // Drawn as context, it is flown to as any is, selecting nothing; else the camera flies to where it stands.
-        if (mark === "dimmed" && drawnItems.has(item.id)) canvas?.reveal(item.id);
-        else if (item.position !== undefined) canvas?.look(item.position.x, item.position.y);
-        // Its kind's source's filters leave it out: their Clear clears them, and selects it once it draws.
-        const part = mark === "hidden" || mark === "dimmed" ? sourcePart(chrome, item.ref.kind) : undefined;
-        setFound({
-            words: words.m.foundOff({ item: item.label, mark }),
-            clear: part === undefined ? undefined : () => { part.clearAll(); setFound(undefined); canvasRef.current?.select(item.id); },
+        // What keeps it off the canvas but the rail's filters, which the pick clears: the footer says so while it stands.
+        const mark = foundMark(item, hiddenLayers);
+        setFound(mark === undefined ? undefined : words.m.foundOff({ item: item.label, mark }));
+        pick.pick(item.hidden, item.id, () => {
+            // No position: it is in the Backlog — listed there once the filters hiding it are cleared — and nothing flies.
+            if (item.position === undefined) return false;
+            const drawn = drawnItems.has(item.id);
+            // Drawn, it is flown to — and selected, as itself; as context no path selects it — and else flown to where it
+            // stands: the narrowing hides it, its window doesn't hold it (#1393), or its layer is hidden.
+            if (drawn && mark === undefined) canvas?.reveal(item.id);
+            else canvas?.look(item.position.x, item.position.y);
+            // The filters hiding it cleared: selected once the narrowing they leave draws it — never on a hidden layer.
+            if (item.hidden !== undefined) return mark === undefined;
+            // The narrowing holds it, off its window: selected once it draws.
+            if (!drawn && mark === undefined) canvas?.select(item.id);
+            return false;
         });
-    }, [look.dim, hiddenLayers, drawnItems, chrome, words]);
-    const find = useSchematicFind({ kinds: findKinds, words, dim: look.dim, hiddenLayers, onPick: onFound, onCleared: pickLetGo });
+    }, [hiddenLayers, drawnItems, words, pick]);
+    const find = useSchematicFind({ kinds: findKinds, words, picks, hiddenLayers, onPick: onFound, onCleared: pickLetGo });
 
     // ── The toolbar (§6.1) ──────────────────────────────────────────────
     // What the rail counts a source in: a templates list's, its kind's templates; a kind's own, its rows (#1392).
@@ -970,15 +1006,17 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         // eslint-disable-next-line react-hooks/exhaustive-deps
     ], [sessions, historyVersion, kindName, names, drawing, waiting, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
     // Each unsaved change the drawing leaves out, its reference by its id: an issue of one says which of the rail's choices
-    // hide it. Go to issue on one, those choices cleared, flies to where its draft stands and selects it once the narrowing
-    // they leave draws it — Find's path for a row it finds that nothing draws (`look`, then `select`).
+    // hide it. Go to issue on one is the frame's hidden pick, as Find's is: those choices cleared, it flies to where its
+    // draft stands, and selects it once the narrowing they leave draws it.
     const waitingRefs = useMemo((): ReadonlyMap<string, SchematicRef> => new Map([...waiting.items, ...waiting.zones, ...waiting.links, ...waiting.nets]
         .map((entity) => [entity.key, entity.ref] as const)), [waiting]);
-    const goToWaiting = useCallback((id: string) => {
-        const at = waitingPoint(id, waiting, drawing);
-        if (at !== undefined) canvasRef.current?.look(at.x, at.y);
-        canvasRef.current?.select(id);
-    }, [waiting, drawing]);
+    const goToWaiting = useCallback((id: string, hidden: readonly SourceHiding[] | undefined) => {
+        pick.pick(hidden, id, () => {
+            const at = waitingPoint(id, waiting, drawing);
+            if (at !== undefined) canvasRef.current?.look(at.x, at.y);
+            return true;
+        });
+    }, [pick, waiting, drawing]);
     // A kind read by area is checked in the rows read around the view, never by a read of its others: Issues names each, its
     // rows out of view checked only as the view reaches them (ruled 27 Oct 2026, "Checked in view, said so").
     const unchecked = useMemo(() => [...value.items, ...value.zones].filter((kind) => areas.has(kind.key))
@@ -990,8 +1028,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const enterCard = drop.enter;
     const place = useCallback((id: string) => enterCard(schematicLibraryId(keys, "backlog"), id), [enterCard, keys]);
     const end = schematicInspectorPane({
-        value, inspected, rows: inspectedRows, drawn: inspectorDrawn, names, listed, editing, counts, records, issues, unchecked, waiting: waitingRefs, goToWaiting,
-        zoneAt, reveal: revealEntity, refuse: setRefusal,
+        value, inspected, rows: inspectedRows, drawn: inspectorDrawn, names, listed, editing, counts, records, issues, unchecked, waiting: waitingRefs, picks,
+        goToWaiting, zoneAt, reveal: revealEntity, refuse: setRefusal,
         tab: inspectorTab.tab, onTab: onInspectorTab, storageKey: keys.frame, words,
         narrow, veto, linkKind: connectKind, onLinkKind: pickConnectKind, connectValues, place,
     });
