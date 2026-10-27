@@ -753,3 +753,33 @@ describe("pointer motion (A35)", () => {
         await cancel();
     });
 });
+
+describe("the keyboard kept as a control goes with its view (#1398)", () => {
+    /** A Details control the focus is put on, then pressed: what holds the focus after. */
+    async function pressFocused(control: HTMLElement): Promise<Element> {
+        control.focus();
+        expect(document.activeElement).toBe(control);
+        await press(control);
+        return document.activeElement ?? document.body;
+    }
+    /** What a heading the focus is on names: whether it is its view's home, its kind and its title. */
+    const named = (el: Element) => [el.hasAttribute("data-focus-home"), text(el.querySelector("[data-inspector-kind]")), text(el.querySelector("[data-inspector-title]"))];
+
+    test("Back to Arrivals takes the bin away: the focus lands on the summary's heading, never on the page's body", async () => {
+        const c = await open();
+        await press(card(c, "3113"));
+        const focused = await pressFocused(button(details(c), "Back to Arrivals"));
+        expect(headOf(c).kind).toBe("Plan · Tue 11 May");
+        expect(focused).not.toBe(document.body);
+        expect(named(focused)).toEqual([true, "Plan · Tue 11 May", "Kiln loading"]);
+    });
+
+    test("Unlink goes with the bin's actions: the focus lands on the bin's heading, never on the page's body", async () => {
+        const c = await open();
+        await press(card(c, "3113"));
+        const focused = await pressFocused(button(details(c), "Unlink"));
+        expect(actions(c)).not.toContain("Unlink");
+        expect(focused).not.toBe(document.body);
+        expect(named(focused)).toEqual([true, "Bin 3113", "LD-2210 · 32 m³"]);
+    });
+});
