@@ -10,7 +10,7 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 import { join } from 'node:path';
-import { variant, DateTimeType, StringType, IntegerType, StructType, ArrayType, DictType, East, printFor } from '@elaraai/east';
+import { variant, DateTimeType, StringType, IntegerType, StructType, ArrayType, DictType, East, printFor, toEastTypeValue, type EastType } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { DataRef, Structure } from '@elaraai/e3-types';
 import { treeRead, treeWrite, datasetRead, datasetWrite, packageListTree, workspaceListTree, workspaceGetDataset, workspaceGetDatasetHash, workspaceGetDatasetStatus, workspaceGetTree, workspaceSetDataset } from './trees.js';
@@ -45,8 +45,8 @@ describe('trees', () => {
   }
 
   // Helper to create a value structure (dataset leaf)
-  function valueStructure(type: any): Structure {
-    return variant('value', { type, writable: true });
+  function valueStructure(type: EastType): Structure {
+    return variant('value', { type: toEastTypeValue(type), writable: true });
   }
 
   describe('treeWrite and treeRead', () => {

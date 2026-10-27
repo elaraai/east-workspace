@@ -565,7 +565,7 @@ export function gcTests(setup: BackendSetup): void {
       it('deletes what only a removed package named', async (t) => {
         const { storage, repo } = await setup(t);
         const zip = join(zipDir(t), 'remove-gc.zip');
-        await e3.export(e3.package('remove-gc', '1.0.0') as any, zip);
+        await e3.export(e3.package('remove-gc', '1.0.0'), zip);
         const imported = await packageImport(storage, repo, zip);
         await packageRemove(storage, repo, 'remove-gc', '1.0.0');
 
@@ -579,7 +579,7 @@ export function gcTests(setup: BackendSetup): void {
         const { storage, repo } = await setup(t);
         const dir = zipDir(t);
         for (const name of ['shared-a', 'shared-b']) {
-          await e3.export(e3.package(name, '1.0.0') as any, join(dir, `${name}.zip`));
+          await e3.export(e3.package(name, '1.0.0'), join(dir, `${name}.zip`));
           await packageImport(storage, repo, join(dir, `${name}.zip`));
         }
         await packageRemove(storage, repo, 'shared-a', '1.0.0');

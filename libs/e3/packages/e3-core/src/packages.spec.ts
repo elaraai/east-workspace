@@ -99,7 +99,7 @@ describe('packages', () => {
   describe('packageImport', () => {
     it('imports empty package', async () => {
       // Create and export a package using e3 SDK
-      const pkg = e3.package('empty-pkg', '1.0.0') as any;
+      const pkg = e3.package('empty-pkg', '1.0.0');
       const zipPath = join(tempDir, 'empty.zip');
       await e3.export(pkg, zipPath);
 
@@ -127,7 +127,7 @@ describe('packages', () => {
     });
 
     it('creates the package ref, a beast2 String of the package object\'s hash', async () => {
-      const pkg = e3.package('ref-test', '1.2.3') as any;
+      const pkg = e3.package('ref-test', '1.2.3');
       const zipPath = join(tempDir, 'ref-test.zip');
       await e3.export(pkg, zipPath);
 
@@ -139,7 +139,7 @@ describe('packages', () => {
     });
 
     it('stores objects in correct location', async () => {
-      const pkg = e3.package('objects-test', '1.0.0') as any;
+      const pkg = e3.package('objects-test', '1.0.0');
       const zipPath = join(tempDir, 'objects-test.zip');
       await e3.export(pkg, zipPath);
 
@@ -151,7 +151,7 @@ describe('packages', () => {
     });
 
     it('handles re-import of same package', async () => {
-      const pkg = e3.package('reimport-test', '1.0.0') as any;
+      const pkg = e3.package('reimport-test', '1.0.0');
       const zipPath = join(tempDir, 'reimport-test.zip');
       await e3.export(pkg, zipPath);
 
@@ -166,7 +166,7 @@ describe('packages', () => {
     it('refuses an execution a zip names by a hash not of the form e3 writes', async () => {
       // An execution's entries' names become its path.
       const zipPath = join(tempDir, 'named.zip');
-      await e3.export(e3.package('named', '1.0.0') as any, zipPath);
+      await e3.export(e3.package('named', '1.0.0'), zipPath);
       const executionId = '0190a0b0-5555-7000-8000-000000000000';
       const status = encodeBeast2For(ExecutionStatusType)(variant('cancelled', {
         executionId, inputHashes: [], startedAt: new Date(0), completedAt: new Date(0), unit: false,
@@ -184,7 +184,7 @@ describe('packages', () => {
       // an import filed under the exporting workspace's name — a workspace of
       // this repository's that is another, or none, which gc never prunes.
       const zipPath = join(tempDir, 'runs.zip');
-      await e3.export(e3.package('runs', '1.0.0') as any, zipPath);
+      await e3.export(e3.package('runs', '1.0.0'), zipPath);
       const run = (runId: string) => encodeBeast2For(DataflowRunType)({
         runId, workspaceName: 'main', packageRef: 'runs@1.0.0', startedAt: new Date(0), completedAt: none,
         status: variant('running', {}), inputVersions: new Map(), outputVersions: none, taskExecutions: new Map(),
@@ -273,7 +273,7 @@ describe('packages', () => {
 
     it('refuses a zip an older e3 exported, whose package ref is text, naming the export', async () => {
       const zipPath = join(tempDir, 'current.zip');
-      await e3.export(e3.package('older', '1.0.0') as any, zipPath);
+      await e3.export(e3.package('older', '1.0.0'), zipPath);
       const older = await writeZip(join(tempDir, 'older.zip'), [...await readZipEntries(zipPath)].map(([name, bytes]): [string, Buffer] =>
         name === 'packages/older/1.0.0.beast2' ? ['packages/older/1.0.0', Buffer.from(`${decodeBeast2For(StringType)(bytes)}\n`)] : [name, bytes]));
       await assert.rejects(packageImport(storage, testRepo, older), (err: unknown) =>
@@ -515,7 +515,7 @@ describe('packages', () => {
     });
 
     it('lists single package', async () => {
-      const pkg = e3.package('list-test', '1.0.0') as any;
+      const pkg = e3.package('list-test', '1.0.0');
       const zipPath = join(tempDir, 'list-test.zip');
       await e3.export(pkg, zipPath);
       await packageImport(storage, testRepo, zipPath);
@@ -529,9 +529,9 @@ describe('packages', () => {
 
     it('lists multiple packages', async () => {
       // Create and import multiple packages
-      const pkg1 = e3.package('pkg-a', '1.0.0') as any;
-      const pkg2 = e3.package('pkg-b', '2.0.0') as any;
-      const pkg3 = e3.package('pkg-a', '1.1.0') as any;
+      const pkg1 = e3.package('pkg-a', '1.0.0');
+      const pkg2 = e3.package('pkg-b', '2.0.0');
+      const pkg3 = e3.package('pkg-a', '1.1.0');
 
       const zip1 = join(tempDir, 'pkg1.zip');
       const zip2 = join(tempDir, 'pkg2.zip');
@@ -619,7 +619,7 @@ describe('packages', () => {
 
   describe('packageResolve', () => {
     it('resolves package to hash', async () => {
-      const pkg = e3.package('resolve-test', '1.0.0') as any;
+      const pkg = e3.package('resolve-test', '1.0.0');
       const zipPath = join(tempDir, 'resolve-test.zip');
       await e3.export(pkg, zipPath);
 
@@ -639,7 +639,7 @@ describe('packages', () => {
 
   describe('packageRemove', () => {
     it('removes package ref', async () => {
-      const pkg = e3.package('remove-test', '1.0.0') as any;
+      const pkg = e3.package('remove-test', '1.0.0');
       const zipPath = join(tempDir, 'remove-test.zip');
       await e3.export(pkg, zipPath);
       await packageImport(storage, testRepo, zipPath);
@@ -664,8 +664,8 @@ describe('packages', () => {
     });
 
     it('removes only specified version', async () => {
-      const pkg1 = e3.package('multi-ver', '1.0.0') as any;
-      const pkg2 = e3.package('multi-ver', '2.0.0') as any;
+      const pkg1 = e3.package('multi-ver', '1.0.0');
+      const pkg2 = e3.package('multi-ver', '2.0.0');
 
       const zip1 = join(tempDir, 'multi-ver-1.zip');
       const zip2 = join(tempDir, 'multi-ver-2.zip');
@@ -687,7 +687,7 @@ describe('packages', () => {
 
   describe('packageExport', () => {
     it('exports empty package', async () => {
-      const pkg = e3.package('export-test', '1.0.0') as any;
+      const pkg = e3.package('export-test', '1.0.0');
       const importZip = join(tempDir, 'import.zip');
       await e3.export(pkg, importZip);
       await packageImport(storage, testRepo, importZip);
@@ -756,7 +756,7 @@ describe('packages', () => {
     });
 
     it('exported zip can be re-imported', async () => {
-      const pkg = e3.package('reimport', '1.0.0') as any;
+      const pkg = e3.package('reimport', '1.0.0');
       const importZip = join(tempDir, 'reimport-import.zip');
       await e3.export(pkg, importZip);
       await packageImport(storage, testRepo, importZip);

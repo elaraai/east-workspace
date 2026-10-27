@@ -158,7 +158,7 @@ describe('workspaces', () => {
 
     it('removes deployed workspace', async () => {
       // Create and deploy a package
-      const pkg = e3.package('remove-test', '1.0.0') as any;
+      const pkg = e3.package('remove-test', '1.0.0');
       const zipPath = join(tempDir, 'remove-test.zip');
       await e3.export(pkg, zipPath);
       await packageImport(storage, testRepo, zipPath);
@@ -322,7 +322,7 @@ describe('workspaces', () => {
     });
 
     it('stores package hash at deploy time', async () => {
-      const pkg = e3.package('hash-test', '1.0.0') as any;
+      const pkg = e3.package('hash-test', '1.0.0');
       const zipPath = join(tempDir, 'hash-test.zip');
       await e3.export(pkg, zipPath);
       await packageImport(storage, testRepo, zipPath);
@@ -337,7 +337,7 @@ describe('workspaces', () => {
     it('can deploy to existing undeployed workspace', async () => {
       await workspaceCreate(storage, testRepo, 'preexisting');
 
-      const pkg = e3.package('deploy-existing', '1.0.0') as any;
+      const pkg = e3.package('deploy-existing', '1.0.0');
       const zipPath = join(tempDir, 'deploy-existing.zip');
       await e3.export(pkg, zipPath);
       await packageImport(storage, testRepo, zipPath);
@@ -380,7 +380,7 @@ describe('workspaces', () => {
 
   describe('workspaceGetPackage', () => {
     it('returns deployed package info', async () => {
-      const pkg = e3.package('getpkg-test', '2.0.0') as any;
+      const pkg = e3.package('getpkg-test', '2.0.0');
       const zipPath = join(tempDir, 'getpkg-test.zip');
       await e3.export(pkg, zipPath);
       await packageImport(storage, testRepo, zipPath);
@@ -508,7 +508,7 @@ describe('workspaces', () => {
     });
 
     it('uses custom name and version', async () => {
-      const pkg = e3.package('custom-export', '1.0.0') as any;
+      const pkg = e3.package('custom-export', '1.0.0');
       const importZip = join(tempDir, 'custom-export.zip');
       await e3.export(pkg, importZip);
       await packageImport(storage, testRepo, importZip);
@@ -574,7 +574,7 @@ describe('workspaces', () => {
 
     it('preserves tasks from original package', async () => {
       // For now, test with empty tasks since e3.package doesn't easily add tasks
-      const pkg = e3.package('tasks-preserve', '1.0.0') as any;
+      const pkg = e3.package('tasks-preserve', '1.0.0');
       const importZip = join(tempDir, 'tasks-preserve.zip');
       await e3.export(pkg, importZip);
       await packageImport(storage, testRepo, importZip);
