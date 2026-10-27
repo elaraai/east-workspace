@@ -11,7 +11,9 @@
  * and writes each rack's centre alone (SC2); Connect records a run under a key
  * minted new, and a draft whose end no field holds goes danger in its words
  * (SC7, SC9); a Shift session grows into a trunk, absorbing the run it grew
- * from, as one step Undo takes back (SC9); Retarget writes the end it moves,
+ * from, as one step Undo takes back (SC9), and a trunk — grown so, or read from
+ * its record — takes a tap on its bar, its junction and each leg wherever its
+ * drawing has them; Retarget writes the end it moves,
  * though a tap on that end selects the item there, Extend adds a destination,
  * Del on a leg removes its rack and on a net deletes it (SC10); Del on racks deletes them with every run and feed leg
  * naming one (SC5, D7); Save sends each record's changes as its own request,
@@ -31,6 +33,7 @@ import { StateRuntime, editingMessages, getRegisteredPlatformImplementations } f
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { entityId } from "./canvas/drawn.js";
 import { at, card, drawingCounts, fitted, layOutCanvas, tap, unsaved } from "./schematic.test-utils.js";
 import "./index.js";
 
@@ -345,6 +348,59 @@ test("an Extend of a selected trunk is held to the veto in each pair it newly jo
     const trunks = [...(await h.read(ex.schematicTrunks)).values()];
     expect(trunks).toHaveLength(1);
     expect(equalFor(ex.DcTrunk)(trunks[0]!, { ...defaultValue<typeof ex.DcTrunk>(ex.DcTrunk), racks: ["A05", "A04"], frames: ["MMR-1", "ODF-1"] })).toBe(true);
+});
+
+/** What the inspector's Details shows, and the item on a net's leg it shows, by its id. */
+const details = (container: HTMLElement) => {
+    const panel = slot(container, "end").querySelector<HTMLElement>("[role='tabpanel']:not([hidden])")!;
+    return [
+        panel.querySelector("[data-schematic-inspector]")?.getAttribute("data-schematic-inspector") ?? null,
+        panel.querySelector("[data-inspector-member] [data-inspector-join]")?.getAttribute("data-inspector-join") ?? null,
+    ];
+};
+
+/** A trunk the host keeps selected, whatever its minted key. */
+const TRUNK = /^\[\(kind="trunks", key="[^"]+"\)\]$/u;
+
+test("a trunk a Shift-connect grows takes a tap on its bar, its junction and each leg, as its drawing has them: its frames' bar stands off them toward its rack, past every member (hand retest, 27 Oct 2026)", async () => {
+    const { container } = await open(ex.schematicDataCentre);
+    const canvas = canvasOf(container);
+    // A05 to the meet-me frame, the run selected, then Shift-connected on to the fibre frame: a trunk of A05 into both, the
+    // run gone into it — its frames' bar 0.9 m above them, toward A05 level with the meet-me frame.
+    await tool(container, "Connect");
+    await drag(canvas, [16.8, 2.9], [24.2, 2.9]);
+    await tool(container, "Select");
+    await tap(canvas, CAM, 20.5, 2.9);
+    await waitFor(() => expect(keptSelection()).toMatch(/^\[\(kind="fibre", key="/u));
+    await tool(container, "Connect");
+    await drag(canvas, [16.8, 2.9], [8.4, 9.6], true);
+    await seeDrawing(container);
+    expect(drawingCounts(container).nets).toBe("3");
+    // Its bar, over the gap between A05 and the meet-me frame: the trunk.
+    await tap(canvas, CAM, 20.0, 2.0);
+    await waitFor(() => expect(keptSelection()).toMatch(TRUNK));
+    expect(details(container)).toEqual(["net", null]);
+    // Its junction, where its trunk from A05 meets the bar: the trunk.
+    await seeDrawing(container);
+    await tap(canvas, CAM, 16.8, 2.0);
+    await waitFor(() => expect(keptSelection()).toMatch(TRUNK));
+    expect(details(container)).toEqual(["net", null]);
+    // Each leg — the meet-me frame's, from the bar down to its top; the fibre frame's, down past the racks: that leg.
+    await seeDrawing(container);
+    await tap(canvas, CAM, 24.2, 2.2);
+    await waitFor(() => expect(details(container)).toEqual(["leg", entityId({ kind: "network", key: "MMR-1" })]));
+    await seeDrawing(container);
+    await tap(canvas, CAM, 8.4, 6.0);
+    await waitFor(() => expect(details(container)).toEqual(["leg", entityId({ kind: "network", key: "ODF-1" })]));
+});
+
+test("a trunk read from its record takes a tap on its trunk however far its bus stands off its members: two racks into the meet-me frame, their bar below them toward the frame level with them (hand retest, 27 Oct 2026)", async () => {
+    const { container } = await open(ex.schematicDataCentre);
+    await h.patch(ex.schematicTrunks, new Map([["t1", { racks: ["A05", "A04"], frames: ["MMR-1"], label: none, system: "network" }]]));
+    await waitFor(() => expect(drawingCounts(container).nets).toBe("3"));
+    // Its trunk, from the racks' bar 0.9 m below them on to the frame — past feed B, which runs there beside it: the trunk.
+    await tap(canvasOf(container), CAM, 21.0, 3.8);
+    await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "trunks", key: "t1" }])));
 });
 
 // ── Retarget, Extend, and Del on a leg and on a net (SC10) ──────────────────
