@@ -7,8 +7,8 @@
  * The Flowchart's Details keep the keyboard as a control it is on goes
  * (#1398): Delete on a state takes the state away, Details turns to the open
  * flow, and the button the focus was on goes with the view it was in — the
- * focus lands in the inspector, never on the page's body. Over the depot's
- * record of flows on e3 itself (`flowchart.test-utils.tsx`).
+ * focus lands on the open flow's heading, never on the page's body. Over the
+ * depot's record of flows on e3 itself (`flowchart.test-utils.tsx`).
  */
 
 import { afterEach, beforeAll, beforeEach, expect, test } from "vitest";
@@ -60,7 +60,7 @@ const panel = (c: HTMLElement): HTMLElement => pane(c).querySelector<HTMLElement
 /** What Details shows. */
 const showing = (c: HTMLElement): string | null => panel(c).querySelector("[data-flowchart-inspector]")?.getAttribute("data-flowchart-inspector") ?? null;
 
-test("Delete on a state in Details keeps the keyboard in the inspector: the focus lands in the pane, never on the page's body", async () => {
+test("Delete on a state in Details keeps the keyboard in the inspector: the focus lands on the heading of the view drawn in its place, never on the page's body", async () => {
     await h.commitFlows(Flowchart.values({ "Sort": SORT_INPUT }));
     const { container } = await h.mountRecord({ flow: "Sort", library: [Flowchart.library.flows()] });
     await act(async () => { fireEvent.click(container.querySelector('[data-flowchart-node="CH*"]')!); });
@@ -75,4 +75,7 @@ test("Delete on a state in Details keeps the keyboard in the inspector: the focu
     expect([container.querySelector('[data-flowchart-node="CH*"]'), showing(container)]).toEqual([null, "flow"]);
     expect(document.activeElement).not.toBe(document.body);
     expect(pane(container).contains(document.activeElement)).toBe(true);
+    // The open flow's heading holds the keyboard, naming what Details shows.
+    const focused = document.activeElement!;
+    expect([focused.hasAttribute("data-focus-home"), focused.closest("[data-flowchart-inspector]")?.getAttribute("data-flowchart-inspector")]).toEqual([true, "flow"]);
 });

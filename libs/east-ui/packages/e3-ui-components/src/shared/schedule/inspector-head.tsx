@@ -7,16 +7,22 @@ import type { ReactNode } from "react";
 import { Box, type BoxProps } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
+import { FOCUS_HOME_PROPS } from "../focus-home.js";
 
-/** The shared Plan/Calendar inspector heading, using the inspector's existing recipe slots; `children` sit under its row, in its section (the Allocation's bin actions). */
-export function ScheduleInspectorHead({ styles, kind, title, when, status, pending, children }: {
+/**
+ * The shared Plan/Calendar inspector heading, using the inspector's existing recipe slots; `children` sit under its row, in
+ * its section (the Allocation's bin actions). Given `home`, it is its view's home: where the keyboard lands as the control it
+ * was on goes with the view (`focus-home.ts`, #1398) — the Schematic's.
+ */
+export function ScheduleInspectorHead({ styles, kind, title, when, status, pending, home = false, children }: {
     styles: Record<string, BoxProps["css"]>;
     kind: { name: string; icon: string }; title: string; when: ReactNode;
     status?: { label: string; tone: { type: string }; ring: boolean } | undefined;
     pending?: "pending" | "new" | undefined;
+    home?: boolean;
     children?: ReactNode;
 }) {
-    return <Box css={styles.head}>
+    return <Box css={styles.head} {...(home ? FOCUS_HOME_PROPS : {})}>
         <Box css={styles.headRow}>
             <Box as="span" css={styles.kindTile} aria-hidden="true"><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></Box>
             <Box css={styles.headText}>

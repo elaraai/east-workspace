@@ -129,6 +129,10 @@ const rack = (key: string) => entityId({ kind: "racks", key });
 /** The inspector's open panel. */
 const inspector = (c: HTMLElement) => slot(c, "end").querySelector<HTMLElement>("[role='tabpanel']:not([hidden])")!;
 
+/** The view of Details whose heading an element is — its home, where the keyboard lands — or `null` for any other element. */
+const homeOf = (el: Element | null): string | null => (el?.hasAttribute("data-focus-home") === true
+    ? el.closest("[data-schematic-inspector]")?.getAttribute("data-schematic-inspector") ?? null : null);
+
 test("hidden — the default — a rack a draft moved that a new choice leaves out waits in its session, drawn nowhere, as every kind's draft does", async () => {
     const { container } = await open();
     const canvas = canvasOf(container);
@@ -168,7 +172,7 @@ test("a rack a draft unplaced is the Backlog's wherever the view goes, until Sav
     expect(backlogKeys(container)).toEqual([rack("A01"), rack("A06"), rack("A07")]);
 });
 
-test("Unplace in Details keeps the keyboard in the frame: the button it was pressed on goes, and the focus never falls to the page's body", async () => {
+test("Unplace in Details keeps the keyboard in the frame: the button it was pressed on goes, and the focus lands on the heading of the view drawn in its place, never on the page's body", async () => {
     const { container } = await open();
     await tap(canvasOf(container), CAM, 2.4, 2.9);
     await waitFor(() => expect(inspector(container).querySelector('[data-inspector-action="unplace"]')).not.toBeNull());
@@ -179,9 +183,11 @@ test("Unplace in Details keeps the keyboard in the frame: the button it was pres
     await settle();
     await waitFor(() => expect(backlogKeys(container)).toContain(rack("A01")));
     expect(document.activeElement).not.toBe(document.body);
+    // Nothing is selected now: the drawing's heading holds the keyboard, naming what Details shows.
+    expect(homeOf(document.activeElement)).toBe("drawing");
 });
 
-test("Delete in Details keeps the keyboard in the inspector: the button it was pressed on goes, and the focus lands in the pane, never on the page's body", async () => {
+test("Delete in Details keeps the keyboard in the inspector: the button it was pressed on goes, and the focus lands on the heading of the view drawn in its place, never on the page's body", async () => {
     const { container } = await open();
     await tap(canvasOf(container), CAM, 2.4, 2.9);
     await waitFor(() => expect(inspector(container).querySelector('[data-inspector-action="delete"]')).not.toBeNull());
@@ -194,6 +200,7 @@ test("Delete in Details keeps the keyboard in the inspector: the button it was p
     await waitFor(() => expect(inspector(container).querySelector("[data-schematic-inspector='drawing']")).not.toBeNull());
     expect(document.activeElement).not.toBe(document.body);
     expect(slot(container, "end").contains(document.activeElement)).toBe(true);
+    expect(homeOf(document.activeElement)).toBe("drawing");
 });
 
 /** Opens a tab of the library, by its name. */

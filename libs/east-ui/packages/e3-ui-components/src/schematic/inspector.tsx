@@ -58,6 +58,15 @@
  * — a Save in flight, or what the canvas draws standing in while a new
  * narrowing is read (#1398, CL8) — its controls are off.
  *
+ * Details keeps the keyboard (#1398): a control that goes with the view it was
+ * pressed in — Delete and Unplace, which leave nothing selected, a leg's
+ * Remove, Place, a join's link, a refused edit's form drawn again — leaves the
+ * focus on the heading of the view drawn in its place (`../shared/focus-home.ts`),
+ * never on the page's body. The heading, not the canvas: it names what Details
+ * shows now, a screen reader saying where the keyboard is, and the next Tab
+ * goes on through the controls under it; the canvas would move the keyboard
+ * to a part the viewer did not press in, where an arrow steps the selection.
+ *
  * While a row of what is selected is read — its own, or its details' — its
  * section shows its form's fields, each its real label over a placeholder in
  * its control's place, shaped as its editor's value (#1398): never a value it
@@ -84,6 +93,7 @@ import {
     EastChakraComponent, FieldForm, getSomeorUndefined, useTrackedEvaluation, type BuilderFrameDock, type FieldOption, type Origin,
 } from "@elaraai/east-ui-components";
 import { PlaceholderShape, type PlaceholderKind } from "@elaraai/east-ui-components/internal";
+import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
@@ -446,12 +456,23 @@ function coordinate(n: number, words: SchematicWords): string {
 // Details
 // ============================================================================
 
-/** The Details tab: what is selected — an item, a zone, a link, a net, a net's leg, several, an item with no position — or the drawing. */
+/**
+ * The Details tab: what is selected — an item, a zone, a link, a net, a net's leg, several, an item with no position — or
+ * the drawing; the keyboard kept as a control goes with the view it was in, on the heading of the view drawn in its place.
+ */
 const SchematicInspectorDetails = memo(function SchematicInspectorDetails(props: SchematicInspectorProps) {
     const styles = useSlotRecipe({ key: "schematicInspector" })() as Styles;
-    const view = { ...props, styles };
-    const { inspected, value, drawn } = props;
-    // Each selection its own view: what was typed for one never lands on the next.
+    const home = useFocusHome();
+    return (
+        <Box ref={home.ref} css={styles.home} onFocus={home.onFocus} onBlur={home.onBlur} data-inspector-home="">
+            {detailsView({ ...props, styles })}
+        </Box>
+    );
+});
+
+/** What Details shows, a view a selection: what was typed for one never lands on the next. */
+function detailsView(view: ViewProps): ReactNode {
+    const { inspected, value, drawn } = view;
     switch (inspected.view) {
         case "drawing": return <DrawingView key="drawing" {...view} />;
         case "several": return <SeveralView key="several" {...view} entities={inspected.entities} />;
@@ -491,7 +512,7 @@ const SchematicInspectorDetails = memo(function SchematicInspectorDetails(props:
             }
         }
     }
-});
+}
 
 /**
  * A record's side of an entity as Details edits it: its form or its own
@@ -587,7 +608,7 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
         <Box css={styles.root} data-schematic-inspector="item">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon }} title={item.label}
                 when={m.inspectorAt({ zone: zoneAt(item.x, item.y), x: coordinate(item.x, words), y: coordinate(item.y, words), unit })}
-                status={status} pending={self.state.chip} />
+                status={status} pending={self.state.chip} home />
             <Edits styles={styles} available={self.available} actions={actions}>
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={self.own}
                     state={self.state} onField={self.onField} writes={self.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} />
@@ -705,7 +726,7 @@ function UnplacedView(props: ViewProps & { readonly item: SchematicUnplaced; rea
     return (
         <Box css={styles.root} data-schematic-inspector="unplaced">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: item.icon ?? (kind.icon === "" ? "cube" : kind.icon) }} title={item.label}
-                when={m.inspectorUnplaced()} />
+                when={m.inspectorUnplaced()} home />
             <Edits styles={styles} available={writes && editing.available(kind.key)} actions={actions}>{null}</Edits>
         </Box>
     );
@@ -722,7 +743,7 @@ function ZoneView(props: ViewProps & { readonly zone: DrawnZone; readonly kind: 
     return (
         <Box css={styles.root} data-schematic-inspector="zone">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: kind.icon === "" ? "vector-square" : kind.icon }} title={zone.label}
-                when={m.inspectorSize({ width: coordinate(zone.width, words), height: coordinate(zone.height, words), unit })} pending={own.state.chip} />
+                when={m.inspectorSize({ width: coordinate(zone.width, words), height: coordinate(zone.height, words), unit })} pending={own.state.chip} home />
             <Edits styles={styles} available={own.available} actions={undefined}>
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
                     state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} />
@@ -793,7 +814,7 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
     return (
         <Box css={styles.root} data-schematic-inspector="link">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: kind.icon === "" ? "link" : kind.icon }}
-                title={name} when={captionText(getSomeorUndefined(link.label), getSomeorUndefined(link.metric))} pending={own.state.chip} />
+                title={name} when={captionText(getSomeorUndefined(link.label), getSomeorUndefined(link.metric))} pending={own.state.chip} home />
             <Edits styles={styles} available={own.available} actions={actions}>
                 <Form styles={styles} head={m.inspectorSection({ section: "ends", name: kind.name })} section="ends" specs={specs}
                     value={{ from: link.from, to: link.to }} baseline={baseline} options={options}
@@ -860,7 +881,7 @@ function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
     return (
         <Box css={styles.root} data-schematic-inspector="net">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: kind.icon === "" ? "diagram-project" : kind.icon }} title={name}
-                when={m.inspectorSides({ sources: count(net.sources.length), destinations: count(net.destinations.length) })} pending={own.state.chip} />
+                when={m.inspectorSides({ sources: count(net.sources.length), destinations: count(net.destinations.length) })} pending={own.state.chip} home />
             <Edits styles={styles} available={own.available} actions={actions}>
                 <Form styles={styles} head={m.inspectorSection({ section: "sides", name: kind.name })} section="sides" specs={specs}
                     value={{ sources: keysOf(net.sources), destinations: keysOf(net.destinations) }} baseline={baseline}
@@ -889,7 +910,7 @@ function LegView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
     return (
         <Box css={styles.root} data-schematic-inspector="leg">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: kind.icon === "" ? "diagram-project" : kind.icon }} title={name}
-                when={m.inspectorLeg({ end: leg.end })} />
+                when={m.inspectorLeg({ end: leg.end })} home />
             <Box css={styles.section} data-inspector-member="">
                 <Box css={styles.sectionHead}>{m.inspectorSection({ section: "member", name: kind.name })}</Box>
                 <chakra.button type="button" css={styles.link} data-inspector-join={leg.item} onClick={() => reveal(leg.item)}>
@@ -920,7 +941,7 @@ function SeveralView(props: ViewProps & { readonly entities: readonly (Schematic
     const n = entities.length;
     return (
         <Box css={styles.root} data-schematic-inspector="several">
-            <Box css={styles.head}>
+            <Box css={styles.head} {...FOCUS_HOME_PROPS}>
                 <Box css={styles.summary} data-inspector-several="">{m.inspectorSeveral({ n, count: words.number(n) })}</Box>
             </Box>
             <Box css={styles.section}>
@@ -967,7 +988,7 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
     ];
     return (
         <Box css={styles.root} data-schematic-inspector="drawing">
-            <Box css={styles.head}>
+            <Box css={styles.head} {...FOCUS_HOME_PROPS}>
                 <Box css={styles.eyebrow} data-inspector-what="">{m.inspectorDrawing()}</Box>
             </Box>
             <Box css={styles.stats} data-inspector-counts="">

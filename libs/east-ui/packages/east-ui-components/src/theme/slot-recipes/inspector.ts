@@ -9,10 +9,12 @@
  * Flowchart's (`flowchartInspector`) lay out alike: the
  * body's sections, padded 16px and ruled off one from the next, as Studio's
  * inspector's are; the head of what is selected, its eyebrow, its name and
- * its marks; a draft's chip; a section's head; the fields; the gestures; the
- * summary of several; the counts and the hints of nothing selected; and an
- * empty state. Each recipe spreads them under its own slots, beside its own
- * parts.
+ * its marks — the view's home, where the keyboard lands as the control it was
+ * on goes with the view (#1398), its ring the inset focus ring; a draft's
+ * chip; a section's head; the fields; the gestures; the summary of several;
+ * the counts and the hints of nothing selected; an empty state; and the
+ * region around a view that keeps the keyboard, no box of its own. Each
+ * recipe spreads them under its own slots, beside its own parts.
  *
  * Only the layout is the inspector's own: its words take the theme's text
  * styles, its controls are the shared `button` and `iconButton`, and its form
@@ -41,7 +43,7 @@ export const INSPECTOR_SECTION = {
 
 /** The slots the shared parts style. */
 export const inspectorSlots = [
-    "root", "head", "eyebrow", "name", "marks", "chip", "sectionHead", "fields", "actions", "bulk", "summary",
+    "root", "home", "head", "eyebrow", "name", "marks", "chip", "sectionHead", "fields", "actions", "bulk", "summary",
     "stats", "stat", "statValue", "statLabel", "hints", "hint", "empty", "emptyTitle", "emptyHint",
 ] as const;
 
@@ -54,8 +56,11 @@ export const inspectorBase = {
         flexDirection: "column",
         background: "bg.surface",
     },
-    /* What is selected: its name, and its marks. */
-    head: { ...INSPECTOR_SECTION, gap: "5px" },
+    /* The region around a view that keeps the keyboard as the control it is on goes: no box of its own, its view laid out
+     * as though it were not there. */
+    home: { display: "contents" },
+    /* What is selected: its name, and its marks — the view's home, focused by script, ringed inside its rules. */
+    head: { ...INSPECTOR_SECTION, gap: "5px", _focusVisible: { outline: "none", boxShadow: "{shadows.focusInset}" } },
     eyebrow: { textStyle: "caption.eyebrow" },
     name: { textStyle: "title.card.md", color: "fg", overflowWrap: "anywhere" },
     marks: {
