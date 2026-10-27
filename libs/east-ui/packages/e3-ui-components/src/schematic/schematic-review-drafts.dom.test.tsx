@@ -75,6 +75,34 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
     });
 }))) };
 
+/** The floor, a narrowed-out rack drawn as context (`narrowed="dim"`): as {@link floor} otherwise. */
+const dimFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
+    const areas = $.let(Data.bind(ex.schematicAreas));
+    const slice = $.let(Slice.bindRecords(FLOOR, {
+        racks: {
+            source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByArea, ex.schematicRacksByOwnerArea, ex.schematicRacksByName] }),
+            search: ["name"],
+            fields: { name: { label: "Rack" }, owner: { label: "Owner", hints: ["Harbour Labs", "Northwind Media", "Elmway College"] } },
+        },
+    }));
+    return Schematic({
+        id: "reviewDraftsDim",
+        inspector: true,
+        extent: { width: 28, height: 14 },
+        slice: { slice },
+        narrowed: "dim",
+        items: {
+            racks: Schematic.items(racks, {
+                name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", entries: rackEntries, sublabel: (r) => r.model,
+            }),
+        },
+        zones: { areas: Schematic.zones(areas, { name: "Area", icon: "vector-square", x: "x", y: "y", width: "w", height: "h", label: "name" }) },
+        library: [Schematic.library.backlog(), Schematic.library.index()],
+    });
+}))) };
+
 /** Where each card the tests press sits, by key and centre in metres. */
 const CENTRES: readonly (readonly [key: string, x: number, y: number])[] = [["A01", 2.4, 2.9], ["A02", 6.0, 2.9], ["A03", 9.6, 2.9]];
 
@@ -92,9 +120,9 @@ function hits(c: HTMLElement) {
         ?? (px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvas : null));
 }
 
-/** Mounts the floor, waits until its racks are drawn, and lets its cards answer a press. */
-async function open() {
-    const ui = await h.mount(floor);
+/** Mounts a floor — the hidden one by default — waits until its racks are drawn, and lets its cards answer a press. */
+async function open(example: { fn: { toIR(): unknown } } = floor) {
+    const ui = await h.mount(example);
     await settle();
     await waitFor(() => expect(card(ui.container, "racks", "A01")).not.toBeNull());
     await settle();
@@ -150,6 +178,31 @@ test("hidden — the default — a rack a draft moved that a new choice leaves o
     await waitFor(() => expect(card(container, "racks", "A02")).toBeNull(), { timeout: 5_000 });
     expect(card(container, "racks", "A03")).not.toBeNull();
     expect(card(container, "racks", "A01")).toBeNull();
+    expect(unsaved(container)).toBe(true);
+});
+
+test("dimmed, a rack a draft moved off its window that a new choice leaves out draws as context where its draft has it, as every kind's does", async () => {
+    const { container } = await open(dimFloor);
+    const canvas = canvasOf(container);
+    // A01, Harbour Labs', moved across the floor into the Network room: a draft.
+    await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("radio", { name: "Move" })); });
+    await act(async () => {
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, 2.4, 2.9) });
+        fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, 23.0, 9.6) });
+        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, ...at(CAM, 23.0, 9.6) });
+    });
+    await settle();
+    expect(unsaved(container)).toBe(true);
+    // A zoom into the Network room: its window holds none of the cage, A01's stored place, and A01 draws where its draft has it.
+    const before = windowSearches();
+    await zoomInto(canvas, cameraOf(container), { minX: 20, minY: 8, maxX: 26, maxY: 12 });
+    await waitFor(() => expect(windowSearches()).toBeGreaterThan(before), { timeout: 5_000 });
+    await settle();
+    await waitFor(() => expect(card(container, "racks", "A01")).not.toBeNull(), { timeout: 5_000 });
+    expect(card(container, "racks", "A01")!.hasAttribute("data-context")).toBe(false);
+    // Northwind Media's racks chosen: A01 is Harbour Labs', and draws as context, its draft unsaved.
+    await narrow(new SortedMap([["owner", variant("values", [printText("Northwind Media")])]], compareString));
+    await waitFor(() => expect(card(container, "racks", "A01")?.hasAttribute("data-context")).toBe(true), { timeout: 5_000 });
     expect(unsaved(container)).toBe(true);
 });
 
