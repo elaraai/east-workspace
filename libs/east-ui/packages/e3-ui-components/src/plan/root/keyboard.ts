@@ -152,9 +152,9 @@ export type PlanNavIntent =
      * land — px of the viewport's height, or rows where the viewport could not be measured (`by`).
      */
     | { t: "page"; from: string; dir: 1 | -1; rest: number; by: "px" | "items" }
-    /** Headed for the source's first / last row. */
-    | { t: "first" }
-    | { t: "last" };
+    /** Headed for the source's first / last row, from the item `from`. */
+    | { t: "first"; from: string }
+    | { t: "last"; from: string };
 
 /** A key that moves through the rows a run stands for, pressed while the run holds the focus. */
 export type PlanWaitKey = "ArrowDown" | "ArrowUp" | "PageDown" | "PageUp";
@@ -292,7 +292,10 @@ export interface PlanNavEdges {
  * end of the source: the move waits while a window loads, and for Home / End
  * until the source's own first / last element is resident. It resolves on a
  * row — or a failed window, which has its own Retry — and is cancelled once
- * the item it started from is gone, or nothing more can arrive.
+ * the item it started from is gone, or nothing more can arrive: Home and End's
+ * too, which wait among the rows they set out from (#1398, CL10) — gone while
+ * the far end is not in, those rows are another's now, a new narrowing's or a
+ * new count's, and the move goes with them.
  *
  * @param items - The grid's items now
  * @param intent - The pending move
@@ -334,8 +337,12 @@ export function resolveNavIntent(items: readonly PlanNavItem[], intent: PlanNavI
             }
             return { t: "resolved", key: items[j]!.key };
         }
-        case "first": return land(items[0], edges.atStart);
-        case "last": return land(items[items.length - 1], edges.atEnd);
+        case "first":
+        case "last": {
+            const first = intent.t === "first";
+            const r = land(first ? items[0] : items[items.length - 1], first ? edges.atStart : edges.atEnd);
+            return r.t === "pending" && !items.some((it) => it.key === intent.from) ? { t: "cancel" } : r;
+        }
     }
 }
 

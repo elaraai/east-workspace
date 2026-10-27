@@ -702,5 +702,53 @@ describe("a bounded view of the narrowed presses (#1344)", () => {
             expect(watch.seen.filter((at) => at === "the page's body")).toEqual([]);
             expect(watch.seen.filter((at, i, all) => i === 0 || at !== all[i - 1]).filter((at) => at !== "the canvas")).toEqual(["P-1001", "P-3000", "P-1001"]);
         });
+
+        test("End's wait goes with the presses it set out among: a hall chosen meanwhile — its presses in two windows — never takes the focus to its last press as they land (#1398, CL10)", async () => {
+            const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
+            await settle();
+            await act(async () => { pressItem(c, "P-1001")!.focus(); });
+            // The presses' own pages held on their way: End's last window waits.
+            const own = h.e3.hold((request) => request.dataset === PRESSES && request.kind === "page" && request.query.get("index") === null);
+            await key("End");
+            await own.holding;
+            expect(body(c).getAttribute("aria-disabled")).toBe("true");
+            expect(focused(c)).toBe("P-1001");
+            const watch = watchFocus(c);
+            // Hall 3 chosen meanwhile — read through the hall index, never held: its 250 presses land, the last in the second window.
+            const hall = await pressesOf("Hall 3");
+            await chooseHalls(["Hall 3"]);
+            await waitFor(() => expect(pressRows(c)[0]).toBe(rowKeyOf(pressRow(hall[0]!))));
+            await act(async () => { own.release(); });
+            await settle();
+            watch.stop();
+            // Never the hall's last press: the move went with the presses it set out among.
+            expect(watch.seen).not.toContain(hall[hall.length - 1]);
+            expect(focused(c)).not.toBe(hall[hall.length - 1]);
+        });
+
+        test("↓'s wait past the last press read goes with the presses it set out among: a hall chosen meanwhile that holds the press never takes the focus a step on in its presses as they land (#1398, CL10)", async () => {
+            // The presses' own pages past the first window held on their way: the run stands for them.
+            const windows = h.e3.hold((request) => pastFirst(request) && request.query.get("index") === null);
+            const { container: c } = await h.mount(hallsPlan(`${VIEWPORT}px`));
+            await settle();
+            await windows.holding;
+            await scrollAndSettle(c, 195 * ROW_PX);
+            await act(async () => { pressItem(c, "P-1200")!.focus(); });
+            await key("ArrowDown");
+            expect(focused(c)).toBe("P-1200");
+            const watch = watchFocus(c);
+            // Hall 8 chosen meanwhile: Press 1200 is among its presses, Press 1208 the one after it.
+            const hall = await pressesOf("Hall 8");
+            expect(hall.slice(hall.indexOf("P-1200"), hall.indexOf("P-1200") + 2)).toEqual(["P-1200", "P-1208"]);
+            await chooseHalls(["Hall 8"]);
+            await waitFor(() => expect(pressRows(c)[0]).toBe(rowKeyOf(pressRow(hall[0]!))));
+            await settle();
+            // Down to Press 1200 and Press 1208 in the hall's presses: neither takes the focus as it is drawn.
+            await scrollAndSettle(c, hall.indexOf("P-1200") * ROW_PX);
+            watch.stop();
+            expect(watch.seen).not.toContain("P-1208");
+            await act(async () => { windows.release(); });
+            await settle();
+        });
     });
 });

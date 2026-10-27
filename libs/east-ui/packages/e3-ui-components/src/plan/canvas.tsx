@@ -1166,8 +1166,28 @@ export function usePlanCanvas({
     }, [paged, paging.loading, paging.blocks, paging.total]);
     // A keyboard move past the rows read waits on the item it set out from — never on the run (#1398, CL10) — for the
     // rows, then goes on to the row it was headed for (`resolveNavIntent`); rows landed short of a page on ask for the
-    // window past them, and the page waits for it.
+    // window past them, and the page waits for it. A new result (#1344, #1354) takes a move set out among the rows it
+    // replaces with them — a step's or a page's, Home's or End's — and a focus owed to them: left, they would land in its
+    // rows as they draw. It goes as the last result's rows stand in for the new one, and at the latest as the new one's
+    // rows are drawn — the narrowing or the source the rows belong to moved on — for its first window can land before
+    // the stand-in is ever drawn. So does a far key's standing view that ends without its window — a new count.
+    const pagingReplacing = paging.replacing;
+    const pagingStanding = paging.standing;
+    const stoodIn = useRef(false);
+    const resultDrawn = useRef<{ source: string; narrowing: string | undefined } | undefined>(undefined);
     useEffect(() => {
+        const standingEnded = stoodIn.current && !pagingStanding;
+        stoodIn.current = pagingStanding;
+        // The result the rows drawn belong to: their source, and the narrowing a live source names — the first it names
+        // is no new one.
+        const was = resultDrawn.current;
+        resultDrawn.current = { source: sourceId, narrowing: pagingNarrowing };
+        const anew = was !== undefined && (!stringEqual(was.source, sourceId)
+            || (was.narrowing !== undefined && (pagingNarrowing === undefined || !stringEqual(was.narrowing, pagingNarrowing))));
+        if (pagingReplacing || anew) {
+            navIntent.current = null;
+            owedFocus.current = null;
+        }
         const pending = navIntent.current;
         if (pending !== null) {
             // Moved on meanwhile: the move is theirs now.
@@ -1180,7 +1200,8 @@ export function usePlanCanvas({
                     if (r.t === "resolved") controller.focusItem(r.key, "auto");
                     return;
                 }
-                if (r.ask !== undefined) controller.reportViewport(r.ask, false);
+                if (standingEnded && (pending.intent.t === "first" || pending.intent.t === "last")) navIntent.current = null;
+                else if (r.ask !== undefined) controller.reportViewport(r.ask, false);
             }
         }
         const snap = controller.getSnapshot();
@@ -1194,7 +1215,7 @@ export function usePlanCanvas({
             controller.focusDone(req.seq);
             if (!narrow) gridRef.current?.focus();
         }
-    }, [navItems, navEdges, controller, narrow]);
+    }, [navItems, navEdges, controller, narrow, pagingReplacing, pagingStanding, pagingNarrowing, sourceId]);
 
     // ── The grid's keys (#819, `root/keyboard.ts`) ────────────────────────
     // How far a page moves: the frame's viewport less its pinned header, or
@@ -1222,7 +1243,7 @@ export function usePlanCanvas({
                 // in where they are, retained, the focus on the item it set out from — then the focus lands on its first
                 // or last row as that window's rows replace them. The focus moving on meanwhile puts the rows back.
                 owedFocus.current = null;
-                navIntent.current = { holder: from, intent: { t: move.edge } };
+                navIntent.current = { holder: from, intent: { t: move.edge, from } };
                 controller.jumpToEdge(move.edge, from);
                 break;
             case "wait": {

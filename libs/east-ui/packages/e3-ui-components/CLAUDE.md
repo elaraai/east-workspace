@@ -1582,7 +1582,14 @@ stretch past them, a page crosses into it at its edge — the lens's rows are no
 run of elements — and ⌘End and ⌘Home go to the narrowing's last and first
 match; the rows shown stay drawn, live, while the lens reads there, and the ring
 lands once the stretch it lands in is read, the lens's view put on its row so
-what it read stays read until the frame reports where it rests. A run that holds the focus — a click into it — hands it, as its
+what it read stays read until the frame reports where it rests. A Plan's move
+that waits on rows not read goes with the rows it set out among: a new result
+— another narrowing, or another source — drops it and the focus owed to them
+as the stand-in is drawn, or at the latest as the new rows are (the canvas
+watches the narrowing and the source its rows belong to, as a first window can
+land before any stand-in is drawn); so does a far key's view standing down
+without its window, and Home's or End's wait once the row it set out from is
+gone (`resolveNavIntent`). A run that holds the focus — a click into it — hands it, as its
 rows land, to the first of them the view shows whole, and a key pressed on it
 waits for them and goes on from there (`wait`); an item a landing takes off the
 canvas leaves the focus on the canvas's surface, never the page's body, until a

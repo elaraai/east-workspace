@@ -248,12 +248,21 @@ describe("bands (#819)", () => {
     test("Home and End resolve only once the source's own first and last elements are resident", () => {
         const loaded = items([vis(C1, 0), vis(C2, 0)]);
         // The rows showing are not the source's ends while its windows load.
-        expect(resolveNavIntent(loaded, { t: "last" }, { loading: true, atStart: true, atEnd: false })).toEqual({ t: "pending" });
-        expect(resolveNavIntent(loaded, { t: "first" }, { loading: true, atStart: false, atEnd: true })).toEqual({ t: "pending" });
-        expect(resolveNavIntent(loaded, { t: "last" }, WHOLE)).toEqual({ t: "resolved", key: "r:c2" });
-        expect(resolveNavIntent(loaded, { t: "first" }, WHOLE)).toEqual({ t: "resolved", key: "r:c1" });
+        expect(resolveNavIntent(loaded, { t: "last", from: "r:c1" }, { loading: true, atStart: true, atEnd: false })).toEqual({ t: "pending" });
+        expect(resolveNavIntent(loaded, { t: "first", from: "r:c2" }, { loading: true, atStart: false, atEnd: true })).toEqual({ t: "pending" });
+        expect(resolveNavIntent(loaded, { t: "last", from: "r:c1" }, WHOLE)).toEqual({ t: "resolved", key: "r:c2" });
+        expect(resolveNavIntent(loaded, { t: "first", from: "r:c2" }, WHOLE)).toEqual({ t: "resolved", key: "r:c1" });
         // A band at the end is never the answer.
-        expect(resolveNavIntent(items(PAGED), { t: "first" }, WHOLE)).toEqual({ t: "pending" });
+        expect(resolveNavIntent(items(PAGED), { t: "first", from: "r:c2" }, WHOLE)).toEqual({ t: "pending" });
+    });
+
+    test("Home and End are cancelled once the row they set out from is gone before the far end is in — the rows they waited among another's now (#1398, CL10)", () => {
+        // A new narrowing's rows, the row Home set out from not among them, the source's start not yet resident.
+        const other = items([vis(C2, 0), tail]);
+        expect(resolveNavIntent(other, { t: "first", from: "r:c1" }, MIDDLE)).toEqual({ t: "cancel" });
+        expect(resolveNavIntent(other, { t: "last", from: "r:c1" }, MIDDLE)).toEqual({ t: "cancel" });
+        // In: it lands, wherever it set out from.
+        expect(resolveNavIntent(items([vis(C2, 0)]), { t: "last", from: "r:c1" }, WHOLE)).toEqual({ t: "resolved", key: "r:c2" });
     });
 
     test("a failed window is a row of its own — a move onto it resolves there", () => {
