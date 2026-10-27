@@ -338,7 +338,9 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
  * The Bin section (A57): its key, printed — what Search Records finds it by
  * (#1398) — its lane — the shared segments, a change its lane's slot in the
  * same hour — its time — the shared stepper, a slot at a time — and its
- * quantity, each a field of the shared form; then the row's own
+ * quantity, each a field of the shared form; on a day that takes no edit its
+ * lane, by its name, and its time are printed as the form prints every field,
+ * with no segments or stepper (the hand retest); then the row's own
  * fields, the bin kind's form over its `fields`, and the app's columns as
  * rows — or, with the bin kind's own `inspector`, that form over the row in
  * place of the quantity, the fields and the rows.
@@ -364,19 +366,25 @@ function BinSection({ id, bin, committed, ...part }: Part & { id: string; bin: B
     const parts = partsOf(bin);
     const whole = parts.length === 1 && compareFloat(parts[0]!.quantity, bin.quantity) === 0;
     const min = whole ? 0 : parts.reduce((n, p) => n + p.quantity, 0);
-    const help = stepHelp(own, bin.lane, value.every, day, words);
+    // The stepper's help says how it steps: a day that takes no edit has no stepper, and says nothing of it.
+    const help = editable ? stepHelp(own, bin.lane, value.every, day, words) : undefined;
     const quantityLabel = nouns.quantity;
     const keyLabel = args.m.binKey();
     const specs = useMemo(() => Fields.specs(BIN_FIELDS, {
         key: Fields.readonly({ label: keyLabel }),
-        lane: Fields.text({ label: nouns.lane.one }),
-        at: Fields.readonly({ label: "Bin time", help }),
+        lane: Fields.reference({ label: nouns.lane.one, of: "lanes" }),
+        at: Fields.readonly({ label: "Bin time", ...(help === undefined ? {} : { help }) }),
         quantity: Fields.number({ label: quantityLabel, min, step: 1, ...(context.unit === "" ? {} : { unit: context.unit }) }),
     }, form !== undefined ? ["quantity"] : []), [keyLabel, nouns.lane.one, help, quantityLabel, min, context.unit, form]);
+    // Every lane by its name: what a lane the form prints says.
+    const laneNames = useMemo(() => ({ lanes: value.lanes.map(l => ({ key: l.key, label: l.label })) }), [value.lanes]);
     const stepper = useSlotRecipe({ key: "stepper" })({ tone: "neutral", size: "md" }) as unknown as Styles;
     const hourly = value.every.type === "hours" && compareFloat(value.every.value, 1) === 0;
     const earlier = hourly ? "One hour earlier" : "One slot earlier", later = hourly ? "One hour later" : "One slot later";
     const renderControl = useCallback((spec: FieldSpecValue): ReactNode | undefined => {
+        // A day that takes no edit — a published one — prints its lane and its time as the rest of the form is printed: no
+        // segments or stepper, whose controls, though off, looked editable (the hand retest).
+        if (!editable) return undefined;
         if (spec.path[0] === "lane") {
             return <Seg fullWidth label={nouns.lane.one} scope="allocation" name="inspector-lane" items={lanes.map(l => ({ key: l.key, label: l.label, disabled: !editable }))}
                 active={bin.lane} onPick={lane => { if (lane !== bin.lane) toSlot(lane, Math.max(0, index)); }} />;
@@ -399,7 +407,7 @@ function BinSection({ id, bin, committed, ...part }: Part & { id: string; bin: B
     const baseline = useMemo(() => committed === undefined ? {} : { key: id, lane: committed.lane, at: committed.at, quantity: committed.quantity }, [committed, id]);
     return <Box css={styles.fields} data-allocation-bin-section="">
         <Box css={styles.sectionHead}>Bin</Box>
-        <FieldForm specs={specs} value={shownValue} baseline={baseline} onChange={onChange} readOnly={!editable} renderControl={renderControl} />
+        <FieldForm specs={specs} value={shownValue} baseline={baseline} options={laneNames} onChange={onChange} readOnly={!editable} renderControl={renderControl} />
         {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} /> : <>
             <RowFields {...part} id={id} bin={bin} committed={committed} />
             <ValueRows {...part} bin={bin} />

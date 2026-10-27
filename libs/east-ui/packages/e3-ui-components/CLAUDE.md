@@ -132,7 +132,10 @@ drop list while a drag or a pick is under way, else the selection — a bin's
 key printed first among its facts, a reservation's in a section of its own,
 what Search Records finds them by (#1398) — else the
 summary) and Issues, on the shared inspector's head and sections, `FieldForm`
-(the lane's segments and the time's stepper drawn through `renderControl`),
+(the lane's segments and the time's stepper drawn through `renderControl`; on
+a day that takes no edit, a published one, neither — the lane, by its name,
+and the time are printed as the form prints every field, since their controls,
+though off, looked editable: the hand retest),
 the Chooser laid in the pane and the meter, its words and figures pure in
 `inspector-model.ts`. Every edit there is one of the board's commands, a draft
 of the bins' session until Save — the bin kind's form over the fields no role
