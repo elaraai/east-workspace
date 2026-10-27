@@ -84,7 +84,8 @@ import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Plan, ScheduleEventRefType, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
-    getSomeorUndefined, optimiseMessages, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState, historyShortcut, takeKey,
+    getSomeorUndefined, optimiseMessages, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation,
+    historyShortcut, takeKey,
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
@@ -160,7 +161,10 @@ import { PlanOptimisedContext, type PlanOptimisedMarks } from "./rows/element-op
 import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
-import { landPlanOptimise, planOptimiseRequest, planOptimiseTypes, type PlanOptimiseRequest, type PlanOptimiseResult, type PlanOptimiseWindow, type PlanOptimised } from "./optimise.js";
+import {
+    landPlanOptimise, planOptimiseReady, planOptimiseRequest, planOptimiseTypes,
+    type PlanOptimiseRequest, type PlanOptimiseResult, type PlanOptimiseWindow, type PlanOptimised,
+} from "./optimise.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -637,10 +641,20 @@ export function usePlanCanvas({
     // The eye and its parts (#1409): the window's label is the period. The eye is listed only where the window can be
     // optimised (ruled 25 Oct 2026) — event kinds on a time axis; it waits, disabled, while the kinds' rows are read.
     const periodName = planWindow === undefined ? "" : format.range(planWindow.from, new Date(planWindow.to.getTime() - 1));
+    // What a run's request reads, read where the canvas hears each land (R24, #1039): every kind's events in the window,
+    // its backlog and each event's row. The eye waits while one is on its way, and stays disabled for a window no request
+    // carries whole — a kind past the cap over it, or read by its cells — never sending a run the events it was not shown.
+    // Read only while an optimiser is bound.
+    const optimiseName = optimise?.name;
+    const readOptimise = useCallback((): "ready" | "reading" | "unread" => (
+        optimiseName === undefined || planWindow === undefined ? "ready" : planOptimiseReady(kinds, eventEditing, planWindow, cellsRead)
+    ), [optimiseName, planWindow, kinds, eventEditing, cellsRead]);
+    const { result: optimiseRead } = useTrackedEvaluation(readOptimise);
+    const requestHeld = optimiseRead.ok && optimiseRead.value === "ready";
     const optimiseParts = useOptimiseParts<PlanOptimiseRequest>({
         run, landing, period: periodName,
         readOnly: kinds.length === 0 || planWindow === undefined,
-        busy: readLead === undefined || lead.error !== undefined || frameBusy,
+        busy: readLead === undefined || lead.error !== undefined || frameBusy || !requestHeld,
         request: (n) => planOptimiseRequest(latestOptimise.current.kinds, latestOptimise.current.resources, latestOptimise.current.eventEditing, planWindow!, n),
         landKey: lead,
     });

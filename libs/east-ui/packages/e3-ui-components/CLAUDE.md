@@ -751,6 +751,13 @@ The region is a component that mounts with its element, the hook's effect
 running at mount. A builder's test presses each such control and asserts where
 the focus lands, never the page's body.
 
+The Plan's Elara eye waits, disabled, for what a run's request carries — every
+event kind's events in the window, its backlog and each event's row, read where
+the canvas hears each land (`optimise.ts`' `planOptimiseReady`, in a tracked
+read) — and stays disabled over a window no request carries whole: a kind past
+the cap over it, or one read by its cells, whose events no run was shown
+(#1409, R24).
+
 BuilderFrame collapsing its panes does not supply the main area's mobile UX.
 Define narrow content using the available **main-panel width**, as Plan does;
 test a narrow container inside a wide viewport. For Calendar's agreed narrow

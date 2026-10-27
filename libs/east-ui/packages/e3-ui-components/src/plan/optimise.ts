@@ -23,6 +23,7 @@ import { ScheduleEventRefType, ScheduleOptimiseRequestTypeFor, ScheduleOptimiseR
 import { optimiseMessages, type Formatters } from "@elaraai/east-ui-components";
 import { diffOptimiseRows, mergeOptimiseDiffs, optimiseIdOf, optimiseKeyOf, optimisePlacementOps } from "../shared/func/optimise-diff.js";
 import type { OptimiseCounts } from "../shared/func/use-optimise.js";
+import { scheduleWithinCap, type ScheduleCellsRead } from "../shared/schedule/cells.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import type { PlanEventEditing, PlanEventReadValue } from "./edit/events.js";
 import type { PlanInstantValue } from "./instant.js";
@@ -93,12 +94,47 @@ export function planOptimiseTypes(kinds: readonly PlanEventKindValue[], resource
 export interface PlanOptimiseWindow { readonly from: Date; readonly to: Date }
 
 /**
+ * Whether a run's request can carry the window whole now (#1409, R24): every
+ * kind's events in the window and its backlog, and each event's row as the
+ * session holds it, read as {@link planOptimiseRequest} reads them — called in
+ * a tracked read, where the canvas hears each land, so its eye waits for them
+ * and the request a click makes finds them held. `reading` while one is on its
+ * way; `unread` for a window no request carries whole: a kind past the cap of
+ * events over it (#1039), none of whose events is read, or one read by its
+ * cells, never read over the window — a run would place the backlog over
+ * events it was never shown.
+ *
+ * @param kinds - The event kinds
+ * @param editing - The kinds' editing: where each event's row is read, drafts in place
+ * @param window - The plan window in view
+ * @param cells - The kinds' cells and counts, when the reader gives a kind cells
+ * @returns Whether the request can be made: `ready`, `reading` or `unread`
+ */
+export function planOptimiseReady(kinds: readonly PlanEventKindValue[], editing: PlanEventEditing, window: PlanOptimiseWindow,
+    cells: ScheduleCellsRead | undefined): "ready" | "reading" | "unread" {
+    for (const kind of kinds) {
+        if (cells?.reads.has(kind.key) === true) return "unread";
+        const within = scheduleWithinCap(kind.count, window.from, window.to);
+        if (within.type !== "some") return "reading";
+        if (!within.value) return "unread";
+        const drafts = editing.draftsOf(kind.key);
+        const placed = kind.planItems(window.from, window.to, drafts, none);
+        const waiting = kind.backlog ? kind.planUnscheduled(window.from, window.to, drafts, none) : undefined;
+        if (placed.type !== "some" || waiting?.type === "none") return "reading";
+        for (const item of [...placed.value, ...(waiting?.type === "some" ? waiting.value : [])]) {
+            if (editing.read(kind.key, item.key) === undefined) return "reading";
+        }
+    }
+    return "ready";
+}
+
+/**
  * The run's request (R1, R24, O3, O5): the window, the run's number, every
  * event kind's rows in the window and its backlog by key, as the session
  * holds them — base plus every unapplied draft, every row whatever the rail
  * shows — and every resource kind's rows, read whole. A kind whose window is
  * still being read carries no rows: the eye is disabled until every kind has
- * read.
+ * read, and for a window no request carries whole ({@link planOptimiseReady}).
  *
  * @param kinds - The event kinds
  * @param resources - The resource kinds

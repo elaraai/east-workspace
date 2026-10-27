@@ -19,6 +19,7 @@
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
+import { none, some, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as events from "@elaraai/e3-ui/examples/plan/plan-events";
 import * as opt from "@elaraai/e3-ui/examples/plan/optimise";
@@ -191,5 +192,23 @@ describe("the eye in the Plan", () => {
         expect(words(banner(container, "fail")!)).toEqual([`Couldn't optimise ${period(container)}`, "Nothing changed. Run it again from the eye."]);
         expect([banner(container, "fail")!.querySelector("[role=alert]") !== null, added(container).length]).toEqual([true, backlog]);
         restore();
+    });
+
+    test("R24 — a window no request carries whole leaves the eye disabled: past the cap of jobs in it, no run is sent the backlog to place over jobs it was never shown (#1039)", async () => {
+        const { container } = await mounted();
+        // Another planner's jobs fill the window past the cap: ten thousand and one more, on the first press, in its first week.
+        const jobs = new Map(await h.read(events.planEventJobs));
+        for (let i = 0; i < 10_001; i++) {
+            const start = new Date(Date.UTC(2026, 9, 5, 6) + (i % 120) * 3_600_000);
+            jobs.set(`J-${90_000 + i}`, {
+                title: `Filler ${i}`, start: some(start), end: some(new Date(start.getTime() + 3_600_000)), press: some("a1"),
+                state: variant("confirmed", null), sheets: 8000.0, customer: "Filler", stock: variant("coated", null), due: none,
+            });
+        }
+        await h.patch(events.planEventJobs, jobs);
+        await settle();
+        expect(eye(container)!.disabled).toBe(true);
+        await press(eye(container));
+        expect(calls.requests()).toEqual([]);
     });
 });
