@@ -221,11 +221,14 @@ component, nothing in east-ui.
   optimiser draws in a builder, shared, so each builder lists the parts in
   its frame and draws nothing of them itself: `OptimiseButton` — the eye,
   `optimiseToolbarItem` the toolbar item a builder lists immediately before
-  the history item, in every fold of the ladder, and leaving the row only at
-  its floor (below) (`toolbar`, 32 × 28 as the builders' rows' controls stand;
-  `md` 32 × 32; `sm` 24 × 24), running, blinking and disabled states, its
-  names `optimiseMessages`' — a period that cannot be optimised at all lists
-  no eye, one whose reads are in flight a disabled one; `OptimiseBanner`
+  the history item, in every fold of the ladder and never out of the toolbar
+  (`toolbar`, 32 × 28 as the builders' rows' controls stand; `md` 32 × 32;
+  `sm` 24 × 24), running, blinking and disabled states, its names
+  `optimiseMessages`' — a period that cannot be optimised at all lists no
+  eye, one whose reads are in flight a disabled one; `OptimiseEntry` — the eye
+  as an entry of its builder's View, which the row's floor folds it into
+  (below), the View's own `xs` button: the same run, its Stop, and while the
+  eye is off, off too, saying why (`Read-only`) beside its name; `OptimiseBanner`
   — the result in the banners slot, the `BannerView`'s `elara` tone (`done`,
   `none`, `fail`), leaving over `--dur-base`; `optimiseRunningLine` /
   `optimiseStoppedLine` — the footer line's `busy` kind while the call is out,
@@ -387,12 +390,18 @@ component, nothing in east-ui.
   the row too wide, the fewest that fit, and listed apart from the ladder
   (`data-toolbar-floor`), so the ladder still ends with the history's step. The
   rail's trigger is its filter icon alone, without its caret, at `FLOOR_RANK` —
-  a one-affordance cluster's summary chip too — then the Elara eye leaves the
-  row (`OPTIMISE_RANK`), and the query builder's Run is its icon alone: at a
-  phone's width — a frame a 294px parent holds — every builder's row holds what
-  it shows, the history and Save in it (the showcase's `toolbar-fit.spec.ts`).
-  Past its floor the row clips at its end, which no width a builder is held to
-  reaches.
+  a one-affordance cluster's summary chip too — then, where the builder's View
+  bundles the period's controls on a phone (the Roster's, the Allocation's),
+  the Elara eye goes into that View as its entry (`OptimiseEntry`): the eye's
+  step out of the row and the View's step that lists it are one bundle at
+  `OPTIMISE_RANK`, so the eye never leaves the toolbar (ruled 27 Oct 2026,
+  "Into the View menu"); a builder with no such View gives the eye no rung,
+  its row holding the eye at every width. The query builder's Run is its icon
+  alone: at a phone's width — a frame a 294px parent holds — every builder's
+  row holds what it shows, the history and Save in it, and the eye where its
+  View takes it, a run and its Stop from there (the showcase's
+  `toolbar-fit.spec.ts`). Past its floor the row clips at its end, which no
+  width a builder is held to reaches.
 - **Shared toolbar items.** The items more than one builder's toolbar takes
   live here, each with a narrower form for a row short of room: the history
   item (`historyToolbarItem`, folding last, to its buttons; its commit reads
