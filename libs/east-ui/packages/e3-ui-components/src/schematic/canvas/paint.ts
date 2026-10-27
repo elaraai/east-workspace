@@ -54,7 +54,7 @@ import { statusUnread, type DrawnItem, type DrawnLink, type DrawnNet, type Drawn
 import { MARKER_DOT_RADIUS, markerHitbox } from "./markers";
 import { PIN_DOT_W, PIN_GAP, PIN_PAD_X } from "./model";
 import {
-    edgeWeight, leaveShape, linkRoutes, meetShape, netRoutes, orthogonalize, parallelLanes, routeEnv, type EdgeGeometry, type EdgeRun,
+    edgeWeight, leaveShape, linkRoutes, meetShape, netBox, netRoutes, orthogonalize, parallelLanes, routeEnv, type EdgeGeometry, type EdgeRun,
 } from "./routes";
 
 /** An Option's value, or `undefined` — East's `match`, as east-ui-components'
@@ -1001,12 +1001,12 @@ export function paintSchematic(input: PaintInput): void {
         if (geometry !== undefined) edges.push({ drawn: link, net: false, geometry });
     }
     // A net (#189): one entity, many members — a hidden member drops its leg, and the whole net goes while a side has
-    // none drawn or its layer is hidden.
+    // none drawn or its layer is hidden. Culled by the box its bus spans (`netBox`), a bar standing off its members
+    // among it, which the links' R-tree files it under too: it draws, and takes a tap, wherever its bus is (invariant 9).
     for (const net of value.nets) {
         if (layerHidden(net.key)) continue;
-        const members = [...net.sources, ...net.destinations].flatMap((k) => { const c = centers.get(k); return c === undefined ? [] : [c]; });
-        const box = pointsBbox([...members, ...net.via]);
-        if (box !== null && !bboxOverlaps(box, viewBbox)) continue;
+        const box = netBox(net, centers);
+        if (box === null || !bboxOverlaps(box, viewBbox)) continue;
         const geometry = netRoutes(net, env);
         if (geometry !== undefined) edges.push({ drawn: net, net: true, geometry });
     }

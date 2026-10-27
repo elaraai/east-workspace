@@ -12,7 +12,9 @@
  * one pair fanned into lanes — and a net as its bus: its trunk, a bar across
  * each side of several members and a leg from each of them; each end on its
  * item's edge where it draws at the zoom (a card's side, a labelled pin's edge,
- * a dot's rim), its head where it arrives. Pure: no React, no DOM.
+ * a dot's rim), its head where it arrives; and the world box a net's bus draws
+ * in (`netBox`), which the painter culls it by and the links' R-tree files it
+ * under. Pure: no React, no DOM.
  *
  * @packageDocumentation
  */
@@ -20,7 +22,7 @@
 import { match, type option } from "@elaraai/east";
 import { arrive, type CanvasEnd, type CanvasHead } from "../../shared/links/canvas.js";
 import { LINK_CORNER } from "../../shared/links/look.js";
-import { type ScreenCamera, project } from "./camera";
+import { type Bbox, type ScreenCamera, pointsBbox, project } from "./camera";
 import type { DrawnItem, DrawnLink, DrawnNet } from "./drawn";
 import { MARKER_DOT_RADIUS, markerHitbox } from "./markers";
 import { tierSize, type LodTier } from "./model";
@@ -228,6 +230,25 @@ export function netGeometry(sources: readonly Pt[], destinations: readonly Pt[],
         ],
         taps: [...src.taps, ...dst.taps],
     };
+}
+
+/**
+ * The world box a net draws in (invariant 9): its members drawn, its bends, and its bus as {@link netGeometry} lays it
+ * out — its trunk, its bars and its legs. A side's bar stands off toward the trunk, and where the other side stands
+ * level with it — a rack's trunk into frames in its row — past every member: the members' box alone leaves it out.
+ * What the painter culls a net by and the links' R-tree files it under, so a net draws, and takes a tap, wherever its bus
+ * is.
+ *
+ * @param net - The net
+ * @param centers - Each item drawn's centre, in world units, by its id
+ * @returns Its box; `null` while a side has no member drawn, when it draws nothing
+ */
+export function netBox(net: DrawnNet, centers: ReadonlyMap<string, Pt>): Bbox | null {
+    const sources = net.sources.flatMap((k) => { const c = centers.get(k); return c === undefined ? [] : [c]; });
+    const destinations = net.destinations.flatMap((k) => { const c = centers.get(k); return c === undefined ? [] : [c]; });
+    if (sources.length === 0 || destinations.length === 0) return null;
+    const bus = netGeometry(sources, destinations, net.via);
+    return pointsBbox([...sources, ...destinations, ...net.via, ...bus.trunk, ...bus.bars.flat(), ...bus.stubs.flat()]);
 }
 
 // ---- The links' routes on the screen (#1403) ----------------------------------------------------------------

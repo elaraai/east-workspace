@@ -20,7 +20,7 @@ import { LINK_HIT_REACH } from "../../shared/links/look.js";
 import type { NetLeg } from "../edits.js";
 import { pointsBbox } from "./camera";
 import { type DrawnItem, type DrawnLink, type DrawnNet } from "./drawn";
-import { LINK_LANE_GAP, distanceToPolyline, edgeWeight, type EdgeGeometry } from "./routes";
+import { LINK_LANE_GAP, distanceToPolyline, edgeWeight, netBox, type EdgeGeometry } from "./routes";
 
 /** An axis-aligned world-space box over an item, as stored in the culling R-tree. */
 export interface ItemBox { minX: number; minY: number; maxX: number; maxY: number; item: DrawnItem }
@@ -69,9 +69,10 @@ export interface LinkIndex {
 }
 
 /**
- * The links' R-tree (#1403): each link's and each net's world box over the
- * centres of the items it joins drawn and its bends — its route runs inside it,
- * but for its lane and its weight, which the search reaches past
+ * The links' R-tree (#1403): each link's world box over the centres of the
+ * items it joins drawn and its bends, and each net's over its bus as well
+ * (`netBox`: a bar standing off its side, past every member) — its route runs
+ * inside it, but for its lane and its weight, which the search reaches past
  * ({@link LinkIndex}'s `reach`). A link on a hidden layer, or one an item it
  * joins isn't drawn for, is left out, as the painter leaves it out.
  *
@@ -96,10 +97,11 @@ export function linkIndex(
         half = Math.max(half, edgeWeight(link.style) / 2);
     }
     for (const net of nets) {
-        if (hidden.has(net.key) || !net.sources.some((k) => centers.has(k)) || !net.destinations.some((k) => centers.has(k))) continue;
-        const members = [...net.sources, ...net.destinations].flatMap((k) => { const c = centers.get(k); return c === undefined ? [] : [c]; });
-        const box = pointsBbox([...members, ...net.via]);
-        if (box !== null) boxes.push({ ...box, id: net.key });
+        if (hidden.has(net.key)) continue;
+        // Its bus as the painter draws it, not its members alone: a tap on a bar standing off them finds it (invariant 9).
+        const box = netBox(net, centers);
+        if (box === null) continue;
+        boxes.push({ ...box, id: net.key });
         half = Math.max(half, (edgeWeight(net.style) + 1) / 2);
     }
     let lane = 0;
