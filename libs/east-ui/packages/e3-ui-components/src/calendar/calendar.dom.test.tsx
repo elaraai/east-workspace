@@ -265,3 +265,41 @@ describe("Calendar explicit action forms", () => {
     });
 
 });
+
+describe("the inspector keeps the keyboard as a control goes with its view (#1398)", () => {
+    /** A Details control the focus is put on, then pressed: what holds the focus after — never the page's body. */
+    async function pressFocused(control: HTMLElement): Promise<Element> {
+        control.focus();
+        expect(document.activeElement).toBe(control);
+        await press(control);
+        return document.activeElement ?? document.body;
+    }
+    test("Delete takes the event away: the focus lands on what the inspector shows in its place, Nothing selected, never on the page's body", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(event(container, "job", "job1"));
+        const focused = await pressFocused(slot(container, "end").querySelector<HTMLElement>('[data-calendar-action="delete"]')!);
+        expect(event(container, "job", "job1")).toBeNull();
+        expect(focused).not.toBe(document.body);
+        expect([focused.hasAttribute("data-focus-home"), slot(container, "end").contains(focused), focused.textContent]).toEqual([
+            true, true, "Nothing selectedSelect an event to inspect its schedule and fields.",
+        ]);
+    });
+    test("Return to backlog goes with the scheduled event's actions: the focus lands on the event's heading, never on the page's body", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(event(container, "job", "job1"));
+        const focused = await pressFocused(slot(container, "end").querySelector<HTMLElement>('[data-calendar-action="unschedule"]')!);
+        // The event is in the backlog now, Details showing it unscheduled.
+        expect(slot(container, "end").querySelector('[data-calendar-action="unschedule"]')).toBeNull();
+        expect(focused).not.toBe(document.body);
+        expect([focused.hasAttribute("data-focus-home"), focused.querySelector("[data-inspector-title]")?.textContent, focused.querySelector("[data-inspector-when]")?.textContent])
+            .toEqual([true, "Mounting brackets", "Unscheduled"]);
+    });
+    test("Delete selected takes several away: the focus lands on Nothing selected, never on the page's body", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(event(container, "job", "job1"));
+        await act(async () => { fireEvent.click(event(container, "service", "service1"), { ctrlKey: true }); }); await settle();
+        const focused = await pressFocused(within(slot(container, "end")).getByRole("button", { name: "Delete selected" }));
+        expect(focused).not.toBe(document.body);
+        expect([focused.hasAttribute("data-focus-home"), focused.textContent]).toEqual([true, "Nothing selectedSelect an event to inspect its schedule and fields."]);
+    });
+});
