@@ -162,6 +162,16 @@ async function typeIntoSearch(c: HTMLElement, typed: string) {
         await waitFor(() => expect(input.value).toBe(now));
     }
 }
+/**
+ * A query put in the box at once, as a paste is: one input event, so the box lists that query alone. Typed a key at a
+ * time, each key further apart than the box's debounce — as a loaded machine types — the box lists the prefixes on the
+ * way too, and asks of the people they list: what a test counts the requests of one listing by would count theirs.
+ */
+async function pasteIntoSearch(c: HTMLElement, typed: string) {
+    const input = searchBox(c).querySelector<HTMLInputElement>("input")!;
+    await act(async () => { input.focus(); fireEvent.input(input, { target: { value: typed } }); });
+    await settle();
+}
 /** The box's list — the listbox its input controls — its lines as they read. */
 const lines = (c: HTMLElement) => {
     const list = document.getElementById(searchBox(c).querySelector("input")!.getAttribute("aria-controls") ?? "");
@@ -219,7 +229,8 @@ test("a person the rail's narrowing hides is named by the people's choice that h
     // Which of the people's choices hide T. Kelp, held on the wire: the line says the filters do.
     const asking = h.e3.hold(request => request.kind === "within" && request.dataset === STAFF);
     const before = h.requests("within", STAFF).length;
-    await typeIntoSearch(container, "tkelp");
+    // The query put in at once: one listing, whose requests are what this counts.
+    await pasteIntoSearch(container, "tkelp");
     await waitFor(() => expect(asking.held).toBeGreaterThan(0));
     await waitFor(() => expect(lines(container)).toEqual(["tkelp · T. Kelp · Dispatch · hidden by the filters"]));
     // Told: the group's choice, through the staff's index by group — a request a listing, for the people it lists that
@@ -232,10 +243,10 @@ test("a person the rail's narrowing hides is named by the people's choice that h
     const asked = reads.flatMap(read => read.keys.map(rowOf));
     expect(asked.filter(key => key === "tkelp")).toEqual(["tkelp"]);
     expect(asked.filter(key => PICKING.has(key))).toEqual([]);
-    // Listed again: named at once, nothing asked again.
+    // Listed again — the same query, put in at once, so its one listing is the first's: named at once, nothing asked again.
     const listed = h.requests("within", STAFF).length;
     await act(async () => { fireEvent.click(searchBox(container).querySelector("button[aria-label='Clear search']")!); });
-    await typeIntoSearch(container, "tkelp");
+    await pasteIntoSearch(container, "tkelp");
     await waitFor(() => expect(lines(container)).toEqual([`tkelp · T. Kelp · Dispatch · ${BY_PICKING}`]));
     await settle();
     expect(h.requests("within", STAFF).length).toBe(listed);
