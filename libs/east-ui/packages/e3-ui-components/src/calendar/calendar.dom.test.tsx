@@ -130,6 +130,65 @@ describe("Calendar in the shared frame", () => {
 });
 
 
+describe("the board keeps the keyboard (retest C4 and C5, 27 Oct 2026)", () => {
+    /** The period the time navigator shows, as its trigger names it. */
+    const period = (c: HTMLElement) => slot(c, "toolbar").querySelector("[data-time-navigation=calendar] [data-time-trigger]")?.textContent;
+    const board = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-calendar-main]")!;
+
+    test("Delete on the event the keyboard is on deletes it, the keyboard staying on the board, so Ctrl+Z there puts it back", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        const job = event(container, "job", "job1");
+        await press(job);
+        await act(async () => { job.focus(); });
+        await act(async () => { fireEvent.keyDown(job, { key: "Delete" }); }); await settle();
+        expect(event(container, "job", "job1")).toBeNull();
+        // On the board, never the page's body: the keys go on to the Calendar.
+        expect(document.activeElement).toBe(board(container));
+        await act(async () => { fireEvent.keyDown(document.activeElement!, { key: "z", ctrlKey: true }); }); await settle();
+        expect(event(container, "job", "job1")).not.toBeNull();
+    });
+
+    test("a click on an empty part of the board, or of the Backlog, puts the keyboard in the Calendar: `]` and `[` step its period from there", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        const user = userEvent.setup();
+        const before = period(container);
+        // The board's hours, clear of its events: a part of it that takes no gesture (jsdom lays no column out to draw in).
+        await user.click(board(container).querySelector<HTMLElement>("[data-calendar-gutter]")!); await settle();
+        expect(container.querySelector("[data-calendar-frame]")!.contains(document.activeElement)).toBe(true);
+        await user.keyboard("]"); await settle();
+        expect(period(container)).not.toBe(before);
+        // The Backlog's list, clear of its cards.
+        await press(within(slot(container, "start")).getByRole("tab", { name: /Backlog/ }));
+        await act(async () => { (document.activeElement as HTMLElement | null)?.blur(); });
+        await user.click(slot(container, "start").querySelector<HTMLElement>('[data-library$=".library.backlog"]')!); await settle();
+        expect(container.querySelector("[data-calendar-frame]")!.contains(document.activeElement)).toBe(true);
+        // `[[` is the `[` key in user-event's keys, whose `[` opens a key's name.
+        await user.keyboard("[["); await settle();
+        expect(period(container)).toBe(before);
+    });
+
+    test("Enter on an event, the Inspector folded, opens its Details — the key going no further than the Calendar", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(within(slot(container, "end")).getByRole("button", { name: "Collapse Inspector" }));
+        expect(slot(container, "end").hasAttribute("data-collapsed")).toBe(true);
+        const job = event(container, "job", "job1");
+        await press(job);
+        // A click selects it, and opens nothing.
+        expect(slot(container, "end").hasAttribute("data-collapsed")).toBe(true);
+        const heard: string[] = [];
+        const hear = (e: KeyboardEvent) => { heard.push(e.key); };
+        document.addEventListener("keydown", hear);
+        try {
+            await act(async () => { job.focus(); fireEvent.keyDown(job, { key: "Enter" }); }); await settle();
+        } finally {
+            document.removeEventListener("keydown", hear);
+        }
+        expect(slot(container, "end").hasAttribute("data-collapsed")).toBe(false);
+        expect(slot(container, "end").textContent).toContain("Mounting brackets");
+        expect(heard).toEqual([]);
+    });
+});
+
 describe("Calendar explicit action forms", () => {
     test("a bound template creates a typed event on the first free compatible resource; Undo removes the entire creation", async () => {
         const { container } = await h.mount(ex.calendarOperations);
