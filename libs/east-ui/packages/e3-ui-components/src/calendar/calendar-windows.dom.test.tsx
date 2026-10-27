@@ -411,6 +411,8 @@ describe("the narrowed presses' count failing to read (#1424)", () => {
         expect(c.querySelector("[data-builder-loading]")).toBeNull();
         expect(loadingLine(c).textContent).toMatch(/^Couldn't read presses/);
         expect(loadingLine(c).getAttribute("title")).toContain("the store is down");
+        // A read that failed is no read in flight — the jobs' cells, which wait on the presses, among them: main is not busy.
+        expect(slot(c, "main").getAttribute("aria-busy")).toBe("false");
         // Said where the presses would be, once — their first row in view — with its Retry; no press drawn.
         const said = [...timelineOf(c).querySelectorAll<HTMLElement>("[data-loading-failed]")];
         expect(said.map((line) => line.textContent)).toEqual(["Couldn't read presses 1–200Retry"]);

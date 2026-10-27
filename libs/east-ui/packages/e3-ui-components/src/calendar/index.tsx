@@ -90,7 +90,7 @@ import {
 import { LoadingReveal, PAGED_LIBRARY_PAGE, usePickHandOff } from "@elaraai/east-ui-components/internal";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
-import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
+import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod, type PagedLoading } from "../shared/loading.js";
 import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedule/cells.js";
 import { useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
@@ -170,6 +170,8 @@ const NO_ROWS: readonly CalendarRow[] = [];
  * its cards, a pane's empty foot (retest C4) — so the keyboard is in the Calendar, never the page's body: not a tab stop.
  */
 const CLICK_FOCUS: Readonly<Record<string, string>> = { tabIndex: "-1" };
+/** The cells of the paged kind's resources in view, in flight: the line says the events they hold, with no places (retest C7). */
+const CELLS_LOADING: PagedLoading = { kind: "loading", from: undefined, to: undefined };
 
 /**
  * The paged kind's resources the frame holds (#1424), every window's in order: what an event names its resource by.
@@ -508,8 +510,9 @@ function CalendarFrame(props: HostProps) {
     // While a run is out (R2) every gesture is refused, the session the views read kept.
     const gestures = !available ? undefined : locked && commands !== undefined ? lockCalendarCommands(commands, optimiseMessages.locked({ period: periodName })) : commands;
     const rows = useMemo(() => [...resourceRows(value.resources), ...pagedRows, UNASSIGNED], [value.resources, pagedRows]);
-    // The paged kind's Choosers search it by key (#1424, `chooser.tsx`), each resource named by a window held, else by its key,
-    // and leave out what the kind's source of the slice hides, as the other Choosers leave out what the rail hides.
+    // The paged kind's Choosers search it by key (#1424, `chooser.tsx`), each resource named by a window held, else by its
+    // own row read by its key (retest C6), and leave out what the kind's source of the slice hides, as the other Choosers
+    // leave out what the rail hides.
     const chrome = dates.chrome;
     const chooser = useMemo((): CalendarChooser | undefined => {
         if (pagedValue === undefined || pagedKind === undefined) return undefined;
@@ -641,15 +644,25 @@ function CalendarFrame(props: HostProps) {
         entries: kind.entries, part: dates.eventParts.find(event => event.kind.key === kind.key)?.part,
     }))), [value.events, dates.eventParts]);
     const failure = data.error ?? data.apart.error;
-    // The period's reads first; else a paged kind's windows the view shows, in its own noun (`Loading presses 401–600`).
+    // The cells of the paged kind's resources in view, read for the events placed on it where the view lays its resources
+    // out (#1424): the wait that follows their windows, its rows washed until they land (retest C7) — said in the events'
+    // noun, as the Plan's line says it (`Loading print job events…`), and main busy meanwhile.
+    const cellsReading = data.cells?.reading === true;
+    const cellsNoun = useMemo(() => {
+        const kind = pagedValue === undefined ? undefined : value.events.find(event => event.takes.includes(pagedValue.kind));
+        return kind === undefined ? undefined : `${kind.name.toLocaleLowerCase(format.locale)} events`;
+    }, [pagedValue, value.events, format.locale]);
+    // The period's reads first; else a paged kind's windows the view shows, in its own noun (`Loading presses 401–600`);
+    // else the cells of its resources in view.
     const pagedNoun = pagedKind?.name.toLocaleLowerCase(format.locale);
     const pagedLine = pages?.line;
     const pagedRetry = pages?.retry;
     const line = useMemo(() => periodLoadingLine(periodLoading({ loading: reading, error: failure, retry: retryWindow },
         [...followed.values()].map(source => ({ noun: source.name, ready: source.shown.ready, loading: source.shown.busy && source.error === undefined,
             error: source.error, retry: source.retry }))), periodName)
-        ?? (pagedNoun === undefined || pagedRetry === undefined ? undefined : pagedLoadingLine(pagedLine, pagedNoun, pagedLoadingMessages, format.number, pagedRetry)),
-    [reading, failure, retryWindow, followed, periodName, pagedNoun, pagedLine, pagedRetry, format.number]);
+        ?? (pagedNoun === undefined || pagedRetry === undefined ? undefined : pagedLoadingLine(pagedLine, pagedNoun, pagedLoadingMessages, format.number, pagedRetry))
+        ?? (cellsReading && cellsNoun !== undefined ? pagedLoadingLine(CELLS_LOADING, cellsNoun, pagedLoadingMessages, format.number, retryWindow) : undefined),
+    [reading, failure, retryWindow, followed, periodName, pagedNoun, pagedLine, pagedRetry, format.number, cellsReading, cellsNoun]);
     // What the views draw of the period (#1398): the period as read — or a continuation's window, the held read standing in;
     // one not read yet, its grid at once and its placeholders, unseen until the frame's one reveal clock says so (CL4:
     // `LoadingReveal` below, which the footer's line and each placeholder read where they show, so its flip renders them
@@ -681,7 +694,7 @@ function CalendarFrame(props: HostProps) {
         <LoadingReveal waiting={line?.kind === "loading"}>
         <CalendarChooserContext.Provider value={chooser}>
         <BuilderFrame storageKey={`${storageKey}.frame`} label="Calendar" loading={(!data.ready && data.loading && data.error === undefined) || cold} loadingPitch={pitch}
-            busy={reading || resourcesBusy || pages?.reading === true} liveFooter toolbar={toolbar} start={start} end={end}
+            busy={reading || resourcesBusy || pages?.reading === true || cellsReading} liveFooter toolbar={toolbar} start={start} end={end}
             onKeyDown={event => {
                 // The keys, never while typing; each the Calendar acts on goes no further than the Calendar (#1398), so a
                 // shortcut of the page around it on the same key — the showcase's `[`, which folds its sidebar — never hears

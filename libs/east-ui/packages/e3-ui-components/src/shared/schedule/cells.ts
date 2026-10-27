@@ -337,7 +337,8 @@ export interface ScheduleCellsRead {
     readonly capped: ReadonlySet<string>;
     /**
      * Whether a read is in flight over a paged kind a kind is read by the cells of: the rows its cells have not landed
-     * for wait on it ({@link ScheduleCellsRead.drawn}); `false` where no kind is read so, whose reads nothing waits on.
+     * for wait on it ({@link ScheduleCellsRead.drawn}); `false` where no kind is read so, whose reads nothing waits on,
+     * and while a read has thrown, which is in flight no more.
      */
     readonly reading: boolean;
     /**
@@ -1230,11 +1231,13 @@ export function useScheduleCells(args: ScheduleCellsArgs): ScheduleCellsRead {
         // While a read is in flight, the last stands in — the drafts as they are now, less those it found the narrowing does not hold.
         const standing = last.current ?? opening;
         const wanted = reader.wanted();
-        // The resources whose cells it holds, over a paged kind read by its cells: only there does anything wait on a read.
+        // The resources whose cells it holds, over a paged kind read by its cells: only there does anything wait on a read —
+        // one in flight, never one that threw, which nothing waits on (retest C7: its host's main busy, and its line saying
+        // the events read, for as long as it stood).
         const covered = standing.covered;
-        const reading = covered !== undefined && inFlight;
-        // In flight over another range than the one standing was read over: its cells there never landed.
-        const moved = reading && standing.range !== undefined && from !== undefined && to !== undefined && !sameRange(standing.range, { from, to });
+        const reading = covered !== undefined && result.ok && result.value === READING;
+        // In flight, or thrown, over another range than the one standing was read over: its cells there never landed.
+        const moved = covered !== undefined && inFlight && standing.range !== undefined && from !== undefined && to !== undefined && !sameRange(standing.range, { from, to });
         const was = handed.current;
         if (was !== undefined && was.standing === standing && was.reading === reading && was.moved === moved
             && (!inFlight || (Object.is(was.drafts, drafts) && was.wanted === wanted))) return was.read;

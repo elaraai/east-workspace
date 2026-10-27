@@ -1534,7 +1534,11 @@ standing while the view shows only places not read): the blocks of fifty
 around them by the tiles the window touches, every cell's searches in one
 request and the missing cells' entries in one more; a row whose cells have not
 landed draws the wash, busy, and its booked hours a placeholder
-(`drawnRows`). The time grids and the agenda count such a kind over the window
+(`drawnRows`), and while those cells are read — the wait that follows their
+windows' as the view reaches resources not read yet — the footer's line says
+the events read, as the Plan's does (`Loading print job events…`, the shared
+reader's `reading`: a read in flight, never one that threw), and main is busy
+(retest C7). The time grids and the agenda count such a kind over the window
 first, as any other. e3-ui refuses such a kind read any other way, naming the
 series and the summary index to declare. A source of the slice named after the
 paged kind's slot narrows its windows themselves: a new narrowing is a new
