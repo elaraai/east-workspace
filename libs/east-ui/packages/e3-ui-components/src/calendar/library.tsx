@@ -18,7 +18,8 @@
  * its count is first read (CL13), never a count of what has landed. A new
  * narrowing keeps its cards and its count standing, retained, until its own
  * land, and swaps them together. It has no search of its own, as the
- * Schematic's paged Backlog has none: the rail's choices narrow it. Every other
+ * Schematic's paged Backlog has none: the rail's choices narrow it (ruled 27
+ * Oct 2026). Every other
  * Backlog is its kinds' events in hand, read apart once (#1398): only before
  * its first read, under the cold load's cover, does it count "…" and draw the
  * Library's pending rows, never "No backlog events" before its read (CL13).

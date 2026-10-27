@@ -600,7 +600,7 @@ describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
         const before = backlogShown(container);
         expect(before.tab).toMatch(/^Backlog \d/);
         expect([before.cards.length, before.pending, before.retained]).toEqual([1, false, [null, null]]);
-        // A paged Backlog has no search of its own, as the Schematic's has none: the rail's choices narrow it.
+        // A paged Backlog has no search of its own, as the Schematic's has none: the rail's choices narrow it (ruled 27 Oct 2026).
         expect(within(slot(container, "start")).queryByRole("textbox")).toBeNull();
         const backlog = backlogReads();
         // Every read of the record held on its way to e3: the Backlog shows what it showed, needing none of them.

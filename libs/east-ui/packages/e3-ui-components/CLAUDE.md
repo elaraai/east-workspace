@@ -310,7 +310,8 @@ index, follows no window: the Calendar reads it apart from the window, once,
 and no date change empties it or reads it again (`calendar/data.ts`, #1398);
 its resident Library stays mounted throughout, so its search box keeps its
 query and its focus (east-ui-components' `EastChakraLibrary`'s `pending`); the
-paged one has no search of its own, the rail's choices narrowing it. Its
+paged one has no search of its own, as the Schematic's paged Backlog has none,
+the rail's choices narrowing it (ruled 27 Oct 2026). Its
 Backlog tab counts `N of M`, what its kinds' narrowing shows beside the stored
 events their choices hide — `…` until every count it says is read, never a
 bare `Backlog` (CL13) — and its Clear filters keeps each window
