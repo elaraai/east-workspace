@@ -1842,12 +1842,14 @@ describe("PagedRuntime — what a revision keeps of the searches batches answer 
         assert.ok(series !== undefined && own !== undefined, "the runtime serves the handles it built");
         return { ...read, series, own };
     };
-    /** One block's cell searches, as the Plan's cells reader plans them (`tileCellQueries`): 50 presses × 15 weekly tiles, `[tile, press]` each. */
+    /** The series key's `on`, one literal of its leading values, none here (#1432). */
+    const ON = printFor(ex.jobsByPressWeek.keyType.fields.on)({});
+    /** One block's cell searches, as the Plan's cells reader plans them (`tileCellQueries`): 50 presses × 15 weekly tiles, `[on, tile, press]` each. */
     const blockQueries = (block: number): DatasetFindQuery[] => {
         const queries: DatasetFindQuery[] = [];
         for (let week = 0; week < 15; week++) {
             const tile = printTile(new Date(Date.UTC(2026, 9, 5) + week * 7 * 86_400_000));
-            for (let press = 0; press < 50; press++) queries.push({ fields: [tile, printPress(some(`P-${String(block * 50 + press).padStart(6, "0")}`))] });
+            for (let press = 0; press < 50; press++) queries.push({ fields: [ON, tile, printPress(some(`P-${String(block * 50 + press).padStart(6, "0")}`))] });
         }
         return queries;
     };

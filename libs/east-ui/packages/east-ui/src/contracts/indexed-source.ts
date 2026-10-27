@@ -46,11 +46,15 @@ export function IndexedEntryType<K, R, P, IK>(key: K, row: R, projection: P, ind
  * The indexed source consumed by `Slice.bindRecord`.
  *
  * @remarks
- * `Indexes` is a struct of named indexes, each a struct of its ordered field
- * names with Null values, or a singleton struct naming the end field for an
- * interval start. Computed fields carry empty Array markers holding their key
- * types, or empty Set markers for exact fan-out membership. Its East type
- * preserves names and types through `$.let` without serializing type values. The row and
+ * `Indexes` is a struct of named indexes, each `{ fields, kind }` (#1432):
+ * `fields` the row fields the index is led by, in order — a plain index's
+ * fields, a generated index's `on` — each Null, or for a computed field an
+ * empty Array marker holding its key type, or an empty Set marker for exact
+ * fan-out membership; `kind` its one case, `plain` (Null) or `interval`,
+ * `area`, `series` or `summary`, a struct whose field names name the kind's
+ * own parts by role (`from=…`, `x=…`, `tile=…`), never a row field among the
+ * index's. Its East type preserves names and types through `$.let` without
+ * serializing type values. The row and
  * key types ride in `page`'s signature. Reads share one record revision.
  * `primary` always names the record itself; `total("primary")` counts rows,
  * never fan-out entries. Every pending read returns none and failures throw.
@@ -63,12 +67,12 @@ export function IndexedEntryType<K, R, P, IK>(key: K, row: R, projection: P, ind
  * @param key - Primary key type.
  * @param row - Record row type.
  * @param projection - Common covering projection type.
- * @param indexes - Ordered index field metadata type.
+ * @param indexes - Each index's metadata type: its row fields and its kind.
  * @param indexKey - Variant of index key types.
  * @returns The indexed source handle's East type.
  * @property id - Stable identity for this binding.
  * @property recordId - Primary record identity, shared by every ordering and editing session.
- * @property indexes - Ordered row fields of each named index.
+ * @property indexes - Each named index's row fields and kind.
  * @property joined - Whether index reads include their record rows.
  * @property defaultIndex - Source for an unfiltered view, containing each row once.
  * @property page - Read a bounded window through one named source.

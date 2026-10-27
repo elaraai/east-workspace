@@ -408,23 +408,25 @@ through an area index (`e3.recordIndex.area`, the **e3** skill) listed in a
 source's binding: `Data.bindPaged(racks, { indexes: [racksByArea,
 racksByHallArea] })`. The Schematic reads a kind so wherever the kind's source
 of its rail lists one, the window its view shows (see The Schematic below,
-`schematicRecordIndexes`). A read of the source takes the viewport as a `window`
-choice, `variant("window", { minX, minY, maxX, maxY })` in world units, under
-the index's `__area` field of its `where` (a source's `pageWhere` and
-`countWhere`), beside exact choices of the fields the index leads with. The
-record slice plans it as at most 266 searches a combination of those choices,
-sent in one request, and reads every row whose box meets the viewport grown by
-an eighth of its larger side, each once — beside rows of the searched cells
-that it misses, which the reader draws or not. `variant("values", ["-1"])`
-under `__area` is the unplaced clause: the rows not yet placed, on an index
-whose `x` and `y` are Options. The window is the reader's, never the rail's:
-`Slice.bindRecord` offers no `__area` field, and a window under any other
-field is refused. A read no listed area index serves — choices beside the
-window no area index is led by exactly, a range or a prefix beside it, or more
-than one value of a Set field, which would read a row twice — is refused,
-naming why. An area index carries its rows,
-so a window reads the index alone, without a join, each entry's `value` its
-row.
+`schematicRecordIndexes`). A read of a source — its `pageWhere` and
+`countWhere` — takes a read, `{ where, area }`: the narrowing, and for a read
+by area its clause beside it, `some(variant("window", { minX, minY, maxX,
+maxY }))` in world units, or `some(variant("unplaced", null))` for the rows not
+yet placed, on an index whose `x` and `y` are Options; any other read gives
+`area: none`. The narrowing's exact choices of the fields an area index is led
+by pick it. The record slice plans a window as at most 266 searches a
+combination of those choices, sent in one request, and reads every row whose
+box meets the viewport grown by an eighth of its larger side, each once —
+beside rows of the searched cells that it misses, which the reader draws or
+not. The window is the reader's, never the rail's: no choice holds it, and the
+rail's state, its presets and `contains` keep the narrowing alone. A read no
+listed area index serves — choices beside the window no area index is led by
+exactly, a range or a prefix beside it, or more than one value of a Set field,
+which would read a row twice — is refused, naming why. An area index carries
+its rows, so a window reads the index alone, without a join, each entry's
+`value` its row. e3's parts of a generated key are its index's kind's, never a
+field's name (#1432): a row's field named `area` or `__area` is a field of the
+rail like any other, and may lead an area index a window reads through.
 
 Sessions retain original-key drafts across paging, narrowing and remount in the
 same UI store. Save includes hidden edits and confirms primary rows at the

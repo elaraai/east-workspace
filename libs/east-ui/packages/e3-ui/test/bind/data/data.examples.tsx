@@ -833,6 +833,36 @@ export const racksByArea = e3.recordIndex.area('racks_by_area', indexedRacks, { 
 export const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', indexedRacks, { on: ["hall"], x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 });
 export const racksByHall = e3.recordIndex('racks_by_hall', indexedRacks, { on: ["hall"] });
 
+/**
+ * A rack whose fields are named as e3's own parts of a generated key once were
+ * (#1432): `area`, `__area`, `tile` and `__tile`. No name is reserved — e3's
+ * parts are its index's kind's — so each is a field of the rail like any
+ * other, and an area index may be led by them.
+ */
+export const NamedRack = StructType({
+    area: StringType, __area: StringType, tile: StringType, __tile: StringType, x: OptionType(FloatType), y: OptionType(FloatType),
+});
+/**
+ * Five racks: two in area A1 by B — one inside the window over the floor's
+ * corner, one far down it — one by C and one in A2 inside it, and one in A1 by
+ * B not yet placed.
+ */
+export const namedRacks = e3.record('named_racks', DictType(StringType, NamedRack), new Map([
+    ["n1",       { area: "A1", __area: "B", tile: "T1", __tile: "U1", x: some(1.0),   y: some(1.0) }],
+    ["n2",       { area: "A1", __area: "B", tile: "T2", __tile: "U1", x: some(100.0), y: some(100.0) }],
+    ["n3",       { area: "A1", __area: "C", tile: "T1", __tile: "U2", x: some(1.5),   y: some(1.5) }],
+    ["n4",       { area: "A2", __area: "B", tile: "T1", __tile: "U2", x: some(2.0),   y: some(2.0) }],
+    ["unplaced", { area: "A1", __area: "B", tile: "T2", __tile: "U1", x: none,        y: none }],
+]));
+export const namedRacksPatch = e3.mutation.patch(namedRacks);
+// Each field leads a plain index; the window is read whatever the rail chooses, or beside a choice of `area` and `__area`.
+export const namedByArea = e3.recordIndex('named_by_area', namedRacks, { on: ["area"] });
+export const namedByUnderArea = e3.recordIndex('named_by_under_area', namedRacks, { on: ["__area"] });
+export const namedByTile = e3.recordIndex('named_by_tile', namedRacks, { on: ["tile"] });
+export const namedByUnderTile = e3.recordIndex('named_by_under_tile', namedRacks, { on: ["__tile"] });
+export const namedByPlace = e3.recordIndex.area('named_by_place', namedRacks, { x: "x", y: "y", cell: 1 });
+export const namedByAreaPlace = e3.recordIndex.area('named_by_area_place', namedRacks, { on: ["area", "__area"], x: "x", y: "y", cell: 1 });
+
 /** A rack's load: what its card's figure and its dot draw. */
 export const IndexedRackLoad = StructType({ kw: FloatType, alarm: StringType });
 /**

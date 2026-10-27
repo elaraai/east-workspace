@@ -18,7 +18,7 @@
  * of no resource, its Unassigned row's — tile by tile, never every event over
  * the range. A cell is a block of {@link SCHEDULE_CELL_BLOCK} of the paged
  * kind's resources, in the kind's order, in one tile of the series index: one
- * exact search a resource, `[…on, tile, key]` (`tileCellQueries`). The cells
+ * exact search a resource, `[on, tile, key]` — `on` one literal (#1432, `tileCellQueries`). The cells
  * wanted are the blocks meeting the rows in view and
  * {@link SCHEDULE_CELL_MARGIN} resources either side, by the tiles covering the
  * range read and one tile either side, with the cells of no resource in those
@@ -113,7 +113,7 @@ import {
 import { SCHEDULE_EVENT_CAP, ScheduleDraftsType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import {
-    recordSliceCellEntries, recordSliceCellRuns, recordSliceRevision, recordSliceRows, recordSliceWithin,
+    recordSliceCellEntries, recordSliceCellRuns, recordSliceOnPrinter, recordSliceRevision, recordSliceRows, recordSliceWithin,
 } from "@elaraai/east-ui-components/internal";
 import { isPagedReadError } from "../../platform/paged-read-error.js";
 import type { TimeResolution } from "../time/scale.js";
@@ -929,6 +929,8 @@ class CellsReader {
         let searches = 0;
         if (series !== undefined && tiles !== undefined) {
             const unassigned = this.noResource(kind);
+            // Its cells' searches name the index's leading values as one `on` (#1432).
+            const printOn = recordSliceOnPrinter(part, series.name);
             for (const tile of tiles) {
                 for (const block of blocks) {
                     const literals = block.keys.flatMap((key) => {
@@ -936,12 +938,12 @@ class CellsReader {
                         return literal === undefined ? [] : [literal];
                     });
                     if (literals.length === 0) continue;
-                    const queries = tileCellQueries(series, where, tile, literals).queries;
+                    const queries = tileCellQueries(series, where, tile, literals, printOn).queries;
                     cells.push({ id: `${block.index}@${tile.getTime()}`, queries });
                     searches += queries.length;
                 }
                 if (unassigned !== undefined) {
-                    const queries = tileCellQueries(series, where, tile, [unassigned]).queries;
+                    const queries = tileCellQueries(series, where, tile, [unassigned], printOn).queries;
                     cells.push({ id: `none@${tile.getTime()}`, queries });
                     searches += queries.length;
                 }
@@ -1071,6 +1073,7 @@ class CellsReader {
         if (tiles === undefined) return undefined;
         const cells: { cell: RecordSliceCell; block: Block; keys: string[]; tile: number }[] = [];
         let searches = 0;
+        const printOn = recordSliceOnPrinter(part, summary.name);
         for (const tile of tiles) {
             for (const block of blocks) {
                 const keys: string[] = [];
@@ -1082,7 +1085,7 @@ class CellsReader {
                     literals.push(literal);
                 }
                 if (literals.length === 0) continue;
-                const queries = tileCellQueries(summary, where, tile, literals).queries;
+                const queries = tileCellQueries(summary, where, tile, literals, printOn).queries;
                 cells.push({ cell: { id: `${block.slot}:${block.index}@${tile.getTime()}`, queries }, block, keys, tile: tile.getTime() });
                 searches += queries.length;
             }

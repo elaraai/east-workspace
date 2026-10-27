@@ -307,17 +307,21 @@ export interface RecordIndexDef<
   readonly name: Name;
   /** The record this index is over. */
   readonly record: RecordDef<T>;
-  /** Row fields in key order for a field index; undefined for a computed key.
-   *  Authoring metadata: the generated key function remains the stored contract. */
+  /** Row fields in key order for a field index — a generated index's leading
+   *  fields, its key's `on`, none when it lists none (#1432); undefined for a
+   *  computed key. Authoring metadata: the generated key function remains the
+   *  stored contract. */
   readonly on: On;
-  /** Interval endpoints for an overlap index. Its final logical field is
-   *  `from`; the generated key inserts an internal interval node before it.
-   *  Authoring metadata only: ordinary maintained index programs store it. */
+  /** Interval endpoints for an overlap index. Its key is `{ on, node, at }`:
+   *  the leading fields under `on`, the tree node an entry is filed at and the
+   *  instant it is ordered by (#1432). Authoring metadata only: ordinary
+   *  maintained index programs store it. */
   readonly interval?: { readonly from: string; readonly to: string } | undefined;
   /** The box an area index files rows by: its fields, whether `x`, `y` is its
    *  centre or its minimum corner, and the finest cell's side, a power of two.
-   *  Its final logical field is `__area`, the generated key. Authoring metadata
-   *  only: ordinary maintained index programs store it. */
+   *  Its key is `{ on, area }`, the cell's code beside the leading fields
+   *  (#1432). Authoring metadata only: ordinary maintained index programs
+   *  store it. */
   readonly area?: {
     readonly x: string;
     readonly y: string;
@@ -328,7 +332,7 @@ export interface RecordIndexDef<
   } | undefined;
   /** What a series index files a record's events by (#1039): the field naming
    *  the key an event is on, its start and end fields, and the time tile. Its
-   *  key is `{ …on, __tile, <key> }`, an entry per tile an event touches,
+   *  key is `{ on, tile, key }`, an entry per tile an event touches,
    *  carrying the row. Authoring metadata only: ordinary maintained index
    *  programs store it. */
   readonly series?: { readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;

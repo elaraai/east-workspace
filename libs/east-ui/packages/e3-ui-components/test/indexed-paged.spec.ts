@@ -21,10 +21,10 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { SeekQueryType } from "@elaraai/east-ui";
-import { AREA_UNPLACED, RecordSliceWhereType, areaQueries, bindRecord, type RecordSliceJoined } from "@elaraai/east-ui/internal";
+import { RecordSliceReadType, RecordSliceWhereType, areaQueries, bindRecord, type RecordSliceJoined } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
 import {
-    recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSlicePlace, recordSliceWithin, recordSliceWithinAt,
+    recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSliceOnPrinter, recordSlicePlace, recordSliceWithin, recordSliceWithinAt,
 } from "@elaraai/east-ui-components/internal";
 import { datasetGetStatus } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
@@ -198,7 +198,7 @@ test("record Slice binds typed controls, reads each narrowing when its rows are 
     assert.equal(otherHandle.sourceId, handle.sourceId, "different index lists share the record's save gate");
     assert.equal(await h.ready(() => handle.count()), 2n);
     assert.equal(await h.ready(() => handle.total()), 3n);
-    assert.equal(await h.ready(() => handle.countWhere(new Map([["skills", variant("values", ['"a"'])]]))), 1n);
+    assert.equal(await h.ready(() => handle.countWhere({ where: new Map([["skills", variant("values", ['"a"'])]]), area: none })), 1n);
     assert.equal(await h.ready(() => handle.count()), 2n, "counting a saved query never changes the current narrowing");
     assert.deepEqual((await h.ready(() => handle.data.page(0n, 10n))).map(row => row.key), ["p1", "p3"]);
     assert.deepEqual(handle.config.fields.map(field => [field.fieldId, field.kind, field.set]), [["name", "string", false], ["skills", "string", true]]);
@@ -261,7 +261,7 @@ test("record Slice binds typed controls, reads each narrowing when its rows are 
     const confirmed = await h.ready(() => decoded.readEntry("p2"));
     assert.ok(confirmed.type === "some" && equalFor(Person)(decodeBeast2For(Person)(confirmed.value), { name: "Abe Moss", skills: new Set<string>() }), "decoded confirmation uses the new host");
     assert.equal(decoded.sourceId, handle.sourceId, "narrowing does not change editing identity");
-    assert.equal(await h.ready(() => decoded.countWhere(new Map([["name", variant("prefix", "Abe M")]]))), 1n,
+    assert.equal(await h.ready(() => decoded.countWhere({ where: new Map([["name", variant("prefix", "Abe M")]]), area: none })), 1n,
         "saved-query counts survive serialization and use the decoder's data");
     assert.equal(await h.ready(() => decoded.contains(decoded.read().where, "p1")), true, "membership survives serialization");
     decoded.togglePreset("a");
@@ -335,18 +335,18 @@ test("a window over an area index reads the racks whose box meets it from the in
     const { runtime } = newRuntime();
     StateRuntime.initializeStore(new UIStore());
     const handle = East.compile(program, slicePlatform(runtime))();
-    // The binding marks each area index's `__area` with its box, which the slice reads back; the rail is offered the
-    // leading fields alone.
+    // The binding marks each area index's kind with its box, which the slice reads back; the rail is offered the
+    // leading fields alone (#1432).
     assert.deepEqual(handle.config.fields.map(field => field.fieldId), ["hall"]);
     const area = (name: string) => handle.config.indexes.find(index => index.name === name)!.area;
     const box = { x: "x", y: "y", width: some("w"), height: some("h"), centre: true, cell: 2 ** -7, optional: true };
     assert.deepEqual([area("racks_by_area"), area("racks_by_hall_area"), area("racks_by_hall")], [some(box), some(box), none]);
     const rowOf = equalFor(ex.IndexedRack);
     const keyOrder = compareFor(StringType);
-    /** A window's racks, by key, each read once and carrying the row the record holds. */
-    const windowed = async (where: ValueTypeOf<typeof RecordSliceWhereType>) => {
-        const rows = await h.ready(() => handle.pageWhere(where, 0n, 100n));
-        assert.equal(await h.ready(() => handle.countWhere(where)), BigInt(rows.length), "the count is the rows the window reads");
+    /** A read by area's racks, by key, each read once and carrying the row the record holds. */
+    const windowed = async (read: ValueTypeOf<typeof RecordSliceReadType>) => {
+        const rows = await h.ready(() => handle.pageWhere(read, 0n, 100n));
+        assert.equal(await h.ready(() => handle.countWhere(read)), BigInt(rows.length), "the count is the rows the window reads");
         for (const row of rows) {
             assert.ok(row.row.type === "some" && rowOf(row.row.value, stored.get(row.key)!), `${row.key} carries its row`);
             assert.deepEqual(row.value, some(null), "beside an index that carries nothing, the binding's projection is Null (D29)");
@@ -356,23 +356,57 @@ test("a window over an area index reads the racks whose box meets it from the in
         return keys;
     };
     // Hall A's row of racks: every rack whose box meets the window is read, and the far one and the unplaced one never.
+    // A read by area asks its window, or its unplaced rows, beside the narrowing, never as a field's choice (#1432).
     type Choice = ValueTypeOf<typeof RecordSliceWhereType> extends Map<string, infer C> ? C : never;
-    const rowWindow: Choice = variant("window", { minX: 0.5, minY: 0.4, maxX: 3.5, maxY: 1.6 });
-    const row = await windowed(new Map<string, Choice>([["__area", rowWindow]]));
+    const NOTHING = new Map<string, Choice>();
+    const row = await windowed({ where: NOTHING, area: some(variant("window", { minX: 0.5, minY: 0.4, maxX: 3.5, maxY: 1.6 })) });
     assert.ok(["r1", "r2", "r3"].every(key => row.includes(key)), `the row's racks: ${row.join(", ")}`);
     assert.ok(!row.includes("far") && !row.includes("unplaced"));
     // The rail's hall beside the window reads through the area index it leads: hall B's rack across the aisle.
-    const across = new Map<string, Choice>([["hall", variant("values", ['"B"'])], ["__area", variant("window", { minX: 1.5, minY: 3.0, maxX: 2.5, maxY: 4.0 })]]);
-    assert.deepEqual(await windowed(across), ["r4"]);
-    assert.deepEqual(await windowed(new Map<string, Choice>([["__area", variant("values", [AREA_UNPLACED])]])), ["unplaced"]);
-    // A window's membership seeks each rack's maintained key against the window's searches.
-    const captured = new Map<string, Choice>([["__area", rowWindow]]);
-    assert.equal(await h.ready(() => handle.contains(captured, "r2")), true);
-    assert.equal(await h.ready(() => handle.contains(captured, "far")), false);
+    const across = new Map<string, Choice>([["hall", variant("values", ['"B"'])]]);
+    assert.deepEqual(await windowed({ where: across, area: some(variant("window", { minX: 1.5, minY: 3.0, maxX: 2.5, maxY: 4.0 })) }), ["r4"]);
+    assert.deepEqual(await windowed({ where: NOTHING, area: some(variant("unplaced", null)) }), ["unplaced"]);
     // From the index alone: no page and no run of the record is joined, and the record is never read whole.
     const reads = [...pagesOf(racks), ...h.requests("runs", `records.${racks.name}`)].filter(request => request.query.has("index"));
     assert.ok(reads.length > 0 && reads.every(request => !request.query.has("join")), "an area index's reads join nothing");
     assert.equal(h.requests("read", `records.${racks.name}`).length, 0, "the record is never read whole");
+    runtime.clear();
+});
+
+test("a row's fields named `area`, `__area`, `tile` and `__tile` are each offered, chosen and counted on e3, and `area` and `__area` beside a window read through the area index they lead (#1432)", async () => {
+    const racks = ex.namedRacks;
+    const source = Data.bindPaged(racks, {
+        indexes: [ex.namedByArea, ex.namedByUnderArea, ex.namedByTile, ex.namedByUnderTile, ex.namedByPlace, ex.namedByAreaPlace],
+    });
+    const sliced = bindRecord("test.named", source, {
+        fields: { area: { hints: ["A1", "A2"] }, __area: { hints: ["B", "C"] }, tile: { hints: ["T1", "T2"] }, __tile: { hints: ["U1", "U2"] } },
+    });
+    const { runtime } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const handle = East.compile(East.function([], Expr.type(sliced), $ => $.return(sliced)), slicePlatform(runtime))();
+    assert.deepEqual(handle.config.fields.map(field => field.fieldId), ["area", "__area", "tile", "__tile"], "each offered");
+    const printString = printFor(StringType);
+    for (const [field, value, expected] of [["area", "A1", 4n], ["__area", "B", 4n], ["tile", "T1", 3n], ["__tile", "U1", 3n]] as const) {
+        handle.choose(field, [printString(value)]);
+        assert.deepEqual([...handle.read().where.keys()], [field], `${field} chosen`);
+        assert.equal(await h.ready(() => handle.count()), expected, `${field} counted on e3`);
+        handle.clearAll();
+    }
+    // A read by area asks its window, or its unplaced rows, beside the choice of both: through the area index they lead.
+    type Choice = ValueTypeOf<typeof RecordSliceWhereType> extends Map<string, infer C> ? C : never;
+    const where = new Map<string, Choice>([["area", variant("values", [printString("A1")])], ["__area", variant("values", [printString("B")])]]);
+    const keysOf = async (read: ValueTypeOf<typeof RecordSliceReadType>) => {
+        const rows = await h.ready(() => handle.pageWhere(read, 0n, 100n));
+        assert.equal(await h.ready(() => handle.countWhere(read)), BigInt(rows.length));
+        return rows.map(row => row.key).sort(compareFor(StringType));
+    };
+    assert.deepEqual(await keysOf({ where, area: some(variant("window", { minX: 0, minY: 0, maxX: 3, maxY: 3 })) }), ["n1"],
+        "the window's rack in A1 by B: never the one by C or in A2 inside it, nor the far one");
+    assert.deepEqual(await keysOf({ where, area: some(variant("unplaced", null)) }), ["unplaced"]);
+    const searched = h.requests("find", `records.${racks.name}`).filter(request => request.query.get("index") === "named_by_area_place");
+    assert.ok(searched.length > 0, "read through the area index `area` and `__area` lead");
+    const leading = searched.flatMap(request => request.searches.flatMap(search => "fields" in search ? [search.fields[0]] : []));
+    assert.ok(leading.length > 0 && leading.every(on => on === '(area="A1", __area="B")'), `each exact search names both as one \`on\`: ${leading.join(", ")}`);
     runtime.clear();
 });
 
@@ -394,7 +428,7 @@ test("a window's details are read by the runs its area index's cells are — the
     const printSeek = printFor(SeekQueryType);
     /** A window's cells, a search each, as the Schematic's window reads them. */
     const cellsOf = (box: { minX: number; minY: number; maxX: number; maxY: number }) =>
-        areaQueries([], box, 2 ** -7).map((query) => ({ id: printSeek(query), queries: [query] }));
+        areaQueries([], box, 2 ** -7, recordSliceOnPrinter(handle, "racks_by_area")).map((query) => ({ id: printSeek(query), queries: [query] }));
     /** What a read of the loads holds, by its rack's key: each a load as the loads' record types it. */
     const byKey = (read: ReadonlyMap<string, readonly RecordSliceJoined[]>) =>
         new Map([...read.values()].flat().map((joined) => [joined.key as string, joined.row as ValueTypeOf<OptionType<typeof ex.IndexedRackLoad>>] as const));

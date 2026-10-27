@@ -76,7 +76,7 @@ const dateTimeOrder = compareFor(DateTimeType);
 /** An entry key of an index whose key is one String: `(ik=…, k=…)`. */
 const printStringEntry = printFor(StructType({ ik: StringType, k: StringType }));
 /** The interval index's key: an entry's node, then the order's start. */
-const IntervalKeyType = StructType({ __interval: IntegerType, start: DateTimeType });
+const IntervalKeyType = StructType({ on: StructType({}), node: IntegerType, at: DateTimeType });
 /** An entry key of the interval index: its node and start, then the order's key. */
 const printIntervalEntry = printFor(StructType({ ik: IntervalKeyType, k: StringType }));
 /**
@@ -159,7 +159,7 @@ interface Entry {
 function entriesOf(index: string, key: string, order: Order): Entry[] {
   const byString = (ik: string): Entry => ({ key: printStringEntry({ ik, k: key }), flat: [printString(ik), printString(key)] });
   const byNode = (node: bigint, at: Date): Entry => ({
-    key: printIntervalEntry({ ik: { __interval: node, start: at }, k: key }),
+    key: printIntervalEntry({ ik: { on: {}, node, at }, k: key }),
     flat: [printInteger(node), printDateTime(at), printString(key)],
   });
   switch (index) {

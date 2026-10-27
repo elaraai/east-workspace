@@ -67,15 +67,17 @@ e3.mutation.edit(name, record, fn, config?)
 e3.mutation.patch(record, name?, config?)
 e3.mutation.editType(recordType)
 e3.recordIndex(name, record, spec, config?)      // spec: { on | key | keys, value? }, an order to page in
-e3.recordIndex.interval(name, record, { on?, from, to }, config?)                      // the events overlapping a time window
-e3.recordIndex.area(name, record, { on?, x, y, width?, height?, at?, cell }, config?)  // the rows whose box meets a 2D window, carrying each row
-e3.recordIndex.series(name, record, { on?, key, from, to, tile }, config?)    // the events on a block of keys over a span of time tiles, carrying each row
-e3.recordIndex.summary(name, record, { on?, key, from, to, tile }, config?)   // under each key and tile, how many rows touch it and the time of it they cover
+e3.recordIndex.interval(name, record, { on?, from, to }, config?)                      // the events overlapping a time window; key { on, node, at }
+e3.recordIndex.area(name, record, { on?, x, y, width?, height?, at?, cell }, config?)  // the rows whose box meets a 2D window, carrying each row; key { on, area }
+e3.recordIndex.series(name, record, { on?, key, from, to, tile }, config?)    // the events on a block of keys over a span of time tiles, carrying each row; key { on, tile, key }
+e3.recordIndex.summary(name, record, { on?, key, from, to, tile }, config?)   // under each key and tile, how many rows touch it and the time of it they cover; key { on, tile, key }
 e3.migration.value(name, record, fn, config?)    // (Old) => New; config: { after?, runner? }
 e3.migration.rows(name, record, fn, config?)     // a Dict's rows (K, V1) => V2, or an Array's elements (T1) => T2
 e3.migration.rekey(name, record, fn, config?)    // a Dict's (K1, V1) => { key, value }, or a Set's elements (T1) => T2
 e3.package(name, version, ...items), e3.export(pkg, path)
 ```
+
+A generated index's key nests the row's leading fields under `on` — a struct with no fields when it lists none — and puts e3's own parts beside it, so no row field's name is reserved (#1432). A range bounds the key flattened, the leading values one by one; a search of the key's own fields names `on` as one literal.
 
 **`e3.task`** runs one unit. Its inputs are datasets: an input `e3.partition` marks is refused when the task is defined. Its inputs open lazily unless its runner decodes them whole (§3.5), and a collection the body returns is written through the Writer segment by segment. Once automatic parallelism is built (§3.9), a body whose shape allows it runs split without the author asking.
 

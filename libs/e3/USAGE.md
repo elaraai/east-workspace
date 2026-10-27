@@ -460,6 +460,7 @@ const pkg = e3.package('planning', '1.0.0', counter, increment, plans, reassign,
 - `e3.mutation.edit(name, record, fn)` — `(state, ...args, edit) => Null`: the body reads the state lazily and writes through `edit.set`, `edit.delete` and `edit.update`, so a write costs the segments it touches. For Dict and Set records.
 - `e3.mutation.patch(record, name?)` — no body: the argument is the change, a `PatchType` of the state. For Dict and Set records.
 - `e3.recordIndex(name, record, { key | keys, value? })` — a second collection over a Dict record, in another order, maintained in the same commit; pages and key searches take it by name.
+- `e3.recordIndex.interval | area | series | summary(name, record, { on?, … })` — an index whose keys the SDK generates, for a time window, a 2D window, or a block of keys over time tiles: `{ on, node, at }`, `{ on, area }`, `{ on, tile, key }` — the row's leading fields under `on`, e3's own parts beside them, so no field name is reserved (the **e3** skill's Interval and area indexes).
 - `e3.migration.value | rows | rekey(name, record, fn, { after? })` — the steps a deploy runs when a record's type changes between package versions (`e3 workspace deploy`'s `--schema`, below).
 
 Every function here is pure, synchronous East: a mutation runs again against

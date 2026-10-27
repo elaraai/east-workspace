@@ -161,4 +161,3 @@ export type {
   IndexFunction, IndexKeyOf, IndexOn, ProjectionOf,
 } from './record-index.js';
 export { RECORD_TILES, MAX_EVENT_TILES, TileShareType, tileStart, tileNext, tileShares, type RecordTile } from './record-tiles.js';
-export { TILE_FIELD } from './record-series.js';

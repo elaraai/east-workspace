@@ -19,10 +19,8 @@
  */
 import { FloatType, IntegerType, compareFor, none, parseFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
 import type { SeekQueryType } from "../../contracts/source.js";
-import type { RecordSliceChoiceType } from "./record-types.js";
-
-/** The area index's key field: the row's cell and level, after its leading fields. */
-export const AREA_FIELD = "__area";
+import type { RecordSliceAreaType } from "./record-types.js";
+import type { RecordOnPrinter } from "./record-on.js";
 
 /** How an area index reads a row's box, as a binding's index metadata carries it. */
 export interface AreaMarker {
@@ -47,12 +45,13 @@ const floatText = printFor(FloatType);
 const floatOf = parseFor(FloatType);
 
 /**
- * The names of the struct `Data.bindPaged` marks an area index's `__area` with
- * in a binding's index metadata, as an interval's start is marked with a struct
- * naming its end: the box's fields in order — `x`, `y`, then `width` and
- * `height` when given — each named with its role (`x=…`), so one field may hold
- * two roles; `__centre` when the box is placed by its centre; and the cell's
- * power of two (`cell=…`).
+ * The names of the struct `Data.bindPaged` marks an area index with in a
+ * binding's index metadata — its kind's `area` case (#1432), as an interval's
+ * case names its `from` and `to`: the box's fields in order — `x`, `y`, then
+ * `width` and `height` when given — each named with its role (`x=…`), so one
+ * field may hold two roles; `__centre` when the box is placed by its centre;
+ * and the cell's power of two (`cell=…`). A marker's names are the kind's own,
+ * never a row field among the index's.
  *
  * @param box - How the index reads a row's box
  * @returns The marker struct's field names, in order
@@ -64,7 +63,7 @@ export function areaMarkerFields(box: AreaMarker): string[] {
 }
 
 /**
- * Read an area index's box back from its `__area` marker's field names
+ * Read an area index's box back from its marker's field names
  * ({@link areaMarkerFields}).
  *
  * @param names - The marker struct's field names
@@ -93,14 +92,14 @@ export function readAreaMarker(names: readonly string[]): AreaMarker | undefined
 /** The finest level: a level-28 cell is `cell` wide. */
 export const AREA_FINEST_LEVEL = 28;
 
-/** The `__area` an unplaced row files under, as its `.east` literal: the unplaced clause's one value. */
+/** The `area` code an unplaced row files under, as its `.east` literal: what the unplaced clause searches. */
 export const AREA_UNPLACED = printFor(IntegerType)(-1n);
 
 /** The most searches a window takes a combination of leading values (§11.3). */
 export const MAX_AREA_SEARCHES = 266;
 
-/** A window's box in world units, the `window` clause's value. */
-export type AreaWindow = Extract<ValueTypeOf<RecordSliceChoiceType>, { type: "window" }>["value"];
+/** A window's box in world units, a read by area's `window` clause. */
+export type AreaWindow = Extract<ValueTypeOf<RecordSliceAreaType>, { type: "window" }>["value"];
 
 const integerText = printFor(IntegerType);
 const keyOrder = compareFor(IntegerType);
@@ -214,14 +213,18 @@ function cellAt(level: number, ix: number, iy: number, half: number, side: numbe
  * beyond the window — rows of a searched cell that the window misses — is the
  * reader's to draw or not.
  *
+ * An exact search names the key's own fields, `[on, area]`; a range bounds it
+ * flattened, the leading values one by one (#1432).
+ *
  * @param prefix - The `.east` literals of the index's leading fields, in order
  * @param box - The viewport, in world units: its minimum and maximum corners
  * @param cell - The index's finest cell's side, a power of two (its `area.cell`)
+ * @param printOn - The index's `on` printer
  * @returns The cells, in their searches' key order
  * @throws {Error} When the viewport is not finite or its maximum is below its
  *   minimum, or when `cell` is not a positive power of two
  */
-export function areaCells(prefix: readonly string[], box: AreaWindow, cell: number): AreaCell[] {
+export function areaCells(prefix: readonly string[], box: AreaWindow, cell: number, printOn: RecordOnPrinter): AreaCell[] {
     const { minX, minY, maxX, maxY } = box;
     if (![minX, minY, maxX, maxY].every(Number.isFinite)) throw new Error("Choose a window with finite bounds");
     if (maxX < minX || maxY < minY) throw new Error("A window's maximum is below its minimum");
@@ -234,6 +237,7 @@ export function areaCells(prefix: readonly string[], box: AreaWindow, cell: numb
     const half = cell * 2 ** 27;
     let deepest = AREA_FINEST_LEVEL;
     while (deepest > 0 && cell * 2 ** (AREA_FINEST_LEVEL - deepest) < larger / 8) deepest--;
+    const on = printOn(prefix);
     const searches: { start: bigint; cell: AreaCell }[] = [];
     for (let level = 0; level <= deepest; level++) {
         const size = cell * 2 ** (AREA_FINEST_LEVEL - level);
@@ -245,7 +249,7 @@ export function areaCells(prefix: readonly string[], box: AreaWindow, cell: numb
                 const m = morton(ix, iy, level);
                 const start = m * 32n + BigInt(level);
                 if (level < deepest) {
-                    searches.push({ start, cell: cellAt(level, ix, iy, half, size, variant("fields", { values: [...prefix, integerText(start)], prefix: none })) });
+                    searches.push({ start, cell: cellAt(level, ix, iy, half, size, variant("fields", { values: [on, integerText(start)], prefix: none })) });
                     continue;
                 }
                 const end = (m + 4n ** (FINEST - BigInt(level))) * 32n;
@@ -264,11 +268,12 @@ export function areaCells(prefix: readonly string[], box: AreaWindow, cell: numb
  * @param prefix - The `.east` literals of the index's leading fields, in order
  * @param box - The viewport, in world units: its minimum and maximum corners
  * @param cell - The index's finest cell's side, a power of two (its `area.cell`)
+ * @param printOn - The index's `on` printer
  * @returns The searches, in key order
  * @throws {Error} As {@link areaCells} does
  */
-export function areaQueries(prefix: readonly string[], box: AreaWindow, cell: number): ValueTypeOf<SeekQueryType>[] {
-    return areaCells(prefix, box, cell).map(found => found.query);
+export function areaQueries(prefix: readonly string[], box: AreaWindow, cell: number, printOn: RecordOnPrinter): ValueTypeOf<SeekQueryType>[] {
+    return areaCells(prefix, box, cell, printOn).map(found => found.query);
 }
 
 /** The most counted ranges a density raster asks in one request (§10.4, D25). */
@@ -313,12 +318,13 @@ export interface AreaRaster {
  * @param prefix - The `.east` literals of the index's leading fields, in order
  * @param box - The box the raster covers, in world units
  * @param cell - The index's finest cell's side, a power of two (its `area.cell`)
+ * @param printOn - The index's `on` printer: the coarser cells' exact searches name `[on, area]`
  * @param budget - The most cells the raster takes
  * @returns The raster's level, its cells' side, its cells and the coarser levels' cells
  * @throws {Error} When the box is not finite or its maximum is below its minimum, when `cell` is not a positive power of
  *   two, or when `budget` is not a positive whole number
  */
-export function areaRaster(prefix: readonly string[], box: AreaWindow, cell: number, budget: number = MAX_AREA_RASTER): AreaRaster {
+export function areaRaster(prefix: readonly string[], box: AreaWindow, cell: number, printOn: RecordOnPrinter, budget: number = MAX_AREA_RASTER): AreaRaster {
     const { minX, minY, maxX, maxY } = box;
     if (![minX, minY, maxX, maxY].every(Number.isFinite)) throw new Error("Choose a raster's box with finite bounds");
     if (maxX < minX || maxY < minY) throw new Error("A raster's box has its maximum below its minimum");
@@ -358,13 +364,14 @@ export function areaRaster(prefix: readonly string[], box: AreaWindow, cell: num
         }
     }
     const coarse: { start: bigint; cell: AreaCell }[] = [];
+    const on = printOn(prefix);
     for (let l = 0; l < level; l++) {
         const size = sizeOf(l);
         const count = 2 ** l;
         for (const ix of l === 0 ? [0] : cellsMeeting(minX, maxX, half, size, count)) {
             for (const iy of l === 0 ? [0] : cellsMeeting(minY, maxY, half, size, count)) {
                 const start = morton(ix, iy, l) * 32n + BigInt(l);
-                coarse.push({ start, cell: cellAt(l, ix, iy, half, size, variant("fields", { values: [...prefix, integerText(start)], prefix: none })) });
+                coarse.push({ start, cell: cellAt(l, ix, iy, half, size, variant("fields", { values: [on, integerText(start)], prefix: none })) });
             }
         }
     }

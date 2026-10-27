@@ -41,7 +41,7 @@ const zones = () => record('zones', ZonesType, new Map());
 
 // ── The oracle: §11.2 with bit operations ────────────────────────────────────
 
-/** A box's `__area` key, as §11.2 states it, from its centre and its larger side, the finest cell `2^e`. */
+/** A box's `area` code, as §11.2 states it, from its centre and its larger side, the finest cell `2^e`. */
 function oracle(cx: number, cy: number, side: number, e: number): bigint {
   const cell = 2 ** e;
   const half = 2 ** (e + 27);
@@ -164,40 +164,42 @@ describe('e3.recordIndex.area — its keys (§11.2)', () => {
     const decode = decodeBeast2For(RackRow);
     const encode = encodeBeast2For(RackRow);
     const placed = decode(encode(rack(12.34, -5.6)));
-    assert.deepEqual(keyOf(byArea)('r1', placed), { __area: oracle(12.34, -5.6, 1.2, -7) }, 'the larger side, whatever its sign');
-    assert.deepEqual(keyOf(byHallArea)('r1', placed), { hall: 'H1', __area: oracle(12.34, -5.6, 1.2, -7) });
-    const tagged = keyOf(byTagArea)('r1', placed) as Set<{ tags: string; __area: bigint }>;
-    assert.deepEqual([...tagged], [{ tags: 'a', __area: oracle(12.34, -5.6, 0, -7) }, { tags: 'b', __area: oracle(12.34, -5.6, 0, -7) }],
+    // The row's leading fields under `on` — none here — and the cell's code beside them (#1432).
+    assert.deepEqual(keyOf(byArea)('r1', placed), { on: {}, area: oracle(12.34, -5.6, 1.2, -7) }, 'the larger side, whatever its sign');
+    assert.deepEqual(keyOf(byHallArea)('r1', placed), { on: { hall: 'H1' }, area: oracle(12.34, -5.6, 1.2, -7) });
+    const tagged = keyOf(byTagArea)('r1', placed) as Set<{ on: { tags: string }; area: bigint }>;
+    assert.deepEqual([...tagged], [{ on: { tags: 'a' }, area: oracle(12.34, -5.6, 0, -7) }, { on: { tags: 'b' }, area: oracle(12.34, -5.6, 0, -7) }],
       'a point is filed at the finest level, once a tag');
-    assert.deepEqual(keyOf(byArea)('r2', decode(encode(rack(null, -5.6)))), { __area: AREA_UNPLACED });
-    assert.deepEqual(keyOf(byArea)('r3', decode(encode(rack(1, null)))), { __area: AREA_UNPLACED });
+    assert.deepEqual(keyOf(byArea)('r2', decode(encode(rack(null, -5.6)))), { on: {}, area: AREA_UNPLACED });
+    assert.deepEqual(keyOf(byArea)('r3', decode(encode(rack(1, null)))), { on: {}, area: AREA_UNPLACED });
     const zone = decodeBeast2For(ZoneRow)(encodeBeast2For(ZoneRow)({ x: 10, y: 20, w: 4, h: 2 }));
-    assert.deepEqual(keyOf(zonesByArea)('z1', zone), { __area: oracle(12, 21, 4, -7) }, 'a corner plus half the box is its centre');
+    assert.deepEqual(keyOf(zonesByArea)('z1', zone), { on: {}, area: oracle(12, 21, 4, -7) }, 'a corner plus half the box is its centre');
   });
 });
 
 describe('e3.recordIndex.area — its declaration', () => {
   it('types its key, its fields and its projection from the spec, and carries the box and its rounded cell', () => {
     const def = recordIndex.area('racks_by_hall_area', racks(), { on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 });
-    const keyType: StructType<{ hall: typeof StringType; __area: typeof IntegerType }> = def.keyType;
-    const fields: readonly ['hall', '__area'] = def.on;
+    const keyType: StructType<{ on: StructType<{ hall: typeof StringType }>; area: typeof IntegerType }> = def.keyType;
+    const fields: readonly ['hall'] = def.on;
     const projection: typeof RackRow = def.valueType;
-    assert.equal(printType(keyType), printType(StructType({ hall: StringType, __area: IntegerType })));
-    assert.deepEqual(fields, ['hall', '__area']);
+    assert.equal(printType(keyType), printType(StructType({ on: StructType({ hall: StringType }), area: IntegerType })));
+    assert.deepEqual(fields, ['hall']);
     assert.equal(printType(projection), printType(RackRow), 'it carries the whole row');
     assert.deepEqual(def.area, { x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.0078125 });
     assert.equal(def.multi, false, 'one entry a row');
     const alone = recordIndex.area('zones_by_area', zones(), { x: 'x', y: 'y', width: 'w', height: 'h', cell: 1 });
-    const aloneKey: StructType<{ __area: typeof IntegerType }> = alone.keyType;
-    const aloneOn: readonly ['__area'] = alone.on;
-    assert.deepEqual(aloneOn, ['__area']);
-    assert.equal(printType(aloneKey), printType(StructType({ __area: IntegerType })));
+    // Led by no field, its key's `on` holds none.
+    const aloneKey: StructType<{ on: StructType<Record<never, never>>; area: typeof IntegerType }> = alone.keyType;
+    const aloneOn: readonly [] = alone.on;
+    assert.deepEqual(aloneOn, []);
+    assert.equal(printType(aloneKey), printType(StructType({ on: StructType({}), area: IntegerType })));
     assert.equal(alone.area.at, 'corner', 'the corner, unless it says');
     // The declared types, as the constructor's spec types them.
     type Spec = { on: ['hall']; x: 'x'; y: 'y'; cell: 1 };
-    const on: IndexOn<Spec> = ['hall', '__area'];
-    const key: IndexKeyOf<Spec, typeof RacksType> = StructType({ hall: StringType, __area: IntegerType });
-    assert.ok(on.length === 2 && key.type === 'Struct');
+    const on: IndexOn<Spec> = ['hall'];
+    const key: IndexKeyOf<Spec, typeof RacksType> = StructType({ on: StructType({ hall: StringType }), area: IntegerType });
+    assert.ok(on.length === 1 && key.type === 'Struct');
   });
 
   it('projects each entry as its whole row', () => {
@@ -232,13 +234,15 @@ describe('e3.recordIndex.area — its declaration', () => {
       assert.throws(() => recordIndex.area('no_cell', zones(), { x: 'x', y: 'y', cell: 0 }), /takes a cell/);
     });
 
-    it('a value, a row field named __area, and the guards every index applies to its name and its record', () => {
+    it('a value, and the guards every index applies to its name and its record — a row field may be named anything (#1432)', () => {
       // @ts-expect-error — an area index carries the whole row, and takes no value
       assert.throws(() => recordIndex.area('valued', zones(), { x: 'x', y: 'y', cell: 1, value: East.function([StringType, ZoneRow], FloatType, ($, _k, v) => v.x) }),
         /takes no value/);
-      const Reserved = StructType({ x: FloatType, y: FloatType, __area: IntegerType });
-      const reserved = record('reserved', DictType(StringType, Reserved), new Map());
-      assert.throws(() => recordIndex.area('reserved_area', reserved, { x: 'x', y: 'y', cell: 1 }), /field named '__area'/);
+      // A row field named `__area` or `area` reserves nothing: the index builds, led by both.
+      const Named = StructType({ x: FloatType, y: FloatType, __area: IntegerType, area: StringType });
+      const named = record('named', DictType(StringType, Named), new Map());
+      const byNamed = recordIndex.area('named_area', named, { on: ['__area', 'area'], x: 'x', y: 'y', cell: 1 });
+      assert.equal(printType(byNamed.keyType), printType(StructType({ on: StructType({ __area: IntegerType, area: StringType }), area: IntegerType })));
       assert.throws(() => recordIndex.area('primary', zones(), { x: 'x', y: 'y', cell: 1 }), /e3.recordIndex.area cannot be named 'primary'/);
       assert.throws(() => recordIndex.area('by area', zones(), { x: 'x', y: 'y', cell: 1 }), /must be an identifier/);
     });

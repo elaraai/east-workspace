@@ -7,12 +7,12 @@
  * Queries for e3's series and summary indexes (#1039), the twin of
  * `record-interval.ts` and `record-area.ts`: a record's events filed by the key
  * they are on — a Plan's resource — and by each time tile they touch,
- * `{ …on, __tile, <key> }`. A series index holds an entry for each event in
+ * `{ on, tile, key }` (#1432). A series index holds an entry for each event in
  * each tile it touches, carrying the row; a summary index one entry for each
  * key in each tile, `{ count, ms }`, standing for every event touching it.
  *
  * A **cell** is some keys in one tile: what a reader reads of either index for
- * a block of its rows. Each key of a cell is one search, `[…on, tile, key]`,
+ * a block of its rows. Each key of a cell is one search, `[on, tile, key]`,
  * which holds exactly that key's entries in that tile, so a cell's searches
  * hold its keys' entries and no others, in whatever order its keys come — a
  * block of rows narrowed or ordered by another index included. A reader asks
@@ -34,13 +34,11 @@ import { DateTimeType, equalFor, none, printFor, variant, type ValueTypeOf } fro
 import type { SeekQueryType } from "../../contracts/source.js";
 import type { RecordSliceChoiceType, RecordSliceIndexType, RecordSliceTileType, RecordSliceTilingType } from "./record-types.js";
 import { MAX_RECORD_SLICE_RUNS } from "./record-plan.js";
+import type { RecordOnPrinter } from "./record-on.js";
 
 type Choice = ValueTypeOf<RecordSliceChoiceType>;
 type Index = ValueTypeOf<RecordSliceIndexType>;
 type Tiling = ValueTypeOf<RecordSliceTilingType>;
-
-/** A series or a summary index's tile field: the tile's start, after the index's leading fields and before its key. */
-export const TILE_FIELD = "__tile";
 
 /** A tile: a day, an ISO week from Monday, a calendar month, a quarter or a year, in UTC. */
 export type RecordTile = keyof RecordSliceTileType["cases"] & string;
@@ -67,10 +65,12 @@ const SUMMARY_MARKER = "__summary";
 const TILE_ROLES = ["key", "from", "to", "tile"] as const;
 
 /**
- * The names of the struct `Data.bindPaged` marks a series or a summary index's
- * `__tile` with in a binding's index metadata, as an area index's `__area` is
- * marked with its box: the key, start and end fields and the tile, each named
- * with its role (`key=…`), and `__summary` for a summary index.
+ * The names of the struct `Data.bindPaged` marks a series or a summary index
+ * with in a binding's index metadata — its kind's `series` or `summary` case
+ * (#1432), as an area index's case names its box: the key, start and end
+ * fields and the tile, each named with its role (`key=…`), and `__summary` for
+ * a summary index. A marker's names are the kind's own, never a row field
+ * among the index's.
  *
  * @param marker - How the index files the record's events
  * @returns The marker struct's field names, in order
@@ -80,8 +80,8 @@ export function tileMarkerFields(marker: TileMarker): string[] {
 }
 
 /**
- * Read a series or a summary index's filing back from its `__tile` marker's
- * field names ({@link tileMarkerFields}).
+ * Read a series or a summary index's filing back from its marker's field
+ * names ({@link tileMarkerFields}).
  *
  * @param names - The marker struct's field names
  * @returns The filing, or `undefined` when the names are not a tile marker's
@@ -208,7 +208,7 @@ export function tilingOf(index: Index): Tiling | undefined {
  */
 export function tileIndexServes(index: Index, where: ReadonlyMap<string, Choice>): boolean {
     if (tilingOf(index) === undefined) return false;
-    return index.fields.slice(0, -2).every(field => {
+    return index.fields.every(field => {
         const choice = where.get(field);
         return choice?.type === "values" && choice.value.length > 0 && (!index.sets.has(field) || new Set(choice.value).size === 1);
     });
@@ -254,27 +254,28 @@ const sameInstant = equalFor(DateTimeType);
 /**
  * Plan a cell of a series or a summary index: some keys in one tile, a search
  * for each key under each combination of the narrowing's values of the index's
- * leading fields, `[…on, tile, key]`, holding that key's entries in that tile
- * and no other's. A range of the index's start field — the window — is the
- * reader's: its tiles cover it.
+ * leading fields, `[on, tile, key]` — `on` one literal of them (#1432) —
+ * holding that key's entries in that tile and no other's. A range of the
+ * index's start field — the window — is the reader's: its tiles cover it.
  *
  * @param index - A series or a summary index ({@link tileIndexFor})
  * @param where - The narrowing
  * @param tile - The tile's start ({@link tilesOver})
  * @param keys - The keys, as `.east` literals of the index's key field
+ * @param printOn - The index's `on` printer
  * @returns The cell's searches, and the fields the reader asks of each event
  * @throws {Error} When the index is neither, when the narrowing does not choose
  *   exact values of each of its leading fields (one of a Set's), when the
  *   combinations of them pass {@link MAX_RECORD_SLICE_RUNS}, or when `tile` is
  *   not the start of one of the index's tiles
  */
-export function tileCellQueries(index: Index, where: ReadonlyMap<string, Choice>, tile: Date, keys: readonly string[]): TileCellPlan {
+export function tileCellQueries(index: Index, where: ReadonlyMap<string, Choice>, tile: Date, keys: readonly string[], printOn: RecordOnPrinter): TileCellPlan {
     const tiling = tilingOf(index);
     if (tiling === undefined) throw new Error(`A cell reads a series or a summary index, and '${index.name}' is neither`);
     if (!sameInstant(tileStart(tiling.tile.type, tile), tile)) {
         throw new Error(`${printTile(tile)} starts no ${tiling.tile.type} tile of '${index.name}'`);
     }
-    const leading = index.fields.slice(0, -2);
+    const leading = index.fields;
     let prefixes: string[][] = [[]];
     for (const field of leading) {
         const choice = where.get(field);
@@ -291,7 +292,10 @@ export function tileCellQueries(index: Index, where: ReadonlyMap<string, Choice>
         prefixes = prefixes.flatMap(prefix => values.map(value => [...prefix, value]));
     }
     const at = printTile(tile);
-    const queries = prefixes.flatMap(prefix => keys.map(key => variant("fields", { values: [...prefix, at, key], prefix: none })));
+    const queries = prefixes.flatMap(prefix => {
+        const on = printOn(prefix);
+        return keys.map(key => variant("fields", { values: [on, at, key], prefix: none }));
+    });
     const residual = [...where].filter(([field, choice]) => !leading.includes(field) && !(field === tiling.from && choice.type === "range"))
         .map(([field]) => field);
     return { queries, residual };

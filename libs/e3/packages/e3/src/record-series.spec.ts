@@ -375,14 +375,14 @@ describe('e3.recordIndex.series — its keys', () => {
     const oct5 = at('2026-10-05T00:00:00.000');
     const oct12 = at('2026-10-12T00:00:00.000');
     assertEast(SetType(byPressWeek.keyType), keysByPressWeek('W-0001', row), new SortedSet([
-      { __tile: oct5, press: 'P-1001' }, { __tile: oct12, press: 'P-1001' },
+      { on: {}, tile: oct5, key: 'P-1001' }, { on: {}, tile: oct12, key: 'P-1001' },
     ], compareFor(byPressWeek.keyType)), 'a week, then the next');
     assertEast(SetType(byStatePressWeek.keyType), keysByStatePressWeek('W-0001', row), new SortedSet([
-      { state: 'confirmed', __tile: oct5, press: 'P-1001' }, { state: 'confirmed', __tile: oct12, press: 'P-1001' },
+      { on: { state: 'confirmed' }, tile: oct5, key: 'P-1001' }, { on: { state: 'confirmed' }, tile: oct12, key: 'P-1001' },
     ], compareFor(byStatePressWeek.keyType)), 'led by its state');
     assertEast(SetType(byCrewPressWeek.keyType), keysByCrewPressWeek('W-0001', row), new SortedSet([
-      { crews: 'north', __tile: oct5, press: 'P-1001' }, { crews: 'north', __tile: oct12, press: 'P-1001' },
-      { crews: 'south', __tile: oct5, press: 'P-1001' }, { crews: 'south', __tile: oct12, press: 'P-1001' },
+      { on: { crews: 'north' }, tile: oct5, key: 'P-1001' }, { on: { crews: 'north' }, tile: oct12, key: 'P-1001' },
+      { on: { crews: 'south' }, tile: oct5, key: 'P-1001' }, { on: { crews: 'south' }, tile: oct12, key: 'P-1001' },
     ], compareFor(byCrewPressWeek.keyType)), 'once a crew');
   });
 
@@ -390,7 +390,7 @@ describe('e3.recordIndex.series — its keys', () => {
     const def = recordIndex.series('jobs_by_press_week', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'week' });
     const keysType = SetType(def.keyType);
     const order = compareFor(def.keyType);
-    const oct5 = { __tile: at('2026-10-05T00:00:00.000'), press: 'P-1001' };
+    const oct5 = { on: {}, tile: at('2026-10-05T00:00:00.000'), key: 'P-1001' };
     const keys = East.compile(def.keyFn as FunctionExpr<any, any>, []) as (key: string, row: Job) => unknown;
     assertEast(keysType, keys('W-0001', scheduled('2026-10-07T06:00:00.000', null)), new SortedSet([oct5], order), 'no end');
     assertEast(keysType, keys('W-0001', scheduled('2026-10-07T06:00:00.000', '2026-10-01T00:00:00.000')), new SortedSet([oct5], order), 'an end before its start');
@@ -404,7 +404,7 @@ describe('e3.recordIndex.series — its keys', () => {
     const shift = decodeBeast2For(ShiftRow)(encodeBeast2For(ShiftRow)({ press: 'P-1002', start: at('2026-10-05T22:00:00.000'), end: at('2026-10-06T06:00:00.000') }));
     const keys = East.compile(def.keyFn as FunctionExpr<any, any>, []) as (key: string, row: unknown) => unknown;
     assertEast(SetType(def.keyType), keys('S-1', shift), new SortedSet([
-      { __tile: at('2026-10-05T00:00:00.000'), press: 'P-1002' }, { __tile: at('2026-10-06T00:00:00.000'), press: 'P-1002' },
+      { on: {}, tile: at('2026-10-05T00:00:00.000'), key: 'P-1002' }, { on: {}, tile: at('2026-10-06T00:00:00.000'), key: 'P-1002' },
     ], compareFor(def.keyType)), 'a night shift is in two days');
   });
 });
@@ -412,21 +412,21 @@ describe('e3.recordIndex.series — its keys', () => {
 describe('e3.recordIndex.series — its declaration', () => {
   it('types its key, its fields and its projection from the spec, and carries its fields and tile', () => {
     const def = recordIndex.series('jobs_by_state_press_week', jobs(), { on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'week' });
-    const keyType: StructType<{ state: typeof StringType; __tile: typeof DateTimeType; press: typeof StringType }> = def.keyType;
-    const fields: readonly ['state', '__tile', 'press'] = def.on;
+    const keyType: StructType<{ on: StructType<{ state: typeof StringType }>; tile: typeof DateTimeType; key: typeof StringType }> = def.keyType;
+    const fields: readonly ['state'] = def.on;
     const projection: typeof JobRow = def.valueType;
-    assert.equal(printType(keyType), printType(StructType({ state: StringType, __tile: DateTimeType, press: StringType })),
-      'its leading fields, the tile, then the key');
-    assert.deepEqual(fields, ['state', '__tile', 'press']);
+    assert.equal(printType(keyType), printType(StructType({ on: StructType({ state: StringType }), tile: DateTimeType, key: StringType })),
+      'its leading fields under on, the tile, then the key');
+    assert.deepEqual(fields, ['state']);
     assert.equal(printType(projection), printType(JobRow), 'it carries the whole row');
     assert.deepEqual(def.series, { key: 'press', from: 'start', to: 'end', tile: 'week' });
     assert.equal(def.multi, true, 'an entry a tile');
     assert.equal(def.summary, undefined);
     // The declared types, as the constructor's spec types them.
     type Spec = { on: ['crews']; key: 'press'; from: 'start'; to: 'end'; tile: 'day' };
-    const on: IndexOn<Spec> = ['crews', '__tile', 'press'];
-    const key: IndexKeyOf<Spec, typeof JobsType> = StructType({ crews: StringType, __tile: DateTimeType, press: StringType });
-    assert.ok(on.length === 3 && key.type === 'Struct');
+    const on: IndexOn<Spec> = ['crews'];
+    const key: IndexKeyOf<Spec, typeof JobsType> = StructType({ on: StructType({ crews: StringType }), tile: DateTimeType, key: StringType });
+    assert.ok(on.length === 1 && key.type === 'Struct');
   });
 
   it('projects each entry as its whole row', () => {
@@ -470,13 +470,16 @@ describe('e3.recordIndex.series — its declaration', () => {
         /e3\.recordIndex\.summary 'totals_led_by_start': 'start' is the event's start, which its tiles are cut by, and cannot be a leading field/);
     });
 
-    it('a value, a row field named __tile, and the guards every index applies to its name and its record', () => {
+    it('a value, and the guards every index applies to its name and its record — a row field may be named anything (#1432)', () => {
       // @ts-expect-error — a series index carries the whole row, and takes no value
       assert.throws(() => recordIndex.series('valued', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'week', value: East.function([StringType, JobRow], StringType, (_$, k) => k) }),
         /a series index carries the whole row as its projection, so it takes no value/);
-      const Reserved = StructType({ press: StringType, start: DateTimeType, end: DateTimeType, __tile: IntegerType });
-      const reserved = record('reserved', DictType(StringType, Reserved), new Map());
-      assert.throws(() => recordIndex.series('reserved_tile', reserved, { key: 'press', from: 'start', to: 'end', tile: 'day' }), /field named '__tile'/);
+      // A row field named `__tile`, `tile` or `key` reserves nothing: the index builds, led by them.
+      const Named = StructType({ press: StringType, start: DateTimeType, end: DateTimeType, __tile: IntegerType, tile: StringType, key: StringType });
+      const named = record('named', DictType(StringType, Named), new Map());
+      const byNamed = recordIndex.series('named_tile', named, { on: ['__tile', 'tile', 'key'], key: 'press', from: 'start', to: 'end', tile: 'day' });
+      assert.equal(printType(byNamed.keyType),
+        printType(StructType({ on: StructType({ __tile: IntegerType, tile: StringType, key: StringType }), tile: DateTimeType, key: StringType })));
       assert.throws(() => recordIndex.series('primary', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'day' }), /e3\.recordIndex\.series cannot be named 'primary'/);
       assert.throws(() => recordIndex.series('by tile', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'day' }), /must be an identifier/);
     });
@@ -503,27 +506,27 @@ describe('e3.recordIndex.summary — its contributions and declaration', () => {
     // Wednesday 06:00 to the next Tuesday 06:00: 114 hours of one week, 30 of the next.
     const row = scheduled('2026-10-07T06:00:00.000', '2026-10-13T06:00:00.000');
     assertEast(contributions, contribute('W-0001', row), new SortedMap([
-      [{ __tile: oct5, press: 'P-1001' }, { count: 1n, ms: 114n * HOUR }],
-      [{ __tile: oct12, press: 'P-1001' }, { count: 1n, ms: 30n * HOUR }],
+      [{ on: {}, tile: oct5, key: 'P-1001' }, { count: 1n, ms: 114n * HOUR }],
+      [{ on: {}, tile: oct12, key: 'P-1001' }, { count: 1n, ms: 30n * HOUR }],
     ], order), 'a week and the next');
     assertEast(DictType(byCrew.keyType, RecordSummaryTotalsType), contributeByCrew('W-0001', row), new SortedMap([
-      [{ crews: 'north', __tile: oct5, press: 'P-1001' }, { count: 1n, ms: 114n * HOUR }],
-      [{ crews: 'north', __tile: oct12, press: 'P-1001' }, { count: 1n, ms: 30n * HOUR }],
-      [{ crews: 'south', __tile: oct5, press: 'P-1001' }, { count: 1n, ms: 114n * HOUR }],
-      [{ crews: 'south', __tile: oct12, press: 'P-1001' }, { count: 1n, ms: 30n * HOUR }],
+      [{ on: { crews: 'north' }, tile: oct5, key: 'P-1001' }, { count: 1n, ms: 114n * HOUR }],
+      [{ on: { crews: 'north' }, tile: oct12, key: 'P-1001' }, { count: 1n, ms: 30n * HOUR }],
+      [{ on: { crews: 'south' }, tile: oct5, key: 'P-1001' }, { count: 1n, ms: 114n * HOUR }],
+      [{ on: { crews: 'south' }, tile: oct12, key: 'P-1001' }, { count: 1n, ms: 30n * HOUR }],
     ], compareFor(byCrew.keyType)), 'once a crew');
     assertEast(contributions, contribute('W-0001', scheduled('2026-10-07T06:00:00.000', null)), new SortedMap([
-      [{ __tile: oct5, press: 'P-1001' }, { count: 1n, ms: 0n }],
+      [{ on: {}, tile: oct5, key: 'P-1001' }, { count: 1n, ms: 0n }],
     ], order), 'an instant');
     assertEast(contributions, contribute('W-0001', scheduled(null, null)), new SortedMap([], order), 'not yet scheduled');
   });
 
   it('types its key from the spec and holds its totals, with no projection to carry', () => {
     const def = recordIndex.summary('jobs_by_state_press_month_totals', jobs(), { on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'month' });
-    const keyType: StructType<{ state: typeof StringType; __tile: typeof DateTimeType; press: typeof StringType }> = def.keyType;
-    const fields: readonly ['state', '__tile', 'press'] = def.on;
-    assert.equal(printType(keyType), printType(StructType({ state: StringType, __tile: DateTimeType, press: StringType })));
-    assert.deepEqual(fields, ['state', '__tile', 'press']);
+    const keyType: StructType<{ on: StructType<{ state: typeof StringType }>; tile: typeof DateTimeType; key: typeof StringType }> = def.keyType;
+    const fields: readonly ['state'] = def.on;
+    assert.equal(printType(keyType), printType(StructType({ on: StructType({ state: StringType }), tile: DateTimeType, key: StringType })));
+    assert.deepEqual(fields, ['state']);
     assert.equal(printType(def.valueType), printType(RecordSummaryTotalsType), 'its value is its totals');
     assert.deepEqual(def.summary, { key: 'press', from: 'start', to: 'end', tile: 'month' });
     assert.equal(def.series, undefined);
@@ -651,7 +654,7 @@ describe('series and summary indexes — through a write and a rebuild', () => {
     const add = of(summary.name, written(assembled, patch, before, added));
     assert.equal(add.length, 1, 'two new jobs in one week on one press are one change');
     assertEast(StructType({ ik: summary.keyType, k: NullType }), add[0]!.key,
-      { ik: { __tile: at('2026-10-05T00:00:00.000'), press: 'P-1001' }, k: null }, 'under their week and press');
+      { ik: { on: {}, tile: at('2026-10-05T00:00:00.000'), key: 'P-1001' }, k: null }, 'under their week and press');
     assertEast(RecordSummaryOpType, add[0]!.op, variant('add', { count: 2n, ms: 15n * HOUR }), 'counting both, and their hours');
   });
 
@@ -673,11 +676,11 @@ describe('series and summary indexes — through a write and a rebuild', () => {
     // Integer stored a total below none, which no write could then add to.
     const def = recordIndex.summary('jobs_by_press_year_totals', jobs(), { key: 'press', from: 'start', to: 'end', tile: 'year' });
     const merge = summaryMergeProgram(def).compile([]) as (entry: unknown, a: RecordSummaryTotals, b: RecordSummaryTotals) => RecordSummaryTotals;
-    const entry = { ik: { __tile: at('2026-01-01T00:00:00.000'), press: 'P-1001' }, k: null };
+    const entry = { ik: { on: {}, tile: at('2026-01-01T00:00:00.000'), key: 'P-1001' }, k: null };
     const most = (1n << 63n) - 1n;
     assertEast(RecordSummaryTotalsType, merge(entry, { count: 2n, ms: most - 10n }, { count: 1n, ms: 10n }), { count: 3n, ms: most },
       'a sum at the largest Integer is a total');
-    const past = /^jobs_by_press_year_totals: the totals under \(ik=\(__tile=2026-01-01T00:00:00\.000, press="P-1001"\), k=null\) sum past the largest Integer: declare a finer tile, whose totals are smaller/;
+    const past = /^jobs_by_press_year_totals: the totals under \(ik=\(on=\(\), tile=2026-01-01T00:00:00\.000, key="P-1001"\), k=null\) sum past the largest Integer: declare a finer tile, whose totals are smaller/;
     assert.throws(() => merge(entry, { count: 2n, ms: most - 10n }, { count: 1n, ms: 11n }), past, 'the time they cover');
     assert.throws(() => merge(entry, { count: most, ms: 0n }, { count: 1n, ms: 0n }), past, 'the rows touching it');
   });

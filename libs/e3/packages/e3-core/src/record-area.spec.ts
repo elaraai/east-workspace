@@ -266,7 +266,7 @@ describe('the area index on the real runners', () => {
           const written = rows.get(entry.k);
           assert.ok(written !== undefined && sameRack(row, written), `${ws}/${name}: ${entry.k}'s entry carries its row`);
           const unplaced = name !== 'racks_by_zone' && written.x.type === 'none';
-          assert.strictEqual(sameInteger(entry.ik.__area, -1n), unplaced, `${ws}/${name}: ${entry.k} is under -1 exactly when it has no place`);
+          assert.strictEqual(sameInteger(entry.ik.area, -1n), unplaced, `${ws}/${name}: ${entry.k} is under -1 exactly when it has no place`);
         }
       }
     }

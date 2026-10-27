@@ -120,7 +120,7 @@ test("computed membership deduplicates per record, searches nested values, survi
         decoded.data.refresh(some(committed));
         await h.ready(() => revisionEqual(decoded.data.revision(), some(committed)) ? some(null) : none);
         assert.deepEqual((await h.ready(() => decoded.data.page(0n, 10n))).map(row => row.key), ["b"]);
-        assert.equal(await h.ready(() => decoded.countWhere(captured)), 1n);
+        assert.equal(await h.ready(() => decoded.countWhere({ where: captured, area: none })), 1n);
         assert.equal(await h.ready(() => decoded.contains(captured, "a")), false);
         assert.equal((await h.ready(() => decoded.readEntry("a"))).type, "some", "leaving the index never means the primary flow was deleted");
         decoded.clear("lane");

@@ -247,7 +247,7 @@ export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent>
     private listed(): bigint[] | undefined {
         const counts: bigint[] = [];
         for (const { kind, part } of this.kinds) {
-            const count = part.countWhere(backlogWhere(part.read().where, kind.schedule.start));
+            const count = part.countWhere({ where: backlogWhere(part.read().where, kind.schedule.start), area: none });
             if (count.type !== "some") return undefined;
             counts.push(count.value);
         }
@@ -281,7 +281,7 @@ export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent>
             // A source's choices but its window narrow its backlog: then `M` counts every unscheduled event of its record.
             if ([...where.keys()].some((field) => !stringEqual(field, kind.schedule.start))) {
                 narrowing = true;
-                const all = part.countWhere(backlogWhole(kind.schedule.start));
+                const all = part.countWhere({ where: backlogWhole(kind.schedule.start), area: none });
                 if (all.type !== "some") return undefined;
                 total += Number(all.value);
             } else {
@@ -342,7 +342,7 @@ export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent>
      * place.
      */
     private kindPage({ kind, part }: CalendarEventPart, offset: bigint, limit: bigint): option<BacklogPageEvent[]> {
-        const got = recordSlicePage(part, backlogWhere(part.read().where, kind.schedule.start), offset, limit);
+        const got = recordSlicePage(part, { where: backlogWhere(part.read().where, kind.schedule.start), area: none }, offset, limit);
         const revision = recordSliceRevision(part);
         if (got.type !== "some" || revision.type !== "some") return none;
         const encode = encoderOf(kind);

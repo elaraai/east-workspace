@@ -61,7 +61,7 @@ import {
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { RowSourceType, UIComponentType, type UIElement } from "@elaraai/east-ui";
 import {
-    EastUI, PinnedSourceType, RecordSliceWhereType, isRecordSlices,
+    EastUI, PinnedSourceType, RecordSliceReadType, isRecordSlices,
     type DataRowType, type FieldHints, type PagedSource, type RecordSlicesChromeOptions,
 } from "@elaraai/east-ui/internal";
 import { SheetRootType, type SheetEntryOf, type SheetLinesField, type SheetLineOf } from "./types.js";
@@ -485,7 +485,7 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
 type RecordRowsPart = ExprType<StructType<{
     sourceId: StringType;
     total: FunctionType<[], OptionType<IntegerType>>;
-    pageWhere: FunctionType<[typeof RecordSliceWhereType, IntegerType, IntegerType], OptionType<EastType>>;
+    pageWhere: FunctionType<[typeof RecordSliceReadType, IntegerType, IntegerType], OptionType<EastType>>;
     data: StructType<{
         id: StringType;
         revision: FunctionType<[], OptionType<StringType>>;
@@ -510,7 +510,7 @@ function recordRowsOf(part: RecordRowsPart): ExprType<StructType> {
     const collection = (pageType.cases as Record<string, EastType>)["some"]!;
     const page = East.function([IntegerType, IntegerType], OptionType(collection), ($, offset, limit) => {
         const read = $.const(part.pageWhere);
-        return read(East.value(new Map(), RecordSliceWhereType), offset, limit);
+        return read(East.value({ where: new Map(), area: none }, RecordSliceReadType), offset, limit);
     });
     return East.value({
         id: part.data.id, page, total: part.total, seek: none, revision: part.data.revision, refresh: part.data.refresh,

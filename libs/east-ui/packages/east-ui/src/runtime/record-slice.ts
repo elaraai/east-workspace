@@ -9,8 +9,14 @@ import {
     type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { recordSliceFieldSchema, recordSliceFieldTypes, type RecordSliceFieldSchema } from "../platform/slice/record.js";
-import { planRecordSlice, recordChoiceWhere, recordPlanIndex, type RecordSlicePlan } from "../platform/slice/record-plan.js";
-import type { RecordSliceConfigType, RecordSliceStateType, RecordSliceWhereType, RecordSliceChoiceType, RecordSliceCountType, RecordSliceDomainType } from "../platform/slice/record-types.js";
+import {
+    planRecordSlice, recordChoiceWhere, recordIndexFields, recordIndexGenerated, recordPlanIndex, type RecordSlicePlan,
+} from "../platform/slice/record-plan.js";
+import { recordOnPrinters, recordOnTypeOf, type RecordOnPrinters } from "../platform/slice/record-on.js";
+import type {
+    RecordSliceAreaType, RecordSliceConfigType, RecordSliceStateType, RecordSliceWhereType, RecordSliceChoiceType, RecordSliceCountType,
+    RecordSliceDomainType,
+} from "../platform/slice/record-types.js";
 import { RecordSliceSource, type RecordSliceEntryKey, type RecordSlicePlacement, type RecordSliceReader } from "./record-slice-source.js";
 import type { SeekQueryType } from "../contracts/source.js";
 
@@ -19,6 +25,7 @@ type State = ValueTypeOf<RecordSliceStateType>;
 type Where = ValueTypeOf<RecordSliceWhereType>;
 type Choice = ValueTypeOf<RecordSliceChoiceType>;
 type Count = ValueTypeOf<RecordSliceCountType>;
+type Area = ValueTypeOf<RecordSliceAreaType>;
 
 /** Only the index key is inspected; record rows and covering values stay opaque. */
 export interface RecordSliceEntry {
@@ -68,6 +75,8 @@ export class RecordSliceController {
     private readonly print = new Map<string, ReturnType<typeof printFor>>();
     /** Each page of the record's own rows' entries, by the page read — the window the source keeps it in — and the index asked of. */
     private readonly pageEntries = new WeakMap<readonly RecordSliceEntry[], Map<string, RowEntries>>();
+    /** Each generated index's `on` printer, by its name, from the binding's index key types (#1432): what a reader's planners name its leading values with. */
+    readonly printOn: RecordOnPrinters;
 
     /**
      * @param source - Bound indexed reads.
@@ -77,9 +86,12 @@ export class RecordSliceController {
      * @param writeState - Shared store write, including persistence.
      * @param primaryKey - Original key type; String ids stay raw, other ids are East literals.
      * @param indexes - Type metadata for computed fields, carried by the source.
+     * @param indexKeys - Each index's key type, by its name (`IndexedSourceType`'s `IK`): a generated index's `on` (#1432).
      */
     constructor(readonly source: RecordSliceBinding, readonly config: Config, row: StructType,
-        readonly readState: () => State, private readonly writeState: (state: State) => void, private readonly primaryKey: EastType = StringType, indexes?: StructType) {
+        readonly readState: () => State, private readonly writeState: (state: State) => void, private readonly primaryKey: EastType = StringType, indexes?: StructType,
+        private readonly indexKeys: Readonly<Record<string, EastType>> = {}) {
+        this.printOn = recordOnPrinters(indexKeys);
         this.encodeRow = encodeBeast2For(row);
         this.decodeRow = decodeBeast2For(row);
         this.printKey = printFor(primaryKey);
@@ -120,8 +132,6 @@ export class RecordSliceController {
             if (schema.kind !== "string" || schema.set) throw new Error("Choose an exact value for this field");
             return choice;
         }
-        // A window is a read's, under an area index's `__area`, never a field's choice (#1385).
-        if (choice.type === "window") throw new Error("A window is given to a read by area, never chosen for a field");
         if (schema.set || !["datetime", "integer", "float"].includes(schema.kind)) throw new Error("This field does not support a range");
         const from = this.readValue(field, choice.value.from);
         const to = this.readValue(field, choice.value.to);
@@ -139,9 +149,14 @@ export class RecordSliceController {
         return null;
     }
 
-    /** Compile a supported narrowing, refusing an incompatible saved/custom state. */
-    plan(where: Where): RecordSlicePlan {
-        const plan = planRecordSlice(this.config.indexes, where, this.source.defaultIndex);
+    /**
+     * Compile a supported narrowing, refusing an incompatible saved/custom state.
+     * @param where - The narrowing.
+     * @param area - A read by area's clause, beside it (#1432).
+     * @returns The plan.
+     */
+    plan(where: Where, area?: Area): RecordSlicePlan {
+        const plan = planRecordSlice(this.config.indexes, where, this.source.defaultIndex, area, this.printOn);
         if (plan === null) throw new Error("These choices cannot be combined; clear a field and try again");
         return plan;
     }
@@ -173,9 +188,14 @@ export class RecordSliceController {
         return this.write({ ...state, where: preset.where, preset: some(id) });
     }
 
-    /** Exact count, never a partial sum while another query is pending. */
-    count(where: Where = this.readState().where): option<bigint> {
-        const result = this.windows.resolve(this.plan(where));
+    /**
+     * Exact count, never a partial sum while another query is pending.
+     * @param where - The narrowing; the Slice's own when absent.
+     * @param area - A read by area's clause, beside it (#1432).
+     * @returns The count, none while pending.
+     */
+    count(where: Where = this.readState().where, area?: Area): option<bigint> {
+        const result = this.windows.resolve(this.plan(where, area));
         return result.type === "some" ? some(result.value.total) : none;
     }
 
@@ -192,9 +212,10 @@ export class RecordSliceController {
         if (proposal === null) return none;
         const index = recordPlanIndex(this.config.indexes, proposal);
         if (index === undefined) return none;
-        const position = index.fields.indexOf(field);
-        const leading = new Map([...proposal].filter(([name]) => index.fields.indexOf(name) < position));
-        const plan = planRecordSlice([index], leading, index.name)!;
+        const path = recordIndexFields(index);
+        const position = path.indexOf(field);
+        const leading = new Map([...proposal].filter(([name]) => path.indexOf(name) < position));
+        const plan = planRecordSlice([index], leading, index.name, undefined, this.printOn)!;
         const bounds = this.windows.resolve(plan);
         if (bounds.type === "none") return none;
         const compare = compareFor(schema.key);
@@ -202,9 +223,14 @@ export class RecordSliceController {
         let min: unknown;
         let max: unknown;
         let pending = false;
+        // A generated key nests its leading fields under `on`, an interval's start its `at` (#1432).
+        const generated = recordIndexGenerated(index);
+        const byStart = index.interval.type === "some" && field === index.interval.value.from;
         const keyOf = (entry: RecordSliceEntry): unknown => {
             if (entry.ik.type !== index.name) throw new Error("The source returned a different ordering");
-            return !index.structured ? entry.ik.value : (entry.ik.value as Record<string, unknown>)[field];
+            if (!index.structured) return entry.ik.value;
+            const key = entry.ik.value as Record<string, unknown>;
+            return !generated ? key[field] : byStart ? key.at : (key.on as Record<string, unknown>)[field];
         };
         for (const run of bounds.value.runs) {
             if (run.count === 0n) continue;
@@ -216,9 +242,11 @@ export class RecordSliceController {
             const end = last.value[0];
             if (entry === undefined || end === undefined) throw new Error("The results changed while reading the range; retry");
             if (schema.optional && (keyOf(entry) as option<unknown>).type === "none") {
-                const fields = index.structured
-                    ? index.fields.slice(0, position + 1).map(name => this.print.get(name)!((entry!.ik.value as Record<string, unknown>)[name])) : [];
-                if (index.interval.type === "some") fields.splice(index.fields.length - 1, 0, "0");
+                const key = entry.ik.value as Record<string, unknown>;
+                // An interval's unset starts sit at its tree's root with no instant: `[on, 0, none]` (#1432).
+                const fields = !index.structured ? []
+                    : byStart ? [printFor(recordOnTypeOf(this.indexKeys[index.name])!)(key.on as never), "0", print(none)]
+                        : index.fields.slice(0, position + 1).map(name => this.print.get(name)!(key[name]));
                 const query: ValueTypeOf<SeekQueryType> = !index.structured ? variant("key", print(none))
                     : variant("fields", { values: fields, prefix: none });
                 const unset = this.source.seek(index.name, query);
@@ -501,8 +529,11 @@ export class RecordSliceController {
         if (schema.kind !== "string") throw new Error("This field does not support text search");
         const exact = this.print.get(field)!(schema.optional ? some(text) : text);
         const proposal = this.proposed(field, variant("values", [exact]));
-        const plan = this.plan(proposal);
-        const index = this.config.indexes.find(value => value.name === plan.index)!;
+        // A prefix searches a plain index's key: a generated one names its leading values as one `on` (#1432).
+        const index = recordPlanIndex(this.config.indexes.filter(candidate => !recordIndexGenerated(candidate)), proposal);
+        if (index === undefined) {
+            throw new Error(`Searching '${field}' reads a plain index led by it — e3.recordIndex("by_${field}", record, { on: ["${field}"] }), listed in Data.bindPaged's indexes`);
+        }
         const position = index.fields.indexOf(field);
         const leading = new Map([...proposal].filter(([name]) => index.fields.indexOf(name) < position));
         leading.set(field, variant("prefix", text));

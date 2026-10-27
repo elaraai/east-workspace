@@ -47,31 +47,33 @@ test('interval indexes retain declared fields, optional backlog and Set-member p
   const Row = StructType({ resources: SetType(StringType), start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
   const records = record('interval_events', DictType(StringType, Row), new Map());
   const index = recordIndex.interval('by_resource_time', records, { on: ['resources'], from: 'start', to: 'end' });
-  assert.deepEqual(index.on, ['resources', 'start']);
+  // Its definition is led by its row fields alone; its own parts are the key's `node` and `at` (#1432).
+  assert.deepEqual(index.on, ['resources']);
   assert.deepEqual(index.interval, { from: 'start', to: 'end' });
   assert.equal(index.multi, true);
-  const fn = East.compile(index.keyFn as FunctionExpr<any, any>, []) as (key: string, row: unknown) => Set<{ resources: string; __interval: bigint; start: { type: "some"; value: Date } | { type: "none"; value: null } }>;
+  const fn = East.compile(index.keyFn as FunctionExpr<any, any>, []) as (key: string, row: unknown) => Set<{ on: { resources: string }; node: bigint; at: { type: "some"; value: Date } | { type: "none"; value: null } }>;
   const start = new Date('2026-10-01T22:00:00Z');
   const end = new Date('2026-10-03T06:00:00Z');
   const decode = decodeBeast2For(Row);
   const encode = encodeBeast2For(Row);
   const scheduled = fn('night', decode(encode({ resources: new Set(['A', 'B']), start: some(start), end: some(end) })));
-  assert.equal([...scheduled].filter(key => key.__interval === 0n).length, 2);
+  assert.equal([...scheduled].filter(key => key.node === 0n).length, 2);
   assert.equal(scheduled.size, 6);
   const from = BigInt(new Date('2026-10-02T00:00:00Z').getTime());
   for (const resource of ['A', 'B']) {
     let hits = 0;
     for (let child = leaf + from; child > 1n; child /= 2n) {
       const right = child % 2n === 1n;
-      hits += [...scheduled].filter(key => key.resources === resource && key.__interval === 2n * (child / 2n) + (right ? 1n : 0n)
-        && key.start.type === 'some' && (right ? BigInt(key.start.value.getTime()) > from : BigInt(key.start.value.getTime()) < from)).length;
+      hits += [...scheduled].filter(key => key.on.resources === resource && key.node === 2n * (child / 2n) + (right ? 1n : 0n)
+        && key.at.type === 'some' && (right ? BigInt(key.at.value.getTime()) > from : BigInt(key.at.value.getTime()) < from)).length;
     }
     assert.equal(hits, 1);
   }
   const backlog = fn('backlog', decode(encode({ resources: new Set(['A']), start: none, end: none })));
-  assert.deepEqual([...backlog], [{ resources: 'A', __interval: 0n, start: none }]);
+  assert.deepEqual([...backlog], [{ on: { resources: 'A' }, node: 0n, at: none }]);
   const simple = recordIndex.interval('by_time', records, { from: 'start', to: 'end' });
-  assert.deepEqual(simple.on, ['start']);
+  // Led by no field: `on` is there, with none (#1432).
+  assert.deepEqual(simple.on, []);
   const simpleFn = East.compile(simple.keyFn as FunctionExpr<any, any>, []);
   assert.equal(simpleFn('instant', { resources: new Set(), start: some(start), end: none }).size, 1);
   assert.throws(() => recordIndex.interval('bad_interval', records, {
@@ -89,9 +91,9 @@ test('interval indexes retain declared fields, optional backlog and Set-member p
   }), /takes on, from, to, not value/);
   // The declared types, as the constructor's spec types them.
   type Spec = { on: ['resources']; from: 'start'; to: 'end' };
-  const on: IndexOn<Spec> = ['resources', 'start'];
-  const key: IndexKeyOf<Spec, typeof records.type> = StructType({ resources: StringType, __interval: IntegerType, start: OptionType(DateTimeType) });
-  assert.ok(on.length === 2 && key.type === 'Struct');
-  const declared: StructType<{ resources: typeof StringType; __interval: typeof IntegerType; start: OptionType<typeof DateTimeType> }> = index.keyType;
+  const on: IndexOn<Spec> = ['resources'];
+  const key: IndexKeyOf<Spec, typeof records.type> = StructType({ on: StructType({ resources: StringType }), node: IntegerType, at: OptionType(DateTimeType) });
+  assert.ok(on.length === 1 && key.type === 'Struct');
+  const declared: StructType<{ on: StructType<{ resources: typeof StringType }>; node: typeof IntegerType; at: OptionType<typeof DateTimeType> }> = index.keyType;
   assert.equal(declared.type, 'Struct');
 });

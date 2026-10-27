@@ -85,6 +85,8 @@ const printDateTime = printFor(DateTimeType);
 const printString = printFor(StringType);
 /** A summary entry's key, `(ik=…, k=null)`, as a membership read names one. */
 const printTotalsEntryKey = printFor(StructType({ ik: JobWeekPressKeyType, k: NullType }));
+/** A key's `on`, printed whole, as an exact search names it (#1432). */
+const printOn = printFor(JobWeekPressKeyType.fields.on);
 const jobEqual = equalFor(JobRowType);
 const unjoined = equalFor(OptionType(JobRowType));
 const integerEqual = equalFor(IntegerType);
@@ -118,7 +120,7 @@ function totalsOf(jobs: Jobs): SortedMap<WeekPress, Totals> {
   const totals = new SortedMap<WeekPress, Totals>(undefined, weekPressOrder);
   for (const job of jobs.values()) {
     for (const { week, ms } of weeksOf(job)) {
-      const key = { __tile: week, press: job.press };
+      const key = { on: {}, tile: week, key: job.press };
       const held = totals.get(key) ?? { count: 0n, ms: 0n };
       totals.set(key, { count: held.count + 1n, ms: held.ms + ms });
     }
@@ -217,7 +219,7 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
     const expected = totalsOf(jobs);
     assert.equal(read.length, expected.size, 'a total for each week and press a job touches, and no other');
     for (const entry of read) {
-      const at = `${printDateTime(entry.ik.__tile)} on ${entry.ik.press}`;
+      const at = `${printDateTime(entry.ik.tile)} on ${entry.ik.key}`;
       const want = expected.get(entry.ik);
       assert.ok(want !== undefined, `the summary holds a total for ${at}, which a job touches`);
       assert.ok(integerEqual(entry.value.count, want.count), `the jobs touching ${at}: ${entry.value.count} read, ${want.count} there`);
@@ -250,16 +252,16 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       const { ctx, hash, jobs } = await withJobs(t);
       const weeks = [0, 1, 2].map((w) => new Date(JOBS_FROM.getTime() + w * WEEK_MS));
       const entries = await readSeries(ctx, weeks.map((week) => blockSearch(week, 'P-1005', 'P-1013')), hash);
-      assert.ok(entries.every((entry) => weeks.some((week) => dateTimeEqual(entry.ik.__tile, week))), 'only the weeks searched');
+      assert.ok(entries.every((entry) => weeks.some((week) => dateTimeEqual(entry.ik.tile, week))), 'only the weeks searched');
       for (const week of weeks) {
-        const read = entries.filter((entry) => dateTimeEqual(entry.ik.__tile, week));
+        const read = entries.filter((entry) => dateTimeEqual(entry.ik.tile, week));
         const keys = read.map((entry) => entry.key).sort(stringOrder);
         assert.equal(new Set(keys).size, keys.length, 'each job once a week');
         for (const entry of read) {
           const job = jobs.get(entry.key);
           assert.ok(job !== undefined && jobEqual(entry.value, job), `${entry.key}'s entry carries its row whole`);
           assert.ok(unjoined(entry.row, none), `${entry.key} is read from the series alone, never joined`);
-          assert.ok(stringEqual(entry.ik.press, job.press), `${entry.key} is filed under its press`);
+          assert.ok(stringEqual(entry.ik.key, job.press), `${entry.key} is filed under its press`);
         }
         const expected = [...jobs]
           .filter(([, job]) => inBlock(job.press, 'P-1005', 'P-1013') && weeksOf(job).some(({ week: touched }) => dateTimeEqual(touched, week)))
@@ -317,7 +319,8 @@ export function seriesRecordTests(setup: TestSetup<TestContext>): void {
       const now = await jobsOf(ctx);
       assert.ok(jobEqual(now.get(moved)!, next.get(moved)!), 'the record holds the job where it was moved to');
 
-      const exact = (week: Date): DatasetKeySearch => ({ fields: [printDateTime(week), printString(job.press)] });
+      // An exact search names the key's own fields: its `on`, empty here, printed whole, then the week and the press (#1432).
+      const exact = (week: Date): DatasetKeySearch => ({ fields: [printOn({}), printDateTime(week), printString(job.press)] });
       const left = weeksOf(job).map(({ week }) => week);
       const entered = weeksOf(next.get(moved)!).map(({ week }) => week);
       for (const week of left) {

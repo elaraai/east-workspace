@@ -34,9 +34,6 @@ export const AREA_FINEST_LEVEL = 28;
 /** The key of a row with no place: its `x` or its `y` is `none`. */
 export const AREA_UNPLACED = -1n;
 
-/** The reserved name of the area index's generated key field. */
-export const AREA_FIELD = '__area';
-
 /** How an area index reads a row's box: the fields naming it, and whether `x`, `y` is its centre or its minimum corner. */
 export interface AreaBox {
   /** The field holding the box's `x`: its minimum corner's, or its centre's. */
@@ -80,7 +77,7 @@ export function areaCellExponent(name: string, cell: number): number {
 }
 
 /**
- * The `__area` key of a box, from its centre and its larger side: an East
+ * The `area` part of a box's key, from its centre and its larger side: an East
  * function, so every runtime computes it alike.
  *
  * @param exponent - The finest cell's side is `2^exponent` world units
@@ -133,7 +130,8 @@ export function areaCode(exponent: number) {
 
 /**
  * Generate the area index's pure key function: one entry per row (one per
- * element of a Set among the leading `on` fields), `{ …on, __area }`, using
+ * element of a Set among the leading `on` fields), `{ on: { …on }, area }` —
+ * the row's leading fields under `on`, the cell's code beside them (#1432) — using
  * the field index's generated function for the leading fields, as the
  * interval index does. It stays an ordinary maintained index: mutation,
  * rebuild, storage and transport are shared.
@@ -148,16 +146,12 @@ export function areaCode(exponent: number) {
  * @returns The key function, whether it fans out, and whether `x` and `y` are Options
  * @throws {Error} When a field is not of its option's type, naming the option,
  *   the field and its type; when `x` and `y` are not both Options or neither;
- *   when `width` and `height` are not given together; or when the row has a
- *   field named `__area`, which is reserved
+ *   or when `width` and `height` are not given together
  */
 export function areaKey(name: string, keyType: EastType, valueType: EastType, on: readonly string[], box: AreaBox,
   exponent: number, prefix?: { fn: IndexFunction; multi: boolean }) {
   if (valueType.type !== 'Struct') throw new Error(`e3.recordIndex.area '${name}' indexes a record with Struct rows`);
   const rowType = valueType as StructType<Record<string, EastType>>;
-  if (Object.hasOwn(rowType.fields, AREA_FIELD)) {
-    throw new Error(`e3.recordIndex.area '${name}': the row has a field named '${AREA_FIELD}', which an area index reserves for its key`);
-  }
   const typeOf = (option: string, field: string): EastType => {
     const type = rowType.fields[field];
     if (type === undefined) throw new Error(`e3.recordIndex.area '${name}' ${option} names unknown row field '${field}'`);
@@ -190,7 +184,7 @@ export function areaKey(name: string, keyType: EastType, valueType: EastType, on
     const type = rowType.fields[field]!;
     return [field, type.type === 'Set' ? type.key : type];
   }));
-  const indexType = StructType({ ...fields, [AREA_FIELD]: IntegerType });
+  const indexType = StructType({ on: StructType(fields), area: IntegerType });
   const multi = prefix?.multi ?? false;
   const prefixType = prefix === undefined ? undefined : Expr.type(prefix.fn as unknown as Expr) as { output: EastType };
   const code = areaCode(exponent);
@@ -214,10 +208,10 @@ export function areaKey(name: string, keyType: EastType, valueType: EastType, on
     } else {
       $.assign(area, locate(centre(row[box.x], box.width), centre(row[box.y], box.height), larger));
     }
-    if (prefix === undefined) return { [AREA_FIELD]: area };
+    if (prefix === undefined) return { on: {}, area };
     const make = $.const(prefix.fn as FunctionExpr<any, any>);
     const values = $.let(make(key, row), prefixType!.output);
-    const entry = (value: any) => ({ ...Object.fromEntries(on.map((field) => [field, on.length === 1 ? value : value[field]])), [AREA_FIELD]: area });
+    const entry = (value: any) => ({ on: Object.fromEntries(on.map((field) => [field, on.length === 1 ? value : value[field]])), area });
     if (!prefix.multi) return entry(values);
     const keys = $.let(new Set(), SetType(indexType));
     $.for(values, ($: any, value: any) => { $(keys.insert(entry(value))); });

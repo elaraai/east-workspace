@@ -33,7 +33,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Skeleton, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { type option, type ValueTypeOf } from "@elaraai/east";
+import { none, type option, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType, RecordSliceFieldType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { BannerView } from "../../feedback/banner/index.js";
@@ -266,7 +266,8 @@ function PagedRows<T>({ identity, source, id, item, onOpen, onEnter, empty, narr
             if (target?.field !== undefined) {
                 const within = pagedSearchWhere(target.field, where, query);
                 if (within === null) return { count: 0, rows: new Map<number, T>(), shown, searching, blocking, fields, query, revision: at };
-                total = search.part.countWhere(within);
+                // The tab's own narrowing, never a read by area (#1432).
+                total = search.part.countWhere({ where: within, area: none });
                 page = (offset, limit) => search.page(within, offset, limit);
             }
         }

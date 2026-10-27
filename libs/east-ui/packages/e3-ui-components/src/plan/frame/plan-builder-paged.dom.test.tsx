@@ -398,8 +398,9 @@ describe("the backlog read through the rail's interval index (PB54, #1344)", () 
         const names = [...pane.querySelectorAll<HTMLElement>('[role="tabpanel"]:not([hidden]) [data-library-item]')]
             .map((card) => [...card.children].find((part) => part.tagName === "DIV" && part.querySelector(":scope > svg") === null)!.children[0]!.textContent);
         expect(names).toEqual(["Order forms", "Winter brochure", "Prospectus", "Proof sheets"]);
-        // Sought exactly under the unset start — the jobs with none, its span's — and never through the backlog index.
-        expect(of("interval")).toContain(`seek 0 ${printFor(OptionType(DateTimeType))(none)}`);
+        // Sought exactly under the unset start — the jobs with none, its span's — and never through the backlog index:
+        // `[on, 0, start]`, the interval index led by no field, so its `on` is `()` (#1432).
+        expect(of("interval")).toContain(`seek () 0 ${printFor(OptionType(DateTimeType))(none)}`);
         expect(of("backlog")).toEqual([]);
     });
 });

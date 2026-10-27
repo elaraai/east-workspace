@@ -25,9 +25,9 @@ type Choice = ValueTypeOf<typeof RecordSliceChoiceType>;
 const plain = (name: string, fields: string[], sets: string[] = []): Index => ({
     name, fields, sets: new Set(sets), structured: fields.length > 1, interval: none, area: none, series: none, summary: none,
 });
-/** An interval index from `start` to `end`, led by the fields named. */
+/** An interval index from `start` to `end`, led by the fields named: its fields its `on` alone (#1432). */
 const interval = (name: string, on: string[]): Index => ({
-    name, fields: [...on, "start"], sets: new Set(), structured: true, interval: some({ from: "start", to: "end", optional: true }),
+    name, fields: on, sets: new Set(), structured: true, interval: some({ from: "start", to: "end", optional: true }),
     area: none, series: none, summary: none,
 });
 const exactly = (...values: string[]) => variant("values", values.map(value => JSON.stringify(value)));
@@ -85,8 +85,4 @@ test("an interval index takes its leading fields exactly together: one of them n
     assert.deepEqual(recordChoiceNeeds(indexes, new Map(), "status", "values", offered), ["machine"]);
     assert.deepEqual(recordChoiceNeeds(indexes, new Map(), "start", "range", offered), ["status", "machine"]);
     assert.equal(recordChoiceNeeds(indexes, new Map(), "start", "prefix", offered), null);
-});
-
-test("a window is a read's, never the rail's: no index is named for one", () => {
-    assert.equal(recordChoiceNeeds([plain("by_a", ["a"])], new Map(), "a", "window", new Set(["a"])), null);
 });

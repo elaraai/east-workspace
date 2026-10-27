@@ -26,7 +26,7 @@ import {
     RecordSliceWhereType, bindRecord, tileCellQueries, tileIndexFor, tilesOver, type RecordSliceEntry,
 } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
-import { recordSliceCellEntries, recordSliceCellRuns, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
+import { recordSliceCellEntries, recordSliceCellRuns, recordSliceOnPrinter, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
 import { RecordSummaryTotalsType } from "@elaraai/e3-types";
 import { Data } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
@@ -144,7 +144,8 @@ test("a record Slice reads its series and summary indexes back, and offers the r
     const index = (name: string) => handle.config.indexes.find(candidate => candidate.name === name)!;
     const filed = { key: "press", from: "start", to: "end" };
     assert.deepEqual([index("jobs_by_press_week").series, index("jobs_by_press_week").summary], [some({ ...filed, tile: variant("week", null) }), none]);
-    assert.deepEqual([index("jobs_by_state_press_week").fields, index("jobs_by_state_press_week").series.type], [["state", "__tile", "press"], "some"]);
+    // An index's fields are the row fields it is led by alone, its key's `on`; its kind's parts are its `series` (#1432).
+    assert.deepEqual([index("jobs_by_state_press_week").fields, index("jobs_by_state_press_week").series.type], [["state"], "some"]);
     assert.deepEqual([index("jobs_by_press_month").series, index("jobs_by_press_month").summary], [none, some({ ...filed, tile: variant("month", null) })]);
     assert.deepEqual([index("jobs_by_time").series, index("jobs_by_time").summary], [none, none]);
     runtime.clear();
@@ -159,7 +160,8 @@ test("a series index's cells hold exactly their presses' jobs touching their wee
     // The read range — a Tuesday to the next — touches two weeks.
     const weeks = tilesOver("week", at("2026-10-06T00:00:00.000"), at("2026-10-13T00:00:00.000"), 8)!;
     assert.deepEqual(weeks, [WEEK, NEXT_WEEK]);
-    const cells = weeks.map(tile => ({ id: printInstant(tile), queries: tileCellQueries(index, where, tile, PRESSES).queries }));
+    const printOn = recordSliceOnPrinter(handle, index.name);
+    const cells = weeks.map(tile => ({ id: printInstant(tile), queries: tileCellQueries(index, where, tile, PRESSES, printOn).queries }));
     const expected = [oracleCell(stored, PRESSES, WEEK, NEXT_WEEK), oracleCell(stored, PRESSES, NEXT_WEEK, WEEK_AFTER)];
     assert.deepEqual(expected, [["across", "carry", "inside", "instant", "late", "month"], ["across", "month"]],
         "carried in, across the week's end, the month long, inside it and an instant at its start — never the job on no press, nor the backlog");
@@ -194,7 +196,7 @@ test("a summary index's cells are each press's totals in its month — how many 
     const { runtime, handle } = bind();
     const index = tileIndexFor(handle.config.indexes, new Map(), "summary", tile => tile === "month")!;
     assert.equal(index.name, "jobs_by_press_month");
-    const cell = { id: "october", queries: tileCellQueries(index, new Map(), OCTOBER, PRESSES).queries };
+    const cell = { id: "october", queries: tileCellQueries(index, new Map(), OCTOBER, PRESSES, recordSliceOnPrinter(handle, index.name)).queries };
     const counted = await h.ready(() => recordSliceCellRuns(handle, index.name, [cell]));
     assert.equal(counted.get("october")!.total, 3n, "a total a press");
     const entries = (await h.ready(() => recordSliceCellEntries(handle, index.name, [cell]))).get("october")!;
@@ -223,12 +225,15 @@ test("a narrowing the series index is led by reads its cells exactly; one it is 
     const late: Where = new Map([["state", variant("values", [printString("late")])]]);
     const led = tileIndexFor(handle.config.indexes, late, "series")!;
     assert.equal(led.name, "jobs_by_state_press_week");
-    const plan = tileCellQueries(led, late, WEEK, PRESSES);
+    const plan = tileCellQueries(led, late, WEEK, PRESSES, recordSliceOnPrinter(handle, led.name));
+    assert.deepEqual(plan.queries.map(query => query.type === "fields" ? query.value.values[0] : ""), PRESSES.map(() => '(state="late")'),
+        "each search names the state it is led by as one `on` (#1432)");
     assert.deepEqual(plan.residual, []);
     const exact = (await h.ready(() => recordSliceCellEntries(handle, led.name, [{ id: "late", queries: plan.queries }]))).get("late")!;
     assert.deepEqual(keysOf(exact), ["instant", "late"]);
     // Through the series it is not led by, the cell holds every state's jobs, and the narrowing is asked of them.
-    const unled = tileCellQueries(handle.config.indexes.find(index => index.name === "jobs_by_press_week")!, late, WEEK, PRESSES);
+    const unled = tileCellQueries(handle.config.indexes.find(index => index.name === "jobs_by_press_week")!, late, WEEK, PRESSES,
+        recordSliceOnPrinter(handle, "jobs_by_press_week"));
     assert.deepEqual(unled.residual, ["state"]);
     const every = (await h.ready(() => recordSliceCellEntries(handle, "jobs_by_press_week", [{ id: "every", queries: unled.queries }]))).get("every")!;
     assert.deepEqual(keysOf(every), oracleCell(stored, PRESSES, WEEK, NEXT_WEEK));
@@ -266,8 +271,8 @@ test("another session's write moves the cells and the totals it touches, read ag
     const series = tileIndexFor(handle.config.indexes, new Map(), "series")!;
     const summary = tileIndexFor(handle.config.indexes, new Map(), "summary")!;
     // A cell a press, so each press's jobs are their own.
-    const weekCells = PRESSES.map(press => ({ id: press, queries: tileCellQueries(series, new Map(), WEEK, [press]).queries }));
-    const monthCell = { id: "october", queries: tileCellQueries(summary, new Map(), OCTOBER, PRESSES).queries };
+    const weekCells = PRESSES.map(press => ({ id: press, queries: tileCellQueries(series, new Map(), WEEK, [press], recordSliceOnPrinter(handle, series.name)).queries }));
+    const monthCell = { id: "october", queries: tileCellQueries(summary, new Map(), OCTOBER, PRESSES, recordSliceOnPrinter(handle, summary.name)).queries };
     const read = async () => {
         const cells = await h.ready(() => recordSliceCellEntries(handle, series.name, weekCells));
         const totals = (await h.ready(() => recordSliceCellEntries(handle, summary.name, [monthCell]))).get("october")!;

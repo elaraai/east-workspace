@@ -20,9 +20,10 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DateTimeType, DictType, East, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
-  compareFor, equalFor, none, some, printType, variant, type ValueTypeOf,
+  DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet, StringType, StructType,
+  compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, printType, variant, type FunctionExpr, type ValueTypeOf,
 } from '@elaraai/east';
+import { RecordSummaryTotalsType } from '@elaraai/e3-types';
 import { record } from './record.js';
 import { recordIndex } from './record-index.js';
 import { buildMutationProgram, indexBuildProgram } from './record-programs.js';
@@ -296,5 +297,49 @@ describe('recordIndex — fields through mutation and rebuild', () => {
       const apply = East.compile(East.function([collection, PatchType(collection)], collection, (_$, value, patch) => East.applyPatch(value, patch)), []);
       assert.equal(equalFor(collection)(apply(before as never, variant('patch', ops) as never), rebuilt as never), true, index.name);
     }
+  });
+});
+
+describe('recordIndex — a generated key reserves no field name (#1432)', () => {
+  /** Fields named like e3's own parts, every one a row field the indexes are led by. */
+  const NAMES = ['on', 'node', 'at', 'area', 'tile', 'key', 'level', '__interval', '__area', '__tile'] as const;
+  const LeadingType = StructType(Object.fromEntries(NAMES.map((name) => [name, StringType])) as Record<(typeof NAMES)[number], typeof StringType>);
+  const Named = StructType({ ...LeadingType.fields, press: StringType, start: DateTimeType, end: DateTimeType, x: FloatType, y: FloatType });
+  const leading = Object.fromEntries(NAMES.map((name) => [name, `${name} value`])) as ValueTypeOf<typeof LeadingType>;
+  // An instant, on Wednesday 7 October: in the week of the 5th.
+  const start = new Date('2026-10-07T06:00:00Z');
+  const week = new Date('2026-10-05T00:00:00Z');
+
+  it('each kind is led by them, under its key\'s on, its own parts beside them holding what they held before', () => {
+    const rec = record('named', DictType(StringType, Named), new Map());
+    const on = [...NAMES];
+    const row = decodeBeast2For(Named)(encodeBeast2For(Named)({ ...leading, press: 'P-1001', start, end: start, x: 1.5, y: 2.5 }));
+    const keysOf = (def: { keyFn: unknown }) => East.compile(def.keyFn as FunctionExpr<any, any>, []) as (key: string, row: unknown) => unknown;
+
+    // An interval index: the instant filed once, at the tree's root, by its start.
+    const interval = recordIndex.interval('named_by_time', rec, { on, from: 'start', to: 'end' });
+    assert.equal(printType(interval.keyType), printType(StructType({ on: LeadingType, node: IntegerType, at: DateTimeType })));
+    assert.ok(equalFor(SetType(interval.keyType))(keysOf(interval)('r', row) as never,
+      new SortedSet([{ on: leading, node: 0n, at: start }], compareFor(interval.keyType)) as never), 'the interval');
+
+    // An area index: the cell's code an index led by nothing files the same row under.
+    const area = recordIndex.area('named_by_area', rec, { on, x: 'x', y: 'y', cell: 1 });
+    const unled = recordIndex.area('by_area', rec, { x: 'x', y: 'y', cell: 1 });
+    assert.equal(printType(area.keyType), printType(StructType({ on: LeadingType, area: IntegerType })));
+    const code = (keysOf(unled)('r', row) as { area: bigint }).area;
+    assert.ok(equalFor(area.keyType)(keysOf(area)('r', row) as never, { on: leading, area: code } as never), 'the area');
+
+    // A series index, and a summary's totals: the week the instant falls in, then the press.
+    const series = recordIndex.series('named_by_week', rec, { on, key: 'press', from: 'start', to: 'end', tile: 'week' });
+    assert.equal(printType(series.keyType), printType(StructType({ on: LeadingType, tile: DateTimeType, key: StringType })));
+    assert.ok(equalFor(SetType(series.keyType))(keysOf(series)('r', row) as never,
+      new SortedSet([{ on: leading, tile: week, key: 'P-1001' }], compareFor(series.keyType)) as never), 'the series');
+    const summary = recordIndex.summary('named_by_week_totals', rec, { on, key: 'press', from: 'start', to: 'end', tile: 'week' });
+    assert.equal(printType(summary.keyType), printType(series.keyType));
+    assert.ok(equalFor(DictType(summary.keyType, RecordSummaryTotalsType))(keysOf(summary)('r', row) as never,
+      new SortedMap([[{ on: leading, tile: week, key: 'P-1001' }, { count: 1n, ms: 0n }]], compareFor(summary.keyType)) as never), 'the summary');
+
+    // Each definition is led by the row's fields alone.
+    for (const def of [interval, area, series, summary]) assert.deepEqual(def.on, on);
   });
 });

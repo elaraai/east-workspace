@@ -8,8 +8,8 @@
  * a record's events filed by a key — the resource an event is on — and by the
  * time tiles it touches (`record-tiles.ts`).
  *
- * Both key an entry `{ …on, __tile, <key> }`: the exact leading fields, the
- * tile's start, then the key's value. The tile leads the key, so the events of
+ * Both key an entry `{ on: { …on }, tile, key }`: the exact leading fields,
+ * under `on`, then the tile's start and the key's value (#1432). The tile leads the key, so the events of
  * one tile on a contiguous run of keys — a block of a Plan's rows — are one
  * contiguous range of either index: a cell.
  *
@@ -32,9 +32,6 @@ import {
 import { RecordSummaryTotalsType } from '@elaraai/e3-types';
 import type { IndexFunction } from './record-index.js';
 import { checkTile, tileShares, type RecordTile } from './record-tiles.js';
-
-/** The reserved name of a series or summary index's tile field. */
-export const TILE_FIELD = '__tile';
 
 /** What a series or a summary index files a row by, as its declaration names the fields. */
 export interface TimeTileFields {
@@ -59,11 +56,11 @@ interface Checked {
 /**
  * Checks a series or summary declaration's fields against the record's row:
  * the key is a field that is no Set, the start and the end are DateTime or
- * Option<DateTime> fields, the tile is one an index files by, the row has no
- * field named `__tile`, and the leading fields take neither `__tile`, the key,
- * the start nor the end. A leading field is matched exactly, before the tile:
- * led by the start or the end the tiles are cut by, a tile's events on a block
- * of keys would be a range for each instant, never one.
+ * Option<DateTime> fields, the tile is one an index files by, and the leading
+ * fields take neither the key — the index orders by it already — nor the start
+ * nor the end: a leading field is matched exactly, before the tile, and led by
+ * the start or the end the tiles are cut by, a tile's events on a block of
+ * keys would be a range for each instant, never one.
  *
  * @param constructor - The constructor, as a refusal names it
  * @param name - The index
@@ -77,9 +74,6 @@ export function checkTimeTile(constructor: string, name: string, valueType: East
   if (valueType.type !== 'Struct') throw new Error(`${constructor} '${name}' indexes a record with Struct rows`);
   const rowType = valueType as StructType<Record<string, EastType>>;
   checkTile(constructor, name, spec.tile);
-  if (Object.hasOwn(rowType.fields, TILE_FIELD)) {
-    throw new Error(`${constructor} '${name}': the row has a field named '${TILE_FIELD}', which the index reserves for its tile`);
-  }
   const keyField = rowType.fields[spec.key];
   if (keyField === undefined) throw new Error(`${constructor} '${name}' key names unknown row field '${spec.key}'`);
   if (keyField.type === 'Set') {
@@ -95,9 +89,7 @@ export function checkTimeTile(constructor: string, name: string, valueType: East
   };
   const startType = timed('from', spec.from);
   const endType = timed('to', spec.to);
-  for (const field of [spec.key, TILE_FIELD]) {
-    if (on.includes(field)) throw new Error(`${constructor} '${name}': '${field}' follows the leading fields, and cannot be one`);
-  }
+  if (on.includes(spec.key)) throw new Error(`${constructor} '${name}': '${spec.key}' follows the leading fields, and cannot be one`);
   for (const [field, what] of [[spec.from, 'start'], [spec.to, 'end']] as const) {
     if (on.includes(field)) {
       throw new Error(`${constructor} '${name}': '${field}' is the event's ${what}, which its tiles are cut by, and cannot be a leading field`);
@@ -107,7 +99,7 @@ export function checkTimeTile(constructor: string, name: string, valueType: East
     const type = rowType.fields[field]!;
     return [field, type.type === 'Set' ? type.key : type];
   }));
-  const indexType = StructType({ ...fields, [TILE_FIELD]: DateTimeType, [spec.key]: keyField });
+  const indexType = StructType({ on: StructType(fields), tile: DateTimeType, key: keyField });
   return { rowType, startType, endType, indexType };
 }
 
@@ -138,7 +130,7 @@ function overTiles(
         const touched = $.let(tiles(from, to, East.print(key)));
         const file = ($: any, leading: Record<string, unknown>) => {
           $.for(touched, ($: any, share: any) => {
-            put($, into, { ...leading, [TILE_FIELD]: share.tile, [spec.key]: row[spec.key] }, share);
+            put($, into, { on: leading, tile: share.tile, key: row[spec.key] }, share);
           });
         };
         if (prefix === undefined) { file($, {}); return; }
@@ -155,7 +147,7 @@ function overTiles(
 
 /**
  * The series index's key function: `(K, V) → Set<IK>`, an entry per tile a
- * row's event touches, `{ …on, __tile, <key> }` — one per combination of its
+ * row's event touches, `{ on: { …on }, tile, key }` — one per combination of its
  * leading values, a Set among them fanning out, as the interval index's do.
  *
  * @param name - The index, for the refusals

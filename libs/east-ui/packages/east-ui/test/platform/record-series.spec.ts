@@ -13,12 +13,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant, type ValueTypeOf,
+    ArrayType, DateTimeType, NullType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor,
+    printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
 import { MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere } from "../../src/platform/slice/record-plan.js";
+import { recordOnPrinter } from "../../src/platform/slice/record-on.js";
 import {
-    RECORD_TILES, TILE_FIELD, readTileMarker, tileCellQueries, tileIndexFor, tileIndexServes, tileMarkerFields, tileNext,
+    RECORD_TILES, readTileMarker, tileCellQueries, tileIndexFor, tileIndexServes, tileMarkerFields, tileNext,
     tileStart, tilesOver, tilingOf, type RecordTile,
 } from "../../src/platform/slice/record-series.js";
 
@@ -166,15 +168,20 @@ const indexType = ArrayType(RecordSliceIndexType);
 const week = { key: "press", from: "start", to: "end", tile: variant("week", null) };
 const month = { ...week, tile: variant("month", null) };
 const plain = { interval: none, area: none, series: none, summary: none };
+// A generated index's fields are the row fields it is led by alone (#1432): its key's `on`.
 const indexes = decodeBeast2For(indexType)(encodeBeast2For(indexType)([
-    { name: "jobs_by_time", fields: ["start"], sets: new Set(), structured: true, ...plain, interval: some({ from: "start", to: "end", optional: false }) },
+    { name: "jobs_by_time", fields: [], sets: new Set(), structured: true, ...plain, interval: some({ from: "start", to: "end", optional: false }) },
     { name: "by_press", fields: ["press"], sets: new Set(), structured: false, ...plain },
-    { name: "jobs_by_press_week", fields: [TILE_FIELD, "press"], sets: new Set(), structured: true, ...plain, series: some(week) },
-    { name: "jobs_by_state_press_week", fields: ["state", TILE_FIELD, "press"], sets: new Set(), structured: true, ...plain, series: some(week) },
-    { name: "jobs_by_crew_press_week", fields: ["crews", TILE_FIELD, "press"], sets: new Set(["crews"]), structured: true, ...plain, series: some(week) },
-    { name: "jobs_by_press_month", fields: [TILE_FIELD, "press"], sets: new Set(), structured: true, ...plain, summary: some(month) },
-    { name: "jobs_by_state_press_month", fields: ["state", TILE_FIELD, "press"], sets: new Set(), structured: true, ...plain, summary: some(month) },
+    { name: "jobs_by_press_week", fields: [], sets: new Set(), structured: true, ...plain, series: some(week) },
+    { name: "jobs_by_state_press_week", fields: ["state"], sets: new Set(), structured: true, ...plain, series: some(week) },
+    { name: "jobs_by_crew_press_week", fields: ["crews"], sets: new Set(["crews"]), structured: true, ...plain, series: some(week) },
+    { name: "jobs_by_press_month", fields: [], sets: new Set(), structured: true, ...plain, summary: some(month) },
+    { name: "jobs_by_state_press_month", fields: ["state"], sets: new Set(), structured: true, ...plain, summary: some(month) },
 ]));
+/** Each index's `on` printer: led by nothing, by a job's state, or by one of its crews (a Set's element). */
+const UNLED = recordOnPrinter(StructType({}));
+const BY_STATE = recordOnPrinter(StructType({ state: VariantType({ late: NullType, held: NullType, done: NullType }) }));
+const BY_CREW = recordOnPrinter(StructType({ crews: StringType }));
 const byName = (name: string) => indexes.find(index => index.name === name)!;
 const values = (...choices: string[]): Choice => variant("values", choices);
 const window = variant("range", { from: "2026-10-05T00:00:00.000", to: "2026-10-19T00:00:00.000" });
@@ -185,39 +192,41 @@ function where(entries: [string, Choice][]): Where {
 const presses = ['.some "P-1005"', '.some "P-1006"', '.some "P-1013"'];
 const monday = at("2026-10-05T00:00:00.000");
 
-test("a cell is a search for each key in its tile, under each combination of the leading fields' chosen values", () => {
-    assert.deepEqual(tileCellQueries(byName("jobs_by_press_week"), where([]), monday, presses), {
-        queries: presses.map(press => variant("fields", { values: ["2026-10-05T00:00:00.000", press], prefix: none })), residual: [],
+test("a cell is a search for each key in its tile, under each combination of the leading fields' chosen values, named as one `on`", () => {
+    assert.deepEqual(tileCellQueries(byName("jobs_by_press_week"), where([]), monday, presses, UNLED), {
+        queries: presses.map(press => variant("fields", { values: ["()", "2026-10-05T00:00:00.000", press], prefix: none })), residual: [],
     });
-    const led = tileCellQueries(byName("jobs_by_state_press_week"), where([["state", values(".late", ".held")]]), monday, presses.slice(0, 2));
-    assert.deepEqual(led.queries, [".late", ".held"].flatMap(state => presses.slice(0, 2).map(press =>
-        variant("fields", { values: [state, "2026-10-05T00:00:00.000", press], prefix: none }))), "the keys inner, in the order given");
-    assert.deepEqual(tileCellQueries(byName("jobs_by_crew_press_week"), where([["crews", values('"C-1"')]]), monday, presses.slice(0, 1)).queries,
-        [variant("fields", { values: ['"C-1"', "2026-10-05T00:00:00.000", presses[0]!], prefix: none })]);
-    assert.deepEqual(tileCellQueries(byName("jobs_by_press_month"), where([]), at("2026-10-01T00:00:00.000"), presses).queries.length, 3,
+    const led = tileCellQueries(byName("jobs_by_state_press_week"), where([["state", values(".late", ".held")]]), monday, presses.slice(0, 2), BY_STATE);
+    assert.deepEqual(led.queries, ["(state=.late)", "(state=.held)"].flatMap(on => presses.slice(0, 2).map(press =>
+        variant("fields", { values: [on, "2026-10-05T00:00:00.000", press], prefix: none }))), "the keys inner, in the order given");
+    assert.deepEqual(tileCellQueries(byName("jobs_by_crew_press_week"), where([["crews", values('"C-1"')]]), monday, presses.slice(0, 1), BY_CREW).queries,
+        [variant("fields", { values: ['(crews="C-1")', "2026-10-05T00:00:00.000", presses[0]!], prefix: none })]);
+    assert.deepEqual(tileCellQueries(byName("jobs_by_press_month"), where([]), at("2026-10-01T00:00:00.000"), presses, UNLED).queries.length, 3,
         "a summary's cell is planned alike");
 });
 
 test("a cell leaves to the reader every choice but its leading fields' and a range of its start, which the tiles cover", () => {
     const series = byName("jobs_by_state_press_week");
-    assert.deepEqual(tileCellQueries(series, where([["state", values(".late")], ["start", window]]), monday, presses).residual, []);
-    assert.deepEqual(tileCellQueries(series, where([["state", values(".late")], ["start", window], ["customer", values('"Acme"')]]), monday, presses).residual,
+    assert.deepEqual(tileCellQueries(series, where([["state", values(".late")], ["start", window]]), monday, presses, BY_STATE).residual, []);
+    assert.deepEqual(tileCellQueries(series, where([["state", values(".late")], ["start", window], ["customer", values('"Acme"')]]), monday, presses, BY_STATE).residual,
         ["customer"]);
-    assert.deepEqual(tileCellQueries(byName("jobs_by_press_week"), where([["state", values(".late")], ["start", values("2026-10-06T00:00:00.000")]]), monday, presses).residual,
+    assert.deepEqual(tileCellQueries(byName("jobs_by_press_week"), where([["state", values(".late")], ["start", values("2026-10-06T00:00:00.000")]]), monday, presses, UNLED).residual,
         ["start", "state"], "exact starts and a field the index is not led by are the reader's");
 });
 
 test("a cell it cannot plan is refused, naming why", () => {
     const series = byName("jobs_by_state_press_week");
-    assert.throws(() => tileCellQueries(series, where([]), monday, presses), /takes exact values of 'state', which leads it/);
-    assert.throws(() => tileCellQueries(series, where([["state", variant("prefix", "la")]]), monday, presses), /takes exact values of 'state'/);
-    assert.throws(() => tileCellQueries(byName("jobs_by_crew_press_week"), where([["crews", values('"C-1"', '"C-2"')]]), monday, presses),
+    assert.throws(() => tileCellQueries(series, where([]), monday, presses, BY_STATE), /takes exact values of 'state', which leads it/);
+    assert.throws(() => tileCellQueries(series, where([["state", variant("prefix", "la")]]), monday, presses, BY_STATE), /takes exact values of 'state'/);
+    assert.throws(() => tileCellQueries(byName("jobs_by_crew_press_week"), where([["crews", values('"C-1"', '"C-2"')]]), monday, presses, BY_CREW),
         /takes one value of 'crews', which fans out over a Set/);
-    assert.throws(() => tileCellQueries(series, where([["state", values(...Array.from({ length: MAX_RECORD_SLICE_RUNS + 1 }, (_, i) => `"s${i}"`))]]), monday, presses),
+    assert.throws(() => tileCellQueries(series, where([["state", values(...Array.from({ length: MAX_RECORD_SLICE_RUNS + 1 }, (_, i) => `"s${i}"`))]]), monday, presses, BY_STATE),
         /more than 64 searches a key/);
-    assert.throws(() => tileCellQueries(byName("jobs_by_press_week"), where([]), at("2026-10-06T00:00:00.000"), presses),
+    assert.throws(() => tileCellQueries(series, where([["state", values(".lost")]]), monday, presses, BY_STATE), /'state' is not a value of its field/,
+        "a leading value is parsed at its field's type, never joined by hand");
+    assert.throws(() => tileCellQueries(byName("jobs_by_press_week"), where([]), at("2026-10-06T00:00:00.000"), presses, UNLED),
         /2026-10-06T00:00:00\.000 starts no week tile of 'jobs_by_press_week'/);
-    assert.throws(() => tileCellQueries(byName("by_press"), where([]), monday, presses), /'by_press' is neither/);
+    assert.throws(() => tileCellQueries(byName("by_press"), where([]), monday, presses, UNLED), /'by_press' is neither/);
 });
 
 test("a narrowing's cells are read through the index led by the most of its exact choices, a summary's of a tile the reader takes", () => {

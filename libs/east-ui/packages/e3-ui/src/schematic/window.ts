@@ -29,13 +29,13 @@
  */
 
 import {
-    BooleanType, DictType, East, Expr, IntegerType, OptionType, SortedMap, StringType, compareFor, equalFor, isSubtype, isTypeEqual, none, some, variant,
-    type ArrayType, type EastType, type ExprType, type FunctionType, type StructType, type ValueTypeOf,
+    BooleanType, DictType, East, Expr, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, equalFor, isSubtype, isTypeEqual, none, some,
+    variant, type ArrayType, type EastType, type ExprType, type FunctionType, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    AREA_FIELD, AREA_UNPLACED, MAX_AREA_RASTER, MAX_LANDED_SEARCHES, MAX_RECORD_SLICE_RUNS, RecordSliceBindType, RecordSliceConfigType, RecordSliceStateType,
-    RecordSliceWhereType, areaQueries, areaRaster, recordSliceReadPlatform,
-    type AreaCell, type AreaWindow, type RecordSliceChoiceType, type RecordSliceIndexType,
+    MAX_AREA_RASTER, MAX_LANDED_SEARCHES, MAX_RECORD_SLICE_RUNS, RecordSliceBindType, RecordSliceConfigType, RecordSliceReadType, RecordSliceStateType,
+    areaQueries, areaRaster, recordOnPrinter, recordSliceReadPlatform,
+    type AreaCell, type AreaWindow, type RecordOnPrinter, type RecordSliceChoiceType, type RecordSliceIndexType,
 } from "@elaraai/east-ui/internal";
 import { optionOf } from "../schedule/window.js";
 import type { SchematicBoxFieldsType } from "./types.js";
@@ -92,7 +92,7 @@ export function schematicSourceRows(part: SchematicKindPart, slot: string, rowTy
     // An entry's row: its `row`, which a joined read fills, or its `value`, when the index carries the whole row (D29).
     const joined = entryFields?.["row"] !== undefined && isTypeEqual(entryFields["row"], OptionType(rowType));
     const carried = entryFields?.["value"] !== undefined && isTypeEqual(entryFields["value"], rowType);
-    const pages = page?.type === "Function" && page.inputs.length === 3 && isTypeEqual(page.inputs[0]!, RecordSliceWhereType)
+    const pages = page?.type === "Function" && page.inputs.length === 3 && isTypeEqual(page.inputs[0]!, RecordSliceReadType)
         && isTypeEqual(page.inputs[1]!, IntegerType) && isTypeEqual(page.inputs[2]!, IntegerType);
     const identified = data?.type === "Struct" && data.fields["id"] !== undefined && isTypeEqual(data.fields["id"], StringType)
         && data.fields["revision"] !== undefined && data.fields["revision"].type === "Function";
@@ -109,23 +109,24 @@ export function schematicSourceRows(part: SchematicKindPart, slot: string, rowTy
         const source = $.const(part as unknown as ExprType<StructType<{
             config: RecordSliceConfigType;
             read: FunctionType<[], RecordSliceStateType>;
-            countWhere: FunctionType<[RecordSliceWhereType], OptionType<IntegerType>>;
-            pageWhere: FunctionType<[RecordSliceWhereType, IntegerType, IntegerType], OptionType<typeof Entries>>;
+            countWhere: FunctionType<[RecordSliceReadType], OptionType<IntegerType>>;
+            pageWhere: FunctionType<[RecordSliceReadType, IntegerType, IntegerType], OptionType<typeof Entries>>;
             data: StructType<{ id: StringType; revision: FunctionType<[], OptionType<StringType>> }>;
         }>>);
         const countWhere = $.const(source.countWhere);
         const pageWhere = $.const(source.pageWhere);
         const id = $.const(source.data.id);
         const revision = $.const(source.data.revision);
-        // The narrowing the read takes: none under `dim` — every row, the source's state read nowhere, so a choice reads
-        // nothing again and the renderer dims what it leaves out (§10.3) — else the rail's, each of the source's choices.
-        let taken: ExprType<typeof RecordSliceWhereType>;
+        // The read: no narrowing under `dim` — every row, the source's state read nowhere, so a choice reads nothing
+        // again and the renderer dims what it leaves out (§10.3) — else the rail's, each of the source's choices. Never
+        // a read by area (#1432).
+        let taken: ExprType<typeof RecordSliceReadType>;
         if (every) {
-            taken = $.const(new Map(), RecordSliceWhereType);
+            taken = $.const({ where: new Map(), area: none }, RecordSliceReadType);
         } else {
             const read = $.const(source.read);
             const state = $.const(read());
-            taken = $.const(state.where);
+            taken = $.let({ where: state.where, area: none }, RecordSliceReadType);
         }
         const result = $.let(none, OptionType(Held));
         $.match(recordSliceReadPlatform([Entries], id, revision, countWhere, pageWhere, taken), {
@@ -226,14 +227,15 @@ export function schematicAreaIndexes(indexes: readonly Index[], box: BoxFields, 
                 `e3.recordIndex.area(name, record, { ${boxText(box, centre)}, cell })`);
         }
     }
-    const unled = areas.find((index) => index.fields.length === 1);
+    // An area index's fields are its leading fields alone, its key's `on` (#1432).
+    const unled = areas.find((index) => index.fields.length === 0);
     if (unled === undefined) {
         const named = areas.map((index) => `'${index.name}'`).join(", ");
         throw new Error(`${where}: a kind read by area reads its window through an area index led by no field, whatever the rail chooses, and ` +
             `${named} ${areas.length === 1 ? "is" : "are"} led by fields — declare e3.recordIndex.area(name, record, { ${boxText(box, centre)}, cell }) ` +
             "beside it, and list it in Data.bindPaged's indexes");
     }
-    return { unled, led: areas.filter((index) => index.fields.length > 1) };
+    return { unled, led: areas.filter((index) => index.fields.length > 0) };
 }
 
 /** Which area index a window reads, and how (§10.4, SC34). */
@@ -263,8 +265,11 @@ export interface SchematicWindowPlan {
  * @returns The index, its leading values and the fields left to `within`
  */
 export function schematicWindowPlan(areas: SchematicAreaIndexes, where: Where, box: AreaWindow): SchematicWindowPlan {
-    return areaPlan(areas, where, (index) => areaQueries([], box, cellOf(index)).length);
+    return areaPlan(areas, where, (index) => areaQueries([], box, cellOf(index), NO_LEADING).length);
 }
+
+/** The `on` of no leading field: a window asks the same cells whatever an index's leading values, so they are counted under none. */
+const NO_LEADING = recordOnPrinter(StructType({}));
 
 /** An area index's finest cell's side. */
 function cellOf(index: Index): number {
@@ -287,7 +292,7 @@ function cellOf(index: Index): number {
 function areaPlan(areas: SchematicAreaIndexes, where: Where, searches: (index: Index) => number): SchematicWindowPlan {
     let best: SchematicWindowPlan | undefined;
     for (const index of areas.led) {
-        const leading = index.fields.slice(0, -1);
+        const leading = index.fields;
         let prefixes: string[][] = [[]];
         let fills = true;
         for (const field of leading) {
@@ -306,15 +311,15 @@ function areaPlan(areas: SchematicAreaIndexes, where: Where, searches: (index: I
     return best ?? { index: areas.unled, cell: cellOf(areas.unled), prefixes: [[]], residual: [...where.keys()] };
 }
 
-/** How a kind read by area reads its rows with no position: the narrowing a read takes, and the fields it leaves to `within`. */
+/** How a kind read by area reads its rows with no position: the read it asks, and the fields it leaves to `within`. */
 export interface SchematicUnplacedPlan {
     /** The index read. */
     readonly index: Index;
     /**
-     * The narrowing a read takes (`pageWhere`, `countWhere`): the narrowing's choices of the fields the index leads, and the
-     * unplaced clause under `__area`.
+     * The read it asks (`pageWhere`, `countWhere`): the narrowing's choices of the fields the index leads, and beside them
+     * the unplaced clause (#1432).
      */
-    readonly where: ValueTypeOf<typeof RecordSliceWhereType>;
+    readonly read: ValueTypeOf<typeof RecordSliceReadType>;
     /** The narrowing's fields the index doesn't lead, which `within` asks of the rows read; none where it serves the narrowing whole. */
     readonly residual: readonly string[];
 }
@@ -334,11 +339,9 @@ export interface SchematicUnplacedPlan {
  */
 export function schematicUnplacedPlan(areas: SchematicAreaIndexes, where: Where): SchematicUnplacedPlan {
     const plan = areaPlan(areas, where, () => 1);
-    const led = plan.index.fields.slice(0, -1);
     const taken = new SortedMap<string, ValueTypeOf<typeof RecordSliceChoiceType>>([], compareString);
-    for (const [field, choice] of where) if (led.some((name) => stringEqual(name, field))) taken.set(field, choice);
-    taken.set(AREA_FIELD, variant("values", [AREA_UNPLACED]));
-    return { index: plan.index, where: taken, residual: plan.residual };
+    for (const [field, choice] of where) if (plan.index.fields.some((name) => stringEqual(name, field))) taken.set(field, choice);
+    return { index: plan.index, read: { where: taken, area: some(variant("unplaced", null)) }, residual: plan.residual };
 }
 
 /** A window's density raster (§10.4, D25): one level's cells, counted, a combination of the index's leading values at a time. */
@@ -365,11 +368,12 @@ export interface SchematicRaster {
  *
  * @param plan - The window's plan ({@link schematicWindowPlan})
  * @param box - The box the raster covers, in world units
+ * @param printOn - The plan's index's `on` printer: the coarser cells' searches name its leading values as one (#1432)
  * @returns The raster
  */
-export function schematicRaster(plan: SchematicWindowPlan, box: AreaWindow): SchematicRaster {
+export function schematicRaster(plan: SchematicWindowPlan, box: AreaWindow, printOn: RecordOnPrinter): SchematicRaster {
     const budget = Math.max(1, Math.floor(MAX_AREA_RASTER / plan.prefixes.length));
-    const rasters = plan.prefixes.map((prefix) => areaRaster(prefix, box, plan.cell, budget));
+    const rasters = plan.prefixes.map((prefix) => areaRaster(prefix, box, plan.cell, printOn, budget));
     // The same box, cell and budget: every combination's raster is at one level.
     const first = rasters[0]!;
     return { level: first.level, side: first.side, cells: rasters.map((raster) => raster.cells), coarse: rasters.flatMap((raster) => raster.coarse) };

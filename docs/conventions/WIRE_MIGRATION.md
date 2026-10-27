@@ -529,3 +529,30 @@ Each wire changed under this rule, with the kind it is.
   re-exported, and the dataflow computes each UI task's output again under the
   new type. A UI task's output is not stored state, so no repository upgrade
   step ships with it.
+- **e3's generated index keys nest the row's fields under `on`, e3's parts
+  beside them (#1432)** — package-borne. An interval index's key is
+  `{ on, node, at }`, an area index's `{ on, area }`, and a series or a
+  summary index's `{ on, tile, key }`: `on` the declaration's leading fields at
+  their key types, a struct with no fields when it lists none, where today's
+  keys held them flat beside `__interval`, `__area` and `__tile`. No name is
+  reserved, so `e3.recordIndex.area` no longer refuses a row field named
+  `__area`, nor `.series` and `.summary` one named `__tile`. A definition's
+  `on` is the leading fields alone. Each such index a package declares changes
+  type, so it is rebuilt as the package is deployed, as any changed index is;
+  an index is derived from its record, so no repository upgrade step ships.
+- **east-ui's record Slice reads by area beside the narrowing, and a binding's
+  index metadata names each index's kind (#1432)** — package-borne, and an
+  application's saved views change type with it. `RecordSliceChoiceType` loses
+  `window`: a read by area gives its clause apart, `RecordSliceAreaType`
+  (`window` or `unplaced`), in `RecordSliceReadType` (`{ where, area }`), which
+  `pageWhere`, `countWhere` and the scan take; the rail's state, its presets
+  and `contains` keep the narrowing alone. `RecordSliceIndexType.fields` holds
+  an index's row fields alone — a generated index's `on` — and the binding's
+  metadata (`IndexedSourceType`'s `indexes`) gives each index as
+  `{ fields, kind }`, `kind` its one case, `plain` or a generated kind's
+  marker. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A narrowing is a `Dict` of choices, read at
+  exactly the type it was written with, so one kept or saved under the earlier
+  type does not decode, and resets. A UI task's output is not stored state, so
+  no repository upgrade step ships with it.

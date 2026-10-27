@@ -14,33 +14,46 @@ import { TimeResolutionType } from "../../contracts/time.js";
 import { LiveSourceType, SeekQueryType, SeekRangeType } from "../../contracts/source.js";
 
 /**
- * One field's narrowing, with values encoded as typed .east literals.
+ * One row field's narrowing, with values encoded as typed .east literals.
  * @remarks Prefix text is raw text; every exact value and range end is a literal.
- * A `window` is a read's, never the rail's: it is given under an area index's
- * `__area` field to a read's `where` (`pageWhere`, `countWhere`, a scan), never
- * written into a Slice's state, and never shown as a chip (#1385). It is named
- * to sort after every case before it, so the earlier cases keep their tags. A
+ * A narrowing holds the choices of row fields and nothing else: a read by
+ * area gives its clause beside it ({@link RecordSliceReadType}, #1432). A
  * narrowing is a Dict of choices, whose values beast2 reads at exactly their
  * written type, so one an earlier release wrote does not decode under this type
  * (docs/conventions/WIRE_MIGRATION.md).
- * @property values - Exact alternatives on a leading field (one on a Set field);
- *   under `__area`, the unplaced clause (`-1`).
+ * @property values - Exact alternatives on a leading field (one on a Set field).
  * @property range - Half-open range on the next field.
  * @property prefix - String prefix on the next field.
- * @property window - The viewport an area index reads, in world units: the rows
- *   whose box meets it grown by its margin (`areaQueries`).
  */
 export const RecordSliceChoiceType = VariantType({
     values: ArrayType(StringType),
     range: StructType({ from: StringType, to: StringType }),
     prefix: StringType,
-    window: StructType({ minX: FloatType, minY: FloatType, maxX: FloatType, maxY: FloatType }),
 });
 export type RecordSliceChoiceType = typeof RecordSliceChoiceType;
 
 /** A narrowing keyed by row-field name; its clauses follow one index path. */
 export const RecordSliceWhereType = DictType(StringType, RecordSliceChoiceType);
 export type RecordSliceWhereType = typeof RecordSliceWhereType;
+
+/**
+ * What a read by area asks of an area index, beside the narrowing (#1385, #1432).
+ * @property window - The rows whose box meets the viewport, in world units, grown by its margin (`areaQueries`)
+ * @property unplaced - The rows with no place: their `x` or `y` is `none`
+ */
+export const RecordSliceAreaType = VariantType({
+    window: StructType({ minX: FloatType, minY: FloatType, maxX: FloatType, maxY: FloatType }),
+    unplaced: NullType,
+});
+export type RecordSliceAreaType = typeof RecordSliceAreaType;
+
+/**
+ * What a read asks: the narrowing, and, for a read by area, its clause (#1432).
+ * @property where - The row fields' choices
+ * @property area - The read by area's clause; `none` for any other read
+ */
+export const RecordSliceReadType = StructType({ where: RecordSliceWhereType, area: OptionType(RecordSliceAreaType) });
+export type RecordSliceReadType = typeof RecordSliceReadType;
 
 /**
  * Persistable record narrowing. Resolution changes presentation only.
@@ -115,16 +128,18 @@ export type RecordSliceTilingType = typeof RecordSliceTilingType;
  * config an earlier release wrote does not decode under this one
  * (docs/conventions/WIRE_MIGRATION.md).
  * @property name - Source selector.
- * @property fields - Row fields in index order.
+ * @property fields - The row fields the index is led by, in order (#1432): a plain index's fields, a generated
+ *   index's `on` — never e3's own parts, which its kind names (`interval`, `area`, `series`, `summary`).
  * @property sets - Fields that fan out; all must be fixed to one exact value.
  * @property structured - Index key is a Struct, including a single computed field.
- * @property interval - Final field represents overlap with an interval, using distinct start/carry-in queries.
- * @property area - Final field is an area index's `__area` (#1385): the row fields its box is read from (`x`, `y`,
+ * @property interval - An interval index: its key `{ on, node, at }`, the overlap of the row field `from` with an
+ *   interval read by distinct start and carry-in queries; `from` follows the leading fields as a range the rail reads.
+ * @property area - An area index (#1385): its key `{ on, area }`; the row fields its box is read from (`x`, `y`,
  *   and `width` and `height` unless the rows are points), whether `x`, `y` is the box's centre or its minimum corner,
  *   the finest cell's side in world units (a power of two), and whether `x` and `y` are Options, which makes the
  *   unplaced clause meaningful. Its entries carry their rows.
  * @property series - A series index (#1039): its events filed by the key they are on and by each tile they touch,
- *   `{ …on, __tile, <key> }`, carrying their rows. It never serves the rail's narrowing, which would count an event
+ *   `{ on, tile, key }`, carrying their rows. It never serves the rail's narrowing, which would count an event
  *   once for each tile it touches: a reader reads its cells (`tileCellQueries`).
  * @property summary - A summary index (#1039): under the same keys, how many rows touch the tile and the
  *   milliseconds of it they cover. Its entries name no row, so it never serves the rail's narrowing either.
@@ -187,7 +202,7 @@ export type RecordSliceDomainType = typeof RecordSliceDomainType;
  * @property clear - Clear one field and any dependent trailing choices.
  * @property clearAll - Clear the narrowing.
  * @property count - Exact narrowed count; none while pending.
- * @property countWhere - Exact count of a saved narrowing, without changing current state.
+ * @property countWhere - Exact count of a read — a saved narrowing, and a read by area's clause — without changing current state.
  * @property total - Exact primary-row count; none while pending.
  * @property domain - Inclusive numeric/date extent, ignoring that field's range; none while pending or empty.
  * @property values - Known values, each with its exact count under the other fields' choices, the chosen marked.
@@ -212,7 +227,7 @@ export const RecordSliceBindType = StructType({
     clear: FunctionType([StringType], NullType),
     clearAll: FunctionType([], NullType),
     count: FunctionType([], OptionType(IntegerType)),
-    countWhere: FunctionType([RecordSliceWhereType], OptionType(IntegerType)),
+    countWhere: FunctionType([RecordSliceReadType], OptionType(IntegerType)),
     total: FunctionType([], OptionType(IntegerType)),
     domain: FunctionType([StringType], OptionType(RecordSliceDomainType)),
     values: FunctionType([StringType], ArrayType(RecordSliceCountType)),
@@ -240,8 +255,8 @@ export type RecordSliceBindType = typeof RecordSliceBindType;
  */
 export function RecordSliceHandleType<C extends EastType | string>(collection: C) {
     return StructType({ ...RecordSliceBindType.fields, data: LiveSourceType(collection),
-        /** Read a captured narrowing without replacing the shared controls' state. */
-        pageWhere: FunctionType([RecordSliceWhereType, IntegerType, IntegerType], OptionType(collection)),
+        /** Read a captured narrowing — and a read by area's clause — without replacing the shared controls' state. */
+        pageWhere: FunctionType([RecordSliceReadType, IntegerType, IntegerType], OptionType(collection)),
     });
 }
 
@@ -319,7 +334,7 @@ export const RecordSlicePrimitives = {
     clear: op("clear", [StringType], NullType),
     clearAll: op("clear_all", [], NullType),
     count: op("count", [], OptionType(IntegerType)),
-    countWhere: op("count_where", [RecordSliceWhereType], OptionType(IntegerType)),
+    countWhere: op("count_where", [RecordSliceReadType], OptionType(IntegerType)),
     total: op("total", [], OptionType(IntegerType)),
     domain: op("domain", [StringType], OptionType(RecordSliceDomainType)),
     values: op("values", [StringType], ArrayType(RecordSliceCountType)),
@@ -327,7 +342,7 @@ export const RecordSlicePrimitives = {
     replaces: op("replaces", [StringType], ArrayType(StringType)),
     togglePreset: op("toggle_preset", [StringType], NullType),
     setResolution: op("set_resolution", [OptionType(TimeResolutionType)], NullType),
-    pageWhere: op("page_where", [RecordSliceWhereType, IntegerType, IntegerType], OptionType("C")),
+    pageWhere: op("page_where", [RecordSliceReadType, IntegerType, IntegerType], OptionType("C")),
     dataPage: op("data_page", [IntegerType, IntegerType], OptionType("C")),
     dataSeek: op("data_seek", [SeekQueryType], OptionType(SeekRangeType)),
     dataQuery: op("data_query", [], StringType),
@@ -347,7 +362,7 @@ export const RecordSlicePrimitives = {
 export const recordSliceReadPlatform = East.genericPlatform("slice_record_scan", ["C"], [
     StringType,
     FunctionType([], OptionType(StringType)),
-    FunctionType([RecordSliceWhereType], OptionType(IntegerType)),
-    FunctionType([RecordSliceWhereType, IntegerType, IntegerType], OptionType("C" as const)),
-    RecordSliceWhereType,
+    FunctionType([RecordSliceReadType], OptionType(IntegerType)),
+    FunctionType([RecordSliceReadType, IntegerType, IntegerType], OptionType("C" as const)),
+    RecordSliceReadType,
 ], OptionType("C" as const), { optional: true });

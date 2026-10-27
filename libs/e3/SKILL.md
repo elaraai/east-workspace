@@ -612,6 +612,21 @@ mutation, storage, paging and `e3 reindex` — and the record Slice reads a
 window through either (see **e3-ui**). Their generated keys are query
 machinery: edits and sessions always target the record's primary key.
 
+A generated key is a struct whose own fields are e3's: `on` holds the
+declaration's leading fields, by their names, at their key types (a Set field's
+element type) — a struct with no fields when it lists none — and the kind's own
+parts sit beside it. So no name is reserved: a row may name a field anything,
+`area`, `tile` and `__area` among them, and an index may be led by it.
+
+| Index | Key | e3's parts |
+|---|---|---|
+| interval | `{ on, node, at }` | the tree node an entry is filed at; the instant it is ordered by, at the `from` field's type |
+| area | `{ on, area }` | the cell's Morton code times 32 plus its level; −1 for a row not yet placed |
+| series, summary | `{ on, tile, key }` | the tile's start; the value of the field `key` names |
+
+A definition's `on` is the leading fields alone; its kind's options say the
+rest (`byTime.interval`, `racksByArea.area`, `jobsByPressWeek.series`).
+
 **`e3.recordIndex.interval(name, record, { on?, from, to })`** keeps events
 visible while they overlap a selected time window. `from` and `to` are the
 row's DateTime or Option<DateTime> fields; optional `on` fields are exact
@@ -624,8 +639,8 @@ const byStatusTime = e3.recordIndex.interval('by_status_time', events, {
 });
 ```
 
-It stores at most three entries per event per leading-field combination,
-independent of duration. The record Slice adapter resolves a half-open
+Its key is `{ on, node, at }`. It stores at most three entries per event per
+leading-field combination, independent of duration. The record Slice adapter resolves a half-open
 `[from, to)` window with at most 55 disjoint bounded queries per exact prefix;
 each matching original record occurs once, including events that started
 earlier or span the whole window. It never scans the record or guesses a
@@ -665,14 +680,13 @@ const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', racks, {
 
 Each option takes only the row's fields of its type, so a wrong one does not
 compile, and the definition checks them again, naming the option, the field and
-its type; a row field named `__area` is refused, the name being the key's. The
-domain is the square ±`cell`·2²⁷ world units around zero (±1,048 km at a 0.01
-cell, which rounds to 2⁻⁷), in 29 levels. Each row is filed once, under the
-deepest level whose cell is at least twice its box's larger side, in the cell
-holding its box's centre: the key `{ …on, __area: Integer }`. A row not yet
-placed files under `__area` −1, which the record Slice reads as the unplaced
-clause; one outside the domain, not finite, or larger than half of it files
-under the root, which every window reads. The index **carries its rows**: each
+its type. The domain is the square ±`cell`·2²⁷ world units around zero
+(±1,048 km at a 0.01 cell, which rounds to 2⁻⁷), in 29 levels. Each row is
+filed once, under the deepest level whose cell is at least twice its box's
+larger side, in the cell holding its box's centre: the key
+`{ on, area: Integer }`. A row not yet placed files under `area` −1, which the
+record Slice reads as the unplaced clause; one outside the domain, not finite,
+or larger than half of it files under the root, which every window reads. The index **carries its rows**: each
 entry's projection is the whole row, so a window reads the index alone and no
 record segment, and it takes no `value`. The record Slice reads a viewport,
 grown by an eighth of its larger side on each side, as at most 266 disjoint
@@ -686,8 +700,8 @@ What a planning board reads: the events on a block of keys — a Plan's
 resources — over a span of time, and, zoomed out past what a screen can draw,
 how busy each key is. Both file a row's event by the key it is on and by each
 time tile it touches — `day`, `week` (ISO, from Monday), `month`, `quarter` or
-`year`, in UTC, half-open — their key `{ …on, __tile, <key> }`. The tile leads
-the key, so a block of keys in one tile is one contiguous range:
+`year`, in UTC, half-open — their key `{ on, tile, key }`. The tile comes
+before the key, so a block of keys in one tile is one contiguous range:
 
 ```typescript
 // jobs: Dict<String, { press: String, start: Option<DateTime>, end: Option<DateTime>, … }>
@@ -728,10 +742,9 @@ write or the build, naming a finer tile.
 An event touching more than 4,096 tiles — eleven years of days — is refused
 where it is written, naming it, its span and the tile: declare a coarser tile.
 Each option takes only the row's fields of its type, as the area index's do,
-and the definition checks them again; a row field named `__tile` is refused, the
-name being the key's, and so are a `value` and an `on` field that is the key,
-the start or the end: the key follows the tile, and the tiles are cut by the
-start and the end.
+and the definition checks them again; a `value` is refused, and so is an `on`
+field that is the key, the start or the end: the key follows the tile, and the
+tiles are cut by the start and the end.
 
 #### Migrations — how a record's type changes
 

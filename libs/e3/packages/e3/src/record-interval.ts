@@ -49,9 +49,10 @@ export const intervalEntries = East.function([IntegerType, IntegerType], SetType
 });
 
 /**
- * Generate the pure key function, using the existing field-index function for
- * all leading fields (including Set membership). This stays an ordinary
- * multi-entry index: mutation, rebuild, storage and transport are shared.
+ * Generate the pure key function, `{ on: { …on }, node, at }` an entry, using
+ * the existing field-index function for all leading fields (including Set
+ * membership). This stays an ordinary multi-entry index: mutation, rebuild,
+ * storage and transport are shared.
  * @param name - Index name for authoring errors.
  * @param keyType - Primary key type.
  * @param valueType - Record row type.
@@ -72,14 +73,18 @@ export function intervalKey(name: string, keyType: EastType, valueType: EastType
       throw new Error(`e3.recordIndex.interval '${name}' ${option} names '${field}', of type ${printType(type)}: ${option} is a DateTime or an Option<DateTime> field`);
     }
   }
-  if (on.includes(interval.from) || on.includes('__interval') || interval.from === '__interval') {
-    throw new Error(`e3.recordIndex.interval '${name}': its start '${interval.from}' and the reserved '__interval' cannot be leading fields`);
+  // Led by its start and ordered by it again, the index would answer nothing the interval does not.
+  if (on.includes(interval.from)) {
+    throw new Error(`e3.recordIndex.interval '${name}': its start '${interval.from}' cannot be a leading field — the index orders by it already`);
   }
+  // The row's leading fields under `on`, by their names, at their key types (a
+  // Set field's element), and e3's own parts beside them (#1432): the tree
+  // node an entry is filed at, and the instant it is ordered by.
   const fields = Object.fromEntries(on.map(field => {
     const type = rowType.fields[field]!;
     return [field, type.type === 'Set' ? type.key : type];
   }));
-  const indexType = StructType({ ...fields, __interval: IntegerType, [interval.from]: startType! });
+  const indexType = StructType({ on: StructType(fields), node: IntegerType, at: startType! });
   const prefixType = prefix === undefined ? undefined : Expr.type(prefix.fn as unknown as Expr) as { output: EastType };
   // Dynamic field names are erased only inside this generated East function,
   // as in the standard field-key generator; all types were checked above.
@@ -99,7 +104,7 @@ export function intervalKey(name: string, keyType: EastType, valueType: EastType
         const date = $.let(East.DateTime.fromEpochMilliseconds(entry.at));
         const at = startType!.type === 'DateTime' ? date
           : start.match({ some: () => some(date), none: () => none });
-        $(keys.insert({ ...leading, __interval: entry.node, [interval.from]: at }));
+        $(keys.insert({ on: leading, node: entry.node, at }));
       });
     };
     if (prefix === undefined) append($, undefined);

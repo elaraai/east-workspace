@@ -370,10 +370,10 @@ export const RackRowType = StructType({ hall: StringType, x: OptionType(FloatTyp
 export const RacksType = DictType(StringType, RackRowType);
 /** The finest cell of the area fixture's indexes: their declared 0.01, rounded down to a power of two. */
 export const RACK_CELL = 2 ** -7;
-/** The key of the area fixture's `racks_by_area`: a rack's cell and level, led by no field. */
-export const RackAreaKeyType = StructType({ __area: IntegerType });
-/** The key of its `racks_by_hall_area`: a rack's hall, then its cell and level. */
-export const RackHallAreaKeyType = StructType({ hall: StringType, __area: IntegerType });
+/** The key of the area fixture's `racks_by_area`: led by no field, its `on` holds none, then a rack's cell and level (#1432). */
+export const RackAreaKeyType = StructType({ on: StructType({}), area: IntegerType });
+/** The key of its `racks_by_hall_area`: a rack's hall under `on`, then its cell and level (#1432). */
+export const RackHallAreaKeyType = StructType({ on: StructType({ hall: StringType }), area: IntegerType });
 
 /**
  * Create a package whose record is read by area (#1385): a window over a
@@ -516,8 +516,8 @@ export const JOBS_FROM = new Date(Date.UTC(2026, 9, 5));
 export const JobRowType = StructType({ press: StringType, start: DateTimeType, end: DateTimeType, title: StringType });
 /** The series fixture's record: jobs by key. */
 export const JobsType = DictType(StringType, JobRowType);
-/** The key of the series fixture's two indexes: a week's start, then a press. */
-export const JobWeekPressKeyType = StructType({ __tile: DateTimeType, press: StringType });
+/** The key of the series fixture's two indexes: led by no field, its `on` holds none, then a week's start and a press (#1432). */
+export const JobWeekPressKeyType = StructType({ on: StructType({}), tile: DateTimeType, key: StringType });
 
 /**
  * Create a package whose record is read in two dimensions (#1039): a block of

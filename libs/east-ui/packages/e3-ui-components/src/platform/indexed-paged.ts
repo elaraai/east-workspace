@@ -11,7 +11,7 @@ import {
 } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
-import { AREA_FIELD, IndexedEntryType, TILE_FIELD, readTileMarker, type RecordSliceEntryKey } from "@elaraai/east-ui/internal";
+import { IndexedEntryType, type RecordSliceEntryKey } from "@elaraai/east-ui/internal";
 import { bindIndexedPagedPlatformFn, DataIndexedPrimitives } from "@elaraai/e3-ui/internal";
 import { RecordSummaryTotalsType, TreePathType, indexWindowType, type TreePath } from "@elaraai/e3-types";
 import type { RecordSliceBatches } from "@elaraai/east-ui-components/platform";
@@ -151,42 +151,50 @@ export class IndexedPagedRuntime {
 
     private defaultIndex(schema: Schema, metadata: Metadata, joined: boolean): string {
         if (joined) return "primary";
-        const types = schema.args[3];
         const index = Object.keys(metadata).find(name => {
-            const fields = types.type === "Struct" ? types.fields[name] : undefined;
-            // One entry a row: no Set field, and no interval's start, which files an event up to three times; an area
-            // index's `__area` files each row once.
-            return fields?.type === "Struct" && Object.entries(fields.fields as Record<string, EastType>).every(([field, marker]) =>
-                marker.type === "Array" || (marker.type === "Null" && schema.row.fields[field]?.type !== "Set")
-                || (marker.type === "Struct" && field === AREA_FIELD));
+            // One entry a row: a plain or an area index, which files each row once — never an interval index, which
+            // files an event up to three times, nor a series or a summary index — led by no Set field.
+            const kind = this.kind(schema, name);
+            const fields = this.fields(schema, name);
+            return (kind === "plain" || kind === "area") && fields !== undefined && Object.entries(fields).every(([field, marker]) =>
+                marker.type === "Array" || (marker.type === "Null" && schema.row.fields[field]?.type !== "Set"));
         });
         if (index === undefined) throw new Error("A covering-only binding needs an index with one entry per record row");
         return index;
     }
 
-    /** The marker the binding gives an index's field, in its metadata's type: a struct for a generated field. */
-    private marker(schema: Schema, name: string, field: string): EastType | undefined {
+    /** An index's metadata in the binding's type (#1432): its row fields' markers and its kind, `{ fields, kind }`. */
+    private metadataOf(schema: Schema, name: string): Record<string, EastType> | undefined {
         const types = schema.args[3];
-        const fields = types.type === "Struct" ? types.fields[name] : undefined;
-        return fields?.type === "Struct" ? (fields.fields as Record<string, EastType>)[field] : undefined;
+        const index = types.type === "Struct" ? types.fields[name] : undefined;
+        return index?.type === "Struct" ? index.fields as Record<string, EastType> : undefined;
     }
 
-    /** Whether an index is a summary index (#1039): its `__tile` marked as a summary's, its entries totals naming no row. */
+    /** The row fields an index is led by, each its marker. */
+    private fields(schema: Schema, name: string): Record<string, EastType> | undefined {
+        const fields = this.metadataOf(schema, name)?.fields;
+        return fields?.type === "Struct" ? fields.fields as Record<string, EastType> : undefined;
+    }
+
+    /** An index's kind, its metadata's one case (#1432): `plain`, `interval`, `area`, `series` or `summary`. */
+    private kind(schema: Schema, name: string): string | undefined {
+        const kind = this.metadataOf(schema, name)?.kind;
+        return kind?.type === "Variant" ? Object.keys(kind.cases)[0] : undefined;
+    }
+
+    /** Whether an index is a summary index (#1039): its entries totals, naming no row. */
     private isSummary(schema: Schema, name: string): boolean {
-        const tile = this.marker(schema, name, TILE_FIELD);
-        return tile?.type === "Struct" && readTileMarker(Object.keys(tile.fields))?.summary === true;
+        return this.kind(schema, name) === "summary";
     }
 
     /**
-     * Whether an index carries its rows (D29): an area index, whose `__area`
-     * the binding marks, or a series index (#1039), whose `__tile` it marks,
-     * whose entries hold the whole row as their projection, so it is read
-     * without a join.
+     * Whether an index carries its rows (D29): an area index, or a series
+     * index (#1039), whose entries hold the whole row as their projection, so
+     * it is read without a join.
      */
     private carriesRow(schema: Schema, name: string): boolean {
-        const tile = this.marker(schema, name, TILE_FIELD);
-        return this.marker(schema, name, AREA_FIELD)?.type === "Struct"
-            || (tile?.type === "Struct" && readTileMarker(Object.keys(tile.fields))?.summary === false);
+        const kind = this.kind(schema, name);
+        return kind === "area" || kind === "series";
     }
 
     private source(schema: Schema, path: TreePath, metadata: Metadata, joined: boolean, name: string): Handle {
