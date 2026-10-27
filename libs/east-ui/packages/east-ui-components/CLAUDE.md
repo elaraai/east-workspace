@@ -313,7 +313,15 @@ component, nothing in east-ui.
   `RecordSliceController.values`). The editor (`SliceEditPopover`) keeps to
   the frame's sides while it fits between them, else to the page's, and down
   the page always to the page's, so it flips above its trigger as it did
-  (`overlays/popover/frame-bounds.ts`, read live at every placement).
+  (`overlays/popover/frame-bounds.ts`, read live at every placement). A
+  choice the narrowing as it stands cannot take names the fields to choose
+  first — `Choose Kiln group first.`: those an index taking it needs exact
+  choices of, the fewest (east-ui's `recordChoiceNeeds`) — and a String
+  field's search offers `All starting with …` only where an index takes a
+  prefix of the field, never where none does whatever is chosen first (an
+  interval index takes exact values alone on its leading fields). Its box
+  stands at its own height in the editor's column (`sliceEdit`'s
+  `choiceList`), never the toolbar row's basis taken as a height.
 - **A tab row too narrow folds** (`DockPane`, #1210): the counts leave the
   row first, kept in each tab's name; then the trailing tabs fold into a
   `+n` menu after the last that fits, the open tab always on the row, so no
