@@ -51,9 +51,9 @@ import {
     DateTimeType, East, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, parseFor, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
-import { editingMessages } from "@elaraai/east-ui-components";
+import { editingMessages, formatters } from "@elaraai/east-ui-components";
 import { PAGED_LIBRARY_PAGE, getStore } from "@elaraai/east-ui-components/internal";
-import { layOut } from "@elaraai/east-ui-components/testing";
+import { announced, layOut } from "@elaraai/east-ui-components/testing";
 import { Calendar, Data, Record } from "@elaraai/e3-ui";
 import * as cw from "@elaraai/e3-ui/examples/calendar/calendar-windows";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
@@ -833,6 +833,8 @@ describe("a job made on a paged press from a template (#1424)", () => {
         expect(document.querySelector("[data-drag-caption]")?.textContent).toBe("Brochure run · 2026-10-08 06:00 UTC");
         await act(async () => { fireEvent.pointerUp(document, { ...pointer, buttons: 0, clientX: x, clientY: 120 }); });
         await settle();
+        // Said to a screen reader as the timeline shows the press and the time, in the drag layer's words, never by their keys.
+        expect(announced()).toBe(`Brochure run was dropped on Press 1004 · ${formatters().dateTime(new Date(Date.UTC(2026, 9, 8, 6, 0)))}.`);
         // The form's Chooser: `P-146` typed, a key at a time, and the first press it finds picked — Press 1460, whose window
         // the frame does not hold, so the Chooser names it by its own row, read by its key (retest C6), never its bare key.
         const form = await openCreate(c);
