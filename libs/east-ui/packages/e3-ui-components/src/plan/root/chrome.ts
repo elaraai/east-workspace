@@ -111,7 +111,7 @@ export interface PlanChrome {
     resolutions: readonly string[];
     /** The active grain, when the canvas has a root group for it to fold: the GROUP · RESOURCE segment (#632). */
     grain: PlanGrain | undefined;
-    /** A paged source's transport state; `undefined` on an inline canvas. */
+    /** What the canvas says of its reads — a paged source's, or its event kinds' rows' (#1398); `undefined` on a canvas that reads neither. */
     transport: PlanTransport | undefined;
     /**
      * Cold load (#1398, CL5): a paged source with nothing landed yet, and no

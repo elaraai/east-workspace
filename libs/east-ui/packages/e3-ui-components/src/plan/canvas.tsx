@@ -117,7 +117,7 @@ import { LinksOverlay } from "./shell/LinksOverlay.js";
 import { linkedElement, ribbonBody, type LinkedElement, type RibbonBeyond } from "./shell/ribbon-layout.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
 import type { PlanTransport } from "./shell/transport.js";
-import type { PagedLoading } from "../shared/loading.js";
+import { retryPeriod, type PagedLoading } from "../shared/loading.js";
 import {
     createPlanController, declaredCollapsedOf, declaredGrainOf, denseOf, elementRowsOf,
     type PlanReconcileModel, type PlanSnapshot,
@@ -615,20 +615,42 @@ export function usePlanCanvas({
         awaitInView(false, false);
     }, [narrow, awaitInView]);
     const awaits = !narrow && (viewAwaits.run || viewAwaits.cells);
+    // What the rail counts each source in (#1344): an event kind's events, `print job events`.
+    const nouns = useMemo(() => planNouns(kinds, resources, tabs, words.locale), [kinds, resources, tabs, words.locale]);
+    // A failed read of the event kinds' rows (#1398, CL3) is said on the same line, after the rows' own failures, paged
+    // or not: in the noun the rail counts each kind in whose own events it could not read — else, none of theirs failing,
+    // the rows' — with Retry, which asks those kinds' records again at once (`retryPeriod`: a record read a window at a
+    // time refreshed, which rearms what failed, else the kind's source of the slice asked again) — every kind's, where
+    // none of theirs failed. Said there alone, never in the toolbar's chip too: a read's failure is said once.
+    const eventsFailure = lead.error;
+    const eventsNoun = useMemo(
+        () => (eventsFailure === undefined ? undefined : words.m.eventsFailedNoun({ kinds: eventsFailure.kinds.map((slot) => nouns[slot] ?? slot) })),
+        [eventsFailure, nouns, words]);
+    const retryEvents = useCallback(() => {
+        const failed = eventsFailure?.kinds ?? [];
+        const asked = failed.length === 0 ? kinds : kinds.filter((kind) => failed.some((slot) => stringEqual(slot, kind.key)));
+        retryPeriod(asked.map((kind) => ({ entries: kind.entries, part: eventParts.find((p) => stringEqual(p.kind.key, kind.key))?.part })));
+    }, [eventsFailure, kinds, eventParts]);
     const transport = useMemo<PlanTransport | undefined>(() => {
-        if (!paged) return undefined;
+        // A canvas that reads neither a paged source nor event kinds has nothing to say on the line.
+        if (!paged && events === undefined) return undefined;
         const failed = failures[0];
+        const rowsFailed = failed !== undefined || pagingError !== undefined;
         const loading: PagedLoading | undefined = failed !== undefined ? { kind: "failed", from: failed.from, to: failed.to, reason: failed.error }
             : pagingError !== undefined ? { kind: "failed", from: undefined, to: undefined, reason: pagingError }
-                : paging.replacing ? { kind: "filtering" }
-                    : waits ? { kind: "loading", from: paging.reading?.from, to: paging.reading?.to }
-                        : cellsReading || awaits ? { kind: "loading", from: undefined, to: undefined }
-                            : undefined;
+                : eventsFailure !== undefined ? { kind: "failed", from: undefined, to: undefined, reason: eventsFailure.reason }
+                    : paging.replacing ? { kind: "filtering" }
+                        : waits ? { kind: "loading", from: paging.reading?.from, to: paging.reading?.to }
+                            : cellsReading || awaits ? { kind: "loading", from: undefined, to: undefined }
+                                : undefined;
+        // The event kinds' read that failed, in its own noun, its Retry its own.
+        const eventsFailed = !rowsFailed && eventsFailure !== undefined;
         // The events' noun while their cells are what the view waits for; the rows' while a run is.
         const cellsWaited = cellsReading || (!viewAwaits.run && viewAwaits.cells);
-        const noun = loading?.kind === "loading" && !waits && cellsWaited ? cellsNoun : undefined;
-        return { partial: !paging.complete, loading, retry: retryFailed, ...(noun === undefined ? {} : { noun }) };
-    }, [paged, failures, pagingError, paging.replacing, waits, paging.reading, paging.complete, retryFailed, cellsReading, awaits, viewAwaits, cellsNoun]);
+        const noun = eventsFailed ? eventsNoun : loading?.kind === "loading" && !waits && cellsWaited ? cellsNoun : undefined;
+        return { partial: paged && !paging.complete, loading, retry: eventsFailed ? retryEvents : retryFailed, ...(noun === undefined ? {} : { noun }) };
+    }, [paged, events, failures, pagingError, eventsFailure, eventsNoun, retryEvents, paging.replacing, waits, paging.reading, paging.complete, retryFailed,
+        cellsReading, awaits, viewAwaits, cellsNoun]);
     const partial = transport?.partial;
     // Cold load (#1398, CL5): nothing of a paged source landed yet, and no failure to say — the frame's skeleton
     // covers the Plan. After it, a read the view waits for — a window, a resource kind's narrowing — leaves it live
@@ -1011,11 +1033,12 @@ export function usePlanCanvas({
         const fixed = rows.filter((row) => paging.blocks[row.block]?.fixed === true && row.kind.type === "chart").length;
         return paging.total * each + fixed;
     }, [paged, paging.replacing, paging.total, paging.blocks, rows]);
-    // What the toolbar reports (#811) — everything the canvas carried on past,
-    // the event kinds' rows that could not be read among it (#1192). The
-    // narrow list has no scroll target, so there the rows chip states the
-    // count without offering to seek.
-    const sourceError = paging.sourceError ?? lead.error;
+    // What the toolbar reports (#811) — everything the canvas carried on past.
+    // The event kinds' rows that could not be read are said on the footer's
+    // line, with Retry, and only there (#1398): a read's failure is said once,
+    // never as a "… unavailable" status. The narrow list has no scroll target,
+    // so there the rows chip states the count without offering to seek.
+    const sourceError = paging.sourceError;
     const diagnostics = useMemo<PlanDiagnostics>(() => ({
         skipped: derived.diagnostics.size,
         onSeekSkipped: target.firstSkipped !== undefined && !narrow ? controller.seekSkipped : undefined,
@@ -1539,8 +1562,6 @@ export function usePlanCanvas({
             </>
         );
     };
-    // What the rail counts each source in (#1344).
-    const nouns = useMemo(() => planNouns(kinds, resources, tabs, words.locale), [kinds, resources, tabs, words.locale]);
     // What the loading line and a failed run name the rows by: what the rail counts them in (#1398) — a paged resource
     // kind's source's where the canvas pages one (its rows are that source's), else the `rows` source's.
     const rowsSource = slices?.slice.parts.find((part) => stringEqual(part.source, pagedSlot ?? ROWS_SOURCE));

@@ -18,7 +18,10 @@
  * On a PAGED canvas the footer also carries the shared loading line at its
  * trailing end (#1398, CL3): which of the source's elements are read, in what
  * the rail counts the rows in — `Loading rows 1,001–1,200`, `Filtering rows…`,
- * `Couldn't read rows 1,001–1,200 · Retry` — never how many have landed. The
+ * `Couldn't read rows 1,001–1,200 · Retry` — never how many have landed. Paged
+ * or not, a failed read of the event kinds' rows is said there too, in the
+ * noun the rail counts the kinds whose own events it could not read in —
+ * `Couldn't read print job events · Retry` — and nowhere else. The
  * rail never wraps and never cuts a word: the counts and the author's items
  * stay whole, ending at a whole item, then "…", only where they cannot fit,
  * and the line shows its full text, its short form or its dot alone.
@@ -65,7 +68,7 @@ export interface PlanFooterProps {
     styles: Styles;
     /** The author's footer items, in order. */
     items: ReadonlyArray<FooterItemValue>;
-    /** Paged transport state — omitted on an inline canvas. */
+    /** What the canvas says of its reads — a paged source's, or its event kinds' rows' — omitted on a canvas that reads neither. */
     transport?: PlanTransport | undefined;
     /** What the rail counts the rows in — `rows`, `print jobs` — what the loading line names them by (#1398). */
     noun: string;
@@ -144,7 +147,7 @@ export function PlanFooter({ styles, items, transport, noun, counts, unread, pen
             {legend && <OptimiseLegendItem css={styles.footerItem} cut={footerCut(own.length + items.length, fit)} />}
             <FooterMore shown={fit.kept < units} />
             {notices?.map((notice) => <RecordSliceSaveNotice key={notice.key} slice={notice.slice} singular={notice.singular} plural={notice.plural} />)}
-            {/* The line's slot: a paged canvas's reads, and — with an optimiser — its runs, the slot kept while they are not out. */}
+            {/* The line's slot: a paged canvas's reads and the event kinds' rows', and — with event kinds — a run of the optimiser, the slot kept while they are not out. */}
             {(transport !== undefined || optimise !== undefined) && <LoadingLine value={runLine ?? line} shown={shown || runLine !== undefined} form={fit.form} />}
         </Box>
     );

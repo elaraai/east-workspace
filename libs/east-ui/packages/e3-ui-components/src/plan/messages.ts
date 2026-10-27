@@ -174,6 +174,12 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     footerSaved: (p: { when: string }) => string;
     /** What a source's Save notice counts (#1344) — the `rows` source's `row`, `rows`; an event kind's `print job event`: `kind` its name as running text writes it. */
     saveNoticeNoun: (p: { kind: string | undefined; n: number }) => string;
+    /**
+     * What the footer's loading line names a failed read of the event kinds' rows by (#1398, CL3): the kinds whose own
+     * events it could not read, as the rail counts them — `print job events`, `print job events and stop events`
+     * (`kinds` each kind's noun) — else, none of theirs failing, the rows.
+     */
+    eventsFailedNoun: (p: { kinds: readonly string[] }) => string;
 
     // ── The narrowing (#1344) ──────────────────────────────────────────────
     /** A source of the slice whose narrowing could not be read: its banner's title — `Customers results unavailable`; `name` its label, or the noun the rail counts it in. */
@@ -576,6 +582,7 @@ export const planMessages: PlanMessages = {
     footerPending: ({ count }) => `${count} pending`,
     footerSaved: ({ when }) => `saved ${when}`,
     saveNoticeNoun: ({ kind, n }) => (kind === undefined ? plural(n, "row", "rows") : `${kind} ${plural(n, "event", "events")}`),
+    eventsFailedNoun: ({ kinds }) => (kinds.length === 0 ? "rows" : joined(kinds, "and")),
 
     narrowingUnavailable: ({ name }) => `${name.charAt(0).toUpperCase()}${name.slice(1)} results unavailable`,
     narrowingChanged: ({ name }) => `${name.charAt(0).toUpperCase()}${name.slice(1)} results changed; retry the narrowing.`,

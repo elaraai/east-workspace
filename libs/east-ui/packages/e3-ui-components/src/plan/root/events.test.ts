@@ -198,14 +198,18 @@ describe("the event kinds' rows over the range the canvas draws (#1192)", () => 
         answer = () => none;
         rerender({ events: seam() });
         expect(result.current.blocks).toBe(first);
-        // Failed: they stand still, and the canvas says why.
+        // Failed: they stand still, and the canvas says why — no kind given here, so none named whose own events failed.
         const errors = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
             answer = () => { throw new Error("a press with no load"); };
             rerender({ events: seam() });
             expect(result.current.blocks).toBe(first);
             expect(result.current.version).toBe(1);
-            expect(result.current.error).toBe("a press with no load");
+            const failure = result.current.error;
+            expect(failure).toEqual({ reason: "a press with no load", kinds: [] });
+            // Failing the same way again, it is the same failure: nothing new for the canvas to draw.
+            rerender({ events: seam() });
+            expect(result.current.error).toBe(failure);
         } finally {
             errors.mockRestore();
         }

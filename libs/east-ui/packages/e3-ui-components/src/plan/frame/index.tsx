@@ -37,8 +37,9 @@
  * - **the footer** — the event kinds' counts (the events in the window, the
  *   backlog, and when a kind's record was last saved; "…" until their first
  *   read lands, never 0), the changes waiting on Save, the author's items, and
- *   a paged canvas's shared loading line, which says what of its source the
- *   view waits for (#1398) — live under the cold-load skeleton, which covers
+ *   the shared loading line, which says what of a paged source the view waits
+ *   for, and a read of the event kinds' rows that failed, in the kinds' words,
+ *   with Retry (#1398) — live under the cold-load skeleton, which covers
  *   the rest of the frame at the rows' pitch until the source's first window
  *   lands; after it a read in flight covers nothing, and main is busy. The
  *   line and the runs' placeholders show on the Plan's one reveal clock
