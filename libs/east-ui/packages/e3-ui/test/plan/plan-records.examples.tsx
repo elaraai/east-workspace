@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
+import { DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
 import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -12,15 +12,15 @@ import {
     indexedWorkJob, indexedWorkOrders, indexedWorkReference,
 } from "../sheet/sheet-records.examples.js";
 
-/** A job dropped on a press: a decision at the bucket it landed in. */
-export const PlanPressJob = StructType({ key: StringType, at: Plan.Types.Instant });
-/** A press: its name, the crew that runs it (none yet), and the jobs dropped on it. */
-export const PlanPress = StructType({ label: StringType, crew: OptionType(StringType), jobs: ArrayType(PlanPressJob) });
+/** A job dropped on a press, under its id: a mark at the bucket it landed in. */
+export const PlanPressJob = StructType({ at: Plan.Types.Instant });
+/** A press: its name, the crew that runs it (none yet), and the jobs dropped on it, by their ids (#1436). */
+export const PlanPress = StructType({ label: StringType, crew: OptionType(StringType), jobs: DictType(StringType, PlanPressJob) });
 /** Three presses a Plan canvas takes dropped jobs on, a row each, read a window at a time: Press 2 has no crew yet. */
 export const planPresses = e3.record("plan_presses", DictType(StringType, PlanPress), new Map([
-    ["p1", { label: "Press 1", crew: some("Crew A"), jobs: [] }],
-    ["p2", { label: "Press 2", crew: none, jobs: [] }],
-    ["p3", { label: "Press 3", crew: some("Crew C"), jobs: [] }],
+    ["p1", { label: "Press 1", crew: some("Crew A"), jobs: new Map() }],
+    ["p2", { label: "Press 2", crew: none, jobs: new Map() }],
+    ["p3", { label: "Press 3", crew: some("Crew C"), jobs: new Map() }],
 ]));
 /** The presses' patch door: a canvas's Save commits through it. */
 export const planPressesPatch = e3.mutation.patch(planPresses);

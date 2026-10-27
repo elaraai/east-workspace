@@ -382,8 +382,8 @@ describe("links between events (PB10)", () => {
 });
 
 describe("rows over a dataset (PB9)", () => {
-    const StockRow = StructType({ name: StringType, marks: ArrayType(Plan.Types.EventMark) });
-    const STOCK = new Map([["board", { name: "Board", marks: [] }]]);
+    const StockRow = StructType({ name: StringType, marks: DictType(StringType, StructType({ at: DateTimeType })) });
+    const STOCK = new Map([["board", { name: "Board", marks: new Map() }]]);
     const table = () => Plan.series.table(StockRow, { key: "stock", title: "Paper stock", label: (s) => s.name });
 
     test("a `data` that is no keyed collection, and no series", () => {
@@ -396,8 +396,9 @@ describe("rows over a dataset (PB9)", () => {
     test("a series that writes — an `edit` — is refused, naming Schedule.events", () => {
         const data = ($: BlockBuilder<NullType>) => $.const(STOCK, DictType(StringType, StockRow));
         assert.match(refusal(($) => Plan.over(data($), [table(), Plan.series.events(StockRow, {
-            key: "marks", title: "Marks", label: (s) => s.name, marks: (s) => s.marks,
-            edit: { items: "marks", create: (drop) => ({ key: drop.from.key, at: drop.at, kind: variant("milestone", null), icon: none, label: none }) },
+            key: "marks", title: "Marks", label: (s) => s.name,
+            marks: Plan.items("marks", { at: "at" }, () => ({ kind: "milestone" })),
+            edit: { create: (drop) => ({ at: drop.at.unwrap("time") }) },
         })])), /^Plan\.over: series\[1\], events "Marks", declares `edit` — a Plan's rows over a dataset are read only, and its edits go through its event kinds \(Schedule\.events\)$/);
     });
 

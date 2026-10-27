@@ -220,7 +220,8 @@ describe("Schedule.resources — Plan's options refused at build (PB7)", () => {
         ] })), /measures\[0\] is a span "Runs" series — a measure is a heat, table or chart series over the resources' rows/);
         assert.throws(() => resourcesOver(PRESSES, Presses, () => ({ measures: [
             Plan.series.heat(PressType, { key: "util", title: "Utilisation", label: () => "Utilisation",
-                cells: () => Plan.heatCells([], { min: 0, max: 100, warnAt: 95 }), children: () => East.value(new SortedMap<string, Press>([], compareFor(StringType)), Presses) }),
+                // A resource's own rows have no Dict of themselves to name, so the tree is given the way a host's own code could.
+                cells: () => Plan.heatCells([], { min: 0, max: 100, warnAt: 95 }), children: (() => East.value(new SortedMap<string, Press>([], compareFor(StringType)), Presses)) as never }),
         ] })), /measures\[0\], heat "Utilisation", declares `children` — a measure is one row under each resource/);
         assert.throws(() => resourcesOver(PRESSES, Presses, ($) => ({ measures: [$.let(heat("util"))] })),
             /measures\[0\] is a Plan\.series\.heat, table or chart written in place — a series bound or stored elsewhere cannot be laid out under each resource/);

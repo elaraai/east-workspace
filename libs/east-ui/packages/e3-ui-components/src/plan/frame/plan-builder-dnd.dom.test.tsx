@@ -206,9 +206,9 @@ const vetoed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Ea
     });
 }))) };
 
-/** A bindery line: its name and its runs. */
-const BinderyRun = StructType({ key: StringType, label: StringType, start: DateTimeType, end: DateTimeType });
-const BinderyLine = StructType({ label: StringType, runs: ArrayType(BinderyRun) });
+/** A bindery line: its name and its runs, by id. */
+const BinderyRun = StructType({ label: StringType, start: DateTimeType, end: DateTimeType });
+const BinderyLine = StructType({ label: StringType, runs: DictType(StringType, BinderyRun) });
 /** Line 1's row, under the jobs on the presses. */
 const LINE_1 = entry("bindery", "l1");
 
@@ -220,15 +220,15 @@ const beside = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Ea
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
     const lines = $.const(new Map([["l1", {
-        label: "Line 1", runs: [{ key: "w1", label: "Folding", start: new Date("2026-10-06T06:00:00Z"), end: new Date("2026-10-06T12:00:00Z") }],
+        label: "Line 1", runs: new Map([["w1", { label: "Folding", start: new Date("2026-10-06T06:00:00Z"), end: new Date("2026-10-06T12:00:00Z") }]]),
     }]]), DictType(StringType, BinderyLine));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }),
         data: lines,
         series: [Plan.series.span(BinderyLine, {
             key: "bindery", title: "Bindery", label: (l) => l.label,
-            runs: (l) => l.runs.map((_$2, r) => Plan.run({ key: r.key, start: r.start, end: r.end, label: r.label, state: "confirmed" })),
-            edit: { items: "runs", key: "key", start: "start", end: "end" },
+            runs: Plan.items("runs", { from: "start", to: "end" }, (r) => ({ label: r.label, state: "confirmed" })),
+            edit: true,
         })],
         resources: {
             presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.hall }),

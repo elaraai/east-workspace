@@ -84,7 +84,7 @@ import { planGutter, planRow } from "./assemble.js";
 import { bucketsKind, cardsKind, eventsKind, spanKind } from "./factories.js";
 import { planHideId } from "./library.js";
 import {
-    applySeries, createChildren, createSeriesBuckets, createSeriesCards, createSeriesEvents, createSeriesGroup,
+    applySeries, createChildrenOf, createSeriesBuckets, createSeriesCards, createSeriesEvents, createSeriesGroup,
     createSeriesSpan, createSeriesViews, planSeriesFacts, type PlanSeriesValue,
 } from "./series.js";
 
@@ -623,7 +623,7 @@ function resourceBlocks(
             key: `${slot}.group`,
             title: kind.name,
             label: (_group: ExprType<EastType>, name: ExprType<StringType>) => name,
-            children: createChildren((group: ExprType<EastType>) => group, [views]),
+            children: createChildrenOf((group: ExprType<EastType>) => group, [views]),
             ...(heat ? { summaryAggregate: "mean" } : {}),
         } as never) as PlanSeriesValue;
         blocks = applySeries([strips], groups as unknown as ExprType<EastType>);

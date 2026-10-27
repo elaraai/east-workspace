@@ -22,6 +22,7 @@ import {
     type SubtypeExprOrValue,
     East,
     Expr,
+    isVariant,
     ArrayType,
     BooleanType,
     DateTimeType,
@@ -104,6 +105,8 @@ import {
     PlanBucketEventType,
     PlanChipType,
     PlanEventMarkType,
+    PlanChartPointType,
+    PlanChartBandPointType,
     PlanLaneType,
     PlanRowIdType,
     PlanFoldType,
@@ -113,6 +116,15 @@ import {
     PlanUiStateType,
 } from "./types.js";
 import { eventRefKind } from "./refs.js";
+import {
+    planReadOf,
+    planUse,
+    planUseOf,
+    refuseReadOutsideSeries,
+    type PlanValuesInput,
+    type PlanValuesReadSpec,
+    type PlanValuesUse,
+} from "./reads.js";
 
 // ============================================================================
 // Shorthand resolvers
@@ -460,6 +472,404 @@ export function createQuantity(
 }
 
 // ============================================================================
+// Looks — what a named read's `draw` gives (#1436)
+// ============================================================================
+
+/**
+ * A look field its element holds as an `Option` (#1436): the value, or the
+ * `Option` itself (`label: some(stop)`), so a field an item already holds as
+ * an `Option` passes as it is.
+ *
+ * @typeParam T - The field's East type
+ * @typeParam S - The shorthands it takes besides (a status literal, a number)
+ */
+export type PlanLookOption<T extends EastType, S = never> = SubtypeExprOrValue<T> | SubtypeExprOrValue<OptionType<T>> | S;
+
+/**
+ * What `draw` gives for a run — `Plan.items(field, { from, to }, draw)` on a
+ * span series' `runs`: everything {@link Plan.run} takes but its key and its
+ * instants, which are the item's id and its times.
+ *
+ * @property label - The bar text
+ * @property state - The lifecycle state
+ * @property quantity - The quantity the bar prints and a parent's band sums
+ * @property status - The status tint
+ * @property moved - The same-status churn counter
+ * @property icon - The leading glyph
+ */
+export interface PlanRunLook {
+    /** The bar text (`"RUN · J-4642"`). */
+    label: SubtypeExprOrValue<StringType>;
+    /** The lifecycle state — a string shorthand or an `EventStateType` value. */
+    state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
+    /** The quantity — `Plan.quantity(96, { unit: "k sheets" })`, or an `Option` of one. */
+    quantity?: PlanLookOption<PlanQuantityType>;
+    /** The status tint — `"warning"` draws the over-dwell ring. */
+    status?: PlanLookOption<StatusValueType, StatusValueLiteral>;
+    /** The same-status churn counter. */
+    moved?: PlanLookOption<IntegerType, number>;
+    /** The leading glyph. */
+    icon?: PlanIconInput | SubtypeExprOrValue<OptionType<IconType>>;
+}
+
+/**
+ * What `draw` gives for a decision diamond — `Plan.items(field, { at }, draw)`
+ * on a span series' `decisions`.
+ *
+ * @property applied - `true` fills the diamond
+ */
+export interface PlanDecisionLook {
+    /** `true` fills the diamond (◆ applied). */
+    applied: SubtypeExprOrValue<BooleanType> | boolean;
+}
+
+/**
+ * What `draw` gives for a port — `Plan.values(field, draw)` on a span series'
+ * `ports`: a port has no id, so its instant is its key.
+ *
+ * @property label - The caption
+ */
+export interface PlanPortLook {
+    /** The caption (`"−24 k sheets"`). */
+    label?: PlanLookOption<StringType>;
+}
+
+/**
+ * What `draw` gives for a bucket-row tile — `Plan.items(field, { at }, draw)`
+ * on a bucket series' `events`: everything {@link Plan.event} takes but its
+ * key and its instant.
+ *
+ * @property state - The lifecycle state
+ * @property lane - The lane key
+ * @property label - The tile text
+ * @property icon - The leading glyph
+ * @property tone - The semantic tint
+ * @property color - A raw colour token
+ * @property colorPalette - A brand palette
+ * @property stretch - The fill axis
+ * @property content - The content alignment
+ * @property animation - The attention animation
+ */
+export interface PlanBucketEventLook {
+    /** The lifecycle state. */
+    state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
+    /** The lane key. */
+    lane?: PlanLookOption<StringType>;
+    /** The tile text; omitted ⇒ ✓ or the dashed `plan` chip. */
+    label?: PlanLookOption<StringType>;
+    /** The leading glyph. */
+    icon?: PlanIconInput | SubtypeExprOrValue<OptionType<IconType>>;
+    /** The semantic tint. */
+    tone?: PlanLookOption<StatusValueType, StatusValueLiteral>;
+    /** A raw colour token (`"teal.solid"`). */
+    color?: PlanLookOption<StringType>;
+    /** A brand palette (`"teal"`). */
+    colorPalette?: PlanLookOption<ColorSchemeType, ColorSchemeLiteral>;
+    /** The fill axis. */
+    stretch?: PlanLookOption<PlanStretchType, PlanStretchLiteral>;
+    /** The two-axis content alignment, or an `Option` of one. */
+    content?: PlanBucketEventInput["content"] | SubtypeExprOrValue<OptionType<PlanContentType>>;
+    /** The attention animation. */
+    animation?: PlanLookOption<PlanAnimationType, PlanAnimationLiteral>;
+}
+
+/**
+ * What `draw` gives for a cell marker — `Plan.values(field, draw)` on a bucket
+ * series' `markers`: a marker has no id, so its instant is its key.
+ *
+ * @property message - The hover text
+ * @property lane - The lane key within the cell
+ * @property status - The semantic status (default `"danger"`)
+ */
+export interface PlanCellMarkerLook {
+    /** The hover-tooltip text. */
+    message: SubtypeExprOrValue<StringType>;
+    /** The lane key within the cell. */
+    lane?: PlanLookOption<StringType>;
+    /** The semantic status (default `"danger"`). */
+    status?: SubtypeExprOrValue<StatusValueType> | StatusValueLiteral;
+}
+
+/**
+ * What `draw` gives for a cards-row chip — `Plan.items(field, { from, to },
+ * draw)` on a cards series' `chips`.
+ *
+ * @property label - The chip text
+ * @property state - The lifecycle state
+ * @property icon - The leading glyph
+ */
+export interface PlanChipLook {
+    /** The chip text (`"80h"`). */
+    label: SubtypeExprOrValue<StringType>;
+    /** The lifecycle state. */
+    state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
+    /** The leading glyph. */
+    icon?: PlanIconInput | SubtypeExprOrValue<OptionType<IconType>>;
+}
+
+/**
+ * What `draw` gives for an event-row mark — `Plan.items(field, { at }, draw)`
+ * on an events series' `marks`.
+ *
+ * @property kind - `"milestone"` / `"exception"` / `Plan.markKind.decision(applied)`
+ * @property icon - A glyph swap
+ * @property label - The caption
+ */
+export interface PlanEventMarkLook {
+    /** The mark kind. */
+    kind: SubtypeExprOrValue<PlanEventMarkKindType> | "milestone" | "exception";
+    /** A glyph swap (still kind-coloured). */
+    icon?: PlanIconInput | SubtypeExprOrValue<OptionType<IconType>>;
+    /** The caption. */
+    label?: PlanLookOption<StringType>;
+}
+
+/**
+ * What `draw` gives for a heat cell — `Plan.heatCells(Plan.values(field,
+ * draw))`.
+ *
+ * @property value - The value — `some(v)`, `none` for the no-data hatch, or a plain value
+ * @property label - The cell's caption
+ */
+export interface PlanHeatCellLook {
+    /** The value: `some(v)`, `none` for the no-data hatch, or a plain value. */
+    value: PlanLookOption<FloatType, number>;
+    /** The cell's caption. */
+    label?: PlanLookOption<StringType>;
+}
+
+/**
+ * What `draw` gives for a weight cell — `Plan.weightCells(Plan.values(field,
+ * draw))`.
+ *
+ * @property fraction - The fraction of the bucket booked
+ * @property planned - Whether it is planned (pale)
+ */
+export interface PlanWeightCellLook {
+    /** The fraction of the bucket booked. */
+    fraction: SubtypeExprOrValue<FloatType> | number;
+    /** Whether it is planned (drawn pale). */
+    planned: SubtypeExprOrValue<BooleanType> | boolean;
+}
+
+/**
+ * What `draw` gives for a segment cell — `Plan.segmentCells(Plan.values(field,
+ * draw))`.
+ *
+ * @property segments - The cell's segments (`Plan.segment` values)
+ */
+export interface PlanSegmentCellLook {
+    /** The cell's segments (`Plan.segment` values). */
+    segments: SubtypeExprOrValue<ArrayType<typeof PlanSegmentType>>;
+}
+
+/**
+ * What `draw` gives for a table cell — `Plan.tableCells(Plan.values(field,
+ * draw))`.
+ *
+ * @property value - The value — `some(v)`, `none` for the muted em-dash, or a plain value
+ * @property text - Text printed in place of the value
+ * @property tone - The cell's tone
+ */
+export interface PlanTableCellLook {
+    /** The value: `some(v)`, `none` for the muted em-dash, or a plain value. */
+    value: PlanLookOption<FloatType, number>;
+    /** Text printed in place of the value. */
+    text?: PlanLookOption<StringType>;
+    /** The cell's tone (`"muted"`, `"neg"`). */
+    tone?: PlanLookOption<PlanTableToneType, PlanTableToneLiteral>;
+}
+
+/**
+ * What `draw` gives for a chart point — `Plan.line`, `Plan.area`,
+ * `Plan.column` or `Plan.scatter` over `Plan.values(field, draw)`.
+ *
+ * @property y - The point's value
+ */
+export interface PlanChartPointLook {
+    /** The point's value. */
+    y: SubtypeExprOrValue<FloatType> | number;
+}
+
+/**
+ * What `draw` gives for a band point — `Plan.band(Plan.values(field, draw))`.
+ *
+ * @property lo - The band's low edge
+ * @property hi - The band's high edge
+ */
+export interface PlanChartBandLook {
+    /** The band's low edge. */
+    lo: SubtypeExprOrValue<FloatType> | number;
+    /** The band's high edge. */
+    hi: SubtypeExprOrValue<FloatType> | number;
+}
+
+/** Whether a look field is already an `Option`: a `some(…)` or `none` value, or an expression of an `Option` type. */
+function isOptionLike(v: unknown): boolean {
+    if (isVariant(v)) return v.type === "some" || v.type === "none";
+    if (v instanceof Expr) {
+        const t = Expr.type(v as Expr) as { type: string; cases?: Record<string, unknown> };
+        if (t.type !== "Variant" || t.cases === undefined) return false;
+        const names = Object.keys(t.cases);
+        return names.length === 2 && names.includes("none") && names.includes("some");
+    }
+    return false;
+}
+
+/**
+ * A look field its element holds as an `Option` (#1436): absent, `none`; an
+ * `Option` as it is; anything else its value, resolved and wrapped.
+ *
+ * @param v - The field as `draw` (or a builder's input) gives it
+ * @param type - The field's East type
+ * @param resolve - Resolves a shorthand into a value of `type`
+ * @returns The field as an `Option` expression
+ */
+function lookOption<T extends EastType>(v: unknown, type: T, resolve?: (v: never) => unknown): ExprType<OptionType<T>> {
+    if (v === undefined) return East.value(none, OptionType(type)) as ExprType<OptionType<T>>;
+    if (isOptionLike(v)) return East.value(v as SubtypeExprOrValue<OptionType<T>>, OptionType(type)) as ExprType<OptionType<T>>;
+    const value = (resolve !== undefined ? resolve(v as never) : v) as SubtypeExprOrValue<T>;
+    return East.value(some(value), OptionType(type)) as ExprType<OptionType<T>>;
+}
+
+/** A shorthand number as an East integer. */
+const asInteger = (m: SubtypeExprOrValue<IntegerType> | number) => typeof m === "number" ? BigInt(m) : m;
+
+/** A run's look, resolved into its fields (#1436) — shared by {@link Plan.run} and a read's `draw`. @internal */
+export function runLookFields(look: PlanRunLook, where = "Plan.run icon") {
+    return {
+        label:    look.label,
+        quantity: lookOption(look.quantity, PlanQuantityType),
+        state:    resolvePlanEventState(look.state),
+        status:   lookOption(look.status, StatusValueType, (s: StatusValueLiteral) => resolveTag(s, StatusValueType)),
+        moved:    lookOption(look.moved, IntegerType, asInteger),
+        icon:     lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
+    };
+}
+
+/** A decision's look, resolved (#1436). @internal */
+export function decisionLookFields(look: PlanDecisionLook) {
+    return { applied: look.applied };
+}
+
+/** A port's look, resolved (#1436). @internal */
+export function portLookFields(look: PlanPortLook) {
+    return { label: lookOption(look.label, StringType) };
+}
+
+/** A tile's content alignment, resolved. */
+function contentOf(content: PlanBucketEventInput["content"]): SubtypeExprOrValue<PlanContentType> {
+    return East.value({
+        horizontal: content!.horizontal !== undefined ? some(resolveTag(content!.horizontal, PlanContentAlignType)) : none,
+        vertical:   content!.vertical !== undefined ? some(resolveTag(content!.vertical, PlanContentAlignType)) : none,
+    }, PlanContentType);
+}
+
+/** A tile's look, resolved (#1436). @internal */
+export function bucketEventLookFields(look: PlanBucketEventLook, where = "Plan.event icon") {
+    return {
+        lane:         lookOption(look.lane, StringType),
+        label:        lookOption(look.label, StringType),
+        icon:         lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
+        state:        resolvePlanEventState(look.state),
+        tone:         lookOption(look.tone, StatusValueType, (t: StatusValueLiteral) => resolveTag(t, StatusValueType)),
+        color:        lookOption(look.color, StringType),
+        colorPalette: lookOption(look.colorPalette, ColorSchemeType, (c: ColorSchemeLiteral) => resolveTag(c, ColorSchemeType)),
+        stretch:      lookOption(look.stretch, PlanStretchType, (s: PlanStretchLiteral) => resolveTag(s, PlanStretchType)),
+        content:      lookOption(look.content, PlanContentType, contentOf),
+        animation:    lookOption(look.animation, PlanAnimationType, (a: PlanAnimationLiteral) => resolveTag(a, PlanAnimationType)),
+    };
+}
+
+/** A marker's look, resolved (#1436). @internal */
+export function cellMarkerLookFields(look: PlanCellMarkerLook) {
+    return {
+        lane:    lookOption(look.lane, StringType),
+        status:  resolveTag(look.status ?? "danger", StatusValueType),
+        message: look.message,
+    };
+}
+
+/** A chip's look, resolved (#1436). @internal */
+export function chipLookFields(look: PlanChipLook, where = "Plan.chip icon") {
+    return {
+        label: look.label,
+        state: resolvePlanEventState(look.state),
+        icon:  lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
+    };
+}
+
+/** A mark's look, resolved (#1436). @internal */
+export function eventMarkLookFields(look: PlanEventMarkLook, where = "Plan.mark icon") {
+    return {
+        kind:  typeof look.kind === "string" ? East.value(variant(look.kind, null), PlanEventMarkKindType) : look.kind,
+        icon:  lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
+        label: lookOption(look.label, StringType),
+    };
+}
+
+/** A heat cell's look, resolved (#1436). @internal */
+export function heatCellLookFields(look: PlanHeatCellLook) {
+    return { value: lookOption(look.value, FloatType), label: lookOption(look.label, StringType) };
+}
+
+/** A weight cell's look, resolved (#1436). @internal */
+export function weightCellLookFields(look: PlanWeightCellLook) {
+    return { fraction: look.fraction, planned: look.planned };
+}
+
+/** A segment cell's look, resolved (#1436). @internal */
+export function segmentCellLookFields(look: PlanSegmentCellLook) {
+    return { segments: look.segments };
+}
+
+/** A table cell's look, resolved (#1436). @internal */
+export function tableCellLookFields(look: PlanTableCellLook) {
+    return {
+        value: lookOption(look.value, FloatType),
+        text:  lookOption(look.text, StringType),
+        tone:  lookOption(look.tone, PlanTableToneType, (t: PlanTableToneLiteral) => resolveTag(t, PlanTableToneType)),
+    };
+}
+
+/** A chart point's look, resolved (#1436). @internal */
+export function chartPointLookFields(look: PlanChartPointLook) {
+    return { y: look.y };
+}
+
+/** A band point's look, resolved (#1436). @internal */
+export function chartBandLookFields(look: PlanChartBandLook) {
+    return { lo: look.lo, hi: look.hi };
+}
+
+/**
+ * What a named read completes (#1436): an element of a series' row or a cell
+ * of a consumer, by its kind — its East type, its key field (a thing people
+ * drag is keyed by its item's id; a value by nothing but its instant), its
+ * instant fields, and how its look resolves.
+ *
+ * @internal
+ */
+export const PLAN_LOOKS = {
+    run:      { type: PlanRunType,            key: "key", instants: ["start", "end"], look: runLookFields as (l: never) => object },
+    decision: { type: PlanDecisionMarkType,   key: "key", instants: ["at"],           look: decisionLookFields as (l: never) => object },
+    port:     { type: PlanPortType,           key: undefined, instants: ["at"],       look: portLookFields as (l: never) => object },
+    event:    { type: PlanBucketEventType,    key: "key", instants: ["at"],           look: bucketEventLookFields as (l: never) => object },
+    marker:   { type: PlanCellMarkerType,     key: undefined, instants: ["at"],       look: cellMarkerLookFields as (l: never) => object },
+    chip:     { type: PlanChipType,           key: "key", instants: ["from", "to"],   look: chipLookFields as (l: never) => object },
+    mark:     { type: PlanEventMarkType,      key: "key", instants: ["at"],           look: eventMarkLookFields as (l: never) => object },
+    heat:     { type: PlanHeatCellType,       key: undefined, instants: ["at"],       look: heatCellLookFields as (l: never) => object },
+    weight:   { type: PlanWeightCellType,     key: undefined, instants: ["at"],       look: weightCellLookFields as (l: never) => object },
+    segment:  { type: PlanSegmentCellType,    key: undefined, instants: ["at"],       look: segmentCellLookFields as (l: never) => object },
+    table:    { type: PlanTableCellType,      key: undefined, instants: ["at"],       look: tableCellLookFields as (l: never) => object },
+    point:    { type: PlanChartPointType,     key: undefined, instants: ["t"],        look: chartPointLookFields as (l: never) => object },
+    band:     { type: PlanChartBandPointType, key: undefined, instants: ["t"],        look: chartBandLookFields as (l: never) => object },
+} as const;
+
+/** What a named read completes. @internal */
+export type PlanLookKind = keyof typeof PLAN_LOOKS;
+
+// ============================================================================
 // Value builders — runs, decisions, ports, events, markers, chips, marks
 // ============================================================================
 
@@ -519,12 +929,7 @@ export function createRun<S extends PlanInstantInput, E extends PlanInstantInput
         key:       input.key,
         start:     resolveInstant(input.start, "run start"),
         end:       resolveInstant(input.end, "run end"),
-        label:     input.label,
-        quantity:  input.quantity !== undefined ? some(East.value(input.quantity, PlanQuantityType)) : none,
-        state:     resolvePlanEventState(input.state),
-        status:    input.status !== undefined ? some(resolveTag(input.status, StatusValueType)) : none,
-        moved:     input.moved !== undefined ? some(typeof input.moved === "number" ? BigInt(input.moved) : input.moved) : none,
-        icon:      input.icon !== undefined ? some(resolveIcon(input.icon, "Plan.run icon")) : none,
+        ...runLookFields(input),
     }, PlanRunType) as PlanRunExpr<PlanKindOf<S | E>>;
 }
 
@@ -556,7 +961,7 @@ export function createDecision<A extends PlanInstantInput>(input: PlanDecisionIn
     return East.value({
         key:     input.key,
         at:      resolveInstant(input.at, "decision at"),
-        applied: input.applied,
+        ...decisionLookFields(input),
     }, PlanDecisionMarkType) as PlanDecisionMarkExpr<PlanKindOf<A>>;
 }
 
@@ -584,7 +989,7 @@ export interface PlanPortInput<A extends PlanInstantInput = PlanInstantInput> {
 export function createPort<A extends PlanInstantInput>(input: PlanPortInput<A>): PlanPortExpr<PlanKindOf<A>> {
     return East.value({
         at:    resolveInstant(input.at, "port at"),
-        label: input.label !== undefined ? some(input.label) : none,
+        ...portLookFields(input),
     }, PlanPortType) as PlanPortExpr<PlanKindOf<A>>;
 }
 
@@ -646,25 +1051,10 @@ export interface PlanBucketEventInput<A extends PlanInstantInput = PlanInstantIn
  * @returns An East expression of {@link PlanBucketEventType}, branded with its kind
  */
 export function createBucketEvent<A extends PlanInstantInput>(input: PlanBucketEventInput<A>): PlanBucketEventExpr<PlanKindOf<A>> {
-    const content = input.content !== undefined
-        ? some(East.value({
-            horizontal: input.content.horizontal !== undefined ? some(resolveTag(input.content.horizontal, PlanContentAlignType)) : none,
-            vertical:   input.content.vertical !== undefined ? some(resolveTag(input.content.vertical, PlanContentAlignType)) : none,
-        }, PlanContentType))
-        : none;
     return East.value({
         key:          input.key,
         at:           resolveInstant(input.at, "event at"),
-        lane:         input.lane !== undefined ? some(input.lane) : none,
-        label:        input.label !== undefined ? some(input.label) : none,
-        icon:         input.icon !== undefined ? some(resolveIcon(input.icon, "Plan.event icon")) : none,
-        state:        resolvePlanEventState(input.state),
-        tone:         input.tone !== undefined ? some(resolveTag(input.tone, StatusValueType)) : none,
-        color:        input.color !== undefined ? some(input.color) : none,
-        colorPalette: input.colorPalette !== undefined ? some(resolveTag(input.colorPalette, ColorSchemeType)) : none,
-        stretch:      input.stretch !== undefined ? some(resolveTag(input.stretch, PlanStretchType)) : none,
-        content,
-        animation:    input.animation !== undefined ? some(resolveTag(input.animation, PlanAnimationType)) : none,
+        ...bucketEventLookFields(input),
     }, PlanBucketEventType) as PlanBucketEventExpr<PlanKindOf<A>>;
 }
 
@@ -910,9 +1300,7 @@ export interface PlanCellMarkerInput<A extends PlanInstantInput = PlanInstantInp
 export function createCellMarker<A extends PlanInstantInput>(input: PlanCellMarkerInput<A>): PlanCellMarkerExpr<PlanKindOf<A>> {
     return East.value({
         at:      resolveInstant(input.at, "marker at"),
-        lane:    input.lane !== undefined ? some(input.lane) : none,
-        status:  resolveTag(input.status ?? "danger", StatusValueType),
-        message: input.message,
+        ...cellMarkerLookFields(input),
     }, PlanCellMarkerType) as PlanCellMarkerExpr<PlanKindOf<A>>;
 }
 
@@ -959,9 +1347,7 @@ export function createChip<F extends PlanInstantInput, T extends PlanInstantInpu
         key:     input.key,
         from:    resolveInstant(input.from, "chip from"),
         to:      resolveInstant(input.to, "chip to"),
-        label:   input.label,
-        state:   resolvePlanEventState(input.state),
-        icon:    input.icon !== undefined ? some(resolveIcon(input.icon, "Plan.chip icon")) : none,
+        ...chipLookFields(input),
     }, PlanChipType) as PlanChipExpr<PlanKindOf<F | T>>;
 }
 
@@ -999,9 +1385,7 @@ export function createEventMark<A extends PlanInstantInput>(input: PlanEventMark
     return East.value({
         key:     input.key,
         at:      resolveInstant(input.at, "mark at"),
-        kind:    typeof input.kind === "string" ? East.value(variant(input.kind, null), PlanEventMarkKindType) : input.kind,
-        icon:    input.icon !== undefined ? some(resolveIcon(input.icon, "Plan.mark icon")) : none,
-        label:   input.label !== undefined ? some(input.label) : none,
+        ...eventMarkLookFields(input),
     }, PlanEventMarkType) as PlanEventMarkExpr<PlanKindOf<A>>;
 }
 
@@ -1020,6 +1404,42 @@ export const markKind = {
 // ============================================================================
 // Cell builders — heat / weight / segments / table
 // ============================================================================
+
+/**
+ * The fold an options object declares, as its literal type, else the default
+ * (#1436) — what a consumer of a values read brands its subtotals with. A fold
+ * given as an East value names none the types can see.
+ *
+ * @typeParam O - The options, as written
+ * @typeParam D - The consumer's default fold
+ */
+export type PlanFoldOf<O, D extends PlanFoldLiteral> = O extends { readonly fold: infer F } ? (F extends PlanFoldLiteral ? F : D) : D;
+
+/** The fold a builder's options declare, as its literal where it is one (#1436). */
+function foldLiteral(fold: PlanFoldInput | undefined, fallback: PlanFoldLiteral): PlanFoldLiteral | undefined {
+    if (fold === undefined) return fallback;
+    if (typeof fold === "string") return fold;
+    return isVariant(fold) ? fold.type as PlanFoldLiteral : undefined;
+}
+
+/**
+ * The values read a cell builder is given, if it is given one (#1436).
+ *
+ * @param x - The builder's cells argument
+ * @param where - The builder, for the message
+ * @returns The read, or `undefined` for cells given as cells
+ * @throws {Error} When it is a read of items, which draws elements, not cells
+ */
+function valuesReadOf(x: unknown, where: string): PlanValuesReadSpec | undefined {
+    const read = planReadOf(x);
+    if (read === undefined) return undefined;
+    if (read.kind !== "values") {
+        throw new Error(
+            `${where} takes a row's values: read "${read.field}" with Plan.values("${read.field}", draw) — Plan.items ` +
+            "reads things people drag, for a series' runs, decisions, events, chips or marks");
+    }
+    return read;
+}
 
 /**
  * A heat scale — the value at no depth, the value at full depth, and the warn
@@ -1102,16 +1522,28 @@ function formatOpt(format: SubtypeExprOrValue<TickFormatType> | undefined): Expr
  * @param options - Scale, warn threshold, fold and format ({@link PlanHeatCellsOptions})
  * @returns A `PlanHeatCellsType` expression, branded with the cells' kind
  */
+export function createHeatCells<R extends EastType, K extends PlanAxisKindLiteral, U, const O extends PlanHeatCellsOptions = PlanHeatCellsOptions>(
+    values: PlanValuesInput<R, PlanHeatCellLook, K, U>,
+    options?: O,
+): PlanValuesUse<"heat", R, K, U, PlanFoldOf<O, "mean">>;
 export function createHeatCells<K extends PlanAxisKindLiteral = never>(
     cells: PlanCellsInput<PlanHeatCellType, K>,
     options?: PlanHeatCellsOptions,
-): PlanHeatCellsExpr<K> {
+): PlanHeatCellsExpr<K>;
+export function createHeatCells(cells: unknown, options?: PlanHeatCellsOptions): unknown {
+    const read = valuesReadOf(cells, "Plan.heatCells");
+    if (read !== undefined) {
+        return planUse({
+            makes: "heat", read, cell: "heat", fold: foldLiteral(options?.fold, "mean"), rollup: false,
+            wrap: (built) => createHeatCells(built as ExprType<ArrayType<PlanHeatCellType>>, options),
+        });
+    }
     return East.value(variant("heat", {
         cells:  East.value(cells as SubtypeExprOrValue<ArrayType<PlanHeatCellType>>, ArrayType(PlanHeatCellType)),
         scale:  createHeatScale(options),
         fold:   resolveFold(options?.fold, "mean"),
         format: formatOpt(options?.format),
-    }), PlanHeatCellsType) as PlanHeatCellsExpr<K>;
+    }), PlanHeatCellsType);
 }
 
 /**
@@ -1131,15 +1563,27 @@ export function createHeatCells<K extends PlanAxisKindLiteral = never>(
  * @param options - Fold and format ({@link PlanCellsFoldOptions})
  * @returns A `PlanHeatCellsType` expression, branded with the cells' kind
  */
+export function createWeightCells<R extends EastType, K extends PlanAxisKindLiteral, U, const O extends PlanCellsFoldOptions = PlanCellsFoldOptions>(
+    values: PlanValuesInput<R, PlanWeightCellLook, K, U>,
+    options?: O,
+): PlanValuesUse<"heat", R, K, U, PlanFoldOf<O, "mean">>;
 export function createWeightCells<K extends PlanAxisKindLiteral = never>(
     cells: PlanCellsInput<PlanWeightCellType, K>,
     options?: PlanCellsFoldOptions,
-): PlanHeatCellsExpr<K> {
+): PlanHeatCellsExpr<K>;
+export function createWeightCells(cells: unknown, options?: PlanCellsFoldOptions): unknown {
+    const read = valuesReadOf(cells, "Plan.weightCells");
+    if (read !== undefined) {
+        return planUse({
+            makes: "heat", read, cell: "weight", fold: foldLiteral(options?.fold, "mean"), rollup: false,
+            wrap: (built) => createWeightCells(built as ExprType<ArrayType<PlanWeightCellType>>, options),
+        });
+    }
     return East.value(variant("weight", {
         cells:  East.value(cells as SubtypeExprOrValue<ArrayType<PlanWeightCellType>>, ArrayType(PlanWeightCellType)),
         fold:   resolveFold(options?.fold, "mean"),
         format: formatOpt(options?.format),
-    }), PlanHeatCellsType) as PlanHeatCellsExpr<K>;
+    }), PlanHeatCellsType);
 }
 
 /**
@@ -1158,15 +1602,27 @@ export function createWeightCells<K extends PlanAxisKindLiteral = never>(
  * @param options - Fold and format ({@link PlanCellsFoldOptions})
  * @returns A `PlanHeatCellsType` expression, branded with the cells' kind
  */
+export function createSegmentCells<R extends EastType, K extends PlanAxisKindLiteral, U, const O extends PlanCellsFoldOptions = PlanCellsFoldOptions>(
+    values: PlanValuesInput<R, PlanSegmentCellLook, K, U>,
+    options?: O,
+): PlanValuesUse<"heat", R, K, U, PlanFoldOf<O, "sum">>;
 export function createSegmentCells<K extends PlanAxisKindLiteral = never>(
     cells: PlanCellsInput<PlanSegmentCellType, K>,
     options?: PlanCellsFoldOptions,
-): PlanHeatCellsExpr<K> {
+): PlanHeatCellsExpr<K>;
+export function createSegmentCells(cells: unknown, options?: PlanCellsFoldOptions): unknown {
+    const read = valuesReadOf(cells, "Plan.segmentCells");
+    if (read !== undefined) {
+        return planUse({
+            makes: "heat", read, cell: "segment", fold: foldLiteral(options?.fold, "sum"), rollup: false,
+            wrap: (built) => createSegmentCells(built as ExprType<ArrayType<PlanSegmentCellType>>, options),
+        });
+    }
     return East.value(variant("segments", {
         cells:  East.value(cells as SubtypeExprOrValue<ArrayType<PlanSegmentCellType>>, ArrayType(PlanSegmentCellType)),
         fold:   resolveFold(options?.fold, "sum"),
         format: formatOpt(options?.format),
-    }), PlanHeatCellsType) as PlanHeatCellsExpr<K>;
+    }), PlanHeatCellsType);
 }
 
 /**
@@ -1228,6 +1684,39 @@ export interface PlanTableSeriesInput<K extends PlanAxisKindLiteral = never> {
 }
 
 /**
+ * Input for {@link Plan.tableSeries} over a values read (#1436) — one position
+ * of a table row, its cells a row's values (`Plan.tableCells(Plan.values(field,
+ * draw))`). Its `fold` and `rollup` are literals, since a parent's subtotal of
+ * them is what a source's index keeps (#1435).
+ *
+ * @typeParam R - The entry type
+ * @typeParam K - The cells' axis kind
+ * @typeParam U - What the cells read
+ * @typeParam FO - How a bucket folds the position's values
+ * @typeParam RO - Whether the position feeds its parent's subtotal
+ * @property cells - The position's cells, from a values read
+ * @property format - Numeral format override for this position
+ * @property tone - Default tone for its values
+ * @property strong - Semibold emphasis for its values
+ * @property rollup - `true` ⇒ it feeds the parent's subtotal (flag none ⇒ every position does)
+ * @property fold - How a bucket folds its values at a coarser resolution (default `"sum"`)
+ */
+export interface PlanTableSeriesOfValues<R extends EastType, K extends PlanAxisKindLiteral, U, FO extends PlanFoldLiteral, RO extends boolean> {
+    /** The position's cells — `Plan.tableCells(Plan.values(field, draw))`. */
+    cells: PlanValuesUse<"tableCells", R, K, U>;
+    /** Numeral format override for this position — a `Format.*` spec. */
+    format?: SubtypeExprOrValue<TickFormatType>;
+    /** Default tone for its values. */
+    tone?: SubtypeExprOrValue<PlanTableToneType> | PlanTableToneLiteral;
+    /** Semibold emphasis for its values. */
+    strong?: SubtypeExprOrValue<BooleanType> | boolean;
+    /** `true` ⇒ it feeds the parent's subtotal (flag none and every position does). */
+    rollup?: RO;
+    /** How a bucket folds its values at a coarser resolution than theirs (default `"sum"`). */
+    fold?: FO;
+}
+
+/**
  * Builds one table-row value series (see {@link Plan.table}'s `series`) —
  * per-position style declared once, raw cells beneath it; the result carries
  * the cells' axis kind.
@@ -1236,7 +1725,25 @@ export interface PlanTableSeriesInput<K extends PlanAxisKindLiteral = never> {
  * @param input - The series configuration ({@link PlanTableSeriesInput})
  * @returns An East expression of {@link PlanTableSeriesType}, branded with the cells' kind
  */
-export function createTableSeries<K extends PlanAxisKindLiteral = never>(input: PlanTableSeriesInput<K>): PlanTableSeriesExpr<K> {
+export function createTableSeries<
+    R extends EastType, K extends PlanAxisKindLiteral, U,
+    const FO extends PlanFoldLiteral = "sum", const RO extends boolean = false,
+>(input: PlanTableSeriesOfValues<R, K, U, FO, RO>): PlanValuesUse<"tableSeries", R, K, U, FO, RO>;
+export function createTableSeries<K extends PlanAxisKindLiteral = never>(input: PlanTableSeriesInput<K>): PlanTableSeriesExpr<K>;
+export function createTableSeries(input: PlanTableSeriesInput<PlanAxisKindLiteral> | PlanTableSeriesOfValues<EastType, PlanAxisKindLiteral, unknown, PlanFoldLiteral, boolean>): unknown {
+    const use = planUseOf(input.cells);
+    if (use !== undefined) {
+        if (use.makes !== "tableCells") {
+            throw new Error("Plan.tableSeries: its cells are one row's table cells — give cells as Plan.tableCells(Plan.values(field, draw))");
+        }
+        const rest = input as PlanTableSeriesOfValues<EastType, PlanAxisKindLiteral, unknown, PlanFoldLiteral, boolean>;
+        return planUse({
+            makes: "tableSeries", read: use.read, cell: "table", fold: foldLiteral(rest.fold, "sum"),
+            rollup: rest.rollup === true,
+            wrap: (built) => createTableSeries({ ...(rest as unknown as PlanTableSeriesInput<PlanAxisKindLiteral>), cells: built as ExprType<ArrayType<PlanTableCellType>> }),
+        });
+    }
+    refuseReadOutsideSeries(input.cells);
     return East.value({
         cells:  East.value(input.cells as SubtypeExprOrValue<ArrayType<PlanTableCellType>>, ArrayType(PlanTableCellType)),
         format: input.format !== undefined ? some(East.value(input.format, TickFormatType)) : none,
@@ -1244,7 +1751,7 @@ export function createTableSeries<K extends PlanAxisKindLiteral = never>(input: 
         strong: input.strong ?? false,
         rollup: input.rollup ?? false,
         fold:   resolveFold(input.fold, "sum"),
-    }, PlanTableSeriesType) as PlanTableSeriesExpr<K>;
+    }, PlanTableSeriesType);
 }
 
 /**
@@ -1274,11 +1781,24 @@ export type PlanRawTableCellType = StructType<{ at: PlanInstantLikeType; value: 
  * @returns An `ArrayType(PlanTableCellType)` expression, branded with the cells' kind
  * @throws {Error} If an East array's element `at` is not an instant-typed field
  */
+export function createTableCells<R extends EastType, K extends PlanAxisKindLiteral, U>(
+    values: PlanValuesInput<R, PlanTableCellLook, K, U>,
+): PlanValuesUse<"tableCells", R, K, U>;
 export function createTableCells<A extends PlanInstantInput = never>(
     cells:
         | { at: A; value: SubtypeExprOrValue<OptionType<FloatType>> }[]
         | SubtypeExprOrValue<ArrayType<PlanRawTableCellType>>,
-): PlanTableCellsExpr<PlanKindOf<A>> {
+): PlanTableCellsExpr<PlanKindOf<A>>;
+export function createTableCells(
+    cells:
+        | { at: PlanInstantInput; value: SubtypeExprOrValue<OptionType<FloatType>> }[]
+        | SubtypeExprOrValue<ArrayType<PlanRawTableCellType>>
+        | PlanValuesInput<EastType, PlanTableCellLook, PlanAxisKindLiteral, unknown>,
+): unknown {
+    const read = valuesReadOf(cells, "Plan.tableCells");
+    if (read !== undefined) {
+        return planUse({ makes: "tableCells", read, cell: "table", fold: undefined, rollup: false, wrap: (built) => built });
+    }
     if (Array.isArray(cells)) {
         // Each element is a literal record or a struct expression; both
         // expose `at` / `value` (a struct expression's field accessors carry
@@ -1292,7 +1812,7 @@ export function createTableCells<A extends PlanInstantInput = never>(
                 tone:  none,
             }, PlanTableCellType);
         });
-        return East.value(built, ArrayType(PlanTableCellType)) as PlanTableCellsExpr<PlanKindOf<A>>;
+        return East.value(built, ArrayType(PlanTableCellType));
     }
     // An East array — wrap `at` by its STATIC element type, once for the map.
     const raw = cells as unknown as ExprType<ArrayType<StructType<{ at: EastType; value: OptionType<FloatType> }>>>;
@@ -1316,5 +1836,5 @@ export function createTableCells<A extends PlanInstantInput = never>(
         value: (c as unknown as { value: ExprType<OptionType<FloatType>> }).value,
         text:  none,
         tone:  none,
-    }, PlanTableCellType)) as unknown as PlanTableCellsExpr<PlanKindOf<A>>;
+    }, PlanTableCellType));
 }

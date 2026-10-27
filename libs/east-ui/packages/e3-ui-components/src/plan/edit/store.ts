@@ -44,7 +44,7 @@ export type PlanMovableKind = "run" | "chip" | "tile" | "mark";
 export interface PlanMovable {
     /** Its row's key. */
     readonly rowKey: RowKey;
-    /** Its key — its item's (`edit.key`). */
+    /** Its key — its item's id in the collection its series reads (#1436). */
     readonly key: string;
     /** Its name, for the ghost and the announcements. */
     readonly label: string;

@@ -33,7 +33,7 @@ const EVENT_REFS = new WeakMap<object, string>();
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { ArrayType, DateTimeType, DictType, East, FloatType, NullType, OptionType, StringType, StructType, VariantType, some, variant } from "@elaraai/east";
+ * import { DateTimeType, DictType, East, FloatType, NullType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, some, variant } from "@elaraai/east";
  * import { EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
@@ -50,7 +50,7 @@ const EVENT_REFS = new WeakMap<object, string>();
  *     stock: VariantType({ coated: NullType, uncoated: NullType, board: NullType }),
  *     due: OptionType(DateTimeType),
  * });
- * export const PrintStock = StructType({ name: StringType, weekly: ArrayType(FloatType) });
+ * export const PrintStock = StructType({ name: StringType, weekly: DictType(DateTimeType, FloatType) });
  * export const PrintCentre = StructType({ name: StringType });
  * export const PrintPlates = StructType({ title: StringType, at: DateTimeType, setter: StringType });
  * export const PrintBinding = StructType({ title: StringType, start: DateTimeType, end: DateTimeType, line: StringType, state: EventStateType });
@@ -64,9 +64,15 @@ const EVENT_REFS = new WeakMap<object, string>();
  *     ["b3", { name: "Press B3", hall: "Hall B", sheets_per_hour: 6000.0 }],
  * ]));
  * export const planLinkStock = e3.input("plan_link_stock", DictType(StringType, PrintStock), variant("value", new Map([
- *     ["board", { name: "Board", weekly: [40.0, 22.0, 31.0, 18.0] }],
- *     ["coated", { name: "Coated", weekly: [520.0, 410.0, 460.0, 380.0] }],
- *     ["uncoated", { name: "Uncoated", weekly: [300.0, 260.0, 280.0, 240.0] }],
+ *     ["board", { name: "Board", weekly: new SortedMap([
+ *         [new Date("2026-10-05T00:00:00Z"), 40.0], [new Date("2026-10-12T00:00:00Z"), 22.0], [new Date("2026-10-19T00:00:00Z"), 31.0], [new Date("2026-10-26T00:00:00Z"), 18.0],
+ *     ], compareFor(DateTimeType)) }],
+ *     ["coated", { name: "Coated", weekly: new SortedMap([
+ *         [new Date("2026-10-05T00:00:00Z"), 520.0], [new Date("2026-10-12T00:00:00Z"), 410.0], [new Date("2026-10-19T00:00:00Z"), 460.0], [new Date("2026-10-26T00:00:00Z"), 380.0],
+ *     ], compareFor(DateTimeType)) }],
+ *     ["uncoated", { name: "Uncoated", weekly: new SortedMap([
+ *         [new Date("2026-10-05T00:00:00Z"), 300.0], [new Date("2026-10-12T00:00:00Z"), 260.0], [new Date("2026-10-19T00:00:00Z"), 280.0], [new Date("2026-10-26T00:00:00Z"), 240.0],
+ *     ], compareFor(DateTimeType)) }],
  * ])));
  * export const planLinkSetters = e3.record("plan_link_setters", DictType(StringType, PrintCentre), new Map([
  *     ["ps", { name: "Platesetter" }],
@@ -132,11 +138,6 @@ const EVENT_REFS = new WeakMap<object, string>();
  *         const bindings = $.let(Record.bind(planLinkBindings, [planLinkBindingsPatch]));
  *         const deliveries = $.let(Record.bind(planLinkDeliveries, [planLinkDeliveriesPatch]));
  *         const stock = $.let(Data.bind(planLinkStock));
- *         // The window's first Monday: each stock reading runs from it, a week apiece.
- *         const first = $.const(new Date("2026-10-05T00:00:00Z"), DateTimeType);
- *         const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) });
- *         const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(StockWeek), (_$2, readings) =>
- *             East.Array.generate(readings.size(), StockWeek, (_$3, i) => ({ at: first.addWeeks(i), value: some(readings.get(i)) }))));
  *         const axis = $.let(Plan.axis({
  *             window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
  *             resolution: "week", now: new Date("2026-10-14T09:00:00Z"),
@@ -178,7 +179,7 @@ const EVENT_REFS = new WeakMap<object, string>();
  *                     Plan.over(stock, [
  *                         Plan.series.table(PrintStock, {
  *                             key: "stock", title: "Paper stock", label: s => s.name,
- *                             cells: s => Plan.tableCells(weekly(s.weekly)),
+ *                             cells: Plan.tableCells(Plan.values("weekly", (level) => ({ value: level }))),
  *                             format: Format.Number({ maximumFractionDigits: 0n }),
  *                         }),
  *                     ]),

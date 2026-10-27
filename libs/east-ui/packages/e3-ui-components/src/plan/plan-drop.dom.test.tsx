@@ -11,7 +11,8 @@
  * here" is a question about the cell's contents. A Plan's rows are eight
  * different things, and the property under test is that the answer is settled
  * STRUCTURALLY first: only the kinds holding discrete scheduled objects — and
- * of those, only a series that says where a card lands (`edit`) — register a
+ * of those, only a series that takes cards (`edit: { create }`, its card going
+ * in under an id the renderer mints, #1436) — register a
  * cell at all. A `chart` / `heat` / `table` row is not "a cell that says no" —
  * it is not a cell, so it cannot light up, cannot be hovered into the invalid
  * stage, and cannot be reached by any predicate. `canDrop` then narrows what
@@ -25,7 +26,7 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { DictType, East, StringType, equalFor, variant, type ExprType } from "@elaraai/east";
+import { DateTimeType, DictType, East, OptionType, StringType, StructType, equalFor, none, some, variant, type ExprType } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { State } from "@elaraai/east-ui/internal";
 import { system, UIStore, getRegisteredPlatformImplementations, DragLayerProvider, useDragSourceItem } from "@elaraai/east-ui-components";
@@ -33,6 +34,7 @@ import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "@elaraai/east-ui-components/testing";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import { rowSel, testKeyOf } from "./plan.test-utils.js";
+import { offering } from "../shared/schedule/keys.test-utils.js";
 import {
     JOBS, PHASES, Press, SEED, SURFACE,
     canvasHarness, dropCellOf, dropJob, history, jobsDrawn, marks, mountCanvas, releaseCanvases, settle,
@@ -58,29 +60,33 @@ const W27 = new Date("2026-06-29T00:00:00Z");
 const W28 = new Date("2026-07-06T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 const sameInstant = equalFor(Plan.Types.Instant);
+/** A job on the every-kind canvas, under its id: from the bucket it lands in, to the same — a run's and a chip's two ends, a tile's and a mark's one. */
+const KindJob = StructType({ at: Plan.Types.Instant, until: Plan.Types.Instant });
+/** A press on the every-kind canvas: its name and its jobs, by id. */
+const KindPress = StructType({ label: StringType, jobs: DictType(StringType, KindJob) });
 /** Where a job card lands on a kind that takes one — a job of the press, at the bucket it was dropped in. */
-const LANDS = { items: "jobs", create: (drop: ExprType<typeof Plan.Types.Drop>) => ({ key: drop.from.key, at: drop.at }) } as const;
+const LANDS = { create: (drop: ExprType<typeof Plan.Types.Drop>) => ({ at: drop.at, until: drop.at }) } as const;
 /** Press 1 alone. */
-const ONE_PRESS = new Map([["p1", SEED.get("p1")!]]);
+const ONE_PRESS = new Map([["p1", { label: "Press 1", jobs: new Map() }]]);
 
-/** Press 1 as a row of every kind — the kinds holding discrete objects take a job (`edit`), the rest cannot. */
+/** Press 1 as a row of every kind — the kinds holding discrete objects take a job (`edit: { create }`), the rest cannot. */
 const EVERY_KIND = East.function([], Plan.Types.Root, ($) => {
-    const presses = $.const(State.bind([DictType(StringType, Press)], "plan-880.every-kind", ONE_PRESS));
+    const presses = $.const(State.bind([DictType(StringType, KindPress)], "plan-880.every-kind", ONE_PRESS));
     return Plan.Root({
         axis: Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }),
         data: presses,
         series: [
-            Plan.series.span(Press, { key: "span", title: "Span", label: (p) => p.label, runs: () => [],
-                decisions: (p) => p.jobs.map((_$, j) => Plan.decision({ key: j.key, at: j.at, applied: false })), edit: LANDS }),
-            Plan.series.chart(Press, { key: "chart", title: "Chart", label: (p) => p.label, layers: () => [] }),
-            Plan.series.buckets(Press, { key: "buckets", title: "Buckets", label: (p) => p.label,
-                events: (p) => p.jobs.map((_$, j) => Plan.event({ key: j.key, at: j.at, state: "confirmed" })), edit: LANDS }),
-            Plan.series.heat(Press, { key: "heat", title: "Heat", label: (p) => p.label, cells: () => Plan.heatCells([]) }),
-            Plan.series.cards(Press, { key: "cards", title: "Cards", label: (p) => p.label,
-                chips: (p) => p.jobs.map((_$, j) => Plan.chip({ key: j.key, from: j.at, to: j.at, label: j.key, state: "confirmed" })), edit: LANDS }),
-            Plan.series.table(Press, { key: "table", title: "Table", label: (p) => p.label, cells: () => Plan.tableCells([]) }),
-            Plan.series.events(Press, { key: "events", title: "Events", label: (p) => p.label,
-                marks: (p) => p.jobs.map((_$, j) => Plan.mark({ key: j.key, at: j.at, kind: "milestone" })), edit: LANDS }),
+            Plan.series.span(KindPress, { key: "span", title: "Span", label: (p) => p.label, edit: LANDS,
+                runs: Plan.items("jobs", { from: "at", to: "until" }, (_job, id) => ({ label: id, state: "confirmed" })) }),
+            Plan.series.chart(KindPress, { key: "chart", title: "Chart", label: (p) => p.label, layers: () => [] }),
+            Plan.series.buckets(KindPress, { key: "buckets", title: "Buckets", label: (p) => p.label, edit: LANDS,
+                events: Plan.items("jobs", { at: "at" }, () => ({ state: "confirmed" })) }),
+            Plan.series.heat(KindPress, { key: "heat", title: "Heat", label: (p) => p.label, cells: () => Plan.heatCells([]) }),
+            Plan.series.cards(KindPress, { key: "cards", title: "Cards", label: (p) => p.label, edit: LANDS,
+                chips: Plan.items("jobs", { from: "at", to: "until" }, (_job, id) => ({ label: id, state: "confirmed" })) }),
+            Plan.series.table(KindPress, { key: "table", title: "Table", label: (p) => p.label, cells: () => Plan.tableCells([]) }),
+            Plan.series.events(KindPress, { key: "events", title: "Events", label: (p) => p.label, edit: LANDS,
+                marks: Plan.items("jobs", { at: "at" }, () => ({ kind: "milestone" })) }),
         ],
         editing: { onUpdate: presses.write },
         id: SURFACE,
@@ -138,9 +144,24 @@ describe("Plan drop target (#880)", () => {
         expect(container.querySelectorAll("[data-drag-cell]")).toHaveLength(0);
     });
 
-    test("without an `id` no row is a destination — an unnamed surface cannot be addressed", async () => {
-        const { container } = await mountCanvas({ arm: "inline", target: false });
-        expect(container.querySelectorAll("[data-drag-cell]")).toHaveLength(0);
+    test("without an `id` no row is a destination for a Library beside it — an unnamed surface cannot be addressed — though its own marks move there", async () => {
+        const canvas = await mountCanvas({ arm: "inline", target: false });
+        // The cell is there: `edit: { create }` moves the row's own marks too
+        // (#1436). But no Library beside the Plan reaches it: with the card in
+        // flight over it, the cell is neither a candidate nor a hovered
+        // destination, and the drop drafts nothing.
+        const cell = dropCellOf(canvas.container, "p1")!;
+        const card = canvas.getByTestId("job-job-1");
+        fireEvent.pointerDown(card, { clientX: 0, clientY: 0 });
+        pointAt(cell);
+        fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+        expect(card.hasAttribute("data-dragging")).toBe(true);
+        expect(cell.hasAttribute("data-drop-valid")).toBe(false);
+        expect(cell.hasAttribute("data-drop-active")).toBe(false);
+        fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
+        await dropJob(canvas, "job-1", "p1");
+        expect(canvas.patches).toEqual([]);
+        expect(marks(canvas.container)).toEqual({});
     });
 
     test("a library the canvas does not declare is not a source for it — its card never lights a row, and drafts nothing", async () => {
@@ -172,29 +193,38 @@ describe("Plan drop target (#880)", () => {
             await dropJob(canvas, "job-1", "p1");
             await history(canvas, "Save");
             const jobs = (await canvas.stored()).get("p1")!.jobs;
-            expect(jobs.map((j) => j.key)).toEqual(["job-1"]);
+            expect([...jobs.keys()]).toEqual(["job-1"]);
             // jsdom's zero-width rect puts the pointer in the FIRST bucket.
-            expect(sameInstant(jobs[0]!.at, at)).toBe(true);
+            expect(sameInstant(jobs.get("job-1")!.at, at)).toBe(true);
         });
     }
 });
 
 // ── A card the row's own write refuses (#825) ────────────────────────────────
 
-/** Press 1, already holding job-1. */
-const HOLDING = new Map([["p1", { ...SEED.get("p1")!, jobs: [{ key: "job-1", at: variant("time", W28) }] }]]);
+/** A job a press may hold unscheduled: with no instant it draws nowhere (#1436). */
+const KeyedJob = StructType({ at: OptionType(DateTimeType) });
+/** A press: its name, and its jobs by id. */
+const KeyedPress = StructType({ label: StringType, jobs: DictType(StringType, KeyedJob) });
+/** Press 1, holding job-1 unscheduled: in its jobs, drawn nowhere. */
+const HOLDING = new Map([["p1", { label: "Press 1", jobs: new Map([["job-1", { at: none }]]) }]]);
 
-/** Press 1's jobs as keyed marks that take a card — its write refuses a job the press already holds, which no veto can see coming: `create` mints the key. */
+/**
+ * Press 1's jobs as marks that take a card. The renderer mints a new job's id
+ * unique among every element the canvas draws (#1436) — and job-1 draws
+ * nowhere, so a minted id can still be one the press holds: its write refuses
+ * it, which no veto can see coming.
+ */
 const KEYED = East.function([], Plan.Types.Root, ($) => {
-    const presses = $.const(State.bind([DictType(StringType, Press)], "plan-825.keyed", HOLDING));
+    const presses = $.const(State.bind([DictType(StringType, KeyedPress)], "plan-825.keyed", HOLDING));
     return Plan.Root({
         axis: Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }),
         data: presses,
         series: [
-            Plan.series.events(Press, {
+            Plan.series.events(KeyedPress, {
                 key: "marks", title: "Marks", label: (p) => p.label,
-                marks: (p) => p.jobs.map((_$, j) => Plan.mark({ key: j.key, at: j.at, kind: "milestone" })),
-                edit: { items: "jobs", key: "key", at: "at", create: (drop) => ({ key: drop.from.key, at: drop.at }) },
+                marks: Plan.items("jobs", { at: "at" }, () => ({ kind: "milestone" })),
+                edit: { create: (drop) => ({ at: some(drop.at.unwrap("time")) }) },
             }),
         ],
         editing: { onUpdate: presses.write },
@@ -209,7 +239,7 @@ function Card({ job }: { job: string }) {
 }
 
 describe("Plan drop target — a drop its write refuses (#825)", () => {
-    test("a card whose job the press already holds is said as not dropped and drafts nothing; one it does not hold lands", async () => {
+    test("a card whose minted id the press holds unscheduled — drawn nowhere — is said as not dropped and drafts nothing; one it does not hold lands", async () => {
         const root = East.compile(KEYED, getRegisteredPlatformImplementations())();
         const { container, getByTestId } = render(
             <ChakraProvider value={system}>
@@ -222,10 +252,12 @@ describe("Plan drop target — a drop its write refuses (#825)", () => {
         );
         await settle();
         const row = () => container.querySelector<HTMLElement>(rowSel("p1", "data-plan-row", "marks"))!;
+        // Each card's new job is minted the card's key: job-1's collides with the job Press 1 holds unscheduled.
         const drop = async (job: string) => {
             fireEvent.pointerDown(getByTestId(`card-${job}`), { clientX: 0, clientY: 0 });
             pointAt(row().querySelector("[data-drag-cell]"));
             fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+            offering([job]);
             fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
             await settle();
         };
@@ -233,7 +265,7 @@ describe("Plan drop target — a drop its write refuses (#825)", () => {
         await drop("job-1");
         expect(announced()).toBe("job-1 was not dropped.");
         expect(row().hasAttribute("data-draft")).toBe(false);
-        expect([...row().querySelectorAll("[data-mark]")].map((m) => m.getAttribute("data-mark"))).toEqual(["job-1"]);
+        expect([...row().querySelectorAll("[data-mark]")].map((m) => m.getAttribute("data-mark"))).toEqual([]);
 
         // jsdom's zero-width rect puts the pointer in the FIRST bucket.
         await drop("job-2");
@@ -287,6 +319,8 @@ describe("Plan drop target by keyboard (#608)", () => {
             expect(p2!.hasAttribute("data-drop-active")).toBe(true);
             expect(p1!.hasAttribute("data-drop-active")).toBe(false);
             expect(announced()).toBe("job-1 is over Press 2, Week of Jul 6, 2026.");
+            // The new job's id is the Plan's to mint (#1436): offered the card's key.
+            offering(["job-1"]);
             press("Space");
             await canvas.settle();
             expect(announced()).toBe("job-1 was dropped on Press 2, Week of Jul 6, 2026.");
@@ -297,8 +331,8 @@ describe("Plan drop target by keyboard (#608)", () => {
             expect(canvas.patches.map((p) => p.label)).toEqual(["Drop job-1 on Press 2"]);
             await history(canvas, "Save");
             const jobs = (await canvas.stored()).get("p2")!.jobs;
-            expect(jobs.map((j) => j.key)).toEqual(["job-1"]);
-            expect(sameInstant(jobs[0]!.at, variant("time", W28))).toBe(true);
+            expect([...jobs.keys()]).toEqual(["job-1"]);
+            expect(sameInstant(jobs.get("job-1")!.at, variant("time", W28))).toBe(true);
         });
     }
 });

@@ -440,7 +440,7 @@ describe("the event kinds' rows beside `data`'s editing session (#880)", () => {
 
     /** 201 presses: the last, `p200`, is the first entry of the source's second window. */
     const MANY = new Map(Array.from({ length: 201 }, (_u, i): [string, PressValue] =>
-        [`p${String(i).padStart(3, "0")}`, { label: `Press ${i}`, crew: none, jobs: [] }]));
+        [`p${String(i).padStart(3, "0")}`, { label: `Press ${i}`, crew: none, jobs: new Map() }]));
     /** A machine's row, keyed as a press is. */
     const machine = (key: string): PlanWireRow => ({
         id: entry("machines.span", key), parent: none,

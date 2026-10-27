@@ -53,8 +53,8 @@ import { describe, test, expect, beforeEach, afterEach, vi, type MockInstance } 
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, OptionType, StringType, StructType,
-    none, printFor, some, variant, type ValueTypeOf,
+    ArrayType, DateTimeType, DictType, East, FloatType, OptionType, SortedMap, StringType, StructType,
+    compareFor, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -175,9 +175,6 @@ async function writeJob(key: string, change: Partial<Job>) {
 
 // ── The Plan ─────────────────────────────────────────────────────────────────
 
-/** A week of paper in stock, as the stock's table reads it. */
-const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) });
-
 /**
  * The windows example's Plan (`planWindows`), unbounded — jsdom lays nothing
  * out, so a bounded canvas would mount no row — its jobs narrowed through its
@@ -199,11 +196,7 @@ const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
         },
     }));
     const paper = $.const(Data.bind(planLinkStock));
-    const first = $.const(FIRST, DateTimeType);
     const axis = $.let(Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }));
-    // The paper in stock, each reading a week apiece from the window's first Monday.
-    const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(StockWeek), (_$2, readings) =>
-        East.Array.generate(readings.size(), StockWeek, (_$3, i) => ({ at: first.addWeeks(i), value: some(readings.get(i)) }))));
     return Plan({
         axis, inspector: true, slice: { slice },
         resources: {
@@ -218,7 +211,8 @@ const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
             }),
         },
         rows: [Plan.over(paper, [
-            Plan.series.table(PrintStock, { key: "stock", title: "Paper stock", label: (s) => s.name, cells: (s) => Plan.tableCells(weekly(s.weekly)) }),
+            // The paper in stock, a reading a week, each at its week (#1436).
+            Plan.series.table(PrintStock, { key: "stock", title: "Paper stock", label: (s) => s.name, cells: Plan.tableCells(Plan.values("weekly", (level) => ({ value: level }))) }),
         ])],
         library: [Plan.library.backlog()],
     });
@@ -541,7 +535,9 @@ describe("the Plan's own rows after a paged kind's (PB55)", () => {
         const source = planLinkStock.source;
         if (source?.type !== "value") throw new Error("the stock is a value");
         const recounted = new Map(source.value as ReadonlyMap<string, ValueTypeOf<typeof PrintStock>>);
-        recounted.set("board", { name: "Board", weekly: [77.0, 22.0, 31.0, 18.0] });
+        recounted.set("board", { name: "Board", weekly: new SortedMap([
+            [FIRST, 77.0], [new Date("2026-10-12T00:00:00Z"), 22.0], [new Date("2026-10-19T00:00:00Z"), 31.0], [new Date("2026-10-26T00:00:00Z"), 18.0],
+        ], compareFor(DateTimeType)) });
         const reads = of("presses").length;
         await h.write(planLinkStock, recounted as unknown as Stock);
         await waitFor(() => expect(board()!.textContent).toContain("77"));
@@ -956,9 +952,9 @@ describe("planRowDrop's data session, its record read a window at a time (#1199)
                 fireEvent.click(historyButton(container, SAVE));
             }, (now) => {
                 const p03 = now.get("p03")!;
-                const job = p03.jobs[0]!;
+                const [id, job] = [...p03.jobs][0]!;
                 const next = new Map(now);
-                next.set("p03", { ...p03, jobs: [{ ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }] });
+                next.set("p03", { ...p03, jobs: new Map([[id, { ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }]]) });
                 return next;
             });
             await waitFor(() => expect(bannerTexts(container).map((b) => b.kind)).toEqual(["conflict", "stale"]));

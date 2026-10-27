@@ -87,7 +87,7 @@ import {
 } from "./types.js";
 import { orderedPlanSource } from "./ordered-source.js";
 import { PlanRootType } from "./ir.js";
-import { WINDOWLESS_AXES } from "./builders.js";
+import { WINDOWLESS_AXES, axisKindOf } from "./builders.js";
 import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesType, type PlanSeriesInput } from "./series.js";
 
 
@@ -271,9 +271,9 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
     /** DnD target identity — names the Plan in drag-grammar cell refs, which is how a Library beside the Plan
      *  reaches it: its cards land only on a Plan with an `id` whose `sources` lists it. The Plan's own library
      *  panel needs neither — an author's tab's cards land without them (#1259). A card lands only on a row whose
-     *  series declares `edit.create` (where it lands and how it becomes an item). The canvas's own elements
-     *  move whether or not it has an `id` — where their series declares a move's fields (`edit.key` and
-     *  `start` / `end`, or `at`, #825). Each is a draft of the root's `editing` session. */
+     *  series declares `edit: { create }` (how it becomes an item, under the id the canvas mints, #1436). The
+     *  canvas's own elements move whether or not it has an `id` — where their series declares `edit`, its elements
+     *  read with `Plan.items` (#825, #1436). Each is a draft of the root's `editing` session. */
     id?: string;
     /** The ids of the Libraries beside the Plan whose cards it takes (`add`), reached by its `id` — its own
      *  library panel's need none (omit = no Library beside it). */
@@ -388,7 +388,7 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     if ("onDrag" in (config as object)) {
         throw new Error(
             "Plan: `onDrag` is removed (#880) — a card dropped on a row is a draft of the `editing` session: declare " +
-            "`edit: { items, create }` on the series it lands on, and commit with `editing.onApply` (or `onUpdate`)");
+            "`edit: { create }` on the series it lands on, and commit with `editing.onApply` (or `onUpdate`)");
     }
     if ("review" in (config as object)) {
         throw new Error(
@@ -419,7 +419,7 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
             "A canvas never fits its axis to the data, so it reads the same inline and paged.",
         );
     }
-    if (config.series !== undefined) checkSeries(config.series, "Plan");
+    if (config.series !== undefined) checkSeries(config.series, "Plan", axisKindOf(config.axis));
     const data = config.data;
     if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome);
     // A pick feeds the canvas its SURVIVING series; everything downstream sees

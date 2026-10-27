@@ -55,6 +55,7 @@ import { PLAN_PAGE_SIZE, windowedArm, type PlanPagedSourceValue } from "./use-pl
 import { rowIdOfKey, rowKeyOf, type PlanRootValue, type PlanRowId, type PlanRowValue, type PlanWireBlock } from "./model.js";
 import type { RowKey } from "./plan-state.js";
 import { planPart, planSlices, ROWS_SOURCE } from "./root/sources.js";
+import { mintKey } from "../shared/schedule/records.js";
 
 /** The decoded Plan editing declaration (the root's `editing` some-value). */
 export type PlanEditingValue = ValueTypeOf<typeof Plan.Types.Editing>;
@@ -131,6 +132,32 @@ export interface PlanEditingArgs {
      * its. Without it — or before it holds the session — the session's own.
      */
     history?: { readonly current: EditHistory<PlanEntryRef> | undefined } | undefined;
+}
+
+/**
+ * Every element key the rows hold (#1436) — a run's, a decision's, a tile's, a
+ * chip's or a mark's, each its item's id: what a dropped card's new item is
+ * minted apart from.
+ *
+ * @param rows - The canvas rows the source holds
+ * @returns Their elements' keys
+ */
+function elementKeysOf(rows: readonly PlanRowValue[]): Set<string> {
+    const keys = new Set<string>();
+    for (const row of rows) {
+        const kind = row.kind;
+        if (kind.type === "span") {
+            for (const run of kind.value.runs) keys.add(run.key);
+            for (const decision of kind.value.decisions) keys.add(decision.key);
+        } else if (kind.type === "buckets") {
+            for (const tile of kind.value.events) keys.add(tile.key);
+        } else if (kind.type === "cards") {
+            for (const chip of kind.value.chips) keys.add(chip.key);
+        } else if (kind.type === "events") {
+            for (const mark of kind.value.marks) keys.add(mark.key);
+        }
+    }
+    return keys;
 }
 
 /** A canvas without editing still runs the hook — against a session nothing ever reaches. */
@@ -436,7 +463,10 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             const entry = id !== undefined ? entryOf(id) : undefined;
             const at = fromPlanSlot(value.axis.type, into.slot);
             if (id === undefined || entry === undefined || at === undefined) return false;
-            return record([{ id: entry, rows: [id] }], variant("drop", { from, row: id, at, duplicate }), "drop",
+            // The new item's id, minted here and unique among every id the canvas holds (#1436).
+            const held = elementKeysOf(args.rows);
+            const item = mintKey((key) => held.has(key));
+            return record([{ id: entry, rows: [id] }], variant("drop", { from, row: id, at, duplicate, id: item }), "drop",
                 `Drop ${from.key} on ${args.labelOf(into.row)}`);
         },
         move(request: PlanMoveRequest): boolean {

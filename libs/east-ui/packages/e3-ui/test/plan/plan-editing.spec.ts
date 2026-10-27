@@ -6,8 +6,11 @@
 /**
  * The Plan's editing wire (#880), driven from the host the way the renderer's
  * session drives it: the root compiled, its functions called with JS values
- * and entry bytes. What the IR proves on its own — the rows' flags, the
- * build-time refusals — is in `plan.spec.ts`.
+ * and entry bytes. A gesture writes the collection its series' read names
+ * (#1436): an item is found by its id, its key in the collection, so a drop
+ * goes in under the id the renderer minted and a move keeps the item's id
+ * wherever it lands. What the IR proves on its own — the rows' flags, the
+ * build-time refusals — is in `plan.spec.ts` and `plan-series.spec.ts`.
  */
 
 import { test } from "node:test";
@@ -29,51 +32,44 @@ const END = new Date("2026-09-21T00:00:00Z");
 
 // ── The canvas: halls holding presses — a gesture on a press drafts its hall ──
 
-const Job = StructType({ key: StringType, start: DateTimeType, end: DateTimeType });
-const Press = StructType({ jobs: ArrayType(Job) });
+const Job = StructType({ start: DateTimeType, end: DateTimeType });
+const Press = StructType({ jobs: DictType(StringType, Job) });
 const Hall = StructType({ name: StringType, presses: DictType(StringType, Press) });
 const Halls = DictType(StringType, Hall);
 type HallValue = ValueTypeOf<typeof Hall>;
 type JobValue = ValueTypeOf<typeof Job>;
 type RowId = ValueTypeOf<typeof Plan.Types.RowId>;
 type Gesture = ValueTypeOf<typeof Plan.Types.Gesture>;
+type Jobs = [string, JobValue][];
 
-const J4642: JobValue = { key: "j4642", start: W28, end: W31 };
-// A job card dropped at W29 becomes a fortnight's job, keyed by the card and the list's size.
-const POSTER: JobValue = { key: "poster-1", start: W29, end: W31 };
+const J4642: JobValue = { start: W28, end: W31 };
+// A job card dropped at W29 becomes a fortnight's job, under the id the renderer minted.
+const POSTER: JobValue = { start: W29, end: W31 };
 // One dropped on Hall 2's P11, which holds none yet.
-const LEAFLET: JobValue = { key: "leaflet-0", start: W29, end: W31 };
+const LEAFLET: JobValue = { start: W29, end: W31 };
 
-const hall1 = (p03Jobs: JobValue[] = [J4642], p04Jobs: JobValue[] = []): HallValue => ({
+const hall1 = (p03Jobs: Jobs = [["j4642", J4642]], p04Jobs: Jobs = []): HallValue => ({
     name: "Hall 1",
-    presses: new Map([["P03", { jobs: p03Jobs }], ["P04", { jobs: p04Jobs }]]),
+    presses: new Map([["P03", { jobs: new Map(p03Jobs) }], ["P04", { jobs: new Map(p04Jobs) }]]),
 });
-const hall2 = (p11Jobs: JobValue[] = []): HallValue => ({
+const hall2 = (p11Jobs: Jobs = []): HallValue => ({
     name: "Hall 2",
-    presses: new Map([["P11", { jobs: p11Jobs }]]),
+    presses: new Map([["P11", { jobs: new Map(p11Jobs) }]]),
 });
 const SEED: Map<string, HallValue> = new Map([["H1", hall1()], ["H2", hall2()]]);
 
 const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
 
-/** The halls, their presses stepped down into through a plain field — taking dropped jobs, and moving them (#825). */
+/** The halls, their presses stepped down into by field — taking dropped jobs, and moving them by id (#825, #1436). */
 const SERIES = [
     Plan.series.span(Hall, {
         key: "halls", title: "Halls", label: (l) => l.name, runs: (_l) => [],
-        children: Plan.children((l) => l.presses, [
+        children: Plan.children("presses", [
             Plan.series.span(Press, {
                 key: "presses", title: "Presses", label: (_m, k) => k,
-                runs: (m) => m.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.key, state: "confirmed" })),
+                runs: Plan.items("jobs", { from: "start", to: "end" }, (_job, id) => ({ label: id, state: "confirmed" })),
                 edit: {
-                    items: "jobs",
-                    key: "key",
-                    start: "start",
-                    end: "end",
-                    create: (drop, m) => ({
-                        key: East.str`${drop.from.key}-${East.print(m.jobs.size())}`,
-                        start: drop.at.unwrap("time"),
-                        end: drop.at.unwrap("time").addWeeks(2n),
-                    }),
+                    create: (drop) => ({ start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(2n) }),
                 },
             }),
         ]),
@@ -82,8 +78,9 @@ const SERIES = [
 
 const press = (hall: string, m: string): RowId => variant("entry", { series: "presses", path: [hall, m] });
 const hallRow = (hall: string): RowId => variant("entry", { series: "halls", path: [hall] });
-const dropOf = (card: string, row: RowId, at: Date): Gesture =>
-    variant("drop", { from: { library: "jobs", key: card }, row, at: variant("time", at), duplicate: false });
+/** A card dropped on a row, its new item's id as the renderer minted it. */
+const dropOf = (card: string, row: RowId, at: Date, id: string): Gesture =>
+    variant("drop", { from: { library: "jobs", key: card }, row, at: variant("time", at), duplicate: false, id });
 const moveOf = (key: string, from: RowId, to: RowId, start: Date, end: Date): Gesture =>
     variant("move", { key, from, to, start: variant("time", start), end: variant("time", end) });
 
@@ -114,19 +111,19 @@ const inlineRoot = East.function([], Plan.Types.Root, ($) => {
 }).toIR().compile([])();
 const inline = editingOf(inlineRoot);
 
-test("a card dropped on a press writes its HALL — the press's jobs joined by the job `create` builds from the card, the bucket's instant and the entry, every other field as it was", () => {
-    const written = writeOne(inline, "H1", hall1(), [press("H1", "P03")], dropOf("poster", press("H1", "P03"), W29));
-    assert.ok(written !== undefined && sameHall(written, hall1([J4642, POSTER])));
+test("a card dropped on a press writes its HALL — the press's jobs joined, under the minted id, by the job `create` builds from the drop, every other field as it was", () => {
+    const written = writeOne(inline, "H1", hall1(), [press("H1", "P03")], dropOf("poster", press("H1", "P03"), W29, "poster-1"));
+    assert.ok(written !== undefined && sameHall(written, hall1([["j4642", J4642], ["poster-1", POSTER]])));
 });
 
 test("a row no series takes the gesture on writes nothing — the hall's own row, a press the hall lacks, another hall's row", () => {
     const entry = encodeHall(hall1());
     const outs = inline.write([
         // The halls series declares no `edit`, so a card finds no list there.
-        { id: "H1", entry, rows: [hallRow("H1")], gesture: dropOf("poster", hallRow("H1"), W29) },
-        { id: "H1", entry, rows: [press("H1", "P99")], gesture: dropOf("poster", press("H1", "P99"), W29) },
+        { id: "H1", entry, rows: [hallRow("H1")], gesture: dropOf("poster", hallRow("H1"), W29, "poster-1") },
+        { id: "H1", entry, rows: [press("H1", "P99")], gesture: dropOf("poster", press("H1", "P99"), W29, "poster-1") },
         // Hall 2's P03 — a key Hall 1 also holds — is not Hall 1's row.
-        { id: "H1", entry, rows: [press("H2", "P03")], gesture: dropOf("poster", press("H2", "P03"), W29) },
+        { id: "H1", entry, rows: [press("H2", "P03")], gesture: dropOf("poster", press("H2", "P03"), W29, "poster-1") },
     ]);
     assert.deepEqual(outs.map((o) => o.type), ["none", "none", "none"]);
 });
@@ -137,19 +134,19 @@ const P03 = press("H1", "P03");
 const P04 = press("H1", "P04");
 const P11 = press("H2", "P11");
 /** J-4642 a week later, whole. */
-const J4642_LATER: JobValue = { key: "j4642", start: W29, end: W32 };
+const J4642_LATER: JobValue = { start: W29, end: W32 };
 
-test("a move along its row sets the job's instants where it is — every other job and field as they were", () => {
-    const moved = writeOne(inline, "H1", hall1([J4642, POSTER]), [P03], moveOf("j4642", P03, P03, W29, W32));
-    assert.ok(moved !== undefined && sameHall(moved, hall1([J4642_LATER, POSTER])));
+test("a move along its row sets the job's times under its id — every other job and field as they were", () => {
+    const moved = writeOne(inline, "H1", hall1([["j4642", J4642], ["poster-1", POSTER]]), [P03], moveOf("j4642", P03, P03, W29, W32));
+    assert.ok(moved !== undefined && sameHall(moved, hall1([["j4642", J4642_LATER], ["poster-1", POSTER]])));
     // A resize is the same gesture with one end moved.
     const resized = writeOne(inline, "H1", hall1(), [P03], moveOf("j4642", P03, P03, W28, W33));
-    assert.ok(resized !== undefined && sameHall(resized, hall1([{ key: "j4642", start: W28, end: W33 }])));
+    assert.ok(resized !== undefined && sameHall(resized, hall1([["j4642", { start: W28, end: W33 }]])));
 });
 
-test("a move to another press of the same hall is ONE request, source row first: the job leaves P03 and joins P04", () => {
+test("a move to another press of the same hall is ONE request, source row first: the job leaves P03 and joins P04 under its id", () => {
     const moved = writeOne(inline, "H1", hall1(), [P03, P04], moveOf("j4642", P03, P04, W29, W32));
-    assert.ok(moved !== undefined && sameHall(moved, hall1([], [J4642_LATER])));
+    assert.ok(moved !== undefined && sameHall(moved, hall1([], [["j4642", J4642_LATER]])));
 });
 
 test("a move to a press of another hall is two requests in order — the job leaves one hall and joins the other", () => {
@@ -160,7 +157,7 @@ test("a move to a press of another hall is two requests in order — the job lea
     ]);
     const [one, two] = outs.map((o) => (o.type === "some" ? decodeHall(o.value) : undefined));
     assert.ok(one !== undefined && sameHall(one, hall1([])));
-    assert.ok(two !== undefined && sameHall(two, hall2([J4642_LATER])));
+    assert.ok(two !== undefined && sameHall(two, hall2([["j4642", J4642_LATER]])));
 });
 
 test("a move that lands nowhere is refused whole — a job is never taken without being put", () => {
@@ -186,37 +183,37 @@ test("a move that lands nowhere is refused whole — a job is never taken withou
     assert.equal(numeric?.type, "none");
 });
 
-test("a press's jobs keep their keys unique — a move onto a press already holding the key, or a card whose job repeats one, is refused", () => {
-    // P04 already holds a job keyed j4642 — another job, the same key. The move
-    // would leave P04 two jobs one key names, so it puts the job nowhere, and
-    // the move is refused whole.
-    const J4642_ELSEWHERE: JobValue = { key: "j4642", start: W31, end: W33 };
-    const clash = hall1([J4642], [J4642_ELSEWHERE]);
+test("a press's jobs are keyed by id — a move onto a press already holding the id, or a card whose minted id it holds, is refused", () => {
+    // P04 already holds a job under j4642 — another job, the same id. The move
+    // would put two jobs under one id, so it puts the job nowhere, and the move
+    // is refused whole.
+    const J4642_ELSEWHERE: JobValue = { start: W31, end: W33 };
+    const clash = hall1([["j4642", J4642]], [["j4642", J4642_ELSEWHERE]]);
     const [sameHallMove] = inline.write([{ id: "H1", entry: encodeHall(clash), rows: [P03, P04], gesture: moveOf("j4642", P03, P04, W29, W32) }]);
     assert.equal(sameHallMove?.type, "none");
     // Across halls: the target hall refuses it, so the source hall gives nothing up.
     const across = inline.write([
         { id: "H1", entry: encodeHall(hall1()), rows: [P03], gesture: moveOf("j4642", P03, P11, W29, W32) },
-        { id: "H2", entry: encodeHall(hall2([J4642_ELSEWHERE])), rows: [P11], gesture: moveOf("j4642", P03, P11, W29, W32) },
+        { id: "H2", entry: encodeHall(hall2([["j4642", J4642_ELSEWHERE]])), rows: [P11], gesture: moveOf("j4642", P03, P11, W29, W32) },
     ]);
     assert.deepEqual(across.map((o) => o.type), ["none", "none"]);
-    // `create` keys a card by the card and the list's size: on a press holding
-    // one poster job already, a second poster card mints "poster-1" again — refused.
-    assert.equal(writeOne(inline, "H1", hall1([POSTER]), [P03], dropOf("poster", P03, W29)), undefined);
-    // Along its own row the key is its own, so a move there is untouched by the rule.
+    // A card's item goes in under the id the renderer minted: one the press holds is refused.
+    assert.equal(writeOne(inline, "H1", hall1([["poster-1", POSTER]]), [P03], dropOf("poster", P03, W29, "poster-1")), undefined);
+    // Along its own row the id is its own, so a move there is untouched by the rule.
     const along = writeOne(inline, "H1", clash, [P04], moveOf("j4642", P04, P04, W29, W32));
-    assert.ok(along !== undefined && sameHall(along, hall1([J4642], [J4642_LATER])));
+    assert.ok(along !== undefined && sameHall(along, hall1([["j4642", J4642]], [["j4642", J4642_LATER]])));
 });
 
 // Every instant field type (#825): a number axis's Integer field and a Plan.Types.Instant field, and an ordinal
 // axis's String fields.
-const Slot = StructType({ key: StringType, at: IntegerType });
-const Board = StructType({ slots: ArrayType(Slot), marks: ArrayType(Plan.Types.EventMark) });
+const Slot = StructType({ at: IntegerType });
+const Milestone = StructType({ at: Plan.Types.Instant, kind: Plan.Types.EventMarkKind, label: OptionType(StringType) });
+const Board = StructType({ slots: DictType(StringType, Slot), marks: DictType(StringType, Milestone) });
 type BoardValue = ValueTypeOf<typeof Board>;
 type InstantValue = ValueTypeOf<typeof Plan.Types.Instant>;
 const boardOf = (at: bigint, mark: InstantValue): BoardValue => ({
-    slots: [{ key: "s1", at }],
-    marks: [{ key: "k", at: mark, kind: variant("milestone", null), icon: none, label: none }],
+    slots: new Map([["s1", { at }]]),
+    marks: new Map([["k", { at: mark, kind: variant("milestone", null), label: none }]]),
 });
 const BOARD = boardOf(2n, variant("number", 2));
 const numberWire = editingOf(East.function([], Plan.Types.Root, ($) => {
@@ -227,12 +224,13 @@ const numberWire = editingOf(East.function([], Plan.Types.Root, ($) => {
         series: [
             Plan.series.buckets(Board, {
                 key: "slots", title: "Slots", label: (_b, k) => k,
-                events: (b) => b.slots.map((_$, s) => Plan.event({ key: s.key, at: s.at, state: "confirmed" })),
-                edit: { items: "slots", key: "key", at: "at" },
+                events: Plan.items("slots", { at: "at" }, () => ({ state: "confirmed" })),
+                edit: true,
             }),
             Plan.series.events(Board, {
-                key: "marks", title: "Marks", label: (_b, k) => k, marks: (b) => b.marks,
-                edit: { items: "marks", key: "key", at: "at" },
+                key: "marks", title: "Marks", label: (_b, k) => k,
+                marks: Plan.items("marks", { at: "at" }, (mark) => ({ kind: mark.kind, label: mark.label })),
+                edit: true,
             }),
         ],
         editing: {},
@@ -260,9 +258,9 @@ test("a move writes the axis instant into the item's field on its arm — an Int
     assert.ok(mark !== undefined && same(mark, boardOf(2n, variant("number", 5.5))));
 });
 
-const Phase = StructType({ key: StringType, from: StringType, to: StringType });
-const Flow = StructType({ phases: ArrayType(Phase) });
-const FLOW: ValueTypeOf<typeof Flow> = { phases: [{ key: "p1", from: "PLATES", to: "PRINT" }] };
+const Phase = StructType({ from: StringType, to: StringType });
+const Flow = StructType({ phases: DictType(StringType, Phase) });
+const FLOW: ValueTypeOf<typeof Flow> = { phases: new Map([["p1", { from: "PLATES", to: "PRINT" }]]) };
 const ordinalWire = editingOf(East.function([], Plan.Types.Root, ($) => {
     const data = $.const(new Map([["f", FLOW]]), DictType(StringType, Flow));
     return Plan.Root({
@@ -270,8 +268,8 @@ const ordinalWire = editingOf(East.function([], Plan.Types.Root, ($) => {
         data,
         series: [Plan.series.cards(Flow, {
             key: "phases", title: "Phases", label: (_f, k) => k,
-            chips: (f) => f.phases.map((_$, p) => Plan.chip({ key: p.key, from: p.from, to: p.to, label: p.key, state: "confirmed" })),
-            edit: { items: "phases", key: "key", start: "from", end: "to" },
+            chips: Plan.items("phases", { from: "from", to: "to" }, (_phase, id) => ({ label: id, state: "confirmed" })),
+            edit: true,
         })],
         editing: {},
     });
@@ -283,15 +281,38 @@ test("an ordinal axis's move writes its values into String fields", () => {
         id: "f", entry: encodeBeast2For(Flow)(FLOW), rows: [row],
         gesture: variant("move", { key: "p1", from: row, to: row, start: variant("ordinal", "PRINT"), end: variant("ordinal", "FINISH") }),
     }]);
-    assert.ok(out?.type === "some" && equalFor(Flow)(decodeBeast2For(Flow)(out.value), { phases: [{ key: "p1", from: "PRINT", to: "FINISH" }] }));
+    assert.ok(out?.type === "some" && equalFor(Flow)(decodeBeast2For(Flow)(out.value), { phases: new Map([["p1", { from: "PRINT", to: "FINISH" }]]) }));
+});
+
+// A time held as an Option (#1436): a move writes the instant into it as `some`.
+const Leg = StructType({ start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
+const Route = StructType({ legs: DictType(StringType, Leg) });
+const ROUTE: ValueTypeOf<typeof Route> = { legs: new Map([["l1", { start: some(W28), end: none }]]) };
+const optionWire = editingOf(East.function([], Plan.Types.Root, ($) => {
+    const data = $.const(new Map([["r", ROUTE]]), DictType(StringType, Route));
+    return Plan.Root({
+        axis, data,
+        series: [Plan.series.span(Route, {
+            key: "legs", title: "Legs", label: (_r, k) => k,
+            runs: Plan.items("legs", { from: "start", to: "end" }, (_leg, id) => ({ label: id, state: "confirmed" })),
+            edit: true,
+        })],
+        editing: {},
+    });
+}).toIR().compile([])());
+
+test("a move writes an Option time field as some — an instant leg given an end where it lands", () => {
+    const row: RowId = variant("entry", { series: "legs", path: ["r"] });
+    const [out] = optionWire.write([{ id: "r", entry: encodeBeast2For(Route)(ROUTE), rows: [row], gesture: moveOf("l1", row, row, W29, W31) }]);
+    assert.ok(out?.type === "some" && equalFor(Route)(decodeBeast2For(Route)(out.value), { legs: new Map([["l1", { start: some(W29), end: some(W31) }]]) }));
 });
 
 test("derive draws each draft in its entry's place — with none it is the canvas's own blocks, and a draft derives like data", () => {
     const plain = inline.derive(0n, 0n, new Map());
     assert.ok(plain.type === "some" && inlineRoot.rows.type === "inline" && sameBlocks(plain.value, inlineRoot.rows.value));
-    const grown: HallValue = { name: "Hall 2", presses: new Map([["P11", { jobs: [] }], ["P12", { jobs: [] }]]) };
+    const grown: HallValue = { name: "Hall 2", presses: new Map([["P11", { jobs: new Map() }], ["P12", { jobs: new Map() }]]) };
     const drafted = inline.derive(0n, 0n, new Map([
-        ["H1", encodeHall(hall1([J4642, POSTER]))],
+        ["H1", encodeHall(hall1([["j4642", J4642], ["poster-1", POSTER]]))],
         ["H2", encodeHall(grown)],
     ]));
     assert.equal(drafted.type, "some");
@@ -372,7 +393,7 @@ test("a paged canvas edits the windows it pages — derive and entryIds read the
     const page = root.rows.type === "paged" ? root.rows.value.page(0n, 200n) : undefined;
     const plain = wire.derive(0n, 200n, new Map());
     assert.ok(page?.type === "some" && plain.type === "some" && sameBlocks(plain.value, page.value));
-    const drafted = wire.derive(0n, 200n, new Map([["H2", encodeHall(hall2([LEAFLET]))]]));
+    const drafted = wire.derive(0n, 200n, new Map([["H2", encodeHall(hall2([["leaflet-0", LEAFLET]]))]]));
     assert.equal(drafted.type, "some");
     if (drafted.type !== "some") return;
     const p11 = drafted.value.flatMap((b) => b.rows).find((r) => equalFor(Plan.Types.RowId)(r.id, press("H2", "P11")));
@@ -403,7 +424,7 @@ test("ready checks each drafted entry in one call, in order — a check that thr
     assert.equal(wire.ready.type, "some");
     if (wire.ready.type !== "some") return;
     const results = wire.ready.value([
-        { id: "H1", entry: encodeHall(hall1([J4642, POSTER])) },
+        { id: "H1", entry: encodeHall(hall1([["j4642", J4642], ["poster-1", POSTER]])) },
         { id: "H2", entry: encodeHall(hall2()) },
         { id: "H9", entry: encodeHall(hall2()) },
     ]);
@@ -432,7 +453,7 @@ test("onPatch hears each gesture at Plan.Types.PatchEvent(R) — whole-entry dra
     const draftDiff = diffFor(OptionType(Editing.Types.DraftField(Hall)));
     wire.onPatch.value(encodeBeast2For(PatchEvent)({
         transactionId: "t1", origin: variant("drop", null), label: "Drop on H1-P03",
-        draftChanges: [{ id: "H1", patch: draftDiff(none, some(variant("value", hall1([J4642, POSTER])))), place: none }],
+        draftChanges: [{ id: "H1", patch: draftDiff(none, some(variant("value", hall1([["j4642", J4642], ["poster-1", POSTER]])))), place: none }],
         domainChanges: none, readiness: variant("ready", null),
     }));
     assert.deepEqual(heard.log(), ["drop · Drop on H1-P03 · 1"]);
@@ -444,7 +465,7 @@ const encodeBatch = encodeBeast2For(Batch);
 const hallDiff = diffFor(OptionType(Hall));
 const dropOnP03 = (requestId: string, base: BatchValue["base"]): BatchValue => ({
     requestId, base, label: "Drop on H1-P03",
-    changes: [{ id: "H1", patch: hallDiff(some(hall1()), some(hall1([J4642, POSTER]))), place: none }],
+    changes: [{ id: "H1", patch: hallDiff(some(hall1()), some(hall1([["j4642", J4642], ["poster-1", POSTER]]))), place: none }],
 });
 
 test("onApply receives the change set at the canvas's own entry and key types — sync, or async", async () => {
@@ -519,19 +540,19 @@ test("onUpdate applies a batch through the live handle — checked against the s
     const base: BatchValue["base"] = variant("snapshot", decodeBeast2For(Halls)(wire.snapshot.value));
     const first = encodeBatch(dropOnP03("r1", base));
     assert.deepEqual(apply(first), variant("applied", { revision: none }));
-    assert.ok(sameHall(saved.get("H1")!, hall1([J4642, POSTER])));
+    assert.ok(sameHall(saved.get("H1")!, hall1([["j4642", J4642], ["poster-1", POSTER]])));
     assert.ok(sameHall(saved.get("H2")!, hall2()));
     assert.equal(writes, 1);
     // The canvas reads the handle live: the entry read back is the applied one.
     const read = wire.readEntry("H1", 0n);
-    assert.ok(read.type === "some" && sameHall(decodeHall(read.value), hall1([J4642, POSTER])));
+    assert.ok(read.type === "some" && sameHall(decodeHall(read.value), hall1([["j4642", J4642], ["poster-1", POSTER]])));
     // A replay answers from the ledger — nothing is written twice.
     assert.deepEqual(apply(first), variant("applied", { revision: none }));
     assert.equal(writes, 1);
     // A new batch from the old base is refused, never rebased: the source moved under it.
     const stale = encodeBatch({
         requestId: "r2", base, label: "Drop on H2-P11",
-        changes: [{ id: "H2", patch: hallDiff(some(hall2()), some(hall2([LEAFLET]))), place: none }],
+        changes: [{ id: "H2", patch: hallDiff(some(hall2()), some(hall2([["leaflet-0", LEAFLET]]))), place: none }],
     });
     assert.equal(apply(stale).type, "conflict");
     assert.ok(sameHall(saved.get("H2")!, hall2()));

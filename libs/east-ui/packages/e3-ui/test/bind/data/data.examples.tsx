@@ -45,8 +45,8 @@ export const OpsRow = StructType({
     load:      FloatType,
     state:     EventStateType,
 });
-/** One hall's presses (or the delivery vans), keyed by id. */
-export const OpsHall = DictType(StringType, OpsRow);
+/** One hall — its presses (or the delivery vans), a Dict keyed by id, which its series step down into by field. */
+export const OpsHall = StructType({ presses: DictType(StringType, OpsRow) });
 
 /**
  * The seeded ops schedule — an `e3.input`'s default IS the dataset's initial
@@ -63,7 +63,7 @@ export const OpsHall = DictType(StringType, OpsRow);
  * estimated ahead of it.
  */
 export const opsInput = e3.input('ops', DictType(StringType, OpsHall), variant('value', new Map([
-    ["Hall 1", new Map([
+    ["Hall 1", { presses: new Map([
         ["H1-P01", { ticket: "J-4603", startWeek: 25n, weeks: 3n, sheets: 96.0,  load: 78.0, state: ACTUAL }],
         ["H1-P02", { ticket: "J-4612", startWeek: 26n, weeks: 2n, sheets: 64.0,  load: 71.0, state: ACTUAL }],
         ["H1-P03", { ticket: "J-4642", startWeek: 28n, weeks: 3n, sheets: 112.0, load: 88.0, state: RUNNING }],
@@ -74,8 +74,8 @@ export const opsInput = e3.input('ops', DictType(StringType, OpsHall), variant('
         ["H1-P08", { ticket: "J-4708", startWeek: 35n, weeks: 3n, sheets: 96.0,  load: 74.0, state: PROPOSED }],
         ["H1-P09", { ticket: "J-4726", startWeek: 36n, weeks: 3n, sheets: 80.0,  load: 63.0, state: ESTIMATED }],
         ["H1-P10", { ticket: "J-4741", startWeek: 37n, weeks: 2n, sheets: 56.0,  load: 48.0, state: ESTIMATED }],
-    ])],
-    ["Hall 2", new Map([
+    ]) }],
+    ["Hall 2", { presses: new Map([
         ["H2-P01", { ticket: "J-4906", startWeek: 25n, weeks: 4n, sheets: 118.0, load: 91.0, state: ACTUAL }],
         ["H2-P02", { ticket: "J-4921", startWeek: 27n, weeks: 2n, sheets: 52.0,  load: 55.0, state: ACTUAL }],
         ["H2-P03", { ticket: "J-4933", startWeek: 29n, weeks: 3n, sheets: 92.0,  load: 80.0, state: RUNNING }],
@@ -86,8 +86,8 @@ export const opsInput = e3.input('ops', DictType(StringType, OpsHall), variant('
         ["H2-P08", { ticket: "J-5002", startWeek: 35n, weeks: 4n, sheets: 112.0, load: 87.0, state: PROPOSED }],
         ["H2-P09", { ticket: "J-5014", startWeek: 37n, weeks: 3n, sheets: 76.0,  load: 64.0, state: ESTIMATED }],
         ["H2-P10", { ticket: "J-5029", startWeek: 38n, weeks: 2n, sheets: 48.0,  load: 44.0, state: ESTIMATED }],
-    ])],
-    ["Hall 3", new Map([
+    ]) }],
+    ["Hall 3", { presses: new Map([
         ["H3-P01", { ticket: "J-5203", startWeek: 24n, weeks: 3n, sheets: 88.0,  load: 73.0, state: ACTUAL }],
         ["H3-P02", { ticket: "J-5215", startWeek: 26n, weeks: 4n, sheets: 124.0, load: 94.0, state: ACTUAL }],
         ["H3-P03", { ticket: "J-5230", startWeek: 29n, weeks: 2n, sheets: 56.0,  load: 51.0, state: RUNNING }],
@@ -98,8 +98,8 @@ export const opsInput = e3.input('ops', DictType(StringType, OpsHall), variant('
         ["H3-P08", { ticket: "J-5299", startWeek: 36n, weeks: 2n, sheets: 64.0,  load: 57.0, state: PROPOSED }],
         ["H3-P09", { ticket: "J-5311", startWeek: 37n, weeks: 4n, sheets: 108.0, load: 85.0, state: ESTIMATED }],
         ["H3-P10", { ticket: "J-5323", startWeek: 39n, weeks: 2n, sheets: 44.0,  load: 41.0, state: ESTIMATED }],
-    ])],
-    ["Hall 4", new Map([
+    ]) }],
+    ["Hall 4", { presses: new Map([
         ["H4-P01", { ticket: "J-5506", startWeek: 25n, weeks: 2n, sheets: 60.0,  load: 54.0, state: ACTUAL }],
         ["H4-P02", { ticket: "J-5518", startWeek: 27n, weeks: 3n, sheets: 96.0,  load: 79.0, state: ACTUAL }],
         ["H4-P03", { ticket: "J-5533", startWeek: 28n, weeks: 4n, sheets: 132.0, load: 98.0, state: RUNNING }],
@@ -110,8 +110,8 @@ export const opsInput = e3.input('ops', DictType(StringType, OpsHall), variant('
         ["H4-P08", { ticket: "J-5599", startWeek: 37n, weeks: 3n, sheets: 84.0,  load: 70.0, state: ESTIMATED }],
         ["H4-P09", { ticket: "J-5614", startWeek: 38n, weeks: 2n, sheets: 52.0,  load: 47.0, state: ESTIMATED }],
         ["H4-P10", { ticket: "J-5626", startWeek: 39n, weeks: 3n, sheets: 88.0,  load: 72.0, state: ESTIMATED }],
-    ])],
-    ["Hall 5", new Map([
+    ]) }],
+    ["Hall 5", { presses: new Map([
         ["H5-P01", { ticket: "J-5803", startWeek: 24n, weeks: 4n, sheets: 110.0, load: 86.0, state: ACTUAL }],
         ["H5-P02", { ticket: "J-5815", startWeek: 26n, weeks: 2n, sheets: 58.0,  load: 53.0, state: ACTUAL }],
         ["H5-P03", { ticket: "J-5827", startWeek: 28n, weeks: 3n, sheets: 94.0,  load: 77.0, state: RUNNING }],
@@ -122,10 +122,10 @@ export const opsInput = e3.input('ops', DictType(StringType, OpsHall), variant('
         ["H5-P08", { ticket: "J-5893", startWeek: 36n, weeks: 4n, sheets: 114.0, load: 89.0, state: PROPOSED }],
         ["H5-P09", { ticket: "J-5908", startWeek: 38n, weeks: 3n, sheets: 82.0,  load: 68.0, state: ESTIMATED }],
         ["H5-P10", { ticket: "J-5920", startWeek: 39n, weeks: 2n, sheets: 50.0,  load: 45.0, state: ESTIMATED }],
-    ])],
+    ]) }],
     // The delivery vans — the same flat row, read as weekly load strips
     // rather than run bars (see the `vans` series below).
-    ["Vans", new Map([
+    ["Vans", { presses: new Map([
         ["V-01", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 46.0, state: CONFIRMED }],
         ["V-02", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 58.0, state: CONFIRMED }],
         ["V-03", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 67.0, state: CONFIRMED }],
@@ -136,7 +136,7 @@ export const opsInput = e3.input('ops', DictType(StringType, OpsHall), variant('
         ["V-08", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 97.0, state: CONFIRMED }],
         ["V-09", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 64.0, state: CONFIRMED }],
         ["V-10", { ticket: "—", startWeek: 27n, weeks: 12n, sheets: 0.0, load: 52.0, state: CONFIRMED }],
-    ])],
+    ]) }],
 ])));
 
 /**
@@ -352,7 +352,7 @@ export const dataBindPagedPlan = example({
                     label: (_h, hall) => hall,
                     runs: _l => [],
                     rollup: "union",
-                    children: Plan.children((l) => l, [
+                    children: Plan.children("presses", [
                         // Presses — each flat row becomes TWO bars: a one-week
                         // make-ready ahead of the job, then the run itself, with its
                         // label and quantity built from the job ticket and sheets
@@ -388,7 +388,7 @@ export const dataBindPagedPlan = example({
                     match: (_h, hall) => hall.equal("Vans"),
                     label: (_h, hall) => hall,
                     collapsed: true, summaryAggregate: "mean",
-                    children: Plan.children((l) => l, [
+                    children: Plan.children("presses", [
                         Plan.series.heat(OpsRow, {
                             key: "van-load", title: "Van load",
                             label: (_r, k) => k, id: true,

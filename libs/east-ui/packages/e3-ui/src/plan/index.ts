@@ -148,6 +148,11 @@ import {
 } from "./builders.js";
 import {
     createLayer,
+    createLine,
+    createArea,
+    createColumn,
+    createScatter,
+    createBand,
     createFixedHeight,
     createSpan,
     createBuckets,
@@ -175,6 +180,7 @@ import {
     createChildren,
 } from "./series.js";
 import { createPlanRoot } from "./root.js";
+import { createItems, createValues } from "./reads.js";
 import { createPlanPick, createPlanPickItems } from "./pick.js";
 import { PlanComponent, PlanTag, createPlanPayload, type PlanTagType } from "./plan.js";
 import { createOver } from "./over.js";
@@ -355,7 +361,23 @@ export {
     type PlanHeatCellsOptions,
     type PlanSegmentInput,
     type PlanTableSeriesInput,
+    type PlanTableSeriesOfValues,
     type PlanLinkInput,
+    type PlanFoldOf,
+    type PlanLookOption,
+    type PlanRunLook,
+    type PlanDecisionLook,
+    type PlanPortLook,
+    type PlanBucketEventLook,
+    type PlanCellMarkerLook,
+    type PlanChipLook,
+    type PlanEventMarkLook,
+    type PlanHeatCellLook,
+    type PlanWeightCellLook,
+    type PlanSegmentCellLook,
+    type PlanTableCellLook,
+    type PlanChartPointLook,
+    type PlanChartBandLook,
 } from "./builders.js";
 export { type PlanExpandInput, type PlanRowBaseInput, type PlanRowsInput, type PlanRowFields, type PlanGutterFields } from "./assemble.js";
 export {
@@ -403,15 +425,41 @@ export {
     type PlanSectionSeriesConfig,
     type PlanViewsSeriesConfig,
     type PlanEntryFields,
-    type PlanItemsField,
-    type PlanItemOf,
     type PlanItemFields,
-    type PlanItemKeyField,
     type PlanItemInstantType,
-    type PlanItemInstantField,
-    type PlanEditInput,
-    type PlanPointEditInput,
+    type PlanItemsEdit,
+    type PlanEditOf,
+    type PlanReadsNormal,
+    type PlanChildrenReads,
+    type PlanSeriesListReads,
+    type PlanSeriesListFolds,
+    type PlanFoldsBrand,
+    type PlanSpanReads,
+    type PlanHeatReads,
+    type PlanTableReads,
 } from "./series.js";
+export {
+    PlanReadsBrand,
+    PlanUseBrand,
+    type PlanCollectionField,
+    type PlanItemsField,
+    type PlanValuesField,
+    type PlanChildField,
+    type PlanTreeField,
+    type PlanCollectionItem,
+    type PlanCollectionKey,
+    type PlanItemTimeField,
+    type PlanItemTimes,
+    type PlanSpanTimes,
+    type PlanPointTimes,
+    type PlanKindOfTimes,
+    type PlanKindOfKey,
+    type PlanItems,
+    type PlanValues,
+    type PlanItemsInput,
+    type PlanValuesInput,
+    type PlanValuesUse,
+} from "./reads.js";
 
 // ============================================================================
 // Namespace
@@ -478,8 +526,12 @@ export interface PlanNamespace extends PlanTagType {
         /** Hand-built rows, named by the series and placed as its block. */
         rows: typeof createSeriesRows;
     };
-    /** A step down from an entry to a child collection of another type — a series' `children` (#822). */
+    /** A step down from an entry to its child rows — a `Dict` field of it, keyed by an id — for a series' `children` (#822, #1436). */
     children: typeof createChildren;
+    /** Read a row's collection of things people drag — a `Dict` keyed by an id, their times the fields named — as a series' runs, decisions, tiles, chips or marks (#1436). */
+    items: typeof createItems;
+    /** Read a row's collection of values — a `Dict` keyed by their instants — as cells, a table position's cells, a chart layer's points, ports or markers (#1436). */
+    values: typeof createValues;
     /** A row's id by series and path — `Plan.ref("press-jobs", "H1", "p03")` (#822). */
     ref: typeof createRef;
     /** A section header's id — `Plan.sectionRef("crew-block", "H1")` (#822). */
@@ -533,6 +585,16 @@ export interface PlanNamespace extends PlanTagType {
     tableSeries: typeof createTableSeries;
     /** Wraps a Chart layer with the Plan-only channels (axis / breach / series). */
     layer: typeof createLayer;
+    /** A chart row's line over a row's values (`Plan.values`) — a vertex at each value's instant (#1436). */
+    line: typeof createLine;
+    /** A chart row's filled area over a row's values (#1436). */
+    area: typeof createArea;
+    /** A chart row's columns over a row's values (#1436). */
+    column: typeof createColumn;
+    /** A chart row's point markers over a row's values (#1436). */
+    scatter: typeof createScatter;
+    /** A chart row's filled range over a row's values — `{ lo, hi }` at each instant (#1436). */
+    band: typeof createBand;
     /** Pins a chart row to an explicit pixel height. */
     fixed: typeof createFixedHeight;
     /** Binds the canvas's row series to a persisted pick (#590) — pass it as
@@ -715,6 +777,8 @@ const PLAN_MEMBERS = {
         rows: createSeriesRows,
     },
     children: createChildren,
+    items: createItems,
+    values: createValues,
     ref: createRef,
     sectionRef: createSectionRef,
     eventRef: createEventRef,
@@ -742,6 +806,11 @@ const PLAN_MEMBERS = {
     tableCells: createTableCells,
     tableSeries: createTableSeries,
     layer: createLayer,
+    line: createLine,
+    area: createArea,
+    column: createColumn,
+    scatter: createScatter,
+    band: createBand,
     fixed: createFixedHeight,
     pick: createPlanPick,
     pickItems: createPlanPickItems,
@@ -869,81 +938,62 @@ const PLAN_MEMBERS = {
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { ArrayType, BooleanType, DictType, East, FloatType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
- * import { Chart, EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
+ * import { ArrayType, BooleanType, DictType, East, FloatType, OptionType, StringType, StructType, none, some, variant, type option } from "@elaraai/east";
+ * import { EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Data, Plan } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const OrdinalJob = StructType({ key: StringType, label: StringType, start: StringType, end: StringType, state: EventStateType });
- * export const OrdinalAlloc = StructType({ key: StringType, phase: StringType, state: EventStateType });
- * export const OrdinalShift = StructType({ key: StringType, from: StringType, to: StringType, label: StringType, state: EventStateType });
- * export const OrdinalMark = StructType({ key: StringType, phase: StringType, label: StringType, exception: BooleanType });
- * export const OrdinalPoint = StructType({ phase: StringType, n: FloatType });
- * export const OrdinalReading = StructType({ at: StringType, value: OptionType(FloatType) });
+ * export const OrdinalJob = StructType({ label: StringType, start: StringType, end: StringType, state: EventStateType });
+ * export const OrdinalAlloc = StructType({ phase: StringType, state: EventStateType });
+ * export const OrdinalShift = StructType({ from: StringType, to: StringType, label: StringType, state: EventStateType });
+ * export const OrdinalMark = StructType({ phase: StringType, label: StringType, exception: BooleanType });
  * export const OrdinalOrderRow = StructType({
  *     series: StringType, label: StringType, value: OptionType(StringType), sub: OptionType(StringType),
- *     jobs: ArrayType(OrdinalJob), allocations: ArrayType(OrdinalAlloc), shifts: ArrayType(OrdinalShift),
- *     marks: ArrayType(OrdinalMark), points: ArrayType(OrdinalPoint), counts: ArrayType(OrdinalReading),
- *     cells: ArrayType(Plan.Types.HeatCell),
+ *     jobs: DictType(StringType, OrdinalJob), allocations: DictType(StringType, OrdinalAlloc), shifts: DictType(StringType, OrdinalShift),
+ *     marks: DictType(StringType, OrdinalMark), wip: DictType(StringType, FloatType), counts: DictType(StringType, OptionType(FloatType)),
+ *     load: DictType(StringType, FloatType),
  * });
+ *
+ * const ORDINAL_EMPTY = {
+ *     jobs: new Map(), allocations: new Map(), shifts: new Map(), marks: new Map(), wip: new Map(), counts: new Map(), load: new Map(),
+ * };
+ *
  * export const planOrdinalOrders = e3.input("plan_ordinal_orders", DictType(StringType, OrdinalOrderRow), variant("value", new Map([
- *     ["j6188", { series: "job", label: "J-6188", value: some("96 k sheets"), sub: none,
- *       allocations: [], shifts: [], marks: [], points: [], counts: [], cells: [],
- *       jobs: [
- *           { key: "plates", label: "PLATES", start: "PREPRESS", end: "PLATES", state: variant("actual", null) },
- *           { key: "print", label: "PRINT · J-4642", start: "PRINT", end: "FINISH", state: variant("in-progress", null) },
- *           { key: "deliver", label: "BIND + DELIVER", start: "BIND", end: "DELIVER", state: variant("proposed", variant("recommended", null)) },
- *       ] }],
- *     ["j6204", { series: "job", label: "J-6204", value: some("54 k sheets"), sub: none,
- *       allocations: [], shifts: [], marks: [], points: [], counts: [], cells: [],
- *       jobs: [
- *           { key: "prepress", label: "PREPRESS", start: "PREPRESS", end: "PREPRESS", state: variant("actual", null) },
- *           { key: "print", label: "PRINT · J-4663", start: "PLATES", end: "BIND", state: variant("proposed", variant("recommended", null)) },
- *       ] }],
- *     ["bindery", { series: "bindery", label: "Bindery 2", value: none, sub: some("slots"),
- *       jobs: [], shifts: [], marks: [], points: [], counts: [], cells: [],
- *       allocations: [
- *           { key: "a1", phase: "PLATES", state: variant("confirmed", null) }, { key: "a2", phase: "PRINT", state: variant("confirmed", null) },
- *           { key: "a3", phase: "PRINT", state: variant("proposed", variant("recommended", null)) }, { key: "a4", phase: "BIND", state: variant("proposed", variant("recommended", null)) },
- *       ] }],
- *     // Heat cells as STORED records — the phase spelled on the `ordinal` arm.
- *     ["load", { series: "load", label: "Phase load", value: none, sub: none,
- *       jobs: [], allocations: [], shifts: [], marks: [], points: [], counts: [],
- *       cells: [
- *           { at: variant("ordinal", "PREPRESS"), value: some(35.0), label: some("35") },
- *           { at: variant("ordinal", "PLATES"), value: some(66.0), label: some("66") },
- *           { at: variant("ordinal", "PRINT"), value: some(37.0), label: some("37") },
- *           { at: variant("ordinal", "FINISH"), value: some(68.0), label: some("68") },
- *           { at: variant("ordinal", "BIND"), value: some(39.0), label: some("39") },
- *           { at: variant("ordinal", "DELIVER"), value: some(70.0), label: some("70") },
- *       ] }],
- *     ["wip", { series: "wip", label: "WIP · jobs", value: some("31"), sub: none,
- *       jobs: [], allocations: [], shifts: [], marks: [], counts: [], cells: [],
- *       points: [
- *           { phase: "PREPRESS", n: 4.0 }, { phase: "PLATES", n: 11.0 }, { phase: "PRINT", n: 18.0 },
- *           { phase: "FINISH", n: 5.0 }, { phase: "BIND", n: 12.0 }, { phase: "DELIVER", n: 19.0 },
- *       ] }],
- *     ["count", { series: "count", label: "Jobs in phase", value: none, sub: none,
- *       jobs: [], allocations: [], shifts: [], marks: [], points: [], cells: [],
- *       counts: [
- *           { at: "PREPRESS", value: some(12.0) }, { at: "PLATES", value: some(23.0) }, { at: "PRINT", value: some(34.0) },
- *           { at: "FINISH", value: some(15.0) }, { at: "BIND", value: none }, { at: "DELIVER", value: some(37.0) },
- *       ] }],
- *     ["crew", { series: "crew", label: "Crew B", value: none, sub: none,
- *       jobs: [], allocations: [], marks: [], points: [], counts: [], cells: [],
- *       shifts: [
- *           { key: "s1", from: "PREPRESS", to: "PLATES", label: "prepress crew", state: variant("confirmed", null) },
- *           { key: "s2", from: "PRINT", to: "DELIVER", label: "+ bindery crew", state: variant("proposed", variant("recommended", null)) },
- *       ] }],
- *     ["gates", { series: "gates", label: "Gates", value: none, sub: none,
- *       jobs: [], allocations: [], shifts: [], points: [], counts: [], cells: [],
- *       marks: [
- *           { key: "g1", phase: "FINISH", label: "HOLD", exception: true },
- *           { key: "g2", phase: "DELIVER", label: "RELEASE", exception: false },
- *       ] }],
+ *     ["j6188", { ...ORDINAL_EMPTY, series: "job", label: "J-6188", value: some("96 k sheets"), sub: none,
+ *       jobs: new Map([
+ *           ["plates", { label: "PLATES", start: "PREPRESS", end: "PLATES", state: variant("actual", null) }],
+ *           ["print", { label: "PRINT · J-4642", start: "PRINT", end: "FINISH", state: variant("in-progress", null) }],
+ *           ["deliver", { label: "BIND + DELIVER", start: "BIND", end: "DELIVER", state: variant("proposed", variant("recommended", null)) }],
+ *       ]) }],
+ *     ["j6204", { ...ORDINAL_EMPTY, series: "job", label: "J-6204", value: some("54 k sheets"), sub: none,
+ *       jobs: new Map([
+ *           ["prepress", { label: "PREPRESS", start: "PREPRESS", end: "PREPRESS", state: variant("actual", null) }],
+ *           ["print", { label: "PRINT · J-4663", start: "PLATES", end: "BIND", state: variant("proposed", variant("recommended", null)) }],
+ *       ]) }],
+ *     ["bindery", { ...ORDINAL_EMPTY, series: "bindery", label: "Bindery 2", value: none, sub: some("slots"),
+ *       allocations: new Map([
+ *           ["a1", { phase: "PLATES", state: variant("confirmed", null) }], ["a2", { phase: "PRINT", state: variant("confirmed", null) }],
+ *           ["a3", { phase: "PRINT", state: variant("proposed", variant("recommended", null)) }], ["a4", { phase: "BIND", state: variant("proposed", variant("recommended", null)) }],
+ *       ]) }],
+ *     ["load", { ...ORDINAL_EMPTY, series: "load", label: "Phase load", value: none, sub: none,
+ *       load: new Map([["PREPRESS", 35.0], ["PLATES", 66.0], ["PRINT", 37.0], ["FINISH", 68.0], ["BIND", 39.0], ["DELIVER", 70.0]]) }],
+ *     ["wip", { ...ORDINAL_EMPTY, series: "wip", label: "WIP · jobs", value: some("31"), sub: none,
+ *       wip: new Map([["PREPRESS", 4.0], ["PLATES", 11.0], ["PRINT", 18.0], ["FINISH", 5.0], ["BIND", 12.0], ["DELIVER", 19.0]]) }],
+ *     ["count", { ...ORDINAL_EMPTY, series: "count", label: "Jobs in phase", value: none, sub: none,
+ *       counts: new Map<string, option<number>>([["PREPRESS", some(12.0)], ["PLATES", some(23.0)], ["PRINT", some(34.0)], ["FINISH", some(15.0)], ["BIND", none], ["DELIVER", some(37.0)]]) }],
+ *     ["crew", { ...ORDINAL_EMPTY, series: "crew", label: "Crew B", value: none, sub: none,
+ *       shifts: new Map([
+ *           ["s1", { from: "PREPRESS", to: "PLATES", label: "prepress crew", state: variant("confirmed", null) }],
+ *           ["s2", { from: "PRINT", to: "DELIVER", label: "+ bindery crew", state: variant("proposed", variant("recommended", null)) }],
+ *       ]) }],
+ *     ["gates", { ...ORDINAL_EMPTY, series: "gates", label: "Gates", value: none, sub: none,
+ *       marks: new Map([
+ *           ["g1", { phase: "FINISH", label: "HOLD", exception: true }],
+ *           ["g2", { phase: "DELIVER", label: "RELEASE", exception: false }],
+ *       ]) }],
  * ])));
  *
- * const canvas = East.function([], UIComponentType, (_$) => (
+ * const planOrdinalAxis = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const orders = $.let(Data.bind(planOrdinalOrders));
  *         const PHASES = $.const(["PREPRESS", "PLATES", "PRINT", "FINISH", "BIND", "DELIVER"], ArrayType(StringType));
@@ -955,49 +1005,48 @@ const PLAN_MEMBERS = {
  *                     key: "job", title: "Jobs",
  *                     match: r => r.series.equal("job"),
  *                     label: r => r.label, id: true, value: r => r.value,
- *                     // `j.start` / `j.end` are StringType fields — the builder wraps them to the ordinal arm.
- *                     runs: r => r.jobs.map((_$, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.label, state: j.state })),
+ *                     // `start` / `end` are String fields of each job — the read places them on the ordinal arm.
+ *                     runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.label, state: job.state })),
  *                 }),
  *             ]),
  *             Plan.series.buckets(OrdinalOrderRow, {
  *                 key: "bindery", title: "Bindery",
  *                 match: r => r.series.equal("bindery"),
  *                 label: r => r.label, sub: r => r.sub,
- *                 events: r => r.allocations.map((_$, a) => Plan.event({ key: a.key, at: a.phase, state: a.state })),
+ *                 events: Plan.items("allocations", { at: "phase" }, (alloc) => ({ state: alloc.state })),
  *             }),
  *             Plan.series.heat(OrdinalOrderRow, {
  *                 key: "load", title: "Phase load",
  *                 match: r => r.series.equal("load"),
  *                 label: r => r.label,
- *                 cells: r => Plan.heatCells(r.cells, { min: 0, max: 100, warnAt: 90 }),
+ *                 // A value a phase, keyed by the phase's name — each cell in its phase.
+ *                 cells: Plan.heatCells(Plan.values("load", (pct) => ({ value: pct, label: some(East.Float.printFixed(pct, 0n)) })), { min: 0, max: 100, warnAt: 90 }),
  *             }),
  *             Plan.series.chart(OrdinalOrderRow, {
  *                 key: "wip", title: "WIP",
  *                 match: r => r.series.equal("wip"),
  *                 label: r => r.label, id: true, value: r => r.value, height: "expanded",
- *                 // A string x accessor lands the columns on the ordinal arm.
- *                 layers: r => [Chart.Column(r.points, { x: p => p.phase, y: p => p.n })],
+ *                 layers: [Plan.column(Plan.values("wip", (n) => ({ y: n })))],
  *             }),
  *             Plan.series.table(OrdinalOrderRow, {
  *                 key: "count", title: "Counts",
  *                 match: r => r.series.equal("count"),
  *                 label: r => r.label,
- *                 cells: r => Plan.tableCells(r.counts),
+ *                 cells: Plan.tableCells(Plan.values("counts", (n) => ({ value: n }))),
  *                 format: Format.Number({ maximumFractionDigits: 0n }),
  *             }),
  *             Plan.series.cards(OrdinalOrderRow, {
  *                 key: "crew", title: "Crews",
  *                 match: r => r.series.equal("crew"),
  *                 label: r => r.label,
- *                 chips: r => r.shifts.map((_$, s) => Plan.chip({ key: s.key, from: s.from, to: s.to, label: s.label, state: s.state })),
+ *                 chips: Plan.items("shifts", { from: "from", to: "to" }, (shift) => ({ label: shift.label, state: shift.state })),
  *             }),
  *             Plan.series.events(OrdinalOrderRow, {
  *                 key: "gates", title: "Gates",
  *                 match: r => r.series.equal("gates"),
  *                 label: r => r.label, id: true,
- *                 marks: r => r.marks.map((_$, m) => Plan.mark({
- *                     key: m.key, at: m.phase, label: m.label,
- *                     kind: m.exception.ifElse(() => EXCEPTION, () => MILESTONE),
+ *                 marks: Plan.items("marks", { at: "phase" }, (gate) => ({
+ *                     label: gate.label, kind: gate.exception.ifElse(() => EXCEPTION, () => MILESTONE),
  *                 })),
  *             }),
  *         ], ArrayType(Plan.Types.Series(OrdinalOrderRow)));

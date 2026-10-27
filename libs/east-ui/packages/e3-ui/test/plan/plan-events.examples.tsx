@@ -15,9 +15,11 @@ import {
     NullType,
     OptionType,
     PatchType,
+    SortedMap,
     StringType,
     StructType,
     VariantType,
+    compareFor,
     example,
     none,
     some,
@@ -359,8 +361,8 @@ export const planEvents = example({
 // planEventLinks — every way a link draws, and rows over a dataset
 // ============================================================================
 
-/** A paper stock: its name, and its level in thousands of sheets, a reading a week from 5 October. */
-export const PrintStock = StructType({ name: StringType, weekly: ArrayType(FloatType) });
+/** A paper stock: its name, and its level in thousands of sheets, a reading a week keyed by its week (#1436). */
+export const PrintStock = StructType({ name: StringType, weekly: DictType(DateTimeType, FloatType) });
 
 /** Four jobs on the print works' presses — the covers and the sleeves on Press B3, and the handbooks and the boxes they go into on Press A1 — which the Plan's specs read as a second kind of job. */
 export const planLinkJobs = e3.record("plan_link_jobs", DictType(StringType, PrintJob), new Map([
@@ -375,9 +377,15 @@ export const planLinkJobsPatch = e3.mutation.patch(planLinkJobs);
 
 /** The paper in stock. */
 export const planLinkStock = e3.input("plan_link_stock", DictType(StringType, PrintStock), variant("value", new Map([
-    ["board", { name: "Board", weekly: [40.0, 22.0, 31.0, 18.0] }],
-    ["coated", { name: "Coated", weekly: [520.0, 410.0, 460.0, 380.0] }],
-    ["uncoated", { name: "Uncoated", weekly: [300.0, 260.0, 280.0, 240.0] }],
+    ["board", { name: "Board", weekly: new SortedMap([
+        [new Date("2026-10-05T00:00:00Z"), 40.0], [new Date("2026-10-12T00:00:00Z"), 22.0], [new Date("2026-10-19T00:00:00Z"), 31.0], [new Date("2026-10-26T00:00:00Z"), 18.0],
+    ], compareFor(DateTimeType)) }],
+    ["coated", { name: "Coated", weekly: new SortedMap([
+        [new Date("2026-10-05T00:00:00Z"), 520.0], [new Date("2026-10-12T00:00:00Z"), 410.0], [new Date("2026-10-19T00:00:00Z"), 460.0], [new Date("2026-10-26T00:00:00Z"), 380.0],
+    ], compareFor(DateTimeType)) }],
+    ["uncoated", { name: "Uncoated", weekly: new SortedMap([
+        [new Date("2026-10-05T00:00:00Z"), 300.0], [new Date("2026-10-12T00:00:00Z"), 260.0], [new Date("2026-10-19T00:00:00Z"), 280.0], [new Date("2026-10-26T00:00:00Z"), 240.0],
+    ], compareFor(DateTimeType)) }],
 ])));
 
 /** A work centre a job passes through on its way out: the platesetter, the bindery's folder and binder, the dispatch bay. */
@@ -755,9 +763,6 @@ export const planPrintWorks = example({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
                 resolution: "day", resolutions: ["week", "day"], now: new Date("2026-10-14T09:00:00Z"),
             }));
-            const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) });
-            const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(StockWeek), (_$2, readings) =>
-                East.Array.generate(readings.size(), StockWeek, (_$3, i) => ({ at: first.addWeeks(i), value: some(readings.get(i)) }))));
             const canDrop = $.const(East.function([Schedule.Types.Candidate], OptionType(StringType), ($2, candidate) => {
                 const reason = $2.let(none, OptionType(StringType));
                 $2.match(candidate.resource, { some: ($3, resource) => {
@@ -890,7 +895,7 @@ export const planPrintWorks = example({
                         }),
                         Plan.over(stock, [Plan.series.table(PrintStock, {
                             key: "stock", title: "Paper stock", label: s => s.name,
-                            cells: s => Plan.tableCells(weekly(s.weekly)), format: Format.Number({ maximumFractionDigits: 0n }),
+                            cells: Plan.tableCells(Plan.values("weekly", (level) => ({ value: level }))), format: Format.Number({ maximumFractionDigits: 0n }),
                         })]),
                     ]}
                     links={[
@@ -982,11 +987,6 @@ export const planEventLinks = example({
             const bindings = $.let(Record.bind(planLinkBindings, [planLinkBindingsPatch]));
             const deliveries = $.let(Record.bind(planLinkDeliveries, [planLinkDeliveriesPatch]));
             const stock = $.let(Data.bind(planLinkStock));
-            // The window's first Monday: each stock reading runs from it, a week apiece.
-            const first = $.const(new Date("2026-10-05T00:00:00Z"), DateTimeType);
-            const StockWeek = StructType({ at: DateTimeType, value: OptionType(FloatType) });
-            const weekly = $.const(East.function([ArrayType(FloatType)], ArrayType(StockWeek), (_$2, readings) =>
-                East.Array.generate(readings.size(), StockWeek, (_$3, i) => ({ at: first.addWeeks(i), value: some(readings.get(i)) }))));
             const axis = $.let(Plan.axis({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
                 resolution: "week", now: new Date("2026-10-14T09:00:00Z"),
@@ -1028,7 +1028,7 @@ export const planEventLinks = example({
                         Plan.over(stock, [
                             Plan.series.table(PrintStock, {
                                 key: "stock", title: "Paper stock", label: s => s.name,
-                                cells: s => Plan.tableCells(weekly(s.weekly)),
+                                cells: Plan.tableCells(Plan.values("weekly", (level) => ({ value: level }))),
                                 format: Format.Number({ maximumFractionDigits: 0n }),
                             }),
                         ]),

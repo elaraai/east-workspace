@@ -9,7 +9,8 @@
  * series makes an item of a card (`edit.create`) — by the pointer, or carried
  * from the keyboard — as the `add` a Library's card beside the Plan makes,
  * the card's tab its source and its row key its key, so `canDrop` and
- * `create` read it unchanged; the Plan takes its own panel's cards with no
+ * `create` read it unchanged, the new item going in under an id the renderer
+ * mints (#1436); the Plan takes its own panel's cards with no
  * `id` or `sources`. A Plan with no row that makes an item of a card — none
  * declares `create`, those that do cannot be placed, the row is of a kind
  * that holds no discrete objects, or no editing session would hold the item —
@@ -23,13 +24,14 @@
 import { describe, test, expect } from "vitest";
 import { fireEvent, render, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { ArrayType, BooleanType, DateTimeType, DictType, East, NullType, StringType, StructType, variant } from "@elaraai/east";
+import { BooleanType, DateTimeType, DictType, East, NullType, StringType, StructType, variant } from "@elaraai/east";
 import { DragEventType, Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { DragLayerProvider, editingMessages, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "@elaraai/east-ui-components/testing";
 import { Plan, PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { EastChakraPlanPayload, type PlanValue } from "./index.js";
 import { entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { offering } from "../../shared/schedule/keys.test-utils.js";
 
 const h = planHarness();
 
@@ -41,17 +43,17 @@ const W28 = new Date("2026-07-06T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 
 /** A press's job. */
-const Job = StructType({ key: StringType, start: DateTimeType, end: DateTimeType });
-/** A press: its name, and its jobs. */
-const Press = StructType({ name: StringType, jobs: ArrayType(Job) });
+const Job = StructType({ start: DateTimeType, end: DateTimeType });
+/** A press: its name, and its jobs, by id. */
+const Press = StructType({ name: StringType, jobs: DictType(StringType, Job) });
 /** A palette card: its name, and the family of thing it is. */
 const Card = StructType({ name: StringType, family: StringType });
 
-const PRESSES = new Map([["p1", { name: "Press 1", jobs: [] }], ["p2", { name: "Press 2", jobs: [] }]]);
+const PRESSES = new Map([["p1", { name: "Press 1", jobs: new Map() }], ["p2", { name: "Press 2", jobs: new Map() }]]);
 /** The presses, each running a job in the first week. */
 const BUSY = new Map([
-    ["p1", { name: "Press 1", jobs: [{ key: "j1", start: W27, end: W28 }] }],
-    ["p2", { name: "Press 2", jobs: [{ key: "j2", start: W27, end: W28 }] }],
+    ["p1", { name: "Press 1", jobs: new Map([["j1", { start: W27, end: W28 }]]) }],
+    ["p2", { name: "Press 2", jobs: new Map([["j2", { start: W27, end: W28 }]]) }],
 ]);
 const CARDS = new Map([["job-poster", { name: "Poster run", family: "job" }], ["van-drop", { name: "Van drop", family: "delivery" }]]);
 
@@ -63,8 +65,9 @@ const STEPS = Plan.axis.number({ window: { min: 1, max: 13 }, step: 1 });
 /**
  * Two presses over twelve weeks, their palette the Plan's own library panel,
  * the last gesture in the footer. With `create`, a press makes a job of a
- * card dropped on it, a week long from the bucket it lands in, and `canDrop`
- * takes a job only; with `move`, a press's jobs move but no card becomes one.
+ * card dropped on it, a week long from the bucket it lands in — its id the
+ * one the renderer mints, its run labelled with it — and `canDrop` takes a
+ * job only; with `move`, a press's jobs move but no card becomes one.
  * Misplaced, each press runs a job — its instants times — on an axis held in
  * a variable on the number arm, so each draws as its diagnostic. Not
  * editable, the Plan has no editing session to hold a gesture.
@@ -101,10 +104,10 @@ function palettePlan(takes: "create" | "move", { misplaced = false, editable = t
             data: presses,
             series: [Plan.series.span(Press, {
                 key: "press", title: "Presses", label: (p) => p.name,
-                runs: (p) => p.jobs.map((_$2, j) => Plan.run({ key: j.key, start: j.start, end: j.end, label: j.key, state: "added" })),
+                runs: Plan.items("jobs", { from: "start", to: "end" }, (_job, id) => ({ label: id, state: "added" })),
                 edit: takes === "create"
-                    ? { items: "jobs", create: (drop) => ({ key: drop.from.key, start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(1n) }) }
-                    : { items: "jobs", key: "key", start: "start", end: "end" },
+                    ? { create: (drop) => ({ start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(1n) }) }
+                    : true,
             })],
             ...(editable ? { editing: { onUpdate: presses.write, onPatch } } : {}),
             canDrop,
@@ -167,6 +170,8 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
         expect(cardOf(c, "job-poster").hasAttribute("data-draggable")).toBe(true);
         carryOver(c, "job-poster", "p1");
         expect(cellOf(c, "p1").hasAttribute("data-drop-active")).toBe(true);
+        // The new job's id is the Plan's to mint (#1436): offered the card's key.
+        offering(["job-poster"]);
         fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
         await settle();
         // jsdom's zero-width rect puts the pointer in the first week.
@@ -221,6 +226,7 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
         press("ArrowDown");
         expect(p2.hasAttribute("data-drop-active")).toBe(true);
         expect(announced()).toBe("Poster run is over Press 2, Week of Jul 6, 2026.");
+        offering(["job-poster"]);
         press("Space");
         await settle();
         expect(announced()).toBe("Poster run was dropped on Press 2, Week of Jul 6, 2026.");
