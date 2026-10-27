@@ -437,3 +437,29 @@ describe("the inspector (#1197, PB38–PB41, PB60)", () => {
         expect(slot(container, "end")).toBeNull();
     });
 });
+
+// ============================================================================
+// The keyboard kept as a control goes with its view (#1398)
+// ============================================================================
+
+describe("the inspector keeps the keyboard as a control goes with its view (#1398)", () => {
+    test("Duplicate on one event selects its copy: the focus lands on the heading of the view drawn for it, never on the page's body", async () => {
+        const { container } = await h.mount(ex.planPrintWorks);
+        await settle();
+        fireEvent.click(job(container, "J-1001"));
+        await settle();
+        const duplicate = edits(container).querySelector<HTMLElement>("button[data-inspector-action='duplicate']")!;
+        duplicate.focus();
+        expect(document.activeElement).toBe(duplicate);
+        fireEvent.click(duplicate);
+        await settle();
+        // The copy is selected — J-1001 no more — and Details shows it.
+        expect(selectedEvents(container)).toHaveLength(1);
+        expect(selectedEvents(container)).not.toContain(key(job(container, "J-1001")));
+        expect(showing(container)).toBe("event");
+        const focused = document.activeElement ?? document.body;
+        expect(focused).not.toBe(document.body);
+        expect([focused.hasAttribute("data-focus-home"), focused.closest("[data-plan-inspector]")?.getAttribute("data-plan-inspector"),
+            focused.querySelector("[data-inspector-title]")?.textContent]).toEqual([true, "event", "Spring catalogue"]);
+    });
+});
