@@ -441,6 +441,45 @@ describe("packed dots overlap by severity, never by the order they come in (\"Le
             ["fill", "rgb(200,0,0)", 0, 1, [20, 30]],
         ]);
     });
+
+    it("stacks each dot by the severity of the colour it is drawn in — its colour token's, else its tone's, else its status's — so the worst colour drawn is on top", () => {
+        const dot = (key: string, x: number, roles: Partial<ReturnType<typeof defaultValue<typeof T.Item>>>) => drawnItem({ kind: "racks", key }, {
+            ...defaultValue<typeof T.Item>(T.Item), position: some({ x, y: 2 }), label: key, ...roles,
+        }, undefined)!;
+        const ok = some({ label: "OK", tone: TONES.success, ring: false });
+        const hot = some({ label: "Hot", tone: TONES.danger, ring: false });
+        const dots = [
+            // The danger tone over an OK status: drawn in the danger colour, so stacked as danger.
+            dot("T", 2, { tone: some(variant("danger", null)), status: ok }),
+            // A warning status in its own colour: stacked as warning.
+            dot("W", 3, { status: some({ label: "Warm", tone: TONES.warning, ring: false }) }),
+            // The danger status token over an OK status: stacked as danger.
+            dot("K", 4, { color: some("status.neg"), status: ok }),
+            // A heat step over a Hot status, and the muted tone over another: colours of no severity, stacked with the dots
+            // showing none.
+            dot("H", 5, { color: some("heat.3"), status: hot }),
+            dot("M", 6, { tone: some(variant("muted", null)), status: hot }),
+        ];
+        const RED: RGB = [200, 0, 0], AMBER: RGB = [200, 150, 0], HEAT: RGB = [90, 140, 150], GREY: RGB = [120, 120, 120];
+        const drawnIn: Readonly<Record<string, RGB>> = { T: RED, W: AMBER, K: RED, H: HEAT, M: GREY };
+        const { ctx, drawn } = recorder();
+        paintSchematic({
+            ctx, value: { items: dots, zones: [], links: [], nets: [] }, cam: { ppu: 10, tx: 0, ty: 0 }, width: 300, height: 200,
+            visibleItems: dots, tiers: new Map(dots.map((d) => [d.key, "dot" as const])), selected: new Set(), selectedZones: new Set(),
+            centers: new Map(dots.map((d) => [d.key, { x: d.x, y: d.y }])), palette: PALETTE,
+            tints: new Map(dots.map((d): [string, RGB] => [d.key, drawnIn[d.label]!])),
+        });
+        const PAPER = "rgb(8,8,8)";
+        const colours = drawn.filter((d) => d.arcs.length > 0 && d.style !== PAPER);
+        expect(colours.map((d) => [d.style, d.arcs.map((r) => r.x)])).toEqual([
+            // No severity: H and M, in the order they came.
+            ["rgb(90,140,150)", [50]], ["rgb(120,120,120)", [60]],
+            // Warning: W.
+            ["rgb(200,150,0)", [30]],
+            // Danger, over them all: T and K, drawn in its colour, one path.
+            ["rgb(200,0,0)", [20, 40]],
+        ]);
+    });
 });
 
 describe("a zone's eyebrow over the dots (ruled 26 Oct 2026, \"Legible dots\")", () => {
