@@ -1306,7 +1306,12 @@ runs not read — the run around the view and the bands
 either side of it, the element a band's report names, a failed window's span,
 the demand at rest, the first window, a jump's pin and Retry. The
 footer's line and the frame's `busy` follow the windows the view shows, never
-those read ahead of it. An empty message, a zero count, `No rows`, `Backlog
+those read ahead of it — from the moment the view shows them: the view on its
+way over rows not read, or resting there before it has shown the intent their
+read waits for, waits for them already, so the reveal clock runs from its
+arrival, never from their read (the Plan's driver's `viewLoading`: a window the
+view shows neither in nor asked yet).
+An empty message, a zero count, `No rows`, `Backlog
 clear` or the Sheet's insert strip shows only once a completed read says so
 (CL13): until then its slot holds a placeholder — the Plan's narrow tail its
 placeholder cards, its Backlog `…` over placeholder cards. A Backlog tab's count

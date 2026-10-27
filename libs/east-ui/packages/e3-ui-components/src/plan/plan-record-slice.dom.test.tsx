@@ -185,6 +185,13 @@ async function chooseStatuses(statuses: readonly string[]) {
     await settle();
 }
 
+/** Every choice of the orders' source cleared, as the rail's Filters › Clear all leaves it: every work order. */
+async function clearFilters() {
+    const was = decodeState(getStore().read(`${KEY}.orders`)!);
+    await act(async () => { getStore().write(`${KEY}.orders`, encodeState({ ...was, preset: none, where: new SortedMap([], compareString) })); });
+    await settle();
+}
+
 // ── What the canvas draws ────────────────────────────────────────────────────
 
 /** A work order's row. */
@@ -203,6 +210,11 @@ const rowsOf = (keys: readonly string[]) => keys.map((key) => rowKeyOf(orderRow(
 const summary = (c: HTMLElement) => slot(c, "toolbar")!.querySelector("[data-record-slices-summary]")?.textContent ?? null;
 /** The footer's count of the changes waiting on Save. */
 const pending = (c: HTMLElement) => slot(c, "footer")!.querySelector('[data-plan-count="pending"]')?.textContent ?? null;
+/** The footer's one loading line: its element — idle while nothing is said — and its words. */
+const footerLine = (c: HTMLElement) => slot(c, "footer")!.querySelector<HTMLElement>("[data-footer-line]")!;
+const loadingLine = (c: HTMLElement) => footerLine(c).querySelector("[data-line-text]")?.textContent ?? "";
+/** The first number a line names, as a number: where the rows it names start. */
+const firstNumber = (text: string) => Number((/\d[\d,]*/.exec(text)?.[0] ?? "0").replace(/,/g, ""));
 
 /** What has the focus: an order's row, by its id's text — else the canvas's surface, a run, or the page's body. */
 function focusedAt(c: HTMLElement): string {
@@ -524,6 +536,45 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         // The view's place is kept again as it rests: the sixth order's row, at the view's top.
         await rest(ui.container, 5 * ROW_PX);
         await waitFor(() => expect(rested()?.key).toBe(`r:${rowKeyOf(orderRow(ready[5]!))}`), { timeout: 10_000 });
+    });
+
+    test("the view sent far over rows not read waits for them from the scroll itself — main busy, the footer's line on its reveal clock, before their read is even asked, as the view comes to rest — and the line names them once asked, and goes as they land (#1398, CL3)", async () => {
+        const { container: c } = await h.mount(ex.planRecordIndexes);
+        await settle();
+        // Filters › Clear all: every work order, 50,000 of them, in their keys' order.
+        await clearFilters();
+        await waitFor(() => expect(orderRows(c)[0]).toBe(rowKeyOf(orderRow("JOB-10000"))));
+        await settle();
+        const main = () => slot(c, "main")!;
+        expect(main().getAttribute("aria-busy")).not.toBe("true");
+        // The orders' windows far from the first held on their way; the view goes four fifths down.
+        const far = h.e3.hold((r) => r.dataset === ORDERS && r.kind === "page" && Number(r.query.get("offset") ?? 0) >= 1_000);
+        const sent = h.requests().length;
+        // The scroll and what it draws flushed at once, in one synchronous scope — no timer runs in it, so the view has not
+        // dwelt yet and its read waits for it.
+        act(() => {
+            const frame = frameOf(c);
+            frame.scrollTop = Math.round(0.8 * 50_000 * ROW_PX);
+            fireEvent.scroll(frame);
+        });
+        // The scroll's own report: the view over the run that stands for them, no read of them asked yet — it waits for
+        // them already, main busy and the line's clock running from here, never once their read is asked.
+        expect(main().querySelector("[data-plan-window-band]")).not.toBeNull();
+        expect(ordersAsked(sent)).toEqual([]);
+        expect(main().getAttribute("aria-busy")).toBe("true");
+        // At rest: their windows asked, and the line names them.
+        await act(async () => { await new Promise((resolve) => setTimeout(resolve, 250)); });
+        await far.holding;
+        await settle();
+        expect(main().getAttribute("aria-busy")).toBe("true");
+        await waitFor(() => expect(loadingLine(c)).toMatch(/^Loading work orders \d/));
+        expect(firstNumber(loadingLine(c))).toBeGreaterThan(35_000);
+        // Landed: their rows drawn, and the line idle once nothing the view shows is read.
+        await act(async () => { far.release(); });
+        await settle();
+        await waitFor(() => expect(orderRows(c).length).toBeGreaterThan(0));
+        await waitFor(() => expect(footerLine(c).hasAttribute("data-idle")).toBe(true), { timeout: 10_000 });
+        expect(main().getAttribute("aria-busy")).not.toBe("true");
     });
 
     test("PageDown, PageDown and PageUp pressed on a run holding the focus while its rows are read are none of them lost: once they land the focus goes from the first of them in view a page on, a page on and a page back — never to the page's body (#1398, CL10)", async () => {

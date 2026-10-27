@@ -555,9 +555,10 @@ export function usePlanCanvas({
     // Its Retry asks every failed window and the source's own failed reads again, at once — never after the
     // runtime's retry gap, which a read alone waits out.
     const retryFailed = useCallback(() => controller.retry(), [controller]);
-    // Whether a read the view waits for is in flight (#1398): a window the view shows — never one read ahead of it,
-    // which nothing on screen waits for. The driver settles it with the rest, from the windows the frame's range
-    // shows, so a landing says it in the commit that draws it; the narrow layout, which reports no range, any.
+    // Whether the view waits for a read (#1398): a window it shows in flight — never one read ahead of it, which nothing on
+    // screen waits for — or the window under it not asked yet, from the moment the view shows its rows not read, so the
+    // reveal clock runs from the view's arrival. The driver settles it with the rest, from the windows the frame's range
+    // shows, so a landing says it in the commit that draws it; the narrow layout, which reports no range, any in flight.
     const waits = paged && paging.viewLoading;
     // The event kinds read by their cells over a paged kind (#1039): while their cells are read, the rows the canvas holds
     // whose cells have not landed wait for them, as a window's rows do (#1398, CL2) — the line says so, in their events'

@@ -642,13 +642,14 @@ describe("a bounded view of the narrowed presses (#1344)", () => {
             await settle();
             await waitFor(() => expect(focused(c)).toBe("P-2501"));
             // Up among presses not read again, just past the windows the canvas opened on: the run the view arrives in clicked
-            // as it arrives, before the view rests.
+            // as it arrives, before the view rests — the scroll and the click each flushed in a synchronous scope, which no
+            // timer runs in, so the view's rest never comes between them however long their renders take.
             const up = h.e3.hold(pages);
-            await act(async () => {
+            act(() => {
                 frameOf(c).scrollTop = 700 * ROW_PX;
                 fireEvent.scroll(frameOf(c));
             });
-            await act(async () => { c.querySelector<HTMLElement>('[data-plan-window-band="head"]')!.focus(); });
+            act(() => { c.querySelector<HTMLElement>('[data-plan-window-band="head"]')!.focus(); });
             expect(focused(c)).toBe("a run");
             // At rest: the windows above the view asked for — those the page holds landing at once, the rest held on their
             // way — so the run is drawn from them on, the presses in view a run below them, and the run the click focused

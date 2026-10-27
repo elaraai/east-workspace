@@ -84,7 +84,12 @@
  * shows — each row's in the reported range, a run's nearest its rows, the
  * window under the view and a jump's target (`viewLoading`) — never a window
  * read ahead of it, which nothing on screen waits for (#1398). Settled with
- * the rest, so a landing says it in the commit that draws it.
+ * the rest, so a landing says it in the commit that draws it. They follow them
+ * from the moment the view shows them: the window under the view that is
+ * neither in nor asked yet — the view on its way over rows not read, or
+ * resting there before it has shown the intent its read waits for (CL6) — is
+ * waited for already, so the line's reveal clock runs from the view's arrival,
+ * never from the read's.
  *
  * # A jump owns the viewport (#812)
  *
@@ -249,8 +254,9 @@ export interface PlanPagingSnapshot {
     /** Whether a requested window is still in flight — one the view shows, or one read ahead of it. */
     loading: boolean;
     /**
-     * Whether a window the view shows is in flight (#1398): what the footer's loading line and the frame's busy
-     * follow — never a window read ahead of the view, which nothing on screen waits for.
+     * Whether the view waits for a window it shows (#1398): one in flight, or the window under it not read and not asked
+     * yet — the view on its way over rows not read, or resting there before its read is asked (CL6). What the footer's
+     * loading line and the frame's busy follow — never a window read ahead of the view, which nothing on screen waits for.
      */
     viewLoading: boolean;
     /** The elements being read (#1398, CL3): of the bands of the block the
@@ -1100,11 +1106,17 @@ export function createPagingDriver(options: PagingDriverOptions): PagingDriver {
         failures.sort((a, b) => a.w - b.w);
         const reading = readingOf(focus, (focus === undefined ? undefined : lanes.get(focus.index)?.viewportAt) ?? 0);
         // What the view waits for (#1398): a window in flight it shows — one the range showed, the window under the
-        // view, a jump's target — never one read ahead of it; with nothing said of what it shows, any.
-        const under = focus === undefined ? undefined : lanes.get(focus.index)?.viewportWindow;
+        // view, a jump's target — never one read ahead of it; with nothing said of what it shows, any. And the window
+        // under the view that is neither in nor asked yet: the view on its way over rows not read, or resting there
+        // before it has shown the intent their read waits for (CL6), waits for them from the moment it shows them — the
+        // line's reveal clock runs from then, never from their read.
+        const focusLane = focus === undefined ? undefined : lanes.get(focus.index);
+        const under = focusLane?.viewportWindow;
         const pins = pinnedWindows();
+        const awaiting = viewShows !== undefined && focusLane !== undefined && under !== undefined && under < focusLane.ledger.windows
+            && last.sourceError === undefined && !windowIn(under) && !last.inFlight.includes(under);
         const viewLoading = viewShows === undefined ? last.inFlight.length > 0
-            : last.inFlight.some((w) => viewShows!.includes(w) || w === under || pins.includes(w));
+            : awaiting || last.inFlight.some((w) => viewShows!.includes(w) || w === under || pins.includes(w));
         const next: PlanPagingSnapshot = {
             seq: prev.seq,
             rows: assembled.rows,
