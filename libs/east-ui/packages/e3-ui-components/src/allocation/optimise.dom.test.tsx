@@ -18,7 +18,10 @@
  * replays the landing without the banner, Save commits it with everything
  * else (R9, R11). Stop and a day change ignore a late answer (R3, R4);
  * nothing to change and a failed call say so (R10). Below 480px the eye is
- * in the toolbar still, and the landing is on the cards.
+ * in the toolbar still, and the landing is on the cards; at a phone's toolbar
+ * floor it is the View's entry — named for the day, a run and its Stop from
+ * there, and off, saying why, while a day's reads are in flight (ruled 27 Oct
+ * 2026, "Into the View menu").
  */
 
 import { describe, expect, test } from "vitest";
@@ -27,7 +30,8 @@ import { editingMessages } from "@elaraai/east-ui-components";
 import { Allocation } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import * as opt from "@elaraai/e3-ui/examples/allocation/optimise";
-import { act, e3Harness, settle, slot, width } from "../e3-web-mount.test-utils.js";
+import { act, e3Harness, settle, slot, toolbarAtFloor, width } from "../e3-web-mount.test-utils.js";
+import type { E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
 import { stubLinkGeometry } from "./harness.test-utils.js";
 import "./index.js";
@@ -59,6 +63,20 @@ const glowingLoads = (c: HTMLElement) => c.querySelectorAll<HTMLElement>("[data-
 const lit = (c: HTMLElement) => c.querySelector("[data-allocation-frame]")!.hasAttribute("data-optimise-lit");
 /** The day, as the eye names it: `Optimise {period}`. */
 const period = (c: HTMLElement) => eye(c)!.getAttribute("aria-label")!.replace(/^Optimise /, "");
+/** What a day not read yet waits on: a page, a key search, or runs or rows by key, of the bins or of the days. */
+const DAY_READS = new Set(["page", "find", "runs", "rows"]);
+const dayRead = (request: E3Request) => DAY_READS.has(request.kind)
+    && (request.dataset === `records.${ex.kilnBins.name}` || request.dataset === `records.${ex.yardDays.name}`);
+/** Presses a key on the board, as the frame hears it: `]` steps the day. */
+async function key(c: HTMLElement, k: string) { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: k }); }); await settle(); }
+/** Opens the toolbar's View, and finds the eye's entry in it, as it is drawn at each look. */
+async function viewEntry(c: HTMLElement): Promise<() => HTMLButtonElement> {
+    await press(toolbar(c).getByRole("button", { name: "View" }));
+    const view = within(document.body).getByRole("dialog");
+    const entry = () => view.querySelector<HTMLButtonElement>("[data-optimise-entry]")!;
+    expect(entry()).not.toBeNull();
+    return entry;
+}
 const commits = async () => (await h.history(ex.kilnBins)).commits.map(commit => commit.mutation);
 /** The board with its optimiser, its day read: the eye is enabled once the day's bins have landed. */
 async function mounted() {
@@ -202,5 +220,41 @@ describe("the eye in the Allocation", () => {
         const card = container.querySelector<HTMLElement>('[data-allocation-row-card][data-op="add"]')!;
         expect([card.getAttribute("title"), card.getAttribute("data-fill"), lit(container)]).toEqual(["Added by Elara · run #1", "own", true]);
         expect(container.querySelector("[data-allocation-band-count][data-opn]")).not.toBeNull();
+    });
+
+    test("narrow — at a phone's toolbar floor the eye is the View's entry, never out of the toolbar: named for the day, a run and its Stop from there, and off, saying why, while a day's reads are in flight (ruled 27 Oct 2026, \"Into the View menu\")", async () => {
+        const container = await mounted();
+        const at = period(container);
+        await toolbarAtFloor();
+        // No eye in the row — the history's Save is — and the View lists it in its place.
+        expect([eye(container), history(container, editingMessages.apply()) !== null]).toEqual([null, true]);
+        const entry = await viewEntry(container);
+        expect([entry().getAttribute("aria-label"), entry().textContent, entry().disabled]).toEqual([`Optimise ${at}`, `Optimise ${at}`, false]);
+        // A run from it: one call over the day, the footer's line saying so, the entry its Stop.
+        const hold = calls.hold();
+        await press(entry());
+        await hold.holding;
+        expect([line(container).getAttribute("data-loading-line"), line(container).querySelector("[data-line-text]")!.textContent]).toEqual(["busy", `Optimising ${at}`]);
+        expect([entry().getAttribute("aria-label"), entry().textContent, entry().hasAttribute("data-running")]).toEqual(["Stop optimising", "Stop optimising", true]);
+        // Stop from it: the run over, the line saying so, a late answer ignored and nothing recorded.
+        await press(entry());
+        expect([entry().getAttribute("aria-label"), line(container).getAttribute("data-loading-line")]).toEqual([`Optimise ${at}`, "note"]);
+        hold.release();
+        await settle();
+        expect([calls.requests().length, added(container).length, container.querySelector("[data-optimise-banner]")]).toEqual([1, 0, null]);
+        await act(async () => { fireEvent.keyDown(within(document.body).getByRole("dialog"), { key: "Escape" }); });
+        await settle();
+        // Two days on, the second's reads held — the first read ahead — the eye would be off: the entry is, and says why.
+        const held = h.e3.hold(dayRead);
+        await key(container, "]");
+        await key(container, "]");
+        const off = await viewEntry(container);
+        const reason = off().querySelector<HTMLElement>("[data-entry-reason]");
+        expect([off().disabled, off().getAttribute("aria-label")?.startsWith("Optimise "), reason?.textContent, off().getAttribute("aria-describedby") === reason?.id])
+            .toEqual([true, true, "Read-only", true]);
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(off().disabled).toBe(false), { timeout: 10_000 });
+        expect(off().querySelector("[data-entry-reason]")).toBeNull();
     });
 });

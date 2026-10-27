@@ -19,7 +19,10 @@
  * landing without the banner, Save commits it with everything else (R9, R11).
  * Stop and a week change ignore a late answer (R3, R4); nothing to change and
  * a failed call say so (R10). Below 480px the eye is in the toolbar still,
- * and the landing is on the cards (R27).
+ * and the landing is on the cards (R27); at a phone's toolbar floor it is the
+ * View's entry — named for the week, a run and its Stop from there, and off,
+ * saying why, while a week's reads are in flight (ruled 27 Oct 2026, "Into
+ * the View menu").
  */
 
 import { describe, expect, test } from "vitest";
@@ -28,8 +31,9 @@ import { editingMessages } from "@elaraai/east-ui-components";
 import { Roster } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import * as opt from "@elaraai/e3-ui/examples/roster/optimise";
+import type { E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
-import { START, act, at, history, rosterHarness, settle, slot, weekDuties, width } from "./harness.test-utils.js";
+import { START, act, at, history, rosterHarness, settle, slot, toolbarAtFloor, weekDuties, width } from "./harness.test-utils.js";
 
 const h = rosterHarness({ "roster/optimise": opt });
 const calls = fitCalls(h, { request: Roster.Types.OptimiseRequest(ex.WarehouseDuty), result: Roster.Types.OptimiseResult(ex.WarehouseDuty) });
@@ -88,6 +92,20 @@ function lands(c: HTMLElement, holds: () => boolean): { seen: () => boolean; sto
 const lit =(c: HTMLElement) => c.querySelector("[data-roster-frame]")!.hasAttribute("data-optimise-lit");
 /** The week, as the eye names it: `Optimise W10`. */
 const period = (c: HTMLElement) => eye(c)!.getAttribute("aria-label")!.replace(/^Optimise /, "");
+/** What a week not read yet waits on: a page, a key search, or runs or rows by key, of the duties or of the weeks. */
+const WEEK_READS = new Set(["page", "find", "runs", "rows"]);
+const weekRead = (request: E3Request) => WEEK_READS.has(request.kind)
+    && (request.dataset === `records.${ex.rosterDuties.name}` || request.dataset === `records.${ex.rosterWeeks.name}`);
+/** Presses a key on the board, as the frame hears it: `]` steps the week. */
+async function key(c: HTMLElement, k: string) { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: k }); }); await settle(); }
+/** Opens the toolbar's View, and finds the eye's entry in it, as it is drawn at each look. */
+async function viewEntry(c: HTMLElement): Promise<() => HTMLButtonElement> {
+    await press(toolbar(c).getByRole("button", { name: "View" }));
+    const view = within(document.body).getByRole("dialog");
+    const entry = () => view.querySelector<HTMLButtonElement>("[data-optimise-entry]")!;
+    expect(entry()).not.toBeNull();
+    return entry;
+}
 const commits = async () => (await h.history(ex.rosterDuties)).commits.map(commit => commit.mutation);
 /** The Roster with its optimiser, its week read: the eye is enabled once the week's duties have landed. */
 async function mounted() {
@@ -292,5 +310,41 @@ describe("the eye in the Roster", () => {
         await press(history(container, editingMessages.redo()));
         await waitFor(() => expect(relit.seen()).toBe(true));
         relit.stop();
+    });
+
+    test("R27 — at a phone's toolbar floor the eye is the View's entry, never out of the toolbar: named for the week, a run and its Stop from there, and off, saying why, while a week's reads are in flight (ruled 27 Oct 2026, \"Into the View menu\")", async () => {
+        const container = await mounted();
+        const week = period(container);
+        await toolbarAtFloor();
+        // No eye in the row — the history's Save is — and the View lists it in its place.
+        expect([eye(container), history(container, editingMessages.apply()) !== null]).toEqual([null, true]);
+        const entry = await viewEntry(container);
+        expect([entry().getAttribute("aria-label"), entry().textContent, entry().disabled]).toEqual([`Optimise ${week}`, `Optimise ${week}`, false]);
+        // A run from it: one call over the week, the footer's line saying so, the entry its Stop.
+        const hold = calls.hold(RUN);
+        await press(entry());
+        await hold.holding;
+        expect([line(container).getAttribute("data-loading-line"), line(container).querySelector("[data-line-text]")!.textContent]).toEqual(["busy", `Optimising ${week}`]);
+        expect([entry().getAttribute("aria-label"), entry().textContent, entry().hasAttribute("data-running")]).toEqual(["Stop optimising", "Stop optimising", true]);
+        // Stop from it: the run over, the line saying so, a late answer ignored and nothing recorded.
+        await press(entry());
+        expect([entry().getAttribute("aria-label"), line(container).getAttribute("data-loading-line")]).toEqual([`Optimise ${week}`, "note"]);
+        hold.release();
+        await settle();
+        expect([calls.requests(RUN).length, container.querySelectorAll("[data-op]").length, container.querySelector("[data-optimise-banner]")]).toEqual([1, 0, null]);
+        await act(async () => { fireEvent.keyDown(within(document.body).getByRole("dialog"), { key: "Escape" }); });
+        await settle();
+        // Two weeks on, the second's reads held — the first read ahead — the eye would be off: the entry is, and says why.
+        const held = h.e3.hold(weekRead);
+        await key(container, "]");
+        await key(container, "]");
+        const off = await viewEntry(container);
+        const reason = off().querySelector<HTMLElement>("[data-entry-reason]");
+        expect([off().disabled, off().getAttribute("aria-label")?.startsWith("Optimise W"), reason?.textContent, off().getAttribute("aria-describedby") === reason?.id])
+            .toEqual([true, true, "Read-only", true]);
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(off().disabled).toBe(false), { timeout: 10_000 });
+        expect(off().querySelector("[data-entry-reason]")).toBeNull();
     });
 });

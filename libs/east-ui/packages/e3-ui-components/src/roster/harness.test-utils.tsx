@@ -37,7 +37,7 @@ import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { act, currentHarness, e3Harness, settle, slot, type E3Harness, type Example, type MountOptions } from "../e3-web-mount.test-utils.js";
 import { fitCalls, type FitCalls } from "../shared/func/fit-calls.test-utils.js";
 import "./index.js";
-export { act, programOf, settle, slot, width } from "../e3-web-mount.test-utils.js";
+export { act, programOf, settle, slot, toolbarAtFloor, width } from "../e3-web-mount.test-utils.js";
 export { searched } from "../e3-web.test-utils.js";
 
 const parseInstant = parseFor(DateTimeType);

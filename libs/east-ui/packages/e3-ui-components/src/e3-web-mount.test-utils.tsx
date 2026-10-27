@@ -20,7 +20,8 @@
  * flushed, again until both hold at once. jsdom lays nothing out, so the
  * harness measures what the builders' virtualizers and frames read: main and
  * a Library's viewport, their rows, and the widths a resize sets
- * ({@link width}).
+ * ({@link width}) — and, for a test that asks, a toolbar row too narrow for
+ * what it holds, at its floor ({@link toolbarAtFloor}).
  *
  * @packageDocumentation
  */
@@ -494,6 +495,26 @@ export async function settle(): Promise<void> {
 export async function width(value: number): Promise<void> {
     await act(async () => { mainWidth = value; for (const observe of [...observers]) observe(); });
     await settle();
+}
+
+/**
+ * Lays every toolbar row out narrower than what it holds, as a phone's 294px frame lays its row out, tells the toolbars
+ * as a resize does, and settles: each row 200px wide and each of its items 60px in whatever form it shows, so every step
+ * of a row's ladder applies, the row is still too wide, and the rungs of its floor follow (east-ui-components'
+ * `FLOOR_RANK`) — the rail's caret, then the Elara eye into its builder's View (ruled 27 Oct 2026, "Into the View
+ * menu"). What else the harness measures it measures as before, and the layout goes with the test, as every measure does.
+ *
+ * @throws {Error} When the harness measures nothing (`measure: false`): this lays out over its measures
+ */
+export async function toolbarAtFloor(): Promise<void> {
+    const rect = vi.mocked(Element.prototype.getBoundingClientRect);
+    const measured = rect.getMockImplementation();
+    if (measured === undefined) throw new Error("toolbarAtFloor lays a toolbar out over the harness's measures: the harness measures nothing");
+    rect.mockImplementation(function (this: Element) {
+        const px = this.hasAttribute("data-toolbar") ? 200 : this.hasAttribute("data-toolbar-item") ? 60 : undefined;
+        return px === undefined ? measured.call(this) : { x: 0, y: 0, top: 0, left: 0, right: px, bottom: 28, width: px, height: 28, toJSON() {} };
+    });
+    await width(mainWidth);
 }
 
 /**
