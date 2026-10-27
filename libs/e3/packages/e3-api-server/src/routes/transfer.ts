@@ -16,7 +16,7 @@ import {
 } from '@elaraai/e3-core/portable';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
-import { datasetPathOf } from './dataset-path.js';
+import { batchReadsNamed, datasetPathOf } from './dataset-path.js';
 import {
   TransferUploadRequestType,
   TransferUploadResponseType,
@@ -156,7 +156,11 @@ export function createTransferRoutes(
   // mounted after these:
   // - .../datasets/<path>/upload          → init transfer
   // - .../datasets/<path>/upload/<id>     → commit transfer
+  // A POST naming a batch read is a read of the dataset at its own path,
+  // whatever that ends in — a dataset named `upload` among them — and an
+  // upload's init and commit name none, so it passes on whatever its path.
   api.post('/*', async (c, next) => {
+    if (batchReadsNamed(c) > 0) return next();
     const fullPath = c.req.path;
 
     // Check for commit: .../upload/<uuid>

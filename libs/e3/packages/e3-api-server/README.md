@@ -266,7 +266,9 @@ names what it reads.
 
 A batch read is a POST to a dataset's own path, as an upload's init is to its
 `/upload`: a host mounts the dataset routes after the transfer routes, at the
-same prefix, and the transfer routes pass a POST that is no upload on to them.
+same prefix, and the transfer routes pass on to them a POST that is no upload,
+and every POST that names a batch, whatever its path ends in — so a dataset
+named `upload` is read in batches as any other.
 
 ```typescript
 app.route('/api/repos/:repo/workspaces/:ws/datasets', createDatasetRoutes(storage, getRepoPath, transferBackend, {

@@ -22,7 +22,7 @@ import { findDatasetKeys, getDatasetRows, getDatasetRuns, type DatasetRowsKeysOf
 import { placeDatasetRuns, withinDatasetRuns } from '../handlers/dataset-place.js';
 import type { KeySearchQuery } from '../handlers/key-search.js';
 import { pageError } from '../handlers/dataset-reads.js';
-import { datasetPathOf } from './dataset-path.js';
+import { batchReadsNamed, datasetPathOf } from './dataset-path.js';
 
 /** Options for {@link createDatasetRoutes}. */
 export interface DatasetRouteOptions {
@@ -142,14 +142,14 @@ export function createDatasetRoutes(
   // record's index name (`rows=true`) — the entries of several runs
   // (`runs=true`), and where a narrowing's runs of an index sit in its record
   // (`place=true`) and which entries they hold (`within=true`). Any other POST
-  // is no route of these.
+  // is no route of these. The transfer routes, mounted first, pass on every
+  // POST that names a batch, whatever its path ends in (`batchReadsNamed`).
   app.post('/*', async (c, next) => {
     const findKeys = c.req.query('findKeys') === 'true';
     const rows = c.req.query('rows') === 'true';
-    const runs = c.req.query('runs') === 'true';
     const place = c.req.query('place') === 'true';
     const within = c.req.query('within') === 'true';
-    const asked = [findKeys, rows, runs, place, within].filter(Boolean).length;
+    const asked = batchReadsNamed(c);
     if (asked !== 1) {
       if (asked === 0) return next();
       return pageError('bad_request', 'Ask for one batch: findKeys=true, rows=true, runs=true, place=true or within=true');

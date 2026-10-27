@@ -48,3 +48,23 @@ export function datasetPathOf(c: Context, suffix = ''): string {
   if (path.endsWith('/')) path = path.slice(0, -1);
   return path;
 }
+
+/** The query flags that each name one of a dataset's batch reads, `<flag>=true`. */
+export const DATASET_BATCH_READS = ['findKeys', 'rows', 'runs', 'place', 'within'] as const;
+
+/**
+ * How many of a dataset's batch reads a request names ({@link DATASET_BATCH_READS}).
+ *
+ * @remarks
+ * A batch read is a POST to the dataset's own path, whatever that path ends
+ * in — a dataset named `upload` among them — so the transfer routes, mounted
+ * first at the same prefix, pass on a POST that names one rather than take its
+ * path for an upload's, and the dataset routes answer it. An upload's init and
+ * commit name none. Both routes read it here alone, so they agree on it.
+ *
+ * @param c - The request's context
+ * @returns The count: one is a batch read, more is refused, none is no batch
+ */
+export function batchReadsNamed(c: Context): number {
+  return DATASET_BATCH_READS.filter((flag) => c.req.query(flag) === 'true').length;
+}

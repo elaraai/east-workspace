@@ -32,11 +32,11 @@ import {
 import { computeHash, datasetWrite, InMemoryTransferBackend, readRecordState, writeRecordState } from '@elaraai/e3-core';
 import { InMemoryStorage, encodeInSegmentsOf, storeSegmentsOf } from '@elaraai/e3-core/test';
 import {
-  BEAST2_CONTENT_TYPE, PackageObjectType, RecordIndexObjectType, WorkspaceRecordType, datasetRowsType, decodeCollectionManifest,
-  encodeCollectionManifest, indexCollectionType, indexWindowType,
+  BEAST2_CONTENT_TYPE, E3_RELEASE, PackageObjectType, RecordIndexObjectType, TRANSFER_PROTOCOL_VERSION, WorkspaceRecordType, datasetRowsType,
+  decodeCollectionManifest, encodeCollectionManifest, indexCollectionType, indexWindowType,
 } from '@elaraai/e3-types';
 import { Hono } from 'hono';
-import { ResponseType } from '../types.js';
+import { ResponseType, TransferUploadRequestType, TransferUploadResponseType } from '../types.js';
 import { createDatasetRoutes } from '../routes/datasets.js';
 import { createTransferRoutes } from '../routes/transfer.js';
 import { findDatasetKey, getDataset, setDataset, type DatasetFindQuery } from './datasets.js';
@@ -1900,11 +1900,11 @@ describe('the batch routes', () => {
     assert.equal((await post(tight, `rows=true&hash=${state}`, { keys: ['"p-000007"', '"p-000008"'] })).headers.get('X-Page-Count'), '1');
   });
 
-  it('answer a batch read of a dataset named upload, whose own path ends as an upload\'s init does', async () => {
-    // Review (R1): a batch read is a POST to the dataset's own path, and the
-    // transfer routes, mounted first, take every POST whose path ends in
-    // `/upload` as an upload's init — so `inputs.upload` can never be read in
-    // a batch, though its GET reads work.
+  it('answer a batch read of a dataset named upload, whose own path ends as an upload\'s init does, and leave its upload to the transfer routes', async () => {
+    // A batch read is a POST to the dataset's own path, and the transfer
+    // routes, mounted first, took every POST whose path ends in `/upload` as an
+    // upload's init — so `inputs.upload` could never be read in a batch,
+    // though its GET reads worked.
     const storage = new InMemoryStorage();
     await seedDataset(storage, encodeBeast2PagedFor(LookupType)(lookupOf(10)), 'upload', LookupType);
     const app = serverOf(storage);
@@ -1914,6 +1914,14 @@ describe('the batch routes', () => {
     const body = await response.clone().text();
     assert.equal(response.headers.get('Content-Type'), 'application/json', `a batch read's JSON answer, not an upload's: got ${response.status} ${body.slice(0, 200)}`);
     assert.deepEqual((await response.json() as { results: unknown[] }).results, [{ found: true, row: 3, count: 1 }]);
+
+    // Its upload's init, to its own `/upload`, names no batch: the transfer routes plan it.
+    const init = await app.request(`/api/repos/${REPO}/workspaces/${WS}/datasets/inputs/upload/upload?protocol=${TRANSFER_PROTOCOL_VERSION}&release=${E3_RELEASE}`, {
+      method: 'POST', headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
+      body: encodeBeast2For(TransferUploadRequestType)({ hash: '0'.repeat(64), size: 10n }),
+    });
+    const planned = decodeBeast2For(ResponseType(TransferUploadResponseType))(new Uint8Array(await init.arrayBuffer()));
+    assert.ok(planned.type === 'success' && planned.value.type === 'upload_parts', `the init is planned as an upload's: ${JSON.stringify(planned.type)}`);
   });
 
   it('refuse a body not of the batch\'s form, a read of runs pinned to nothing, and two batches at once, and leave every other POST to no route', async () => {
