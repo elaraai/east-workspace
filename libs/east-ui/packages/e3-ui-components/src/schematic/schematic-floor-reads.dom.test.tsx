@@ -80,12 +80,41 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
     });
 }))) };
 
+/** The floor, a narrowed-out rack dimmed and the camera flown to the matches as the narrowing changes: as {@link floor} otherwise. */
+const fitFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const racks = $.let(Data.bindPaged(ex.schematicStressRacks));
+    const loads = $.let(Data.bindPaged(ex.schematicStressRackLoads));
+    const halls = $.let(Data.bind(ex.schematicStressHalls));
+    const uplinks = $.let(Data.bind(ex.schematicStressUplinks));
+    const slice = $.let(Slice.bindRecords(FLOOR, {
+        racks: {
+            source: Data.bindPaged(ex.schematicStressRacks, { indexes: [ex.schematicStressRacksByArea, ex.schematicStressRacksByHallArea, ex.schematicStressRacksByModel] }),
+            fields: { hall: { label: "Hall" }, model: { label: "Model" } },
+        },
+    }));
+    return Schematic({
+        id: "floorReadsFit",
+        extent: { width: 382, height: 254 },
+        scaleUnit: "m",
+        slice: { slice },
+        narrowed: { show: "dim", fit: true },
+        items: {
+            racks: Schematic.items(racks, {
+                name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name",
+                details: Schematic.details(loads, { meter: (l) => ({ value: l.kw, max: l.capacity }) }),
+            }),
+        },
+        zones: { halls: Schematic.zones(halls, { name: "Hall", icon: "warehouse", x: "x", y: "y", width: "w", height: "h", label: "name" }) },
+        links: { uplinks: Schematic.links(uplinks, { name: "Uplink", icon: "bolt", from: { field: "from", of: "racks" }, to: { field: "to", of: "racks" } }) },
+    });
+}))) };
+
 /** What the footer says of the racks drawn as their density; `undefined` while it says nothing of them. */
 const densityNotice = (container: HTMLElement) => slot(container, "footer").querySelector("[data-density-cell]")?.textContent ?? undefined;
 
-/** Mounts the floor, and waits until it shades the racks' density at Fit. */
-async function open() {
-    const ui = await h.mount(floor);
+/** Mounts a floor — the hidden one by default — and waits until it shades the racks' density at Fit. */
+async function open(example: { fn: { toIR(): unknown } } = floor) {
+    const ui = await h.mount(example);
     await settle();
     await waitFor(() => expect(densityNotice(ui.container)).toBeDefined(), { timeout: 10_000 });
     await settle();
@@ -124,6 +153,24 @@ test("a narrowing no area index leads is named in the footer, the density not ap
     const { container } = await open();
     await narrow(new SortedMap([["model", variant("values", [printText("42U · 8 kW")])]], compareString));
     await waitFor(() => expect(densityNotice(container)).toContain("the filters not applied"));
+});
+
+test("fit flies to a narrowing made at Fit, the racks shaded as their density: Hall 3 chosen, the view goes to its racks as the area index finds them (§10.3)", async () => {
+    const { container } = await open(fitFloor);
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    try {
+        await narrow(new SortedMap([["hall", variant("values", [printText("Hall 3")])]], compareString));
+        await act(async () => { vi.advanceTimersByTime(FLY_MS); });
+        await settle();
+        await act(async () => { vi.advanceTimersByTime(FLY_MS); });
+        await settle();
+    } finally {
+        vi.useRealTimers();
+    }
+    // Hall 3's racks stand from 155 to 225 m across and from 3.6 to 49 m down: the view's middle among them.
+    const cam = cameraOf(container);
+    const middle = { x: (540 - cam.tx) / cam.ppu, y: (270 - cam.ty) / cam.ppu };
+    expect([middle.x > 155 && middle.x < 225, middle.y > 3.6 && middle.y < 49]).toEqual([true, true]);
 });
 
 test("a tap on the density zooms into it (SC36)", async () => {

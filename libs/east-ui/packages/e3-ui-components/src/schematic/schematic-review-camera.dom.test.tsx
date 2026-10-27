@@ -292,6 +292,31 @@ test("fit flies the camera when the narrowing changes, never as a zoom moves the
     expect(cameraOf(container)).toEqual(zoomed);
 });
 
+/** The world point at the canvas's middle, under the camera it stands at. */
+function middleOf(container: HTMLElement): { x: number; y: number } {
+    const cam = cameraOf(container);
+    return { x: (540 - cam.tx) / cam.ppu, y: (270 - cam.ty) / cam.ppu };
+}
+
+test("fit flies to a narrowing's racks read by area as their area index finds them, the window off them: zoomed into A01's corner, Elmway College's A05 chosen (§10.3)", async () => {
+    const { container } = await open(fitFloor);
+    await zoomAndLand(container, { minX: 1, minY: 2, maxX: 5, maxY: 4 });
+    expect(card(container, "racks", "A05")).toBeNull();
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
+    try {
+        await narrow(new SortedMap([["owner", variant("values", [printText("Elmway College")])]], compareString));
+        await act(async () => { vi.advanceTimersByTime(FLY_MS); });
+        await settle();
+        await act(async () => { vi.advanceTimersByTime(FLY_MS); });
+        await settle();
+    } finally {
+        vi.useRealTimers();
+    }
+    // The view's middle on A05, at 16.8, 2.9.
+    const middle = middleOf(container);
+    expect([Math.abs(middle.x - 16.8) < 0.6, Math.abs(middle.y - 2.9) < 0.6]).toEqual([true, true]);
+});
+
 test("the drawing's counts, nothing selected, stay as they are while a zoom moves the window of a kind read by area (§9)", async () => {
     const { container } = await open(floor);
     const atFit = drawingCounts(container);
