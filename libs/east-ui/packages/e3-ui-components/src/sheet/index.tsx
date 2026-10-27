@@ -2310,6 +2310,8 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // Under the lens (#1349): whether it is still reading, and why it could not place the narrowing's rows — beside
     // the rows it drew, or beside the pages that stand in while it reads.
     const lensLoading = lens.loading;
+    // The stretches the lens reads (#1398): what the line names and the runs it draws mark busy — never one it is not reading.
+    const lensReading = lens.reading;
     const lensSourceError = lens.sourceError;
     const lensError = lens.error;
     // A source that failed before anything landed: nothing else to show (#853) — the pages', or the lens's
@@ -2327,13 +2329,17 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
         if (standingIn) return { kind: "filtering" };
         if (lensDrawn) {
             if (!lensLoading) return undefined;
-            const reading = body.find((it) => it.kind === "band" && it.band.at === "reading");
-            return reading?.kind === "band" ? { kind: "loading", from: reading.band.from, to: reading.band.to } : { kind: "loading", from: undefined, to: undefined };
+            // The stretch the lens reads first — a jump's, else the nearest the view — never a band it is not reading: one far
+            // from the view, or one its placement has still to place.
+            const bands = body.filter((it): it is Extract<SheetBodyItem, { kind: "band" }> => it.kind === "band");
+            const at = lensReading.find((from) => bands.some((it) => it.band.from === from));
+            const reading = at === undefined ? undefined : bands.find((it) => it.band.from === at);
+            return reading !== undefined ? { kind: "loading", from: reading.band.from, to: reading.band.to } : { kind: "loading", from: undefined, to: undefined };
         }
         // A window the view shows, never one read ahead of it: nothing on screen waits for that.
         if (!paging.viewLoading) return undefined;
         return { kind: "loading", from: paging.reading?.from, to: paging.reading?.to };
-    }, [pagedSource, body, sourceFailure, lensDrawn, lensSourceError, pagesStandIn, lensError, paging.sourceError, standingIn, lensLoading, paging.viewLoading, paging.reading]);
+    }, [pagedSource, body, sourceFailure, lensDrawn, lensSourceError, pagesStandIn, lensError, paging.sourceError, standingIn, lensLoading, lensReading, paging.viewLoading, paging.reading]);
     // Cold load (#1398, CL5): a paged source with nothing drawn yet and no failure to say — the frame's skeleton
     // covers it at the rows' pitch. After it, a read the view waits for leaves everything live and the grid busy: a
     // scroll far from the rows, every window it shows still on its way, draws the runs there and is never covered.
@@ -3381,11 +3387,13 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     const rowsNoun = rowsSource === undefined ? (group !== undefined ? noun.plural : words.m.railRows()) : recordSliceNoun(rowsSource, railNouns, words.locale);
     // A failed read's Retry: the lens's segment, or the paged window (#853, #1349).
     const retryRead = lensDrawn ? lens.retry : paging.retry;
-    // Whether a run's own windows are in flight (#1398): a stretch the lens is reading always is (#1349); a paged run
-    // while one of the windows it stands for is — never because another, read ahead elsewhere, is.
+    // Whether a run's own reads are in flight (#1398): a stretch under the lens while the lens reads its segment (#1349) —
+    // never one it is not reading, far from the view or still to be placed; a paged run while one of the windows it
+    // stands for is — never because another, read ahead elsewhere, is.
     const pendingWindows = paging.pending;
-    const runLoading = useCallback((band: { at: string; from: number; to: number }): boolean => band.at === "reading"
-        || pendingWindows.some((w) => w * SHEET_PAGE_SIZE <= band.to && (w + 1) * SHEET_PAGE_SIZE - 1 >= band.from), [pendingWindows]);
+    const runLoading = useCallback((band: { at: string; from: number; to: number }): boolean => (band.at === "reading"
+        ? lensReading.includes(band.from)
+        : pendingWindows.some((w) => w * SHEET_PAGE_SIZE <= band.to && (w + 1) * SHEET_PAGE_SIZE - 1 >= band.from)), [pendingWindows, lensReading]);
     // What the runs of the optimiser left on each row (#1409, R25), by the row's id — a line's by its line id — while the
     // drafts hold it: each row is handed its own marks, held still until a run touches it again.
     const marks: ReadonlyMap<string, SheetRowMarks> | undefined = optimised?.rows;

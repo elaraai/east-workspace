@@ -573,3 +573,25 @@ test("a saved view round-trips: + TAB keeps every source's narrowing and nothing
     expect(ui.count()).toBe("2,084 matches");
     expect(ui.tab("view-1").hasAttribute("data-dirty")).toBe(false);
 });
+
+test("the loading line names the stretch the lens reads near the view — never a band it is not reading, far above the view (#1398, CL3)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.ids()[0]).toBe("JOB-10000"));
+    await settle();
+    // The record's end held on its way: scrolled down there, the lens reads its last segments, and waits.
+    const end = h.e3.hold((request) => request.kind === "page" && request.dataset === ORDERS && Number(request.query.get("offset") ?? 0) >= 45_000);
+    const frame = ui.main().querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+    await act(async () => {
+        frame.scrollTop = frame.scrollHeight;
+        frame.dispatchEvent(new Event("scroll"));
+    });
+    await end.holding;
+    await settle();
+    const line = () => ui.container.querySelector('[data-frame-slot="footer"] [data-footer-line] [data-line-text]')?.textContent ?? "";
+    // It names the rows read down there — never the record's first, whose segments the lens let go as the view left them.
+    await waitFor(() => expect(line()).toMatch(/^Loading rows /));
+    const first = Number((/\d[\d,]*/.exec(line())?.[0] ?? "0").replace(/,/g, ""));
+    expect(first).toBeGreaterThan(45_000);
+    await act(async () => { end.release(); });
+    await settle();
+});

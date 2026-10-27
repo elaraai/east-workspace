@@ -1279,7 +1279,9 @@ Sheet's with its gutter, its columns' rules and a flat sheet's real row
 numbers, each cell its column kind's shape; the Plan's with its label bars and
 its plot washed under its grid and now line — one item of the virtualizer
 however long the run, and to the grid one row, its one cell across it, busy
-while its windows are read. The Sheet keys a run by the elements it stands for
+while its windows are read — under the Sheet's lens, while the lens reads its
+stretch (`RecordLens.reading`), never one it is not reading, far from the view
+or still to be placed, which the footer's line never names either. The Sheet keys a run by the elements it stands for
 (`band:<at>:<from>-<to>`), so a run that comes to stand for others — a window
 landing beside it, or leaving it — is another item and never keeps the height
 the frame measured for the last: on a fractional device pixel ratio a run

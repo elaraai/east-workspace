@@ -124,6 +124,8 @@ interface LensRead {
     ready: boolean;
     /** Whether a read the lens asked for is still in flight. */
     loading: boolean;
+    /** The segments of matches it is reading, by their first rows, in the order it reads them — a jump's, then the view's. */
+    reading: readonly number[];
 }
 
 /** A layout, and the revision and narrowing it laid out. */
@@ -157,6 +159,12 @@ export interface RecordLens {
     ready: boolean;
     /** Whether a read is still in flight. */
     loading: boolean;
+    /**
+     * The segments of matches it is reading, each by its first row — a piece of it wanted and not landed yet, on its way
+     * or waiting a turn — in the order it reads them: a jump's, then those the view meets, then those beyond it. What its
+     * host names and marks busy of the stretches it draws as bands (#1398): never one it is not reading.
+     */
+    reading: readonly number[];
     /** The last layout stands in while a new narrowing is read. */
     replacing: boolean;
     /** Why the placement could not be read, while rows show beside it. */
@@ -191,6 +199,9 @@ export interface RecordLensInput {
 
 /** The view before any is reported: the record's first row. */
 const NO_VIEW: LensView = { from: 0, to: 0, query: "" };
+
+/** No segment read. */
+const NOT_READING: readonly number[] = [];
 
 /**
  * Reads and lays out the lens over a record (#1349).
@@ -252,6 +263,8 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         }
         let pending = false;
         const landed = new Map<string, LandedPiece>();
+        // The segments a piece of which is wanted and not landed yet — on its way, or waiting a turn — in the order wanted.
+        const reading: number[] = [];
         let pieces: LensPiece[] = [];
         if (placement !== undefined) {
             pieces = lensPieces(lensRegions(placement));
@@ -292,7 +305,10 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
                     const failed = cache.failures.get(p.key);
                     if (failed !== undefined) { landed.set(p.key, { error: failed }); continue; }
                     const piece: LandedPiece = { rows: cache.rows.get(p.key), hits: cache.hits.get(p.key) };
-                    if (piece.rows === undefined || piece.hits === undefined) pending = true;
+                    if (piece.rows === undefined || piece.hits === undefined) {
+                        pending = true;
+                        if (!reading.includes(p.segment)) reading.push(p.segment);
+                    }
                     landed.set(p.key, piece);
                 }
             }
@@ -303,7 +319,7 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         }
         const ready = placement !== undefined && !pending;
         const loading = placementError === undefined && (placement === undefined || !placement.complete || pending);
-        return { revision, query, placement, placementError, pieces, landed, ready, loading };
+        return { revision, query, placement, placementError, pieces, landed, ready, loading, reading };
     }, [source, part, where, query, viewFrom, viewTo, jumpTarget, retries]);
 
     const { result } = useTrackedEvaluation(read);
@@ -438,6 +454,11 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
     jumpDrawnRef.current = jumpDrawn;
     const settled = jumpTarget !== undefined && (jumpDrawn || hiddenAt(jumpTarget));
     const failure = value?.placementError ?? readError;
+    // The segments it reads, one array while they hold: a landing elsewhere draws no band again for them.
+    const readingNow = active ? value?.reading ?? NOT_READING : NOT_READING;
+    const readingHeld = useRef(NOT_READING);
+    if (readingNow.length !== readingHeld.current.length || readingNow.some((at, i) => at !== readingHeld.current[i])) readingHeld.current = readingNow;
+    const reading = readingHeld.current;
     return {
         layout,
         rows: drawn.rows,
@@ -447,6 +468,7 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         revision: active ? value?.revision : undefined,
         ready: active && value !== undefined && value.ready && shown !== undefined && shown.query === query && shown.revision === value.revision,
         loading: active && (value === undefined || value.loading),
+        reading,
         replacing,
         sourceError: layout === undefined ? undefined : failure,
         error: active && layout === undefined ? failure : undefined,
