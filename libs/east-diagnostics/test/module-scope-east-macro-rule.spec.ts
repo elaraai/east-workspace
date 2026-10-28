@@ -51,11 +51,23 @@ test("silent on a plain-JS string helper (no East, no composite key)", () => {
 });
 
 test("silent on a module-scope e3 DECLARATION factory of a record's index or migration", () => {
-  // Structural stand-ins for e3's `RecordIndexDef` / `MigrationDef`: `e3.recordIndex` and `e3.migration`
-  // declare a record's structure as `e3.task` declares a dataflow's, East functions inside them.
+  // Structural stand-ins for e3's `RecordIndexDef` / `MigrationDef`, the parts a record holds: they declare a
+  // record's structure as `e3.task` declares a dataflow's, East functions inside them.
   const src = `${PRELUDE}interface RecordIndexDef<K> { name: string; keyFn: unknown; keyType: K }\ninterface MigrationDef<T> { name: string; fn: unknown; to: T }\n` +
     `export const mkIndex = (name: string): RecordIndexDef<typeof IntegerType> => ({ name, keyFn: East.function([IntegerType], IntegerType, ($, n) => n), keyType: IntegerType });\n` +
     `export const mkMigration = (name: string): MigrationDef<typeof IntegerType> => ({ name, fn: East.function([IntegerType], IntegerType, ($, n) => n), to: IntegerType });\n`;
+  assert.deepEqual(rule(src), []);
+});
+
+test("silent on a module-scope helper drafting a record's part through its builder", () => {
+  // Structural stand-ins for e3's record builders and the drafts they return: a record's declaration hands
+  // `index`, `mutation` and `migration` to its parts, and a helper a declaration calls drafts one — a shared
+  // migration step, a set of indexes — as a helper returning `e3.task(…)` declares a task.
+  const src = `${PRELUDE}interface IndexDraft<IK> { readonly keyType?: IK }\ninterface MutationDraft<A> { readonly args?: A }\ninterface MigrationDraft { readonly name?: string }\n` +
+    `interface IndexBuilder { key<F>(fn: F): IndexDraft<typeof IntegerType> }\ninterface MutationBuilder { reduce<F>(fn: F): MutationDraft<[]> }\ninterface MigrationBuilder { value<F>(name: string, fn: F): MigrationDraft }\n` +
+    `export const byValue = (index: IndexBuilder) => index.key(East.function([IntegerType, IntegerType], IntegerType, ($, _k, v) => v));\n` +
+    `export const bump = (mutation: MutationBuilder) => mutation.reduce(East.function([IntegerType], IntegerType, ($, n) => n.add(1n)));\n` +
+    `export const addOwner = (migration: MigrationBuilder) => migration.value("add_owner", East.function([IntegerType], IntegerType, ($, n) => n));\n`;
   assert.deepEqual(rule(src), []);
 });
 

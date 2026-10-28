@@ -73,10 +73,12 @@ export function isEastPlatformDefinitionType(type: ts.Type): boolean {
 }
 
 // e3 program declarations: `e3.task` → `TaskDef`, `e3.input` → `DatasetDef`,
-// `e3.function` → `FunctionDef`, … . A module-scope helper returning one of these
-// (or a platform definition) is a DECLARATION factory — host-side composition of
-// the program's structure, which the host language is allowed to do — not a value
-// macro that hand-builds East IR.
+// `e3.function` → `FunctionDef`, … , and a record's parts as the builders its
+// declaration hands over draft them: `index.on(…)` → `IndexDraft`,
+// `mutation.patch()` → `MutationDraft`, `migration.value(…)` → `MigrationDraft`.
+// A module-scope helper returning one of these (or a platform definition) is a
+// DECLARATION factory — host-side composition of the program's structure, which
+// the host language is allowed to do — not a value macro that hand-builds East IR.
 const E3_DEFINITION_NAMES = new Set([
   "TaskDef",
   "DatasetDef",
@@ -87,6 +89,9 @@ const E3_DEFINITION_NAMES = new Set([
   "RecordDef",
   "RecordIndexDef",
   "PackageDef",
+  "IndexDraft",
+  "MutationDraft",
+  "MigrationDraft",
 ]);
 
 export function isEastDefinitionType(type: ts.Type): boolean {
