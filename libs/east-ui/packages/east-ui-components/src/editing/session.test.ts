@@ -11,7 +11,10 @@
  */
 
 import { expect, test } from "vitest";
-import { ArrayType, IntegerType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    ArrayType, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant,
+    type ValueTypeOf,
+} from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
 import { liftDraft } from "./draft.js";
 import { editingMessages } from "./messages.js";
@@ -207,6 +210,58 @@ test("a move alone confirms at the revision it committed: its entry's value is n
     expect(session.status).toBe("reconciling");
     expect(session.reconcile(variant("revision", "r2"), () => some(a))).toBe(true);
     expect(session.status).toBe("idle");
+});
+
+// ── The drafts a preview of the Save reads (#1437) ───────────────────────────
+
+/** Whether an entry's version, as the source holds one, is the job given — `none` for an absent one. */
+const isJob = equalFor(OptionType(Job));
+
+test("lists each entry drafted away from its original, each as the source holds an entry, and the revision the drafts began from (#1437)", () => {
+    const session = keyed("r1");
+    expect(session.drafts.entries.size).toBe(0);
+    session.record([
+        { id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) },
+        { id: "J4", before: absentJob, after: job(spray) },
+        { id: "J2", before: job(band), after: absentJob },
+    ], "typed", "Edit jobs");
+    const { revision, entries } = session.drafts;
+    expect(revision).toBe("r1");
+    expect([...entries.keys()].sort()).toEqual(["J1", "J2", "J4"]);
+    const [updated, inserted, removed] = [entries.get("J1")!, entries.get("J4")!, entries.get("J2")!];
+    expect(updated.key).toBe("J1");
+    expect(isJob(updated.before, some(cut)) && isJob(updated.after, some({ ...cut, qty: 5n }))).toBe(true);
+    expect(isJob(inserted.before, none) && isJob(inserted.after, some(spray))).toBe(true);
+    expect(isJob(removed.before, some(band)) && isJob(removed.after, none)).toBe(true);
+    // Each version as the session holds it.
+    expect(updated.draft).toBe(session.entries.get("J1"));
+    expect(updated.original).toBe(session.originals.get("J1"));
+});
+
+test("keeps a drafted entry the same object while its original and its draft hold — another entry's gestures, an Undo and a Redo — and leaves out one undone to its original, discarded or saved (#1437)", async () => {
+    const session = keyed("r1");
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    const drafts = session.drafts;
+    expect(session.drafts).toBe(drafts);
+    const J1 = drafts.entries.get("J1")!;
+    session.record([{ id: "J3", before: job(route), after: job({ ...route, qty: 2n }) }], "typed", "Set quantity");
+    expect(session.drafts).not.toBe(drafts);
+    expect(session.drafts.entries.get("J1")).toBe(J1);
+    session.undo();
+    expect([...session.drafts.entries.keys()]).toEqual(["J1"]);
+    session.undo();
+    expect(session.drafts.entries.size).toBe(0);
+    session.redo();
+    // The history keeps the versions it recorded: the same draft, the same view of it.
+    expect(session.drafts.entries.get("J1")).toBe(J1);
+    session.discard();
+    expect(session.drafts.entries.size).toBe(0);
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 7n }) }], "typed", "Set quantity");
+    await session.apply();
+    expect(session.reconcile(variant("revision", "r2"), () => some({ ...cut, qty: 7n }))).toBe(true);
+    // Saved: the source holds the draft, at the revision the Save made.
+    expect(session.drafts.entries.size).toBe(0);
+    expect(session.drafts.revision).toBe("r2");
 });
 
 // ── Naming a Save's conflicts at a revision (#1199) ─────────────────────────

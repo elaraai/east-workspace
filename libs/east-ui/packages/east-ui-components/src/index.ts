@@ -612,6 +612,7 @@ export {
     editingMessages,
     sessionErrorText,
     type BatchReadiness,
+    type DraftedEntry,
     type EditHistoryJoined,
     type EditHistoryPaged,
     type EditHistoryPart,
@@ -631,6 +632,7 @@ export {
     type Origin,
     type Placement,
     type SessionBannersProps,
+    type SessionDrafts,
     type TakenKey,
 } from "./editing/index.js";
 // The Optimise run's shared parts (#1409) — for the sibling renderer packages

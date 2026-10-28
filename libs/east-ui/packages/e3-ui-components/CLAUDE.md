@@ -1320,6 +1320,41 @@ exercise real decimal typing in Chromium through Save/remount. Distinguish a
 refreshed record's stale-draft banner from a conflict returned by a write that
 races with Save; both retain the draft and protect the newer stored value.
 
+### A record's drafts in what e3 keeps (#1437)
+
+One shared part previews each drafted row's Save in the page
+(`shared/records/drafts.ts`, `useRecordDrafts` over `RecordDrafts`), for any
+builder with a record's editing session and its indexed binding. For each row
+the session holds a draft of (`EditSession.drafts`: the revision the drafts
+began from, and each entry's original and draft, the same objects while they
+hold) it previews what e3 will change in each index if the Save commits now:
+
+- **The row as e3 holds it.** At the revision the drafts began from, the
+  session's own original; at a later one, read by key at that revision, every
+  drafted row in one request (the binding's `rowsAll`), each `reading` until
+  it lands.
+- **The row as the Save would leave it.** The draft's change, the original
+  against the draft, applied to it as e3 applies the Save's patch. One that
+  does not apply — another session changed the same value — is `stale`, and
+  previews nothing; the session's banner says the source changed.
+- **What it changes.** Each index's maintenance the binding carries (each
+  nested series and summary index it lists, `maintenance`), run on the two
+  rows and the row's patch: e3's own function, the one its commit runs
+  (`indexMaintenance`), so the ops — an entry's `insert`, `update` or
+  `delete`, a summary's `add` — are what e3 will write.
+
+The part changes no read. A reader of the record's entries lays each previewed
+row's ops over what it holds: an `insert` or `update` replaces an entry, a
+`delete` drops it, an `add` moves a total (one whose count reaches nothing
+goes, as e3 drops it). What rows show, their order, and the rail's counts and
+summary stay as saved: a draft that takes a row out of a narrowing leaves it in
+view until Save, and the Save's notice says it left. The part runs only on the
+drafted rows, never over the record, and runs a row again only when its draft
+moves, a row lands or the revision moves. Nothing of it is stored: once a Save
+commits and reads back, the session's drafts retire and e3's entries are the
+previewed ones. Its tests hold every preview to what e3 keeps after the Save
+(`drafts.test.ts`, on e3).
+
 ### Shared time navigation
 
 Plan, Calendar and Roster use the internal `TimeNavigator` in

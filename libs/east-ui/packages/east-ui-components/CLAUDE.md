@@ -499,6 +499,13 @@ component, nothing in east-ui.
   session; each session keeps its own banners (`SessionBanners`' `name`
   titles them by their source). `useEditHistory` keeps it in the UI store
   per view, beside each source's kept session.
+- **A session's drafts, as a preview reads them** (`EditSession.drafts`,
+  #1437). The revision of the source the drafts began from, and each entry
+  drafted away from its original — its original and its draft as the session
+  holds them, and each as the source holds an entry — the same objects until
+  a gesture, an Undo, a Redo, a Discard or a confirmed Save replaces one; a
+  draft not yet complete is none of them. e3-ui-components' record drafts
+  (`shared/records/drafts.ts`) preview each one's Save from it.
 
 ## Field form
 
