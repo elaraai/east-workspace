@@ -12,6 +12,8 @@
  * - A leaf's week value typed: the ledger read whole once, the value drawn at
  *   once, every subtotal above it moved by the difference from e3's preview;
  *   its Save commits that value alone. A second value typed reads nothing.
+ * - While the ledger is read whole, the leaf and every row above it draw in
+ *   flight.
  * - Cleared, the value goes; typed into the empty bucket, it comes back.
  * - Enter, F2, a double click or a digit opens the input; Tab and Shift+Tab
  *   move along the row, ↑ and ↓ to the rows above and below that take typing,
@@ -142,6 +144,23 @@ describe("a number typed into a table cell (#1438)", () => {
         }
         expect(measureOf(now, "101.1", "101.1.1", "101.1.1.3")).toEqual(measureOf(was, "101.1", "101.1.1", "101.1.1.3"));
         expect(after.get("L-102")).toEqual(before.get("L-102"));
+    });
+
+    test("while its ledger is read whole, the leaf typed into and every row above it draw in flight, then land with the value drafted", async () => {
+        const { container: c } = await h.mount(ledgersTyped("week"));
+        await settle();
+        const read = h.e3.hold((request) => request.dataset === LEDGERS && request.kind === "rows");
+        await openOn(c, LEAF, JAN_12);
+        await typeIn(c, "15");
+        await press(c, "Enter");
+        await read.holding;
+        // The leaf, its middle measure and its top measure wash as in flight; its sibling does not.
+        const inFlight = () => [LEAF, MIDDLE, TOP, LEAF_2].map((row) => c.querySelector(`${row} [data-plan-unread]`) !== null);
+        await waitFor(() => expect(inFlight()).toEqual([true, true, true, false]));
+        read.release();
+        await settle();
+        expect(inFlight()).toEqual([false, false, false, false]);
+        await waitFor(() => expect([printed(c, LEAF, JAN_12), printed(c, MIDDLE, JAN_12)]).toEqual(["15", "22"]));
     });
 
     test("cleared, a value goes and its subtotals with it; typed into the empty bucket, it comes back", async () => {

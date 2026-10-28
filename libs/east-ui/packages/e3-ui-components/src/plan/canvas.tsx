@@ -1104,13 +1104,29 @@ export function usePlanCanvas({
     const marks = editing.marks;
     // Where each open group ends (#949) — its last visible member's rule.
     const groupEnds = useMemo(() => groupEndsOf(body.items), [body.items]);
+    // A row a gesture waits on, read whole, and every row above it (#1438): their numbers move once it lands and the
+    // gesture drafts, so they draw as in flight meanwhile — an unread row's wash, its plot busy.
+    const { inFlight } = editing;
+    const rowsInFlight = useMemo((): ReadonlySet<RowKey> => {
+        const out = new Set<RowKey>();
+        for (const key of inFlight) {
+            for (let at: RowKey | undefined = key; at !== undefined && !out.has(at);) {
+                out.add(at);
+                const parent: PlanRowValue["parent"] | undefined = index.byKey.get(at)?.parent;
+                at = parent !== undefined && parent.type === "some" ? parent.value : undefined;
+            }
+        }
+        return out;
+    }, [inFlight, index]);
+    const unreadOrInFlight = useMemo(() => (rowsInFlight.size === 0 ? unread
+        : (row: PlanRowValue) => rowsInFlight.has(row.key) || unread?.(row) === true), [unread, rowsInFlight]);
     const rowCtx = useMemo<PlanRowContext>(() => ({
         styles, gridTemplate, dense, storageKey, index, derived,
         dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkFamily, linkedKeys,
-        canExpand, expandBody, expandGutterBody, partial, rowDrop, marks, groupEnds, unread,
+        canExpand, expandBody, expandGutterBody, partial, rowDrop, marks, groupEnds, unread: unreadOrInFlight,
     }), [styles, gridTemplate, dense, storageKey, index, derived, controller, chartsExpanded,
         focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, partial, rowDrop, marks,
-        groupEnds, unread]);
+        groupEnds, unreadOrInFlight]);
 
     // The resolution segment is a TIME-axis affordance; the now instant rides
     // whichever arm the axis declares.

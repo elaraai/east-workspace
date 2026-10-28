@@ -1385,7 +1385,9 @@ window through the seam with what it read:
 - **Drafting.** A gesture drafts each row it touches read whole by key
   (`usePlanWholeRows`, the binding's `rowsAll`), never a window's lean row: a
   row not held yet is read, every row asked meanwhile in one request, and the
-  gesture is drafted once it lands. A Save's entries are read back the same
+  gesture is drafted once it lands; meanwhile the row and every row above it
+  draw in flight (the unread wash, the plot busy: `usePlanEditing`'s
+  `inFlight`). A Save's entries are read back the same
   way. Each drafted row's Save, previewed (#1437), is laid over the cells held,
   so the moved item and every subtotal over it draw before Save.
 

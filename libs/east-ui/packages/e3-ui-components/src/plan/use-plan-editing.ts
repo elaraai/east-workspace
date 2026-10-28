@@ -122,6 +122,12 @@ export interface PlanEditing {
      *   whole, a cleared cell holding none)
      */
     typeValue(typed: PlanTypedValue, label: string): boolean;
+    /**
+     * The rows a gesture waits on, being read whole (#1438): the canvas draws
+     * them, and the rows above them, as in flight until they land and the
+     * gesture is drafted.
+     */
+    inFlight: ReadonlySet<RowKey>;
     /** A history bar action. Stable. */
     action(action: HistoryAction): void;
 }
@@ -191,6 +197,7 @@ const INERT: EditingValue = {
 const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 const rowEqual = equalFor(Plan.Types.Row);
 const NO_MARKS: ReadonlyMap<RowKey, PlanDraftMark> = new Map();
+const NO_ROWS: ReadonlySet<RowKey> = new Set();
 const NO_DRAFTS: ReadonlyMap<string, Uint8Array> = new Map();
 
 /** The entry a row came from — the first segment of its id's path; none for a top-level section's header. */
@@ -456,6 +463,12 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [waits]);
     const landedRead = useCallback(() => whole === undefined || waitingIds.every((id) => whole.read(id).type === "some"), [whole, waitingIds]);
+    // The rows the queue waits on.
+    const inFlight = useMemo((): ReadonlySet<RowKey> => (waiting.current.length === 0 ? NO_ROWS
+        : new Set(waiting.current.flatMap((w) => w.requests.flatMap((r) => r.rows.map(rowKeyOf))))),
+    // The queue is a ref; its count says when it moved.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [waits]);
     const { result: landed } = useTrackedEvaluation(landedRead);
     /** Write one gesture into the entries it touches, and record it as one transaction. */
     const record = (requests: readonly { id: string; rows: PlanRowId[] }[], gesture: PlanGesture, origin: Origin, label: string): boolean => {
@@ -562,6 +575,8 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         const queued = waiting.current;
         waiting.current = [];
         for (const w of queued) recordNow.current(w.requests, w.gesture, w.origin, w.label);
+        // Nothing in flight now.
+        setWaits((n) => n + 1);
     }, [landed]);
     const drop = useCallback((event: DragEventValue) => current.current.drop(event), []);
     const move = useCallback((request: PlanMoveRequest) => current.current.move(request), []);
@@ -582,6 +597,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         drop,
         move,
         typeValue,
+        inFlight,
         action,
     };
 }
