@@ -24,8 +24,8 @@
  * an operator's Approve resolves the row to `approved`. Related, coarser /
  * finer granularities stay distinct on purpose: per-tile ghost-accept
  * (`onAccept(CellRef)` on the drag contract) resolves ONE proposed event,
- * and e3-ui's DecisionQueue `Verdict` resolves a *case*; this contract is the
- * row/batch granularity between them.
+ * and a verdict in e3-ui's DecisionQueue resolves a whole *case*; this
+ * contract is the row/batch granularity between them.
  *
  * @packageDocumentation
  */

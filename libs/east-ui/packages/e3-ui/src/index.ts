@@ -31,6 +31,11 @@
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
  *   share (`Schedule.events`, `Schedule.resources`), and what a builder
  *   publishes (`Schedule.periods`).
+ * - `<DecisionQueue>` — the cases a model leaves to a person, one card open at
+ *   a time, over the app's own records: its cases, the verdicts it writes and
+ *   where each kind of decision draws on `DecisionQueue`
+ *   (`DecisionQueue.decisions`, `DecisionQueue.verdicts`,
+ *   `DecisionQueue.change.*`, `DecisionQueue.Types`).
  * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
  * - `Func.bind` — workspace-scoped named-function (RPC) call binding.
@@ -258,48 +263,23 @@ export {
     type ExperimentTabLiteral,
 } from './experiment/index.js';
 
-// Decision platform types + factory
-export { Decision } from './decision/index.js';
-export {
-    DecisionType,
-    DecisionOptionType,
-    UrgencyType,
-    type UrgencyLiteral,
-    StakesLevelType,
-    type StakesLevelLiteral,
-    EvidenceType,
-    AnswerType,
-    type AnswerLiteral,
-    VerdictType,
-    ReferenceType,
-    JudgementInputType,
-    DecisionConstraintType,
-    PromptType,
-    LeverType,
-    judgementInputType,
-    type PromptInput,
-    type LeverInput,
-    type DecisionInput,
-    type DecisionOptionInput,
-    type EvidenceInput,
-    type DecisionReferenceInput,
-    type DecisionJudgementInput,
-} from './decision/types.js';
-export {
-    decisionBind,
-    decisionBindPlatformFn,
-    DecisionHandleType,
-    DecisionHandleRefType,
-    CommitStateType,
-    JudgementsType,
-    type DecisionHandle,
-    type DecisionBindOptions,
-} from './decision/bind.js';
-// e3 `<DecisionQueue>` tag (+ author-facing options type)
-export { DecisionQueue } from './runtime/decision/queue.js';
-export { type DecisionQueueOptions } from './decision/queue.js';
-export { DecisionJournal } from './runtime/decision/journal.js';
-export { type DecisionJournalOptions } from './decision/journal.js';
+// The DecisionQueue (#1447): the cases a model leaves to a person, over the
+// app's own records — its cases (`DecisionQueue.decisions`), the verdicts it
+// writes (`DecisionQueue.verdicts`) and where each kind of decision draws
+// (`DecisionQueue.change.*`), its types on `DecisionQueue.Types` — and its
+// props.
+export { DecisionQueue, type DecisionQueueNamespace, type DecisionQueueProps } from './decision/queue.js';
+export type {
+    DecisionCaseRole, DecisionCaseRoles, DecisionChangeRole, DecisionOptionChangeRole, DecisionOptionRole, DecisionOptionRoles, DecisionOptions,
+    DecisionProposalRoles, DecisionQueueDecisions, DecisionRecordOfPatch, DecisionRoles, DecisionTargets, DecisionTargetsOf,
+} from './decision/decisions.js';
+export type { DecisionChoiceField, DecisionQueueVerdicts, DecisionStringOptionField, DecisionVerdictRoles } from './decision/verdicts.js';
+export type {
+    DecisionProjectionTargetConfig, DecisionQueueTarget, DecisionRecordTargetConfig, DecisionTargetNames, DecisionZonesTargetConfig,
+} from './decision/targets.js';
+export type {
+    DecisionAllocationTargetConfig, DecisionCalendarTargetConfig, DecisionPlanTargetConfig, DecisionRosterTargetConfig, DecisionSheetTargetConfig,
+} from './decision/builder-targets.js';
 
 export { Calendar, type CalendarProps, type CalendarLibraryTab } from "./calendar/index.js";
 

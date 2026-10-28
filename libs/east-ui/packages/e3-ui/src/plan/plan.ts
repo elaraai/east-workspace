@@ -716,8 +716,9 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
  * @param series - `data`'s `series`, when given
  * @param rows - The `rows` prop, when given
  * @throws {Error} Naming a resource kind that would draw no rows, or the two series that share a key
+ * @internal
  */
-function checkEventRows(
+export function checkEventRows(
     resources: readonly (readonly [string, ScheduleResourceKind<EastType, EastType>])[],
     events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[],
     series: unknown,

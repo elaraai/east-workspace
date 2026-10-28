@@ -49,7 +49,6 @@ const FILES = [
     "slice/slice",
     "layout/snap-grid",
     "disclosure/story",
-    "e3/decision/queue",
     "e3/query/query",
     "e3/plan/plan",
     "e3/studio/studio",
@@ -222,7 +221,6 @@ test.describe("a converted icon takes the room its glyph took (#1263)", () => {
         test.skip(isMobile, "measured once, at the desktop width");
         const pages: ReadonlyArray<[string, Readonly<Record<string, Site>>]> = [
             ["collections/library", { add: { icons: "[data-library-footer-add] svg" } }],
-            ["e3/decision/queue", { caret: { icons: "[data-collapsible] > span > svg" } }],
             ["e3/query/query", { slotCaret: { icons: "button[aria-haspopup='listbox'] > span[aria-hidden] > svg" } }],
             ["layout/snap-grid", { endZone: { icons: "[data-snap-grid-end] svg" } }],
         ];

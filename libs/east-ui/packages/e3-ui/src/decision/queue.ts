@@ -4,383 +4,293 @@
  */
 
 /**
- * `DecisionQueue` — *the* Decide surface (see `design/decide.html` §2.3).
- * One queue over the handle's unioned cases, sorted by urgency with the
- * routine tail collapsed. The case view is the row's expanded state, not a
- * sibling component: selecting a row opens one compact facet at a time
- * beneath it — `Evidence` (the model's argument + the host's per-decision
- * `evidence` canvas), `Options` (the ranked stack), `Judgement` (prompts ·
- * knowledge · lever builder, gating Apply), `Modify` (the host's per-kind
- * probe via the `modify` slot). Apply / Reject stay on the row and resolve
- * through the handle.
+ * `<DecisionQueue>` (#1447, `Decision Queue Spec.md`): the cases a model
+ * leaves to a person, one card open at a time — what each option changes,
+ * drawn as the builder that edits it draws it; Apply writing the change
+ * through its record's own patch door, and every verdict into the app's
+ * record of verdicts — in the renderer's BuilderFrame, with no side panes.
  *
- * An `EastUI.component` extension: the payload carries the handle's ref
- * (binding descriptors) plus the host's slots; the renderer registers
- * against {@link DecisionQueue.Component} in `@elaraai/e3-ui-components`.
+ * Its cases are one source of the app's — a record, or a task's output —
+ * whatever kinds of decision it holds (`DecisionQueue.decisions`); its
+ * verdicts are a record of the app's (`DecisionQueue.verdicts`); and each kind
+ * of decision draws in a target (`DecisionQueue.change.*`) built from the
+ * consts the app hands its builders. It stores nothing in a shape of its own.
+ *
+ * The tag validates and assembles the closed payload; it composes no East UI
+ * component and emits no layout, session or gesture program. The app's rows
+ * cross as beast2 bytes behind East functions reified over the app's row
+ * types, so the payload is one type whatever the app's records hold. The
+ * `DecisionQueue` renderer in `@elaraai/e3-ui-components` draws it.
  *
  * @packageDocumentation
  */
 
 import {
-    East,
-    ArrayType,
-    StructType,
-    OptionType,
-    VariantType,
-    StringType,
-    BooleanType,
-    NullType,
-    FunctionType,
-    some,
-    none,
-    variant,
-    type ExprType,
-    type SubtypeExprOrValue,
+    ArrayType, BooleanType, DateTimeType, East, Expr, FunctionType, NullType, OptionType, StringType, StructType, none, some,
+    type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { EastUI, DensityType, UIComponentType, type DensityLiteral } from "@elaraai/east-ui";
-import { localSliceHandle, SliceAffordanceType, SliceBindType, reifyAccessor, type SliceAffordanceLiteral } from "@elaraai/east-ui/internal";
-
-import { DecisionHandleRefType, type DecisionHandleLike } from "./bind.js";
-import { DecisionType, DecisionUpdateType } from "./types.js";
-
-export { DecisionUpdateType } from "./types.js";
+import { EastUI, type UIElement } from "@elaraai/east-ui";
+import { RecordSlicesChromeType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
+import { recordSources } from "../utils/record-sources.js";
+import {
+    decisionQueueAllocationTarget, decisionQueueCalendarTarget, decisionQueuePlanTarget, decisionQueueRosterTarget, decisionQueueSheetTarget,
+} from "./builder-targets.js";
+import { DECISIONS_SOURCE, decisionQueueDecisions, isDecisionQueueDecisions, type DecisionQueueDecisions } from "./decisions.js";
+import { decisionQueueProjectionTarget, decisionQueueRecordTarget, decisionQueueZonesTarget } from "./targets.js";
+import {
+    DecisionCaseType, DecisionOptionType, DecisionPointType, DecisionTargetType, DecisionVerdictType, DecisionVerdictsKindType, DecisionZoneType,
+    DecisionsKindType,
+} from "./types.js";
+import { decisionQueueVerdicts, isDecisionQueueVerdicts, type DecisionQueueVerdicts } from "./verdicts.js";
 
 // ============================================================================
-// Payload — the fixed IR shape the renderer decodes.
+// The payload
 // ============================================================================
 
-/** The expanded row's facet. */
-export const FacetType = VariantType({
-    evidence: NullType,
-    options: NullType,
-    judgement: NullType,
-    modify: NullType,
-});
-/** Type alias for {@link FacetType}. */
-export type FacetType = typeof FacetType;
-/** String-literal proxy for {@link FacetType}. */
-export type FacetLiteral = "evidence" | "options" | "judgement" | "modify";
-
 /**
- * The author-selectable *data* facets — `modify` is excluded because it is
- * gated purely by its callback prop. The `facets` include-list is typed over
- * this subset so listing a facet without its data is impossible.
- */
-export const DataFacetType = VariantType({
-    evidence: NullType,
-    options: NullType,
-    judgement: NullType,
-});
-/** Type alias for {@link DataFacetType}. */
-export type DataFacetType = typeof DataFacetType;
-/** String-literal proxy for {@link DataFacetType}. */
-export type DataFacetLiteral = "evidence" | "options" | "judgement";
-
-/**
- * One custom grouping offered in the Group-by toolbar: a toolbar label plus a
- * group-value accessor over the decision. The built-in `urgency` / `kind` /
- * `none` groupings are framework-provided and never declared here.
+ * The `DecisionQueue` renderer's payload: the queue's interface (§5.4).
  *
- * @property label - Toolbar segment label + group-head identity.
- * @property value - Group-value accessor; the renderer runs it per decision to
- *   bucket rows into sections.
- */
-export const DecisionGroupType = StructType({
-    label: StringType,
-    value: FunctionType([DecisionType], StringType),
-});
-/** Type alias for {@link DecisionGroupType}. */
-export type DecisionGroupType = typeof DecisionGroupType;
-
-/**
- * The `DecisionQueue` component payload.
- *
- * @property handle - The surface's decision handle ref (binding descriptors).
- * @property heading - Optional header label (e.g. `"Decisions waiting"`).
- * @property modify - Optional per-kind probe editor: `(decision, update) =>
- *   UIComponentType`; renders as the expanded row's Modify facet.
- *   `update(edited)` writes the decision back through its owning binding.
- * @property evidence - Optional per-decision Evidence-tab canvas: `(decision) =>
- *   UIComponentType`; renders inside the Evidence facet (the host's chart /
- *   working surface / trajectory).
- * @property defaultExpanded - The case shown expanded before any selection
- *   exists (a display-only default — clicking rows writes the real
- *   selection).
- * @property defaultFacet - The facet the expansion opens with (defaults to
- *   `evidence`).
- * @property facets - Optional include-list of data facets to show
- *   (`evidence` / `options` / `judgement`); absent ⇒ all. `modify` is always
- *   callback-gated and composes with this list.
- * @property onApply - Optional side-effect hook fired with the decision when
- *   Apply resolves it (the resolution itself goes through the handle).
- * @property onReject - Optional side-effect hook fired with the decision
- *   when Reject resolves it.
- * @property slice - Optional author-bound slice handle over the queue; its
- *   narrowing (matched with the slice's own bound config) applies before the
- *   urgency sort and the routine split whether or not a rail mounts.
- * @property affordances - Which rail affordances mount in the queue's eyebrow
- *   when `slice` is set.
- * @property maxHeight - Optional cap on the queue's height (a CSS length).
- *   The header stays pinned; the rows scroll.
- * @property density - Information-density preset.
- * @property groups - Custom groupings for the Group-by toolbar (label →
- *   accessor); built-in `urgency` / `kind` / `none` are added by the renderer.
- * @property groupBy - The grouping that opens first (`"urgency"` / `"kind"` /
- *   `"none"` / a `groups` label). Present (or non-empty `groups`) ⇒ the toolbar
- *   mounts; both absent ⇒ the flat queue.
- * @property collapsible - Whether group heads collapse and a Collapse-/Expand-all
- *   control mounts.
+ * @property decisions - The cases' kind: the cases read through their roles
+ * @property verdicts - The verdicts' kind: the app's record of verdicts, its session, its read by key and how a verdict
+ *   is written into its row
+ * @property targets - Each target and the tags it serves, in the order the change role's variant names them
+ * @property slice - The rail's chrome: the slice's `decisions` source over the cases' record; `none`, no rail
+ * @property onSelect - Hears the open case's key, `none` when none is open; `none`, no host follows it
+ * @property readOnly - Every card opens and shows everything, and takes no answer and no action
+ * @property now - The time the sections and the due words count from; `none`, the clock
+ * @property id - The name the queue's state is kept under: the open card, the Routine band's fold, each card's
+ *   choices and the session's drafts
  */
 export const DecisionQueuePayloadType = StructType({
-    handle: DecisionHandleRefType,
-    heading: OptionType(StringType),
-    modify: OptionType(FunctionType([DecisionType, DecisionUpdateType], UIComponentType)),
-    evidence: OptionType(FunctionType([DecisionType], UIComponentType)),
-    defaultExpanded: OptionType(DecisionType),
-    defaultFacet: OptionType(FacetType),
-    facets: OptionType(ArrayType(DataFacetType)),
-    onApply: OptionType(FunctionType([DecisionType], NullType)),
-    onReject: OptionType(FunctionType([DecisionType], NullType)),
-    slice: OptionType(SliceBindType),
-    affordances: OptionType(ArrayType(SliceAffordanceType)),
-    maxHeight: OptionType(StringType),
-    density: OptionType(DensityType),
-    groups: OptionType(ArrayType(DecisionGroupType)),
-    groupBy: OptionType(StringType),
-    collapsible: OptionType(BooleanType),
+    decisions: DecisionsKindType,
+    verdicts: DecisionVerdictsKindType,
+    targets: ArrayType(DecisionTargetType),
+    slice: OptionType(RecordSlicesChromeType),
+    onSelect: OptionType(FunctionType([OptionType(StringType)], NullType)),
+    readOnly: BooleanType,
+    now: OptionType(DateTimeType),
+    id: StringType,
 });
-/** Type alias for {@link DecisionQueuePayloadType}. */
+
+/** Type representing {@link DecisionQueuePayloadType}. */
 export type DecisionQueuePayloadType = typeof DecisionQueuePayloadType;
 
 /**
- * Internal {@link EastUI.component} carrier. The React renderer registers
- * against this in `@elaraai/e3-ui-components` via `implementUIComponent`.
+ * The `DecisionQueue` carrier: `<DecisionQueue>` builds a
+ * {@link DecisionQueuePayloadType} and returns it through this
+ * {@link EastUI.component}. The React renderer registers against it in
+ * `@elaraai/e3-ui-components` via `implementUIComponent`.
  */
 export const DecisionQueueComponent = EastUI.component("DecisionQueue", DecisionQueuePayloadType, { optional: true });
 
 // ============================================================================
-// User-facing factory.
+// The props
 // ============================================================================
 
-/**
- * Options for {@link DecisionQueue.Root}.
- *
- * @property handle - The surface's `Decision.bind` handle.
- * @property heading - Optional header label.
- * @property modify - Optional per-kind probe editor `(decision, update) =>
- *   UIComponentType` — the expanded row's Modify facet. (A typed arrow; the
- *   factory lifts it to an `East.function`.)
- * @property evidence - Optional per-decision Evidence-tab canvas `(decision) =>
- *   UIComponentType` — rendered inside the Evidence facet.
- * @property defaultExpanded - The case shown expanded before any selection
- *   exists — an *option*: pass a `firstMap` predicate's result directly.
- *   Derive it from the bound data, never a copied id literal; when the
- *   case leaves the data (e.g. it is applied) the option goes `none` and
- *   nothing is expanded.
- * @property defaultFacet - The facet the expansion opens with (defaults to
- *   `evidence`).
- * @property onApply - Optional per-row Apply side-effect hook.
- * @property onReject - Optional per-row Reject side-effect hook.
- * @property slice - Author-bound slice handle over the queue — the `Table`
- *   pattern, with inferred fields over the decision envelope and
- *   the handle's own queue union as the rows feed:
- *   `Slice.bind(key, handle.queue(), { fields, search, initial })`.
- *   You own the key (per-surface scopes over one
- *   handle, shareable with any other component) and the config (which fields
- *   the rail offers; the queue's narrowing matches with the same bound
- *   config). Narrowing applies before the urgency sort and the routine split
- *   whether or not a rail is mounted — seeding state with no rail gives an
- *   invisible author scope.
- * @property affordances - Rail affordances when `slice` is set (default
- *   `["filter", "search"]`). `brush` is rejected — the queue has no
- *   continuous axis.
- * @property maxHeight - Optional cap on the queue's height (a CSS length).
- *   The header stays pinned; the rows scroll. Unset, the queue grows with
- *   its content.
- * @property density - Information-density preset (`comfortable` | `compact`
- *   | `condensed`).
- * @property groups - Custom groupings for the Group-by toolbar — a map of
- *   toolbar label → group-value accessor `(decision) => String`.
- * @property groupBy - The grouping that opens first (`"urgency"` / `"kind"` /
- *   `"none"` / a `groups` label; default `"urgency"`). Passing this or `groups`
- *   mounts the toolbar; omit both for the flat queue.
- * @property collapsible - Whether group heads collapse and a Collapse-/Expand-all
- *   control mounts (default `true`).
- */
-export interface DecisionQueueOptions {
-    handle: DecisionHandleLike;
-    heading?: SubtypeExprOrValue<StringType>;
+/** `<DecisionQueue>`'s props (§4). */
+export interface DecisionQueueProps {
+    /** Names the queue's state: the open card, the Routine band's fold, each card's choices (D12) and the session's drafts (D3). */
+    id: string;
+    /** The cases, read only: `DecisionQueue.decisions(binding, roles)` — one source, every kind of decision, the change role a target for each of its tags (§5.1, §5.3). */
+    decisions: DecisionQueueDecisions;
+    /** Where each verdict is written: `DecisionQueue.verdicts(binding, roles)`, the app's record and its roles (§5.2). */
+    verdicts: DecisionQueueVerdicts;
     /**
-     * Per-kind probe editor — a pass-through `East.function` value (like
-     * `Table` column `render`), not invoked at build time. Authoring it as a
-     * real function means the host builds the editor inside (capturing only the
-     * `decision` + `update` params + plain data / bind-handles), so the body
-     * never captures a pre-built `UIComponentType` — which crashes the beast2
-     * encoder (#136).
+     * The rail: `{ slice: Slice.bindRecords(key, { decisions: { source, … } }) }`, one source over the cases' record (D4),
+     * its cases read through it — `decisions` bound `Data.bindPaged(record)`. A `Slice.bind` or a single
+     * `Slice.bindRecord` is refused, as every builder refuses them. Without it the cases are read whole.
      */
-    modify?: SubtypeExprOrValue<FunctionType<[DecisionType, DecisionUpdateType], UIComponentType>>;
-    /** Per-decision Evidence-tab canvas — a pass-through `East.function` value, not invoked at build time (#136). */
-    evidence?: SubtypeExprOrValue<FunctionType<[DecisionType], UIComponentType>>;
-    defaultExpanded?: SubtypeExprOrValue<OptionType<DecisionType>>;
-    defaultFacet?: FacetLiteral | SubtypeExprOrValue<FacetType>;
-    /** Include-list of data facets to show (`evidence` / `options` / `judgement`); omit ⇒ all.
-     *  `modify` stays callback-gated. Accepts a string-literal array OR a runtime
-     *  `Array<DataFacet>` expression (mirrors `defaultFacet`). */
-    facets?: DataFacetLiteral[] | SubtypeExprOrValue<ArrayType<DataFacetType>>;
-    /** Per-row Apply side-effect hook — a pass-through `East.function` value (like `modify`/`evidence`), not invoked at build time. */
-    onApply?: SubtypeExprOrValue<FunctionType<[DecisionType], NullType>>;
-    /** Per-row Reject side-effect hook — a pass-through `East.function` value, not invoked at build time. */
-    onReject?: SubtypeExprOrValue<FunctionType<[DecisionType], NullType>>;
-    /** Author-bound slice handle over the queue (`Slice.bind` over the decision envelope, rows = `handle.queue()`) — chrome + narrowing. */
-    slice?: SubtypeExprOrValue<SliceBindType>;
-    /** Rail affordances when `slice` is set. Default `["filter", "search"]`; `[]` keeps the narrowing with no rail; `brush` is rejected. */
-    affordances?: SliceAffordanceLiteral[];
-    maxHeight?: SubtypeExprOrValue<StringType>;
-    density?: SubtypeExprOrValue<OptionType<DensityType>> | DensityLiteral;
-    /** Custom groupings for the Group-by toolbar — a map of toolbar label →
-     *  group-value accessor `(decision) => String`. Urgency / Kind / None are
-     *  added automatically; you declare only custom groupings, all one shape. */
-    groups?: Record<string, (decision: ExprType<DecisionType>) => SubtypeExprOrValue<StringType>>;
-    /** The grouping that opens first: `"urgency"` | `"kind"` | `"none"` | a
-     *  `groups` label (default `"urgency"`). Passing this or `groups` mounts the
-     *  Group-by toolbar; omit both for a flat queue. */
-    groupBy?: string;
-    /** Group heads collapse + a Collapse-/Expand-all control mounts (default `true`). */
-    collapsible?: SubtypeExprOrValue<BooleanType>;
+    slice?: RecordSlicesChromeOptions;
+    /** Hears the open case's key, `none` when none is open: the host's to follow, as a builder's `onSelect` hears its selection. */
+    onSelect?: SubtypeExprOrValue<FunctionType<[OptionType<StringType>], NullType>>;
+    /** Every card opens and shows everything, and takes no answer and no action; no history item. `false` by default. */
+    readOnly?: SubtypeExprOrValue<BooleanType>;
+    /** The time the sections and the due words count from; the clock by default. Examples and tests pin it. */
+    now?: SubtypeExprOrValue<DateTimeType>;
+}
+
+/** The props §13 removed, each refused by name with what replaces it. */
+const REMOVED: readonly (readonly [string, string])[] = [
+    ["handle", "`handle` is gone — the queue reads the app's cases and writes its verdicts: decisions={DecisionQueue.decisions(Data.bind(cases), { … })} " +
+        "verdicts={DecisionQueue.verdicts(Record.bind(verdicts, [verdictsPatch]), { entries, verdict })}"],
+    ["heading", "`heading` is gone — the queue fills the box its host gives it, and a heading over it is the host's own"],
+    ["modify", "`modify` is gone — Modify edits a row in its target's own form: the builder's, for a builder's target, and a record's " +
+        "`fields`, `ready` and `inspector` (DecisionQueue.change.*)"],
+    ["evidence", "`evidence` is gone — the open card draws where its option's change lands, its target's preview (DecisionQueue.change.*), " +
+        "and Why from the case's `model` and `why` roles"],
+    ["defaultExpanded", "`defaultExpanded` is gone — the open case is the queue's own, kept under its `id`; the host hears it with `onSelect`"],
+    ["defaultFacet", "`defaultFacet` is gone — the open card shows its change, its options, Why and Your call together"],
+    ["facets", "`facets` is gone — the open card shows its change, its options, Why and Your call together; a role left out turns off what it drives"],
+    ["onApply", "`onApply` is gone — Apply writes the option's change through its target's patch door and the verdict through `verdicts`; " +
+        "the host follows the open case with `onSelect`"],
+    ["onReject", "`onReject` is gone — Override, Defer and Hand off each write a verdict through `verdicts`; the host follows the open case with `onSelect`"],
+    ["affordances", "`affordances` is gone — the rail is the slice's: slice={{ slice: Slice.bindRecords(key, { decisions: { source, … } }) }}"],
+    ["maxHeight", "`maxHeight` is gone — the queue fills the box its host gives it, which the host sizes"],
+    ["density", "`density` is gone — the queue's cards keep one spacing, and its narrow layout follows its own width"],
+    ["groups", "`groups` is gone — the queue sections its cases by when they are due, routine ones in a band of their own; narrow them " +
+        "with the slice's `decisions` source"],
+    ["groupBy", "`groupBy` is gone — the queue sections its cases by when they are due, routine ones in a band of their own; narrow them " +
+        "with the slice's `decisions` source"],
+    ["collapsible", "`collapsible` is gone — the Routine band folds, its fold kept under the queue's `id`"],
+];
+
+/** What the queue's slice narrows, as the refusal of a source nothing names says it. */
+const NARROWS = "its cases, through one source over the cases' record";
+
+/**
+ * Validates the declarations and assembles the queue's interface. View and
+ * interaction behaviour belong to the renderer, not this factory.
+ *
+ * @param props - The queue's props
+ * @returns The closed payload
+ * @throws {Error} Naming the change to make: a removed prop (§13) — `handle`, `heading`, `modify`, `evidence`,
+ *   `defaultExpanded`, `defaultFacet`, `facets`, `onApply`, `onReject`, `affordances`, `maxHeight`, `density`,
+ *   `groups`, `groupBy` or `collapsible` — each naming what replaces it; an `id` that is no text; `decisions` that is
+ *   no `DecisionQueue.decisions`, or `verdicts` no `DecisionQueue.verdicts`; a `slice` that is not
+ *   `{ slice: Slice.bindRecords(…) }`, or names a source other than `decisions`; cases bound `Data.bind` beside the
+ *   slice's source, or `Data.bindPaged` with none; and as each target refuses what it was given as the queue builds it
+ * @internal
+ */
+export function createDecisionQueuePayload(props: DecisionQueueProps): ExprType<DecisionQueuePayloadType> {
+    const given = (props ?? {}) as unknown as Readonly<Record<string, unknown>>;
+    for (const [prop, refusal] of REMOVED) {
+        if (given[prop] !== undefined) throw new Error(`DecisionQueue: ${refusal}`);
+    }
+    const id = given["id"];
+    if (typeof id !== "string" || id === "") {
+        throw new Error("DecisionQueue: `id` names the queue's state — the open card, the Routine band's fold, each card's choices and the session's " +
+            "drafts: id=\"opsQueue\"");
+    }
+    const decisions = given["decisions"];
+    if (!isDecisionQueueDecisions(decisions)) {
+        throw new Error("DecisionQueue: `decisions` is DecisionQueue.decisions(binding, roles) — the app's cases, and the roles that read each part " +
+            "of a card from them");
+    }
+    const verdicts = given["verdicts"];
+    if (!isDecisionQueueVerdicts(verdicts)) {
+        throw new Error("DecisionQueue: `verdicts` is DecisionQueue.verdicts(Record.bind(record, [e3.mutation.patch(record)]), { entries, verdict, … }) " +
+            "— the app's record each verdict is written to");
+    }
+    const slice = given["slice"];
+    if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
+        throw new Error("DecisionQueue: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { decisions: { source, … } }) }}: " +
+            "the bare handle is not taken");
+    }
+    const sources = recordSources(slice as RecordSlicesChromeOptions | undefined, { builder: "DecisionQueue", names: [DECISIONS_SOURCE], what: NARROWS });
+    // Each target on the wire, its own state kept under the queue's id and the first tag it serves.
+    const targets = [...decisions.targets].map(([target, tags]) => target.build(tags, `${id}.target.${tags[0]}`));
+    return Expr.block(($) => {
+        const bound = sources.bind($);
+        return East.value({
+            // The cases read through the slice's `decisions` source, when it has one; whole, when it has none.
+            decisions: decisions.build(bound.parts[DECISIONS_SOURCE]),
+            verdicts: verdicts.build(),
+            targets,
+            slice: sources.chrome,
+            onSelect: props.onSelect === undefined ? none : some(props.onSelect),
+            readOnly: props.readOnly ?? false,
+            now: props.now === undefined ? none : some(props.now),
+            id,
+        } as never, DecisionQueuePayloadType);
+    }) as ExprType<DecisionQueuePayloadType>;
+}
+
+// ============================================================================
+// The namespace
+// ============================================================================
+
+/** The tag, its declarations of the cases and the verdicts, its targets, and its types. */
+export interface DecisionQueueNamespace {
+    /** Renders the queue over the app's cases, verdicts and targets. */
+    (props: DecisionQueueProps): UIElement;
+    /** Declares the cases: the app's source of them, read only, and the roles that read each part of a card (§5.1). */
+    decisions: typeof decisionQueueDecisions;
+    /** Declares the verdicts: the app's record the queue writes, and the fields its roles name (§5.2). */
+    verdicts: typeof decisionQueueVerdicts;
+    /** Where each kind of decision draws (§5.3): a target per builder, taking that builder's own props, and over a record no builder draws. */
+    change: {
+        /** The duties the Roster draws: `<Roster>`'s props, by people or by cost. */
+        roster: typeof decisionQueueRosterTarget;
+        /** The events a Plan draws: `<Plan>`'s kinds. */
+        plan: typeof decisionQueuePlanTarget;
+        /** The events a Calendar draws: `<Calendar>`'s kinds and week. */
+        calendar: typeof decisionQueueCalendarTarget;
+        /** The bins an Allocation draws: `<Allocation>`'s kinds, arrivals, rules, check and nouns. */
+        allocation: typeof decisionQueueAllocationTarget;
+        /** A record the Sheet draws: `<Sheet>`'s columns. */
+        sheet: typeof decisionQueueSheetTarget;
+        /** A record no builder draws: its rows' changed fields, its mix or its groups, and its own form. */
+        record: typeof decisionQueueRecordTarget;
+        /** Areas on a grid, each in a zone. */
+        zones: typeof decisionQueueZonesTarget;
+        /** A series each option gives. */
+        projection: typeof decisionQueueProjectionTarget;
+    };
+    /** The queue's East types. */
+    Types: {
+        /** The renderer's payload. */
+        Payload: DecisionQueuePayloadType;
+        /** One target, closed: the tags it serves, its names, how a change reads against its record, and where it draws. */
+        Target: typeof DecisionTargetType;
+        /** A case, as its roles read it. */
+        Case: typeof DecisionCaseType;
+        /** One way to decide a case, as its roles read it. */
+        Option: typeof DecisionOptionType;
+        /** A verdict, as the queue writes it through the verdicts' roles. */
+        Verdict: typeof DecisionVerdictType;
+        /** One zone of a zones target. */
+        Zone: typeof DecisionZoneType;
+        /** A point of a projection's series. */
+        Point: typeof DecisionPointType;
+    };
 }
 
 /**
- * The Decision queue component namespace — the Decide surface.
+ * The cases a model leaves to a person, one card open at a time, over the
+ * app's own records, in an internal BuilderFrame with no side panes.
  *
- * @remarks
- * Use `DecisionQueue.Root({ handle, modify: …, evidence: … })` inside a
- * `Reactive` block, with the handle from `Decision.bind`. The `Component`
- * property is the {@link EastUI.component} carrier the renderer registers
- * against.
+ * @param props - The queue's `id`, its cases and verdicts, and the optional slice, `onSelect`, `readOnly` and `now`
+ * @returns The DecisionQueue extension
+ * @remarks Apply writes the option's change through its target's patch door and the verdict into the app's record;
+ *   every answer is a step of the shared editing history, saved with Save. Below 480px of its own width the cards stack.
+ *
+ * @example
+ * ```tsx
+ * <Reactive>{$ => {
+ *     const cases = $.let(Data.bind(proposals));
+ *     const verdicts = $.let(Record.bind(proposalVerdicts, [proposalVerdictsPatch]));
+ *     const verdictEntries = $.let(Data.bindPaged(proposalVerdicts));
+ *     const priceList = $.let(Record.bind(listPrices, [listPricesPatch]));
+ *     return <DecisionQueue
+ *         id="proposals"
+ *         decisions={DecisionQueue.decisions(cases, {
+ *             scope: p => p.site, due: p => p.deadline, unit: p => p.metric, model: p => p.run, why: p => p.rationale,
+ *             title: p => p.headline, summary: p => p.brief, detail: p => p.description, value: p => p.saving,
+ *             change: { from: p => p.details, of: {
+ *                 pricing: DecisionQueue.change.record(priceList, { name: "Pricing", icon: "tag", label: r => r.region }),
+ *             } },
+ *         })}
+ *         verdicts={DecisionQueue.verdicts(verdicts, {
+ *             entries: verdictEntries,
+ *             verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" },
+ *         })}
+ *     />;
+ * }}</Reactive>
+ * ```
  */
-export const DecisionQueue: {
-    Root(options: DecisionQueueOptions): ExprType<UIComponentType>;
-    Component: typeof DecisionQueueComponent;
-    Types: {
-        Payload: DecisionQueuePayloadType;
-        Update: DecisionUpdateType;
-        Facet: FacetType;
-        DataFacet: DataFacetType;
-        Group: DecisionGroupType;
-    };
-} = {
-    /**
-     * Build a decision queue bound to a decision handle.
-     *
-     * @param options - {@link DecisionQueueOptions}. Only `handle` is required.
-     * @returns An East expression of {@link UIComponentType}.
-     */
-    Root(options: DecisionQueueOptions): ExprType<UIComponentType> {
-        // Pass the render functions through untouched (like Table column
-        // `render`) — never invoke them at build time, so the host builds the
-        // editor inside the function and captures no pre-built UIComponentType.
-        const modify = options.modify === undefined
-            ? none
-            : some(East.value(options.modify, FunctionType([DecisionType, DecisionUpdateType], UIComponentType)));
-        const evidence = options.evidence === undefined
-            ? none
-            : some(East.value(options.evidence, FunctionType([DecisionType], UIComponentType)));
-        // Apply / Reject hooks pass through untouched (like `modify`/`evidence`) —
-        // never invoked at build time, so the author writes them as real
-        // `East.function` values that capture only data + bind-handles.
-        const onApply = options.onApply === undefined
-            ? none
-            : some(East.value(options.onApply, FunctionType([DecisionType], NullType)));
-        const onReject = options.onReject === undefined
-            ? none
-            : some(East.value(options.onReject, FunctionType([DecisionType], NullType)));
-        const defaultFacet = options.defaultFacet === undefined
-            ? none
-            : some(typeof options.defaultFacet === "string"
-                ? East.value(variant(options.defaultFacet, null), FacetType)
-                : options.defaultFacet);
-        const facets = options.facets === undefined
-            ? none
-            // A plain string-literal include-list → lift each into its DataFacet
-            // variant; anything else (a `DataFacet` value array or a runtime
-            // `Array<DataFacet>` expression) passes straight through.
-            : some(Array.isArray(options.facets) && options.facets.every(f => typeof f === "string")
-                ? East.value((options.facets as DataFacetLiteral[]).map(f => variant(f, null)), ArrayType(DataFacetType))
-                : East.value(options.facets as SubtypeExprOrValue<ArrayType<DataFacetType>>, ArrayType(DataFacetType)));
-        // Author-bound slice handle (Table pattern) + rail affordances. The
-        // affordance list defaults when a slice is passed; a rail without a
-        // slice has nothing to mount, so `affordances` alone is ignored, and
-        // an explicit `[]` keeps the slice's narrowing with no rail (the
-        // invisible author scope).
-        const sliceAffordances = options.slice === undefined
-            ? undefined
-            : options.affordances ?? (["filter", "search"] as SliceAffordanceLiteral[]);
-        if (sliceAffordances?.includes("brush")) {
-            throw new Error("DecisionQueue does not support the 'brush' affordance — it has no continuous axis.");
-        }
-        const slice = options.slice === undefined
-            ? none
-            : some(localSliceHandle(options.slice));
-        const affordances = sliceAffordances === undefined || sliceAffordances.length === 0
-            ? none
-            : some(East.value(sliceAffordances.map(a => variant(a, null)), ArrayType(SliceAffordanceType)));
-        const density = options.density === undefined
-            ? none
-            : typeof options.density === "string"
-                ? some(East.value(variant(options.density, null), DensityType))
-                : options.density;
-        // Custom groupings: lift each bare accessor to a pass-through East
-        // function (like `modify` / `evidence`) — the renderer runs it per row.
-        const groups = options.groups === undefined
-            ? none
-            : some(East.value(
-                Object.entries(options.groups).map(([label, accessor]) => ({
-                    label,
-                    value: reifyAccessor([DecisionType], (d: ExprType<DecisionType>) => East.value(accessor(d), StringType)),
-                })),
-                ArrayType(DecisionGroupType)));
-        // Grouping mounts when either the default or a custom map is given.
-        const grouped = options.groupBy !== undefined || options.groups !== undefined;
-        const groupBy = grouped ? some(East.value(options.groupBy ?? "urgency", StringType)) : none;
-        const collapsible = options.collapsible === undefined
-            ? none
-            : some(East.value(options.collapsible, BooleanType));
-        return DecisionQueueComponent.Root({
-            handle: East.value({
-                decisions: options.handle.decisions,
-                judgements: options.handle.judgements,
-            }, DecisionHandleRefType),
-            heading: options.heading !== undefined ? some(options.heading) : none,
-            modify,
-            evidence,
-            defaultExpanded: options.defaultExpanded !== undefined
-                ? East.value(options.defaultExpanded, OptionType(DecisionType))
-                : none,
-            defaultFacet,
-            facets,
-            onApply,
-            onReject,
-            slice,
-            affordances,
-            maxHeight: options.maxHeight !== undefined ? some(options.maxHeight) : none,
-            density,
-            groups,
-            groupBy,
-            collapsible,
-        });
+export const DecisionQueue: DecisionQueueNamespace = Object.assign(
+    (props: DecisionQueueProps): UIElement => DecisionQueueComponent.Root(createDecisionQueuePayload(props)),
+    {
+        decisions: decisionQueueDecisions,
+        verdicts: decisionQueueVerdicts,
+        change: {
+            roster: decisionQueueRosterTarget, plan: decisionQueuePlanTarget, calendar: decisionQueueCalendarTarget,
+            allocation: decisionQueueAllocationTarget, sheet: decisionQueueSheetTarget, record: decisionQueueRecordTarget,
+            zones: decisionQueueZonesTarget, projection: decisionQueueProjectionTarget,
+        },
+        Types: {
+            Payload: DecisionQueuePayloadType, Target: DecisionTargetType, Case: DecisionCaseType, Option: DecisionOptionType,
+            Verdict: DecisionVerdictType, Zone: DecisionZoneType, Point: DecisionPointType,
+        },
     },
-    /** The internal {@link EastUI.component} carrier renderers register against. */
-    Component: DecisionQueueComponent,
-    Types: {
-        /** The rendered payload struct. */
-        Payload: DecisionQueuePayloadType,
-        /** The probe editor's `update` writer. */
-        Update: DecisionUpdateType,
-        /** The expanded row's facet variant. */
-        Facet: FacetType,
-        /** The author-selectable data-facet subset (`evidence` / `options` / `judgement`). */
-        DataFacet: DataFacetType,
-        /** One custom grouping definition (`label` + accessor). */
-        Group: DecisionGroupType,
-    },
-} as const;
+);

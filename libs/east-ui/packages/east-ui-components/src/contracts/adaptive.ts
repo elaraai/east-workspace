@@ -123,8 +123,9 @@ export function useContainerBreakpoint(
 /**
  * `true` while the referenced element's width is strictly below `px`.
  *
- * The single-threshold form used by narrow-mode components (DecisionQueue's
- * 560 px rail rows, Story's 720 px stack) — re-renders only on crossings.
+ * The single-threshold form used by narrow-mode components (the builders'
+ * phone layouts below 480 px of main, the Pagination's 360 px compact form)
+ * — re-renders only on crossings.
  *
  * @param ref - the element whose inline size is watched
  * @param px - the threshold in CSS pixels

@@ -368,11 +368,30 @@ export function checkEntries(entries: unknown, keyType: EastType, rowType: EastT
     return resolved.source as unknown as ExprType<EastType>;
 }
 
-/** A key's text: a String key as it is, any other key as East prints it. */
-function keyTextOf(keyType: EastType): ExprType<FunctionType<[EastType], StringType>> {
+/**
+ * A key's text, the id a builder's session and its reads name an entry by: a
+ * String key as it is, any other key as East prints it.
+ *
+ * @param keyType - The record's key type
+ * @returns `(key)` → its text
+ */
+export function scheduleIdOf(keyType: EastType): ExprType<FunctionType<[EastType], StringType>> {
     return (keyType.type === "String"
         ? East.function([StringType], StringType, (_$, key) => key)
         : East.function([keyType], StringType, (_$, key) => East.print(key))) as unknown as ExprType<FunctionType<[EastType], StringType>>;
+}
+
+/**
+ * A key from its text ({@link scheduleIdOf}): a String key is its own text,
+ * any other key its `.east` printing, read back.
+ *
+ * @param keyType - The record's key type
+ * @returns `(id)` → the key
+ */
+export function scheduleKeyOf(keyType: EastType): ExprType<FunctionType<[StringType], EastType>> {
+    return (keyType.type === "String"
+        ? East.function([StringType], StringType, (_$, id) => id)
+        : East.function([StringType], keyType, (_$, id) => id.parse(keyType))) as unknown as ExprType<FunctionType<[StringType], EastType>>;
 }
 
 /**
@@ -400,10 +419,7 @@ export function scheduleEntryByKey(
     entries: ExprType<EastType>, keyType: EastType, rowType: EastType,
 ): ExprType<FunctionType<[StringType], VariantType<{ reading: NullType; absent: NullType; held: EastType }>>> {
     const Read = ScheduleKeyReadType(rowType);
-    // A key from its text: a String key is its own text, any other key its `.east` printing, read back.
-    const keyOf = (keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, id) => id)
-        : East.function([StringType], keyType, (_$, id) => id.parse(keyType))) as unknown as ExprType<FunctionType<[StringType], EastType>>;
+    const keyOf = scheduleKeyOf(keyType);
     // The `.east` literal a seek takes: a String key's is its text quoted; any other key's text is its literal already.
     const literalOf = keyType.type === "String"
         ? East.function([StringType], StringType, (_$, id) => East.print(id))
@@ -451,7 +467,7 @@ export function scheduleLastKey(
     entries: ExprType<EastType>, keyType: EastType,
 ): ExprType<FunctionType<[], OptionType<OptionType<StringType>>>> {
     const Found = OptionType(OptionType(StringType));
-    const textOf = keyTextOf(keyType);
+    const textOf = scheduleIdOf(keyType);
     return East.function([], Found, ($) => {
         const handle = entries as unknown as EntriesHandle;
         const src = $.const(handle);

@@ -338,7 +338,7 @@ export const blendSlotRecipe = defineSlotRecipe({
         /* (The action buttons moved to the shared `commitBar` slots (#266) —
            Apply = btnPrimary, Discard = btnDanger, Reset = btn — so the
            apply/discard surface reads as the same chrome family as the
-           shared review foot and the DecisionQueue staged footer.) */
+           shared review foot.) */
         /* Compare foot — derived diff table + verdict. */
         diff: {
             marginTop: "{spacing.3}",

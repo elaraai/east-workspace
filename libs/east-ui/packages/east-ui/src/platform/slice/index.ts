@@ -242,22 +242,6 @@ function sliceFieldSpecFor<T>(rowType: T) {
  * @property searchFieldIds    - Fields the typeahead search applies to
  * @property breakdownFieldIds - Fields available as breakdown dimensions
  */
-/**
- * Materialise the concrete `SliceConfig` East type for a row type — for
- * payloads that carry a slice config across an encoding boundary (e.g. a
- * `DecisionQueue`'s queue-owned slice). The module-scope `SliceConfigType`
- * keeps the `"T"` placeholder for the `slice_bind` declaration.
- */
-export function sliceConfigTypeFor<T extends EastType>(rowType: T) {
-    return StructType({
-        fields:            DictType(StringType, sliceFieldSpecFor(rowType)),
-        rangeFieldId:      OptionType(StringType),
-        searchFieldIds:    ArrayType(StringType),
-        breakdownFieldIds: ArrayType(StringType),
-        fieldHints:        DictType(StringType, ArrayType(StringType)),
-    });
-}
-
 export const SliceConfigType = StructType({
     fields:            DictType(StringType, SliceFieldSpecType),
     rangeFieldId:      OptionType(StringType),

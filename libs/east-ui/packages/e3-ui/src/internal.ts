@@ -5,9 +5,10 @@
 
 /**
  * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Schematic` /
- * `Ontology` **factories** (`Plan.Payload(…)`, `Sheet.Payload(…)`,
- * `Flowchart.Payload(…)`, `Schematic.Payload(…)`, `Ontology.Root(…)`,
- * `Ontology.Component`) plus `Data`, the manifest type and derivation, and types.
+ * `DecisionQueue` / `Ontology` **factories** (`Plan.Payload(…)`,
+ * `Sheet.Payload(…)`, `Flowchart.Payload(…)`, `Schematic.Payload(…)`,
+ * `createDecisionQueuePayload(…)`, `Ontology.Root(…)`, `Ontology.Component`)
+ * plus `Data`, the manifest type and derivation, and types.
  *
  * @remarks
  * The public `@elaraai/e3-ui` entry exports JSX **tags** (and `ui()`, which
@@ -683,56 +684,36 @@ export {
 // Experiment factory + component carrier for renderers/tests. The value types
 // ride on `Experiment.Types`, so they are not re-exported individually here.
 export { Experiment, ExperimentComponent } from './experiment/index.js';
-export { Decision } from './decision/index.js';
+// The DecisionQueue (#1447): `<DecisionQueue>` with its namespace, the payload
+// the renderer takes through the `DecisionQueue` carrier — the cases' and the
+// verdicts' kinds, each closed behind East functions over the rows' bytes, each
+// target and the tags it serves, and its rail — the payload's assembly, the
+// declarations it is written with, and its East types.
 export {
-    DecisionType,
-    DecisionOptionType,
-    UrgencyType,
-    type UrgencyLiteral,
-    StakesLevelType,
-    type StakesLevelLiteral,
-    EvidenceType,
-    AnswerType,
-    type AnswerLiteral,
-    VerdictType,
-    ReferenceType,
-    JudgementInputType,
-    DecisionConstraintType,
-    PromptType,
-    LeverType,
-    judgementInputType,
-    type PromptInput,
-    type LeverInput,
-    type DecisionInput,
-    type DecisionOptionInput,
-    type EvidenceInput,
-    type DecisionReferenceInput,
-    type DecisionJudgementInput,
-} from './decision/types.js';
-export {
-    decisionBind,
-    decisionBindPlatformFn,
-    DecisionBindPrimitives,
-    DecisionHandleType,
-    DecisionHandleRefType,
-    CommitStateType,
-    JudgementsType,
-    type DecisionHandle,
-    type DecisionBindOptions,
-} from './decision/bind.js';
-export {
-    DecisionQueue,
-    DecisionQueueComponent,
-    DecisionQueuePayloadType,
-    DecisionUpdateType,
-    type DecisionQueueOptions,
+    DecisionQueue, DecisionQueueComponent, DecisionQueuePayloadType, createDecisionQueuePayload,
+    type DecisionQueueNamespace, type DecisionQueueProps,
 } from './decision/queue.js';
+export * from './decision/types.js';
 export {
-    DecisionJournal,
-    DecisionJournalComponent,
-    DecisionJournalPayloadType,
-    type DecisionJournalOptions,
-} from './decision/journal.js';
+    DECISION_QUEUE_CASES, DECISIONS_SOURCE, decisionQueueDecisions, isDecisionQueueDecisions,
+    type DecisionCaseRole, type DecisionCaseRoles, type DecisionChangeRole, type DecisionOptionChangeRole, type DecisionOptionRole,
+    type DecisionOptionRoles, type DecisionOptionRowOf, type DecisionOptions, type DecisionProposalRoles, type DecisionQueueDecisions,
+    type DecisionRecordOfPatch, type DecisionRoles, type DecisionTargets, type DecisionTargetsOf,
+} from './decision/decisions.js';
+export {
+    decisionQueueVerdicts, isDecisionQueueVerdicts,
+    type DecisionChoiceField, type DecisionQueueVerdicts, type DecisionStringOptionField, type DecisionVerdictRoles,
+} from './decision/verdicts.js';
+export {
+    decisionQueueProjectionTarget, decisionQueueRecordTarget, decisionQueueZonesTarget, decisionTarget, decisionTargetRole, isDecisionTarget,
+    type DecisionProjectionTargetConfig, type DecisionQueueTarget, type DecisionRecordTargetConfig, type DecisionTargetNames,
+    type DecisionZonesTargetConfig,
+} from './decision/targets.js';
+export {
+    decisionQueueAllocationTarget, decisionQueueCalendarTarget, decisionQueuePlanTarget, decisionQueueRosterTarget, decisionQueueSheetTarget,
+    type DecisionAllocationTargetConfig, type DecisionCalendarTargetConfig, type DecisionPlanTargetConfig, type DecisionRosterTargetConfig,
+    type DecisionSheetTargetConfig,
+} from './decision/builder-targets.js';
 
 export * from "./calendar/index.js";
 

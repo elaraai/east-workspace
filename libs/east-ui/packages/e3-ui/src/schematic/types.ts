@@ -16,13 +16,10 @@
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DictType, EastTypeType, FloatType, FunctionType, NullType, OptionType, StringType, StructType, VariantType,
+    ArrayType, BlobType, BooleanType, DictType, FloatType, FunctionType, NullType, OptionType, StringType, StructType, VariantType,
 } from "@elaraai/east";
-import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { StatusTokenType } from "@elaraai/east-ui";
-import { EditingReadinessType, EditingType, FieldSpecType } from "@elaraai/east-ui/internal";
-import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleReadyEntryType } from "../schedule/types.js";
-import { RowInspectorType } from "../utils/row-inspector.js";
+import { RecordSideFields } from "../utils/record-side.js";
 
 // ============================================================================
 // The value types the accessors return
@@ -642,38 +639,6 @@ export type SchematicTemplateType = typeof SchematicTemplateType;
 // ============================================================================
 // The kinds' wire (§4.8)
 // ============================================================================
-
-/** A record's commits, newest first, as its handle reads them. */
-const HistoryType = FunctionType([], OptionType(ArrayType(RecordCommitInfoType)));
-
-/** The author's check over drafted entries, one result each. */
-const ReadyType = FunctionType([ArrayType(ScheduleReadyEntryType)], ArrayType(EditingReadinessType));
-
-/**
- * What every kind and a kind's details carry: how the record is read and
- * written, and the inspector's form.
- *
- * @property editable - Whether the record is bound with its patch door: what its gestures, drops and edits write
- * @property editing - The shared session over the record, with its patch door; `none` for a record bound read only
- * @property entries - The record read by key, for a record read through its source or bound with `Data.bindPaged`; `none` for one read whole
- * @property history - The record's commits, newest first; `none` for a record bound with `Data.bind` or `Data.bindPaged`
- * @property fields - The inspector's form over the fields no role writes (`Fields`)
- * @property inspector - The kind's own Details in place of its form, over bytes
- * @property ready - The app's check on drafted rows, one result each
- * @property set - The row with each field write applied in order — a field at any depth, its value as bytes at the field's type — and every other field as it was: what an author's card dropped on an entity sets (#1390); `none` for a write naming no field of the row
- * @property rowType - The record's row type
- */
-const RecordSideFields = {
-    editable: BooleanType,
-    editing: OptionType(EditingType),
-    entries: OptionType(ScheduleEntriesType),
-    history: OptionType(HistoryType),
-    fields: ArrayType(FieldSpecType),
-    inspector: OptionType(RowInspectorType),
-    ready: OptionType(ReadyType),
-    set: FunctionType([BlobType, ArrayType(ScheduleFieldWriteType)], OptionType(BlobType)),
-    rowType: EastTypeType,
-} as const;
 
 /**
  * What a reader read of a record by key or by area, made its stored rows
