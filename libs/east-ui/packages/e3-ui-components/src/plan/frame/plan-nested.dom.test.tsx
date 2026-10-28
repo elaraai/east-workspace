@@ -20,10 +20,11 @@
 
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi, type MockInstance } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DictType, East, PatchType, StringType, decodeBeast2For, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { DictType, East, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { layOut } from "@elaraai/east-ui-components/testing";
-import { Editing, Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
+import { Editing, Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
+import { getStore } from "@elaraai/east-ui-components/internal";
 import { Data, Plan, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan-nested/plan-nested";
 import { MutationCallRequestType, type TreePath } from "@elaraai/e3-types";
@@ -786,6 +787,37 @@ describe("a gesture drafts its row whole (#1438)", () => {
         expect([row.hasAttribute("data-draft"), row.hasAttribute("data-invalid"), row.hasAttribute("data-incomplete")]).toEqual([true, false, false]);
         expect(applyButton(c).hasAttribute("disabled")).toBe(false);
         expect(h.requests().slice(asked).filter((request) => request.dataset === MACHINES)).toEqual([]);
+    });
+
+    test("a site chosen on the rail pages the narrowed machines lean and searches the cells of those in view alone; a draft the narrowing drops stays, and saves", async () => {
+        onTestFinished(emulateWindowScroll());
+        const { container: c } = await h.mount(editingPlan, { drag: true });
+        await settle();
+        // M-10001 is at the north site: its job drafted a day on.
+        await dragADay(c);
+        const asked = h.requests().length;
+        // The south machines chosen, as the rail writes the choice.
+        const store = "plan.nested.dom.editing.rows";
+        const decodeState = decodeBeast2For(RecordSliceStateType);
+        const was = decodeState(getStore().read(store)!);
+        const where = new SortedMap([...was.where], compareFor(StringType));
+        where.set("site", variant("values", [printFor(StringType)("south")]));
+        await act(async () => { getStore().write(store, encodeBeast2For(RecordSliceStateType)({ ...was, preset: none, where })); });
+        await settle();
+        const after = h.requests().slice(asked);
+        // The narrowed machines paged lean through the index the site leads...
+        expect(after.some((request) => request.kind === "page" && through(ex.machines.indexes.machines_by_site_status)(request))).toBe(true);
+        // ...and only theirs searched: every fifth machine from the second is at the south site.
+        const searched = new Set(after.filter((request) => request.kind === "find" && through(IN_TIME)(request))
+            .flatMap((request) => request.searches.map((search) => ("from" in search ? search.from ?? [] : [])[1]!)));
+        expect(searched.size).toBeGreaterThan(0);
+        for (const key of searched) expect((Number(/M-(\d+)/.exec(key)![1]) - 10_001) % 5).toBe(1);
+        expect(c.querySelector(rowAt(entry("presses", "M-10001")))).toBeNull();
+        // The draft of the machine it drops stays, and saves.
+        await save(c);
+        const commits = h.requests("mutate", ex.machines.name);
+        expect(commits).toHaveLength(1);
+        expect(jobsOps(commits[0]!)).toEqual(new Map([["M-10001", "update J-10001-114"]]));
     });
 
     test("a machine's only job moved off it is deleted by key, never its jobs replaced", async () => {
