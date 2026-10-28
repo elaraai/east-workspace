@@ -25,7 +25,7 @@ import {
 import { EditingApplyResultType, EditingChangeSetTypeFor, EditingDraftFieldType, EditingType, EditingWireApplyType } from "@elaraai/east-ui/internal";
 import { Record } from "../bind/record.js";
 import { ScheduleEntriesType } from "./types.js";
-import { scheduleEntryByKey, scheduleLastKey } from "./window.js";
+import { scheduleEntryByKey, scheduleIdOf, scheduleKeyOf, scheduleLastKey } from "./window.js";
 
 /** One entry read by its key: still reading, absent, or held. */
 type KeyRead = VariantType<{ reading: NullType; absent: NullType; held: EastType }>;
@@ -74,12 +74,8 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
     const byKey = entries === undefined ? undefined : scheduleEntryByKey(entries, keyType, rowType);
     const lastKey = entries === undefined ? undefined : scheduleLastKey(entries, keyType);
     // An entry's id is its key's text: a String key as it is, any other key as East prints it.
-    const idOf = (keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, key) => key)
-        : East.function([keyType], StringType, (_$, key) => East.print(key))) as unknown as ExprType<FunctionType<[EastType], StringType>>;
-    const keyOf = (keyType.type === "String"
-        ? East.function([StringType], StringType, (_$, id) => id)
-        : East.function([StringType], keyType, (_$, id) => id.parse(keyType))) as unknown as ExprType<FunctionType<[StringType], EastType>>;
+    const idOf = scheduleIdOf(keyType);
+    const keyOf = scheduleKeyOf(keyType);
     const draftType = EditingDraftFieldType(rowType);
     return {
         readAll,

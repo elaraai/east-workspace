@@ -46,20 +46,18 @@
  */
 
 import {
-    ArrayType, AsyncFunctionType, BlobType, DictType, East, Expr, FloatType, OptionType, PatchType, SetType, StringType, StructType,
-    defaultValue, isTypeEqual, none, printType, some, toEastTypeValue, variant,
-    type EastType, type ExprType, type FunctionType, type NullType, type SubtypeExprOrValue, type VariantType,
+    ArrayType, BlobType, DictType, East, FloatType, OptionType, SetType, StringType, StructType,
+    defaultValue, isTypeEqual, none, some, variant,
+    type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
-import type { UIComponentType } from "@elaraai/east-ui";
-import { EditingReadinessType, Fields, FieldSpecType, resolveRowSource, type FieldHints } from "@elaraai/east-ui/internal";
-import { RecordOutcomeType } from "../bind/record.js";
+import type { FieldHints } from "@elaraai/east-ui/internal";
 import { scheduleAccessor } from "../schedule/accessor.js";
 import type { ScheduleResourceOf, ScheduleStatusCasesOf, ScheduleStatusField } from "../schedule/events.js";
-import { checkKeyField, fieldOf, fieldSetters, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "../schedule/fields.js";
-import { scheduleEntriesSeam, scheduleRecordSession } from "../schedule/session.js";
-import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleReadyEntryType } from "../schedule/types.js";
-import { checkEntries, optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
-import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
+import { checkKeyField, fieldOf, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "../schedule/fields.js";
+import { optionOf, typeText } from "../schedule/window.js";
+import {
+    recordBound, recordEntries, recordSide, rowWith, type RecordBinding, type RecordBound, type RecordSide, type RowInspector,
+} from "../utils/record-side.js";
 import { checkedSchematicTemplates, isSchematicTemplates, type SchematicTemplates } from "./templates.js";
 import {
     SchematicDetailsEntryType, SchematicDetailsRolesType, SchematicKindDetailsType, SchematicEndsType, SchematicGeometryType, SchematicItemEntryType,
@@ -108,9 +106,6 @@ export type SchematicEndField<R extends StructType> = {
 /** An accessor of a row and its key: what a computed role is. */
 type Accessor<R extends EastType, T extends EastType> = (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<T>;
 
-/** A kind's own Details: an East function over the row and its writer, as the Sheet's and the Flowchart's are. */
-type RowInspector<R extends StructType> = SubtypeExprOrValue<FunctionType<[R, FunctionType<[R], NullType>], UIComponentType>>;
-
 /** The status a variant field shows: the field, and a Status per case. */
 export interface SchematicStatusConfig<R extends StructType, SF extends string> {
     /** The status field: a variant, not an Option. */
@@ -133,76 +128,18 @@ export type SchematicValuesOf<R extends StructType, Placed extends string> = Str
  *
  * @typeParam R - The record's row type
  */
-export type SchematicRecord<R extends StructType> =
-    | { readonly read: (...args: never[]) => ExprType<DictType<StringType, R>>; readonly binding: unknown }
-    | { readonly page: (...args: never[]) => ExprType<OptionType<DictType<StringType, R>>>; readonly revision: unknown };
-
-/** The binding forms, as the refusals name them. */
-const FORMS = "Record.bind(record), its record declaring patch: mutation.patch() to edit it, or Data.bind(record) or Data.bindPaged(record) to read it only";
-
-/** A kind's record, bound: how, its handle, and its row type. */
-interface Bound {
-    /** `record`: `Record.bind` with its patch door, editable; `data`: `Data.bind`, read whole; `paged`: `Data.bindPaged`, read through a source. */
-    readonly form: "record" | "data" | "paged";
-    /** The binding's handle. */
-    readonly handle: ExprType<EastType>;
-    /** The record's row type. */
-    readonly rowType: StructType;
-}
+export type SchematicRecord<R extends StructType> = RecordBinding<R>;
 
 /**
- * Tells a kind's binding by its handle's East struct (`bind/sources.ts`'
- * rule): a `page` field is `Data.bindPaged`'s, a `mutate` field
- * `Record.bind`'s — checked for its patch door — and any other `Data.bind`'s.
+ * Tells a kind's binding by its handle's East struct (`utils/record-side.ts`).
  *
  * @param record - What the kind was given
  * @param where - The kind, as a refusal names it
  * @returns The binding
- * @throws {Error} Naming the forms to use: anything but a binding of a record of structs keyed by String, a paged read of
- *   an index's window or one naming no snapshot, and a `Record.bind` without its patch door
+ * @throws {Error} As `recordBound` refuses, a record of another type said as a Schematic kind's
  */
-function boundOf(record: unknown, where: string): Bound {
-    const refuse = (why: string): never => { throw new Error(`${where}: \`record\` is the app's record, bound — ${FORMS}${why}`); };
-    if (!(record instanceof Expr)) return refuse("");
-    const type = Expr.type(record) as EastType;
-    const fields = type.type === "Struct" ? type.fields as Record<string, EastType> : undefined;
-    if (fields === undefined) return refuse(` — and this is ${printType(type)}`);
-    let form: Bound["form"];
-    let recordType: EastType | undefined;
-    if (fields["page"] !== undefined) {
-        form = "paged";
-        if (fields["indexes"] !== undefined) {
-            return refuse(" — and this paged read serves the record's indexes: bind its own entries, Data.bindPaged(record), and name the indexed read " +
-                "as the kind's source of the slice");
-        }
-        const resolved = resolveRowSource(record, where);
-        if (resolved.kind !== "paged") {
-            return refuse(" — and this paged read serves an index's window: bind the record's own entries, Data.bindPaged(record)");
-        }
-        recordType = resolved.collectionType;
-    } else {
-        form = fields["mutate"] !== undefined ? "record" : "data";
-        const read = fields["read"];
-        if (read === undefined || read.type !== "Function" || read.inputs.length !== 0 || fields["binding"] === undefined) return refuse("");
-        recordType = read.output as EastType;
-    }
-    if (recordType.type !== "Dict" || !isTypeEqual(recordType.key as EastType, StringType) || (recordType.value as EastType).type !== "Struct") {
-        throw new Error(`${where}: a Schematic kind's record holds its entities by String key, each a struct — and this one holds ${typeText(recordType)}`);
-    }
-    const rowType = recordType.value as StructType;
-    if (form === "paged") {
-        // A paged read of the record's own entries, at the snapshot every read of it is at.
-        checkEntries(record, StringType, rowType, `${where}: \`record\``);
-    }
-    if (form === "record") {
-        // The patch door: the record's mutation.patch(), the mutation named `patch` taking the record's patch.
-        const commit = fields["commit"];
-        const door = commit?.type === "Struct" ? (commit.fields as Record<string, EastType>)["patch"] : undefined;
-        if (door === undefined || !isTypeEqual(door, AsyncFunctionType([StringType, PatchType(recordType)], RecordOutcomeType))) {
-            throw new Error(`${where}: \`record\` is bound without its patch door — ${FORMS}`);
-        }
-    }
-    return { form, handle: record as ExprType<EastType>, rowType };
+function boundOf(record: unknown, where: string): RecordBound {
+    return recordBound(record, where, "a Schematic kind's record holds its entities by String key, each a struct");
 }
 
 /**
@@ -218,7 +155,7 @@ function boundOf(record: unknown, where: string): Bound {
  * @returns `()` → its rows, by key, and the paged read its rows are read by key through, if any
  * @throws {Error} Naming the form to use, for each binding its read does not take
  */
-function readsOf(bound: Bound, entries: ExprType<EastType> | undefined, slot: string, part: SchematicKindPart | undefined, where: string, every: boolean) {
+function readsOf(bound: RecordBound, entries: ExprType<EastType> | undefined, slot: string, part: SchematicKindPart | undefined, where: string, every: boolean) {
     if (part === undefined) {
         if (bound.form === "paged") {
             throw new Error(`${where}: a paged binding has no whole read — read it through its source of the slice, slot "${slot}": ` +
@@ -239,25 +176,6 @@ function readsOf(bound: Bound, entries: ExprType<EastType> | undefined, slot: st
             "original and Save's confirmation: give `entries: Data.bindPaged(record)` beside it, the record's own entries");
     }
     return { rows: schematicSourceRows(part, slot, bound.rowType, where, every), byKey: bound.form === "paged" ? bound.handle : entries };
-}
-
-/**
- * Checks a kind's `entries` where it declares them: for a record bound to be
- * edited, a paged read of its own entries.
- *
- * @param bound - The kind's binding
- * @param entries - What the kind was given
- * @param where - The kind, as a refusal names it
- * @returns The paged read, checked; `undefined` for none
- * @throws {Error} When a read-only binding is given `entries`, or they are no paged read of the record's own entries
- */
-function entriesOf(bound: Bound, entries: unknown, where: string): ExprType<EastType> | undefined {
-    if (entries === undefined) return undefined;
-    if (bound.form !== "record") {
-        throw new Error(`${where}: \`entries\` reads an editable record by key — a kind bound ${bound.form === "data" ? "Data.bind" : "Data.bindPaged"} ` +
-            `${bound.form === "data" ? "is read whole" : "reads by key through its own binding"}: leave \`entries\` out`);
-    }
-    return checkEntries(entries, StringType, bound.rowType, `${where}: \`entries\``);
 }
 
 // ============================================================================
@@ -291,11 +209,6 @@ function accessorRole<T extends EastType>(rowType: StructType, where: string, ro
     if (typeof fn !== "function") throw new Error(`${where}: \`${role}\` is an accessor, (row, key) => ${what}`);
     return scheduleAccessor(rowType, StringType, out, fn as (row: ExprType<EastType>, key: ExprType<EastType>) => SubtypeExprOrValue<T>,
         (returns) => `${where}: \`${role}\` returns ${what} — and this one returns ${returns}`);
-}
-
-/** A row of the record's type, field by field: each field `set` names from it, every other from `source`. */
-function rowWith(rowType: StructType, source: unknown, set: Readonly<Record<string, unknown>>): ExprType<EastType> {
-    return East.value(Object.fromEntries(Object.keys(rowType.fields).map((f) => [f, set[f] ?? fieldOf(source, f)])) as never, rowType) as ExprType<EastType>;
 }
 
 /** The row's fields less those a drop places: what a template gives. */
@@ -403,128 +316,6 @@ function readOf(rowType: StructType, rolesOf: ExprType<FunctionType<[EastType, S
     });
 }
 
-/** The app's check over drafted rows, one result each; a check that throws refuses its own row alone. */
-function readyOf(rowType: StructType, ready: ((row: ExprType<StructType>, key: ExprType<StringType>) => unknown) | undefined) {
-    if (ready === undefined) return undefined;
-    const author = East.function([rowType, StringType], EditingReadinessType, ($, row, key) =>
-        $.const(ready(row, key) as SubtypeExprOrValue<typeof EditingReadinessType>, EditingReadinessType));
-    return East.function([ArrayType(ScheduleReadyEntryType)], ArrayType(EditingReadinessType), ($, batch) => {
-        const check = $.const(author);
-        return batch.map(($2, item) => {
-            const result = $2.let(variant("ready", null), EditingReadinessType);
-            $2.try(($3) => {
-                $3.assign(result, check(item.entry.decodeBeast(rowType, "v2"), item.id));
-            }).catch(($3, message) => {
-                $3.assign(result, variant("invalid", [{ field: "", message: East.str`Readiness check failed: ${message}` }]));
-            });
-            return result;
-        });
-    });
-}
-
-/**
- * The row with each of a card's field writes applied in order, and every other
- * field as it was (#1390): what an author's card dropped on an entity sets —
- * the fields its `Schematic.patch` sets, each a field at any depth, its value
- * as bytes at the field's type — through the setter Schedule's kinds write an
- * inspector's edit with (`fieldSetters`).
- *
- * @param rowType - The record's row type
- * @returns `(bytes, writes)` → the row written; `none` when a write names no field of the row
- */
-function rowSetter(rowType: StructType) {
-    const setters = fieldSetters(rowType);
-    return East.function([BlobType, ArrayType(ScheduleFieldWriteType)], OptionType(BlobType), ($, bytes, writes) => {
-        // Each setter's path as East holds it: a field is named by its steps, never by text a dotted name could mimic.
-        const fns = setters.map((setter) => ({ path: $.const([...setter.path], ArrayType(StringType)), set: $.const(setter.set) }));
-        const row = $.let(bytes.decodeBeast(rowType, "v2") as ExprType<EastType>, rowType);
-        const named = $.let(true);
-        $.for(writes, ($2, write) => {
-            const found = $2.let(false);
-            for (const fn of fns) {
-                $2.if(East.equal(write.path, fn.path), ($3) => {
-                    $3.assign(row, fn.set(row, write.value) as never);
-                    $3.assign(found, true);
-                });
-            }
-            $2.if(found.not(), ($3) => { $3.assign(named, false); });
-        });
-        return named.ifElse(
-            (_$2) => East.value(some(East.Blob.encodeBeast(row, "v2")), OptionType(BlobType)),
-            (_$2) => East.value(none, OptionType(BlobType)),
-        );
-    });
-}
-
-/**
- * What every kind and every details record declare beside their roles, each
- * typed over the record's row, as Schedule's kinds' are (#1391).
- *
- * @typeParam R - The record's row type
- */
-interface RecordSide<R extends StructType = StructType> {
-    /** A paged read of the record's own entries, for an editable record read through its source. */
-    entries?: unknown;
-    /** Hints for the inspector's form over the fields no role writes (`Fields`). */
-    fields?: FieldHints<R["fields"]>;
-    /** The app's check on a drafted row, over the row and its key: a refusal holds Save, naming the row and its field. */
-    ready?: (row: ExprType<R>, key: ExprType<StringType>) => SubtypeExprOrValue<typeof EditingReadinessType>;
-    /** The kind's own Details, in place of its form: an East function over the row and its writer. */
-    inspector?: RowInspector<R>;
-}
-
-/**
- * A record's side of a kind on the wire: whether it is editable, its session
- * and its read by key, its history, its form, its own Details, the app's
- * check, and the setter an author's card writes its fields through.
- *
- * @param bound - The record's binding
- * @param entries - Its `entries`, checked
- * @param byKey - The paged read its rows are read by key through, if any
- * @param config - Its form's hints, its check and its own Details
- * @param omitted - The fields its roles write, which its form leaves out
- * @param where - The kind, as a refusal names it
- * @returns The fields every kind and details record carry
- * @throws {Error} As `Fields.specs`, `rowInspector` and the patch door's check refuse
- */
-function recordSide<R extends StructType>(bound: Bound, entries: ExprType<EastType> | undefined, byKey: ExprType<EastType> | undefined, config: RecordSide<R>,
-    omitted: readonly (string | undefined)[], where: string): Record<string, unknown> {
-    const rowType = bound.rowType;
-    const form = Fields.specs(rowType, (config.fields ?? {}) as never,
-        [...new Set(omitted.filter((name): name is string => name !== undefined))] as never);
-    const inspector = config.inspector === undefined ? undefined : rowInspector(config.inspector, rowType,
-        `${where}: \`inspector\` is the kind's own Details — an East.function over the row and its writer: ` +
-        "East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …), RowType the record's row");
-    // Typed over the kind's row, as its author wrote it: called over the row the check decodes.
-    const ready = readyOf(rowType, config.ready as never);
-    let editing: unknown = none;
-    let seam: unknown;
-    let history: unknown = none;
-    if (bound.form === "record") {
-        // The shared session over the record (Schedule's `session.ts`): whole-entry drafts, keyed batches, Save through
-        // its patch door — its base the record's snapshot, or, read through a source, its revision.
-        const session = scheduleRecordSession(bound.handle, StringType, rowType, byKey === undefined ? undefined : entries);
-        const built = session.build();
-        editing = some(built.editing);
-        seam = built.entries;
-        history = some(session.history);
-    } else if (byKey !== undefined) {
-        // Read only through `Data.bindPaged`: the record read by key through that binding itself.
-        seam = scheduleEntriesSeam(byKey, scheduleEntryByKey(byKey, StringType, rowType), scheduleLastKey(byKey, StringType));
-    }
-    return {
-        editable: bound.form === "record",
-        editing,
-        entries: seam ?? East.value(none, OptionType(ScheduleEntriesType)),
-        history,
-        fields: East.value(form, ArrayType(FieldSpecType)),
-        inspector: inspector === undefined ? East.value(none, OptionType(RowInspectorType)) : some(inspector),
-        ready: ready === undefined ? none : some(ready),
-        set: rowSetter(rowType),
-        rowType: toEastTypeValue(rowType),
-    };
-}
-
 /**
  * A shape role, an accessor over the row's own fields (D35): refused when it
  * names a field, as the Schematic's own type would then live in the app's row.
@@ -620,7 +411,7 @@ export function schematicDetails<R extends StructType, SF extends ScheduleStatus
     const where = "Schematic.details";
     const bound = boundOf(record, where);
     const rowType = bound.rowType;
-    const entries = entriesOf(bound, config.entries, where);
+    const entries = recordEntries(bound, config.entries, where);
     const status = statusOf(rowType, where, config.status as { field: string; cases: unknown } | undefined);
     const meter = accessorRole(rowType, where, "meter", SchematicMeterType, "a Schematic.Types.Meter, { value, max }", config.meter);
     const metric = accessorRole(rowType, where, "metric", OptionType(StringType), "an Option of a String", config.metric);
@@ -815,7 +606,7 @@ export function schematicItems<R extends StructType, X extends SchematicPlaceFie
     const rowType = bound.rowType;
     const typeOf = fieldTypeOf(rowType, where);
     const role = roleField(rowType, where);
-    const entries = entriesOf(bound, config.entries, where);
+    const entries = recordEntries(bound, config.entries, where);
     if (typeof config.icon !== "string" && typeof config.icon !== "function") throw new Error(`${where}: \`icon\` is a Font Awesome solid icon's name, or an accessor giving each card's`);
 
     // The centre: Float fields, or both Options of Float, which give the kind a backlog.
@@ -1037,7 +828,7 @@ export function schematicZones<R extends StructType>(record: SchematicRecord<R>,
     const bound = boundOf(record, where);
     const rowType = bound.rowType;
     const role = roleField(rowType, where);
-    const entries = entriesOf(bound, config.entries, where);
+    const entries = recordEntries(bound, config.entries, where);
     if (typeof config.icon !== "string") throw new Error(`${where}: \`icon\` is a Font Awesome solid icon's name`);
     if ("templates" in config) throw new Error(`${where}: zones take no templates — a zone is added through its record, and edited in the inspector`);
     const xField = role("x", config.x, FloatType, "a Float field")!;
@@ -1217,7 +1008,7 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
     const rowType = bound.rowType;
     const fields = rowType.fields as Record<string, EastType>;
     const typeOf = fieldTypeOf(rowType, where);
-    const entries = entriesOf(bound, config.entries, where);
+    const entries = recordEntries(bound, config.entries, where);
     if (typeof config.icon !== "string") throw new Error(`${where}: \`icon\` is a Font Awesome solid icon's name`);
     const end = (prop: "from" | "to", given: { field: string; of: unknown } | undefined): KeyField => {
         if (given === undefined || typeof given.field !== "string") throw new Error(`${where}: \`${prop}\` is { field, of } — the field holding an item's key, and the item slot it holds keys of`);
@@ -1393,7 +1184,7 @@ export function schematicNets<R extends StructType, SRC extends SchematicMembers
     const rowType = bound.rowType;
     const fields = rowType.fields as Record<string, EastType>;
     const typeOf = fieldTypeOf(rowType, where);
-    const entries = entriesOf(bound, config.entries, where);
+    const entries = recordEntries(bound, config.entries, where);
     if (typeof config.icon !== "string") throw new Error(`${where}: \`icon\` is a Font Awesome solid icon's name`);
     const side = (prop: "sources" | "destinations", given: { field: string; of: string } | undefined) => {
         if (given === undefined || typeof given.field !== "string") throw new Error(`${where}: \`${prop}\` is { field, of } — a Set or an Array of String field of items' keys, and the item slot they are keys of`);

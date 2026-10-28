@@ -14,9 +14,7 @@ import './platform/paged-runtime.js';     // → registerPlatformImplementation(
 import './platform/func-runtime.js';      // → registerPlatformImplementation(FuncPlatform)
 import './ontology/index.js';             // → implementUIComponent(Ontology.Component, EastChakraOntology)
 import './experiment/index.js';           // → implementUIComponent(Experiment.Component, EastChakraExperiment)
-import './decision/queue.js';             // → implementUIComponent(DecisionQueue.Component, EastChakraDecisionQueue)
-import './decision/journal.js';           // → implementUIComponent(DecisionJournal.Component, EastChakraDecisionJournal)
-import './studio/builder.js';             // → implementUIComponent(StudioBuilderComponent, EastChakraStudioBuilder)
+import './studio/builder.js';            // → implementUIComponent(StudioBuilderComponent, EastChakraStudioBuilder)
 import './studio/library.js';             // → implementUIComponent(StudioLibraryComponent, EastChakraStudioLibrary)
 import './studio/page.js';                // → implementUIComponent(StudioPageComponent, EastChakraStudioPage)
 import './query/builder.js';              // → implementUIComponent(QueryBuilderComponent, EastChakraQueryBuilder)
@@ -52,18 +50,6 @@ export {
 export { EastChakraOntology, type EastChakraOntologyProps } from './ontology/index.js';
 // Experiment renderer — registers itself against the Experiment extension on import.
 export { EastChakraExperiment, type EastChakraExperimentProps } from './experiment/index.js';
-
-// Decision queue renderer — registers itself against the DecisionQueue extension on import.
-export { EastChakraDecisionQueue, type EastChakraDecisionQueueProps } from './decision/queue.js';
-export { EastChakraDecisionJournal, type EastChakraDecisionJournalProps } from './decision/journal.js';
-// `Decision.bind`'s implementation, for a host that renders UI functions
-// outside `UITaskPreview` and lists the platforms it lists (#1222).
-export {
-    useDecisionHandle,
-    DecisionBindPlatform,
-    type UseDecisionHandleResult,
-    type DecisionHandleValue,
-} from './decision/handle-runtime.js';
 
 // Studio renderers — each registers itself against its extension on import: the builder,
 // the page library and one page — and the Studio's words.

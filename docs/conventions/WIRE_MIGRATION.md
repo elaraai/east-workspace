@@ -610,3 +610,36 @@ Each wire changed under this rule, with the kind it is.
   package whose source writes `<Diff>` no longer builds; taking it out before
   the next export is that source's own change. A UI task's output is not
   stored state, so no repository upgrade step ships with it.
+- **e3-ui's `DecisionQueue` reads the app's own records, and `Decision.bind`
+  and `DecisionJournal` are removed (#1447, #1450)** — package-borne. The
+  `DecisionQueue` extension's payload is replaced. It carried a
+  `Decision.bind` handle's ref, the host's `modify` and `evidence` views, the
+  facets, the Apply and Reject hooks, a `Slice.bind` handle and its
+  affordances, and `heading`, `maxHeight`, `density`, `groups`, `groupBy` and
+  `collapsible`. It now carries the cases' kind (`decisions`: the app's cases
+  read through their roles, each option's change its tag and its patch as
+  bytes), the verdicts' kind (`verdicts`: the app's record of verdicts, its
+  session, its read by key and how a verdict is written into its row), each
+  target and the tags it serves (`targets`, `DecisionQueue.Types.Target`),
+  the chrome of a Slice over several records (`slice`), `onSelect`,
+  `readOnly`, `now` and `id` — closed over beast2 bytes as Schedule's kinds
+  are, so the payload is one type whatever the app's rows hold. A prop the
+  old tag took is refused at build, naming what replaces it. A UI value
+  encoded under either payload type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. `Decision.bind` goes, and with it the
+  `decision_*` platform functions its handle called (`decision_bind` and its
+  primitives): until a package is re-exported, a UI that calls them fails as
+  it renders. `<DecisionJournal>` and its renderer go: as with the `Diff`
+  above, `UIComponentType` keeps its form, so a UI task's output an earlier
+  package computed that holds a `DecisionJournal` still decodes, and draws
+  the missing renderer's notice, naming its kind, where the journal was. A UI
+  task's output is not stored state, so no repository upgrade step ships with
+  it. `Decision.Types` goes with them — the stored envelope
+  (`Decision.Types.Decision`) and its parts, the judgement input and the
+  constraint contract — so an application's dataset or record that holds
+  them, a reasoning task's decisions or its judgements, changes type: holding
+  its cases and its verdicts in records of its own, which
+  `DecisionQueue.decisions` and `DecisionQueue.verdicts` read and write
+  through their roles, is that application's own migration, as with any
+  record whose type an application changes.

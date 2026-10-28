@@ -132,10 +132,6 @@ function dedupePaths(paths: TreePath[]): TreePath[] {
 // What a UI writes and calls
 // ============================================================================
 
-/** Platform-fn name of `Decision.bind`, which writes through the views it is
- *  given. */
-const DECISION_BIND = "decision_bind";
-
 /**
  * What a UI writes and calls, read from its IR before it deploys.
  *
@@ -221,8 +217,6 @@ interface Scope {
  *   clearing it; its `discard` clears a direct binding's patch dataset;
  * - its `read`, `source`, `pending`, `has`, `status` and `start` write
  *   nothing, and nor does reading a field of its `binding`;
- * - `Decision.bind`, given its `binding`, writes through its `write`, as the
- *   decision handle does;
  * - handed on any other way — to a component, a function or a value, or its
  *   `binding` to an `<Ontology>` — it may be used for anything it allows.
  *
@@ -346,25 +340,6 @@ export function deriveUiAccess(ir: IR): UiAccess {
                         if (index.type === "some" && !record.indexes.includes(index.value)) record.indexes.push(index.value);
                     }
                 }
-                return;
-            }
-            case DECISION_BIND: {
-                // The decision handle writes each view, and the judgements,
-                // through the view's own `write` (`DecisionBindPlatform`).
-                const [views, judgements] = args;
-                const through = (argument: IR): void => {
-                    const held = argument.type === "GetField" && argument.value.field === "binding"
-                        ? handlesOf(argument.value.struct, scope)
-                        : null;
-                    if (held !== null) use(held, "write");
-                    else walk(argument, scope);
-                };
-                if (views!.type === "NewArray") {
-                    for (const view of views!.value.values as IR[]) through(view);
-                } else {
-                    walk(views!, scope);
-                }
-                through(judgements!);
                 return;
             }
             default:

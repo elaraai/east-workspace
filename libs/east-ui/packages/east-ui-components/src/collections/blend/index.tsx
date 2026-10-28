@@ -174,7 +174,7 @@ interface TargetPanelProps {
 function TargetPanel({ surface, target, mode, badge, styles, veto, onAmount, onRemove, onAction, compactActive }: TargetPanelProps) {
     // The action foot rides the shared `commitBar` LAYOUT slots (#266) so
     // apply/discard reads as the same chrome family as the shared review
-    // foot + DecisionQueue staged footer. The BUTTONS come from the shared
+    // foot. The BUTTONS come from the shared
     // `button` recipe (#569 — commitBar no longer carries button slots):
     // Apply = solid, Discard = danger, Reset = outline (the Approve-all /
     // Reject-all / Rerun mapping).
