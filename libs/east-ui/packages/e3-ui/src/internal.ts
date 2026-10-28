@@ -37,7 +37,10 @@ export {
     bindPagedPinnedPlatformFn,
     DataPagedPrimitives,
 } from './bind/data.js';
-export { bindIndexedPagedPlatformFn, DataIndexedPrimitives, type BindPagedIndexesOptions, type IndexedPagedValue } from './bind/data-indexed.js';
+export {
+    bindIndexedPagedPlatformFn, DataIndexedPrimitives, NestedPartType,
+    type BindPagedIndexesOptions, type CollectionMarker, type IndexedPagedValue, type NestedMarker, type NestedPart,
+} from './bind/data-indexed.js';
 export {
     Func,
     FuncStatusType,
@@ -63,6 +66,7 @@ export {
 } from './bind/record.js';
 export { DataManifestType, type DataManifest } from './utils/manifest.js';
 export { deriveManifest, deriveUiAccess, UiAccessType, type UiAccess } from './utils/derive.js';
+export { orderedRowSource } from './utils/ordered-source.js';
 // A builder's narrowing (#1340): the one check of its `slice` every builder's tag makes, of a tab's `source`, and of a templates list's.
 export { recordSources, sliceSourceNames, tabSource, templatesSource, type RecordSources, type RecordSourcesSpec } from './utils/record-sources.js';
 // The `optimise` binding's check every builder's tag makes (#1409): `Func.bind` of a function from the builder's request to its answer.

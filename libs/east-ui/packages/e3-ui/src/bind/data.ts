@@ -34,6 +34,8 @@ import { TreePathType, DatasetStatusType, indexWindowType } from '@elaraai/e3-ty
 // importing the other's data layer. Paged data is bound: this is its producer.
 import { SeekQueryType, SeekRangeType } from '@elaraai/east-ui';
 import type { DatasetDef, RecordDef, RecordIndexDef, TaskDef } from '@elaraai/e3';
+// The browser-safe entry: the components' runtime imports this module (#99).
+import { builtIndex } from '@elaraai/e3/browser';
 import { bindDataIndexed, type BindPagedIndexesOptions, type FieldIndexes, type IndexedPagedValue } from './data-indexed.js';
 
 // ============================================================================
@@ -565,6 +567,18 @@ export const DataPagedPrimitives = {
  * whole: it is declared in the UI task's manifest under `pages`, and follows
  * its dataset by content hash alone, which is the point of binding it paged.
  *
+ * A record bound with its indexes — `Data.bindPaged(record, { indexes })` —
+ * pages its rows in each index's order (#1378, #1432). Beside a record's
+ * nested series index (`e3.recordIndex.series(name, record, { collections,
+ * tile, summary })`, #1434), e3 builds each of its other indexes to carry the
+ * row without the collections the nested index declares, and a binding lists
+ * the nested index with them (#1435): it pages those lean rows, never joining
+ * a row whole (`join: true` is refused, and so is an index carrying a value of
+ * its own, which is bound apart), reads a row whole by its key, and carries
+ * how each collection is declared — what it holds, its times and its rollups
+ * — in its type, for a Plan's series to be held to. The nested index's own
+ * entries are items, totals and subtotals, read a cell at a time, never paged.
+ *
  * @example
  * ```ts
  * import { ArrayType, DictType, East, StringType, variant } from "@elaraai/east";
@@ -636,6 +650,19 @@ function bindDataPaged(
         throw new Error(
             `Data.bindPaged: an index reads a Dict record; this one holds ${record.type}`,
         );
+    }
+    // Beside a record's nested series index, e3 builds its other indexes to carry each row without its collections
+    // (#1434): a window of one is read through a binding listing the nested index too, and the nested index's own
+    // entries a cell at a time (#1435).
+    const rec = dataset as RecordDef<EastType>;
+    const nested = Object.values(rec.indexes).find((declared) => declared.nested !== undefined);
+    if (nested !== undefined && index.nested !== undefined) {
+        throw new Error(`Data.bindPaged: '${index.name}' is a nested series index, whose entries are items, totals and subtotals: a reader reads its ` +
+            `cells — list it in Data.bindPaged(${rec.name}, { indexes })`);
+    }
+    if (nested !== undefined && builtIndex(rec, index) !== index) {
+        throw new Error(`Data.bindPaged: record '${rec.name}' has a nested series index, '${nested.name}', and '${index.name}' carries each row ` +
+            `without the collections it declares — bind them together: Data.bindPaged(${rec.name}, { indexes: [${index.name}, ${nested.name}] })`);
     }
     return bindPagedPinnedPlatformFn(
         [indexWindowType(record.key, index.keyType, index.valueType, record.value)],

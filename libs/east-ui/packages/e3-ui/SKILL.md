@@ -350,6 +350,18 @@ projection, or each carries the whole row — as an area index does — or
 nothing: one that carries the row is read without a join, the others with one,
 and any other mix is refused at build, naming the index.
 
+**Beside a nested series index** (`e3.recordIndex.series(name, record, {
+collections, tile, summary })`), the record's other indexes carry each row
+without the collections it declares, and a binding listing any of them lists
+it too: `Data.bindPaged(machines, { indexes: [machinesBySiteStatus,
+machinesInTime] })`. Such a binding pages the lean rows (its projection the
+record's row, each listed collection empty) and never joins one: `join: true`
+is refused, and so is an index with a `value` of its own beside it, which is
+bound apart. A row is read whole by its key. The binding's type carries how
+each collection is declared (what it holds, its times, its rollups), and the
+nested index's own entries — items, totals and subtotals — are read a cell at a
+time: a page or a count of it is refused.
+
 **A builder narrows through `Slice.bindRecords` alone** (#1340): one rail on
 its toolbar, `Slice.bindRecords(key, { [source]: { source:
 Data.bindPaged(record, { indexes }), label?, icon?, fields, range?, search?,

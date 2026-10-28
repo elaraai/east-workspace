@@ -183,9 +183,9 @@ function literal(schema: RecordSliceFieldSchema, input: unknown): string {
  * @param options - Fields, initial narrowing, range, search and presets.
  * @returns A serializable handle with typed narrowed data.
  */
-export function bindRecord<K extends EastType, R extends StructType, P extends EastType, M extends StructType, IK extends VariantType>(
+export function bindRecord<K extends EastType, R extends StructType, P extends EastType, M extends StructType, IK extends VariantType, N extends EastType>(
     key: SubtypeExprOrValue<StringType>,
-    source: IndexedSource<K, R, P, M, IK>,
+    source: IndexedSource<K, R, P, M, IK, N>,
     options: RecordSliceOptions<NoInfer<R>, NoInfer<M>> = {},
 ): ExprType<ReturnType<typeof RecordSliceHandleType<ArrayType<ReturnType<typeof IndexedEntryType<K, R, P, IK>>>>>> {
     const sourceType = Expr.type(source);
@@ -203,7 +203,9 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     const rowType = rowOption.cases.some;
     const metadata = sourceType.fields.indexes;
     const fieldTypes = recordSliceFieldTypes(rowType, metadata);
-    if (!isSubtype(sourceType, IndexedSourceType(entry.fields.key, rowType, projectionOption.cases.some!, metadata, entry.fields.ik))) throw new Error("Slice.bindRecord needs an indexed record binding");
+    const nested = sourceType.fields.nested;
+    if (nested === undefined) throw new Error("Slice.bindRecord needs Data.bindPaged(record, { indexes }); a plain paged binding cannot be narrowed");
+    if (!isSubtype(sourceType, IndexedSourceType(entry.fields.key, rowType, projectionOption.cases.some!, metadata, entry.fields.ik, nested))) throw new Error("Slice.bindRecord needs an indexed record binding");
     type Index = ValueTypeOf<RecordSliceConfigType>["indexes"][number];
     const unmarked = (name: string, kind: string) =>
         new Error(`Slice.bindRecord: '${name}' has no ${kind} index's marker; bind it with Data.bindPaged(record, { indexes })`);

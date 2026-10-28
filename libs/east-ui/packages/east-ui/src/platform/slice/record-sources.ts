@@ -20,8 +20,8 @@ import { bindRecord, type RecordSliceOptions, type RecordSliceWhere } from "./re
 import { RecordSliceBindType, RecordSlicePartType, RecordSlicesHandleType } from "./record-types.js";
 
 /** An indexed binding's type parameters, recovered from its expression. */
-type Parameters_<S> = S extends IndexedSource<infer K extends EastType, infer R extends StructType, infer P extends EastType, infer M extends StructType, infer IK extends VariantType>
-    ? { K: K; R: R; P: P; M: M; IK: IK } : never;
+type Parameters_<S> = S extends IndexedSource<infer K extends EastType, infer R extends StructType, infer P extends EastType, infer M extends StructType, infer IK extends VariantType, infer N extends EastType>
+    ? { K: K; R: R; P: P; M: M; IK: IK; N: N } : never;
 type RowOf<S> = Parameters_<S> extends { R: infer R extends StructType } ? R : never;
 type MetaOf<S> = Parameters_<S> extends { M: infer M extends StructType } ? M : never;
 
@@ -56,8 +56,8 @@ export interface RecordSlicesOptions<S> {
 }
 
 /** The typed handle of one part, as `Slice.bindRecord` returns it. */
-type PartHandle<S> = Parameters_<S> extends { K: infer K extends EastType; R: infer R extends StructType; P: infer P extends EastType; M: infer M extends StructType; IK: infer IK extends VariantType }
-    ? TypeOf<ReturnType<typeof bindRecord<K, R, P, M, IK>>> : never;
+type PartHandle<S> = Parameters_<S> extends { K: infer K extends EastType; R: infer R extends StructType; P: infer P extends EastType; M: infer M extends StructType; IK: infer IK extends VariantType; N: infer N extends EastType }
+    ? TypeOf<ReturnType<typeof bindRecord<K, R, P, M, IK, N>>> : never;
 
 /**
  * The typed handle `Slice.bindRecords` returns.
@@ -104,7 +104,7 @@ export function bindRecords<S extends Record<string, unknown>>(
         };
     });
     const handles = names.map(name => {
-        const { source, label: _label, icon: _icon, ...controls } = parts[name] as RecordSlicesPart<IndexedSource<EastType, StructType, EastType, StructType, VariantType>> & { presets?: unknown };
+        const { source, label: _label, icon: _icon, ...controls } = parts[name] as RecordSlicesPart<IndexedSource<EastType, StructType, EastType, StructType, VariantType, EastType>> & { presets?: unknown };
         if (controls.presets !== undefined) throw new Error(`Slice.bindRecords: '${name}' declares presets; declare them once, in the options, over any sources`);
         const where = (preset: (typeof presets)[number]) => (preset.where as Record<string, unknown>)[name] ?? {};
         const partKey = isValueOf(key, StringType) ? `${key}.${name}` : East.value(key, StringType).concat(`.${name}`);

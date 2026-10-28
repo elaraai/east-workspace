@@ -17,7 +17,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, East, Expr, OptionType, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
+    DateTimeType, East, Expr, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isValueOf, none, printFor, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { SeekQueryType } from "@elaraai/east-ui";
@@ -27,14 +27,18 @@ import {
     recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSliceOnPrinter, recordSlicePlace, recordSliceWithin, recordSliceWithinAt,
 } from "@elaraai/east-ui-components/internal";
 import { datasetGetStatus } from "@elaraai/e3-api-client";
-import type { TreePath } from "@elaraai/e3-types";
+import {
+    RecordLevelType, RecordNestedPathType, RecordNestedRunType, type RecordLevel, type RecordNestedPath, type RecordNestedRun, type TreePath,
+} from "@elaraai/e3-types";
 import { Data, deriveManifest } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
+import * as nx from "@elaraai/e3-ui/examples/bind/data/data-nested";
 import { patchRecord, readDataset } from "../src/e3-web.test-utils.js";
+import { recordSliceBatchesOf } from "../src/platform/indexed-paged.js";
 import { PagedRuntime, createDefaultPagedApi } from "../src/platform/paged-runtime.js";
 import { e3Spec } from "./fixtures/e3.js";
 
-const h = e3Spec({ "bind/data/data": ex });
+const h = e3Spec({ "bind/data/data": ex, "bind/data/data-nested": nx });
 
 const people = ex.indexedPeople;
 const Person = ex.IndexedPerson;
@@ -568,5 +572,146 @@ test("a window over an interval index is two requests — its searches in one, t
     assert.deepEqual(h.requests("runs", `records.${events.name}`).map(request => [request.method, request.query.get("index"), request.query.get("hash")]),
         [["POST", ex.intervalsByStatusTime.name, R1]], "one request for the runs the searches select");
     assert.deepEqual([pagesOf(events).length, findsOf(events).length], [0, 1], "no run is paged, and no search asked, on its own");
+    runtime.clear();
+});
+
+// ── Beside a nested series index (#1435) ─────────────────────────────────────
+
+const machines = nx.nestedMachines;
+type Machine = ValueTypeOf<typeof nx.NestedMachine>;
+const machinesBinding = Data.bindPaged(machines, { indexes: [nx.machinesBySiteStatus, nx.machinesInTime] });
+const machinesProgram = East.function([], Expr.type(machinesBinding), $ => $.return(machinesBinding));
+const keyOrder = compareFor(StringType);
+const instantOrder = compareFor(DateTimeType);
+const machineEqual = equalFor(nx.NestedMachine);
+const printString = printFor(StringType);
+const printInstant = printFor(DateTimeType);
+const printPath = printFor(RecordNestedPathType);
+const printRun = printFor(RecordNestedRunType);
+const printLevel = printFor(RecordLevelType);
+/** Monday 5 October 2026, the machines' week, and the Monday after it. */
+const WEEK = new Date(Date.UTC(2026, 9, 5));
+const NEXT_WEEK = new Date(Date.UTC(2026, 9, 12));
+const DAY_MS = 86_400_000;
+
+/** A machine as the record's other indexes carry it beside its nested series index: each collection it files, empty. */
+function leanOf(machine: Machine): Machine {
+    return {
+        ...machine, jobs: new SortedMap(undefined, keyOrder), stops: new SortedMap(undefined, keyOrder), alarms: new SortedMap(undefined, keyOrder),
+        load: new SortedMap(undefined, instantOrder), output: new SortedMap(undefined, instantOrder),
+    };
+}
+
+/** A place, or a node's path, as a nested key holds it: its names, folded from the last. */
+function pathOf(names: readonly string[]): RecordNestedPath {
+    return names.reduceRight<RecordNestedPath>((rest, key) => variant("step", { key, rest }), variant("end", null));
+}
+
+/** A search over one run of a nested index at one level (#1433, #1434): its tiles from `from` to before `to`. */
+function nestedRange(collection: readonly string[], row: string, path: readonly string[], run: RecordNestedRun, level: RecordLevel["type"], from: Date, to: Date) {
+    const lead = [printPath(pathOf(collection)), printString(row), printPath(pathOf(path)), printRun(run), printLevel(variant(level, null))];
+    return variant("range", { from: [...lead, printInstant(from)], to: [...lead, printInstant(to)] });
+}
+
+test("beside a nested series index, a window of two hundred machines through another index is one request, joins none, and carries each machine without its collections (#1435)", async () => {
+    const stored = await h.read(machines);
+    const { runtime } = newRuntime();
+    const handle = East.compile(machinesProgram, platform(runtime))();
+    assert.deepEqual([handle.joined, handle.defaultIndex], [false, nx.machinesBySiteStatus.name], "never joined; the unfiltered view pages the machines");
+    const window = await h.ready(() => handle.page(nx.machinesBySiteStatus.name, 0n, 200n));
+    assert.equal(window.length, nx.MACHINE_COUNT);
+    assert.deepEqual(pagesOf(machines).map(request => [request.query.get("index"), request.query.has("join"), request.query.get("limit")]),
+        [[nx.machinesBySiteStatus.name, false, "200"]], "one request through the index, joining none");
+    const ordered = [...stored].sort(([ka, a], [kb, b]) => keyOrder(a.site, b.site) || keyOrder(a.status, b.status) || keyOrder(ka, kb)).map(([key]) => key);
+    assert.deepEqual(window.map(entry => entry.key), ordered, "in the index's order: by site, then state");
+    for (const entry of window) {
+        const lean = leanOf(stored.get(entry.key)!);
+        assert.ok(entry.value.type === "some" && machineEqual(entry.value.value, lean), `${entry.key} carries its lean row as its value`);
+        assert.ok(entry.row.type === "some" && machineEqual(entry.row.value, lean), `${entry.key} carries its lean row as its row`);
+    }
+    assert.equal(await h.ready(() => handle.total("primary")), 200n, "counted through the index paging the machines");
+    assert.ok(pagesOf(machines).every(request => request.query.get("index") === nx.machinesBySiteStatus.name && !request.query.has("join")),
+        "no page of the record's own rows");
+    runtime.clear();
+});
+
+test("the nested index's cells — a block of machines' jobs at a level, a ledger's subtotals, a part's subtree — are read by their searches in one request and their runs in one more, never paged (#1435)", async () => {
+    const stored = await h.read(machines);
+    const { runtime } = newRuntime();
+    const handle = East.compile(machinesProgram, platform(runtime))();
+    const reads = recordSliceBatchesOf(handle)!;
+    const R1 = await h.ready(() => handle.revision());
+    // Five machines' jobs in the week, a range a machine: each one's 8- and 30-hour jobs; its 40-day one is filed at the quarter.
+    const block = ["M-000", "M-001", "M-002", "M-003", "M-004"];
+    const found = await h.ready(() => reads.seekAll(nx.machinesInTime.name,
+        block.map(row => nestedRange(["jobs"], row, [], variant("items", null), "week", WEEK, NEXT_WEEK))));
+    const entries = await h.ready(() => reads.runsAll(nx.machinesInTime.name, found));
+    const expected = block.flatMap(row => [...stored.get(row)!.jobs].filter(([id]) => !id.endsWith("-c")).map(([id, job]) => ({ row, id, job })));
+    const entryEqual = equalFor(OptionType(nx.machinesInTime.valueType));
+    assert.deepEqual(entries.map(entry => entry.key), expected.map(({ row }) => row));
+    for (const [i, { id, job }] of expected.entries()) {
+        const entry = entries[i]!;
+        const value = entry.value!;
+        assert.ok(isValueOf(value, OptionType(nx.machinesInTime.valueType)) && entryEqual(value as Parameters<typeof entryEqual>[0], some(variant("item", variant("jobs", job)))), `${id} carried whole`);
+        assert.deepEqual(entry.row, none, `${id} names its machine, and carries no row`);
+    }
+    assert.deepEqual(h.requests("find", `records.${machines.name}`).map(request => [request.method, request.query.get("index"), request.query.get("hash"), request.searches.length]),
+        [["POST", nx.machinesInTime.name, R1, block.length]], "every search in one request");
+    assert.deepEqual(h.requests("runs", `records.${machines.name}`).map(request => [request.method, request.query.get("index"), request.query.has("join")]),
+        [["POST", nx.machinesInTime.name, false]], "the runs they select in one more, joining none");
+    assert.equal(pagesOf(machines).length, 0, "nothing paged");
+    // A ledger's subtotals of its measures' readings over two weeks: each week, the sum of each measure's sum.
+    const ledgers = Data.bindPaged(nx.nestedLedgers, { indexes: [nx.ledgersByName, nx.ledgersInTime] });
+    const ledgerReads = recordSliceBatchesOf(East.compile(East.function([], Expr.type(ledgers), $ => $.return(ledgers)), platform(runtime))())!;
+    const SUM = variant("subtotals", { fold: variant("sum", null), aggregate: variant("sum", null) });
+    const weeks = [WEEK, NEXT_WEEK];
+    const sought = await h.ready(() => ledgerReads.seekAll(nx.ledgersInTime.name,
+        [nestedRange(["measures", "readings"], "L-1", [], SUM, "week", WEEK, new Date(NEXT_WEEK.getTime() + 7 * DAY_MS))]));
+    const subtotals = await h.ready(() => ledgerReads.runsAll(nx.ledgersInTime.name, sought));
+    const ledger = (await h.read(nx.nestedLedgers)).get("L-1")!;
+    const sums = weeks.map(week => [...ledger.measures.values()].reduce((sum, measure) => sum + [...measure.readings]
+        .filter(([at]) => instantOrder(at, week) >= 0 && at.getTime() < week.getTime() + 7 * DAY_MS).reduce((own, [, reading]) => own + reading, 0), 0));
+    const subtotalEqual = equalFor(OptionType(nx.ledgersInTime.valueType));
+    assert.equal(subtotals.length, weeks.length, "a subtotal a week");
+    for (const [i, entry] of subtotals.entries()) {
+        const value = entry.value!;
+        assert.ok(isValueOf(value, OptionType(nx.ledgersInTime.valueType)) && subtotalEqual(value as Parameters<typeof subtotalEqual>[0], some(variant("subtotal", sums[i]!))),
+            `the week of ${printInstant(weeks[i]!)}: the measures' sums' sum, ${sums[i]}`);
+    }
+    // A part's subtree: the jobs of the parts beneath the frame, each by its path below it.
+    const assemblies = Data.bindPaged(nx.nestedAssemblies, { indexes: [nx.assembliesByName, nx.assembliesInTime] });
+    const assemblyReads = recordSliceBatchesOf(East.compile(East.function([], Expr.type(assemblies), $ => $.return(assemblies)), platform(runtime))())!;
+    const beneath = await h.ready(() => assemblyReads.seekAll(nx.assembliesInTime.name,
+        [nestedRange(["parts", "jobs"], "A-1", ["frame"], variant("subtree", null), "week", WEEK, NEXT_WEEK)]));
+    const subtree = await h.ready(() => assemblyReads.runsAll(nx.assembliesInTime.name, beneath));
+    const printKey = printFor(nx.assembliesInTime.keyType);
+    assert.deepEqual(subtree.map(entry => printKey(entry.ik.value as never)), [
+        subtreeKey(["motor"], "wind"), subtreeKey(["motor", "rotor"], "turn"),
+    ].map(key => printKey(key as never)), "the motor's job and the rotor's, under the frame, by their paths beneath it");
+    runtime.clear();
+});
+
+/** An entry of the frame's subtree in the machines' week (#1434): a descendant's job, by its path beneath the frame. */
+function subtreeKey(beneath: readonly string[], id: string) {
+    return {
+        collection: pathOf(["parts", "jobs"]), row: "A-1", path: pathOf(["frame"]), run: variant("subtree", null), level: variant("week", null), tile: WEEK,
+        item: variant("under", { path: pathOf(beneath), id }),
+    };
+}
+
+test("a machine is read whole by its key beside a nested series index, and the nested index refuses a page, a count, a placement and a membership read, in its words (#1435)", async () => {
+    const stored = await h.read(machines);
+    const { runtime } = newRuntime();
+    const handle = East.compile(machinesProgram, platform(runtime))();
+    const reads = recordSliceBatchesOf(handle)!;
+    const rows = await h.ready(() => reads.rowsAll(["M-007", "M-404"]));
+    assert.ok(rows[0]!.type === "some" && machineEqual(rows[0]!.value as Machine, stored.get("M-007")!), "M-007 whole, its collections with it");
+    assert.equal(rows[1]!.type, "none", "a key the record does not hold");
+    const refusal = { message: `Data.bindPaged: '${nx.machinesInTime.name}' is a nested series index, whose entries are items, totals and subtotals: a reader reads its cells` };
+    assert.throws(() => handle.page(nx.machinesInTime.name, 0n, 10n), refusal);
+    assert.throws(() => handle.total(nx.machinesInTime.name), refusal);
+    assert.throws(() => reads.placeAll(nx.machinesInTime.name, [{ found: true, row: 0n, count: 1n }]), refusal);
+    assert.throws(() => reads.withinAll(nx.machinesInTime.name, [{ found: true, row: 0n, count: 1n }], []), refusal);
+    assert.equal(pagesOf(machines).length, 0, "nothing paged");
     runtime.clear();
 });

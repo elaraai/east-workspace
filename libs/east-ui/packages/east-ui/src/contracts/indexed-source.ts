@@ -59,20 +59,29 @@ export function IndexedEntryType<K, R, P, IK>(key: K, row: R, projection: P, ind
  * `primary` always names the record itself; `total("primary")` counts rows,
  * never fan-out entries. Every pending read returns none and failures throw.
  *
+ * `nested` is a nested series index's part (e3's #1434, #1435), opaque here:
+ * the binding gives its type, which carries how each collection the index
+ * files is declared as structure, through `$.let` as `Indexes` is carried;
+ * none where the binding lists none. The nested index is never among
+ * `Indexes`, so a rail offers no field of it.
+ *
  * @typeParam K - Primary key type.
  * @typeParam R - Record row type.
  * @typeParam P - Common covering projection type.
  * @typeParam Indexes - Ordered field-name metadata, one struct per index.
  * @typeParam IK - Variant of primary and secondary index key types.
+ * @typeParam N - The nested part's type, as the binding gives it.
  * @param key - Primary key type.
  * @param row - Record row type.
  * @param projection - Common covering projection type.
  * @param indexes - Each index's metadata type: its row fields and its kind.
  * @param indexKey - Variant of index key types.
+ * @param nested - The nested part's type.
  * @returns The indexed source handle's East type.
  * @property id - Stable identity for this binding.
  * @property recordId - Primary record identity, shared by every ordering and editing session.
  * @property indexes - Each named index's row fields and kind.
+ * @property nested - A nested series index's declaration, as its binding carries it.
  * @property joined - Whether index reads include their record rows.
  * @property defaultIndex - Source for an unfiltered view, containing each row once.
  * @property page - Read a bounded window through one named source.
@@ -82,11 +91,12 @@ export function IndexedEntryType<K, R, P, IK>(key: K, row: R, projection: P, ind
  * @property refresh - Follow a confirmed state hash, or the current record state.
  * @property entryKeys - Exact maintained keys for one primary row, printed at the index key type; used only for bounded editing membership checks.
  */
-export function IndexedSourceType<K, R, P, Indexes, IK>(key: K, row: R, projection: P, indexes: Indexes, indexKey: IK) {
+export function IndexedSourceType<K, R, P, Indexes, IK, N>(key: K, row: R, projection: P, indexes: Indexes, indexKey: IK, nested: N) {
     return StructType({
         id: StringType,
         recordId: StringType,
         indexes,
+        nested,
         joined: BooleanType,
         defaultIndex: StringType,
         entryKeys: FunctionType([StringType, key, row], ArrayType(StringType)),
@@ -105,6 +115,7 @@ export function IndexedSourceType<K, R, P, Indexes, IK>(key: K, row: R, projecti
  * @typeParam P - Common covering projection type.
  * @typeParam Indexes - Ordered field-name metadata.
  * @typeParam IK - Variant of index key types.
+ * @typeParam N - The nested part's type, as the binding gives it: any, where a reader asks nothing of it.
  */
-export type IndexedSource<K extends EastType, R extends EastType, P extends EastType, Indexes extends EastType, IK extends EastType> =
-    ExprType<ReturnType<typeof IndexedSourceType<K, R, P, Indexes, IK>>>;
+export type IndexedSource<K extends EastType, R extends EastType, P extends EastType, Indexes extends EastType, IK extends EastType, N extends EastType = EastType> =
+    ExprType<ReturnType<typeof IndexedSourceType<K, R, P, Indexes, IK, N>>>;

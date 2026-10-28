@@ -7,10 +7,12 @@
 import {
     BooleanType, East, StructType, VariantType, NullType, StringType,
     IntegerType, ArrayType, OptionType, FunctionType, DictType, SetType,
-    isSubtype, isTypeEqual, printType, variant, type EastType, type ExprType,
+    isSubtype, isTypeEqual, none, printType, some, variant, type EastType, type ExprType,
 } from "@elaraai/east";
-import type { RecordDef, RecordIndexDef } from "@elaraai/e3";
-import { TreePathType } from "@elaraai/e3-types";
+import type { RecordDef, RecordIndexDef, SeriesItems, SeriesRecursive, SeriesRows, SeriesValues } from "@elaraai/e3";
+// The browser-safe entry: the components' runtime imports this module (#99).
+import { builtIndex } from "@elaraai/e3/browser";
+import { RecordLevelType, TreePathType, type RecordNestedDecl } from "@elaraai/e3-types";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import {
     IndexedEntryType, IndexedSourceType, areaMarkerFields, intervalMarkerFields, tileMarkerFields, type IndexedSource,
@@ -46,8 +48,64 @@ type IndexKind<D> = D extends { interval: { from: infer From extends string; to:
 type BindingProjection<V extends EastType, R extends EastType> =
     [V] extends [R] ? R
         : [Exclude<V, R>] extends [NullType] ? (R extends V ? NullType : V) : V;
-/** The indexes whose entries carry the binding's projection: every one but a summary index (#1039). */
-type ProjectedIndexes<I extends FieldIndexes<EastType>> = Exclude<I[number], { summary: object }>;
+/** The indexes whose entries carry the binding's projection: every one but a summary (#1039) or a nested series index (#1435). */
+type ProjectedIndexes<I extends FieldIndexes<EastType>> = Exclude<I[number], { summary: object } | { nested: object }>;
+/** The indexes a rail reads: every one but a nested series index, which a binding carries in a part of its own (#1435). */
+type RailIndexes<I extends FieldIndexes<EastType>> = readonly Exclude<I[number], { nested: object }>[];
+
+/** An intersection's fields as one object type, as a struct's are written. */
+type Flat<X> = { [F in keyof X]: X[F] };
+/** A declaration's times, as a binding carries them (#1435): each role a struct whose one field is the item's field. */
+type TimesMarker<T> =
+    T extends { readonly from: infer A extends string; readonly to: infer B extends string }
+        ? { from: StructType<{ [N in A]: NullType }>; to: StructType<{ [N in B]: NullType }> }
+        : T extends { readonly at: infer A extends string } ? { at: StructType<{ [N in A]: NullType }> } : never;
+/** One rollup a declaration names, as its fold and its aggregate: a count counts, whatever its rows fold to. */
+type RollupOf<E> = E extends "count" ? { fold: "count"; aggregate: "count" }
+    : E extends "sum" | "mean" | "min" | "max" ? { fold: E; aggregate: E }
+    : E extends { readonly fold: infer F extends string; readonly aggregate: infer A extends string } ? { fold: F; aggregate: A } : never;
+/** A declaration's rollups: one, or a list of them. */
+type RollupsOf<U> = U extends readonly (infer E)[] ? RollupOf<E> : RollupOf<U>;
+/** A declaration's rollups, as a binding carries them: each fold a struct of its aggregates — `{ sum: { sum }, last: { sum } }`. */
+type RollupsMarker<U> = StructType<{
+    [P in RollupsOf<U> as P["fold"]]: StructType<{ [A in Extract<RollupsOf<U>, { fold: P["fold"] }>["aggregate"]]: NullType }>
+}>;
+
+/**
+ * How a binding carries one collection's declaration (#1434) in its type —
+ * structure, every name a field's own:
+ * `items({ from: "start", to: "end" })` → `{ items: { from: { start }, to: { end } } }`;
+ * `items({ at: "at" }, { rollup: true })` → `{ items: { at: { at }, rollup } }`;
+ * `values()` → `{ values }`;
+ * `values({ rollup: { fold: "last", aggregate: "sum" } })` → `{ values: { rollup: { last: { sum } } } }`;
+ * `rows({ … })` → `{ rows: <its collections' marker> }`; `recursive()` → `{ recursive }` — each leaf Null.
+ *
+ * @typeParam D - A builder's declaration, as written
+ */
+export type CollectionMarker<D> =
+    D extends SeriesItems<infer T, infer O>
+        ? StructType<{ items: StructType<Flat<TimesMarker<T> & (O extends { readonly rollup: true } ? { rollup: NullType } : unknown)>> }>
+    : D extends SeriesValues<infer O>
+        ? StructType<{ values: O extends { readonly rollup: infer U } ? StructType<{ rollup: RollupsMarker<U> }> : NullType }>
+    : D extends SeriesRows<infer C> ? StructType<{ rows: NestedMarker<C> }>
+    : D extends SeriesRecursive ? StructType<{ recursive: NullType }>
+    : never;
+
+/**
+ * How a binding carries a nested series index's declaration: each collection
+ * by its field ({@link CollectionMarker}).
+ *
+ * @typeParam C - The index's `collections`, as declared
+ */
+export type NestedMarker<C> = StructType<{ [F in keyof C & string]: CollectionMarker<C[F]> }>;
+
+/** The listed nested series index's declaration, as its marker; `never` where none is listed. */
+type NestedMarkerOf<I extends FieldIndexes<EastType>> =
+    [Extract<I[number], { nested: object }>] extends [never] ? never
+        : Extract<I[number], { nested: object }> extends { nested: { collections: infer C } } ? NestedMarker<C> : never;
+
+/** A binding's nested part (#1435), its collections' marker `C` ({@link NestedPartType}). */
+export type NestedPart<C extends EastType> = ReturnType<typeof NestedPartType<C>>;
 /** Each named index's metadata, preserved in the source's East type (#1432): its row fields in order, and its kind. */
 type IndexFields<I extends FieldIndexes<EastType>> = StructType<{
     [D in I[number] as D["name"]]: StructType<{ fields: StructType<DeclaredFields<D>>; kind: IndexKind<D> }>
@@ -88,25 +146,47 @@ export interface BindPagedIndexesOptions<T extends EastType, I extends FieldInde
  * @typeParam T - Dict record type.
  * @typeParam I - Supplied field-index declarations: one common projection, or
  *   each the whole row or nothing (D29), beside any summary index's totals.
+ *   Beside a nested series index (#1435), the projection is the record's row,
+ *   each collection it declares empty, and its declaration is carried in the
+ *   binding's nested part, never among the rail's indexes.
  */
 export type IndexedPagedValue<T extends EastType, I extends FieldIndexes<T>> =
     T extends DictType<infer K extends EastType, infer R extends EastType>
-        ? IndexedSource<K, R, BindingProjection<ProjectedIndexes<I>["valueType"], R>, IndexFields<I>, IndexKeys<K, I>>
+        ? IndexedSource<K, R,
+            [Extract<I[number], { nested: object }>] extends [never] ? BindingProjection<ProjectedIndexes<I>["valueType"], R> : R,
+            IndexFields<RailIndexes<I>>, IndexKeys<K, I>, NestedPart<NestedMarkerOf<I>>>
         : never;
 
 /**
+ * A binding's nested part's type (#1434, #1435): its nested series index's
+ * name, tile and summary tile, and how each collection the index files is
+ * declared, as structure ({@link NestedMarker}); none where the binding lists
+ * none, its marker then the empty struct.
+ *
+ * @typeParam C - The collections' marker type
+ * @param collections - The collections' marker type
+ * @returns The part's type
+ */
+export function NestedPartType<C extends EastType>(collections: C) {
+    return OptionType(StructType({ index: StringType, tile: RecordLevelType, summary: OptionType(RecordLevelType), collections }));
+}
+
+/**
  * New platform contract for indexed record bindings. The previously released
- * paged calls and their return types remain unchanged.
+ * paged calls and their return types remain unchanged. `NestedValue` is what
+ * the listed nested series index's entries carry, as its definition declares
+ * it (#1435), or Null where none is listed: the runtime reads its cells by it,
+ * and the handle's type never names it.
  * @internal
  */
 export const bindIndexedPagedPlatformFn = East.genericPlatform(
-    "data_bind_indexed", ["K", "R", "P", "Indexes", "IK"],
-    [TreePathType, "Indexes", BooleanType, FunctionType([StringType, "K", "R"], ArrayType(StringType)), StringType],
-    IndexedSourceType("K", "R", "P", "Indexes", "IK"), { optional: true },
+    "data_bind_indexed", ["K", "R", "P", "Indexes", "IK", "N", "NestedValue"],
+    [TreePathType, "Indexes", "N", BooleanType, FunctionType([StringType, "K", "R"], ArrayType(StringType)), StringType],
+    IndexedSourceType("K", "R", "P", "Indexes", "IK", "N"), { optional: true },
 );
 
-const descriptor = [TreePathType, "Indexes", BooleanType] as const;
-const arguments_ = ["K", "R", "P", "Indexes", "IK"] as const;
+const descriptor = [TreePathType, "Indexes", "N", BooleanType] as const;
+const arguments_ = ["K", "R", "P", "Indexes", "IK", "N", "NestedValue"] as const;
 
 /** Serializable primitives backing the indexed handle; all reuse paged reads. @internal */
 export const DataIndexedPrimitives = {
@@ -161,16 +241,21 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         throw new Error("Data.bindPaged with indexes requires a Dict record with Struct rows");
     }
     if (options.indexes.length === 0) throw new Error("Data.bindPaged: indexes must list at least one field index");
-    const names = new Set<string>();
-    const fields: Record<string, StructType<{ fields: StructType<Record<string, EastType>>; kind: VariantType<Record<string, EastType>> }>> = {};
-    const metadata: Record<string, { fields: Record<string, unknown>; kind: variant<string, unknown> }> = {};
-    const keyTypes: Record<string, EastType> = { primary: type.key };
-    const projection = bindingProjection(options.indexes);
-    let singleEntryIndex = false;
     for (const index of options.indexes) {
         if (index.record.name !== record.name || !isSubtype(index.record.type, type) || !isSubtype(type, index.record.type)) {
             throw new Error(`Data.bindPaged: index '${index.name}' belongs to a different record`);
         }
+    }
+    // Beside a record's nested series index, its other indexes carry each row without its collections (#1434, #1435).
+    const nested = listedNested(record, options);
+    const rail = options.indexes.filter((index) => index.nested === undefined);
+    const names = new Set<string>();
+    const fields: Record<string, StructType<{ fields: StructType<Record<string, EastType>>; kind: VariantType<Record<string, EastType>> }>> = {};
+    const metadata: Record<string, { fields: Record<string, unknown>; kind: variant<string, unknown> }> = {};
+    const keyTypes: Record<string, EastType> = { primary: type.key };
+    const projection = nested === undefined ? bindingProjection(options.indexes) : type.value;
+    let singleEntryIndex = false;
+    for (const index of rail) {
         const computed = index.on === undefined;
         if (computed && index.keyType.type === "Struct" && Object.keys(index.keyType.fields).length === 0) {
             throw new Error(`Data.bindPaged: computed index '${index.name}' needs at least one key field for Slice`);
@@ -215,7 +300,13 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         keyTypes[index.name] = index.keyType;
         singleEntryIndex ||= !index.multi;
     }
-    if (options.join === false && !singleEntryIndex) {
+    if (nested !== undefined) keyTypes[nested.name] = nested.keyType;
+    const joined = nested === undefined && options.join !== false;
+    if (!joined && !singleEntryIndex) {
+        if (nested !== undefined) {
+            throw new Error(`Data.bindPaged: '${nested.name}' is listed, and no index listed beside it pages the rows of '${record.name}' — a page reads each ` +
+                `row through an index carrying it without its collections: list one, e3.recordIndex(name, ${record.name}, { on: [field, …] })`);
+        }
         throw new Error("Data.bindPaged with join: false needs an index without Set fields for its unfiltered view; add a one-entry-per-row field index or use join: true");
     }
     const indexFields = StructType(fields);
@@ -223,8 +314,9 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
     // primary identities with indexed seeks; it never scans a narrowed run.
     const keyFunctions = new Map(options.indexes.map(index => {
         const keys = East.function([type.key, type.value], ArrayType(StringType), ($, key, row) => {
-            if (index.summary !== undefined) {
-                // A summary's key function is a row's contributions (#1039): the keys of the totals it adds to.
+            if (index.summary !== undefined || index.nested !== undefined) {
+                // A summary's key function is a row's contributions (#1039), a nested series index's a row's entries (#1434):
+                // the keys they file under.
                 const fn = $.const(index.keyFn as ExprType<FunctionType<[typeof type.key, typeof type.value], DictType<EastType, EastType>>>);
                 return fn(key, row).keys().toArray((_$, ik) => East.print(ik));
             }
@@ -242,8 +334,109 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         const keys = $.const(keyFunctions, keyFunctionsType);
         return keys.get(index)(key, row);
     });
+    // The nested index's part (#1435): its declaration as structure, its tile and its summary tile.
+    const declared = nested?.nested;
+    const marker = declared === undefined ? { type: StructType({}), value: {} } : nestedMarker(declared.declaration);
+    const nestedType = NestedPartType(marker.type);
+    const nestedValue = declared === undefined || nested === undefined ? none : some({
+        index: nested.name, tile: variant(declared.tile, null), summary: declared.summary === undefined ? none : some(variant(declared.summary, null)),
+        collections: marker.value,
+    });
     return bindIndexedPagedPlatformFn(
-        [type.key, type.value, projection, indexFields, VariantType(keyTypes)],
-        East.value(record.path, TreePathType), East.value(metadata, indexFields), options.join !== false, entryKeys, record.name,
+        [type.key, type.value, projection, indexFields, VariantType(keyTypes), nestedType, nested?.valueType ?? NullType],
+        East.value(record.path, TreePathType), East.value(metadata, indexFields), East.value(nestedValue, nestedType), joined, entryKeys, record.name,
     ) as unknown as IndexedPagedValue<T, I>;
+}
+
+/**
+ * The nested series index a binding lists (#1435), where its record has one.
+ * Beside it, each of the record's other indexes carries the row without its
+ * collections (e3's `builtIndex`), but one with a value of its own, which
+ * carries its own and may be bound apart. Refused, in its words: an index
+ * carrying the lean row listed without it, and beside it `join: true` or an
+ * index carrying a value of its own.
+ *
+ * @param record - The record bound
+ * @param options - The binding's indexes and join
+ * @returns The nested series index listed; `undefined` where none is, the record declaring none, or every index listed carrying its own
+ * @throws {Error} Naming the index, the record and what to write
+ */
+function listedNested(record: RecordDef<EastType>, options: { readonly indexes: FieldIndexes<EastType>; readonly join?: boolean }): RecordIndexDef | undefined {
+    const declared = Object.values(record.indexes).find((index) => index.nested !== undefined);
+    if (declared === undefined) return undefined;
+    // e3 builds an index as declared where it carries its own — a value of its own, a summary's totals, the nested
+    // index's entries — and otherwise to carry the lean row.
+    const lean = (index: RecordIndexDef) => builtIndex(record, index) !== index;
+    const nestedListed = options.indexes.filter((index) => index.nested !== undefined);
+    if (nestedListed.length > 1) throw new Error(`Data.bindPaged: repeated index '${nestedListed[1]!.name}'`);
+    const listed = nestedListed[0];
+    if (listed === undefined) {
+        const carrying = options.indexes.find(lean);
+        if (carrying === undefined) return undefined;
+        throw new Error(`Data.bindPaged: record '${record.name}' has a nested series index, '${declared.name}', and '${carrying.name}' carries ` +
+            `each row without the collections it declares — list '${declared.name}' beside it`);
+    }
+    if (options.join === true) {
+        throw new Error(`Data.bindPaged: '${listed.name}' is listed, so the other indexes carry each row without its collections and a page joins ` +
+            "none — leave join out: a join would read each row whole");
+    }
+    const valued = options.indexes.find((index) => index.nested === undefined && index.summary === undefined && !lean(index));
+    if (valued !== undefined) {
+        throw new Error(`Data.bindPaged: '${valued.name}' carries a value of its own beside '${listed.name}', whose record's other indexes carry each ` +
+            "row without its collections — leave its value out, or bind it apart");
+    }
+    return listed;
+}
+
+/** A declaration's marker as data (#1435): its East type, and its value. */
+interface Marker {
+    readonly type: EastType;
+    readonly value: Readonly<Record<string, unknown>> | null;
+}
+
+/** A marker of no value: a leaf of the structure. */
+const LEAF: Marker = { type: NullType, value: null };
+
+/** A struct of markers, each by its name. */
+function markerStruct(parts: readonly (readonly [string, Marker])[]): Marker {
+    return { type: StructType(Object.fromEntries(parts.map(([name, part]) => [name, part.type]))), value: Object.fromEntries(parts.map(([name, part]) => [name, part.value])) };
+}
+
+/**
+ * A nested series index's collections as a binding carries them
+ * ({@link NestedMarker}), from the declaration the definition holds: each
+ * collection by its field, what it holds, its times and its rollups as
+ * structure.
+ *
+ * @param declaration - The definition's declaration (e3-types' `RecordNestedDeclType`)
+ * @returns The marker's type and value
+ */
+function nestedMarker(declaration: RecordNestedDecl): Marker {
+    return markerStruct([...declaration].map(([field, declared]) => [field, collectionMarker(declared)] as const));
+}
+
+/** One collection's declaration as a binding carries it ({@link CollectionMarker}). */
+function collectionMarker(declared: RecordNestedDecl extends ReadonlyMap<string, infer D> ? D : never): Marker {
+    const named = (field: string) => markerStruct([[field, LEAF]]);
+    switch (declared.type) {
+        case "items": {
+            const { times, rollup } = declared.value;
+            const parts: (readonly [string, Marker])[] = times.type === "span"
+                ? [["from", named(times.value.from)], ["to", named(times.value.to)]]
+                : [["at", named(times.value)]];
+            if (rollup) parts.push(["rollup", LEAF]);
+            return markerStruct([["items", markerStruct(parts)]]);
+        }
+        case "values": {
+            // Each fold a struct of its aggregates, in the order declared.
+            const folds = new Map<string, string[]>();
+            for (const { fold, aggregate } of declared.value.rollups) folds.set(fold.type, [...(folds.get(fold.type) ?? []), aggregate.type]);
+            return markerStruct([["values", folds.size === 0 ? LEAF : markerStruct([["rollup",
+                markerStruct([...folds].map(([fold, aggregates]) => [fold, markerStruct(aggregates.map((aggregate) => [aggregate, LEAF] as const))] as const))]])]]);
+        }
+        case "rows":
+            return markerStruct([["rows", nestedMarker(declared.value)]]);
+        case "recursive":
+            return markerStruct([["recursive", LEAF]]);
+    }
 }
