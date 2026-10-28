@@ -660,6 +660,27 @@ describe("a gesture drafts its row whole (#1438)", () => {
     }
     const applyButton = (c: HTMLElement) => within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.apply() });
 
+    test("a second drag reads nothing; Save is one commit naming the one job, confirmed by one read of its machine whole; a remount draws it where it went", async () => {
+        onTestFinished(emulateWindowScroll());
+        const { container: c } = await h.mount(editingPlan, { drag: true });
+        await settle();
+        await dragADay(c);
+        const rowsAfterFirst = h.requests("rows", MACHINES).length;
+        await dragADay(c);
+        expect(h.requests("rows", MACHINES).length).toBe(rowsAfterFirst);
+        await save(c);
+        const commits = h.requests("mutate", ex.machines.name);
+        expect(commits).toHaveLength(1);
+        expect(jobsOps(commits[0]!)).toEqual(new Map([["M-10001", "update J-10001-114"]]));
+        // The confirmation: the saved machine read back whole, by its key, once.
+        expect(h.requests("rows", MACHINES).length - rowsAfterFirst).toBe(1);
+        const at = (container: HTMLElement) => container.querySelector(`${rowAt(entry("presses", "M-10001"))} [data-run="J-10001-114"]`)?.getAttribute("data-plan-frac");
+        const saved = at(c);
+        const { container: again } = await h.mount(editingPlan, { drag: true, storageKey: "again" });
+        await settle();
+        expect(at(again)).toBe(saved);
+    });
+
     test("another planner's commit moving another job of the drafted machine stands beside the draft, and both Saves commit", async () => {
         onTestFinished(emulateWindowScroll());
         const before = await readMachines();
