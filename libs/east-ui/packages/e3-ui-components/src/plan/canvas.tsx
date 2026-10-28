@@ -133,7 +133,7 @@ import {
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
 import { cellKinds, createCellSpanStore, shownCellSpan } from "./root/cells.js";
-import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, type PlanNestedLead } from "./root/nested.js";
+import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead } from "./root/nested.js";
 import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
@@ -382,8 +382,10 @@ export function usePlanCanvas({
     // session beside the event kinds' (#1194): the history is this render's,
     // read when a gesture lands.
     const historyRef = useRef<EditHistory<PlanEntryRef> | undefined>(undefined);
+    // Over rows read lean beside their nested series index (#1438), a gesture drafts each row it touches read whole.
+    const whole = usePlanWholeRows(hostData.nested.type === "some" ? hostData.nested.value : undefined);
     const editing = usePlanEditing({
-        value: hostValue, data: hostData, rows: sourceRows, origin: paging.origin, storageKey, labelOf, history: historyRef,
+        value: hostValue, data: hostData, rows: sourceRows, origin: paging.origin, storageKey, labelOf, history: historyRef, whole,
     });
 
     // ── The event kinds' editing (#1194) ──────────────────────────────────
@@ -454,7 +456,7 @@ export function usePlanCanvas({
     // component of its own (`PlanNestedReader`, in `provide`), each window drawn through the root's seam with what it read.
     const [nestedViews] = useState(createNestedViewStore);
     const [nestedLead, setNestedLead] = useState<PlanNestedLead | undefined>(undefined);
-    const nested = usePlanNestedRoot(editing.value, editing.data, editing.data.nested.type === "some" ? nestedLead : undefined);
+    const nested = usePlanNestedRoot(editing.value, editing.data, editing.data.nested.type === "some" ? nestedLead : undefined, editing.drafted);
     // The event kinds' rows ahead of the drafted root's own, and its links'
     // event ends named where the events draw — over a paged resource kind's
     // windows when a kind pages (#1199).
@@ -1551,7 +1553,8 @@ export function usePlanCanvas({
     const nestedSeam = data.nested.type === "some" ? data.nested.value : undefined;
     const laidOut = useMemo(() => visible.map((v) => v.row), [visible]);
     const nestedReader = nestedSeam !== undefined
-        ? <PlanNestedReader seam={nestedSeam} visible={laidOut} index={index} scale={scale} views={nestedViews} onLead={setNestedLead} />
+        ? <PlanNestedReader seam={nestedSeam} visible={laidOut} index={index} scale={scale} views={nestedViews}
+            session={editing.enabled ? editing.session as never : undefined} onLead={setNestedLead} />
         : null;
     // Whether a run's request can carry the window whole (R24): read by a component of its own, beside the event kinds'
     // rows, while an optimiser is bound — over the range the canvas reads them, where each event's row is held.

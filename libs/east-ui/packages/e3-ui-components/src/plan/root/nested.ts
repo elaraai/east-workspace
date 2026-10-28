@@ -52,7 +52,7 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
-    ArrayType, BlobType, SortedMap, StringType, compareFor, encodeBeast2For, equalFor, equivalentFor, none, parseFor, printFor, some, variant,
+    ArrayType, BlobType, SortedMap, StringType, applyFor, compareFor, encodeBeast2For, equalFor, equivalentFor, none, parseFor, printFor, some, variant,
     type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { SeekQueryType } from "@elaraai/east-ui";
@@ -61,6 +61,8 @@ import { Plan, PlanNestedShadingType, SCHEDULE_EVENT_CAP, type PlanNestedType } 
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { indexedBindingOf, type IndexedBindingRead } from "../../platform/indexed-paged.js";
+import { useRecordDrafts, type PreviewedRow, type RecordDraftsSession } from "../../shared/records/drafts.js";
+import type { EditSession } from "@elaraai/east-ui-components";
 import { SCHEDULE_CELL_BLOCK, dividingTiles, wantedBlocks, type ScheduleCellBucket } from "../../shared/schedule/cells.js";
 import type { PlanParentSubtotal, PlanParentSubtotals, PlanRootValue, PlanRowIndex, PlanRowValue } from "../model.js";
 import type { PlanResolution, PlanScale } from "../scale.js";
@@ -169,6 +171,12 @@ interface Literals {
     tile(at: Date): string;
     /** Entries, encoded as the binding's fill takes them. */
     encode(entries: readonly Entry[]): Uint8Array;
+    /** An entry's key, as text: what names it among its run's entries. */
+    key(ik: unknown): string;
+    /** The prefix of the run an entry's key falls in: its place, its row, its path, its run and its level. */
+    prefixOf(ik: unknown): string;
+    /** An entry's value with its update applied, as e3 applies an index's patch. */
+    update(value: unknown, patch: unknown): unknown;
 }
 
 /** A path in the index's key, `end` or a `step` and the rest, from its names. */
@@ -201,6 +209,8 @@ function literals(binding: IndexedBindingRead): Literals {
     const keyLeaves = leavesOf(binding.key);
     const parseKey = binding.key.type === "String" ? undefined : parseFor(binding.key);
     const encode = encodeBeast2For(ArrayType(nested.entry)) as (entries: readonly Entry[]) => Uint8Array;
+    const printKey = printFor(nested.entry.fields.ik);
+    const apply = applyFor(nested.entry.fields.value) as (value: unknown, patch: unknown) => unknown;
     made = {
         path: (names) => printPath(pathValue(names) as never),
         row: (id) => {
@@ -212,6 +222,12 @@ function literals(binding: IndexedBindingRead): Literals {
         level: (level) => printLevel(variant(level, null) as never),
         tile: (at) => printTile(at as never),
         encode,
+        key: (ik) => printKey(ik as never),
+        prefixOf: (ik) => {
+            const k = ik as { readonly collection: unknown; readonly row: unknown; readonly path: unknown; readonly run: unknown; readonly level: unknown };
+            return [printPath(k.collection as never), ...keyLeaves(k.row), printPath(k.path as never), printRun(k.run as never), printLevel(k.level as never)].join("\u0001");
+        },
+        update: apply,
     };
     literalsOf.set(nested.entry, made);
     return made;
@@ -257,6 +273,8 @@ export interface PlanNestedArgs {
     readonly buckets: readonly ScheduleCellBucket[] | undefined;
     /** The canvas's resolution. */
     readonly resolution: PlanResolution | undefined;
+    /** Each drafted row's Save, previewed (#1437): what it changes in the index, put into what is held. */
+    readonly previews?: ReadonlyMap<string, PreviewedRow> | undefined;
 }
 
 /** The levels a subtotal is kept at: a tile's, from the index's tile up. */
@@ -476,6 +494,50 @@ function hatchOf(buckets: readonly ScheduleCellBucket[]): Shade[] {
 /** A tile's start out of an entry's key. */
 const tileOf = (entry: Entry): Date => (entry.ik as { readonly tile: Date }).tile;
 
+/** One previewed change of an entry: its key, and its op — an `insert` of its value, a `delete`, an `update` by its value's patch. */
+interface Change {
+    readonly ik: unknown;
+    readonly op: { readonly type: string; readonly value: unknown };
+}
+
+/**
+ * Every previewed drafted row's changes to the nested series index, by the
+ * run each falls in and the entry's key; none for a row still read, or one
+ * whose change does not apply.
+ */
+function previewedChanges(previews: ReadonlyMap<string, PreviewedRow> | undefined, index: string, lit: Literals): ReadonlyMap<string, ReadonlyMap<string, Change>> {
+    const out = new Map<string, Map<string, Change>>();
+    for (const row of previews?.values() ?? []) {
+        if (row.state !== "previewed") continue;
+        // Each change is keyed as the index keys its entries: the nested key, beside the row's own key.
+        for (const [key, op] of row.changes.get(index) ?? []) {
+            const ik = (key as { readonly ik: unknown }).ik;
+            const prefix = lit.prefixOf(ik);
+            let ops = out.get(prefix);
+            if (ops === undefined) { ops = new Map(); out.set(prefix, ops); }
+            ops.set(lit.key(ik), { ik, op: op as Change["op"] });
+        }
+    }
+    return out;
+}
+
+/** A run's entries with its previewed changes in place, over the tiles it holds. */
+function withChanges(entries: readonly Entry[], ops: ReadonlyMap<string, Change>, cell: Cell, lit: Literals): Entry[] {
+    const from = cell.from.getTime();
+    const to = cell.to.getTime();
+    const byKey = new Map(entries.map((entry) => [lit.key(entry.ik), entry] as const));
+    for (const [key, { ik, op }] of ops) {
+        const at = tileOf({ ik, value: null }).getTime();
+        if (op.type === "delete") byKey.delete(key);
+        else if (op.type === "insert") { if (at >= from && at < to) byKey.set(key, { ik, value: op.value }); }
+        else if (op.type === "update") {
+            const was = byKey.get(key);
+            if (was !== undefined) byKey.set(key, { ik, value: lit.update(was.value, op.value) });
+        }
+    }
+    return [...byKey.values()];
+}
+
 /**
  * The reader's state across reads: the tiles it holds of each run at a
  * revision, the bounds of the parts it has counted and not yet read, and the
@@ -492,8 +554,8 @@ class NestedCellsReader {
         revision: string; spans: Map<string, Span>; found: Map<string, Range>; read: Map<string, readonly Entry[]>;
         counting: Part[][]; reading: Part[][];
     } | undefined;
-    /** The last cells encoded, and the entries they were made from. */
-    private encoded: { from: readonly (readonly Entry[])[]; bytes: Uint8Array } | undefined;
+    /** The last cells encoded, and the entries and previews they were made from. */
+    private encoded: { from: readonly (readonly Entry[])[]; previews: PlanNestedArgs["previews"]; bytes: Uint8Array } | undefined;
 
     /**
      * What the view wants, read: every part of a run whose tiles are not
@@ -669,20 +731,30 @@ class NestedCellsReader {
     /** What the cells held draw: the items encoded, the parents' subtotals, and the rows past the cap shaded or hatched. */
     private drawn(args: PlanNestedArgs, cells: readonly Cell[], held: ReadonlyMap<string, Span>, capped: ReadonlySet<string>,
         items: ReadonlyMap<string, number>, summary: RecordTile | undefined): Read {
-        const lit = literals(indexedBindingOf(args.seam.source)!);
+        const binding = indexedBindingOf(args.seam.source)!;
+        const lit = literals(binding);
+        // Each drafted row's Save, previewed (#1437), put into what is held: an entry's insert or update where a held run's
+        // tiles hold it, its delete dropping it — so every number e3 keeps draws with the drafts in place.
+        const changes = previewedChanges(args.previews, binding.nested!.index, lit);
+        const entriesOf = (cell: Cell): readonly Entry[] => {
+            const entries = held.get(cell.prefix)!.entries;
+            const ops = changes.get(cell.prefix);
+            return ops === undefined ? entries : withChanges(entries, ops, cell, lit);
+        };
         // The items, each cell's entries in the order wanted; the fill keeps an item filed in several tiles once.
-        const from = cells.filter((cell) => cell.kind === "items" || cell.kind === "subtree").map((cell) => held.get(cell.prefix)!.entries);
+        const itemCells = cells.filter((cell) => cell.kind === "items" || cell.kind === "subtree");
+        const from = itemCells.map((cell) => held.get(cell.prefix)!.entries);
         const last = this.encoded;
-        const bytes = last !== undefined && last.from.length === from.length && last.from.every((part, i) => Object.is(part, from[i]))
-            ? last.bytes : lit.encode(from.flat());
-        this.encoded = { from, bytes };
+        const bytes = last !== undefined && Object.is(last.previews, args.previews) && last.from.length === from.length
+            && last.from.every((part, i) => Object.is(part, from[i])) ? last.bytes : lit.encode(itemCells.flatMap(entriesOf));
+        this.encoded = { from, previews: args.previews, bytes };
         // Each parent's subtotals: a series a use, in the uses' order.
         const byRow = new Map<string, Map<number, PlanParentSubtotal[]>>();
         for (const cell of cells) {
             if (cell.kind !== "subtotals") continue;
             let uses = byRow.get(cell.row.key);
             if (uses === undefined) { uses = new Map(); byRow.set(cell.row.key, uses); }
-            uses.set(cell.use, held.get(cell.prefix)!.entries.map((entry): PlanParentSubtotal => ({
+            uses.set(cell.use, entriesOf(cell).map((entry): PlanParentSubtotal => ({
                 at: variant("time", tileOf(entry)) as PlanParentSubtotal["at"],
                 value: (entry.value as { readonly value: number }).value,
             })));
@@ -701,7 +773,7 @@ class NestedCellsReader {
             const path = printPathText(cell.row.id.value.path);
             let tiles = rows.get(path);
             if (tiles === undefined) { tiles = new Map(); rows.set(path, tiles); }
-            for (const entry of held.get(cell.prefix)!.entries) {
+            for (const entry of entriesOf(cell)) {
                 const totals = (entry.value as { readonly value: { count: bigint; ms: bigint; values: option<Totals["values"] & object> } }).value;
                 const at = tileOf(entry).getTime();
                 const was = tiles.get(at);
@@ -747,13 +819,13 @@ class NestedCellsReader {
  */
 export function usePlanNestedCells(args: PlanNestedArgs): PlanNestedLead | undefined {
     const [reader] = useState(() => new NestedCellsReader());
-    const { seam, visible, index, view, range, buckets, resolution } = args;
+    const { seam, visible, index, view, range, buckets, resolution, previews } = args;
     const from = range?.from.getTime();
     const to = range?.to.getTime();
     const read = useCallback(() => reader.read({
-        seam, visible, index, view, buckets, resolution,
+        seam, visible, index, view, buckets, resolution, previews,
         range: from === undefined || to === undefined ? undefined : { from: new Date(from), to: new Date(to) },
-    }), [reader, seam, visible, index, view, buckets, resolution, from, to]);
+    }), [reader, seam, visible, index, view, buckets, resolution, previews, from, to]);
     const { result } = useTrackedEvaluation(read);
     const last = useRef<{ read: Read; lead: PlanNestedLead } | undefined>(undefined);
     return useMemo((): PlanNestedLead | undefined => {
@@ -786,6 +858,8 @@ export interface PlanNestedReaderProps {
     scale: PlanScale | undefined;
     /** The rows in view, as the canvas reports them at rest. */
     views: PlanNestedViewStore;
+    /** The canvas's editing session, when it edits: each drafted row's Save previewed in what is read (#1437). */
+    session?: (RecordDraftsSession & Pick<EditSession<unknown>, "subscribe" | "getSnapshot">) | undefined;
     /** Where what it read goes: called only when it moves. */
     onLead: (lead: PlanNestedLead | undefined) => void;
 }
@@ -798,11 +872,13 @@ export interface PlanNestedReaderProps {
  * @param props - What it reads over, and where it goes
  * @returns Nothing: it reads
  */
-export function PlanNestedReader({ seam, visible, index, scale, views, onLead }: PlanNestedReaderProps): null {
+export function PlanNestedReader({ seam, visible, index, scale, views, session, onLead }: PlanNestedReaderProps): null {
     const view = useSyncExternalStore(views.subscribe, views.get);
     const range = useMemo(() => eventReadRange(scale), [scale]);
     const buckets = useMemo(() => (scale === undefined || range === undefined ? undefined : bucketsOver(scale, range.from, range.to)), [scale, range]);
-    const lead = usePlanNestedCells({ seam, visible, index, view, range, buckets, resolution: scale?.resolution });
+    const handle = indexedBindingOf(seam.source)?.handle;
+    const previews = useRecordDrafts(session === undefined ? undefined : handle, session);
+    const lead = usePlanNestedCells({ seam, visible, index, view, range, buckets, resolution: scale?.resolution, previews });
     const reported = useRef<PlanNestedLead | undefined>(undefined);
     useLayoutEffect(() => {
         if (reported.current === lead) return;
@@ -813,11 +889,88 @@ export function PlanNestedReader({ seam, visible, index, scale, views, onLead }:
 }
 
 // ============================================================================
+// Rows read whole
+// ============================================================================
+
+/**
+ * Rows read whole by their keys (#1438): what a gesture drafts — a row read
+ * whole once, on its first change — and what a Save is confirmed by.
+ */
+export interface PlanWholeRows {
+    /**
+     * A row whole, encoded as the record holds it, by its id, at the record's
+     * revision: `some(some(bytes))`, `some(none)` for a key the record holds no
+     * row under, `none` while it is read — asked with every row asked and not
+     * yet read, in one request. A tracked read: an evaluation that reads it
+     * runs again when it lands.
+     */
+    read(id: string): option<option<Uint8Array>>;
+}
+
+const encodersOf = new WeakMap<object, (row: unknown) => Uint8Array>();
+const keyParsers = new WeakMap<object, (id: string) => { success: boolean; value?: unknown }>();
+
+/** The rows a binding reads whole by key, kept at the record's revision. */
+class WholeRows implements PlanWholeRows {
+    private held: { revision: string; rows: Map<string, option<Uint8Array>>; asking: Set<string> } | undefined;
+
+    constructor(private readonly source: string) {}
+
+    read(id: string): option<option<Uint8Array>> {
+        const binding = indexedBindingOf(this.source);
+        if (binding === undefined) return none;
+        const revision = binding.handle.revision();
+        if (revision.type !== "some") return none;
+        if (this.held === undefined || !stringEqual(this.held.revision, revision.value)) {
+            this.held = { revision: revision.value, rows: new Map(), asking: new Set() };
+        }
+        const held = this.held;
+        const kept = held.rows.get(id);
+        if (kept !== undefined) return some(kept);
+        held.asking.add(id);
+        const ids = [...held.asking];
+        const keys = ids.map((asked) => keyOf(binding, asked));
+        const read = binding.batches.rowsAll(keys);
+        if (read.type !== "some") return none;
+        let encode = encodersOf.get(binding.row);
+        if (encode === undefined) { encode = encodeBeast2For(binding.row) as (row: unknown) => Uint8Array; encodersOf.set(binding.row, encode); }
+        ids.forEach((asked, i) => {
+            const row = read.value[i]!;
+            held.rows.set(asked, row.type === "some" ? some(encode(row.value)) : none);
+            held.asking.delete(asked);
+        });
+        return some(held.rows.get(id)!);
+    }
+}
+
+/** A row's key from its id: a String key as it is, any other read back from its `.east` text. */
+function keyOf(binding: IndexedBindingRead, id: string): unknown {
+    if (binding.key.type === "String") return id;
+    let parse = keyParsers.get(binding.key);
+    if (parse === undefined) { parse = parseFor(binding.key) as (id: string) => { success: boolean; value?: unknown }; keyParsers.set(binding.key, parse); }
+    const read = parse(id);
+    if (!read.success) throw new Error(`The row id '${id}' is no key of the record's`);
+    return read.value;
+}
+
+/**
+ * The rows a Plan over paged rows beside their nested series index reads
+ * whole (#1438): what its editing session drafts from.
+ *
+ * @param seam - The root's seam; `undefined` for a root reading no nested series index
+ * @returns The rows read whole; `undefined` without a seam
+ */
+export function usePlanWholeRows(seam: PlanNestedValue | undefined): PlanWholeRows | undefined {
+    const source = seam?.source;
+    return useMemo(() => (source === undefined ? undefined : new WholeRows(source)), [source]);
+}
+
+// ============================================================================
 // The windows drawn with what was read
 // ============================================================================
 
 /** No drafted rows. */
-const NO_DRAFTED = new SortedMap<string, Uint8Array>([], compareString);
+const NOTHING_DRAFTED = { drafts: new Map<string, Uint8Array>(), version: 0 };
 const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 
 /**
@@ -831,13 +984,16 @@ const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.pa
  * @param value - The latest root
  * @param data - Its data-stable twin
  * @param lead - What the reader read; `undefined` before it first lands, or for a root reading no nested series index
+ * @param drafted - The session's drafted rows, whole, by id, and their version: each draws in its lean row's place
  * @returns The two roots the canvas draws
  */
-export function usePlanNestedRoot(value: PlanRootValue, data: PlanRootValue, lead: PlanNestedLead | undefined): { value: PlanRootValue; data: PlanRootValue } {
+export function usePlanNestedRoot(value: PlanRootValue, data: PlanRootValue, lead: PlanNestedLead | undefined,
+    drafted: { readonly drafts: ReadonlyMap<string, Uint8Array>; readonly version: number } = NOTHING_DRAFTED): { value: PlanRootValue; data: PlanRootValue } {
     const seam = data.nested.type === "some" ? data.nested.value : undefined;
     const paged = seam !== undefined && lead !== undefined ? windowedSourceOf(value.rows) : undefined;
-    const latest = useRef({ src: paged, lead, seam });
-    latest.current = { src: paged, lead, seam };
+    const rows = useMemo(() => new SortedMap([...drafted.drafts], compareString), [drafted.drafts]);
+    const latest = useRef({ src: paged, lead, seam, rows, version: drafted.version });
+    latest.current = { src: paged, lead, seam, rows, version: drafted.version };
     const wrapperOf = useRef<{ src: PlanPagedSourceValue; wrapped: PlanPagedSourceValue } | undefined>(undefined);
     const wrapped = useMemo((): PlanPagedSourceValue | undefined => {
         if (paged === undefined) return undefined;
@@ -848,14 +1004,14 @@ export function usePlanNestedRoot(value: PlanRootValue, data: PlanRootValue, lea
             page: (offset, limit) => {
                 const l = latest.current;
                 if (l.seam === undefined || l.lead === undefined) return none;
-                return l.seam.rows(offset, limit, l.lead.cells, NO_DRAFTED, l.lead.shading) as ReturnType<PlanPagedSourceValue["page"]>;
+                return l.seam.rows(offset, limit, l.lead.cells, l.rows, l.lead.shading) as ReturnType<PlanPagedSourceValue["page"]>;
             },
             total: () => latest.current.src?.total() ?? none,
             // What was read moving is a new revision: the driver reads its windows again, the rows it holds standing in.
             revision: () => {
                 const l = latest.current;
                 const r = l.src?.revision?.() ?? none;
-                return some(`${r.type === "some" ? r.value : ""}#nested-${l.lead?.version ?? 0}`);
+                return some(`${r.type === "some" ? r.value : ""}#nested-${l.lead?.version ?? 0}-${l.version}`);
             },
             refresh: (revision) => latest.current.src?.refresh?.(revision) ?? null,
             seek: paged.seek.type === "some"

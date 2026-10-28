@@ -1382,6 +1382,12 @@ window through the seam with what it read:
   in its revision.
 - **Finding the binding.** The seam names the binding by id; the indexed
   runtime keeps each binding it built by id (`indexedBindingOf`).
+- **Drafting.** A gesture drafts each row it touches read whole by key
+  (`usePlanWholeRows`, the binding's `rowsAll`), never a window's lean row: a
+  row not held yet is read, every row asked meanwhile in one request, and the
+  gesture is drafted once it lands. A Save's entries are read back the same
+  way. Each drafted row's Save, previewed (#1437), is laid over the cells held,
+  so the moved item and every subtotal over it draw before Save.
 
 Tests: `plan/frame/plan-nested.dom.test.tsx`, on e3, over e3-ui's
 `plan-nested` examples. jsdom mounts the rows the canvas lays out first, in

@@ -38,14 +38,14 @@
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
     NullType, decodeBeast2For, encodeBeast2For, equalFor, equivalentFor, none, some, toEastTypeValue, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import {
-    historyKeyOf, useEditSession, type EditHistory, type EditingValue, type EditSession, type EditSessionBinding, type EntryUpdate, type EntryVersion,
+    historyKeyOf, useEditSession, useTrackedEvaluation, type EditHistory, type EditingValue, type EditSession, type EditSessionBinding, type EntryUpdate, type EntryVersion,
     type Origin, type HistoryAction, type DragEventValue,
 } from "@elaraai/east-ui-components";
 import { type EditSource, kindOfIssue, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
@@ -56,6 +56,7 @@ import { rowIdOfKey, rowKeyOf, type PlanRootValue, type PlanRowId, type PlanRowV
 import type { RowKey } from "./plan-state.js";
 import { planPart, planSlices, ROWS_SOURCE } from "./root/sources.js";
 import { mintKey } from "../shared/schedule/records.js";
+import type { PlanWholeRows } from "./root/nested.js";
 
 /** The decoded Plan editing declaration (the root's `editing` some-value). */
 export type PlanEditingValue = ValueTypeOf<typeof Plan.Types.Editing>;
@@ -89,6 +90,8 @@ export interface PlanEditing {
     data: PlanRootValue;
     /** Moves when the drafted entries do — a paged canvas reads its windows again then. */
     draftsVersion: number;
+    /** The drafted entries, each whole, by id, and their version: what a window over rows read lean draws in their place (#1438). */
+    drafted: { readonly drafts: ReadonlyMap<string, Uint8Array>; readonly version: number };
     /** Each drafted row's mark, by row key. */
     marks: ReadonlyMap<RowKey, PlanDraftMark>;
     /**
@@ -118,6 +121,12 @@ export interface PlanEditingArgs {
     value: PlanRootValue;
     /** Its data-stable twin. */
     data: PlanRootValue;
+    /**
+     * Over rows read lean beside their nested series index (#1438), the rows
+     * read whole by key: a gesture drafts each row it touches read whole, and
+     * a Save is confirmed by them.
+     */
+    whole?: PlanWholeRows | undefined;
     /** The canvas rows the source holds — inline, every row; paged, the resident windows'. */
     rows: readonly PlanRowValue[];
     /** Which window each paged row came from. */
@@ -204,12 +213,22 @@ function entryValueOf(version: EntryVersion<PlanEntryRef> | undefined): { value:
  * @returns The session, the drafted canvas, its marks and the gestures
  */
 export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
-    const { value, data, rows, origin, storageKey } = args;
+    const { value, data, rows, origin, storageKey, whole } = args;
     const declared = value.editing.type === "some" ? value.editing.value : undefined;
     // The `rows` source's part, when the slice gives the canvas its rows (#1344).
     const recordSlice = useMemo(() => planPart(planSlices(value), ROWS_SOURCE), [value]);
-    const editing = useMemo(() => declared === undefined || recordSlice === undefined ? declared
-        : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
+    const editing = useMemo(() => {
+        if (declared === undefined) return undefined;
+        const sourced = recordSlice === undefined ? declared : { ...declared, sourceId: recordSlice.sourceId };
+        // Over rows read lean (#1438), an entry is its row read whole by key: a window's holds none of its collections.
+        return whole === undefined ? sourced : {
+            ...sourced,
+            readEntry: (id: string): ReturnType<PlanEditingValue["readEntry"]> => {
+                const row = whole.read(id);
+                return row.type === "some" && row.value.type === "some" ? some(row.value.value) : none;
+            },
+        };
+    }, [declared, recordSlice, whole]);
     const paged = windowedSourceOf(value.rows);
     const entryTypeValue = editing?.entryType;
     const codec = useMemo(() => (entryTypeValue === undefined ? undefined : {
@@ -275,9 +294,10 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             revision: () => revision(),
             refresh: (target) => refresh(target),
             seek: paged.seek,
-            readCurrent: recordSlice?.readEntry,
+            // A Save's entries read back by key outside every narrowing, or, over rows read lean, whole (#1438).
+            readCurrent: recordSlice?.readEntry ?? (whole === undefined ? undefined : (id: string) => whole.read(id)),
         };
-    }, [editing, paged, recordSlice]);
+    }, [editing, paged, recordSlice, whole]);
 
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
     const { session, observed, original, available, version } = useEditSession<PlanEntryRef>(
@@ -416,9 +436,24 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     }, [editing, codec, drafts, session, version]);
 
     // ── The gestures ─────────────────────────────────────────────────────
+    // Over rows read lean (#1438), a gesture on a row the session does not hold waits for the row read whole — every row
+    // it touches asked in one request — and is drafted once they land.
+    const waiting = useRef<{ requests: readonly { id: string; rows: PlanRowId[] }[]; gesture: PlanGesture; origin: Origin; label: string }[]>([]);
+    const [waits, setWaits] = useState(0);
+    const waitingIds = useMemo(() => [...new Set(waiting.current.flatMap((w) => w.requests.map((r) => r.id)))],
+        // The queue is a ref; its count says when it moved.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [waits]);
+    const landedRead = useCallback(() => whole === undefined || waitingIds.every((id) => whole.read(id).type === "some"), [whole, waitingIds]);
+    const { result: landed } = useTrackedEvaluation(landedRead);
     /** Write one gesture into the entries it touches, and record it as one transaction. */
     const record = (requests: readonly { id: string; rows: PlanRowId[] }[], gesture: PlanGesture, origin: Origin, label: string): boolean => {
         if (editing === undefined || codec === undefined || observed === undefined || !session.writable) return false;
+        if (whole !== undefined && requests.some((r) => !session.entries.has(r.id) && whole.read(r.id).type !== "some")) {
+            waiting.current.push({ requests, gesture, origin, label });
+            setWaits((n) => n + 1);
+            return true;
+        }
         session.observeBase(observed.base);
         const befores: EntryVersion<PlanEntryRef>[] = [];
         const wire: { id: string; entry: Uint8Array; rows: PlanRowId[]; gesture: PlanGesture }[] = [];
@@ -499,6 +534,15 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     // Stable to the rows and the drag layer: each runs the latest render's.
     const current = useRef(gestures);
     current.current = gestures;
+    const recordNow = useRef(record);
+    recordNow.current = record;
+    // The gestures waiting on rows read whole, drafted once they land, in the order they were made.
+    useLayoutEffect(() => {
+        if (!landed.ok || landed.value !== true || waiting.current.length === 0) return;
+        const queued = waiting.current;
+        waiting.current = [];
+        for (const w of queued) recordNow.current(w.requests, w.gesture, w.origin, w.label);
+    }, [landed]);
     const drop = useCallback((event: DragEventValue) => current.current.drop(event), []);
     const move = useCallback((request: PlanMoveRequest) => current.current.move(request), []);
     const action = useCallback((a: HistoryAction) => current.current.action(a), []);
@@ -512,6 +556,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         value: shownValue,
         data: shownData,
         draftsVersion: drafts.version,
+        drafted: drafts,
         marks,
         drop,
         move,

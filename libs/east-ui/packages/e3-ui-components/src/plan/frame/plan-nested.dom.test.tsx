@@ -19,14 +19,17 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi, type MockInstance } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
-import { East, some } from "@elaraai/east";
+import { fireEvent, waitFor, within } from "@testing-library/react";
+import { East, some, type ValueTypeOf } from "@elaraai/east";
+import { editingMessages } from "@elaraai/east-ui-components";
+import { layOut } from "@elaraai/east-ui-components/testing";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
-import { Data, Plan } from "@elaraai/e3-ui/internal";
+import { Data, Plan, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan-nested/plan-nested";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
+import { carry } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
 import { act, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 
@@ -394,5 +397,59 @@ describe("a span parent's bands are its subtree's runs, as e3 files them under i
         const { container: whole } = await h.mount(assembliesWhole(true), { storageKey: "whole" });
         await settle();
         expect(paged).toEqual(tops.flatMap((part) => drawnPart(whole, part)));
+    });
+});
+
+// ── A gesture drafts its row whole (#1438) ────────────────────────────────────
+
+/** The machines through a Slice, their jobs moving: each Save one commit through the record's patch door, by key. */
+const editingPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const record = $.const(Record.bind(ex.machines, ["patch"]));
+    const slice = $.const(Slice.bindRecords("plan.nested.dom.editing", {
+        rows: { source: Data.bindPaged(ex.machines, { indexes: ["machines_by_name", "machines_by_site_status", "machines_in_time"] }), fields: { site: { label: "Site" } } },
+    }));
+    return Plan({
+        axis: axis(), slice: { slice },
+        series: [Plan.series.span(ex.Machine, {
+            key: "presses", title: "Presses", label: (m) => m.name, edit: true,
+            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
+        })],
+        editing: { onApply: Record.onApply(record, { keyed: true }) },
+    });
+}))) };
+
+/** The machines as e3 holds them now, read as another planner would. */
+const readMachines = async () => (await h.read(ex.machines)) as ReadonlyMap<string, ValueTypeOf<typeof ex.Machine>>;
+
+describe("a gesture drafts its row whole (#1438)", () => {
+    test("a job dragged a day along its machine reads the machine whole once, draws at once, and its Save commits the job alone, every other job as it was", async () => {
+        onTestFinished(emulateWindowScroll());
+        const before = await readMachines();
+        const { container: c } = await h.mount(editingPlan, { drag: true });
+        await settle();
+        const rowsAsked = h.requests("rows", MACHINES).length;
+        // The machine's plot across the fortnight, a day 100px wide from x 200.
+        const plot = c.querySelector(`${rowAt(entry("presses", "M-10001"))} [data-plan-plot]`)!;
+        layOut(new Map([[plot, { left: 200, top: 0, width: 1400, height: 32 }]]));
+        const job = () => c.querySelector<HTMLElement>(`${rowAt(entry("presses", "M-10001"))} [data-run="J-10001-114"]`);
+        const frac = Number(job()!.getAttribute("data-plan-frac"));
+        const x = 200 + frac * 1400 + 10;
+        const letGo = await carry(job()!, { x, y: 16 }, { x: x + 100, y: 16 });
+        await letGo();
+        await settle();
+        // The machine read whole, once; the job drawn a day on.
+        expect(h.requests("rows", MACHINES).length - rowsAsked).toBe(1);
+        await waitFor(() => expect(Number(job()!.getAttribute("data-plan-frac"))).toBeCloseTo(frac + 1 / 14, 3));
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.apply() })); });
+        await settle();
+        // e3 holds the job a day on, and every other job, and every other machine, as it was.
+        const after = await readMachines();
+        const DAY = 86_400_000;
+        const was = before.get("M-10001")!;
+        const now = after.get("M-10001")!;
+        expect(now.jobs.get("J-10001-114")!.start.getTime() - was.jobs.get("J-10001-114")!.start.getTime()).toBe(DAY);
+        expect([...now.jobs.keys()]).toEqual([...was.jobs.keys()]);
+        for (const [id, held] of was.jobs) if (id !== "J-10001-114") expect(now.jobs.get(id)).toEqual(held);
+        expect(after.get("M-10002")).toEqual(before.get("M-10002"));
     });
 });

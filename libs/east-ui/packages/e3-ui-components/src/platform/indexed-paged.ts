@@ -101,12 +101,14 @@ export function recordSliceBatchesOf(binding: object): RecordSliceBatches | unde
  * read through by id alone, its type the Plan's own.
  */
 export interface IndexedBindingRead {
-    /** The handle. */
-    readonly handle: { revision(): option<string> };
+    /** The handle: its revision, and each listed nested series and summary index's maintenance for one row. */
+    readonly handle: { revision(): option<string>; readonly maintenance: IndexMaintenances };
     /** Its batched reads. */
     readonly batches: RecordSliceBatches;
     /** The record's key type. */
     readonly key: EastType;
+    /** The record's row type. */
+    readonly row: EastType;
     /** The listed nested series index: its name, and its entries' type, `{ ik, value }`; none where the binding lists none. */
     readonly nested: { readonly index: string; readonly entry: StructType<{ ik: EastType; value: EastType }> } | undefined;
 }
@@ -483,7 +485,7 @@ export class IndexedPagedRuntime {
                 const nestedName = nested.type === "some" ? Object.keys(nested.value.index)[0] : undefined;
                 const ik = nestedName === undefined ? undefined : schema.keys[nestedName];
                 bindingsById.set(id, {
-                    handle, batches, key: args[0],
+                    handle, batches, key: args[0], row: args[1],
                     nested: nestedName === undefined || ik === undefined ? undefined : { index: nestedName, entry: StructType({ ik, value: args[6] }) },
                 });
                 return handle;
