@@ -229,6 +229,19 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         await waitFor(() => expect(drawnTwelve(container)).toEqual(drawnTwelve(whole)), { timeout: 10_000 });
     });
 
+    test("every series switched off draws no row, and one switched back on draws its rows again", async () => {
+        onTestFinished(emulateWindowScroll());
+        const { container } = await h.mount(pickedPlan);
+        await settle();
+        const rows = () => slot(container, "main")!.querySelectorAll("[data-plan-row]").length;
+        expect(drawnTwelve(container).filter((line) => line.endsWith("no row"))).toEqual([]);
+        await toggleSeries(container, "Presses");
+        await toggleSeries(container, "Load");
+        await waitFor(() => expect(rows()).toBe(0));
+        await toggleSeries(container, "Presses");
+        await waitFor(() => expect(drawnTwelve(container).filter((line) => line.endsWith("no row"))).toEqual([]), { timeout: 10_000 });
+    });
+
     test("a pan within the tiles it holds reads nothing; a week on reads the new week's tiles alone, a range a machine a collection", async () => {
         onTestFinished(emulateWindowScroll());
         const { container } = await h.mount(slicePlan);
