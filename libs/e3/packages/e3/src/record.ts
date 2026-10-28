@@ -54,23 +54,6 @@ export const recordsTree: DataTreeDef = {
 };
 
 /**
- * Defines a record with only an initial value, its parts declared apart with
- * `e3.recordIndex`, `e3.mutation` and `e3.migration` and folded on by
- * `e3.package`.
- *
- * @typeParam Name - Record name (literal type)
- * @typeParam T - The East type of the record state
- * @param name - Record name
- * @param type - East type of the record state
- * @param initialValue - The initial state, the genesis commit
- * @returns A RecordDef
- */
-export function record<Name extends string, T extends EastType>(
-  name: Name,
-  type: T,
-  initialValue: ValueTypeOf<T>,
-): RecordDef<T, [variant<'field', 'records'>, variant<'field', Name>]>;
-/**
  * Defines a record — a root dataset written only through mutations — declared
  * whole: its type, its initial value, its indexes, its mutations and its
  * migrations, in one call, never changed after.
@@ -137,6 +120,23 @@ export function record<
   type: T,
   config?: RecordConfig<T, I, M>,
 ): RecordDef<T, [variant<'field', 'records'>, variant<'field', Name>], IndexesOf<I, T>, MutationsOf<M, T>>;
+/**
+ * Defines a record with only an initial value, its parts declared apart with
+ * `e3.recordIndex`, `e3.mutation` and `e3.migration` and folded on by
+ * `e3.package`.
+ *
+ * @typeParam Name - Record name (literal type)
+ * @typeParam T - The East type of the record state
+ * @param name - Record name
+ * @param type - East type of the record state
+ * @param initialValue - The initial state, the genesis commit
+ * @returns A RecordDef
+ */
+export function record<Name extends string, T extends EastType>(
+  name: Name,
+  type: T,
+  initialValue: ValueTypeOf<T>,
+): RecordDef<T, [variant<'field', 'records'>, variant<'field', Name>]>;
 export function record(name: string, type: EastType, declared?: unknown): RecordDef {
   const config = declaredWhole(type, declared) ? declared as RecordConfig<EastType, object, object> : undefined;
   const initial = config === undefined ? declared : config.initial;
