@@ -8,8 +8,11 @@
  * window at the record's far end lands, the operations' cells of its rows after
  * it, and the frame is drawn again at each — the canvas's every commit draws
  * it. Drawn again, it works out none of its recipe's styles again: the library
- * reads the plan recipe's, made once for the theme. What is counted is each
- * slot recipe's styles worked out, by the recipe.
+ * reads the plan recipe's, made once for the theme. And it hands its toolbar
+ * the same items while what they show holds — the rail, the date navigator,
+ * the history — so the toolbar draws and measures nothing again. What is
+ * counted is each slot recipe's styles worked out, by the recipe, and each
+ * element the toolbar measures.
  *
  * jsdom lays nothing out: the canvas's bounded frame is 400px tall over a tall
  * scroll extent, its `scrollTo` moving `scrollTop` as a browser's does.
@@ -73,6 +76,17 @@ function slotStylesWorked(): string[] {
     return worked;
 }
 
+/** Every element measured from here on inside the frame's toolbar. */
+function toolbarMeasures(): Element[] {
+    const measured: Element[] = [];
+    const rect = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        if (this.closest("[data-toolbar]") !== null) measured.push(this);
+        return rect.call(this);
+    });
+    return measured;
+}
+
 /**
  * The work orders Plan mounted with its first rows' cells drawn, the keyboard on its first row; then End, past the rows
  * read, the far window and its rows' cells landed.
@@ -102,5 +116,11 @@ describe("End over the work orders Plan: the landing draws only what it moves", 
         const worked = slotStylesWorked();
         await farEnd(() => { worked.length = 0; });
         expect(worked.filter((name) => name === "elara-plan")).toEqual([]);
+    });
+
+    test("the toolbar is handed the same items as the far window and its cells land — the rail, the date navigator, the history — and draws and measures nothing again", async () => {
+        let measured: Element[] = [];
+        await farEnd(() => { measured = toolbarMeasures(); });
+        expect(measured.map((it) => it.getAttribute("data-toolbar-item") ?? it.getAttribute("data-toolbar") ?? it.tagName)).toEqual([]);
     });
 });

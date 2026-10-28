@@ -20,7 +20,10 @@
  * navigator steps the canvas's own. A segment's menu chip draws Font Awesome's caret (#1263). The
  * rail is the Plan's records' on e3 itself (`rail.test-utils.ts`, #1376): its
  * counts are e3's. jsdom lays nothing out, so each item's width is stubbed by
- * the form it shows; the gap is 10px.
+ * the form it shows; the gap is 10px. The row's ResizeObserver is captured, so
+ * a test moves the row's width the way the browser reports it: the toolbar
+ * draws again only as its items move, and the Plan hands it the same items
+ * while what they show holds.
  */
 
 import { describe, test, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
@@ -52,10 +55,29 @@ import { RAIL_MODULES, bindRail } from "./rail.test-utils.js";
 const h = e3Harness(RAIL_MODULES, { measure: false });
 
 // jsdom lacks ResizeObserver; the toolbar observes its row and items through it.
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+/** The observers the page made, to deliver the row's width change through. */
+const observers: { cb: ResizeObserverCallback; targets: Set<Element> }[] = [];
+class ResizeObserverStub {
+    private readonly entry: { cb: ResizeObserverCallback; targets: Set<Element> };
+    constructor(cb: ResizeObserverCallback) { this.entry = { cb, targets: new Set() }; observers.push(this.entry); }
+    observe(el: Element) { this.entry.targets.add(el); }
+    unobserve(el: Element) { this.entry.targets.delete(el); }
+    disconnect() { this.entry.targets.clear(); }
+}
 
 /** The stubbed layout: the toolbar row's box. */
 const row = { px: 0 };
+
+/** Moves the toolbar row's width and tells the row's observer, as the browser does. */
+function resize(px: number) {
+    row.px = px;
+    act(() => {
+        for (const o of observers) {
+            const at = [...o.targets].find((t) => t.hasAttribute("data-toolbar"));
+            if (at !== undefined) o.cb([{ target: at } as ResizeObserverEntry], {} as ResizeObserver);
+        }
+    });
+}
 
 /** Each item's width in each of its forms, widest first (a hidden form has no box). */
 const FORM_PX: Record<string, readonly number[]> = {
@@ -257,12 +279,10 @@ const OVERLAPS_LADDER: readonly LadderStep[] = [
 function walk(parts: ChromeParts, start: ReadonlyMap<string, number>, ladder: readonly LadderStep[], overlaps?: PlanOverlaps) {
     let forms = new Map(start);
     row.px = needs(forms);
-    const harness = () => <ChakraProvider value={system}><Harness parts={parts} {...(overlaps === undefined ? {} : { overlaps })} /></ChakraProvider>;
-    const ui = render(harness());
+    const ui = render(<ChakraProvider value={system}><Harness parts={parts} {...(overlaps === undefined ? {} : { overlaps })} /></ChakraProvider>);
     expect(stateOf(ui.container)).toEqual(forms);
     const at = (px: number) => {
-        row.px = px;
-        ui.rerender(harness());
+        resize(px);
         return stateOf(ui.container);
     };
     for (const step of ladder) {
@@ -441,8 +461,7 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         expect(stateOf(ui.container).get("overlaps")).toBe(0);
         expect(chip().getAttribute("data-plan-overlaps")).toBe("");
         expect(chip().textContent).toBe("1 overlap");
-        row.px = 109;
-        ui.rerender(<ChakraProvider value={system}><Harness parts={parts} overlaps={pair} /></ChakraProvider>);
+        resize(109);
         expect(stateOf(ui.container).get("overlaps")).toBe(1);
         expect(chip().getAttribute("data-plan-overlaps")).toBe("short");
         expect(chip().textContent).toBe("1");
