@@ -44,6 +44,7 @@ import {
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PartRunner } from '@elaraai/e3';
+import { RecordNestedPathType } from '@elaraai/e3-types';
 import { recordMutate, recordReindex, readRecordState, resolveRecordIndex } from './records.js';
 import { DatasetSegments, readManifest } from './dataset-open.js';
 import { packageImport } from './package-files.js';
@@ -592,5 +593,86 @@ describe('a window of the rail\'s rows beside the nested series index', () => {
     let read = 0;
     for (const bytes of counted.kept.values()) read += bytes;
     assert.ok(read * 10 < ownBytes, `the window reads ${read} bytes; the record's own segments hold ${ownBytes}`);
+  });
+});
+
+describe('the nested series index\'s span beside it (#1438)', () => {
+  let repo: string;
+  let tempDir: string;
+  let storage: StorageBackend;
+  let runner: TaskRunner;
+
+  beforeEach(async () => {
+    repo = createTestRepo();
+    tempDir = createTempDir();
+    storage = new LocalStorage(dirname(repo));
+    runner = new LocalTaskRunner(repo);
+    const pkg = e3.package('nested-span', '1.0.0', ...declared());
+    const zip = join(tempDir, 'nested-span.zip');
+    await e3.export(pkg, zip);
+    await packageImport(storage, repo, zip);
+    await workspaceCreate(storage, repo, 'span');
+    await workspaceDeploy(storage, repo, 'span', 'nested-span', '1.0.0', { runner });
+  });
+
+  afterEach(() => {
+    removeTestRepo(repo);
+    removeTempDir(tempDir);
+  });
+
+  /** A machine holding the jobs given — each `id: [start, end]`, as East prints an instant — and its load at the instants given. */
+  const machineWith = (jobs: Readonly<Record<string, readonly [string, string]>>, load: readonly string[] = []) => parsed(Machine,
+    `(name="Press", site="North", status="up", jobs=${dict(Object.entries(jobs).map(([id, [start, end]]) =>
+      `"${id}":(product="cap", start=.some ${start}, end=.some ${end}, state="planned", sheets=1.0)`))}, stops={:}, alarms={:}, ` +
+    `load=${dict(load.map((at) => `${at}:0.5`))}, output={:})`);
+
+  /** Writes the machines through the patch door, from `before` to `next`. */
+  async function write(before: ValueTypeOf<typeof Machines>, next: ValueTypeOf<typeof Machines>): Promise<void> {
+    const patch = diffFor(Machines)(before as never, next as never);
+    const outcome = await recordMutate(storage, runner, repo, 'span', 'machines', 'patch', [encodeBeast2For(PatchType(Machines))(patch)], { actor: 'cli:test' });
+    assert.strictEqual(outcome.kind, 'committed', `machines: ${outcome.kind === 'failed' ? outcome.stderr : outcome.kind}`);
+  }
+
+  /** The machines' span as the record holds it: each collection's first and last month, by its place as East prints it. */
+  async function spanOf(): Promise<Record<string, [string, string]>> {
+    const ref = await storage.datasets.read(repo, 'span', 'records/machines');
+    assert.ok(ref && ref.type === 'value', 'records/machines holds a value');
+    const index = await resolveRecordIndex(storage, repo, 'span', 'records/machines', ref.value.hash, 'machines_in_time_span');
+    assert.ok(index !== null, 'the record names its nested series index\'s span');
+    const segments = await DatasetSegments.open(storage, repo, index.manifest);
+    const out: Record<string, [string, string]> = {};
+    if (segments.elementCount === 0) return out;
+    const entries = decodeBeast2For(fromEastTypeValue(index.collectionType))(await segments.span(0, segments.cumulative.length)) as SortedMap<unknown, unknown>;
+    const SpanKey = StructType({ collection: RecordNestedPathType, tile: DateTimeType });
+    const place = printFor(SpanKey.fields.collection);
+    const month = printFor(DateTimeType);
+    for (const key of entries.keys()) {
+      const { collection, tile } = (key as { ik: ValueTypeOf<typeof SpanKey> }).ik;
+      const at = place(collection);
+      out[at] = [out[at]?.[0] ?? month(tile), month(tile)];
+    }
+    return out;
+  }
+
+  it('holds each collection\'s first and last month across the rows, and keeps them as writes move, add and take items', async () => {
+    const empty = new SortedMap([], compareFor(StringType)) as ValueTypeOf<typeof Machines>;
+    const jobs = '.step (key="jobs", rest=.end)';
+    const load = '.step (key="load", rest=.end)';
+    const seeded = parsed(Machines, `{"M-1":${printFor(Machine)(machineWith({ 'j-1': ['2026-01-10T00:00:00.000', '2026-01-12T00:00:00.000'] }, ['2026-03-02T00:00:00.000']))}, ` +
+      `"M-2":${printFor(Machine)(machineWith({ 'j-2': ['2026-06-05T00:00:00.000', '2026-06-07T00:00:00.000'] }))}}`);
+    await write(empty, seeded);
+    assert.deepStrictEqual(await spanOf(), {
+      [jobs]: ['2026-01-01T00:00:00.000', '2026-06-01T00:00:00.000'],
+      [load]: ['2026-03-01T00:00:00.000', '2026-03-01T00:00:00.000'],
+    }, 'the seeded rows\' months');
+    // M-2's job moved to December: the jobs reach December, and June goes.
+    const moved = parsed(Machines, `{"M-1":${printFor(Machine)(machineWith({ 'j-1': ['2026-01-10T00:00:00.000', '2026-01-12T00:00:00.000'] }, ['2026-03-02T00:00:00.000']))}, ` +
+      `"M-2":${printFor(Machine)(machineWith({ 'j-2': ['2026-12-07T00:00:00.000', '2026-12-09T00:00:00.000'] }))}}`);
+    await write(seeded, moved);
+    assert.deepStrictEqual((await spanOf())[jobs], ['2026-01-01T00:00:00.000', '2026-12-01T00:00:00.000'], 'a job moved to December');
+    // M-1's job and load taken: the jobs start in December, and the load holds no month.
+    const taken = parsed(Machines, `{"M-1":${printFor(Machine)(machineWith({}))}, "M-2":${printFor(Machine)(machineWith({ 'j-2': ['2026-12-07T00:00:00.000', '2026-12-09T00:00:00.000'] }))}}`);
+    await write(moved, taken);
+    assert.deepStrictEqual(await spanOf(), { [jobs]: ['2026-12-01T00:00:00.000', '2026-12-01T00:00:00.000'] }, 'January\'s job and March\'s load taken');
   });
 });

@@ -402,6 +402,55 @@ describe('index.nested — a row\'s entries', () => {
   });
 });
 
+// ── Its span (#1438) ─────────────────────────────────────────────────────────
+
+describe('index.nested — its span, beside it (#1438)', () => {
+  it('keeps each collection\'s months a row touches beside it, `<name>_span`, summed across rows as a summary\'s totals are', () => {
+    const rec = machines();
+    const span = rec.indexes.machines_in_time.nested!.span;
+    assert.equal((rec.indexes as Readonly<Record<string, RecordIndexDef>>).machines_in_time_span, span, 'the span beside the nested series index');
+    assert.deepEqual(span.span, { of: 'machines_in_time', tile: 'month' });
+    assert.ok(span.mergeFn !== undefined && span.multi, 'its rows\' totals summed under each key');
+    // A job across a month's end touches both months, each once; a value its own month.
+    const row = parsed(Machine, machine(
+      { 'j-1': job('2026-09-29T06:00:00.000', '2026-10-06T06:00:00.000'), 'j-2': job('2026-10-12T06:00:00.000', '2026-10-13T06:00:00.000') },
+      { '2026-11-02T00:00:00.000': 0.5 },
+    ));
+    const all = entries(span, 'M-7', row);
+    assertEast(DictType(span.keyType, span.valueType), all, parsed(DictType(span.keyType, span.valueType), `{
+      (collection=.step (key="jobs", rest=.end), tile=2026-09-01T00:00:00.000): (count=1, ms=0),
+      (collection=.step (key="jobs", rest=.end), tile=2026-10-01T00:00:00.000): (count=1, ms=0),
+      (collection=.step (key="load", rest=.end), tile=2026-11-01T00:00:00.000): (count=1, ms=0)
+    }`), 'M-7\'s months');
+    assert.equal(entries(span, 'M-7', parsed(Machine, machine({ 'j-1': job(undefined) }))).size, 0, 'an item with no start touches no month');
+  });
+
+  it('counts a part\'s jobs at every depth under their collection, and a member\'s values under theirs', () => {
+    const span = assemblies().indexes.assemblies_in_time.nested!.span;
+    const deep = `(name="p2", jobs={"j-9":${job('2027-03-02T00:00:00.000', '2027-03-03T00:00:00.000')}}, parts={:})`;
+    const top = `(name="p1", jobs={"j-1":${job('2026-10-02T00:00:00.000', '2026-10-03T00:00:00.000')}}, parts={"p2":${deep}})`;
+    const all = entries(span, 'A-1', parsed(Assembly, `(name="Assembly 1", parts={"p1":${top}})`));
+    assertEast(DictType(span.keyType, span.valueType), all, parsed(DictType(span.keyType, span.valueType), `{
+      (collection=.step (key="parts", rest=.step (key="jobs", rest=.end)), tile=2026-10-01T00:00:00.000): (count=1, ms=0),
+      (collection=.step (key="parts", rest=.step (key="jobs", rest=.end)), tile=2027-03-01T00:00:00.000): (count=1, ms=0)
+    }`), 'the parts\' months');
+    const hall = halls().indexes.halls_in_time.nested!.span;
+    const members = entries(hall, 'H-1', parsed(Hall,
+      '(name="Hall 1", site="North", members={"a":(name="a", load={2026-01-05T00:00:00.000:0.5}), "b":(name="b", load={2026-02-02T00:00:00.000:0.5})})'));
+    assertEast(DictType(hall.keyType, hall.valueType), members, parsed(DictType(hall.keyType, hall.valueType), `{
+      (collection=.step (key="members", rest=.step (key="load", rest=.end)), tile=2026-01-01T00:00:00.000): (count=1, ms=0),
+      (collection=.step (key="members", rest=.step (key="load", rest=.end)), tile=2026-02-01T00:00:00.000): (count=1, ms=0)
+    }`), 'the members\' months');
+  });
+
+  it('refuses an index named as a nested series index\'s span', () => {
+    assert.throws(() => record('machines', Machines, {
+      initial: new Map(),
+      indexes: (index) => ({ machines_in_time: machinesNested(index), machines_in_time_span: index.on(['name']) }),
+    }), /an index named 'machines_in_time_span' — the name is the span the nested series index 'machines_in_time' keeps beside it/);
+  });
+});
+
 // ── Parents' subtotals ───────────────────────────────────────────────────────
 
 describe('index.nested — every parent\'s subtotals, by hand', () => {
@@ -518,7 +567,7 @@ describe('index.nested — the record\'s other indexes carry its lean rows', () 
     });
     assert.ok(isTypeEqual(builtIndex(held, held.indexes.machines_by_site).valueType, Machine), 'an index declared before it carries the lean machine');
     const packaged = package_('machines', '1.0.0', held).records.machines!;
-    assert.deepEqual(Object.keys(packaged.indexes).sort(), ['machines_by_site', 'machines_in_time'], 'built with the record');
+    assert.deepEqual(Object.keys(packaged.indexes).sort(), ['machines_by_site', 'machines_in_time', 'machines_in_time_span'], 'built with the record, its span beside it');
     assert.ok(isTypeEqual(builtIndex(packaged, packaged.indexes.machines_by_site!).valueType, Machine), 'its other index carries the lean machine');
   });
 });

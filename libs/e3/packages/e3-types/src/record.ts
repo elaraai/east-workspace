@@ -300,6 +300,30 @@ export function NestedEntryKeyType<K extends EastType>(rowKey: K) {
 }
 
 /**
+ * The key a nested series index's span keeps its totals under (#1438): a
+ * collection's place, as an entry's key names it, and a month its items or
+ * values touch. Each holds, as a summary index's key does, how many rows touch
+ * it ({@link RecordSummaryTotalsType}), so a collection's first and last month
+ * held are its span across the record's rows.
+ *
+ * @property collection - The collection's place: the field names from the row down to it, a recursive step adding none
+ * @property tile - The start of a month its items or values touch
+ */
+export const NestedSpanKeyType = StructType({ collection: RecordNestedPathType, tile: DateTimeType });
+export type NestedSpanKeyType = typeof NestedSpanKeyType;
+
+/**
+ * The name of the index a nested series index's span is kept in, beside it
+ * (#1438): an index of its record's, built with it and never declared.
+ *
+ * @param index - The nested series index's name
+ * @returns The span's
+ */
+export function nestedSpanName(index: string): string {
+  return `${index}_span`;
+}
+
+/**
  * One collection's totals in one summary tile (#1434), for one node, or for
  * its descendants' items under `subtreeTotals`.
  *

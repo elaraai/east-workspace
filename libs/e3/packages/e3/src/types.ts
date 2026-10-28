@@ -362,6 +362,14 @@ export interface RecordIndexDef<
    *  it they cover; its {@link keyFn} is a row's contributions,
    *  `(K, V) -> Dict<IK, Totals>`, and its value type `Totals`. */
   readonly summary?: { readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
+  /** A nested series index's span (#1438): the nested series index whose
+   *  collections it counts, and the tile it counts by. It holds, under each
+   *  collection's place and each tile its items or values touch, how many rows
+   *  touch it — kept as a summary's totals are, so a collection's first and
+   *  last tile held are its span. Its {@link keyFn} is a row's tiles,
+   *  `(K, V) -> Dict<{ collection, tile }, Totals>`, and its value type
+   *  `Totals`. Built beside its nested series index, never declared. */
+  readonly span?: { readonly of: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
   /** What a nested series index files (#1434): every collection the record's
    *  rows nest, as written; its tile and summary tile; its declaration as an
    *  East value, the field names as data, which the binding reads (#1435); the
@@ -381,6 +389,8 @@ export interface RecordIndexDef<
     readonly byPatch: { toIR(): unknown };
     /** A lean row filled with entries read of it, `(K, V, Array<{ ik, value }>) → V` (#1438): what a reader of the index's cells draws a row with. */
     readonly fill: { toIR(): unknown };
+    /** Its span (#1438): each collection's tiles across the record's rows, an index of the record's beside it ({@link span}). */
+    readonly span: RecordIndexDef;
   } | undefined;
   /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi} — or, for a
    *  summary, `(K, V) -> Dict<IK, Totals>`, and for a nested series index a

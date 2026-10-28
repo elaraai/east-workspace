@@ -27,7 +27,7 @@ import { RecordSummaryOpType, RecordSummaryTotalsType, indexCollectionType, patc
 import { record } from './record.js';
 import { functionAt } from './record-guards.js';
 import { NestedPatchedType } from './record-nested-programs.js';
-import { buildMutationProgram, builtIndex, indexBuildProgram, indexEntryKeyType, indexMaintenance } from './record-programs.js';
+import { buildMutationProgram, builtIndex, indexBuildProgram, indexEntryKeyType, indexMaintenance, summed } from './record-programs.js';
 import type { RecordDef, RecordIndexDef } from './types.js';
 
 // ── The records: every index kind among them ─────────────────────────────────
@@ -137,10 +137,10 @@ const machinesAfter = new SortedMap<string, ValueTypeOf<typeof Machine>>([
 /** An index's entry key and the op a delta's arm for it carries, as the delta types them. */
 function opTypes(rec: RecordDef, index: RecordIndexDef): { entryKey: EastType; op: EastType } {
   const recordType = rec.type as DictType<EastType, EastType>;
-  const k = index.summary !== undefined ? NullType : recordType.key;
+  const k = summed(index) ? NullType : recordType.key;
   return {
     entryKey: indexEntryKeyType(k, index.keyType),
-    op: index.summary !== undefined ? RecordSummaryOpType : patchOpsType(indexCollectionType(k, index.keyType, index.valueType)),
+    op: summed(index) ? RecordSummaryOpType : patchOpsType(indexCollectionType(k, index.keyType, index.valueType)),
   };
 }
 
@@ -189,7 +189,7 @@ function maintained(rec: RecordDef, index: RecordIndexDef, before: SortedMap<str
     const next = after.has(key) ? some(after.get(key)) : none;
     const rowPatch = op.type === 'update' && byPatch ? some(op.value) : none;
     const ops = maintain(key, held, next, rowPatch);
-    if (built.summary !== undefined) all = sum(all as never, ops as never) as SortedMap<unknown, unknown>;
+    if (summed(built)) all = sum(all as never, ops as never) as SortedMap<unknown, unknown>;
     else for (const [entry, change] of ops) all.set(entry, change);
   }
   return all;
@@ -236,7 +236,7 @@ describe("an index's maintenance for one row is the function the commit runs (#1
   }
 
   for (const { rec, before, after } of writes) {
-    for (const index of Object.values(rec.indexes).filter((each) => each.summary === undefined)) {
+    for (const index of Object.values(rec.indexes).filter((each) => !summed(each))) {
       it(`${rec.name}.${index.name}: the ops, applied to the index as it stood, are the index rebuilt`, () => {
         const def = builtIndex(rec, index);
         const { entryKey } = opTypes(rec, def);

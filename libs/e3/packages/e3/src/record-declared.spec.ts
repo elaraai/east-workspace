@@ -78,9 +78,9 @@ function machines() {
 }
 
 describe('e3.record declared whole', () => {
-  it('builds each index under its key, over the record, in the order declared', () => {
+  it('builds each index under its key, over the record, in the order declared, the nested series index\'s span after them', () => {
     const rec = machines();
-    assert.deepEqual(Object.keys(rec.indexes), ['by_site', 'by_site_status', 'by_start', 'by_statuses', 'in_window', 'planned', 'in_time', 'busy']);
+    assert.deepEqual(Object.keys(rec.indexes), ['by_site', 'by_site_status', 'by_start', 'by_statuses', 'in_window', 'planned', 'in_time', 'busy', 'in_time_span']);
     for (const [key, index] of Object.entries(rec.indexes)) {
       assert.equal(index.name, key, `${key} is named by its key`);
       assert.equal(index.record, rec, `${key} is the record's`);

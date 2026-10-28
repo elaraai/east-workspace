@@ -145,6 +145,16 @@ export function record(name: string, type: EastType, declared?: unknown): Record
   for (const [key, draft] of partsOf(where, 'indexes', config?.indexes?.(INDEX_BUILDER as unknown as IndexBuilder<EastType>))) {
     rec.indexes[key] = builderOf(where, 'index', key, draft).build(rec, key);
   }
+  // A nested series index's span is built beside it, under a name of its own (#1438).
+  for (const index of Object.values(rec.indexes)) {
+    const span = index.nested?.span;
+    if (span === undefined) continue;
+    if (rec.indexes[span.name] !== undefined) {
+      throw new Error(`${where}: an index named '${span.name}' — the name is the span the nested series index '${index.name}' keeps beside it; ` +
+        'name the index otherwise');
+    }
+    rec.indexes[span.name] = span;
+  }
   for (const [key, draft] of partsOf(where, 'mutations', config?.mutations?.(MUTATION_BUILDER as unknown as MutationBuilder<EastType>))) {
     rec.mutations[key] = builderOf(where, 'mutation', key, draft).build(rec, key);
   }

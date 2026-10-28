@@ -887,6 +887,17 @@ binding of the record's indexes lists the nested index by name beside any that
 carry the lean rows — `Data.bindPaged(machines, { indexes: ['machines_by_site',
 'machines_in_time'] })` (see **e3-ui**).
 
+**Its span.** Beside every nested series index e3 keeps its span, an index of
+the record's named `<index>_span` (e3-types' `nestedSpanName`), built with it
+and never declared: under each collection's place and each month its items or
+values touch (`NestedSpanKeyType`, `{ collection, tile }`), how many rows touch
+it, summed across the rows as a summary index's totals are, and a month let go
+once no row touches it. A collection's first and last month held are its span
+across the record — what a Plan's horizon covers for the series reading it
+(see **e3-ui**). Reading it is one search a collection, an exact match on its
+place, and one read of the first and last entry of each. An index the record
+declares under that name is refused.
+
 **Writes.** A row a write updates by a patch is maintained by the patch: e3
 walks it along the declaration — each collection's Dict patch, and each child
 rows' — and compares the entries of only the items it names, with the totals of

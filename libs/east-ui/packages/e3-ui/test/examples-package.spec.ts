@@ -227,7 +227,7 @@ describe("the examples' package step", () => {
         assert.equal(plan.name, "e3-ui-examples-plan");
         const nested = ["assemblies", "halls", "ledgers", "machines", "machines_few"];
         assert.deepEqual(Object.keys(plan.records).filter((name) => nested.includes(name)).sort(), nested);
-        assert.deepEqual(Object.keys(plan.records.ledgers!.indexes).sort(), ["ledgers_by_site", "ledgers_in_time"]);
-        assert.deepEqual(Object.keys(plan.records.machines!.indexes).sort(), ["machines_by_name", "machines_by_site_status", "machines_in_time"]);
+        assert.deepEqual(Object.keys(plan.records.ledgers!.indexes).sort(), ["ledgers_by_site", "ledgers_in_time", "ledgers_in_time_span"]);
+        assert.deepEqual(Object.keys(plan.records.machines!.indexes).sort(), ["machines_by_name", "machines_by_site_status", "machines_in_time", "machines_in_time_span"]);
     });
 });

@@ -139,6 +139,8 @@ export {
   RecordNestedItemType,
   type RecordNestedItem,
   NestedEntryKeyType,
+  NestedSpanKeyType,
+  nestedSpanName,
   RecordNestedTotalsType,
   type RecordNestedTotals,
   NestedEntryType,

@@ -83,6 +83,19 @@ function dictEntry(recordType: EastType, what: string): { keyType: EastType; val
 }
 
 /**
+ * Whether an index sums its rows' totals under each key, as a summary index
+ * does (#1039): a summary's, or a nested series index's span (#1438). Its
+ * entry stands for every row of its key, so its `k` is Null, and a write adds
+ * to its totals rather than patching them.
+ *
+ * @param index - The index
+ * @returns Whether it is summed
+ */
+export function summed(index: RecordIndexDef): boolean {
+  return index.summary !== undefined || index.span !== undefined;
+}
+
+/**
  * A record's index as it is built and bound (#1434): as declared, but, beside
  * a nested series index of the record, one that carries nothing — a plain or
  * an interval index with no `value` — or the row — an area index, a key-form
@@ -96,7 +109,7 @@ function dictEntry(recordType: EastType, what: string): { keyType: EastType; val
  */
 export function builtIndex(rec: RecordDef, index: RecordIndexDef): RecordIndexDef {
   const nested = Object.values(rec.indexes).find((other) => other.nested !== undefined)?.nested;
-  if (nested === undefined || index.nested !== undefined || index.summary !== undefined) return index;
+  if (nested === undefined || index.nested !== undefined || summed(index)) return index;
   const carriesTheRow = index.area !== undefined || index.series !== undefined;
   if (index.valueFn !== undefined && !carriesTheRow) return index;
   const { valueType } = dictEntry(rec.type, `index '${index.name}'`);
@@ -143,7 +156,7 @@ function indexProjection(index: RecordIndexDef, keyType: EastType, valueType: Ea
 export function indexBuildProgram(recordType: EastType, def: RecordIndexDef) {
   const { keyType, valueType } = dictEntry(recordType, `index '${def.name}'`);
   const pieceType = DictType(keyType, valueType);
-  if (def.summary !== undefined) {
+  if (summed(def)) {
     const contributions = functionAt(def.keyFn, [keyType, valueType], DictType(def.keyType, RecordSummaryTotalsType));
     const emitType = FunctionType([indexEntryKeyType(NullType, def.keyType), RecordSummaryTotalsType], NullType);
     return locationFree(() => East.function([pieceType, emitType], NullType, ($, piece, emit) => {
@@ -196,7 +209,7 @@ export function indexBuildProgram(recordType: EastType, def: RecordIndexDef) {
  * @throws {Error} When the index is not a summary
  */
 export function summaryMergeProgram(def: RecordIndexDef) {
-  if (def.summary === undefined || def.mergeFn === undefined) throw new Error(`index '${def.name}' is not a summary, and its build merges nothing`);
+  if (!summed(def) || def.mergeFn === undefined) throw new Error(`index '${def.name}' is not a summary, and its build merges nothing`);
   const totals = RecordSummaryTotalsType;
   const merge = functionAt(def.mergeFn, [indexEntryKeyType(NullType, def.keyType), totals, totals], totals);
   return locationFree(() => merge);
@@ -316,12 +329,12 @@ export function deltaTargets(recordType: EastType, indexes: readonly RecordIndex
   for (const index of indexes) {
     // A summary's entry stands for every row of its key, so its `k` is Null,
     // and its arm carries what to add to each total (#1039).
-    const k = index.summary !== undefined ? NullType : keyType;
+    const k = summed(index) ? NullType : keyType;
     targets.push({
       name: index.name,
       keyType: indexEntryKeyType(k, index.keyType),
       collectionType: indexCollectionType(k, index.keyType, index.valueType),
-      ...(index.summary !== undefined && { summary: true }),
+      ...(summed(index) && { summary: true }),
     });
   }
   return targets.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
@@ -513,7 +526,7 @@ const addedTotals = East.function([RecordSummaryTotalsType, RecordSummaryTotalsT
 export function indexMaintenance(rec: RecordDef, index: RecordIndexDef): IndexMaintenance {
   const { keyType, valueType } = dictEntry(rec.type, `index '${index.name}' of record '${rec.name}'`);
   const rowPatchType = East.patchesFor(valueType).patchType;
-  return index.summary !== undefined ? summaryMaintenance(index, keyType, valueType, rowPatchType) : entriesMaintenance(index, keyType, valueType, rowPatchType);
+  return summed(index) ? summaryMaintenance(index, keyType, valueType, rowPatchType) : entriesMaintenance(index, keyType, valueType, rowPatchType);
 }
 
 /** An index's maintenance for one row ({@link indexMaintenance}): `(K, Option<V>, Option<V>, Option<RowPatch>) → Dict<EntryKey, Op>`. */
@@ -528,8 +541,8 @@ function entriesMaintenance(index: RecordIndexDef, keyType: EastType, valueType:
 /** What {@link indexMaintenance} gives for an index, by entry: its collection's patch ops, or a summary's `add`. */
 function maintenanceOpsType(index: RecordIndexDef, keyType: EastType) {
   // A summary's entry stands for every row of its key, so its `k` is Null.
-  const k = index.summary !== undefined ? NullType : keyType;
-  const op = index.summary !== undefined ? RecordSummaryOpType : patchOpsType(indexCollectionType(k, index.keyType, index.valueType));
+  const k = summed(index) ? NullType : keyType;
+  const op = summed(index) ? RecordSummaryOpType : patchOpsType(indexCollectionType(k, index.keyType, index.valueType));
   return DictType(indexEntryKeyType(k, index.keyType), op);
 }
 
@@ -707,7 +720,7 @@ function summaryMaintenance(index: RecordIndexDef, keyType: EastType, valueType:
  */
 function indexDelta(index: RecordIndexDef, types: DictWrite) {
   const { keyType, valueType, rows, changesType, emitType } = types;
-  if (index.summary === undefined) {
+  if (!summed(index)) {
     const maintain = entriesMaintenance(index, keyType, valueType, rows.patchType);
     return East.function([changesType, emitType], NullType, ($, changes, emit) => {
       const maintainFn = $.const(maintain);

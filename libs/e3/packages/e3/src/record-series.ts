@@ -199,6 +199,26 @@ const addTotals = East.function([StringType, RecordSummaryTotalsType, RecordSumm
 });
 
 /**
+ * A summary's merge, `({ik, k}, Totals, Totals) → Totals`: a build's pieces
+ * hold the same keys, and a key's totals across them are their sum, refused
+ * past the largest Integer naming the index and the key. Built with no source
+ * locations, so its program is the same wherever the package is built.
+ *
+ * @param name - The index
+ * @param indexType - Its key type
+ * @returns The merge
+ */
+export function summaryMerge(name: string, indexType: EastType) {
+  return withLocationCapture(false, () => East.function(
+    [StructType({ ik: indexType, k: NullType }), RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType,
+    ($, entry, a, b) => {
+      const add = $.const(addTotals);
+      return add(East.str`${name}: the totals under ${East.print(entry)}`, a, b);
+    },
+  ));
+}
+
+/**
  * A summary index's definition (`index.summary`): its key function, a
  * row's contributions, `(K, V) → Dict<IK, Totals>` — under each tile its event
  * touches, `{ on: { …on }, key, tile }`, once per combination of its leading
@@ -243,14 +263,7 @@ export function summaryDefinition(
     const shares = $.let(share(level, startOf(key, row), endOf(key, row), East.print(key)));
     return combinations(key, row).flattenToDict((_$, on) => under(on, eventKey, shares));
   });
-  // Built with no source locations, so its program is the same wherever the package is built.
-  const mergeFn = withLocationCapture(false, () => East.function(
-    [StructType({ ik: indexType, k: NullType }), RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType,
-    ($, entry, a, b) => {
-      const add = $.const(addTotals);
-      return add(East.str`${name}: the totals under ${East.print(entry)}`, a, b);
-    },
-  ));
+  const mergeFn = summaryMerge(name, indexType);
   const runner = indexRunner(config);
   checkPure(`${constructor} '${name}' contributions`, keyFn, INDEX_PURITY);
   checkEntryParams(constructor, name, 'contributions', keyType, valueType, signatureOf(keyFn).inputs);

@@ -46,8 +46,8 @@ import {
   type EastType, type Expr, type FunctionExpr, type VariantExpr,
 } from '@elaraai/east';
 import {
-  NestedEntryKeyType, NestedEntryType, RecordLevelType, RecordNestedItemType, RecordNestedPathType, RecordNestedRunType, RecordNestedTotalsType,
-  RecordRollupType,
+  NestedEntryKeyType, NestedEntryType, NestedSpanKeyType, RecordLevelType, RecordNestedItemType, RecordNestedPathType, RecordNestedRunType,
+  RecordNestedTotalsType, RecordRollupType, RecordSummaryTotalsType, nestedSpanName,
   type RecordLevel,
 } from '@elaraai/e3-types';
 import { checkNested, type NestedCollection, type NestedDeclaration, type NestedGroup, type NestedItems, type NestedValues } from './record-nested.js';
@@ -57,6 +57,7 @@ import {
 import { fieldReader } from './record-keys.js';
 import { patchTypeOf } from './record-patches.js';
 import { RECORD_TILES, TileShareType, checkTile, placedFilings, placedShares, tileNext, tileStart, type RecordTile } from './record-tiles.js';
+import { summaryMerge } from './record-series.js';
 import type { RecordDef, RecordIndexDef } from './types.js';
 import type { FunctionRunner } from './runner.js';
 
@@ -1497,6 +1498,98 @@ export function nestedEntries(
   };
 }
 
+// ── Its span (#1438) ───────────────────────────────────────────────────────────
+
+/** The tile a nested series index's span counts by: a Plan's horizon spans whole months. */
+const SPAN_TILE: RecordTile = 'month';
+
+/** A row's months, by collection: `Dict<{ collection, tile }, Totals>`. */
+type SpanTotalsType = DictType<typeof NestedSpanKeyType, typeof RecordSummaryTotalsType>;
+
+/**
+ * A nested series index's span of a row (#1438): `(K, V) → Dict<{ collection,
+ * tile }, Totals>`, each collection's months the row's items or values touch,
+ * each counted once a row. Summed across the record's rows as a summary
+ * index's totals are, and a month let go once no row touches it, a
+ * collection's first and last month held are its span: the time a Plan's
+ * series reading it cover, whatever rows they show.
+ *
+ * @param decl - The checked declaration
+ * @param keyType - The record's key type
+ * @param rowType - The record's row type
+ * @param tile - The index's tile
+ * @returns A row's months, by collection
+ */
+export function nestedSpan(decl: NestedDeclaration, keyType: EastType, rowType: EastType, tile: RecordTile): FunctionExpr<[EastType, EastType], SpanTotalsType> {
+  const entryKey = NestedEntryKeyType(keyType);
+  const entryValue = NestedEntryType(decl.places);
+  const entries = DictType(entryKey, entryValue);
+  const month = levelOf(SPAN_TILE);
+  const types: NestedTypes = {
+    keyType, rowType, entryKey, entryValue, entries,
+    changed: StructType({ before: entries, after: entries }),
+    tile: levelOf(tile),
+    summary: month,
+    levels: RECORD_TILES.slice(RECORD_TILES.indexOf(tile)).map(levelOf),
+  };
+  const spanType: SpanTotalsType = DictType(NestedSpanKeyType, RecordSummaryTotalsType);
+  const nodesOf = groupNodes(decl, rowType);
+  const parts = decl.collections.map((collection) => {
+    const nodes = nodesOf[collection.group]!;
+    const touched = collection.kind === 'items' ? itemTiles(decl, types, collection, month, nodes) : valueTiles(decl, types, collection, month, nodes);
+    const place = [...collection.place];
+    return East.function([keyType, rowType], spanType, ($, key, row) => {
+      const tilesOf = $.const(touched);
+      const path = $.const(pathOf);
+      const at = $.let(path(East.value(place, KeysType)));
+      return tilesOf(key, row).toDict((_$, tile) => ({ collection: at, tile }), () => ({ count: 1n, ms: 0n }));
+    });
+  });
+  return parts.reduce<FunctionExpr<[EastType, EastType], SpanTotalsType>>((before, part) => East.function([keyType, rowType], spanType, ($, key, row) => {
+    const earlier = $.const(before);
+    const own = $.const(part);
+    const all = $.let(earlier(key, row));
+    $(all.unionInPlace(own(key, row)));
+    return all;
+  }), East.function([keyType, rowType], spanType, () => new Map()));
+}
+
+/**
+ * A nested series index's span (#1438), an index of the record's beside it,
+ * named by `nestedSpanName`: its rows' months by collection
+ * ({@link nestedSpan}), summed as a summary index's totals are.
+ *
+ * @param name - The nested series index
+ * @param rec - Its record
+ * @param decl - Its checked declaration
+ * @param keyType - The record's key type
+ * @param rowType - The record's row type
+ * @param tile - Its tile
+ * @param runner - Its runner selection
+ * @returns The span's definition
+ */
+function nestedSpanDefinition(
+  name: string, rec: RecordDef, decl: NestedDeclaration, keyType: EastType, rowType: EastType, tile: RecordTile, runner: RecordIndexDef['runner'],
+): RecordIndexDef {
+  const spanName = nestedSpanName(name);
+  const keyFn = nestedSpan(decl, keyType, rowType, tile);
+  checkPure(`index.nested '${name}' span`, keyFn, INDEX_PURITY);
+  return {
+    kind: 'recordIndex',
+    name: spanName,
+    record: rec,
+    on: Object.freeze([]),
+    span: Object.freeze({ of: name, tile: SPAN_TILE }),
+    keyFn,
+    mergeFn: summaryMerge(spanName, NestedSpanKeyType),
+    // A row touches several months, and a month stands for every row touching it.
+    multi: true,
+    keyType: NestedSpanKeyType,
+    valueType: RecordSummaryTotalsType,
+    runner,
+  };
+}
+
 /** Where a node's items are filed: its collection's place and its path, as an entry's key holds them. */
 const NodePlaceType = StructType({ collection: RecordNestedPathType, path: RecordNestedPathType });
 
@@ -1810,6 +1903,7 @@ export function nestedDefinition(
     on: Object.freeze([]),
     nested: Object.freeze({
       collections: written.collections, tile, summary, declaration: decl.declaration, lean: nestedLean(decl, keyType, valueType), byPatch, fill,
+      span: nestedSpanDefinition(name, rec, decl, keyType, valueType, tile, runner),
     }),
     keyFn: entries,
     // A row gives many entries, each with its own value.
