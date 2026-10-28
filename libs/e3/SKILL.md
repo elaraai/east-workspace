@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex, e3.recordIndex.interval / e3.recordIndex.area for reads by a time window or a 2D window, and e3.recordIndex.series / e3.recordIndex.summary for a block of keys over a span of time tiles and their totals, and e3.recordIndex.series with collections for what a record's rows nest — jobs, a value a day, child rows, trees — filed item by item, with totals and parents' subtotals) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
+description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations, declared whole in one e3.record(name, type, { initial, indexes, mutations, migrations }) call: mutation.reduce/edit/patch; index.on/key/keys, index.interval / index.area for reads by a time window or a 2D window, index.series / index.summary for a block of keys over a span of time tiles and their totals, and index.nested for what a record's rows nest — jobs, a value a day, child rows, trees — filed item by item, with totals and parents' subtotals; and migrated between versions (migration.value/rows/rekey, in order), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
 ---
 
 # East Execution Engine (e3)
@@ -66,12 +66,14 @@ What do you need?
 │   │   └─ Split over an input, in pieces → wrap that input: e3.partition(dataset, { by? })
 │   ├─ A shell command           → e3.customTask(name, [inputs], outputType, command)
 │   ├─ A named function (RPC)    → e3.function(name, fn, config?) — called by name, persists nothing
-│   ├─ Audited state             → e3.record + e3.mutation.reduce | edit | patch, e3.recordIndex
-│   │   ├─ Read by a time window or a 2D window → e3.recordIndex.interval | e3.recordIndex.area
-│   │   ├─ Read a block of keys over time tiles, or their totals → e3.recordIndex.series | e3.recordIndex.summary
+│   ├─ Audited state             → e3.record(name, type, { initial?, indexes?, mutations?, migrations? }), declared whole
+│   │   ├─ Its writes            → mutations: (mutation) => ({ name: mutation.reduce | edit | patch })
+│   │   ├─ An order to page in   → indexes: (index) => ({ name: index.on([...fields]) | index.key(fn) | index.keys(fn) })
+│   │   ├─ Read by a time window or a 2D window → index.interval | index.area
+│   │   ├─ Read a block of keys over time tiles, or their totals → index.series | index.summary
 │   │   └─ Read what rows nest (jobs, a value a day, child rows, trees) a tile at a time, with totals and subtotals
-│   │       → e3.recordIndex.series(name, record, { collections, tile, summary? })
-│   ├─ A record's type changes   → e3.migration.value | rows | rekey(name, record, fn, { after? })
+│   │       → index.nested({ collections, tile, summary? })
+│   ├─ A record's type changes   → migrations: (migration) => [migration.value | rows | rekey(name, fn), …], in order
 │   ├─ A UI task                 → ui(name, [inputs], fn) from @elaraai/e3-ui (the e3-ui skill)
 │   ├─ A function written in python or another node package → East.importFunction(pkg, name, FunctionType) in the body
 │   └─ Bundle and export         → e3.package(name, version, ...items); e3.export(pkg, zipPath)
@@ -515,8 +517,9 @@ await e3.export(e3.package('tools', '1.0.0', process, add), '/tmp/tools.zip');
 
 ### Records — audited state, written only through mutations
 
-`e3.record(name, type, initialValue?)` is a dataset at `.records.<name>` that
-tasks read and react to like any input, but that only its **mutations** write:
+`e3.record(name, type, { initial?, indexes?, mutations?, migrations? })` is a
+dataset at `.records.<name>` that tasks read and react to like any input, but
+that only its **mutations** write:
 a raw `dataset set` is refused. A mutation is pure, synchronous East — no async
 body and no platform call, since the compare-and-swap retry runs it again
 against fresher state — named by an identifier. Each commit records its parent,
@@ -534,38 +537,54 @@ and a mutation on it is refused until then. So a record whose first state is
 data that arrives after the deploy — a customer list, a reference table —
 never runs its dependents on an empty value first.
 
+A record is **declared whole**: its type, its initial value and its parts, in
+one call, never added to after. Each part comes from a builder the call hands
+its declaration, typed by the record's type: `indexes` gets `index` and returns
+the indexes by name, `mutations` gets `mutation` and returns the mutations by
+name, and `migrations` gets `migration` and returns its steps in order. Each is
+checked where the record is declared, every refusal naming the record and the
+part, and the record carries each by its name — `plans.mutations.add_plan`,
+`plans.indexes.by_due` — which a package, a binding (`Record.bind(plans)`,
+`Data.bindPaged(plans, { indexes: ['by_due'] })`) and TypeScript all read.
+
 | Form | Body | Use it when |
 |---|---|---|
-| `e3.mutation.reduce(name, rec, fn)` | `(state, …args) => state`, over the whole state | the rule is over the whole state, or the record is small; any record type |
-| `e3.mutation.edit(name, rec, fn)` | `(state, …args, edit) => Null`: reads lazily, writes through `edit.set(k, v)`, `edit.delete(k)`, `edit.update(k, patch)` | server-side logic touches a few entries of a large Dict or Set record |
-| `e3.mutation.patch(rec, name = 'patch')` | none: the argument is a `PatchType(state)` | a view's save, or an integration sending diffs; on a record without indexes no program runs at all |
+| `mutation.reduce(fn)` | `(state, …args) => state`, over the whole state | the rule is over the whole state, or the record is small; any record type |
+| `mutation.edit(fn)` | `(state, …args, edit) => Null`: reads lazily, writes through `edit.set(k, v)`, `edit.delete(k)`, `edit.update(k, patch)` | server-side logic touches a few entries of a large Dict or Set record |
+| `mutation.patch()` | none: the argument is a `PatchType(state)` | a view's save, or an integration sending diffs; on a record without indexes no program runs at all |
 
 Every form commits a delta addressed by key, rewriting only the segments it
 touches (a `reduce` of a record that is not a Dict or Set writes it whole), and
 takes `{ runner? }`. In an `edit`, repeated edits of one key fold, a `set` of the
 value a row already holds changes nothing, and a `delete` or `update` of a key
 the record does not hold is a conflict naming the key: the caller's view of the
-record is stale. `e3.mutation.editType(recordType)` is the type of `edit`.
+record is stale. `e3.mutation.editType(recordType)` is the type of `edit`. A
+mutation is named by its key, an identifier; a part's functions are typed by the
+record's type, so name the type (`PlansType`) to write them, in the declaration
+or beside it.
 
 ```typescript
 const PlanType = StructType({
   title: StringType, owner: StringType, due: DateTimeType, resources: SetType(StringType),
 });
-const plans = e3.record('plans', DictType(StringType, PlanType), new Map());
+const PlansType = DictType(StringType, PlanType);
 
-const addPlan = e3.mutation.reduce('add_plan', plans,
-  East.function([plans.type, StringType, PlanType], plans.type, ($, state, id, plan) => {
-    const next = $.let(state.copy());          // the state is frozen: copy first
-    $(next.insert(id, plan));
-    return next;
-  }));
-
-const reschedule = e3.mutation.edit('reschedule', plans,
-  East.function([plans.type, StringType, DateTimeType, e3.mutation.editType(plans.type)], NullType,
-    ($, state, id, due, edit) => {
-      const plan = $.let(state.get(id));       // decodes one segment, not the record
-      $(edit.set(id, { title: plan.title, owner: plan.owner, due, resources: plan.resources }));
-    }));
+const plans = e3.record('plans', PlansType, {
+  initial: new Map(),
+  mutations: (mutation) => ({
+    add_plan: mutation.reduce(East.function([PlansType, StringType, PlanType], PlansType, ($, state, id, plan) => {
+      const next = $.let(state.copy());          // the state is frozen: copy first
+      $(next.insert(id, plan));
+      return next;
+    })),
+    reschedule: mutation.edit(East.function([PlansType, StringType, DateTimeType, e3.mutation.editType(PlansType)], NullType,
+      ($, state, id, due, edit) => {
+        const plan = $.let(state.get(id));       // decodes one segment, not the record
+        $(edit.set(id, { title: plan.title, owner: plan.owner, due, resources: plan.resources }));
+      })),
+    patch: mutation.patch(),                     // a view's save
+  }),
+});
 ```
 
 Costs count in segments: a Dict or Set record is cut by key and by each entry's
@@ -573,43 +592,45 @@ encoded size, so wide rows get segments of a few rows and a one-row edit stays
 cheap. A view reads every field of the rows it shows, so keep a bulky payload it
 does not display in a second record keyed the same way.
 
-#### Secondary indexes — `e3.recordIndex(name, record, { on | key | keys, value? })`
+#### Secondary indexes — `index.on([...fields])`, `index.key(fn)`, `index.keys(fn)`
 
 A second collection over a Dict record, in another sort order, maintained in the
-same commit, so a view by an attribute is a page rather than a scan. `on`
-names row fields in index order: one field uses its value as the key, several
-use a Struct in that order, and a Set field gives an entry per element. It
-also carries field metadata for `Data.bindPaged(record, { indexes })` and
-`Slice.bindRecord` (see **e3-ui**). `key` gives one computed entry per row;
-`keys` returns a Set, one entry per element (a row
-naming five resources appears five times, an empty set not at all); `value` is a
-projection a view renders without touching the record. The functions are pure
-and synchronous, since an index maintained commit by commit must equal its
-rebuild to the byte. The name is an identifier, never `primary` (the record's own
-order). Read through one with `index=<name>` on a page or key search; `e3
+same commit, so a view by an attribute is a page rather than a scan.
+`index.on([...])` names row fields in index order: one field uses its value as
+the key, several use a Struct in that order, and a Set field gives an entry per
+element. It also carries field metadata for `Data.bindPaged(record, { indexes })`
+and `Slice.bindRecord` (see **e3-ui**). `index.key(fn)` gives one computed entry
+per row; `index.keys(fn)` returns a Set, one entry per element (a row naming five
+resources appears five times, an empty set not at all); the `value` option of
+each is a projection a view renders without touching the record. The functions
+are pure and synchronous, since an index maintained commit by commit must equal
+its rebuild to the byte. Its name — its key in `indexes` — is an identifier,
+never `primary` (the record's own order). Read through one with `index=<name>` on a page or key search; `e3
 reindex` rebuilds. A deploy builds an index the package declares and the state
 lacks, drops one it no longer declares, and runs nothing for the rest; a build
 is a split task over the record.
 
 ```typescript
-const byDue = e3.recordIndex('by_due', plans, { on: ['due'] });
-const byOwnerDue = e3.recordIndex('by_owner_due', plans, { on: ['owner', 'due'] });
-const byOwner = e3.recordIndex('by_owner', plans, {
-  key:   East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.owner),
-  value: East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.title),
+const plans = e3.record('plans', PlansType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    by_due: index.on(['due']),
+    by_owner_due: index.on(['owner', 'due']),
+    by_owner: index.key(East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.owner), {
+      value: East.function([StringType, PlanType], StringType, ($, _id, plan) => plan.title),
+    }),
+    by_resource: index.keys(East.function([StringType, PlanType], SetType(StringType), ($, _id, plan) => plan.resources)),
+  }),
+  mutations: (mutation) => ({ /* add_plan, reschedule, patch — above */ }),
 });
-const byResource = e3.recordIndex('by_resource', plans, {
-  keys: East.function([StringType, PlanType], SetType(StringType), ($, _id, plan) => plan.resources),
-});
-const pkg = e3.package('planning', '1.0.0',
-  plans, addPlan, reschedule, e3.mutation.patch(plans), byDue, byOwnerDue, byOwner, byResource);
+const pkg = e3.package('planning', '1.0.0', plans);   // the record whole: its indexes and mutations with it
 ```
 
-#### Interval and area indexes — `e3.recordIndex.interval`, `e3.recordIndex.area`
+#### Interval and area indexes — `index.interval`, `index.area`
 
 These indexes answer more than an order — as do the series and summary indexes
-below — each with a constructor of its own whose keys the SDK generates;
-`e3.recordIndex` refuses an `interval` option, naming its constructor. Underneath each is an ordinary index — the same build,
+below — each with a builder method of its own whose keys the SDK generates.
+Underneath each is an ordinary index — the same build,
 mutation, storage, paging and `e3 reindex` — and the record Slice reads a
 window through either (see **e3-ui**). Their generated keys are query
 machinery: edits and sessions always target the record's primary key.
@@ -628,17 +649,20 @@ parts sit beside it. So no name is reserved: a row may name a field anything,
 | summary | `{ on, key, tile }` | the value of the field `key` names; the tile's start |
 
 A definition's `on` is the leading fields alone; its kind's options say the
-rest (`byTime.interval`, `racksByArea.area`, `jobsByPressWeek.series`).
+rest (`events.indexes.by_time.interval`, `racks.indexes.racks_by_area.area`,
+`jobs.indexes.jobs_by_press_week.series`).
 
-**`e3.recordIndex.interval(name, record, { on?, from, to })`** keeps events
-visible while they overlap a selected time window. `from` and `to` are the
-row's DateTime or Option<DateTime> fields; optional `on` fields are exact
-leading choices:
+**`index.interval({ on?, from, to })`** keeps events visible while they
+overlap a selected time window. `from` and `to` are the row's DateTime or
+Option<DateTime> fields; optional `on` fields are exact leading choices:
 
 ```typescript
-const byTime = e3.recordIndex.interval('by_time', events, { from: 'start', to: 'end' });
-const byStatusTime = e3.recordIndex.interval('by_status_time', events, {
-  on: ['status'], from: 'start', to: 'end',
+const events = e3.record('events', EventsType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    by_time: index.interval({ from: 'start', to: 'end' }),
+    by_status_time: index.interval({ on: ['status'], from: 'start', to: 'end' }),
+  }),
 });
 ```
 
@@ -659,17 +683,18 @@ primary key. Calendar's `Calendar.events(binding, { slice, entries, … })`
 requires a matching interval declaration and the primary `entries` binding to
 confirm saves even after an edit leaves the selected window.
 
-**`e3.recordIndex.area(name, record, { on?, x, y, width?, height?, at?, cell })`**
-reads the rows whose box meets a 2D window — what a floor plan's viewport
-shows — the interval index's twin:
+**`index.area({ on?, x, y, width?, height?, at?, cell })`** reads the rows
+whose box meets a 2D window — what a floor plan's viewport shows — the interval
+index's twin:
 
 ```typescript
-// racks: Dict<String, { hall: String, x: Option<Float>, y: Option<Float>, w: Float, h: Float }>
-const racksByArea = e3.recordIndex.area('racks_by_area', racks, {
-  x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01,
-});
-const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', racks, {
-  on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01,
+// RacksType: Dict<String, { hall: String, x: Option<Float>, y: Option<Float>, w: Float, h: Float }>
+const racks = e3.record('racks', RacksType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    racks_by_area: index.area({ x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }),
+    racks_by_hall_area: index.area({ on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }),
+  }),
 });
 ```
 
@@ -697,7 +722,7 @@ searches per exact prefix, sent in one request, which together hold every row
 whose box meets it, each once — beside rows of the cells searched that it
 misses, which the reader draws or not.
 
-#### Series and summary indexes — `e3.recordIndex.series`, `e3.recordIndex.summary`
+#### Series and summary indexes — `index.series`, `index.summary`
 
 What a planning board reads: the events on a block of keys — a Plan's
 resources — over a span of time, and, zoomed out past what a screen can draw,
@@ -708,12 +733,13 @@ contiguous: a series index's `{ on, key, level, tile }`, a summary index's
 `{ on, key, tile }`.
 
 ```typescript
-// jobs: Dict<String, { press: String, start: Option<DateTime>, end: Option<DateTime>, … }>
-const jobsByPressWeek = e3.recordIndex.series('jobs_by_press_week', jobs, {
-  key: 'press', from: 'start', to: 'end', tile: 'week',
-});
-const jobsByPressMonth = e3.recordIndex.summary('jobs_by_press_month', jobs, {
-  key: 'press', from: 'start', to: 'end', tile: 'month',
+// JobsType: Dict<String, { press: String, start: Option<DateTime>, end: Option<DateTime>, … }>
+const jobs = e3.record('jobs', JobsType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }),
+    jobs_by_press_month: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'month' }),
+  }),
 });
 ```
 
@@ -758,7 +784,7 @@ the area index's do, and the definition checks them again; a `value` is
 refused, and so is an `on` field that is the key, the start or the end: the key
 follows the leading fields, and the tiles are cut by the start and the end.
 
-#### Nested series indexes — `e3.recordIndex.series` with `collections`
+#### Nested series indexes — `index.nested`
 
 What a planning board reads when a record's rows nest what it draws: a
 machine's jobs and its load a day at a time, a hall's members, an assembly's
@@ -771,35 +797,49 @@ collections, so a page of rows reads none of them and a window of items reads
 no row.
 
 ```typescript
-// machines: Dict<String, { name, site, status, jobs: Dict<String, Job>, load: Dict<DateTime, Float> }>
-const machinesInTime = e3.recordIndex.series('machines_in_time', machines, {
-  collections: {
-    jobs: e3.recordIndex.series.items({ from: 'start', to: 'end' }),  // things people drag: by id, their times fields
-    load: e3.recordIndex.series.values(),                              // a value per instant: keyed by the instant
-  },
-  tile: 'week',
-  summary: 'month',
+// MachinesType: Dict<String, { name, site, status, jobs: Dict<String, Job>, load: Dict<DateTime, Float> }>
+const machines = e3.record('machines', MachinesType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    machines_in_time: index.nested({
+      collections: {
+        jobs: index.nested.items({ from: 'start', to: 'end' }),  // things people drag: by id, their times fields
+        load: index.nested.values(),                              // a value per instant: keyed by the instant
+      },
+      tile: 'week',
+      summary: 'month',
+    }),
+    machines_by_site: index.on(['site']),                         // pages each machine without its jobs and load
+  }),
 });
 // Each member's load, and each hall's mean of its members', at every level from the day up.
-const hallsInTime = e3.recordIndex.series('halls_in_time', halls, {
-  collections: { members: e3.recordIndex.series.rows({ load: e3.recordIndex.series.values({ rollup: 'mean' }) }) },
-  tile: 'day',
-  summary: 'month',
+const halls = e3.record('halls', HallsType, {
+  indexes: (index) => ({
+    halls_in_time: index.nested({
+      collections: { members: index.nested.rows({ load: index.nested.values({ rollup: 'mean' }) }) },
+      tile: 'day',
+      summary: 'month',
+    }),
+  }),
 });
 // Parts to any depth, each part's jobs filed under every part above it too.
-const assembliesInTime = e3.recordIndex.series('assemblies_in_time', assemblies, {
-  collections: {
-    parts: e3.recordIndex.series.rows({
-      jobs: e3.recordIndex.series.items({ from: 'start', to: 'end' }, { rollup: true }),
-      parts: e3.recordIndex.series.recursive(),
+const assemblies = e3.record('assemblies', AssembliesType, {
+  indexes: (index) => ({
+    assemblies_in_time: index.nested({
+      collections: {
+        parts: index.nested.rows({
+          jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }),
+          parts: index.nested.recursive(),
+        }),
+      },
+      tile: 'week',
+      summary: 'month',
     }),
-  },
-  tile: 'week',
-  summary: 'month',
+  }),
 });
 ```
 
-| Builder | A field holding |
+| Builder (`index.nested.…`) | A field holding |
 |---|---|
 | `items({ from, to })`, `items({ at })` | `Dict<String, Struct>`: things people drag, by id; their times are DateTime or Option<DateTime> fields — no start files an item nowhere, no end (or one at or before its start) makes it an instant. `{ rollup: true }` files each under every ancestor too |
 | `values({ rollup? })` | `Dict<DateTime, V>`: a value per instant. `rollup` keeps every parent's subtotals |
@@ -842,10 +882,10 @@ part's subtree is one range a level.
 record that carries nothing or the row carries the row without the listed
 collections — each listed collection empty, child rows kept with theirs empty —
 so a page of rows read without a join reads no nested item and no segment of
-the record's own. An index with a `value` of its own carries its own. The
-nested index is part of its record once declared: a package holding the record
-builds it, listed or not, and `Data.bindPaged(record, { indexes })` lists it
-beside any of the record's indexes that carry the lean rows.
+the record's own. An index with a `value` of its own carries its own. A
+binding of the record's indexes lists the nested index by name beside any that
+carry the lean rows — `Data.bindPaged(machines, { indexes: ['machines_by_site',
+'machines_in_time'] })` (see **e3-ui**).
 
 **Writes.** A row a write updates by a patch is maintained by the patch: e3
 walks it along the declaration — each collection's Dict patch, and each child
@@ -859,13 +899,13 @@ index is the one `e3 reindex` rebuilds, byte for byte.
 
 | Form | Function | Runs as |
 |---|---|---|
-| `e3.migration.value(name, rec, fn, { after? })` | `(Old) => New`, over any record | one unit; its runner opens the state lazily |
-| `e3.migration.rows(name, rec, fn, { after? })` | a Dict's rows, `(K, V1) => V2` with the keys kept, or an Array's elements, `(T1) => T2` | a task split over the state: a piece at a time, in parallel, each piece cached |
-| `e3.migration.rekey(name, rec, fn, { after? })` | a Dict's entries, `(K1, V1) => { key: K2, value: V2 }`, or a Set's elements, `(T1) => T2` | the same split task, its pieces merged by key: two Dict rows landing on one key fail the deploy, naming it; two Set elements are one |
+| `migration.value(name, fn)` | `(Old) => New`, over any record | one unit; its runner opens the state lazily |
+| `migration.rows(name, fn)` | a Dict's rows, `(K, V1) => V2` with the keys kept, or an Array's elements, `(T1) => T2` | a task split over the state: a piece at a time, in parallel, each piece cached |
+| `migration.rekey(name, fn)` | a Dict's entries, `(K1, V1) => { key: K2, value: V2 }`, or a Set's elements, `(T1) => T2` | the same split task, its pieces merged by key: two Dict rows landing on one key fail the deploy, naming it; two Set elements are one |
 
-A record's steps are one chain: each names the step before it with `after` (a
-step of the same record, leaving it as this step's input type), passing the last
-step passes the chain, and the last step leaves the record as its declared type.
+A record's steps are one chain: the list `migrations` returns, in order, each
+step taking the record as the step before it leaves it, and the last leaving it
+as its declared type — each checked where the record is declared.
 A step's name is an identifier, unique on the record, and a workspace records the
 steps it has applied by name — so moving a step's code, or re-exporting it with a
 newer e3, does not run it again, and an edit to an applied step's body is not
@@ -874,12 +914,14 @@ detected. The functions are pure, synchronous East.
 ```typescript
 const RowV1Type = StructType({ title: StringType });
 const RowV2Type = StructType({ title: StringType, owner: StringType });
-const plans = e3.record('plans', DictType(StringType, RowV2Type), new Map());
-
-const addOwner = e3.migration.rows('add_owner', plans,
-  East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: 'unassigned' })));
-// The next version adds its step after this one: e3.migration.value('…', plans, fn, { after: addOwner })
-const pkg = e3.package('planning', '2.0.0', plans, addOwner);
+const plans = e3.record('plans', DictType(StringType, RowV2Type), {
+  initial: new Map(),
+  migrations: (migration) => [
+    migration.rows('add_owner', East.function([StringType, RowV1Type], RowV2Type, ($, _id, row) => ({ title: row.title, owner: 'unassigned' }))),
+    // The next version adds its step here, after this one.
+  ],
+});
+const pkg = e3.package('planning', '2.0.0', plans);
 ```
 
 What a deploy does with each record, decided before it writes anything:

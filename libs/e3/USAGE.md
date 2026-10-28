@@ -430,39 +430,53 @@ available for functions. Results are returned inline and capped (1 MB by
 default over the API); results that don't fit belong in a task output
 dataset instead.
 
-### Records: `e3.record`, `e3.mutation.*`, `e3.recordIndex`, `e3.migration.*`
+### Records: `e3.record`
 
 A record is audited state: written only through its mutations, each a commit
 (parent, state, mutation, arguments, actor, time), and read like any dataset at
-`.records.<name>`, so tasks react to it.
+`.records.<name>`, so tasks react to it. A record is declared whole — its
+initial value, its indexes, its mutations and its migrations, in one call,
+never added to after — each part made by the builder its key is handed, typed
+by the record's type, and read back by its name (`plans.mutations.reassign`,
+`plans.indexes.by_owner`).
 
 ```typescript
 import { DictType, East, IntegerType, NullType, StringType, StructType } from '@elaraai/east';
 
-const counter = e3.record('counter', IntegerType, 0n);
-const increment = e3.mutation.reduce('increment', counter,
-  East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)));
-
-const PlanType = StructType({ title: StringType, owner: StringType });
-const plans = e3.record('plans', DictType(StringType, PlanType), new Map());
-const reassign = e3.mutation.edit('reassign', plans,
-  East.function([plans.type, StringType, StringType, e3.mutation.editType(plans.type)], NullType,
-    ($, state, id, owner, edit) => { $(edit.set(id, { title: state.get(id).title, owner })); }));
-const byOwner = e3.recordIndex('by_owner', plans, {
-  key: East.function([StringType, PlanType], StringType, ($, id, plan) => plan.owner),
+const counter = e3.record('counter', IntegerType, {
+  initial: 0n,
+  mutations: (mutation) => ({
+    increment: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))),
+  }),
 });
 
-const pkg = e3.package('planning', '1.0.0', counter, increment, plans, reassign, e3.mutation.patch(plans), byOwner);
+const PlanType = StructType({ title: StringType, owner: StringType });
+const PlansType = DictType(StringType, PlanType);
+const plans = e3.record('plans', PlansType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    by_owner: index.key(East.function([StringType, PlanType], StringType, ($, id, plan) => plan.owner)),
+  }),
+  mutations: (mutation) => ({
+    reassign: mutation.edit(East.function([PlansType, StringType, StringType, e3.mutation.editType(PlansType)], NullType,
+      ($, state, id, owner, edit) => { $(edit.set(id, { title: state.get(id).title, owner })); })),
+    patch: mutation.patch(),
+  }),
+});
+
+const pkg = e3.package('planning', '1.0.0', counter, plans);
 ```
 
-- `e3.record(name, type, initialValue?)` — the initial value is the record's `$init`, which the deploy mints. Omit it for a record whose first state is data that arrives after the deploy: the record is unassigned until `e3 seed <repo> <record> <file.beast2> -w <ws>` (or a host's intake) commits that state as its `$init`, its dependents waiting meanwhile — a run leaves them waiting and goes on without them — so they never run on an empty value.
-- `e3.mutation.reduce(name, record, fn)` — `(state, ...args) => state`, over any record.
-- `e3.mutation.edit(name, record, fn)` — `(state, ...args, edit) => Null`: the body reads the state lazily and writes through `edit.set`, `edit.delete` and `edit.update`, so a write costs the segments it touches. For Dict and Set records.
-- `e3.mutation.patch(record, name?)` — no body: the argument is the change, a `PatchType` of the state. For Dict and Set records.
-- `e3.recordIndex(name, record, { key | keys, value? })` — a second collection over a Dict record, in another order, maintained in the same commit; pages and key searches take it by name.
-- `e3.recordIndex.interval | area | series | summary(name, record, { on?, … })` — an index whose keys the SDK generates, for a time window, a 2D window, or a block of keys over time tiles: `{ on, node, at }`, `{ on, area }`, a series' `{ on, key, level, tile }` (each event filed once, at the level its length fits, #1433) and a summary's `{ on, key, tile }` — the row's leading fields under `on`, e3's own parts beside them, so no field name is reserved (the **e3** skill's Interval and area indexes, Series and summary indexes).
-- `e3.recordIndex.series(name, record, { collections, tile, summary? })` — the nested form: every collection a record's rows nest, each field declared with a builder of `e3.recordIndex.series` — `items({ from, to })` or `items({ at })` for things people drag (`{ rollup: true }` files each under every ancestor too), `values({ rollup? })` for a value per instant (a rollup keeps every parent's subtotals), `rows({ … })` for child rows, `recursive()` for more rows like the one listing it. Each item is filed once under `{ collection, row, path, run, level, tile, item }`, each node's totals kept a summary tile at a time; the record's other indexes then carry each row without its collections, and a write is maintained by its patch (#1434; the **e3** skill's Nested series indexes).
-- `e3.migration.value | rows | rekey(name, record, fn, { after? })` — the steps a deploy runs when a record's type changes between package versions (`e3 workspace deploy`'s `--schema`, below).
+- `e3.record(name, type, { initial?, indexes?, mutations?, migrations? })` — `initial` is the record's `$init`, which the deploy mints. Omit it for a record whose first state is data that arrives after the deploy: the record is unassigned until `e3 seed <repo> <record> <file.beast2> -w <ws>` (or a host's intake) commits that state as its `$init`, its dependents waiting meanwhile — a run leaves them waiting and goes on without them — so they never run on an empty value. A part's functions are typed by the record's type, so name the type (`PlansType`) to write them; each part takes `{ runner? }` last.
+- `mutations: (mutation) => ({ … })` — the record's mutations by name, each an identifier:
+  - `mutation.reduce(fn)` — `(state, ...args) => state`, over any record.
+  - `mutation.edit(fn)` — `(state, ...args, edit) => Null`: the body reads the state lazily and writes through `edit.set`, `edit.delete` and `edit.update`, so a write costs the segments it touches. For Dict and Set records. `e3.mutation.editType(type)` is the type of `edit`.
+  - `mutation.patch()` — no body: the argument is the change, a `PatchType` of the state. For Dict and Set records.
+- `indexes: (index) => ({ … })` — the record's indexes by name:
+  - `index.on([...fields])`, `index.key(fn)`, `index.keys(fn)`, each with `{ value? }` — a second collection over a Dict record, in another order, maintained in the same commit; pages and key searches take it by name.
+  - `index.interval | area | series | summary({ on?, … })` — an index whose keys the SDK generates, for a time window, a 2D window, or a block of keys over time tiles: `{ on, node, at }`, `{ on, area }`, a series' `{ on, key, level, tile }` (each event filed once, at the level its length fits, #1433) and a summary's `{ on, key, tile }` — the row's leading fields under `on`, e3's own parts beside them, so no field name is reserved (the **e3** skill's Interval and area indexes, Series and summary indexes).
+  - `index.nested({ collections, tile, summary? })` — the nested form: every collection a record's rows nest, each field declared with a builder of `index.nested` — `items({ from, to })` or `items({ at })` for things people drag (`{ rollup: true }` files each under every ancestor too), `values({ rollup? })` for a value per instant (a rollup keeps every parent's subtotals), `rows({ … })` for child rows, `recursive()` for more rows like the one listing it. Each item is filed once under `{ collection, row, path, run, level, tile, item }`, each node's totals kept a summary tile at a time; the record's other indexes then carry each row without its collections, and a write is maintained by its patch (#1434; the **e3** skill's Nested series indexes).
+- `migrations: (migration) => [ … ]` — `migration.value | rows | rekey(name, fn)`, the steps a deploy runs when a record's type changes between package versions, in the order listed (`e3 workspace deploy`'s `--schema`, below).
 
 Every function here is pure, synchronous East: a mutation runs again against
 fresher state when its write conflicts, and an index or a migration runs again
