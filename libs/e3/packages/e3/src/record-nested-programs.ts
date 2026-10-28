@@ -27,9 +27,9 @@
  * collection's, down through the child rows it updates — to the row before
  * and after holding only the items it names, and the child rows it inserts or
  * deletes whole. Their entries are compared, with the totals of only the
- * summary tiles they touch and the subtotals of a collection they touch. A
- * replace on the way — which a recursive type's patch always is — leaves the
- * row to be compared whole.
+ * summary tiles they touch and the subtotals of only the tiles they touch at
+ * each level. A replace on the way — which a recursive type's patch always is
+ * — leaves the row to be compared whole.
  *
  * The functions here are typed East over fixed shapes, or factories of one
  * from a declaration's types, which a row's entries chain together. A node is
@@ -201,6 +201,36 @@ const inSpan = East.function([SpanType, RecordLevelType, DateTimeType], BooleanT
   return East.greaterEqual(at, span.from).and(() => East.less(at, span.to)).and(() => span.tiles.has(startOf(level, at)));
 });
 
+// ── The tiles subtotals are worked out at ─────────────────────────────────────
+
+/**
+ * The tiles a parent's subtotals are worked out at: `all`, as a row's entries
+ * are; `only` a write's, by level — the tiles of each level the values its
+ * patch names fall in, and their span. A value in none of them moves none of
+ * the subtotals the write compares.
+ */
+const SubtotalTilesType = VariantType({ all: NullType, only: DictType(RecordLevelType, SpanType) });
+
+/** `(instants, levels) → SubtotalTiles`: the tiles of each level some values' instants fall in. */
+const subtotalTiles = East.function([SetType(DateTimeType), ArrayType(RecordLevelType)], SubtotalTilesType, ($, instants, levels) => {
+  const startOf = $.const(tileStart);
+  const within = $.const(tilesWithin);
+  return variant('only', levels.toDict(
+    (_$, level) => level,
+    (_$, level) => within(instants.toSet((_$, at) => startOf(level, at)), level).unwrap('only'),
+  ));
+});
+
+/** `(own, level, tiles) → own`: a node's own values in the tiles of a level its subtotals are worked out at. */
+const valuesAt = East.function([DictType(DateTimeType, FloatType), RecordLevelType, SubtotalTilesType], DictType(DateTimeType, FloatType),
+  ($, own, level, tiles) => {
+    const kept = $.const(inSpan);
+    return tiles.match({
+      all: () => own,
+      only: (_$, spans) => own.filter((_$, _value, at) => kept(spans.get(level), level, at)),
+    });
+  });
+
 // ── Parents' subtotals: composed bottom-up ────────────────────────────────────
 
 /** A node of the tree from a row down to a collection of values rolled up: where it is, the node above it, and its own values as Floats. */
@@ -258,13 +288,18 @@ const ownDraw = East.function([FoldedType, RecordRollupType], FloatType, ($, fol
   return rollup.aggregate.match({ count: () => 1.0 }, () => fold(folded, rollup));
 });
 
-/** `(own, rollups, levels) → Dict<DrawKey, Float>`: what a node holding values draws, by each rollup, at each level, in each tile its values touch. */
+/**
+ * `(own, rollups, levels, tiles) → Dict<DrawKey, Float>`: what a node holding
+ * values draws, by each rollup, at each level, in each tile its values touch
+ * of those asked for.
+ */
 const ownDraws = East.function(
-  [DictType(DateTimeType, FloatType), ArrayType(RecordRollupType), ArrayType(RecordLevelType)], DictType(DrawKeyType, FloatType),
-  ($, own, rollups, levels) => {
+  [DictType(DateTimeType, FloatType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType], DictType(DrawKeyType, FloatType),
+  ($, own, rollups, levels, at) => {
     const tiles = $.const(foldedTiles);
+    const within = $.const(valuesAt);
     const draw = $.const(ownDraw);
-    return levels.flattenToDict((_$, level) => tiles(own, level).flattenToDict((_$, folded, tile) =>
+    return levels.flattenToDict((_$, level) => tiles(within(own, level, at), level).flattenToDict((_$, folded, tile) =>
       rollups.toDict((_$, rollup) => ({ rollup, level, tile }), (_$, rollup) => draw(folded, rollup))));
   },
 );
@@ -297,21 +332,22 @@ const childDraws = East.function([ArrayType(ComposedType)], DictType(DrawKeyType
 });
 
 /**
- * `(node, children, rollups, levels) → Composed`: a node's result. One holding
- * values of its own draws them, and keeps no subtotal; one holding none draws
- * its children's, and keeps what it draws, where it draws, as its subtotals.
- * Either way, it carries every subtotal beneath it on to its parent.
+ * `(node, children, rollups, levels, tiles) → Composed`: a node's result, at
+ * the tiles asked for. One holding values of its own draws them, and keeps no
+ * subtotal; one holding none draws its children's, and keeps what it draws,
+ * where it draws, as its subtotals. Either way, it carries every subtotal
+ * beneath it on to its parent.
  */
 const composed = East.function(
-  [SubtotalNodeType, ArrayType(ComposedType), ArrayType(RecordRollupType), ArrayType(RecordLevelType)], ComposedType,
-  ($, node, children, rollups, levels) => {
+  [SubtotalNodeType, ArrayType(ComposedType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType], ComposedType,
+  ($, node, children, rollups, levels, tiles) => {
     const own = $.const(ownDraws);
     const gathered = $.const(childDraws);
     const path = $.const(pathOf);
     const beneath = $.let(children.flatMap((_$, child) => child.subtotals.toArray((_$, value, key) => ({ key, value })))
       .toDict((_$, subtotal) => subtotal.key, (_$, subtotal) => subtotal.value));
     $.if(East.greater(node.own.size(), 0n), ($) => {
-      $.return({ draws: own(node.own, rollups, levels), subtotals: beneath });
+      $.return({ draws: own(node.own, rollups, levels, tiles), subtotals: beneath });
     });
     const draws = $.let(gathered(children));
     const here = $.let(path(node.key.path));
@@ -324,17 +360,18 @@ const composed = East.function(
 );
 
 /**
- * `(nodes, rollups, levels) → Dict<SubtotalKey, Float>`: every parent's
- * subtotals of a collection of values, composed bottom-up by `toTree` over the
- * nodes from the row down to the collection, each node's result carried to
- * its parent. A tile no descendant's value touches has none.
+ * `(nodes, rollups, levels, tiles) → Dict<SubtotalKey, Float>`: every
+ * parent's subtotals of a collection of values at the tiles asked for,
+ * composed bottom-up by `toTree` over the nodes from the row down to the
+ * collection, each node's result carried to its parent. A tile no
+ * descendant's value touches has none.
  */
 const subtotalsOf = East.function(
-  [ArrayType(SubtotalNodeType), ArrayType(RecordRollupType), ArrayType(RecordLevelType)], DictType(SubtotalKeyType, FloatType),
-  ($, nodes, rollups, levels) => {
+  [ArrayType(SubtotalNodeType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType], DictType(SubtotalKeyType, FloatType),
+  ($, nodes, rollups, levels, tiles) => {
     const compose = $.const(composed);
     const roots = $.let(nodes.toTree(ComposedType, (_$, node) => node.key, (_$, node) => node.parent,
-      (_$, node, _i, children) => compose(node, children, rollups, levels)));
+      (_$, node, _i, children) => compose(node, children, rollups, levels, tiles)));
     return roots.flatMap((_$, root) => root.subtotals.toArray((_$, value, key) => ({ key, value })))
       .toDict((_$, subtotal) => subtotal.key, (_$, subtotal) => subtotal.value);
   },
@@ -1119,12 +1156,32 @@ function valueTiles(decl: NestedDeclaration, types: NestedTypes, collection: Nes
 }
 
 /**
- * A collection of values rolled up, its parents' subtotals: `(K, V) → Dict<IK,
- * P>`, every node from the row down to the collection's group gathered — the
- * collection's own values, as Floats, on its group's nodes — and composed
- * bottom-up ({@link subtotalsOf}).
+ * A collection of values rolled up: its parents' subtotals, at the tiles they
+ * are worked out at; the instants a row's values are at; and whether a write
+ * moves only the subtotals of the tiles its values are at.
  */
-function valueSubtotals(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesOf: readonly NodesOf[]): RowEntries {
+interface SubtotalParts {
+  /** `(K, V, SubtotalTiles) → Dict<IK, P>`: every parent's subtotals, at the tiles asked for. */
+  readonly entries: FunctionExpr<[EastType, EastType, typeof SubtotalTilesType], EntriesType>;
+  /** `(K, V) → Set<DateTime>`: the instants a row's values are at. */
+  readonly instants: RowTiles;
+  /**
+   * Whether a write moves only the subtotals of the tiles its values are at:
+   * where no node holding the collection's values is a parent of another —
+   * every node but a recursive tree's. In a tree, a node given its first
+   * value keeps subtotals at no tile, and one losing its last begins to at
+   * every tile.
+   */
+  readonly local: boolean;
+}
+
+/**
+ * A collection of values rolled up, its parents' subtotals ({@link
+ * SubtotalParts}): every node from the row down to the collection's group
+ * gathered — the collection's own values, as Floats, on its group's nodes —
+ * and composed bottom-up ({@link subtotalsOf}) at the tiles asked for.
+ */
+function valueSubtotals(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesOf: readonly NodesOf[]): SubtotalParts {
   const { keyType, rowType, entryKey, entryValue, entries, levels } = types;
   const numeric = collection.numeric!;
   // The nodes of each group from the row down, the collection's group's holding its values.
@@ -1141,14 +1198,14 @@ function valueSubtotals(decl: NestedDeclaration, types: NestedTypes, collection:
       })));
     });
   }, East.function([rowType], ArrayType(SubtotalNodeType), () => []));
-  return East.function([keyType, rowType], entries, ($, key, row) => {
+  const subtotals = East.function([keyType, rowType, SubtotalTilesType], entries, ($, key, row, tiles) => {
     const nodes = $.const(gathered);
     const compose = $.const(subtotalsOf);
     const path = $.const(pathOf);
     const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
     const rollups = $.let([...collection.rollups], ArrayType(RecordRollupType));
     const tiers = $.let([...levels], ArrayType(RecordLevelType));
-    return compose(nodes(row), rollups, tiers).toDict(
+    return compose(nodes(row), rollups, tiers, tiles).toDict(
       (_$, _value, subtotal) => East.value({
         collection: collectionPath, row: key, path: subtotal.path, run: variant('subtotals', subtotal.rollup),
         level: subtotal.level, tile: subtotal.tile, item: variant('none', null),
@@ -1156,6 +1213,11 @@ function valueSubtotals(decl: NestedDeclaration, types: NestedTypes, collection:
       (_$, value) => East.value(variant('subtotal', value), entryValue),
     );
   });
+  const instants = East.function([keyType, rowType], SetType(DateTimeType), ($, _key, row) => {
+    const nodes = $.const(gathered);
+    return nodes(row).flattenToSet((_$, node) => node.own.keys());
+  });
+  return { entries: subtotals, instants, local: decl.groups[collection.group]!.through === undefined };
 }
 
 // ── A collection's parts, chained ─────────────────────────────────────────────
@@ -1167,7 +1229,7 @@ interface CollectionParts {
   /** Where a summary is declared: its totals, and the summary tiles a row's items touch. */
   readonly totals: { readonly entries: TiledEntries; readonly tiles: RowTiles } | undefined;
   /** Where its values roll up: every parent's subtotals. */
-  readonly subtotals: RowEntries | undefined;
+  readonly subtotals: SubtotalParts | undefined;
 }
 
 /** `(K, V) → Dict<IK, P>`: parts' entries, one after another, each a function calling the parts before it. */
@@ -1265,15 +1327,19 @@ function wholeEntries(types: NestedTypes, parts: CollectionParts): FunctionExpr<
       const totalled = $.const(totals.entries);
       return totalled(key, row, variant('all', null));
     })]),
-    ...(subtotals === undefined ? [] : [subtotals]),
+    ...(subtotals === undefined ? [] : [East.function([types.keyType, types.rowType], types.entries, ($, key, row) => {
+      const composed = $.const(subtotals.entries);
+      return composed(key, row, variant('all', null));
+    })]),
   ]);
 }
 
 /**
  * A collection's entries a write changes, by its patch ({@link WriteEntries}):
  * the entries of the items it touched, before and after, and, where it touched
- * any, the totals of the summary tiles they touch and every parent's
- * subtotals, of the row before and after.
+ * any, the totals of the summary tiles they touch and every parent's subtotals
+ * of the tiles at each level they touch — every subtotal, in a recursive tree
+ * ({@link SubtotalParts}' `local`) — of the row before and after.
  *
  * @param types - The index's types
  * @param parts - The collection's parts
@@ -1292,10 +1358,19 @@ function patchedParts(types: NestedTypes, parts: CollectionParts): WriteEntries 
         return { before: totalled(key, held, at), after: totalled(key, next, at) };
       },
     )]),
-    ...(subtotals === undefined ? [] : [East.function([keyType, rowType, rowType, rowType, rowType], changed, ($, key, held, next) => {
-      const composed = $.const(subtotals);
-      return { before: composed(key, held), after: composed(key, next) };
-    })]),
+    ...(subtotals === undefined ? [] : [subtotals.local
+      ? East.function([keyType, rowType, rowType, rowType, rowType], changed, ($, key, held, next, heldTouched, nextTouched) => {
+        const composed = $.const(subtotals.entries);
+        const instantsOf = $.const(subtotals.instants);
+        const tilesOf = $.const(subtotalTiles);
+        const levels = $.let([...types.levels], ArrayType(RecordLevelType));
+        const at = $.let(tilesOf(instantsOf(key, heldTouched).union(instantsOf(key, nextTouched)), levels));
+        return { before: composed(key, held, at), after: composed(key, next, at) };
+      })
+      : East.function([keyType, rowType, rowType, rowType, rowType], changed, ($, key, held, next) => {
+        const composed = $.const(subtotals.entries);
+        return { before: composed(key, held, variant('all', null)), after: composed(key, next, variant('all', null)) };
+      })]),
   ]);
   return East.function([keyType, rowType, rowType, rowType, rowType], changed, ($, key, held, next, heldTouched, nextTouched) => {
     const filed = $.const(parts.items);

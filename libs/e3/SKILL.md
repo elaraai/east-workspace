@@ -890,9 +890,9 @@ carry the lean rows — `Data.bindPaged(machines, { indexes: ['machines_by_site'
 **Writes.** A row a write updates by a patch is maintained by the patch: e3
 walks it along the declaration — each collection's Dict patch, and each child
 rows' — and compares the entries of only the items it names, with the totals of
-the summary tiles they touch and the subtotals of a collection they touch. A
-replace on the way, which a recursive type's patch always is, and an inserted or
-deleted row are compared whole. Both ways give the same delta, and a maintained
+the summary tiles they touch and the subtotals of the tiles they touch at each
+level. A replace on the way, which a recursive type's patch always is, and an
+inserted or deleted row are compared whole. Both ways give the same delta, and a maintained
 index is the one `e3 reindex` rebuilds, byte for byte.
 
 #### Migrations — how a record's type changes

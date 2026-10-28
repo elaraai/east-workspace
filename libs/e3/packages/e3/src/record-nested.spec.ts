@@ -857,6 +857,31 @@ describe('index.nested — a write by its patch', () => {
     assertCompared(index, byPatch(index, 'H1', hall('0.82'), hall('0.7')), entries(0.82), entries(0.7));
   });
 
+  it('compares its hall\'s subtotals only at the tiles of each level the member\'s value is in, never another month\'s', () => {
+    const index = hallsInTime(halls());
+    const OCT_5 = '2026-10-05T00:00:00.000';
+    const NOV_9 = '2026-11-09T00:00:00.000';
+    const hall = (load: string) => parsed(Hall, `(name="Hall 1", site="North", members={` +
+      `"m-3":(name="Ada", load={${OCT_5}:${load}, ${NOV_9}:0.5}), "m-4":(name="Bo", load={${OCT_5}:0.6, ${NOV_9}:0.4})})`);
+    const member = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key="m-3", rest=.end)';
+    const other = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.step (key="m-4", rest=.end)';
+    const parent = '(collection=.step (key="members", rest=.step (key="load", rest=.end)), row="H1", path=.end, run=.subtotals (fold=.mean, aggregate=.mean)';
+    // October 5's day, week and month hold the two members' values that day; its quarter and its year hold November's too.
+    const entries = (load: number) => `{
+      ${member}, run=.items, level=.day, tile=${OCT_5}, item=.at ${OCT_5}): .item .members .load ${load},
+      ${member}, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none):
+        .totals (count=1, ms=0, values=.some (sum=${load}, min=${load}, max=${load}, last=${load})),
+      ${other}, run=.totals, level=.month, tile=2026-10-01T00:00:00.000, item=.none):
+        .totals (count=1, ms=0, values=.some (sum=0.6, min=0.6, max=0.6, last=0.6)),
+      ${parent}, level=.day, tile=${OCT_5}, item=.none): .subtotal ${(load + 0.6) / 2},
+      ${parent}, level=.week, tile=${OCT_5}, item=.none): .subtotal ${(load + 0.6) / 2},
+      ${parent}, level=.month, tile=2026-10-01T00:00:00.000, item=.none): .subtotal ${(load + 0.6) / 2},
+      ${parent}, level=.quarter, tile=2026-10-01T00:00:00.000, item=.none): .subtotal ${((load + 0.5) / 2 + 0.5) / 2},
+      ${parent}, level=.year, tile=2026-01-01T00:00:00.000, item=.none): .subtotal ${((load + 0.5) / 2 + 0.5) / 2}
+    }`;
+    assertCompared(index, byPatch(index, 'H1', hall('0.82'), hall('0.7')), entries(0.82), entries(0.7));
+  });
+
   it('compares a child row inserted whole, beside what else its patch names', () => {
     const index = assembliesInTime(assemblies());
     const held = parsed(Assembly, `(name="Assembly 1", parts={"p1":(name="p1", jobs={"j-1":${job(OCT_2, OCT_2_NIGHT)}}, parts={:})})`);
