@@ -83,12 +83,15 @@ const counted = (source: keyof typeof NOUNS, shown: number, total: number, narro
 const expectSummary = (page: Page, frame: Locator, counts: readonly [string, SourceCount][]) =>
     expectSourceCounts(page, frame, RAIL, Object.fromEntries(counts));
 
-/** The library's tabs as they read: those on its row, then those its row folded into its menu. */
+/** The library's tabs as they read: those on its row, then those its row folded into its menu, read once it is open. */
 async function tabs(page: Page, start: Locator): Promise<string[]> {
     const row = await said(start.locator('[role="tab"]'));
     const more = start.getByRole("button", { name: /^\d+ more tabs?$/ });
     if (await more.count() === 0) return row;
     await more.click();
+    // The menu shows its items and takes the focus a frame or more after the click: read before it opens, it holds none,
+    // and an Escape pressed before it holds the focus lands on its trigger and closes nothing.
+    await expect(page.locator('[role="menu"]:focus-within')).toBeVisible();
     const menu = await said(page.getByRole("menuitem"));
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menu")).toHaveCount(0);

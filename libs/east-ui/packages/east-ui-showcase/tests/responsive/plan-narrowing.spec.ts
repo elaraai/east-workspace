@@ -62,12 +62,15 @@ const railFields = (frame: Locator) => frame.locator(RAIL).first().evaluate((rai
 /** What each element says, its whitespace folded. */
 const said = (els: Locator) => els.evaluateAll((nodes) => nodes.map((node) => (node.textContent ?? "").replace(/\s+/g, " ").trim()));
 
-/** The library's tabs as they read: those on its row, then those its row folded into its menu. */
+/** The library's tabs as they read: those on its row, then those its row folded into its menu, read once it is open. */
 async function tabs(page: Page, start: Locator): Promise<string[]> {
     const row = await said(start.locator('[role="tab"]'));
     const more = start.getByRole("button", { name: /^\d+ more tabs?$/ });
     if (await more.count() === 0) return row;
     await more.click();
+    // The menu shows its items and takes the focus a frame or more after the click: read before it opens, it holds none,
+    // and an Escape pressed before it holds the focus lands on its trigger and closes nothing.
+    await expect(page.locator('[role="menu"]:focus-within')).toBeVisible();
     const menu = await said(page.getByRole("menuitem"));
     await page.keyboard.press("Escape");
     await expect(page.getByRole("menu")).toHaveCount(0);
