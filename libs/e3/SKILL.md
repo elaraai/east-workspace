@@ -842,7 +842,10 @@ part's subtree is one range a level.
 record that carries nothing or the row carries the row without the listed
 collections — each listed collection empty, child rows kept with theirs empty —
 so a page of rows read without a join reads no nested item and no segment of
-the record's own. An index with a `value` of its own carries its own.
+the record's own. An index with a `value` of its own carries its own. The
+nested index is part of its record once declared: a package holding the record
+builds it, listed or not, and `Data.bindPaged(record, { indexes })` lists it
+beside any of the record's indexes that carry the lean rows.
 
 **Writes.** A row a write updates by a patch is maintained by the patch: e3
 walks it along the declaration — each collection's Dict patch, and each child

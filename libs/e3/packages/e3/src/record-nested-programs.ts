@@ -1513,7 +1513,7 @@ export function nestedDefinition(name: string, rec: RecordDef, spec: object, con
   checkPure(`${constructor} '${name}' entries`, entries, INDEX_PURITY);
   checkPure(`${constructor} '${name}' entries by a patch`, byPatch, INDEX_PURITY);
   checkEntryParams(name, 'entries', keyType, valueType, signatureOf(entries).inputs);
-  return {
+  const def: RecordIndexDef = {
     kind: 'recordIndex',
     name,
     record: rec,
@@ -1529,4 +1529,9 @@ export function nestedDefinition(name: string, rec: RecordDef, spec: object, con
     valueType: entryValue,
     runner,
   };
+  // Part of its record from here (#1435): the record's other indexes carry its lean rows whichever of them a package or
+  // a binding is given, so the record's definition holds it — a package holding the record builds it, and a binding of
+  // the record's other indexes knows to list it.
+  rec.indexes[name] = def;
+  return def;
 }

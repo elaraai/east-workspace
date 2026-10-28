@@ -275,11 +275,10 @@ describe('e3.recordIndex.series, nested — its declaration', () => {
       assert.throws(() => series('machines_in_time', machines(), { collections, tile: 'fortnight' } as never), /tile/);
     });
 
-    it('a second nested series index on a record', () => {
+    it('a second nested series index on a record, where it is declared', () => {
       const rec = machines();
-      const first = machinesInTime(rec);
-      const second = series('machines_by_day', rec, { collections: { jobs }, tile: 'day' });
-      assert.throws(() => package_('machines', '1.0.0', rec, first, second),
+      machinesInTime(rec);
+      assert.throws(() => series('machines_by_day', rec, { collections: { jobs }, tile: 'day' }),
         /^Error: e3.recordIndex.series 'machines_by_day': record 'machines' has a nested series index already, 'machines_in_time' — one declares every collection a record nests$/);
     });
   });
@@ -475,6 +474,17 @@ describe('e3.recordIndex.series, nested — the record\'s other indexes carry it
   it('leaves an index with a value of its own, and the nested index itself, as declared', () => {
     assert.equal(builtIndex(assembled, assembled.indexes[named.name]!), assembled.indexes[named.name]);
     assert.equal(builtIndex(assembled, assembled.indexes[nested.name]!), assembled.indexes[nested.name]);
+  });
+
+  it('is part of its record from its declaration: a package holding the record builds it, though it is not listed (#1435)', () => {
+    const held = machines();
+    const declared = machinesInTime(held);
+    const bySite = recordIndex('machines_by_site', held, { on: ['site'] });
+    assert.equal(held.indexes[declared.name], declared, 'the record\'s definition holds it');
+    assert.ok(isTypeEqual(builtIndex(held, bySite).valueType, Machine), 'an index of the record as declared carries the lean machine');
+    const packaged = package_('machines', '1.0.0', held, bySite).records.machines!;
+    assert.deepEqual(Object.keys(packaged.indexes).sort(), ['machines_by_site', 'machines_in_time'], 'built with the record');
+    assert.ok(isTypeEqual(builtIndex(packaged, packaged.indexes[bySite.name]!).valueType, Machine), 'its other index carries the lean machine');
   });
 });
 

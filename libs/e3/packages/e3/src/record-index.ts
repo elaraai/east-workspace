@@ -558,7 +558,10 @@ export interface TimeTileOf<S> {
  * of a collection declared `{ rollup: true }` is filed under every ancestor
  * too. The record's other indexes then carry its rows without the listed
  * collections. A record has one nested series index; no field leads it, and
- * it takes no `value`.
+ * it takes no `value`. It is part of its record once declared: the record's
+ * definition holds it, so a package holding the record builds it, listed or
+ * not, and `Data.bindPaged` asks it beside any of the record's indexes that
+ * carry the lean rows (#1435).
  *
  * @typeParam Name - Index name (literal type)
  * @typeParam T - The owning record's state type (a Dict of Struct rows)
@@ -576,8 +579,9 @@ export interface TimeTileOf<S> {
  * @throws {Error} When a field is not of its option's type, naming the option,
  *   the field and its type; when the tile is not one of the five; when the key
  *   is a leading field; where a nested declaration does not fit its field,
- *   naming the collection and what to write; or on any guard `e3.recordIndex`
- *   applies to a name and a record
+ *   naming the collection and what to write; for a second nested series index
+ *   on a record, naming the first; or on any guard `e3.recordIndex` applies to
+ *   a name and a record
  *
  * @example
  * ```ts
