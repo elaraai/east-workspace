@@ -1779,8 +1779,12 @@ the frame laid them out. It draws plain elements of its slots' classes (east-ui-
 again at every element they draw: a glide mounts a thousand blocks. A row's
 plot draws its shading — its weekends, its hours off — once while its bands
 hold, of the shade slot's class (`PlotShading`), so a move of the span draws
-none of it again. Each bar is placed from an
-origin a re-centre never moves, its plot moving by one variable
+none of it again. A row's events take their lanes once a read, and a time
+grid's column's as it draws them, each lane searched by its events' starts
+(`shared/time/lanes.ts`' `packLanes`), never the event's cluster swept for
+every lane it stretches over: a year-long reservation joins a press's every
+job in one cluster, and the Month's whole-day spans join more. Each bar is
+placed from an origin a re-centre never moves, its plot moving by one variable
 (`--calendar-origin`), so a re-centre draws no event both windows hold whole.
 An event keeps its handle, its edges, its draft and its marks through a read in
 flight (the views' `grips` and `editing`): retained content refuses the gesture
