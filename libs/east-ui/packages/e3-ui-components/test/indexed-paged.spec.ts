@@ -24,7 +24,7 @@ import { SeekQueryType } from "@elaraai/east-ui";
 import { AREA_UNPLACED, RecordSliceWhereType, areaQueries, bindRecord, type RecordSliceJoined } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
 import {
-    recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSlicePlace, recordSliceWithin,
+    recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSlicePlace, recordSliceWithin, recordSliceWithinAt,
 } from "@elaraai/east-ui-components/internal";
 import { datasetGetStatus } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
@@ -478,6 +478,30 @@ test("a record Slice places its narrowing's rows in the record, and asks which o
     // A narrowing of no field holds every row, and has nothing to place.
     assert.deepEqual(recordSliceWithin(handle, new Map(), rows), some([true, true, true]));
     assert.throws(() => recordSlicePlace(handle, new Map()), /nothing narrows this record/);
+    runtime.clear();
+});
+
+test("which of a page's rows a narrowing holds, asked again at every read while its answer is on its way, prints the page's entries' keys once: each read asks the runtime of the same keys (#1398)", async () => {
+    const { runtime } = newRuntime();
+    // What every membership read asks the runtime of: the entries' keys, as the binding prints them.
+    const withinAll = runtime.withinAll.bind(runtime);
+    const asked: (readonly string[])[] = [];
+    runtime.withinAll = (source, runs, keys) => { asked.push(keys); return withinAll(source, runs, keys); };
+    StateRuntime.initializeStore(new UIStore());
+    const handle = East.compile(sliceProgram, slicePlatform(runtime))();
+    const where = handle.read().where;
+    // Skill b's membership of the record's own first page, as the Sheet's lens asks it, the answer held on its way.
+    const read = () => recordSliceWithinAt(handle, where, 0n, 3n);
+    const held = h.e3.hold(request => request.kind === "within" && request.dataset === `records.${people.name}`);
+    assert.equal((await h.inFlight(read, held)).type, "none", "its answer in flight");
+    // Read again while it is on its way, as a lens does at every evaluation, and once it has landed.
+    assert.equal(read().type, "none");
+    assert.equal(read().type, "none");
+    held.release();
+    assert.deepEqual(await h.ready(read), [true, false, true], "Ada and Amy hold skill b; Abe holds none");
+    assert.ok(asked.length >= 3, `asked at every read once the page had landed: ${asked.length}`);
+    assert.equal(asked[0]!.length, 3, "Ada's two skills are two entries, Abe's none, Amy's one");
+    assert.ok(asked.every(keys => Object.is(keys, asked[0])), "the same keys, printed once");
     runtime.clear();
 });
 
