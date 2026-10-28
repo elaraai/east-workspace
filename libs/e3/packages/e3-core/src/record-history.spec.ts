@@ -153,15 +153,19 @@ describe("a record's history, each commit's arguments previewed", () => {
   });
 
   it('previews the arguments of each commit that has any, when the walk is asked for them', async () => {
-    const plans = e3.record('plans', PlansType, new Map());
-    const seed = e3.mutation.reduce('seed', plans, East.function([PlansType, IntegerType], PlansType, ($, _state, n) => {
-      const out = $.let(new Map(), PlansType);
-      $.for(East.Array.range(0n, n), ($, i) => {
-        $(out.insert(East.str`p-${i}`, { title: East.str`Plan ${i}` }));
-      });
-      return out;
-    }));
-    const pkg = e3.package('planning', '1.0.0', plans, seed);
+    const plans = e3.record('plans', PlansType, {
+      initial: new Map(),
+      mutations: (mutation) => ({
+        seed: mutation.reduce(East.function([PlansType, IntegerType], PlansType, ($, _state, n) => {
+          const out = $.let(new Map(), PlansType);
+          $.for(East.Array.range(0n, n), ($, i) => {
+            $(out.insert(East.str`p-${i}`, { title: East.str`Plan ${i}` }));
+          });
+          return out;
+        })),
+      }),
+    });
+    const pkg = e3.package('planning', '1.0.0', plans);
     const zip = join(tempDir, 'planning.zip');
     await e3.export(pkg, zip);
     await packageImport(storage, repo, zip);

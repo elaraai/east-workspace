@@ -26,7 +26,7 @@ import {
   DateTimeType, DictType, OptionType, PatchType, SetType, SortedMap, SortedSet, StringType, StructType,
   compareFor, diffFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, type ValueTypeOf,
 } from '@elaraai/east';
-import e3 from '@elaraai/e3';
+import e3, { type PartRunner } from '@elaraai/e3';
 import { readDatasetWhole } from './dataset-open.js';
 import { recordMutate, recordReindex, readRecordState } from './records.js';
 import { packageImport } from './package-files.js';
@@ -58,28 +58,27 @@ type Events = ValueTypeOf<typeof EventsType>;
 const keyOrder = compareFor(StringType);
 const sameAt = equalFor(OptionType(DateTimeType));
 
-/** A runner selection, as the SDK's constructors take one. */
-type RunnerConfig = Parameters<typeof e3.mutation.reduce>[3];
+/** A runner selection, as a record's builders take one. */
+type RunnerConfig = PartRunner;
 
 /**
  * The record, its patch door and its interval indexes, on a runner: led by no
  * field, by its state, and by its resources, a Set fanning out.
  */
 function declared(runner?: RunnerConfig) {
-  const events = e3.record('events', EventsType, new Map());
-  return {
-    events,
-    patch: e3.mutation.patch(events, 'patch', runner),
-    indexes: [
-      e3.recordIndex.interval('events_by_time', events, { from: 'start', to: 'end' }, runner),
-      e3.recordIndex.interval('events_by_state_time', events, { on: ['state'], from: 'start', to: 'end' }, runner),
-      e3.recordIndex.interval('events_by_resource_time', events, { on: ['resources'], from: 'start', to: 'end' }, runner),
-    ] as const,
-  };
+  return e3.record('events', EventsType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      events_by_time: index.interval({ from: 'start', to: 'end' }, runner),
+      events_by_state_time: index.interval({ on: ['state'], from: 'start', to: 'end' }, runner),
+      events_by_resource_time: index.interval({ on: ['resources'], from: 'start', to: 'end' }, runner),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch(runner) }),
+  });
 }
 
 /** The index names, in declaration order. */
-const INDEXES = declared().indexes.map((index) => index.name);
+const INDEXES = Object.keys(declared().indexes);
 
 /** A seeded stream of numbers in [0, 1) (mulberry32): the same rows on every run. */
 function stream(seed: number): () => number {
@@ -185,8 +184,7 @@ describe('the interval index on the real runners', () => {
     storage = new LocalStorage(dirname(repo));
     realRunner = new LocalTaskRunner(repo);
     for (const { ws, runner } of runtimes) {
-      const { events, patch, indexes } = declared(runner);
-      const pkg = e3.package(`interval-${ws}`, '1.0.0', events, patch, ...indexes);
+      const pkg = e3.package(`interval-${ws}`, '1.0.0', declared(runner));
       const zip = join(tempDir, `interval-${ws}.zip`);
       await e3.export(pkg, zip);
       await packageImport(storage, repo, zip);
@@ -219,7 +217,7 @@ describe('the interval index on the real runners', () => {
   /** Every entry of each index in a workspace, decoded by its declared types. */
   async function entries(ws: string) {
     const held = await state(ws);
-    return Promise.all(declared().indexes.map(async (index) => {
+    return Promise.all(Object.values(declared().indexes).map(async (index) => {
       const collection = DictType(StructType({ ik: index.keyType, k: StringType }), index.valueType);
       return { index, entries: decodeBeast2For(collection)(await readDatasetWhole(storage, repo, held.indexes[index.name]!)) };
     }));

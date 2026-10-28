@@ -34,7 +34,7 @@ import {
   StructType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, some, type ValueTypeOf,
 } from '@elaraai/east';
 import { RecordSummaryTotalsType } from '@elaraai/e3-types';
-import e3 from '@elaraai/e3';
+import e3, { type PartRunner } from '@elaraai/e3';
 import { readDatasetWhole } from './dataset-open.js';
 import { recordHistory, recordMutate, recordReindex, readRecordState } from './records.js';
 import { summarizeDelta } from './record-apply.js';
@@ -114,8 +114,8 @@ const later = East.compile(East.function([OptionType(DateTimeType), IntegerType]
 /** Monday 5 October 2026, which most jobs are scheduled around. */
 const OCT_5 = millisecondsOf(at('2026-10-05T00:00:00.000'));
 
-/** A runner selection, as the SDK's constructors take one. */
-type RunnerConfig = Parameters<typeof e3.mutation.reduce>[3];
+/** A runner selection, as a record's builders take one. */
+type RunnerConfig = PartRunner;
 
 /**
  * The record, its patch door, and its series and summary indexes, on a runner:
@@ -124,23 +124,23 @@ type RunnerConfig = Parameters<typeof e3.mutation.reduce>[3];
  * a quarter led by the Set, and one a year.
  */
 function declared(runner?: RunnerConfig) {
-  const jobs = e3.record('jobs', JobsType, new Map());
-  return {
-    jobs,
-    patch: e3.mutation.patch(jobs, 'patch', runner),
-    indexes: [
-      e3.recordIndex.series('jobs_by_press_week', jobs, { key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
-      e3.recordIndex.series('jobs_by_state_press_day', jobs, { on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'day' }, runner),
-      e3.recordIndex.series('jobs_by_crew_press_month', jobs, { on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }, runner),
-      e3.recordIndex.summary('jobs_by_press_week_totals', jobs, { key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
-      e3.recordIndex.summary('jobs_by_crew_press_quarter_totals', jobs, { on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'quarter' }, runner),
-      e3.recordIndex.summary('jobs_by_press_year_totals', jobs, { key: 'press', from: 'start', to: 'end', tile: 'year' }, runner),
-    ] as const,
-  };
+  return e3.record('jobs', JobsType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      jobs_by_press_week: index.series({ key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
+      jobs_by_state_press_day: index.series({ on: ['state'], key: 'press', from: 'start', to: 'end', tile: 'day' }, runner),
+      jobs_by_crew_press_month: index.series({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'month' }, runner),
+      jobs_by_press_week_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'week' }, runner),
+      jobs_by_crew_press_quarter_totals: index.summary({ on: ['crews'], key: 'press', from: 'start', to: 'end', tile: 'quarter' }, runner),
+      jobs_by_press_year_totals: index.summary({ key: 'press', from: 'start', to: 'end', tile: 'year' }, runner),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch(runner) }),
+  });
 }
 
-/** The indexes, in declaration order. */
-const INDEXES = declared().indexes;
+/** The record as declared, and its indexes in declaration order. */
+const DECLARED = declared();
+const INDEXES = Object.values(DECLARED.indexes);
 
 /** A seeded stream of numbers in [0, 1) (mulberry32): the same rows on every run. */
 function stream(seed: number): () => number {
@@ -264,8 +264,7 @@ describe('the series and summary indexes on the real runners', () => {
     storage = new LocalStorage(dirname(repo));
     realRunner = new LocalTaskRunner(repo);
     for (const { ws, runner } of runtimes) {
-      const { jobs, patch, indexes } = declared(runner);
-      const pkg = e3.package(`series-${ws}`, '1.0.0', jobs, patch, ...indexes);
+      const pkg = e3.package(`series-${ws}`, '1.0.0', declared(runner));
       const zip = join(tempDir, `series-${ws}.zip`);
       await e3.export(pkg, zip);
       await packageImport(storage, repo, zip);
@@ -318,7 +317,7 @@ describe('the series and summary indexes on the real runners', () => {
     return total;
   }
 
-  const [byPressWeek, , , weekTotals, , yearTotals] = INDEXES;
+  const { jobs_by_press_week: byPressWeek, jobs_by_press_week_totals: weekTotals, jobs_by_press_year_totals: yearTotals } = DECLARED.indexes;
 
   it('files each job once, at the level its length fits — past a year, once a year it touches — carrying it whole, and totals cover every job\'s length, on each runtime', async () => {
     const rows = seeded();
@@ -429,11 +428,13 @@ describe('the series and summary indexes on the real runners', () => {
     const noon = millisecondsOf(at('2026-01-01T12:00:00.000'));
     const ages = (years: number) => millisecondsOf(at(`${2026 + years}-07-01T00:00:00.000`));
     for (const { ws, runner } of runtimes) {
-      const jobs = e3.record('ages', JobsType, new Map());
-      const patch = e3.mutation.patch(jobs, 'patch', runner);
-      const byPressDay = e3.recordIndex.series('ages_by_press_day', jobs, { key: 'press', from: 'start', to: 'end', tile: 'day' }, runner);
+      const jobs = e3.record('ages', JobsType, {
+        initial: new Map(),
+        indexes: (index) => ({ ages_by_press_day: index.series({ key: 'press', from: 'start', to: 'end', tile: 'day' }, runner) }),
+        mutations: (mutation) => ({ patch: mutation.patch(runner) }),
+      });
       const zip = join(tempDir, `ages-${ws}.zip`);
-      await e3.export(e3.package(`ages-${ws}`, '1.0.0', jobs, patch, byPressDay), zip);
+      await e3.export(e3.package(`ages-${ws}`, '1.0.0', jobs), zip);
       await packageImport(storage, repo, zip);
       await workspaceCreate(storage, repo, `${ws}-ages`);
       await workspaceDeploy(storage, repo, `${ws}-ages`, `ages-${ws}`, '1.0.0', { runner: realRunner });

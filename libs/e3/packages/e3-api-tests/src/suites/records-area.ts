@@ -5,7 +5,7 @@
 
 /**
  * A record read by area (#1385): a window over a floor's racks, read through
- * an area index (`e3.recordIndex.area`) as its searches in one request
+ * an area index (`index.area`) as its searches in one request
  * (`findKeys`) and the runs they select (the runs form), from the index alone —
  * each entry carries its rack's row whole, so nothing is joined.
  *

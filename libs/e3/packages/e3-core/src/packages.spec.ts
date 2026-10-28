@@ -405,12 +405,14 @@ describe('packages', () => {
   describe('packageZipOpen', () => {
     it('reads a package from a zip where it is, as an import would leave the repository, and writes nothing', async () => {
       const OrderType = StructType({ status: StringType });
-      const orders = e3.record('orders', DictType(StringType, OrderType), new Map([['o-1', { status: 'open' }]]));
-      const byStatus = e3.recordIndex('by_status', orders, {
-        key: East.function([StringType, OrderType], StringType, ($, _id, order) => order.status),
+      const orders = e3.record('orders', DictType(StringType, OrderType), {
+        initial: new Map([['o-1', { status: 'open' }]]),
+        indexes: (index) => ({
+          by_status: index.key(East.function([StringType, OrderType], StringType, ($, _id, order) => order.status)),
+        }),
       });
       const zipPath = join(tempDir, 'orders.zip');
-      await e3.export(e3.package('orders', '1.0.0', orders, byStatus), zipPath);
+      await e3.export(e3.package('orders', '1.0.0', orders), zipPath);
       const imported = createTestRepo();
       try {
         const expected = await packageImport(storage, imported, zipPath);
@@ -738,12 +740,15 @@ describe('packages', () => {
     it('carries a record\'s migration chain: each step, its function and a split step\'s program', async () => {
       const RowType = StructType({ title: StringType });
       const PlansType = DictType(StringType, RowType);
-      const plans = e3.record('plans', PlansType, new Map());
-      const repair = e3.migration.value('repair', plans, East.function([PlansType], PlansType, ($, old) => old));
-      const retitle = e3.migration.rows('retitle', plans,
-        East.function([StringType, RowType], RowType, ($, _id, row) => ({ title: row.title })), { after: repair });
+      const plans = e3.record('plans', PlansType, {
+        initial: new Map(),
+        migrations: (migration) => [
+          migration.value('repair', East.function([PlansType], PlansType, ($, old) => old)),
+          migration.rows('retitle', East.function([StringType, RowType], RowType, ($, _id, row) => ({ title: row.title }))),
+        ],
+      });
       const originalZip = join(tempDir, 'migrations-original.zip');
-      await e3.export(e3.package('migrations', '1.0.0', retitle), originalZip);
+      await e3.export(e3.package('migrations', '1.0.0', plans), originalZip);
       await packageImport(storage, testRepo, originalZip);
 
       const exportedZip = join(tempDir, 'migrations-exported.zip');

@@ -43,7 +43,7 @@ import {
   compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, fromEastTypeValue, parseFor, printFor, printType, variant,
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import e3 from '@elaraai/e3';
+import e3, { type PartRunner } from '@elaraai/e3';
 import { recordMutate, recordReindex, readRecordState, resolveRecordIndex } from './records.js';
 import { DatasetSegments, readManifest } from './dataset-open.js';
 import { packageImport } from './package-files.js';
@@ -92,65 +92,76 @@ const Measure = RecursiveType((self) => StructType({
 const Ledger = StructType({ name: StringType, site: StringType, measures: DictType(StringType, Measure) });
 const Ledgers = DictType(StringType, Ledger);
 
-/** A runner selection, as the SDK's constructors take one. */
-type RunnerConfig = Parameters<typeof e3.mutation.reduce>[3];
+/** A runner selection, as a record's builders take one. */
+type RunnerConfig = PartRunner;
 
 /** The four records, each with its patch door, its nested index and an index of its rows, on a runner; and a reduce over the machines. */
 function declared(runner?: RunnerConfig) {
-  const series = e3.recordIndex.series;
-  const machines = e3.record('machines', Machines, new Map());
-  const halls = e3.record('halls', Halls, new Map());
-  const assemblies = e3.record('assemblies', Assemblies, new Map());
-  const ledgers = e3.record('ledgers', Ledgers, new Map());
-  const jobs = series.items({ from: 'start', to: 'end' });
-  return {
-    records: [machines, halls, assemblies, ledgers] as const,
-    doors: [
-      e3.mutation.patch(machines, 'patch', runner),
-      e3.mutation.patch(halls, 'patch', runner),
-      e3.mutation.patch(assemblies, 'patch', runner),
-      e3.mutation.patch(ledgers, 'patch', runner),
-    ] as const,
-    // Every machine's load and output cleared, and its stops: a write the program compares row by row.
-    clear: e3.mutation.reduce('clear', machines, East.function([Machines], Machines, (_$, state) => state.map(($, m) => ({
-      name: m.name, site: m.site, status: m.status, jobs: m.jobs,
-      stops: $.let(new Map(), DictType(StringType, Stop)),
-      alarms: m.alarms,
-      load: $.let(new Map(), DictType(DateTimeType, FloatType)),
-      output: $.let(new Map(), DictType(DateTimeType, IntegerType)),
-    }))), runner),
-    indexes: [
-      series('machines_in_time', machines, {
+  const machines = e3.record('machines', Machines, {
+    initial: new Map(),
+    indexes: (index) => ({
+      machines_in_time: index.nested({
         collections: {
-          jobs, stops: series.items({ from: 'start', to: 'end' }), alarms: series.items({ at: 'at' }), load: series.values(), output: series.values(),
+          jobs: index.nested.items({ from: 'start', to: 'end' }), stops: index.nested.items({ from: 'start', to: 'end' }),
+          alarms: index.nested.items({ at: 'at' }), load: index.nested.values(), output: index.nested.values(),
         },
         tile: 'week',
         summary: 'month',
       }, runner),
-      e3.recordIndex('machines_by_site_status', machines, { on: ['site', 'status'] }, runner),
-      series('halls_in_time', halls, {
-        collections: { members: series.rows({ load: series.values({ rollup: 'mean' }) }) }, tile: 'day', summary: 'month',
+      machines_by_site_status: index.on(['site', 'status'], runner),
+    }),
+    mutations: (mutation) => ({
+      patch: mutation.patch(runner),
+      // Every machine's load and output cleared, and its stops: a write the program compares row by row.
+      clear: mutation.reduce(East.function([Machines], Machines, (_$, state) => state.map(($, m) => ({
+        name: m.name, site: m.site, status: m.status, jobs: m.jobs,
+        stops: $.let(new Map(), DictType(StringType, Stop)),
+        alarms: m.alarms,
+        load: $.let(new Map(), DictType(DateTimeType, FloatType)),
+        output: $.let(new Map(), DictType(DateTimeType, IntegerType)),
+      }))), runner),
+    }),
+  });
+  const halls = e3.record('halls', Halls, {
+    initial: new Map(),
+    indexes: (index) => ({
+      halls_in_time: index.nested({
+        collections: { members: index.nested.rows({ load: index.nested.values({ rollup: 'mean' }) }) }, tile: 'day', summary: 'month',
       }, runner),
-      e3.recordIndex('halls_by_site', halls, { on: ['site'] }, runner),
-      series('assemblies_in_time', assemblies, {
-        collections: { parts: series.rows({ jobs: series.items({ from: 'start', to: 'end' }, { rollup: true }), parts: series.recursive() }) },
+      halls_by_site: index.on(['site'], runner),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch(runner) }),
+  });
+  const assemblies = e3.record('assemblies', Assemblies, {
+    initial: new Map(),
+    indexes: (index) => ({
+      assemblies_in_time: index.nested({
+        collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nested.recursive() }) },
         tile: 'week',
         summary: 'month',
       }, runner),
-      e3.recordIndex('assemblies_by_name', assemblies, { on: ['name'] }, runner),
-      series('ledgers_in_time', ledgers, {
+      assemblies_by_name: index.on(['name'], runner),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch(runner) }),
+  });
+  const ledgers = e3.record('ledgers', Ledgers, {
+    initial: new Map(),
+    indexes: (index) => ({
+      ledgers_in_time: index.nested({
         collections: {
-          measures: series.rows({
-            readings: series.values({ rollup: ['sum', 'mean', 'count'] }),
-            stock: series.values({ rollup: { fold: 'last', aggregate: 'sum' } }),
-            children: series.recursive(),
+          measures: index.nested.rows({
+            readings: index.nested.values({ rollup: ['sum', 'mean', 'count'] }),
+            stock: index.nested.values({ rollup: { fold: 'last', aggregate: 'sum' } }),
+            children: index.nested.recursive(),
           }),
         },
         tile: 'day',
       }, runner),
-      e3.recordIndex('ledgers_by_site', ledgers, { on: ['site'] }, runner),
-    ] as const,
-  };
+      ledgers_by_site: index.on(['site'], runner),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch(runner) }),
+  });
+  return [machines, halls, assemblies, ledgers] as const;
 }
 
 /** Each record's name and state type. */
@@ -159,7 +170,7 @@ const RECORDS: ReadonlyArray<{ name: string; type: EastType }> = [
 ];
 
 /** Each index's record and name. */
-const INDEXES = declared().indexes.map((index) => ({ record: index.record.name, name: index.name }));
+const INDEXES = declared().flatMap((rec) => Object.values(rec.indexes).map((index) => ({ record: rec.name, name: index.name })));
 
 // ── The rows, written as East prints them ────────────────────────────────────
 
@@ -377,8 +388,7 @@ describe('the nested series index on the real runners', () => {
     storage = new LocalStorage(dirname(repo));
     realRunner = new LocalTaskRunner(repo);
     for (const { ws, runner } of runtimes) {
-      const { records, doors, clear, indexes } = declared(runner);
-      const pkg = e3.package(`nested-${ws}`, '1.0.0', ...records, ...doors, clear, ...indexes);
+      const pkg = e3.package(`nested-${ws}`, '1.0.0', ...declared(runner));
       const zip = join(tempDir, `nested-${ws}.zip`);
       await e3.export(pkg, zip);
       await packageImport(storage, repo, zip);
@@ -529,8 +539,7 @@ describe('a window of the rail\'s rows beside the nested series index', () => {
     tempDir = createTempDir();
     storage = new LocalStorage(dirname(repo));
     runner = new LocalTaskRunner(repo);
-    const { records, doors, clear, indexes } = declared();
-    const pkg = e3.package('nested-rail', '1.0.0', ...records, ...doors, clear, ...indexes);
+    const pkg = e3.package('nested-rail', '1.0.0', ...declared());
     const zip = join(tempDir, 'nested-rail.zip');
     await e3.export(pkg, zip);
     await packageImport(storage, repo, zip);

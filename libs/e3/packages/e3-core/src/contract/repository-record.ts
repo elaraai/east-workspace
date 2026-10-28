@@ -464,7 +464,7 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       const dir = mkdtempSync(join(tmpdir(), 'e3-contract-'));
       t.after(() => rmSync(dir, { recursive: true, force: true }));
       const zip = join(dir, 'records.zip');
-      await e3.export(e3.package('records', '1.0.0', e3.record('counter', IntegerType, 0n)), zip);
+      await e3.export(e3.package('records', '1.0.0', e3.record('counter', IntegerType, { initial: 0n })), zip);
       await packageImport(storage, repo, zip);
       await workspaceCreate(storage, repo, 'main');
       await workspaceDeploy(storage, repo, 'main', 'records', '1.0.0');

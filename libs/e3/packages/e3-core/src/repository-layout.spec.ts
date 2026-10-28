@@ -87,11 +87,14 @@ describe('the repository\'s records', () => {
     const rows = e3.input('rows', ArrayType(IntegerType));
     const total = e3.task('total', [rows], East.function([ArrayType(IntegerType)], IntegerType, ($, rows) =>
       rows.reduce(($, sum, row) => sum.add(row), 0n)));
-    const counter = e3.record('counter', IntegerType, 0n);
-    const increment = e3.mutation.reduce('increment', counter,
-      East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)));
+    const counter = e3.record('counter', IntegerType, {
+      initial: 0n,
+      mutations: (mutation) => ({
+        increment: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))),
+      }),
+    });
     const zip = join(tempDir, 'layout.zip');
-    await e3.export(e3.package('layout', '1.0.0', rows, total, counter, increment), zip);
+    await e3.export(e3.package('layout', '1.0.0', rows, total, counter), zip);
     await packageImport(storage, repo, zip);
     await workspaceCreate(storage, repo, 'main');
     await workspaceDeploy(storage, repo, 'main', 'layout', '1.0.0');

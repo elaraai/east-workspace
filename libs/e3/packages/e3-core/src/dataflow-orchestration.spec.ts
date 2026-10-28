@@ -2560,16 +2560,17 @@ describe('dataflow orchestration with MockTaskRunner', () => {
     it('feeds the dependent task the record state, and the mutated value on the next run', async () => {
       const tempDir = createTempDir();
       try {
-        const counter = e3.record('counter', IntegerType, 0n);
-        const increment = e3.mutation.reduce(
-          'increment', counter,
-          East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by)),
-        );
+        const counter = e3.record('counter', IntegerType, {
+          initial: 0n,
+          mutations: (mutation) => ({
+            increment: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))),
+          }),
+        });
         const reader = e3.task(
           'reader', [counter],
           East.function([IntegerType], IntegerType, ($, c) => c.multiply(2n)),
         );
-        const pkg = e3.package('recflow', '1.0.0', counter, increment, reader);
+        const pkg = e3.package('recflow', '1.0.0', counter, reader);
         const zip = join(tempDir, 'recflow.zip');
         await e3.export(pkg, zip);
         await packageImport(storage, testRepo, zip);

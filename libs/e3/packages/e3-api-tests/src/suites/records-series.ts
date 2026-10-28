@@ -5,10 +5,10 @@
 
 /**
  * A record read in two dimensions (#1039): a block of presses over a span of
- * weeks, read through a series index (`e3.recordIndex.series`) as a range a
+ * weeks, read through a series index (`index.series`) as a range a
  * press a level in one request (`findKeys`) and the runs they select, from the
  * index alone — each entry carries its job's row whole — and, zoomed out, the
- * totals a summary index (`e3.recordIndex.summary`) keeps under each press and
+ * totals a summary index (`index.summary`) keeps under each press and
  * week: how many jobs touch it, and the milliseconds of it they cover.
  *
  * The series files each job once (#1433): at the level its length fits, from

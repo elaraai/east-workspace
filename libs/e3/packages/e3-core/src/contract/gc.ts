@@ -621,11 +621,14 @@ export function gcTests(setup: BackendSetup): void {
       it('keeps a record\'s migrations, their functions and a split step\'s program (PackageObject → RecordObject → MigrationObject → IR)', async (t) => {
         const { storage, repo } = await setup(t);
         const RowType = StructType({ title: StringType });
-        const plans = e3.record('plans', DictType(StringType, RowType), new Map());
-        const retitle = e3.migration.rows('retitle', plans,
-          East.function([StringType, RowType], RowType, ($, _id, row) => ({ title: row.title })));
+        const plans = e3.record('plans', DictType(StringType, RowType), {
+          initial: new Map(),
+          migrations: (migration) => [
+            migration.rows('retitle', East.function([StringType, RowType], RowType, ($, _id, row) => ({ title: row.title }))),
+          ],
+        });
         const zip = join(zipDir(t), 'migration-gc.zip');
-        await e3.export(e3.package('migration-gc', '1.0.0', retitle), zip);
+        await e3.export(e3.package('migration-gc', '1.0.0', plans), zip);
         await packageImport(storage, repo, zip);
 
         const result = await repoGc(storage, repo, { minAge: 0 });
