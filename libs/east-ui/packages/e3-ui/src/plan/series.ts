@@ -2255,7 +2255,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         ? {
             drop: create !== undefined,
             move: move !== undefined ? some(move.edits) : none,
-            values: typedWrites.map((typed) => BigInt(typed.position)),
+            values: typedWrites.map((typed) => ({ position: BigInt(typed.position), whole: isTypeEqual(typed.value, IntegerType) })),
         }
         : undefined;
 

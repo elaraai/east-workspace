@@ -1107,6 +1107,20 @@ export const PlanMoveEditsType = StructType({
 export type PlanMoveEditsType = typeof PlanMoveEditsType;
 
 /**
+ * A table position that takes a typed number (#1436, #1438): which one, and
+ * whether its collection holds whole numbers, so the canvas's input refuses a
+ * fraction where the series would write nothing.
+ *
+ * @property position - Its index among the row's table series, `0` for its `cells`
+ * @property whole - Its collection holds Integers: it takes whole numbers only
+ */
+export const PlanTypedPositionType = StructType({
+    position: IntegerType,
+    whole:    BooleanType,
+});
+export type PlanTypedPositionType = typeof PlanTypedPositionType;
+
+/**
  * Which gestures a row takes (#880) — whether its series declares the fields
  * each one writes, so the canvas offers only what a draft can hold: a card
  * lands only on a `drop` row, and an element is picked up only on a `move`
@@ -1114,12 +1128,12 @@ export type PlanMoveEditsType = typeof PlanMoveEditsType;
  *
  * @property drop - Its series makes an item of a dropped card (`edit: { create }`)
  * @property move - Its series moves its elements (`edit`, its elements read with `Plan.items`) — {@link PlanMoveEditsType}
- * @property values - The table positions whose values take a typed number (`edit: true` over a values read, #1436): each an index among the row's table series, `0` for its `cells` — none for another kind
+ * @property values - The table positions whose values take a typed number (`edit: true` over a values read, #1436) — {@link PlanTypedPositionType}; none for another kind
  */
 export const PlanRowEditsType = StructType({
     drop:    BooleanType,
     move:    OptionType(PlanMoveEditsType),
-    values:  ArrayType(IntegerType),
+    values:  ArrayType(PlanTypedPositionType),
 });
 export type PlanRowEditsType = typeof PlanRowEditsType;
 

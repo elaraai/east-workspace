@@ -382,11 +382,13 @@ test("each position writes its own collection — an Option of a Float's as some
     assert.equal(typeInto(entry, planVsCount("L1"), typed(planVsCount("L1"), 0, variant("ordinal", "W27"), 9)), undefined);
 });
 
-test("a table row says which of its positions take a typed number (#1436)", () => {
+test("a table row says which of its positions take a typed number, and which of them whole numbers only (#1436, #1438)", () => {
     if (ledgerRoot.rows.type !== "inline") throw new Error("expected an inline canvas");
     const rows = ledgerRoot.rows.value.flatMap((b) => b.rows);
     assert.ok(sameIds(rows.map((r) => r.id), [orders("L1"), orders("L1", "a"), planVsCount("L1")]));
-    assert.deepEqual(rows.map((r) => r.edits.values), [[0n], [0n], [0n, 1n]]);
+    const fractions = { position: 0n, whole: false };
+    assert.ok(equalFor(ArrayType(ArrayType(Plan.Types.TypedPosition)))(rows.map((r) => r.edits.values),
+        [[fractions], [fractions], [fractions, { position: 1n, whole: true }]]));
 });
 
 test("derive draws each draft in its entry's place — with none it is the canvas's own blocks, and a draft derives like data", () => {

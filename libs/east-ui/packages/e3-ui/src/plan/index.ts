@@ -118,6 +118,7 @@ import {
     PlanValueEditType,
     PlanGestureType,
     PlanMoveEditsType,
+    PlanTypedPositionType,
     PlanRowEditsType,
     PlanPatchEventTypeFor,
     PlanEditingType,
@@ -301,6 +302,7 @@ export {
     PlanValueEditType,
     PlanGestureType,
     PlanMoveEditsType,
+    PlanTypedPositionType,
     PlanRowEditsType,
     PlanPatchEventTypeFor,
     PlanEditingType,
@@ -722,6 +724,8 @@ export interface PlanNamespace extends PlanTagType {
         Move: typeof PlanMoveType;
         /** A number typed into a table cell, or the cell cleared — its position's value at the bucket's start (#1436). */
         ValueEdit: typeof PlanValueEditType;
+        /** A table position that takes a typed number, and whether it takes whole numbers only (#1436, #1438). */
+        TypedPosition: typeof PlanTypedPositionType;
         /** Which gestures a row takes (#880). */
         RowEdits: typeof PlanRowEditsType;
         /** How a row's elements move — its item type, and whether they resize (#825). */
@@ -881,6 +885,7 @@ const PLAN_MEMBERS = {
         Drop: PlanDropType,
         Move: PlanMoveType,
         ValueEdit: PlanValueEditType,
+        TypedPosition: PlanTypedPositionType,
         RowEdits: PlanRowEditsType,
         MoveEdits: PlanMoveEditsType,
         PatchEvent: PlanPatchEventTypeFor,
