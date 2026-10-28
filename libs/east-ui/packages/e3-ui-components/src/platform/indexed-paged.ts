@@ -11,7 +11,7 @@ import {
 } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
-import { AREA_FIELD, IndexedEntryType, TILE_FIELD, readTileMarker } from "@elaraai/east-ui/internal";
+import { AREA_FIELD, IndexedEntryType, TILE_FIELD, readTileMarker, type RecordSliceEntryKey } from "@elaraai/east-ui/internal";
 import { bindIndexedPagedPlatformFn, DataIndexedPrimitives } from "@elaraai/e3-ui/internal";
 import { RecordSummaryTotalsType, TreePathType, indexWindowType, type TreePath } from "@elaraai/e3-types";
 import type { RecordSliceBatches } from "@elaraai/east-ui-components/platform";
@@ -83,10 +83,14 @@ export class IndexedPagedRuntime {
 
     // Each index's printer of an entry key, `(ik=…, k=…)`, from its key's text and the row's key (#1349).
     private entryPrinters = new WeakMap<Schema, Map<string, (ik: string, key: unknown) => string>>();
+    // Each membership read's entry keys, printed, by the entries asked and the index (#1349): made once.
+    private printedEntries = new WeakMap<readonly RecordSliceEntryKey[], Map<string, readonly string[]>>();
 
     constructor(private readonly paged: Pick<PagedRuntime, "buildHandle" | "sourceOf" | "seekAll" | "runsAll" | "placeAll" | "withinAll" | "rowsAll" | "joinAll">) {}
 
-    clear(): void { this.handles.clear(); this.windows = new WeakMap(); this.sources = new WeakMap(); this.entryPrinters = new WeakMap(); }
+    clear(): void {
+        this.handles.clear(); this.windows = new WeakMap(); this.sources = new WeakMap(); this.entryPrinters = new WeakMap(); this.printedEntries = new WeakMap();
+    }
 
     /**
      * An index's entry key, `(ik=…, k=…)`, as a membership read names it (#1349):
@@ -114,6 +118,28 @@ export class IndexedPagedRuntime {
             printers.set(name, print);
         }
         return print;
+    }
+
+    /**
+     * Some entries' keys, `(ik=…, k=…)`, as a membership read names them (#1349): made once for the entries asked —
+     * the same array whenever a reader asks of them again, every evaluation that reads them while their answer is in
+     * flight among them — so no entry is read and printed again.
+     *
+     * @param schema - The binding's types
+     * @param name - The index
+     * @param entries - The entries asked of
+     * @returns Each entry's key, in order
+     */
+    private entryTexts(schema: Schema, name: string, entries: readonly RecordSliceEntryKey[]): readonly string[] {
+        let byIndex = this.printedEntries.get(entries);
+        if (byIndex === undefined) { byIndex = new Map(); this.printedEntries.set(entries, byIndex); }
+        let texts = byIndex.get(name);
+        if (texts === undefined) {
+            const print = this.entryPrinter(schema, name);
+            texts = entries.map(entry => print(entry.ik, entry.key));
+            byIndex.set(name, texts);
+        }
+        return texts;
     }
 
     private schema(types: EastTypeValue[]): Schema {
@@ -257,9 +283,8 @@ export class IndexedPagedRuntime {
             withinAll: (name, runs, entries) => {
                 if (name === "primary") throw new Error("A membership read asks of runs of one of the record's indexes, never of its own rows");
                 if (this.isSummary(schema, name)) throw new Error(`A membership read asks of a narrowing's rows, and '${name}' is a summary index, whose entries name none`);
-                const print = this.entryPrinter(schema, name);
                 const within = this.paged.withinAll(sourceOf(name), runs.map(run => [Number(run.row), Number(run.count)] as const),
-                    entries.map(entry => print(entry.ik, entry.key)));
+                    this.entryTexts(schema, name, entries));
                 return within.type === "none" ? none : some([...within.value]);
             },
             // The rows of several of the record's own keys in one request (#1039): its own Dict's rows by key.
