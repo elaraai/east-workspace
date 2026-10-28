@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex, e3.recordIndex.interval / e3.recordIndex.area for reads by a time window or a 2D window, and e3.recordIndex.series / e3.recordIndex.summary for a block of keys over a span of time tiles and their totals) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
+description: "East Execution Engine (e3) - durable, content-addressed dataflow for East programs. Use when: (1) authoring a package with @elaraai/e3 (e3.input, e3.task, e3.streamTask with e3.output and e3.partition for bounded memory and work split over an input, e3.customTask, e3.function, e3.package, e3.export, East.importFunction), (2) records - audited state written only through mutations (e3.record, e3.mutation.reduce/edit/patch, e3.recordIndex, e3.recordIndex.interval / e3.recordIndex.area for reads by a time window or a 2D window, and e3.recordIndex.series / e3.recordIndex.summary for a block of keys over a span of time tiles and their totals, and e3.recordIndex.series with collections for what a record's rows nest — jobs, a value a day, child rows, trees — filed item by item, with totals and parents' subtotals) and migrated between versions (e3.migration.value/rows/rekey), (3) the e3 CLI (repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, reindex, compact, watch, convert, auth) and the cores and memory a run may use (-j, --memory), (4) driving e3 from code: @elaraai/e3-api-client against a server, @elaraai/e3-core on a local repository, e3-api-server, (5) caching, reactive re-runs and garbage collection, (6) delegating local task bodies to a rack: e3 rack enroll/policy, dataflow run --rack, watch --start --rack, optional e3-api-server --rack, (7) e3 in a browser, no server: @elaraai/e3-web (serveUnits, serveE3, createWebE3) and what a browser cannot do. UI tasks are e3-ui's ui()."
 ---
 
 # East Execution Engine (e3)
@@ -68,7 +68,9 @@ What do you need?
 │   ├─ A named function (RPC)    → e3.function(name, fn, config?) — called by name, persists nothing
 │   ├─ Audited state             → e3.record + e3.mutation.reduce | edit | patch, e3.recordIndex
 │   │   ├─ Read by a time window or a 2D window → e3.recordIndex.interval | e3.recordIndex.area
-│   │   └─ Read a block of keys over time tiles, or their totals → e3.recordIndex.series | e3.recordIndex.summary
+│   │   ├─ Read a block of keys over time tiles, or their totals → e3.recordIndex.series | e3.recordIndex.summary
+│   │   └─ Read what rows nest (jobs, a value a day, child rows, trees) a tile at a time, with totals and subtotals
+│   │       → e3.recordIndex.series(name, record, { collections, tile, summary? })
 │   ├─ A record's type changes   → e3.migration.value | rows | rekey(name, record, fn, { after? })
 │   ├─ A UI task                 → ui(name, [inputs], fn) from @elaraai/e3-ui (the e3-ui skill)
 │   ├─ A function written in python or another node package → East.importFunction(pkg, name, FunctionType) in the body
@@ -755,6 +757,100 @@ declare a coarser tile. Each option takes only the row's fields of its type, as
 the area index's do, and the definition checks them again; a `value` is
 refused, and so is an `on` field that is the key, the start or the end: the key
 follows the leading fields, and the tiles are cut by the start and the end.
+
+#### Nested series indexes — `e3.recordIndex.series` with `collections`
+
+What a planning board reads when a record's rows nest what it draws: a
+machine's jobs and its load a day at a time, a hall's members, an assembly's
+parts to any depth. One declaration a record lists every collection its rows
+nest, each field with a builder saying what it holds. e3 files each item apart
+from its row — once, by its collection, its row, its node and its time — keeps
+each node's totals a summary tile at a time, and each parent's subtotals at
+every level; and the record's other indexes carry the rows without those
+collections, so a page of rows reads none of them and a window of items reads
+no row.
+
+```typescript
+// machines: Dict<String, { name, site, status, jobs: Dict<String, Job>, load: Dict<DateTime, Float> }>
+const machinesInTime = e3.recordIndex.series('machines_in_time', machines, {
+  collections: {
+    jobs: e3.recordIndex.series.items({ from: 'start', to: 'end' }),  // things people drag: by id, their times fields
+    load: e3.recordIndex.series.values(),                              // a value per instant: keyed by the instant
+  },
+  tile: 'week',
+  summary: 'month',
+});
+// Each member's load, and each hall's mean of its members', at every level from the day up.
+const hallsInTime = e3.recordIndex.series('halls_in_time', halls, {
+  collections: { members: e3.recordIndex.series.rows({ load: e3.recordIndex.series.values({ rollup: 'mean' }) }) },
+  tile: 'day',
+  summary: 'month',
+});
+// Parts to any depth, each part's jobs filed under every part above it too.
+const assembliesInTime = e3.recordIndex.series('assemblies_in_time', assemblies, {
+  collections: {
+    parts: e3.recordIndex.series.rows({
+      jobs: e3.recordIndex.series.items({ from: 'start', to: 'end' }, { rollup: true }),
+      parts: e3.recordIndex.series.recursive(),
+    }),
+  },
+  tile: 'week',
+  summary: 'month',
+});
+```
+
+| Builder | A field holding |
+|---|---|
+| `items({ from, to })`, `items({ at })` | `Dict<String, Struct>`: things people drag, by id; their times are DateTime or Option<DateTime> fields — no start files an item nowhere, no end (or one at or before its start) makes it an instant. `{ rollup: true }` files each under every ancestor too |
+| `values({ rollup? })` | `Dict<DateTime, V>`: a value per instant. `rollup` keeps every parent's subtotals |
+| `rows({ … })` | `Dict<String, Struct>`: child rows, their own collections declared the same way |
+| `recursive()` | `Dict<String, Self>`: more rows like the one listing it, to any depth |
+
+TypeScript types `collections` field by field from the record's type alone: a
+misnamed time, or a builder on the wrong kind of field, is an error where it is
+written, and its message says what fits. The definition checks the same again,
+in words, for a declaration TypeScript could not see. A record has one nested
+series index, which takes no `on` and no `value`.
+
+**What it files.** Every entry is keyed `{ collection, row, path, run, level,
+tile, item }` (e3-types' `NestedEntryKeyType`): the collection's place, the
+field names from the row down (`members` then `load`); the row's key; the Dict
+keys from the row down to the node (`[]` for the row, `m-3` for a member); the
+run; the level and tile; and the item. A place and a path are held as a key
+holds a list, folded from the last: `.step (key="members", rest=.step
+(key="load", rest=.end))`. Each run of a node is one contiguous range a level:
+
+| Run | Holds |
+|---|---|
+| `items` | each item once, as a series index files an event — at the level its length fits, past a year under each year — carrying it (`.item .jobs (…)`); a value, and an `{ at }` item, at the declared tile alone |
+| `totals` | where `summary` is declared, each node's `{ count, ms, values }` a summary tile at a time; for a Float or Integer collection, `values` is the sum, the least, the greatest and the last there, taken in key order |
+| `subtotals(rollup)` | for `values({ rollup })`, every parent's subtotal by each rollup at each level from `tile` to the year, where a descendant's value touches the tile: a node holding values folds its own, a parent aggregates its children's, in key order |
+| `subtree`, `subtreeTotals` | for `items(…, { rollup: true })`, each item under every ancestor too, `.under (path, id)`, and each ancestor's totals of them |
+
+A rollup is `'sum'`, `'mean'` (a mean of means up the tree), `'min'`, `'max'`,
+`'count'` (the leaf rows beneath that hold a value), a fold and an aggregate
+named apart (`{ fold: 'last', aggregate: 'sum' }`, a balance), or several.
+
+**Reading.** A reader searches the index's leading fields — `[collection, row,
+path, run, level, tile]`, each as East prints it — as a range a row a level: a
+block of fifty machines' jobs over three weeks is fifty times four ranges in one
+`datasetFindKeys` request, and one `datasetGetRuns` read of the entries they
+select, each job carried whole; a parent's week subtotals are one range; a
+part's subtree is one range a level.
+
+**The lean rows.** Beside a nested series index, every other index of the
+record that carries nothing or the row carries the row without the listed
+collections — each listed collection empty, child rows kept with theirs empty —
+so a page of rows read without a join reads no nested item and no segment of
+the record's own. An index with a `value` of its own carries its own.
+
+**Writes.** A row a write updates by a patch is maintained by the patch: e3
+walks it along the declaration — each collection's Dict patch, and each child
+rows' — and compares the entries of only the items it names, with the totals of
+the summary tiles they touch and the subtotals of a collection they touch. A
+replace on the way, which a recursive type's patch always is, and an inserted or
+deleted row are compared whole. Both ways give the same delta, and a maintained
+index is the one `e3 reindex` rebuilds, byte for byte.
 
 #### Migrations — how a record's type changes
 

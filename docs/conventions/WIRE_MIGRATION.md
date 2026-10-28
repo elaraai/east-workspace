@@ -582,3 +582,17 @@ Each wire changed under this rule, with the kind it is.
   as they were. Each such index a package declares changes type, so it is
   rebuilt as the package is deployed, as any changed index is; an index is
   derived from its record, so no repository upgrade step ships.
+- **e3 gains the nested form of the series index, and the record's other
+  indexes carry its lean rows beside it (#1434)** — package-borne.
+  `e3.recordIndex.series(name, record, { collections, tile, summary? })`
+  builds an index object as every index's is: its key function a row's
+  entries, `(K, V) → Dict<IK, P>`, as a summary's gives its contributions; its
+  key e3-types' `NestedEntryKeyType`, `{ collection, row, path, run, level,
+  tile, item }`; its value `NestedEntryType`. Beside it, each of the record's
+  other indexes that carries nothing or the row carries the row without the
+  listed collections instead, so it changes type. And every index's and
+  mutation's program is generated anew — rows read a field at a time, and
+  built, through East's builders for names held as values — so each index a
+  package declares is rebuilt as the package is deployed, as any changed index
+  is, and a deploy builds the nested index its state lacks. An index is
+  derived from its record, so no repository upgrade step ships.
