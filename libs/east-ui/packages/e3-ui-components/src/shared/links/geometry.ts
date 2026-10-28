@@ -62,6 +62,8 @@
  * (one row).
  */
 
+import { LINK_CAPTION_DROP, LINK_CORNER, LINK_HEAD_LEN } from "./look.js";
+
 /** The viewport edge an out-of-view endpoint lies beyond. */
 export type RibbonOff = "above" | "below";
 
@@ -116,13 +118,13 @@ export interface RibbonPath {
     anchor: "start" | "middle" | "end";
 }
 
-/** A head's length along the flow (px). */
-const HEAD_LEN = 8;
+/** A head's length along the flow (px): the links' look's (`look.ts`). */
+const HEAD_LEN = LINK_HEAD_LEN;
 /** The straight every link keeps out of its source's end and into its
  *  destination's start (px). */
 const RUN_OUT = 11;
-/** Corner radius at every direction change (clamped to the available drop). */
-const CORNER_R = 8;
+/** Corner radius at every direction change (clamped to the available drop): the links' look's. */
+const CORNER_R = LINK_CORNER;
 /** The corner every link turns at, before its clamp (px): what a line a host draws beside the links turns at too. */
 export const RIBBON_CORNER = CORNER_R;
 /**
@@ -135,8 +137,8 @@ export const RIBBON_RISER = HEAD_LEN + RUN_OUT + CORNER_R;
  *  route the loopback. */
 const MIN_S_GAP = 4;
 /** A caption's text sits this far below the point it is centred on (px) — a
- *  10px label's middle. */
-const CAPTION_DROP = 3;
+ *  10px label's middle, the links' look's. */
+const CAPTION_DROP = LINK_CAPTION_DROP;
 /** The paper a link's casing lays either side of its ink, and the half px a
  *  stroke is drawn on — what keeps a line or a head at the plot's edge inside
  *  it (px). */

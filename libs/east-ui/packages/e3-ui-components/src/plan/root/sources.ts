@@ -5,9 +5,12 @@
  * The sources of a Plan's one `Slice.bindRecords` (#1344), place by place:
  * the `rows` source gives the canvas its rows, paged from it; a source named
  * after an event kind narrows that kind's events and its backlog, its reads
- * the kind's own; a resource kind's narrows that kind's rows and Choosers; and
- * a templates list's and an author's tab's narrow those cards. Every source
- * holding a `range` of the axis's arm holds the window with the others.
+ * the kind's own; a resource kind's narrows that kind's rows and Choosers — a
+ * paged kind's gives it its windows, its narrowing's rows; and a templates
+ * list's and an author's tab's narrow those cards. Every source holding a
+ * `range` of the axis's arm holds the window with the others, but the
+ * canvas's rows' — the `rows` source and each resource kind's — which the
+ * dates on screen never narrow.
  *
  * @packageDocumentation
  */
@@ -81,17 +84,38 @@ function fitsAxis(fieldKind: string, axis: PlanAxisKind): boolean {
     return axis === "time" ? stringEqual(fieldKind, "datetime") : axis === "number" && (stringEqual(fieldKind, "integer") || stringEqual(fieldKind, "float"));
 }
 
+/** The sources whose ranges never hold the window while a canvas names no others: its `rows` source. */
+export const PLAN_ROW_SOURCES: readonly string[] = [ROWS_SOURCE];
+
+/**
+ * The sources whose ranges never hold the window (#1344): the canvas's rows —
+ * the `rows` source's, and each resource kind's — which the dates on screen
+ * never narrow, so a pan, a step, the brush or a key reads no row again. A
+ * date field there is a field of the rail the viewer sets.
+ *
+ * @param resources - The Plan's resource kinds
+ * @returns Their sources' names, the `rows` source's first
+ */
+export function planRowSources(resources: readonly PlanResourceKindValue[]): readonly string[] {
+    return resources.length === 0 ? PLAN_ROW_SOURCES : [ROWS_SOURCE, ...resources.map((kind) => kind.key)];
+}
+
 /**
  * The sources holding the window: each part whose range field speaks the
- * axis's arm, in the slice's order — the first leads.
+ * axis's arm, in the slice's order — the first leads — but the canvas's
+ * rows', whose ranges never hold it.
  *
  * @param chrome - The rail's chrome; `undefined` with no slice
  * @param axis - The axis kind
+ * @param rows - The sources whose ranges never hold the window ({@link planRowSources}); the `rows` source alone when omitted
  * @returns Each such source's name and part
  */
-export function planWindowParts(chrome: PlanSlicesChrome | undefined, axis: PlanAxisKind): { readonly source: string; readonly part: PlanSourcePart }[] {
+export function planWindowParts(
+    chrome: PlanSlicesChrome | undefined, axis: PlanAxisKind, rows: readonly string[] = PLAN_ROW_SOURCES,
+): { readonly source: string; readonly part: PlanSourcePart }[] {
     if (chrome === undefined || axis === "ordinal") return [];
     return chrome.slice.parts.flatMap(({ source, slice }) => {
+        if (rows.some((name) => stringEqual(name, source))) return [];
         const range = slice.config.range;
         if (range.type === "none") return [];
         const field = slice.config.fields.find((f) => stringEqual(f.fieldId, range.value));
@@ -108,9 +132,11 @@ type PlanLibraryTabValue = ValueTypeOf<typeof PlanPayloadType>["library"][number
 /**
  * The sources the Plan's frame follows itself, beside the `rows` source and
  * the event kinds', which the canvas reads through their parts: each resource
- * kind's the slice holds, whose shown keys narrow its rows and its Choosers;
- * each templates list's, whose keys narrow the Events tab; and each an
- * author's tab names — each once, in that order.
+ * kind's the slice holds, whose shown keys narrow its rows and its Choosers —
+ * but a paged kind's, whose windows are its narrowing's rows themselves
+ * (#1344), so the frame reads none of its keys; each templates list's, whose
+ * keys narrow the Events tab; and each an author's tab names — each once, in
+ * that order.
  *
  * @param value - The Plan's payload
  * @returns The sources' names
@@ -118,8 +144,11 @@ type PlanLibraryTabValue = ValueTypeOf<typeof PlanPayloadType>["library"][number
 export function planFollowedSources(value: ValueTypeOf<typeof PlanPayloadType>): string[] {
     const parts = planSlices(value.plan)?.slice.parts ?? [];
     const held = (name: string) => parts.some((part) => stringEqual(part.source, name));
+    // A paged kind's source is read where its windows are (#1344): following it would read every key it shows.
+    const paged = value.paged.type === "some" ? value.paged.value.kind : undefined;
+    const follows = (name: string) => held(name) && (paged === undefined || !stringEqual(name, paged));
     const named = [
-        ...value.resources.map((kind) => kind.key).filter(held),
+        ...value.resources.map((kind) => kind.key).filter(follows),
         ...value.events.flatMap((kind) => (kind.templatesSource.type === "some" ? [kind.templatesSource.value] : [])),
         ...value.library.flatMap((tab) => (tab.type === "tab" && tab.value.source.type === "some" ? [tab.value.source.value] : [])),
     ];

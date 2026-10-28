@@ -36,7 +36,7 @@
 import { test, expect, type Locator, type Page } from "playwright/test";
 import { frameAt } from "./builder-frame";
 import { settled } from "./settle";
-import { boxesOf, captionOf, cardOf, carryTo, midLine, openFlowchart, openTab, paneOpen, pickUp, remount, sizeTo } from "./flowchart-page";
+import { boxOf, boxesOf, captionOf, cardOf, carryTo, midLine, openFlowchart, openTab, paneOpen, pickUp, remount, sizeTo } from "./flowchart-page";
 
 /** The inspector's open width (`Flowchart Builder Spec.md` §8). */
 const INSPECTOR = 320;
@@ -149,12 +149,20 @@ function inkOf(page: Page, token: string): Promise<string> {
     }, token);
 }
 
-/** Drag a state's card by the mouse to a point of the canvas, past the move's threshold. */
-async function dragState(page: Page, root: Locator, key: string, to: { x: number; y: number }): Promise<void> {
-    const [card] = await boxesOf(root, [`[data-flowchart-node="${key}"]`]);
-    await page.mouse.move(card!.x + card!.width / 2, card!.y + card!.height / 2);
+/**
+ * Drag a state's card by the mouse to a point of the canvas, past the move's threshold. The card is hovered first —
+ * locator actionability brings it into the page's view and waits for a stable hit target, as `pickUp` does: a pane
+ * collapsing, or an earlier drop, can leave it below the window, where raw coordinates press nothing — and the point is
+ * read after, then carried to once main holds it (`carryTo`).
+ */
+async function dragState(page: Page, root: Locator, key: string, to: () => Promise<{ x: number; y: number }>): Promise<void> {
+    const card = root.locator(`[data-flowchart-node="${key}"]`);
+    await card.hover();
+    const box = await boxOf(card);
+    const at = await to();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await page.mouse.down();
-    await page.mouse.move(to.x, to.y, { steps: 10 });
+    await carryTo(page, root, at, 10);
     await page.mouse.up();
     await settled(page);
 }
@@ -192,9 +200,13 @@ test.describe("The depot's flows on the e3 the page runs (#1251, FB39)", () => {
         // The library on its rail, the canvas whole: the van's state dragged into the Sort lane.
         await root.getByRole("button", { name: "Collapse Library" }).click();
         await settled(page);
-        const [loaded, sortBand] = await boxesOf(root, ["[data-flowchart-node='LDD']", "[data-flowchart-band='sort']"]);
         expect(await laneOf(root, "LDD")).toBe("load");
-        await dragState(page, root, "LDD", { x: sortBand!.x + sortBand!.width / 2, y: loaded!.y + loaded!.height / 2 });
+        // Into the Sort band, at the card's height, in the part of the band main shows — read once the card is in view.
+        await dragState(page, root, "LDD", async () => {
+            const [loaded, sortBand, main] = await boxesOf(root, ["[data-flowchart-node='LDD']", "[data-flowchart-band='sort']", "[data-frame-slot='main']"]);
+            const left = Math.max(sortBand!.x, main!.x), right = Math.min(sortBand!.x + sortBand!.width, main!.x + main!.width);
+            return { x: (left + right) / 2, y: loaded!.y + loaded!.height / 2 };
+        });
         await expect.poll(() => laneOf(root, "LDD")).toBe("sort");
         await expect(pending).toHaveText(" · 3 pending");
 

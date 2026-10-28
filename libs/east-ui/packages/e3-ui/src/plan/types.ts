@@ -1513,13 +1513,21 @@ export type PlanRowsValue<K extends PlanAxisKindLiteral = never> = PlanKinded<Ex
  * so the series inside a section page on their own too: inline or paged, the
  * canvas draws the same rows in the same order.
  *
+ * A block says how many chart rows each of its entries makes, where every
+ * entry makes as many (`charts`, #1398) — a fact of its series' definition, so
+ * a paged canvas counts its measures by the source's count of entries, never
+ * by the rows it has read: a chart series' entry makes one, a `views` entry one
+ * a chart member, an entry with nothing in its tree a chart none.
+ *
  * @property fixed - `true` when no entry produces the rows — a section's header, hand-built rows — so every window serves them alike
  * @property parent - The row the block's top rows nest under — the header of the section it sits in — or `none` at the top of the canvas
+ * @property charts - How many chart rows each of the block's entries makes, when every entry makes as many; `none` where that varies by entry — a `match` on a series that makes one, children whose rows hold one, as many as the data's — and for a fixed block, which no entry makes
  * @property rows - The block's rows, in stream order
  */
 export const PlanBlockType = StructType({
     fixed:  BooleanType,
     parent: OptionType(PlanRowIdType),
+    charts: OptionType(IntegerType),
     rows:   PlanRowsCollectionType,
 });
 /** Type alias for {@link PlanBlockType}. */

@@ -18,11 +18,17 @@
  * shows and saying so, with Clear filters, when the rail leaves it none. A Save
  * that moves a job out of its kind's narrowing says so in the footer, and the
  * jobs are never read whole. A source's methods share one descriptor (#1352),
- * and a window read through the interval indexes lands its key searches
- * re-rendering the readers alone, never the frame. That no function holds the
+ * and a window read through the interval indexes asks each kind's key searches
+ * in one request (#1351), each landing re-rendering the readers alone, never
+ * the frame. That no function holds the
  * whole slice is e3-ui's one guard over every builder's examples (#1356). A
  * filter change builds nothing again: the Plan's body runs no more, and no
- * payload is decoded (#1354).
+ * payload is decoded (#1354). The Backlog never blinks (#1398, ruled 25 Oct
+ * 2026): a narrowing keeps its cards and its count as one, retained while
+ * either is read again, and swaps them whole once both have landed. Drafts
+ * whose rows the window leaves out are read by their keys, once apiece,
+ * however many more of them there are than the windows the paging runtime
+ * keeps (#1409, R24).
  */
 
 import { describe, expect, test } from "vitest";
@@ -41,6 +47,8 @@ import { rowKeyOf, type PlanRowId } from "../model.js";
 import { act, el, entry, planHarness, programOf, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 import { setPlanFrameRenderProbe } from "./index.js";
 import { countBuilds } from "../../shared/builds.test-utils.js";
+import type { E3Request } from "../../e3-web.test-utils.js";
+import { MAX_RETAINED_WINDOWS } from "../../platform/paged-runtime.js";
 
 const h = planHarness();
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
@@ -363,29 +371,56 @@ describe("a source's methods share one descriptor (#1352)", () => {
 // ============================================================================
 
 describe("a window read through interval indexes re-renders its readers, never the frame (#1344)", () => {
-    /** Every key search through the jobs' and the shifts' interval indexes, held on its way to e3 until it is let land, in the order asked. */
+    /** A kind's window: the start range and the carry-in ranges at each span — some fifty-five searches. */
+    const isWindow = (count: number) => count > 50;
+    /**
+     * Each batch of key searches through the jobs' and the shifts' interval
+     * indexes — what a window's searches are asked in (#1351) — held on its way
+     * to e3 until it is let land: the jobs' windows' batches, which the frame
+     * waits on, apart from the rest.
+     */
     function holdIntervalSearches() {
         const intervals = new Set<string>([ex.planPrintJobsByTime.name, ex.planPrintJobsByStockTime.name, ex.planPrintShiftsByTime.name]);
-        const held = h.e3.hold((request) => request.kind === "find" && intervals.has(request.query.get("index") ?? ""));
-        /** Lets every held search but the last land, one at a time; then the rest. */
+        const searching = (request: E3Request) => request.kind === "find" && request.method === "POST" && intervals.has(request.query.get("index") ?? "");
+        // The jobs' windows first: a request is held by the first hold that matches it.
+        const jobs = h.e3.hold((request) => searching(request) && request.query.get("index") === ex.planPrintJobsByTime.name && isWindow(request.searches.length));
+        const others = h.e3.hold(searching);
+        /** Each batch asked so far: the index it searches, the lower bound of its first search's last field, and how many searches it asks. */
+        const asked = () => h.requests().filter(searching).map((request) => {
+            const first = request.searches[0];
+            return [request.query.get("index"), first !== undefined && "from" in first ? first.from?.at(-1) : undefined, request.searches.length] as const;
+        });
+        /** Lets every held batch but the jobs' windows' land, one at a time. */
+        const landAllButTheJobs = async () => { while (others.held > 0) { await act(async () => { others.releaseOne(); }); await settle(); } };
         return {
-            get held() { return held.held; },
-            async landAllButOne() { while (held.held > 1) { await act(async () => { held.releaseOne(); }); } await settle(); },
-            async landAll() { while (held.held > 0) { await act(async () => { held.releaseOne(); }); await settle(); } },
+            get held() { return jobs.held + others.held; },
+            asked,
+            /** The batches of the window from a day: each kind's, by the index it searches, and how many searches it asks. */
+            windowFrom: (start: Date) => asked().filter(([, from]) => from === maybeTime(some(start)) || from === time(start)).map(([index, , count]) => [index, count] as const),
+            landAllButTheJobs,
+            /** Lets every held batch land, the jobs' windows' last. */
+            async landAll() {
+                await landAllButTheJobs();
+                while (jobs.held > 0) { await act(async () => { jobs.releaseOne(); }); await settle(); }
+                await landAllButTheJobs();
+            },
         };
     }
 
-    test("each of a window's key searches lands without rendering the frame, which renders once they all have — on the first window, and on the next with a job selected", async () => {
+    test("a kind's window asks its key searches in one request (#1351), and what lands while another kind's window is in flight renders no frame, which renders once they all have — on the first window, and on the next with a job selected", async () => {
         const searches = holdIntervalSearches();
         let renders = 0;
         setPlanFrameRenderProbe(() => { renders += 1; });
         try {
             const { container } = await h.mount(ex.planPrintWorks);
             await settle();
-            // A start range and the carry-in ranges at each span, for the jobs' window and the shifts'.
-            expect(searches.held).toBeGreaterThan(2 * 50);
+            // The jobs' window and the shifts', each in one request, in flight with what else the kinds search.
+            const first = searches.windowFrom(FIRST);
+            expect(first.map(([index]) => index)).toEqual([ex.planPrintJobsByTime.name, ex.planPrintShiftsByTime.name]);
+            expect(first.every(([, count]) => isWindow(count))).toBe(true);
+            expect(searches.held).toBe(searches.asked().length);
             renders = 0;
-            await searches.landAllButOne();
+            await searches.landAllButTheJobs();
             expect(renders).toBe(0);
             await searches.landAll();
             expect(renders).toBeGreaterThan(0);
@@ -393,9 +428,12 @@ describe("a window read through interval indexes re-renders its readers, never t
             // With a job selected, the next window's searches render nothing until they have all landed either.
             await pick(bar(container, "J-1001", "Hall A", "a1"));
             await press(toolbar(container).getByRole("button", { name: "Next day" }));
-            expect(searches.held).toBeGreaterThan(2 * 50);
+            const next = searches.windowFrom(day("10-06"));
+            expect(next.map(([index]) => index)).toEqual([ex.planPrintJobsByTime.name, ex.planPrintShiftsByTime.name]);
+            expect(next.every(([, count]) => isWindow(count))).toBe(true);
+            expect(searches.held).toBeGreaterThan(1);
             renders = 0;
-            await searches.landAllButOne();
+            await searches.landAllButTheJobs();
             expect(renders).toBe(0);
             await searches.landAll();
             expect(renders).toBeGreaterThan(0);
@@ -438,5 +476,158 @@ describe("a filter change rebuilds no builder (#1354)", () => {
         } finally {
             builds.restore();
         }
+    });
+});
+
+// ============================================================================
+// The Backlog never blinks (#1398, ruled 25 Oct 2026)
+// ============================================================================
+
+/** The jobs' key searches through their indexes: what a narrowing's count, and its cards' and its window's reads, ask first. */
+const searchesJobs = (request: E3Request) => request.kind === "find" && request.dataset === JOBS;
+/** The jobs' pages and rows, by their indexes or their keys: what the cards and the window read once their searches land. */
+const readsJobRows = (request: E3Request) => (request.kind === "page" || request.kind === "rows" || request.kind === "runs") && request.dataset === JOBS;
+/**
+ * The Backlog as it reads: its tab's name and count, its cards' names in order, and whether its pane is busy and its
+ * cards retained (CL8) — `true true` while they stand in for a read, `- -` as read.
+ */
+function backlogShown(c: HTMLElement): string {
+    const tab = [...pane(c).querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Backlog"))!;
+    const body = pane(c).querySelector<HTMLElement>('[data-plan-library="backlog"]')!;
+    const cards = [...body.querySelectorAll<HTMLElement>("[data-library-item]")].map((card) => bodyOf(card).children[0]!.textContent);
+    return `${tab.textContent} · ${cards.join(", ")} · ${body.getAttribute("aria-busy") ?? "-"} ${body.getAttribute("aria-disabled") ?? "-"}`;
+}
+/** Every state the Backlog is drawn in from now until `stop`, as each change to the pane leaves it — none twice running. */
+function watchBacklog(c: HTMLElement): { seen: string[]; stop: () => void } {
+    const seen: string[] = [];
+    const note = () => {
+        const now = backlogShown(c);
+        if (seen.at(-1) !== now) seen.push(now);
+    };
+    const observer = new MutationObserver(note);
+    observer.observe(pane(c), { subtree: true, childList: true, characterData: true, attributes: true });
+    note();
+    return { seen, stop: () => observer.disconnect() };
+}
+
+/** Every state the Backlog's tab is drawn in from now until `stop`, anywhere on the page: what a mount draws from its first commit. */
+function watchBacklogTab(): { seen: string[]; stop: () => void } {
+    const seen: string[] = [];
+    const note = () => {
+        const now = [...document.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Backlog"))?.textContent;
+        if (now !== undefined && seen.at(-1) !== now) seen.push(now);
+    };
+    const observer = new MutationObserver(note);
+    observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
+    return { seen, stop: () => { note(); observer.disconnect(); } };
+}
+
+describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
+    test("a cold load with a narrowing restored draws the Backlog's tab counting \"…\" until what the narrowing hides is counted — never a bare \"Backlog\" — then `1 of 8` (#1424, CL13)", async () => {
+        // A reload: the jobs' narrowing — the board stock — restored before the Plan mounts.
+        getStore().write(`${KEY}.job`, encodeState({ where: where(["stock", values(stockOf(variant("board", null)))]), preset: none, resolution: none }));
+        const states = watchBacklogTab();
+        // What the narrowing hides is counted last: every unscheduled job's count — one search of the jobs' time index,
+        // no stock chosen — held on its way to e3 until the cards and their count have landed.
+        const whole = h.e3.hold((request) => request.kind === "find" && request.dataset === JOBS
+            && request.query.get("index") === ex.planPrintJobsByTime.name && request.searches.length === 1);
+        try {
+            const { container } = await h.mount(ex.planPrintWorks);
+            await settle();
+            expect(whole.held).toBeGreaterThan(0);
+            await act(async () => { whole.release(); });
+            await settle();
+            expect(tabs(pane(container))[1]).toBe("Backlog 1 of 8");
+        } finally {
+            states.stop();
+        }
+        expect(states.seen).toEqual(["Backlog …", "Backlog 1 of 8"]);
+    });
+
+    test("a narrowing keeps the Backlog's cards and its count as one, retained while either is read again — its count landing before its cards — and swaps them whole once both have: never a count dropped, never a count over another read's cards", async () => {
+        const { container } = await h.mount(ex.planPrintWorks);
+        await settle();
+        const start = narrowing("job").get("start")!;
+        await narrow("job", where(["start", start], ["stock", values(stockOf(variant("board", null)))]));
+        await openTab(container, "Backlog");
+        const board = "Backlog 1 of 8 · Spare covers · - -";
+        expect(backlogShown(container)).toBe(board);
+        const states = watchBacklog(container);
+        try {
+            // The coated jobs chosen in the board's place, every read of the jobs held: their searches, then their rows.
+            const searches = h.e3.hold(searchesJobs);
+            const rows = h.e3.hold(readsJobRows);
+            await narrow("job", where(["start", start], ["stock", values(stockOf(variant("coated", null)))]));
+            expect(searches.held).toBeGreaterThan(0);
+            const held = "Backlog 1 of 8 · Spare covers · true true";
+            expect(backlogShown(container), "the count and the cards read again").toBe(held);
+            // The searches land: what the choice hides is counted, while the cards' rows are still on their way.
+            await act(async () => { searches.release(); });
+            await settle();
+            expect(rows.held).toBeGreaterThan(0);
+            expect(backlogShown(container), "the count landed, the cards not").toBe(held);
+            await act(async () => { rows.release(); });
+            await settle();
+            // The coated jobs waiting, soonest due first.
+            const coated = "Backlog 4 of 8 · Guide reprint, Winter brochure, Wall calendars, Prospectus · - -";
+            expect(backlogShown(container), "both landed").toBe(coated);
+            // From the board's jobs to the coated, through the board's held: nothing between.
+            expect(states.seen).toEqual([board, held, coated]);
+        } finally {
+            states.stop();
+        }
+    });
+});
+
+// ============================================================================
+// Drafts the window leaves out are read by their keys, once apiece (#1409, R24)
+// ============================================================================
+
+/** A job's row read by its key: the key sought among the record's own entries. */
+const jobByKey = (request: E3Request) => request.kind === "find" && request.dataset === JOBS && request.query.get("index") === null
+    && request.searches.some((search) => "key" in search);
+/** A job's row read on its own: a one-row page of the record's own entries, at the row its key was found at. */
+const jobRowPage = (request: E3Request) => request.kind === "page" && request.dataset === JOBS && request.query.get("index") === null
+    && request.query.get("limit") === "1";
+/** A paged read of any of the works' records: a search, a page, its rows or its runs, a placement or a membership. */
+const pagedRead = (request: E3Request) => ["find", "page", "rows", "runs", "place", "within"].includes(request.kind);
+
+describe("drafts the window leaves out are read by their keys, once apiece (#1409, R24)", () => {
+    test("more drafts than the windows the paging runtime keeps, each of whose rows a step of the dates leaves out, are read by key once apiece — each job's key sought once and its row's one-row page read once — and the reads settle", async () => {
+        // Another planner adds proof runs on the window's first day, more than the runtime keeps windows, a press apiece in turn.
+        const presses = [["Hall A", "a1"], ["Hall A", "a2"], ["Hall A", "a3"], ["Hall B", "b1"], ["Hall B", "b2"], ["Hall B", "b3"]] as const;
+        const added = Array.from({ length: MAX_RETAINED_WINDOWS + 6 }, (_, i) => ({ key: `J-2${String(i).padStart(3, "0")}`, on: presses[i % presses.length]! }));
+        const jobs = new Map(ex.planPrintJobs.default as ReadonlyMap<string, Job>);
+        for (const [i, { key, on }] of added.entries()) {
+            const start = new Date(FIRST.getTime() + i * 45 * 60_000);
+            jobs.set(key, {
+                title: `Proof run ${i + 1}`, start: some(start), end: some(new Date(start.getTime() + 30 * 60_000)), press: some(on[1]),
+                state: variant("confirmed", null), sheets: 4000.0, customer: "Alder & Finch", stock: variant("coated", null), due: none,
+            });
+        }
+        await h.commit(ex.planPrintJobs, jobs);
+        const { container } = await h.mount(ex.planPrintWorks);
+        await settle();
+        // Each picked, Shift adding it to the selection, and all deleted at once: a draft apiece, its row in the window.
+        for (const [i, { key, on }] of added.entries()) await pick(bar(container, key, on[0], on[1]), i > 0);
+        const first = added[0]!;
+        await act(async () => { fireEvent.keyDown(bar(container, first.key, first.on[0], first.on[1])!, { key: "Delete" }); });
+        await settle();
+        expect(added.every(({ key, on }) => bar(container, key, on[0], on[1]) === null)).toBe(true);
+        // A day on: the window leaves the first day, and every draft's row with it, so each is read by its key. Every paged
+        // read is held on its way to e3 and let land a round at a time, so a read asked again is counted, never run on.
+        const reads = h.e3.hold(pagedRead);
+        const from = h.requests().length;
+        await press(toolbar(container).getByRole("button", { name: "Next day" }));
+        for (let round = 0; round < 16 && reads.held > 0; round++) {
+            await act(async () => { for (let n = reads.held; n > 0; n--) reads.releaseOne(); });
+            await settle();
+        }
+        expect(reads.held, "the reads settle: none asked again").toBe(0);
+        const since = h.requests().slice(from);
+        const sought = since.filter(jobByKey).flatMap((request) => request.searches.flatMap((search) => ("key" in search ? [search.key] : [])));
+        expect(sought.sort(), "each draft's key sought once").toEqual(added.map(({ key }) => text(key)).sort());
+        const rowPages = since.filter(jobRowPage).map((request) => Number(request.query.get("offset")));
+        expect([rowPages.length, new Set(rowPages).size], "each draft's row read once").toEqual([added.length, added.length]);
     });
 });

@@ -1,0 +1,97 @@
+<!-- @dsCard group="Components · Collections" name="Allocation · loading" viewport="700x3718" subtitle="A Timeline cold load at its 36 rows · a day step not prefetched: lanes, slots and resources real, bins as the wash, today's load a placeholder within its known min and max · the toolbar's status, issues and Publish slots held · slot bands growing below the row in view · the Table · stale · failed · No bins on …" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css"><link rel="stylesheet" href="loading-parts.css">
+<style>
+.ag{display:grid;grid-template-columns:40px repeat(3,104px) 32px minmax(0,1fr) 68px 68px;background:var(--paper)}
+.ag>*{position:relative;box-sizing:border-box;min-width:0;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.ag>.f{border-left:0}
+.h1{height:36px;display:flex;align-items:center;gap:8px;padding:0 8px;white-space:nowrap}
+.h2{height:28px;display:flex;align-items:center;gap:8px;padding:0 8px;white-space:nowrap}
+.hc{display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--ink-4)}
+.lnm{font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:600;color:var(--ink)}
+.c{height:36px}
+.c.hr{display:flex;align-items:center;justify-content:center}
+.ch2{background:var(--paper-2)}
+.rh{height:36px;display:grid;align-content:center;gap:2px;padding:0 8px;white-space:nowrap}
+.rh .k{font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:600;letter-spacing:0;text-transform:none;color:var(--ink)}
+.wk{height:36px;display:flex;align-items:center;padding:0 4px}
+.wk.today{background:var(--paper-2)}
+.ldb{height:20px;box-sizing:border-box;display:flex;align-items:center;padding:0 4px;border-radius:var(--r-sm);background:var(--teal-500);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;color:var(--paper);white-space:nowrap;overflow:hidden}
+.bin{position:absolute;z-index:2;left:4px;right:4px;box-sizing:border-box;display:grid;gap:0;padding:2px 6px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md);overflow:hidden}
+.bin .t{display:flex;justify-content:space-between;gap:4px;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:600;line-height:14px;color:var(--ink);white-space:nowrap}
+.bin .m{font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:12px;color:var(--ink-4);white-space:nowrap}
+.stl .bin .t{color:var(--ink-3)}
+.ag>.std{border-bottom-style:dashed;border-bottom-color:var(--rule-strong)}
+.tcols{grid-template-columns:minmax(0,1fr) 64px 72px 96px 80px}
+.na{display:grid;gap:8px;padding:12px;background:var(--paper-2)}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">Timeline · cold load</div>
+<div class="it2"><div class="bf" id="cold"></div><div class="cap"><span class="f"><b>cold · first open</b>: BuilderFrame's skeleton at the Timeline's own geometry, 36 lane-hour and resource rows, in place of 12 rows of 40</span> · <span class="f">every toolbar slot drawn at its footprint: status, issues and Publish held from the start</span> · <span class="f">lane heads, hours, the link channel and the legend real; the lane-hour cells take the wash; resource rows bars and rects</span> · <span class="f">the footer line carries the only pulse; swaps all at once when the first complete read lands</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Timeline · a day step not prefetched, Tue 11 → Wed 12 May</div>
+<div class="it2"><div class="bf" id="tl"></div><div class="cap"><span class="f"><b>unread · day</b> (today: the whole frame, toolbar included, under a 12 × 40 px skeleton)</span> · <span class="f">no cover: lanes, slot times, hours, the link channel and resources real; each lane head's "N bins · Q m³" a short bar</span> · <span class="f">each lane-hour cell takes the wash: no bin shape</span> · <span class="f">resource rows, weeks, weekends and prior jobs real; today's load a rect within its known min and max</span> · <span class="f"><b>status, issues and Publish hold their slots</b> from cold load, so the toolbar doesn't shift when the day lands</span></div></div>
+<div class="it2"><div class="bf rel" id="tl2"></div><div class="cap"><span class="f"><b>landed · growth below</b>: slot 01 holds two bins and grows to two rows</span> · <span class="f">00, the row in view, holds (the guide); 02 and on move down; the resources don't move</span> · <span class="f">the lane and resource offsets hold across a day change</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Table · real heads and bands</div>
+<div class="it2"><div class="bf" id="tbl"></div><div class="cap"><span class="f"><b>unread · table</b>: heads and bands real; each band's badge the Count's rect</span> · <span class="f">one placeholder row per band, growing below the row in view as its rows land</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Stale · a narrowing in flight</div>
+<div class="it2"><div class="bf" id="stl"></div><div class="cap"><span class="f"><b>stale</b>: the bins stay in their cells, --ink-3, the cells' rules dashed; drag and drop off</span> · <span class="f">"Filtering bins…" in the footer line</span> · <span class="f">the toolbar keeps every landed item, folded as the code folds it at this width: the rail to its icon and count, then the status chip (HOST_RANK); the segments, issues and Publish stay</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Failed · Retry</div>
+<div class="it2"><div class="bf" id="fl"></div><div class="cap"><span class="f"><b>failed · a day step</b>: lanes, hours, the link channel and rules stay; the lane heads' figures, the lane-hour cells and today's load blank</span> · <span class="f">the reason and Retry said once, as one line in the first row in view, across hour 00's lane cells: the Sheet's failed line; the link channel and resources untouched; the footer line carries the same reason with Retry</span> · <span class="f">status held and pending; Publish disabled</span> · <span class="f">a failed refresh keeps the bins on screen, solid, with the same line</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Empty · a started day with no bins</div>
+<div class="it2"><div class="bf" id="em"></div><div class="cap"><span class="f"><b>empty</b>: only after the day's read completes</span> · <span class="f">layer 1 whole: hours, the link channel, resources and the lane heads' "0 bins"</span> · <span class="f">"No bins on Wed 12 May · Drag an arrival onto a lane hour" said once, in hour 00's lane cells, the failed line's slot: one line, never a cut word, on the footer's rule</span> · <span class="f">at this card's width the hint drops whole, leaving "No bins on Wed 12 May" with its ☐ glyph; on a wider frame the line reads in full</span> · <span class="f">"No rows match the filters" only when a narrowing hides rows, never with zero resources and no filter</span> · <span class="f">0 issues: the issues slot stays held, empty, so status and Publish don't move</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Narrow · cards, at 360</div>
+<div class="duo">
+<div class="it2"><div class="bf" style="width:100%" id="n1"></div><div class="cap"><span class="f"><b>unread · cards</b>: titles real; contents placeholders</span></div></div>
+<div class="it2"><div class="cap" style="padding-top:8px">The narrow layout draws its own layer 1 and placeholders from the same read; crossing the breakpoint mid-load doesn't restart it.</div></div>
+</div>
+</div>
+</div>
+<div class="pl">&lt;Loading&gt; · state cold|unread|stale|failed|empty · density comfortable|compact|condensed · content text|number|date|boolean|chip|link|enum|label|aggregate|card · line idle|range|period|filtering|failed|narrow</div>
+<div class="ann"><b>&lt;Allocation&gt; · Timeline · Table · LoadingWash · BuilderFrame busy</b> · <span class="f">cold: the skeleton at the 36 rows, toolbar slots at their footprints, lane-hour cells washed</span> · <span class="f">no BuilderFrame.loading after cold load</span> · <span class="f">lanes, every, slot times, the link channel, resources, arrivals and bands real</span> · <span class="f">lane head "N bins · Q m³" an 8 bar</span> · <span class="f">slot bands one 36 row each until bins land, then grow below the row in view</span> · <span class="f">lane-hour cells washed</span> · <span class="f">resource rows 36 real; today's load a 20 rect, --r-sm, within min–max</span> · <span class="f">table bands real, badges 24 × 16 rects, one placeholder row each</span> · <span class="f">toolbar: status a dot + 8 bar, issues 24 rect, Publish 32 rect, held from cold load</span> · <span class="f">footer: Loading Wed 12 May · Filtering bins… · Couldn't read Wed 12 May · Retry</span> · <span class="f">failed: one line in the first row in view, across its lane cells: circle-exclamation --neg, the reason 13 --ink, the sm Default Retry; today's load blank</span> · <span class="f">empty: layer 1 whole; "No bins on Wed 12 May · Drag an arrival onto a lane hour" once, in the failed line's slot, ☐ glyph; one line: the hint shows only when the whole line fits in the lane cells, else it drops whole, kept for screen readers</span></div>
+<script src="loading-parts.js"></script>
+<script>
+(()=>{const {I,N,W,bar,chip,rect,cnt,leg,line,foot,tb,it,seg,nav,sum,stt,iss,pub,flt,held,$}=L;
+const LG=leg([['Bin','sw mu'],['Draft','sw dh'],["Today's load",'sw s2'],['Prior job','sw mu'],['Next job','sw dh'],['Overlap','sw dw'],['Link','sw tk']]);
+const TB=(o={})=>tb([it(flt()),it(seg(['Table','Timeline'],o.v==null?1:o.v)),it(nav('Wed, May 12')),it(o.c||'','end'),it(o.s||held.stt()),it(o.i||held.iss()),it(o.p||held.pub())]);
+const lanes=[['B-1',':15'],['B-2',':35'],['B-3',':55']],res=[['K-101','31 m³ · takes 16–32'],['K-102','27 m³ · takes 16–32'],['K-103','Hall A · 32 m³'],['K-104','Hall A · 32 m³'],['K-105','32 m³ · takes 16–32'],['K-106','20 m³ · takes 12–24']];
+const head=(l2)=>`<span class="h1 f"><span class="hk">Lane</span></span>${lanes.map(l=>`<span class="h1"><span class="lnm">${l[0]}</span><span class="mt9">at ${l[1]}</span></span>`).join('')}<span class="h1 hc">${I('link')}</span><span class="h1"><span class="hk">Week</span></span><span class="h1"><span class="hk">W18</span></span><span class="h1"><span class="hk">W19</span></span>
+<span class="h2 f"><span class="hk">Hour</span></span>${l2.map(x=>`<span class="h2">${x}</span>`).join('')}<span class="h2"></span><span class="h2"><span class="hk">Resource</span></span><span class="h2"></span><span class="h2 today"><span class="mt9">Wed 12</span></span>`;
+const prior=[1,0,0,0,1,0],load=[[31,24],[27,20],[0,0],[0,0],[32,24],[20,16]];
+const rcell=(i,ph,nl)=>`<span class="rh"><span class="k">${res[i][0]}</span><span class="mt9">${res[i][1]}</span></span><span class="wk">${prior[i]?`<span class="ch">C-314${i}</span>`:''}</span><span class="wk today">${!nl&&load[i][0]?(ph?rect(load[i][1]*2,20,1):`<span class="ldb" style="width:${load[i][1]*2}px">${load[i][0]} m³</span>`):''}</span>`;
+const hourRow=(h,i,cells,cls,nl)=>`<span class="c hr f${cls||''}"><span class="mt9" style="font-size:var(--fs-label-sm)">${String(h).padStart(2,'0')}</span></span>${cells}<span class="c ch2${cls||''}"></span>${i<res.length?rcell(i,cls===' ph',nl):'<span></span><span></span><span></span>'}`;
+const wash='<span class="c"><i class="wl wash" style="inset:0"></i></span>';
+const coldRow=i=>`<span class="c hr f"><span class="mt9" style="font-size:var(--fs-label-sm)">${String(i).padStart(2,'0')}</span></span>${wash+wash+wash}<span class="c ch2"></span><span class="rh">${bar(W(40,i))}${bar(W(88,i+1),8)}</span><span class="wk">${chip(48)}</span><span class="wk today">${rect(40,20,1)}</span>`;
+$('cold',tb([it(rect(28,22,1)),it(rect(139,24)),it(rect(159,24)),it('','end'),it(held.stt()),it(held.iss()),it(held.pub())])+`<div class="ag" aria-hidden="true">${head(lanes.map(()=>bar(80,8)))}${N(6,coldRow)}</div>`+foot(LG,line('load','Loading <b>Wed 12 May</b>')));
+$('tl',TB()+`<div class="ag" aria-busy="true">${head(lanes.map(()=>bar(80,8)))}${N(6,i=>hourRow(i,i,wash+wash+wash,' ph'))}</div>`.replace(/ ph"/g,'"')+foot(LG,line('load','Loading <b>Wed 12 May</b>')));
+const bin=(t,v,to,top)=>`<span class="bin" style="top:${top||3}px;height:30px"><span class="t"><span>${t}</span><span>${v} m³</span></span><span class="m">→ ${to}</span></span>`;
+const cellB=b=>`<span class="c"${b&&b.h?` style="height:${b.h}px"`:''}>${b?b.html:''}</span>`;
+const rowsL=[[null,null,null],[null,null,{h:72,html:bin('LD-2201','35','K-209')+bin('LD-2202','27','K-102',39)}],[{html:bin('LD-2203','24','K-109')},null,null],[{html:bin('LD-2204','47','K-501')},null,null],[null,{html:bin('LD-2205','1','K-304')},null]];
+const lrow=(h,c,cls)=>{const ht=Math.max(...c.map(x=>x&&x.h||36));return `<span class="c hr f${cls||''}" style="height:${ht}px"><span class="mt9" style="font-size:var(--fs-label-sm)">${String(h).padStart(2,'0')}</span></span>${c.map(x=>`<span class="c${cls||''}" style="height:${ht}px">${x?x.html:''}</span>`).join('')}<span class="c ch2${cls||''}" style="height:${ht}px"></span>`;};
+const lanesOnly=(cls)=>`<div class="ag" style="grid-template-columns:40px repeat(3,104px) 32px"><span class="h1 f"><span class="hk">Lane</span></span>${lanes.map(l=>`<span class="h1"><span class="lnm">${l[0]}</span><span class="mt9">at ${l[1]}</span></span>`).join('')}<span class="h1 hc">${I('link')}</span><span class="h2 f"><span class="hk">Hour</span></span><span class="h2"><span class="mt9">7 bins · 131 m³</span></span><span class="h2"><span class="mt9">11 bins · 242 m³</span></span><span class="h2"><span class="mt9">8 bins · 183 m³</span></span><span class="h2"></span>${rowsL.map((r,i)=>lrow(i,r,cls)).join('')}</div>`;
+const resOnly=(ph)=>`<div class="ag" style="grid-template-columns:minmax(0,1fr) 68px 68px"><span class="h1 f"><span class="hk">Week</span></span><span class="h1"><span class="hk">W18</span></span><span class="h1"><span class="hk">W19</span></span><span class="h2 f"><span class="hk">Resource</span></span><span class="h2"></span><span class="h2 today"><span class="mt9">Wed 12</span></span>${N(6,i=>rcell(i,ph).replace('class="rh"','class="rh f"'))}</div>`;
+$('tl2',TB({s:stt('Draft'),i:iss(3),p:pub()})+`<div class="vw" style="position:relative"><div style="flex:none;width:385px;border-right:1px solid var(--rule)">${lanesOnly('')}</div><div class="main">${resOnly(0)}</div><i class="guide" style="top:65px"></i></div>`+foot(LG));
+const band=(t)=>`<div class="tr cols tcols" style="background:var(--paper)"><span><span class="chev open">${I('angle-right')}</span><span class="gk">${t}</span>${cnt()}</span><span></span><span></span><span></span><span></span></div>`;
+const prw=i=>`<div class="tr tcols" aria-hidden="true"><span>${bar(W(64,i))}</span><span>${bar(28)}</span><span>${bar(40)}</span><span>${bar(48)}</span><span class="r">${bar(32)}</span></div>`;
+$('tbl',TB({v:0})+`<div class="tr th tcols"><span>Bin</span><span>Lane</span><span>Slot</span><span>Resource</span><span class="r">Volume</span></div>${band('Overdue')}${prw(0)}${band('Ready around now')}${prw(1)}${band('Allocated')}${prw(2)}`+foot(LG,line('load','Loading <b>Wed 12 May</b>')));
+const railIcon=(n,t)=>`<span class="tg" role="button" aria-haspopup="dialog" aria-expanded="false"><span class="ch br" title="${t}" data-rail-rung="icon">${I('filter','ic')}<span>${n}</span></span>${I('chevron-down','cr')}</span>`;
+$('stl',tb([it(railIcon(1,'MC12')),it(seg(['Table','Timeline'],1)),it(nav('Wed, May 12')),it(sum('<b>…</b> of 26 bins'),'end'),it(iss(3)),it(pub())])+`<div class="vw stl"><div style="flex:none;width:385px;border-right:1px solid var(--rule)">${lanesOnly(' std')}</div><div class="main">${resOnly(0)}</div></div>`+foot(LG,line('load','Filtering bins…')));
+const blank='<span class="c"></span>',span3=h=>`<span class="c" style="grid-column:2/5;display:flex;align-items:center;padding:0 8px">${h}</span>`;
+$('fl',TB({i:'<span style="display:inline-block;width:44px"></span>',p:pub(1)})+`<div class="ag">${head(lanes.map(()=>''))}${hourRow(0,0,span3(`<span class="fail">${I('circle-exclamation')}<span class="msg">Couldn't read <span class="num">Wed 12 May</span></span><span class="bt" role="button" aria-label="Retry Wed 12 May">Retry</span></span>`),'',1)}${N(3,i=>hourRow(i+1,i+1,blank+blank+blank,'',1))}</div>`+foot(LG,line('err','Couldn\'t read <b>Wed 12 May</b>')));
+$('em',TB({s:stt('Draft'),i:'<span style="display:inline-block;width:44px"></span>',p:pub()})+`<div class="ag">${head(lanes.map(()=>'<span class="mt9">0 bins</span>'))}${hourRow(0,0,span3(`<span class="fail"><span class="gy">☐</span><span class="msg">No bins on <span class="num">Wed 12 May</span><span class="opt"> · Drag an arrival onto a lane hour</span></span></span>`))}${N(3,i=>hourRow(i+1,i+1,blank+blank+blank))}</div>`+foot(LG));
+const card=(t,n)=>`<div class="ic"><div class="icb"><div class="ihd"><div class="l20"><span class="itt">${t}</span></div><div class="l16">${bar(88,8)}</div></div>${N(n,()=>rect(100,30).replace('width:100px','width:100%'))}</div></div>`;
+$('n1',tb([it(nav('Wed, May 12')),it(held.pub(),'end')]).replace('class="band"','class="band" style="padding:0 12px"')+`<div class="na">${card('B-1 · 01:15',1)}${card('B-2 · 02:35',2)}</div>`+foot('',line('load','Loading…')));
+})();
+</script>
+</body></html>

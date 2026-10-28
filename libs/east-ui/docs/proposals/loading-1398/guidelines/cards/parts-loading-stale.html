@@ -1,0 +1,59 @@
+<!-- @dsCard group="Parts · Loading" name="Loading · retained" viewport="700x1734" subtitle="Rows and cells kept through a narrowing or a revision re-read, in the stale state, editing off · the toolbar count and the footer line meanwhile · how it lifts at the swap, the anchor row held" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css"><link rel="stylesheet" href="loading-parts.css">
+<style>
+.cols{grid-template-columns:46px minmax(0,1fr) 120px 112px 72px}
+.mcols{grid-template-columns:minmax(0,1fr) 64px}
+.rp{grid-template-columns:128px repeat(4,minmax(0,1fr))}
+.rp>.rc{position:relative;height:52px;box-sizing:border-box;display:flex;align-items:center;min-width:0;padding:0 8px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.rp>.rn{height:52px;box-sizing:border-box;display:flex;align-items:center;padding:0 12px 0 20px;border-bottom:1px solid var(--rule);font-size:var(--fs-body);font-weight:600;color:var(--ink);white-space:nowrap}
+.rp>.st2{border-bottom-style:dashed;border-bottom-color:var(--rule-strong)}
+.rp>.st2.rn{color:var(--ink-3)}
+.rel{position:relative}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">Narrowing · the previous result stays until the new one lands</div>
+<div class="it2"><div class="bf rel" id="n1"></div><div class="cap"><span class="f"><b>stale · narrowing in flight</b>: a filter was just added</span> · <span class="f">the rows from before stay, in the Row card's stale state: dashed --rule-strong rules, --ink-3</span> · <span class="f">editing, drag and drop off; selection and its fill are kept</span> · <span class="f">the toolbar's count already shows the new figure; "…" until the count lands</span> · <span class="f">the footer line says "Filtering work orders…"</span></div></div>
+<div class="it2"><div class="bf rel" id="n2"></div><div class="cap"><span class="f"><b>lifted · the swap</b>: the new result's first window lands in one commit</span> · <span class="f">rules go solid and ink returns with it: nothing fades, nothing slides</span> · <span class="f">WO-10450 survived the narrowing, so it keeps its offset, by key (the dashed guide); had it gone, the view would go to the top</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Revision re-read · Save, another session's commit, a refresh</div>
+<div class="trio" id="rv"></div>
+<div class="cap"><span class="f">the current rows stand in: no placeholder, and no stale mark unless the wait passes 150 ms</span> · <span class="f">values update in place, row by row; rows added or removed go below the anchor</span></div>
+</div>
+<div class="sec">
+<div class="k">Cells · a grid and a canvas keep what they had</div>
+<div class="it2"><div class="bf" id="rs"></div><div class="cap"><span class="f"><b>stale · roster cells</b>: a narrowing of the People view</span> · <span class="f">each retained row's rule dashed, names and duties --ink-3</span> · <span class="f">chip and card edges keep their own meaning: Requested and Open stay dashed, the rest solid</span> · <span class="f">"Off · assign" disabled while pending</span></div></div>
+<div class="it2"><div class="bf" id="ms"></div><div class="cap"><span class="f"><b>stale · month cells</b>: the same month, narrowed</span> · <span class="f">the cells' rules dashed, chips --ink-3, "+N more" kept</span> · <span class="f">retained content is only ever kept under its own labels: a period step never shows it</span></div></div>
+</div>
+</div>
+<div class="pl">&lt;Loading&gt; · state cold|unread|stale|failed|empty · density comfortable|compact|condensed · content text|number|date|boolean|chip|link|enum|label|aggregate|card · line idle|range|period|filtering|failed|narrow</div>
+<div class="ann"><b>Row · state stale · retained cells and items (proposed)</b> · <span class="f">rows: the Row card's stale, dashed 1px --rule-strong top and bottom, text --ink-3</span> · <span class="f">grids and canvases: the rules of each retained row or cell dashed --rule-strong, its text --ink-3; item edges unchanged</span> · <span class="f">editing, drag and drop off, aria-disabled; selection kept</span> · <span class="f">the region aria-busy</span> · <span class="f">the toolbar count: the new figure once known, "…" before</span> · <span class="f">footer line: Filtering {noun}…</span> · <span class="f">lifts in the commit that lands the result, no transition</span> · <span class="f">anchor kept by key when it survives, else top</span> · <span class="f">a revision re-read marks nothing within 150 ms</span></div>
+<script src="loading-parts.js"></script>
+<script>
+(()=>{const {I,N,leg,line,foot,tb,it,flt,sum,hist,stt,$}=L;
+const H=`<div class="tr th cols"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select all"></span></span><span>Work order</span><span>Job</span><span>Status</span><span class="r">Qty</span></div>`;
+const R=(r,o={})=>`<div class="tr cols${o.st?' stale':''}${o.sel?' sel':''}"${o.st?' aria-disabled="true"':''}><span><span class="cb${o.sel?' on':''}" role="checkbox" aria-checked="${!!o.sel}" aria-label="Select ${r[0]}"></span></span><span class="n">${r[0]}</span><span>${r[1]}</span><span>${stt(r[2],r[3])}</span><span class="r n">${r[4]}</span></div>`;
+const A=[['WO-10360','Cut panels','Ready','pos','100'],['WO-10450','Inspect','Ready','pos','1,900'],['WO-10540','Cut panels','Scheduled','neu','1,300'],['WO-10630','Inspect','Ready','pos','700'],['WO-10720','Cut panels','Ready','pos','100']];
+const B=[['WO-10450','Inspect','Ready','pos','1,900'],['WO-10990','Inspect','Ready','pos','700'],['WO-11170','Inspect','Ready','pos','1,900'],['WO-11350','Inspect','Ready','pos','700']];
+const T=c=>tb([it(flt('Job = Inspect')),it(sum(c)),it(hist(),'end')]);
+const F=(l)=>foot('<span class="hn"><span class="kbd">⏎</span>edit</span><span>·</span><span class="hn"><span class="kbd">esc</span>cancel</span>',l);
+$('n1',T('<b>…</b> of 50,000 rows')+`<div>${H}${R(A[0],{st:1})}${R(A[1],{st:1,sel:1})}${R(A[2],{st:1})}${R(A[3],{st:1})}${R(A[4],{st:1})}</div>`+F(line('load','Filtering work orders…'))+'<i class="guide" style="top:117px"></i>');
+$('n2',T('<b>1,204</b> of 50,000 rows')+`<div>${H}${R(['WO-10270','Inspect','Ready','pos','700'])}${R(B[0],{sel:1})}${R(B[1])}${R(B[2])}${R(B[3])}</div>`+F(line('idle'))+'<i class="guide" style="top:117px"></i>');
+const mh=`<div class="tr th mcols c32"><span>Work order</span><span class="r">Qty</span></div>`;
+const mr=(a,b,st)=>`<div class="tr mcols c32${st?' stale':''}"><span class="n">${a}</span><span class="r n">${b}</span></div>`;
+$('rv',`<div class="it2"><div class="bf">${mh}${mr('WO-10450','1,900')}${mr('WO-10540','1,300')}${mr('WO-10630','700')}</div><div class="cap"><b>within 150 ms</b> · unchanged, unmarked</div></div><div class="it2"><div class="bf">${mh}${mr('WO-10450','1,900',1)}${mr('WO-10540','1,300',1)}${mr('WO-10630','700',1)}</div><div class="cap"><b>past 150 ms · stale</b> · and the footer line</div></div><div class="it2"><div class="bf">${mh}${mr('WO-10450','1,900')}${mr('WO-10540','1,400')}${mr('WO-10630','700')}</div><div class="cap"><b>landed</b> · 1,300 → 1,400 in place</div></div>`);
+const days=['Wed 15','Thu 16','Fri 17','Sat 18'];
+const duty=(s,d)=>`<span class="ch"><span class="me">${s}</span>${d}</span>`;
+const off='<span class="bt md dis" role="button" aria-disabled="true">Off · assign</span>';
+const ppl=[['A. Alder',[duty('SV','E'),off,duty('SV','E'),off]],['B. Lupin',[duty('SV','N'),duty('SV','N'),duty('SV','N'),off]],['H. Grove',[off,duty('SV','L'),off,'<span class="ch" style="border-style:dashed"><span class="me">REQ</span>L</span>']]];
+let g=`<div class="mw rp"><span class="chd" style="border-left:0;padding-left:20px"><span class="hk">People · week</span></span>${days.map(d=>`<span class="chd"><span class="hk">${d}</span></span>`).join('')}`;
+ppl.forEach(p=>{g+=`<span class="rn st2">${p[0]}</span>${p[1].map(c=>`<span class="rc st2 stl">${c}</span>`).join('')}`;});
+const railIcon=(n,t)=>`<span class="tg" role="button" aria-haspopup="dialog" aria-expanded="false"><span class="ch br" title="${t}" data-rail-rung="icon">${I('filter','ic')}<span>${n}</span></span>${I('chevron-down','cr')}</span>`;
+const view=ic=>`<span class="ch cp" role="button" aria-haspopup="menu" data-slot="segMenu">${I(ic,'ic')}<span>View</span>${I('chevron-down','cr')}</span>`;
+$('rs',tb([it(railIcon(1,'Inbound')),it(view('calendar-week')),it(L.nav('W11 · Mar 12 – 18')),it(sum('<b>…</b> of 500 people'),'end'),it(L.iss(20)),it(L.pub())])+g+'</div>'+foot(leg([['Permanent','sw'],['Agency staff','sw s2'],['Requested','sw dh'],['Open','sw dw'],['Hours needed','sw tk']]),line('load','Filtering people…')));
+const md=[['5',['Production run · press A','Production run · press B'],'+31 more'],['6',null],['7',['Production run · press A','Production run · press B'],'+31 more'],['8',['Production run · press A','Production run · press B'],'+31 more'],['9',null],['10',['Production run · press A','Production run · press B'],'+31 more'],['11',['Weekend prep']]];
+$('ms',L.month(md.map(d=>({n:d[0],chips:d[1],more:d[2],stl:1})))+foot(leg([['Job','']]),line('load','Filtering jobs…')));
+})();
+</script>
+</body></html>

@@ -156,8 +156,19 @@ for (const theme of ["light", "dark"] as const) {
                     if (t.right > box.right + 1 || t.left < box.left - 1) faults.push("table leaves the frame");
                     const pane = table.querySelector("[data-virtual-rows]") as HTMLElement | null;
                     if (pane !== null && pane.getBoundingClientRect().right > t.right + 1) faults.push("the pane leaves the table");
+                    // Every row holds its cells, the column heads too: a row as wide as its tracks need, never a cell past its
+                    // edge, its rule and its hover under every cell — and each band as wide as the rows it heads.
+                    const head = table.querySelector("[data-allocation-table-head]")!.getBoundingClientRect();
+                    for (const row of table.querySelectorAll("[data-allocation-table-head], [data-allocation-row], [data-allocation-unread-row]")) {
+                        const r = row.getBoundingClientRect(), last = row.lastElementChild?.getBoundingClientRect();
+                        if (last !== undefined && last.right > r.right + 1) faults.push(`a cell leaves its row by ${Math.round(last.right - r.right)}px`);
+                    }
+                    for (const band of table.querySelectorAll("[data-allocation-band]")) {
+                        const b = band.getBoundingClientRect();
+                        if (Math.abs(b.right - head.right) > 1 || Math.abs(b.left - head.left) > 1) faults.push("a band is not as wide as the rows");
+                    }
                 }
-                return faults;
+                return [...new Set(faults)];
             });
             expect(at, `${width}px`).toEqual([]);
             expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${width}px page`).toBeLessThanOrEqual(0);

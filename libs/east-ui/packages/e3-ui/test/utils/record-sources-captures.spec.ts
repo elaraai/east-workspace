@@ -5,7 +5,7 @@
 /**
  * A builder reads its sources through `recordSources(…).bind($)` (#1356):
  * across every example — the Allocation's, the Roster's, the Calendar's, the
- * Plan's, the Sheet's and the Flowchart's among them — no function captures
+ * Plan's, the Sheet's, the Flowchart's and the Schematic's among them — no function captures
  * the whole slice. A function captures what it reads, and beast2 writes a
  * captured value wherever a function holding it is written, so one that read
  * through the slice would carry every source's methods. A capture is the whole
@@ -21,7 +21,7 @@ import { fromEastTypeValue, isTypeEqual, walkIR, type EastType, type EastTypeVal
 import { RecordSlicesBindType, RecordSlicesHandleType } from "@elaraai/east-ui/internal";
 
 /** The builders whose `slice` is one `Slice.bindRecords`, by the folder their examples are in. */
-const BUILDERS = ["allocation", "roster", "calendar", "plan", "sheet", "flowchart"];
+const BUILDERS = ["allocation", "roster", "calendar", "plan", "sheet", "flowchart", "schematic"];
 
 /** Every example of the package: its module, by its path under the tests, its name, and its program. */
 const root = new URL("../", import.meta.url);

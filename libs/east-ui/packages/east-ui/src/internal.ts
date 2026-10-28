@@ -92,13 +92,14 @@ export { Badge, Tag, Avatar, Image, Stat, Icon, MetricChip, EditableChip, Kbd, M
 // takes, and the build-time refusal of another, which e3-ui's builders share.
 export { SOLID_PREFIX, refuseNonSolid, type SolidIconPrefix } from "./display/icon/solid.js";
 export { Card } from "./container/index.js";
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Schematic, Map, Blend } from "./collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Map, Blend } from "./collections/index.js";
 // The chart layer builders' TS faces and the spec vocabulary a composite
 // consumes Chart layers through — e3-ui's Plan reads them as data (#1177).
 export { Chart, type AxisOptions, type ChartLayer, type RefLineOptions, type RefBandOptions, type RefDotOptions } from "./charts/chart/index.js";
 export { ChartXType, ChartDomainType, ChartTickValuesType } from "./charts/spec/index.js";
 export { MatrixFillType, type MatrixFillLiteral } from "./collections/matrix/types.js";
 export { ColorSchemeType, type ColorSchemeLiteral } from "./style/scheme.js";
+export { ColorTokenType, ColorShadeType, COLOR_HUES, COLOR_SHADES, type ColorHueLiteral, type ColorShadeLiteral } from "./style/color.js";
 export { ValueFormatType } from "./contracts/format.js";
 export { Sparkline } from "./charts/index.js";
 export { Accordion, Carousel, Collapsible, Disclosure, OptionList, SegmentGroup, Story, Tabs } from "./disclosure/index.js";
@@ -128,6 +129,8 @@ export * from "./platform/slice/record-types.js";
 export * from "./platform/slice/record-chrome.js";
 export { RecordSliceRailComponent } from "./slice/record/index.js";
 export * from "./platform/slice/record-plan.js";
+export * from "./platform/slice/record-area.js";
+export * from "./platform/slice/record-series.js";
 export * from "./platform/slice/record.js";
 export * from "./platform/slice/record-sources.js";
 export * from "./runtime/record-slice-source.js";
@@ -151,7 +154,7 @@ export * from "./layout/box/types.js";
 export * from "./layout/stack/types.js";
 export * from "./shared/plot-gutter.js";
 // The mapper reification e3-ui's factories share with these (the Flowchart's
-// table mappers, #1243).
+// table mappers, #1243, and the Schematic's, #1384).
 export { reifyAccessor, mapRows } from "./shared/reify.js";
 export { resolveTag } from "./shared/resolve-tag.js";
 export * from "./layout/grid/types.js";

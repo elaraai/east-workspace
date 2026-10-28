@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -22,17 +23,19 @@ export default defineConfig(({ command }) => {
         e3TestDir: path.resolve(__dirname, '../e3-ui/test'),
         rootDir: __dirname,
       }),
-      /* The showcase's e3 package (#849): every e3-ui example module's e3
-       * definitions, exported with the real SDK by e3-ui's examples' package
-       * step (`@elaraai/e3-ui/examples-package`, #1375) — served at
-       * `/e3-showcase.zip` by the dev server, and emitted by the build named
-       * by its content (`assets/e3-showcase-<hash>.zip`), the bundle carrying
-       * its URL (`virtual:e3-showcase-package`) — which the e3 the page runs
-       * (`showcase-e3.ts`) imports as it starts. The page imports it once, so
-       * an e3-ui change reaches it through the zip built again and a reload:
-       * the plugin reloads the page when e3-ui's `dist/` or `test/` changes
-       * (an example module reloads rather than updating in place). The React
-       * renderer (`e3-ui-components`) keeps Fast Refresh. */
+      /* The showcase's e3 packages (#849, #1397): an area's — the e3 examples
+       * of one category — holding what its examples read, exported with the
+       * real SDK by e3-ui's examples' package step
+       * (`@elaraai/e3-ui/examples-package`, #1375) — each served at
+       * `/e3-showcase-<area>.zip` by the dev server, and emitted by the build
+       * named by its content (`assets/e3-showcase-<area>-<hash>.zip`), the
+       * bundle carrying their URLs (`virtual:e3-showcase-packages`) — which
+       * the e3 the page runs (`showcase-e3.ts`) deploys into the area's
+       * workspace the first time one of its examples shows. The page deploys
+       * each once, so an e3-ui change reaches it through the zips built again
+       * and a reload: the plugin reloads the page when e3-ui's `dist/` or
+       * `test/` changes (an example module reloads rather than updating in
+       * place). The React renderer (`e3-ui-components`) keeps Fast Refresh. */
       e3ShowcasePlugin({
         e3UiDir: path.resolve(__dirname, '../e3-ui'),
       }),
@@ -85,9 +88,40 @@ export default defineConfig(({ command }) => {
                 find: /^@elaraai\/east-ui-components\/platform$/,
                 replacement: path.resolve(__dirname, '../east-ui-components/src/platform.ts'),
               },
+              /* The renderer's internals (`/internal`), which e3-ui-components
+               * reaches for the record Slice's placement, the virtual rows and
+               * the pick hand-off, to the same source as the bare entry: `dist/`'s
+               * would be a second copy of the record Slice registry, so a binding
+               * made through the bare entry was found by no lens (#1443). The
+               * showcase's `tests/tooling/dev-aliases.spec.ts` holds every
+               * subpath the page imports to this. */
+              {
+                find: /^@elaraai\/east-ui-components\/internal$/,
+                replacement: path.resolve(__dirname, '../east-ui-components/src/internal.ts'),
+              },
               {
                 find: /^@elaraai\/east-ui$/,
                 replacement: path.resolve(__dirname, '../east-ui/src/index.ts'),
+              },
+              /* The IR's internal entry must resolve to source with the bare
+               * one: e3-ui reads `Fields`' hints through the bare entry and
+               * checks them through `fieldSpecs` of `/internal`, and a split
+               * — source for one, `dist/` for the other — brands a hint with
+               * one copy's symbol and checks it with the other's ("its hint
+               * is one of Fields' hints"). */
+              {
+                find: /^@elaraai\/east-ui\/internal$/,
+                replacement: path.resolve(__dirname, '../east-ui/src/internal.ts'),
+              },
+              /* The JSX runtimes the examples' pragmas import, to source with
+               * the rest: `dist/`'s would be a third copy of the IR. */
+              {
+                find: /^@elaraai\/east-ui\/jsx(-dev)?-runtime$/,
+                replacement: path.resolve(__dirname, '../east-ui/src/runtime/runtime.ts'),
+              },
+              {
+                find: /^@elaraai\/e3-ui\/jsx(-dev)?-runtime$/,
+                replacement: path.resolve(__dirname, '../e3-ui/src/runtime/runtime.ts'),
               },
               {
                 find: /^@elaraai\/e3-ui-components$/,
@@ -156,6 +190,14 @@ export default defineConfig(({ command }) => {
     server: {
       port: 3000,
       host: true,
+      /* Served over TLS when a certificate is given (`SHOWCASE_HTTPS_CERT` and
+       * `SHOWCASE_HTTPS_KEY`, PEM files): a browser on another machine treats
+       * only `localhost` as a secure context, and the e3 the page runs needs
+       * one — its workers, its storage and `crypto.subtle`. A self-signed
+       * certificate the browser is told to accept is enough. */
+      ...(process.env.SHOWCASE_HTTPS_CERT !== undefined && process.env.SHOWCASE_HTTPS_KEY !== undefined
+        ? { https: { cert: fs.readFileSync(process.env.SHOWCASE_HTTPS_CERT), key: fs.readFileSync(process.env.SHOWCASE_HTTPS_KEY) } }
+        : {}),
       /* pnpm hoists fontsource woff2 payloads to the workspace-root
        * `node_modules/.pnpm/...` tree, which sits above the package root.
        * Vite's fs.allow check rejects that path by default — extend to the

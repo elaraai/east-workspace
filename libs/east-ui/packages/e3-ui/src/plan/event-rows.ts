@@ -52,22 +52,33 @@
  * Unassigned row: whether the kind has its resource would take every window
  * to know, so an event naming a resource it has not draws nowhere.
  *
+ * A paged kind its Plan's slice names a source after takes its windows from
+ * that source's narrowed rows themselves (#1344): the narrowing's rows, paged
+ * in the source's index's order, as the `rows` source gives the canvas its
+ * rows — never a window of every resource filtered by the keys the source
+ * shows. Its count is the narrowing's, its keys come in the order its rows
+ * draw, so a reader reads the cells of the narrowed resources in view alone,
+ * and `query` names the narrowing its windows belong to. It has no key
+ * search: the narrowing's searches run in its index's order, which a key's
+ * does not follow.
+ *
  * @packageDocumentation
  */
 
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FunctionType, IntegerType, NullType, OptionType, SetType, StringType,
-    StructType, isTypeEqual, none, some, variant,
+    ArrayType, BlobType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType,
+    StringType, StructType, isTypeEqual, none, some, variant,
     type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { IconType, PickStateType, SeekQueryType, SeekRangeType, StatusValueType } from "@elaraai/east-ui";
-import { buildPagedWindow, resolveRowSource } from "@elaraai/east-ui/internal";
 import { PlanEventItemType, PlanEventKindType, ScheduleDraftsType, ScheduleEventRefType, ScheduleStatusType } from "../schedule/types.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
+import { scheduleNarrowedWindows, scheduleOwnWindows } from "../schedule/pages.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
+import { planIndexOrder } from "./ordered-source.js";
 import {
-    PlanBlockType, PlanBlocksType, PlanBucketEventType, PlanChipType, PlanEventMarkKindType, PlanEventMarkType, PlanLaneType,
-    PlanRollupType, PlanRowIdType, PlanRowsCollectionType, PlanRunType, type PlanDrawLiteral,
+    PlanBlockType, PlanBlocksType, PlanBucketEventType, PlanChipType, PlanEventMarkKindType, PlanEventMarkType, PlanHeatCellType, PlanLaneType,
+    PlanRollupType, PlanRowIdType, PlanRowKindType, PlanRowType, PlanRowsCollectionType, PlanRunType, PlanWeightCellType, type PlanDrawLiteral,
 } from "./types.js";
 import { planGutter, planRow } from "./assemble.js";
 import { bucketsKind, cardsKind, eventsKind, spanKind } from "./factories.js";
@@ -100,17 +111,63 @@ export const PlanEventShownType = DictType(StringType, SetType(StringType));
 export type PlanEventShownType = typeof PlanEventShownType;
 
 /**
+ * What a reader read of each event kind by its series index's cells (#1039),
+ * by the kind's slot: the entries, one beast2 of the kind's `cellsType`, that
+ * the kind draws its events from — a kind past the budget, which draws its
+ * summary's shading or the notice in their place, given none. A kind it does
+ * not name is read over the window, as ever.
+ */
+export const PlanEventReadsType = DictType(StringType, BlobType);
+
+/** Type representing {@link PlanEventReadsType}. */
+export type PlanEventReadsType = typeof PlanEventReadsType;
+
+/**
+ * One bucket of a resource's shading (#1039): the bucket's start, and its
+ * value — the share of the bucket the resource's events book, `0` to `1`, for
+ * a way of drawing that draws bars or chips; how many of its events touch the
+ * bucket, for one that draws tiles or marks; `none` where nothing shows at
+ * this resolution, the notice's no-data hatch.
+ */
+export const PlanEventShadeType = StructType({ at: DateTimeType, value: OptionType(FloatType) });
+
+/** Type representing {@link PlanEventShadeType}. */
+export type PlanEventShadeType = typeof PlanEventShadeType;
+
+/**
+ * The resources' shading (#1039): by the key of the rows it stands in for —
+ * a resource kind's slot and a way of drawing, `<slot>.<draw>`, as a
+ * resource's rows are keyed — then by the resource key's text, its buckets.
+ * Each resource's row of a key it names draws heat over those buckets in
+ * place of its events: a booked-vs-free bar a bucket for bars and chips, how
+ * many for tiles and marks — the counts on one scale across every resource
+ * the key shades — and a row with a bucket of no value the no-data hatch.
+ */
+export const PlanEventShadingType = DictType(StringType, DictType(StringType, ArrayType(PlanEventShadeType)));
+
+/** Type representing {@link PlanEventShadingType}. */
+export type PlanEventShadingType = typeof PlanEventShadingType;
+
+/**
  * The resources' rows over a window, every event kind's drafts in place
  * (#1192): `(from, to, drafts by kind, then by entry id, the ids the viewer
- * hides, the resources the rail shows)` → the canvas's blocks, `none` while a
- * kind's read is in flight. The hidden ids are the library's Series tab's
- * (#1195): `resources.<slot>`, `events.<slot>` and `measures.<key>` stay out,
- * and the rest are not this seam's. A resource kind the shown resources name
- * draws those alone (#1344). A paged resource kind's place (#1199) is an empty
- * block that is not fixed, which the payload's `paged` fills a window at a
- * time.
+ * hides, the resources the rail shows, what a reader read of each kind by its
+ * cells, the resources' shading)` → the canvas's blocks, `none` while a kind's
+ * read is in flight. The hidden ids are the library's Series tab's (#1195):
+ * `resources.<slot>`, `events.<slot>` and `measures.<key>` stay out, and the
+ * rest are not this seam's. A resource kind the shown resources name draws
+ * those alone (#1344). A paged resource kind's place (#1199) is an empty block
+ * that is not fixed, which the payload's `paged` fills a window at a time. A
+ * kind a reader read by its cells (#1039) places the events of the entries it
+ * was given, every draft given in place — those on no resource here, on its
+ * Unassigned row; those on the paged kind's resources through `paged.placed`
+ * — and never reads the window. Each resource's row the shading names draws
+ * its heat in place of its events.
  */
-export const PlanEventBlocksType = FunctionType([DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType, PlanEventShownType], OptionType(PlanBlocksType));
+export const PlanEventBlocksType = FunctionType(
+    [DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType, PlanEventShownType, PlanEventReadsType, PlanEventShadingType],
+    OptionType(PlanBlocksType),
+);
 
 /** Type representing {@link PlanEventBlocksType}. */
 export type PlanEventBlocksType = typeof PlanEventBlocksType;
@@ -285,6 +342,98 @@ const placedLanes = East.function([PlacedListType], ArrayType(PlanLaneType), ($,
     });
     return lanes.toArray(($2, lane) => East.value({ key: lane, label: some(lane) }, PlanLaneType));
 });
+
+/**
+ * A resource's row of a shaded way of drawing (#1039), `(its buckets, the
+ * largest count its kind's shading holds, whether it draws bars or chips)` →
+ * its heat: a booked-vs-free bar a bucket for one that draws bars or chips,
+ * each bucket's share; how many for one that draws tiles or marks, from none
+ * to the largest, printed compact in the viewer's locale; and the no-data
+ * hatch where a bucket holds no value, its row heat whatever it draws.
+ */
+const shadedKind = East.function([ArrayType(PlanEventShadeType), FloatType, BooleanType], PlanRowKindType, ($, shades, top, booked) => {
+    const valued = $.let(shades.every(($2, shade) => shade.value.hasTag("some")));
+    const most = $.let(none, OptionType(FloatType));
+    $.if(East.greater(top, 0), ($2) => { $2.assign(most, some(top)); });
+    const heat = $.let(East.value(variant("heat", {
+        cells: variant("heat", {
+            cells: shades.map(($2, shade) => East.value({ at: variant("time", shade.at), value: shade.value, label: none }, PlanHeatCellType)),
+            scale: { min: some(0), max: most, warnAt: none },
+            fold: variant("sum", null),
+            format: some(variant("compact", { display: none })),
+        }),
+        aggregate: none,
+        scale: none,
+    }), PlanRowKindType), PlanRowKindType);
+    $.if(booked.and(() => valued), ($2) => {
+        $2.assign(heat, East.value(variant("heat", {
+            cells: variant("weight", {
+                cells: shades.map(($3, shade) => East.value({ at: variant("time", shade.at), fraction: shade.value.unwrap("some"), planned: false }, PlanWeightCellType)),
+                fold: variant("mean", null),
+                format: none,
+            }),
+            aggregate: none,
+            scale: none,
+        }), PlanRowKindType));
+    });
+    return heat;
+});
+
+/**
+ * The resources' rows with their shading in place (#1039), `(blocks, shading,
+ * the keys of the rows that draw bars or chips)`: every resource's row of a
+ * way of drawing the shading names draws its heat in place of its events —
+ * one whose resource it holds no shading of yet draws none, at the height it
+ * will draw it at — the counts of one key on one scale, the largest it holds.
+ * Every other row stands.
+ */
+const shadedRows = East.function([PlanBlocksType, PlanEventShadingType, SetType(StringType)], PlanBlocksType, ($, blocks, shading, booked) => {
+    const kindOf = $.const(shadedKind);
+    const noShades = $.const([], ArrayType(PlanEventShadeType));
+    const tops = $.let(new Map(), DictType(StringType, FloatType));
+    $.for(shading, ($2, byKey, series) => {
+        const top = $2.let(0, FloatType);
+        $2.for(byKey, ($3, shades) => {
+            $3.for(shades, ($4, shade) => {
+                $4.match(shade.value, { some: ($5, v) => { $5.if(East.greater(v, top), ($6) => { $6.assign(top, v); }); } });
+            });
+        });
+        $2(tops.insert(series, top));
+    });
+    return blocks.map(($2, b) => East.value({
+        fixed: b.fixed,
+        parent: b.parent,
+        charts: b.charts,
+        rows: b.rows.map(($3, row) => row.id.match({
+            section: (_$4, _at) => row,
+            entry: (_$4, at) => shading.tryGet(at.series).match({
+                none: (_$5) => row,
+                some: ($5, byKey) => {
+                    // A resource's row's path ends in its key.
+                    const key = $5.let(at.path.get(at.path.size().subtract(1n)));
+                    const heat = $5.let(kindOf(byKey.get(key, () => noShades), tops.get(at.series), booked.has(at.series)));
+                    const fields = row as unknown as Record<string, ExprType<EastType>>;
+                    return East.value(Object.fromEntries(Object.keys(PlanRowType.fields).map((f) =>
+                        [f, f === "kind" ? heat : fields[f]!])) as never, PlanRowType);
+                },
+            }),
+        })),
+    }, PlanBlockType));
+});
+
+/**
+ * The keys of the resources' rows that draw bars or chips (#1039): shaded,
+ * they draw booked-vs-free bars.
+ *
+ * @param resources - The resource kinds, by slot
+ * @param events - The event kinds, by slot
+ * @returns Each `<slot>.span` and `<slot>.cards` the kinds draw
+ */
+function bookedKeys(resources: readonly (readonly [string, AnyResourceKind])[], events: readonly (readonly [string, AnyEventKind])[]): Set<string> {
+    return new Set(resources.flatMap(([slot]) => eventDrawsOf(slot, events)
+        .filter((draw) => draw === "span" || draw === "cards")
+        .map((draw) => `${slot}.${draw}`)));
+}
 
 // ============================================================================
 // The resources' rows
@@ -482,6 +631,22 @@ function resourceBlocks(
         blocks = applySeries([views], roots as unknown as ExprType<EastType>);
     }
 
+    // ── What each resource makes of chart rows (#1398) ──
+    // A paged kind's window is its source's entries, a resource each, and a paged kind nests and groups none: each
+    // makes its measures' chart rows that the viewer shows — a chart measure's one, or as many as its own `match`
+    // takes, which no definition fixes. A kind read whole is fixed blocks, which no entry makes.
+    const charts = $.let(East.value(fixed ? none : some(0n), OptionType(IntegerType)), OptionType(IntegerType));
+    if (!fixed) {
+        for (const facts of kind.measures.map((m) => planSeriesFacts(m, collection, where)!)) {
+            const each = facts.charts;
+            if (each === 0) continue;
+            $.if(hidden.has(planHideId.measures(facts.key)).not(), ($2) => {
+                if (each === undefined) $2.assign(charts, none);
+                else $2.match(charts, { some: ($3, n) => { $3.assign(charts, some(n.add(BigInt(each)))); } });
+            });
+        }
+    }
+
     // ── What the viewer hides (PB29): rows by their series' key ──
     // A measure's rows, and a way of drawing's after the first once all its
     // kinds are hidden: each a leaf, since a resource's children nest under its
@@ -494,7 +659,7 @@ function resourceBlocks(
         }),
     ];
     if (hiders.length === 0) {
-        return $.let(blocks.map(($2, b) => ({ fixed, parent: b.parent, rows: b.rows })), PlanBlocksType);
+        return $.let(blocks.map(($2, b) => ({ fixed, parent: b.parent, charts, rows: b.rows })), PlanBlocksType);
     }
     const dropped = $.let(new Set<string>(), SetType(StringType));
     for (const [series, ids] of hiders) {
@@ -504,6 +669,7 @@ function resourceBlocks(
     return $.let(blocks.map(($2, b) => ({
         fixed,
         parent: b.parent,
+        charts,
         rows: b.rows.filter(($3, row) => dropped.has(row.id.match({
             entry: (_$4, at) => at.series,
             section: (_$4, at) => at.series,
@@ -543,14 +709,16 @@ function unassignedBlock(
             })));
         });
     });
-    return $.let({ fixed: true, parent: none, rows }, PlanBlockType);
+    return $.let({ fixed: true, parent: none, charts: none, rows }, PlanBlockType);
 }
 
 /**
- * The `blocks` seam (see the module docs): `(from, to, drafts, hidden, shown)`
- * → the resources' rows over `[from, to)`, every kind's drafts in place, what
- * the viewer hides left out, and of a resource kind the rail narrows the
- * resources it shows.
+ * The `blocks` seam (see the module docs): `(from, to, drafts, hidden, shown,
+ * reads, shading)` → the resources' rows over `[from, to)`, every kind's
+ * drafts in place, what the viewer hides left out, of a resource kind the
+ * rail narrows the resources it shows, each kind a reader read by its cells
+ * drawn from what it read, and each resource's row the shading names drawing
+ * its heat.
  *
  * @remarks
  * Made inside the function that assembles the payload, so `built` is the
@@ -568,17 +736,23 @@ export function createEventBlocks(
     events: readonly (readonly [string, AnyEventKind])[],
     built: ExprType<ArrayType<PlanEventKindType>>,
 ): ExprType<PlanEventBlocksType> {
-    return East.function([DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType, PlanEventShownType], OptionType(PlanBlocksType), ($, from, to, drafts, hiding, shown) => {
+    // The keys of the rows that draw bars or chips (#1039): a shaded one draws booked-vs-free bars.
+    const booked = bookedKeys(resources, events);
+    return East.function([
+        DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType, PlanEventShownType, PlanEventReadsType, PlanEventShadingType,
+    ], OptionType(PlanBlocksType), ($, from, to, drafts, hiding, shown, given, shading) => {
         const result = $.let(none, OptionType(PlanBlocksType));
         const noDrafts = $.const(new Map(), ScheduleDraftsType);
         const hidden = $.let(hiding.toSet(), SetType(StringType));
-        // Each kind's events over the window, its drafts in place (PB17). A
-        // hidden kind is not read: it places nothing, so nothing waits on it.
+        const shade = $.const(shadedRows);
+        const drawsBars = $.const(booked, SetType(StringType));
+        // Each kind's events over the window, its drafts in place (PB17) — a kind a reader read by its cells from
+        // what it read (#1039). A hidden kind is not read: it places nothing, so nothing waits on it.
         const reads = events.map(([slot], i) => {
             const kind = $.let(built.get(BigInt(i)));
             const kindDrafts = $.let(drafts.get(slot, () => noDrafts));
             const read = $.let(some([]), OptionType(ArrayType(PlanEventItemType)));
-            $.if(hidden.has(planHideId.events(slot)).not(), ($2) => { $2.assign(read, kind.planItems(from, to, kindDrafts)); });
+            $.if(hidden.has(planHideId.events(slot)).not(), ($2) => { $2.assign(read, kind.planItems(from, to, kindDrafts, given.tryGet(slot))); });
             return read;
         });
         const ready = reads.reduce<ExprType<BooleanType>>(
@@ -638,8 +812,9 @@ export function createEventBlocks(
             for (const [slot, kind] of resources) {
                 if (paged.has(slot)) {
                     // A paged kind's place (#1199): the one block that is not fixed, which the payload's
-                    // `paged` fills a window at a time — there whether or not the viewer hides the kind.
-                    $2(blocks.pushLast(East.value({ fixed: false, parent: none, rows: [] }, PlanBlockType)));
+                    // `paged` fills a window at a time — there whether or not the viewer hides the kind. What its
+                    // resources make of chart rows is the window's block's to say (#1398).
+                    $2(blocks.pushLast(East.value({ fixed: false, parent: none, charts: none, rows: [] }, PlanBlockType)));
                     continue;
                 }
                 // A hidden resource kind draws no rows; its events stay its own, off the Unassigned row.
@@ -659,7 +834,7 @@ export function createEventBlocks(
                             () => keyed,
                         )) as unknown as ExprType<DictType<EastType, EastType>>;
                     }
-                    $3(blocks.append(resourceBlocks($3 as unknown as Block, slot, kind, drawn, placed.get(slot)!, events, hidden)));
+                    $3(blocks.append(shade(resourceBlocks($3 as unknown as Block, slot, kind, drawn, placed.get(slot)!, events, hidden), shading, drawsBars)));
                 });
             }
             $2(blocks.pushLast(unassignedBlock($2 as unknown as Block, events, lost)));
@@ -680,39 +855,36 @@ export function createEventBlocks(
  * source whose every window is the event kinds' blocks with this kind's place
  * filled by `rows` over that window of its resources — so its rows come as
  * the canvas scrolls, its key search seeks a resource by its key, and its
- * resources are never read whole.
+ * resources are never read whole. Narrowed by its source of the slice
+ * (#1344), its windows are the narrowing's rows, in the source's index's
+ * order, and it has no key search.
  *
  * @property kind - The paged resource kind's slot
- * @property id - The identity of the kind's resources' window
- * @property placed - `(from, to, drafts by kind, the ids the viewer hides)` → the events placed on the kind's resources over `[from, to)`, every kind's drafts in place, by way of drawing and by the resource key's text; `none` while a kind's read is in flight
- * @property rows - `(offset, limit, placed, the ids the viewer hides)` → the kind's rows for its resources `[offset, offset + limit)` — a whole window of them — with the events given placed on them: one block, not fixed (an empty one while the viewer hides the kind); `none` while the window is in flight
- * @property total - How many resources the kind has, once known
- * @property seek - Where a key search lands among the kind's resources: the window's own key search
+ * @property id - The identity of the kind's resources' window: the source's, the same under every narrowing, when its source of the slice narrows it
+ * @property placed - `(from, to, drafts by kind, the ids the viewer hides, what a reader read of each kind by its cells)` → the events placed on the kind's resources over `[from, to)`, every kind's drafts in place, by way of drawing and by the resource key's text; `none` while a kind's read is in flight. A kind a reader read by its cells (#1039) places the events of the entries it was given, and never reads the window
+ * @property rows - `(offset, limit, placed, shading, the ids the viewer hides)` → the kind's rows for its resources `[offset, offset + limit)` — a whole window of them, in the resources' key order, or the narrowing's in its index's order (#1344) — with the events given placed on them, and each resource's row whose key the shading names drawing its heat in their place (#1039): one block, not fixed (an empty one while the viewer hides the kind); `none` while the window is in flight
+ * @property keys - `(offset, limit)` → the texts of the keys of the kind's resources `[offset, offset + limit)`, in the order `rows` draws them (#1039): the resources a reader reads the cells of; `none` while the window is in flight
+ * @property total - How many resources the kind has — the narrowing holds, when its source narrows it — once known
+ * @property seek - Where a key search lands among the kind's resources: the window's own key search; `none` when its source narrows it, whose searches run in its index's order
  * @property revision - The snapshot of the resources the windows are read at
  * @property refresh - Moves the resources' window to a snapshot, or to the one it holds now
+ * @property query - The narrowing the windows, the total and the keys belong to, as text (#1344): it moves when a choice does, and the windows are read again under it; `none` when no source narrows the kind
  */
 export const PlanEventPagedType = StructType({
     kind: StringType,
     id: StringType,
-    placed: FunctionType([DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType], OptionType(PlanEventPlacedType)),
-    rows: FunctionType([IntegerType, IntegerType, PlanEventPlacedType, PickStateType], OptionType(PlanBlocksType)),
+    placed: FunctionType([DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType, PlanEventReadsType], OptionType(PlanEventPlacedType)),
+    rows: FunctionType([IntegerType, IntegerType, PlanEventPlacedType, PlanEventShadingType, PickStateType], OptionType(PlanBlocksType)),
+    keys: FunctionType([IntegerType, IntegerType], OptionType(ArrayType(StringType))),
     total: FunctionType([], OptionType(IntegerType)),
     seek: OptionType(FunctionType([SeekQueryType], OptionType(SeekRangeType))),
     revision: FunctionType([], OptionType(StringType)),
     refresh: FunctionType([OptionType(StringType)], NullType),
+    query: OptionType(FunctionType([], StringType)),
 });
 
 /** Type representing {@link PlanEventPagedType}. */
 export type PlanEventPagedType = typeof PlanEventPagedType;
-
-/** A paged source's handle, as the paged rows read it: its identity, size, key search and snapshot. */
-type PagedHandle = ExprType<StructType<{
-    id: StringType;
-    total: FunctionType<[], OptionType<IntegerType>>;
-    seek: OptionType<FunctionType<[typeof SeekQueryType], OptionType<typeof SeekRangeType>>>;
-    revision: FunctionType<[], OptionType<StringType>>;
-    refresh: FunctionType<[OptionType<StringType>], NullType>;
-}>>;
 
 /**
  * The paged resource kind's rows (see {@link PlanEventPagedType}), when a
@@ -720,47 +892,47 @@ type PagedHandle = ExprType<StructType<{
  *
  * @remarks
  * Made inside the function that assembles the payload, as the `blocks` seam
- * is, so `built` is the payload's own array of event kinds.
+ * is, so `built` is the payload's own array of event kinds — and `narrowed`
+ * is the kind's source of the slice as the payload's block bound it, so the
+ * kind's rows hold that source alone (#1356).
  *
  * @param resources - The resource kinds, by slot, in order — at most one of them paged (the Plan refuses more)
  * @param events - The event kinds, by slot, in order
  * @param built - The event kinds as the payload holds them, in the same order
+ * @param narrowed - The paged kind's source of the slice's narrowed data, when the slice names one after its slot (#1344): its windows are then the narrowing's rows
  * @returns The paged rows, or `undefined` when no resource kind is paged
- * @throws {Error} When the kind's paged read is not a paged source of its resources
+ * @throws {Error} When the kind's paged read is not a paged source of its resources, or its source's rows are not the kind's
  * @internal
  */
 export function createEventPaged(
     resources: readonly (readonly [string, AnyResourceKind])[],
     events: readonly (readonly [string, AnyEventKind])[],
     built: ExprType<ArrayType<PlanEventKindType>>,
+    narrowed?: ExprType<StructType>,
 ): ExprType<PlanEventPagedType> | undefined {
     const at = resources.find(([, kind]) => kind.window !== undefined);
     if (at === undefined) return undefined;
     const [slot, kind] = at;
     const where = `Plan: resources.${slot}`;
-    // The resources a window at a time — each window whole, a piece the source cut short read on to its end.
-    const resolved = resolveRowSource(kind.window, where);
-    if (resolved.kind === "inline") {
-        throw new Error(`${where}: a paged kind's resources are a paged read — Data.bindPaged(record) over the resources' record`);
-    }
-    const window = buildPagedWindow(resolved);
-    const handle = resolved.source as unknown as PagedHandle;
+    const pages = narrowed === undefined ? scheduleOwnWindows(kind, where) : scheduleNarrowedWindows(kind, slot, narrowed, "Plan");
+    const handle = pages.handle;
     const draws = eventDrawsOf(slot, events);
     // The event kinds placed on it, with their place in `events` — the payload's array of them.
     const takers = events.flatMap(([s, k], i) => (k.takes.includes(slot) ? [[s, k, i] as const] : []));
 
     const placed = East.function(
-        [DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType], OptionType(PlanEventPlacedType),
-        ($, from, to, drafts, hiding) => {
+        [DateTimeType, DateTimeType, PlanEventDraftsType, PickStateType, PlanEventReadsType], OptionType(PlanEventPlacedType),
+        ($, from, to, drafts, hiding, given) => {
             const result = $.let(none, OptionType(PlanEventPlacedType));
             const noDrafts = $.const(new Map(), ScheduleDraftsType);
             const hidden = $.let(hiding.toSet(), SetType(StringType));
-            // Each kind's events over the window, its drafts in place; a hidden kind is not read.
+            // Each kind's events over the window, its drafts in place — a kind a reader read by its cells from what it
+            // read (#1039); a hidden kind is not read.
             const reads = takers.map(([s, , i]) => {
                 const k = $.let(built.get(BigInt(i)));
                 const kindDrafts = $.let(drafts.get(s, () => noDrafts));
                 const read = $.let(some([]), OptionType(ArrayType(PlanEventItemType)));
-                $.if(hidden.has(planHideId.events(s)).not(), ($2) => { $2.assign(read, k.planItems(from, to, kindDrafts)); });
+                $.if(hidden.has(planHideId.events(s)).not(), ($2) => { $2.assign(read, k.planItems(from, to, kindDrafts, given.tryGet(s))); });
                 return read;
             });
             const ready = reads.reduce<ExprType<BooleanType>>(
@@ -798,44 +970,67 @@ export function createEventPaged(
             return result;
         });
 
+    // The keys of its rows that draw bars or chips (#1039): a shaded one draws booked-vs-free bars.
+    const booked = bookedKeys([[slot, kind]], events);
+
     const rows = East.function(
-        [IntegerType, IntegerType, PlanEventPlacedType, PickStateType], OptionType(PlanBlocksType),
-        ($, offset, limit, given, hiding) => {
+        [IntegerType, IntegerType, PlanEventPlacedType, PlanEventShadingType, PickStateType], OptionType(PlanBlocksType),
+        ($, offset, limit, given, shading, hiding) => {
             const result = $.let(none, OptionType(PlanBlocksType));
             const hidden = $.let(hiding.toSet(), SetType(StringType));
             $.if(hidden.has(planHideId.resources(slot)), ($2) => {
-                // A hidden kind draws no rows: its place stands empty in every window.
-                $2.assign(result, some(East.value([{ fixed: false, parent: none, rows: [] }], PlanBlocksType)));
+                // A hidden kind draws no rows: its place stands empty in every window, and its resources make no chart row (#1398).
+                $2.assign(result, some(East.value([{ fixed: false, parent: none, charts: some(0n), rows: [] }], PlanBlocksType)));
             }).else(($2) => {
-                const read = $2.const(window);
+                const read = $2.const(pages.read);
+                const shade = $2.const(shadedRows);
+                const drawsBars = $2.const(booked, SetType(StringType));
                 const got = $2.let(read(offset, limit));
                 $2.match(got, {
-                    some: ($3, all) => {
+                    some: ($3, page) => {
+                        const all = $3.let(pages.rows(page));
                         const onIt = new Map(draws.map((draw) =>
                             [draw, $3.let(given.get(draw, () => East.value(new Map(), PlacedByKeyType)))] as const));
-                        $3.assign(result, some(resourceBlocks($3 as unknown as Block, slot, kind,
-                            all as unknown as ExprType<DictType<EastType, EastType>>, onIt, events, hidden, false)));
+                        const blocks = $3.let(resourceBlocks($3 as unknown as Block, slot, kind, all, onIt, events, hidden, false));
+                        // A narrowed window's rows in its index's order (#1344), each resource's rows together.
+                        const drawn = pages.indexed ? $3.let(planIndexOrder(blocks, pages.keys($3 as unknown as Block, page))) : blocks;
+                        $3.assign(result, some(shade(drawn, shading, drawsBars)));
                     },
                 });
             });
             return result;
         });
 
+    // The keys of a window's resources as the rows name them, in the order they draw (#1039): what a reader reads the cells of.
+    const keys = East.function([IntegerType, IntegerType], OptionType(ArrayType(StringType)), ($, offset, limit) => {
+        const read = $.const(pages.read);
+        const result = $.let(none, OptionType(ArrayType(StringType)));
+        $.match(read(offset, limit), {
+            some: ($2, page) => { $2.assign(result, some(pages.keys($2 as unknown as Block, page))); },
+        });
+        return result;
+    });
+
     // A source that names no snapshot is read at none, and moves nowhere.
-    const revision = resolved.pinned
+    const revision = pages.pinned
         ? handle.revision
         : East.function([], OptionType(StringType), (_$) => East.value(none, OptionType(StringType)));
-    const refresh = resolved.pinned
+    const refresh = pages.pinned
         ? handle.refresh
         : East.function([OptionType(StringType)], NullType, (_$, _target) => East.value(null, NullType));
+    const Seek = PlanEventPagedType.fields.seek;
+    const Query = PlanEventPagedType.fields.query;
     return East.value({
         kind: slot,
         id: handle.id,
         placed,
         rows,
+        keys,
         total: handle.total,
-        seek: handle.seek,
+        // A narrowing's searches run in its index's order, which a resource's key does not follow: no key search.
+        seek: pages.indexed ? East.value(none, Seek) : handle.seek,
         revision,
         refresh,
+        query: pages.query ? East.value(some(handle.query), Query) : East.value(none, Query),
     } as SubtypeExprOrValue<PlanEventPagedType>, PlanEventPagedType);
 }

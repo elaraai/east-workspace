@@ -113,7 +113,8 @@ describe("<Sheet> through its carrier (#1179, #1216)", () => {
         initializeStore(new UIStore());
         const { container } = mount(East.compile(PAGED_VIEW, getRegisteredPlatformImplementations())(), "sheet-carrier-paged");
         await waitFor(() => expect(rowIds(container)).toEqual(["j1", "j2", "j3"]));
-        await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')?.textContent).toBe("3 loaded of 3"));
+        // The grid counts what `total` said — the three rows, the header and, every row being in, the 18 padding rows.
+        await waitFor(() => expect(container.querySelector("[data-sheet-card]")?.getAttribute("aria-rowcount")).toBe("22"));
     });
 });
 

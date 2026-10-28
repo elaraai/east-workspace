@@ -26,6 +26,7 @@ import * as ex from "./roster.examples.js";
 
 describeEast("Roster — inline bound examples", test => {
     Assert.examples(test, { rosterWarehouse: ex.rosterWarehouse, rosterMobile: ex.rosterMobile, rosterPeople: ex.rosterPeople,
+        rosterPeopleMonth: ex.rosterPeopleMonth,
         rosterWeek: ex.rosterWeek, rosterWindowed: ex.rosterWindowed, rosterMinimal: ex.rosterMinimal, rosterPublished: ex.rosterPublished,
         rosterCustomInspector: ex.rosterCustomInspector });
 }, { platformFns: TestImpl });
@@ -90,7 +91,8 @@ describe("the props §2 removed, each refused naming its replacement (B4)", () =
     test("groups, shifts, positions and proposals as Roster values: their declarations over the app's rows", () => {
         assert.throws(() => payload(() => ({ groups: [{ key: "inbound", label: "Inbound" }] })),
             /Roster: `groups` is Roster\.groups\(rows, \{ label, order\? \}\) over the app's group rows — Roster\.Types\.Group values are gone/);
-        assert.throws(() => payload(() => ({ shifts: [] })), /Roster: `shifts` is Roster\.shifts\(rows, \{ label, code, start, hours, order\? \}\) .* Roster\.Types\.Shift values are gone/);
+        assert.throws(() => payload(() => ({ shifts: [] })), /Roster: `shifts` is Roster\.shifts\(rows, \{ label, code, start, hours, order\?, color\? \}\) .* Roster\.Types\.Shift values are gone/);
+        assert.throws(() => payload(() => ({ patterns: [] })), /Roster: `patterns` is Roster\.patterns\(rows, \{ name, icon\?, label, days, order\? \}\) over the app's week pattern rows — Roster\.Types\.Pattern values are gone/);
         assert.throws(() => payload(() => ({ positions: [] })), /Roster: `positions` is Roster\.positions\(rows, \{ label, code, lead, order\? \}\)/);
         assert.throws(() => payload(() => ({ proposals: [] })), /Roster: `proposals` is Roster\.proposals\(rows, \{ person, day, group, shift, reason \}\)/);
         assert.throws(() => payload((base) => ({ ...base.props, groups: undefined } as never)), /Roster: `groups` is Roster\.groups\(rows, \{ label, order\? \}\) over the app's group rows$/);
@@ -215,6 +217,36 @@ describe("the narrowing and the library", () => {
         assert.throws(() => payload(() => ({ library: [Roster.library.tab(roles, { name: "Positions", label: p => p.label,
             drop: () => Schedule.patch(StructType({ label: StringType }), { label: "x" }) })] })),
         /Roster: the "Positions" tab's `drop` returns a patch over no event kind's row type — build it with Schedule\.patch\(RowType, \{ … \}\)/);
+    });
+});
+
+describe("the People layout's periods, its patterns and its display props (#1406)", () => {
+    const patterns = () => Roster.patterns(Data.bind(ex.rosterPatterns).read(), { name: "Patterns", label: w => w.label, days: w => w.days, order: w => w.order });
+
+    test("`view.period` is one its layout takes: Shifts a day or a week, People a week or a month, each refused otherwise naming both layouts' periods", () => {
+        assert.doesNotThrow(() => payload(() => ({ view: { layout: "people", period: "month" } })));
+        assert.doesNotThrow(() => payload(() => ({ view: { layout: "people", period: "week" } })));
+        assert.doesNotThrow(() => payload(() => ({ view: { layout: "people" } })));
+        assert.doesNotThrow(() => payload(() => ({ view: { layout: "shifts", period: "week" } })));
+        assert.throws(() => payload(() => ({ view: { layout: "people", period: "day" } })),
+            /Roster: `view\.period` "day" is not a period of the People layout — Shifts takes "day" or "week", People takes "week" or "month"/);
+        assert.throws(() => payload(() => ({ view: { layout: "shifts", period: "month" } })),
+            /Roster: `view\.period` "month" is not a period of the Shifts layout — Shifts takes "day" or "week", People takes "week" or "month"/);
+        assert.throws(() => payload(() => ({ view: { period: "month" } })), /Roster: `view\.period` "month" is not a period of the Shifts layout/);
+    });
+
+    test("Roster.library.patterns() lists the app's patterns: refused without `patterns`, naming it; with them, a tab under their name; listed twice, refused", () => {
+        assert.throws(() => payload(() => ({ library: [Roster.library.people(), Roster.library.patterns()] })),
+            /Roster: Roster\.library\.patterns\(\) lists the app's week patterns — give `patterns`: patterns=\{Roster\.patterns\(rows, \{ name, icon\?, label, days, order\? \}\)\}/);
+        assert.doesNotThrow(() => payload(() => ({ patterns: patterns(), library: [Roster.library.people(), Roster.library.patterns()] })));
+        assert.doesNotThrow(() => payload(() => ({ patterns: patterns() })));
+        assert.throws(() => payload(() => ({ patterns: patterns(), library: [Roster.library.patterns(), Roster.library.patterns()] })), /Roster: library tab patterns is listed twice/);
+    });
+
+    test("`tileTimes` is \"always\" or \"different\", and `letters` a boolean", () => {
+        assert.doesNotThrow(() => payload(() => ({ tileTimes: "different", letters: false })));
+        assert.throws(() => payload(() => ({ tileTimes: "sometimes" } as never)), /Roster: `tileTimes` is "always" or "different" — .* — and it is sometimes/);
+        assert.throws(() => payload(() => ({ letters: "yes" } as never)), /Roster: `letters` is true or false — .* — and it is yes/);
     });
 });
 

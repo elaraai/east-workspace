@@ -13,7 +13,7 @@
 
 import { toEastTypeValue, type EastTypeValue } from "../../type_of_type.js";
 import { getTypeId } from "../../types.js";
-import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, ReturnException, compile_internal, type RuntimeContext } from "../../compile.js";
+import { EAST_IR_SYMBOL, EAST_CAPTURES_SYMBOL, EAST_SOURCE_MAP_SYMBOL, compile_internal, type RuntimeContext } from "../../compile.js";
 import { printTypeValue } from "../../compile/runtime.js";
 import { IRType, type FunctionIR, type AsyncFunctionIR } from "../../ir.js";
 import type { AnalyzedIR } from "../../analyze.js";
@@ -402,17 +402,14 @@ export function finishDecodedFunction(
       compile_internal(ir as AnalyzedIR, typeContext, platformCtx.platformFns, platformCtx.asyncPlatformFns, platformCtx.platform, true, EMPTY_SET));
   };
   const compiled = key === undefined ? compile() : (platformCtx.compiled ??= compiledBodiesFor(platformCtx.platform)).bodyFor(key, compile);
+  // The compiled function gives its value: a `return` is a signal its body
+  // gives back to it, never thrown. An async one's wrapper gives a promise,
+  // whether or not the body awaits.
   const rawFn = compiled(captureContext);
 
   const fn = isAsync
-    ? async (...inputs: any[]) => {
-        try { return await rawFn(...inputs); }
-        catch (e) { if (e instanceof ReturnException) return e.value; throw e; }
-      }
-    : (...inputs: any[]) => {
-        try { return rawFn(...inputs); }
-        catch (e) { if (e instanceof ReturnException) return e.value; throw e; }
-      };
+    ? async (...inputs: any[]) => await rawFn(...inputs)
+    : (...inputs: any[]) => rawFn(...inputs);
 
   // Attach IR, captures, and source map for re-serialization
   Object.defineProperty(fn, EAST_IR_SYMBOL, { value: ir, writable: false, enumerable: false, configurable: false });

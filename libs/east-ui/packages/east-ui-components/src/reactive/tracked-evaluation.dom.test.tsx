@@ -17,10 +17,18 @@
  * The repo had no asynchronous paged fixture before this: every paged fixture in
  * `plan-paged.dom.test.tsx` / `table-paged.dom.test.tsx` resolves synchronously inside
  * one evaluation, which is exactly why the stall shipped.
+ *
+ * And what an evaluation runs for: once a change of what it read — never again
+ * as its subscription takes up a key it read for the first time, while the
+ * versions of the keys it read hold — and again, as before, where a key it read
+ * moved while it ran, whether it had read the key before or reads it for the
+ * first time: the UI store's tracker moves a key a render writes as it reads it.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor } from "@testing-library/react";
+import { act, render, screen, cleanup, waitFor } from "@testing-library/react";
+import { IntegerType, decodeBeast2For, encodeBeast2For } from "@elaraai/east";
+import { getStore, trackKey } from "../platform/state-runtime.js";
 import { registerReactiveTracker, type ReactiveTracker } from "./tracker.js";
 import { useTrackedEvaluation } from "./index.js";
 
@@ -35,7 +43,9 @@ function walkingTracker(id = "w") {
     const landed = new Set<string>();
     const version = new Map<string, number>();
     const subs = new Map<string, Set<() => void>>();
-    let recording: string[] | null = null;
+    let recording: Map<string, number> | null = null;
+    /** A read of a key, recorded with its version as first read. */
+    const record = (key: string): void => { if (recording !== null && !recording.has(key)) recording.set(key, version.get(key) ?? 0); };
 
     const land = (key: string): void => {
         setTimeout(() => {
@@ -47,8 +57,8 @@ function walkingTracker(id = "w") {
 
     const tracker: ReactiveTracker = {
         id,
-        enableTracking() { recording = []; },
-        disableTracking() { const r = recording ?? []; recording = null; return r; },
+        enableTracking() { recording = new Map(); },
+        disableTracking() { const r = recording ?? new Map<string, number>(); recording = null; return r; },
         getStore: () => ({
             subscribe(key, cb) {
                 const set = subs.get(key) ?? new Set<() => void>();
@@ -64,7 +74,7 @@ function walkingTracker(id = "w") {
     const read = (): number => {
         for (let n = 0; n < 32; n++) {
             const key = `k${n}`;
-            recording?.push(key);
+            record(key);
             if (!landed.has(key)) { land(key); return n; }
         }
         return 32;
@@ -115,5 +125,136 @@ describe("useTrackedEvaluation — a growing dependency set (#580)", () => {
         } finally {
             unregister();
         }
+    });
+});
+
+/**
+ * A tracker whose keys land as the test lands them — a channel a key, `k0`, `k1`, … — read as a paged reader
+ * walks its windows: every key landed, and the first that has not, so each landing gives the next evaluation a
+ * key it had not read.
+ */
+function steppedTracker(id: string) {
+    const landed = new Set<string>();
+    const version = new Map<string, number>();
+    const subs = new Map<string, Set<() => void>>();
+    let recording: Map<string, number> | null = null;
+    /** A read of a key, recorded with its version as first read. */
+    const record = (key: string): void => { if (recording !== null && !recording.has(key)) recording.set(key, version.get(key) ?? 0); };
+    const tracker: ReactiveTracker = {
+        id,
+        enableTracking() { recording = new Map(); },
+        disableTracking() { const r = recording ?? new Map<string, number>(); recording = null; return r; },
+        getStore: () => ({
+            subscribe(key, cb) {
+                const set = subs.get(key) ?? new Set<() => void>();
+                set.add(cb);
+                subs.set(key, set);
+                return () => { set.delete(cb); };
+            },
+            getKeyVersion: (key) => version.get(key) ?? 0,
+        }),
+    };
+    return {
+        tracker,
+        /** Reads every key landed and the first that has not; returns how many have landed. */
+        read(): number {
+            for (let n = 0; ; n++) {
+                const key = `k${n}`;
+                record(key);
+                if (!landed.has(key)) return n;
+            }
+        },
+        /** Lands the first key not landed, telling its readers, as a page landing does. */
+        land(): void {
+            const key = `k${landed.size}`;
+            landed.add(key);
+            version.set(key, (version.get(key) ?? 0) + 1);
+            for (const cb of [...(subs.get(key) ?? [])]) cb();
+        },
+        /** Moves a key's version without telling its readers yet, as a change the tracker has still to tell. */
+        move(key: string): void { version.set(key, (version.get(key) ?? 0) + 1); },
+        /** A key's version, as a read of it sees it. */
+        versionOf(key: string): number { record(key); return version.get(key) ?? 0; },
+    };
+}
+
+describe("useTrackedEvaluation — what an evaluation runs for", () => {
+    test("an evaluation runs once a change of what it read: one that reads a key it had not is not run again as its subscription takes the key up", async () => {
+        const s = steppedTracker("s1");
+        const unregister = registerReactiveTracker(s.tracker);
+        let runs = 0;
+        const read = () => { runs += 1; return s.read(); };
+        try {
+            render(<Walker read={read} />);
+            // The mount: one evaluation, which reads k0, not landed.
+            expect([screen.getByTestId("loaded").textContent, runs]).toEqual(["0", 1]);
+            for (let n = 1; n <= 3; n++) {
+                // A key lands: one evaluation, which reads the next key, not landed — a key it had not read.
+                await act(async () => { s.land(); });
+                expect([screen.getByTestId("loaded").textContent, runs]).toEqual([String(n), n + 1]);
+            }
+        } finally {
+            unregister();
+        }
+    });
+
+    test("a key it read that moved while it ran holds nothing: the evaluation runs again, and draws what the key holds now", async () => {
+        const s = steppedTracker("s2");
+        const unregister = registerReactiveTracker(s.tracker);
+        let runs = 0;
+        // Each evaluation reads k0's version, and the second moves it as it runs, after reading it.
+        const read = () => {
+            runs += 1;
+            const seen = s.versionOf("k0");
+            if (runs === 2) s.move("k0");
+            return seen;
+        };
+        try {
+            render(<Walker read={read} />);
+            expect([screen.getByTestId("loaded").textContent, runs]).toEqual(["0", 1]);
+            // k0 lands: the evaluation reads version 1, then moves k0 to 2 — so it runs again, and draws 2.
+            await act(async () => { s.land(); });
+            expect([screen.getByTestId("loaded").textContent, runs]).toEqual(["2", 3]);
+        } finally {
+            unregister();
+        }
+    });
+
+    test("a key it reads for the first time that moved while it ran holds nothing either: the evaluation runs again, and draws what the key holds now", () => {
+        const s = steppedTracker("s3");
+        const unregister = registerReactiveTracker(s.tracker);
+        let runs = 0;
+        // The mount's evaluation reads k0 — a key it had not read — then moves it as it runs, after reading it.
+        const read = () => {
+            runs += 1;
+            const seen = s.versionOf("k0");
+            if (runs === 1) s.move("k0");
+            return seen;
+        };
+        try {
+            render(<Walker read={read} />);
+            expect([screen.getByTestId("loaded").textContent, runs]).toEqual(["1", 2]);
+        } finally {
+            unregister();
+        }
+    });
+
+    test("the UI store's tracker moves a key a render writes as it reads it: the evaluation that read it for the first time runs again, and draws what the store holds now", () => {
+        const store = getStore();
+        const key = "tracked-evaluation:written-as-read";
+        const encode = encodeBeast2For(IntegerType);
+        const decode = decodeBeast2For(IntegerType);
+        store.write(key, encode(0n));
+        let runs = 0;
+        // A render body that reads a State key and, on its first run, writes it — the store moves the key it has just read.
+        const read = () => {
+            runs += 1;
+            trackKey(key);
+            const value = decode(store.read(key)!);
+            if (runs === 1) store.write(key, encode(value + 1n));
+            return Number(value);
+        };
+        render(<Walker read={read} />);
+        expect([screen.getByTestId("loaded").textContent, runs]).toEqual(["1", 2]);
     });
 });

@@ -10,28 +10,44 @@ import { Box, Reactive, Slice, State, UIComponentType } from "@elaraai/east-ui";
 import { Data, Record, Sheet } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
-/** The same work order can be edited as a Sheet row or scheduled on a Plan. */
-export const IndexedOperation = StructType({ key: StringType, label: StringType, start: DateTimeType, end: DateTimeType });
-/** Work orders retain their original String record keys through every index. */
-export const IndexedWork = StructType({ reference: StringType, job: StringType, status: StringType, due: DateTimeType, quantity: IntegerType, urgent: BooleanType, tags: SetType(StringType), operations: ArrayType(IndexedOperation) });
+/**
+ * A work order: edited as a Sheet row, and a row of the Plan whose operations
+ * are a record of their own (`plan/plan-records.examples.tsx`). Its String
+ * record key is kept through every index.
+ */
+export const IndexedWork = StructType({ reference: StringType, job: StringType, status: StringType, due: DateTimeType, quantity: IntegerType, urgent: BooleanType, tags: SetType(StringType) });
 const Work = DictType(StringType, IndexedWork);
+
+/** The `i`-th work order's reference, its record key: `JOB-` and its number plus 10,000, so key order is number order. */
+export const indexedWorkReference = East.function([IntegerType], StringType, (_$, i) => East.str`JOB-${i.add(10000n)}`);
+
+/** The job the `i`-th work order runs: cut panels, edge band, inspect and pack, in turn. */
+export const indexedWorkJob = East.function([IntegerType], StringType, ($, i) => {
+    const jobs = $.const(["Cut panels", "Edge band", "Inspect", "Pack"], ArrayType(StringType));
+    return jobs.get(i.remainder(4n));
+});
+
+/** When the `i`-th work order is due: a day of the ninety from 1 October 2026, each order thirty-seven days on from the one before. */
+export const indexedWorkDue = East.function([IntegerType], DateTimeType, ($, i) => {
+    const start = $.const(new Date("2026-10-01T00:00:00Z"));
+    return start.addMilliseconds(i.multiply(37n).remainder(90n).multiply(86400000n));
+});
 
 /** The same pure generator seeds the example record and runs as an e3 task. */
 const generateWork = East.function([IntegerType], Work, ($, count) => {
     const rows = $.let(new Map(), Work);
     const statuses = $.const(["Ready", "Scheduled", "Done"], ArrayType(StringType));
-    const jobs = $.const(["Cut panels", "Edge band", "Inspect", "Pack"], ArrayType(StringType));
-    const start = $.const(new Date("2026-10-01T00:00:00Z"));
+    const referenceOf = $.const(indexedWorkReference);
+    const jobOf = $.const(indexedWorkJob);
+    const dueOf = $.const(indexedWorkDue);
     const i = $.let(0n);
     $.while(i.less(count), ($) => {
-        const reference = $.const(East.str`JOB-${i.add(10000n)}`);
-        const due = $.const(start.addMilliseconds(i.multiply(37n).remainder(90n).multiply(86400000n)));
+        const reference = $.const(referenceOf(i));
         $(rows.insert(reference, {
-            reference, job: jobs.get(i.remainder(4n)), status: statuses.get(i.remainder(3n)),
-            due,
+            reference, job: jobOf(i), status: statuses.get(i.remainder(3n)),
+            due: dueOf(i),
             quantity: i.remainder(24n).add(1n).multiply(100n), urgent: i.remainder(5n).equal(0n),
             tags: i.remainder(2n).equal(0n).ifElse(() => new Set(["Production"]), () => new Set(["Dispatch"])),
-            operations: [{ key: East.str`${reference}-run`, label: jobs.get(i.remainder(4n)), start: due.addMilliseconds(21600000n), end: due.addMilliseconds(50400000n) }],
         }));
         $.assign(i, i.add(1n));
     });
@@ -49,13 +65,26 @@ export const indexedWorkByQuantity = e3.recordIndex("by_quantity", indexedWorkOr
 export const indexedWorkByUrgent = e3.recordIndex("by_urgent", indexedWorkOrders, { on: ["urgent"] });
 export const indexedWorkByTag = e3.recordIndex("by_tag", indexedWorkOrders, { on: ["tags"] });
 
+/**
+ * The lens's benchmark record (#1349): a row of a million, in one of ten
+ * groups, and flagged or not. Empty here, so neither the showcase nor a test
+ * deploys a million rows: e3-ui-components' lens benchmark (`E3_UI_PERF=1`)
+ * fills it through its patch door, then draws two narrowings over it — the ten
+ * rows flagged, and the three groups that hold three in ten.
+ */
+export const LensBenchRow = StructType({ group: IntegerType, flag: BooleanType });
+export const lensBenchRows = e3.record("lens_bench_rows", DictType(StringType, LensBenchRow), new Map());
+export const lensBenchPatch = e3.mutation.patch(lensBenchRows);
+export const lensBenchByGroup = e3.recordIndex("lens_bench_by_group", lensBenchRows, { on: ["group"] });
+export const lensBenchByFlag = e3.recordIndex("lens_bench_by_flag", lensBenchRows, { on: ["flag"] });
+
 export const sheetRecordIndexes = example({
-    keywords: ["Sheet", "Slice.bindRecords", "rows", "Data.bindPaged", "Record", "Record.onApply", "recordIndex", "saved views", "RecordView", "paging", "primary key", "filter"],
-    description: "50,000 work orders, narrowed by maintained record indexes through the rail's rows source, which the sheet pages its rows from. Choose Ready and Scheduled together, then a Due range: their disjoint index ranges form one paged view. Save retains original keys and hidden drafts; saved tabs retain every source's narrowing.",
+    keywords: ["Sheet", "Slice.bindRecords", "rows", "Data.bindPaged", "Record", "Record.onApply", "recordIndex", "lens", "saved views", "RecordView", "paging", "primary key", "filter"],
+    description: "50,000 work orders in the record's order, the rail's rows source narrowing them through maintained record indexes and the sheet drawing the narrowing over them as the lens, a filtered spreadsheet: only the rows it keeps, one after another, each at its row number. Choose Ready and Scheduled together, then a Due range: e3 places their rows from the indexes alone, and the sheet reads only the segments near the view. Save retains original keys and hidden drafts; saved tabs retain every source's narrowing.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
             const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));
-            // One rail over the work orders: its `rows` source narrows them, and the sheet pages what it narrows to.
+            // One rail over the work orders: its `rows` source narrows them, and the sheet draws the narrowing over the record's rows.
             const slice = $.let(Slice.bindRecords("ex.sheetRecordIndexes", {
                 rows: {
                     source: Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }),
@@ -75,12 +104,12 @@ export const sheetRecordIndexes = example({
 });
 
 export const sheetRecordIndexesMobile = example({
-    keywords: ["Sheet", "Slice.bindRecords", "rows", "mobile", "record", "filters", "saved views", "RecordView"],
-    description: "The same indexed work orders in a phone-width frame, with the rail's shared Slice controls on the toolbar's responsive ladder.",
+    keywords: ["Sheet", "Slice.bindRecords", "rows", "mobile", "record", "filters", "lens", "saved views", "RecordView"],
+    description: "The same indexed work orders and their lens in a phone-width frame, with the rail's shared Slice controls on the toolbar's responsive ladder.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
             const record = $.let(Record.bind(indexedWorkOrders, [indexedWorkPatch]));
-            // One rail over the work orders: its `rows` source narrows them, and the sheet pages what it narrows to.
+            // One rail over the work orders: its `rows` source narrows them, and the sheet draws the narrowing over the record's rows.
             const slice = $.let(Slice.bindRecords("ex.sheetRecordIndexesMobile", {
                 rows: {
                     source: Data.bindPaged(indexedWorkOrders, { indexes: [indexedWorkByStatusDue, indexedWorkByDue, indexedWorkByJob, indexedWorkByQuantity, indexedWorkByUrgent, indexedWorkByTag] }),

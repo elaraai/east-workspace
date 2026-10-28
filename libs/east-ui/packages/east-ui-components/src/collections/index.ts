@@ -54,12 +54,6 @@ export {
 
 
 export {
-    EastChakraSchematic,
-    type SchematicValue,
-    type SchematicItemValue,
-    type EastChakraSchematicProps,
-} from "./schematic";
-export {
     EastChakraMap,
     type MapValue,
     type MapAreaValue,
@@ -86,5 +80,6 @@ export {
     type DatasetKeySearchProps,
     type DatasetKeyMatchRange,
     type DatasetKeyQuery,
+    type KeySearchJump,
     type ParsedKeyInput,
 } from "./key-search/index.js";

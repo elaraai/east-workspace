@@ -65,7 +65,9 @@ export interface EastChakraComboboxProps {
     indicators?: ReactNode;
     /** The empty popup's explanation; a host search can state pending or case-sensitive lookup. */
     emptyText?: string;
-
+    /** Text the host puts in the input, each time its `seq` moves — a key search showing the match it jumped to. It is
+     *  the host's own, so the host is not told it back as typed text. */
+    text?: { readonly value: string; readonly seq: number } | undefined;
 }
 
 /**
@@ -78,9 +80,11 @@ export interface EastChakraComboboxProps {
  * text no item holds, where custom values are refused, reverted by the
  * selection behaviour, and the host told. A blur to nothing — the phone's
  * keyboard dismissed — moves the focus nowhere, and closes nothing, on any
- * device.
+ * device. A host may put text in the input itself (`text`): the input is
+ * Zag's controlled value, which Zag tells no one of, so it reaches the host as
+ * no typing.
  */
-export const EastChakraCombobox = memo(function EastChakraCombobox({ value, selectionBehavior, filterItems = true, indicators, emptyText, openOnClick }: EastChakraComboboxProps) {
+export const EastChakraCombobox = memo(function EastChakraCombobox({ value, selectionBehavior, filterItems = true, indicators, emptyText, openOnClick, text }: EastChakraComboboxProps) {
     const [props, setProps] = useState(toChakraCombobox(value));
     const placeholder = useMemo(() => getSomeorUndefined(value.placeholder), [value.placeholder]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
@@ -89,7 +93,14 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
     const onOpenChangeFn = useMemo(() => getSomeorUndefined(value.onOpenChange), [value.onOpenChange]);
     const isMultiple = useMemo(() => getSomeorUndefined(value.multiple), [value.multiple]);
 
-    const [inputValue, setInputValue] = useState("");
+    const [inputValue, setInputValue] = useState(text?.value ?? "");
+    // The host's text, each time its `seq` moves: set while rendering, as React adjusts state to a prop, so the input
+    // never paints the text it replaces.
+    const [textSeq, setTextSeq] = useState(text?.seq);
+    if (text !== undefined && text.seq !== textSeq) {
+        setTextSeq(text.seq);
+        setInputValue(text.value);
+    }
 
     useValueSync(value, comboboxRootDataEqual, () => setProps(toChakraCombobox(value)));
 
@@ -180,4 +191,5 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
         </ChakraCombobox.Root>
     );
 }, (prev, next) => comboboxRootEqual(prev.value, next.value) && prev.selectionBehavior === next.selectionBehavior
-    && prev.filterItems === next.filterItems && prev.indicators === next.indicators && prev.emptyText === next.emptyText && prev.openOnClick === next.openOnClick);
+    && prev.filterItems === next.filterItems && prev.indicators === next.indicators && prev.emptyText === next.emptyText && prev.openOnClick === next.openOnClick
+    && prev.text?.seq === next.text?.seq);

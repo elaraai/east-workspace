@@ -43,6 +43,8 @@ export {
     SliceImpl,
     RecordSliceImpl,
     createRecordSliceImplementation,
+    registerRecordSliceBatches,
+    type RecordSliceBatches,
     SliceApplyImpl,
     buildSliceHandle,
     DEFAULT_SLICE_STATE,

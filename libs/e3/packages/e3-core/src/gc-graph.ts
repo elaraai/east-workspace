@@ -566,6 +566,9 @@ function extractChildren(
       { hash: index.buildIr, kind: 'leaf' },
     );
     if (index.valueIr.type === 'some') children.push({ hash: index.valueIr.value, kind: 'leaf' });
+    // A summary's build sums its pieces by its merge (#1039), an IR blob: a
+    // reindex at any commit the state is read at runs it.
+    if (index.form.type === 'summary') children.push({ hash: index.form.value.mergeIr, kind: 'leaf' });
     return children;
   }
 

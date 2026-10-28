@@ -37,6 +37,7 @@ import type { ScheduleEventKind } from "../schedule/events.js";
 import type { SchedulePeriods } from "../schedule/periods.js";
 import { SCHEDULE_DEF, type ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleAllocationKindType, SchedulePeriodsKindType } from "../schedule/types.js";
+import { optimiseBinding, type OptimiseContract } from "../utils/optimise.js";
 import { recordSources } from "../utils/record-sources.js";
 import {
     allocationArrivals, allocationArrivalsOf, allocationInitial, allocationLanesOf, allocationResourcesOf, isAllocationArrivals, type AllocationArrivals,
@@ -154,6 +155,7 @@ export type AllocationSettingsType = typeof AllocationSettingsType;
  * @property periods - The app's days: their status, and Publish; `none`, no status chip and no Publish
  * @property narrowed - Each narrowed source's keys, paged through its part of `slice`: the lanes, the resources and the arrivals that show
  * @property fit - The app's fit, by its `e3.function`'s name
+ * @property optimise - The app's optimiser, by its `e3.function`'s name: what the Elara eye calls over the day in view, its result one edit of the session; `none`, no eye (#1409)
  * @property check - The app's issues, from a `CheckContext(R)` as bytes
  * @property columns - The app's bin fields as columns and inspector rows
  * @property rules - The built-in rules
@@ -178,6 +180,7 @@ export const AllocationPayloadType = StructType({
         arrivals: OptionType(RowSourceType(ArrayType(StringType))),
     }),
     fit: FuncBindingType,
+    optimise: OptionType(FuncBindingType),
     check: OptionType(FunctionType([BlobType], ArrayType(T.AllocationIssueType))),
     columns: ArrayType(AllocationColumnType),
     rules: T.AllocationRulesType,
@@ -251,6 +254,13 @@ export interface AllocationProps<R extends EastType = EastType> {
     periods?: SchedulePeriods;
     /** The fit: `Func.bind` of the app's `e3.function` from `Allocation.Types.FitRequest(R)` to `Allocation.Types.FitResult`. The board has no fit of its own. */
     fit: BoundFunc<[T.AllocationFitRequestType<R>], T.AllocationFitResultType>;
+    /**
+     * The app's optimiser (#1409): `Func.bind` of its `e3.function` from `Allocation.Types.OptimiseRequest(R)` — the day in view, the run
+     * number, the day's bins as drafted, every arrival and the board's context — to `Allocation.Types.OptimiseResult(R)`, the day's bins
+     * complete. The Elara eye in the toolbar calls it once per run; the result lands in the session as one edit, which one Undo
+     * reverts and Save commits with everything else. Omitted, no eye.
+     */
+    optimise?: BoundFunc<[T.AllocationOptimiseRequestType<R>], T.AllocationOptimiseResultType<R>>;
     /** The app's issues, after the built-in ones wherever issues show: an East function from `Allocation.Types.CheckContext(R)` to `Array<Allocation.Types.Issue>`. */
     check?: SubtypeExprOrValue<FunctionType<[T.AllocationCheckContextType<R>], ArrayType<T.AllocationIssueType>>>;
     /** The app's bin fields as Table columns (after Quantity) and inspector rows, over the bin's row. */
@@ -414,6 +424,29 @@ function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindin
 }
 
 /**
+ * What the Allocation holds `optimise` to (#1409): `Func.bind` of an `e3.function` from `Allocation.Types.OptimiseRequest(R)` to
+ * `Allocation.Types.OptimiseResult(R)`, R the bins' row type — a request over another row named by its bins' row.
+ *
+ * @param rowType - The bin kind's row type
+ * @returns The contract, for {@link optimiseBinding}
+ */
+function allocationOptimiseContract(rowType: EastType): OptimiseContract {
+    const rows = printType(rowType);
+    return {
+        builder: "Allocation", request: T.AllocationOptimiseRequestTypeFor(rowType), result: T.AllocationOptimiseResultTypeFor(rowType),
+        signature: "from Allocation.Types.OptimiseRequest(R) to Allocation.Types.OptimiseResult(R), R the bins' row type",
+        names: { request: "Allocation.Types.OptimiseRequest", result: "Allocation.Types.OptimiseResult" },
+        rows: { request: rows, result: rows }, noun: { theirs: "bin rows", ours: "the bin kind's rows" }, of: "the bins' row type",
+        otherRows: (asked) => {
+            // An OptimiseRequest over another row: its bins' row.
+            const bins = asked.type === "Struct" ? asked.fields["bins"] : undefined;
+            const theirs = bins?.type === "Dict" ? bins.value : undefined;
+            return theirs !== undefined && isTypeEqual(asked, T.AllocationOptimiseRequestTypeFor(theirs)) ? printType(theirs) : undefined;
+        },
+    };
+}
+
+/**
  * Validates the declarations and assembles the Allocation's interface. View
  * and interaction behaviour belong to the renderer, not this factory.
  *
@@ -427,7 +460,8 @@ function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindin
  *   by anything but String, or a resources kind with no `min` or `max`; `arrivals` that is not `Allocation.arrivals`, and
  *   its `values` returning another struct than the bin kind's own fields; `periods` that is not `Schedule.periods`; a
  *   `fit` that is not `Func.bind` of a function from `FitRequest(R)` to `FitResult`, one over another row type naming
- *   both; a `check` of another type; a library tab or a column key listed twice; a label that is empty; the Table's
+ *   both; an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R)` to `OptimiseResult(R)`, one over
+ *   another row type naming both (#1409); a `check` of another type; a library tab or a column key listed twice; a label that is empty; the Table's
  *   bands not starting at 0 and rising within the day; and as `Schedule`'s checks, the bin kind's build
  *   (`buildAllocation`) and the slice's (`recordSources`) do
  * @internal
@@ -523,6 +557,7 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
     // The app's functions over the bin row type.
     const rowType = kind.rowType as EastType;
     const fit = fitBinding(props.fit, rowType);
+    const optimise = props.optimise === undefined ? undefined : optimiseBinding(props.optimise, allocationOptimiseContract(rowType));
     const check = props.check === undefined ? undefined : overBytes(props.check, T.AllocationCheckContextTypeFor(rowType), ArrayType(T.AllocationIssueType),
         `Allocation: \`check\` is an East function from Allocation.Types.CheckContext(${printType(rowType)}) to Array<Allocation.Types.Issue>`);
     // A booked bin's own fields, the ones no role maps: each arrival's `values`, at the bin kind's (B13).
@@ -581,6 +616,7 @@ export function createAllocationPayload<R extends EastType>(props: AllocationPro
             periods: periods === undefined ? none : some(periods.build()),
             narrowed: { lanes: shown(lanesSlot), resources: shown(partsSlot), arrivals: shown("arrivals") },
             fit,
+            optimise: optimise === undefined ? none : some(optimise),
             check: check === undefined ? none : some(check),
             columns,
             rules: { under: props.rules?.under ?? true },
@@ -662,6 +698,7 @@ export interface AllocationNamespace {
         Fix: typeof T.AllocationFixType; IssueKind: typeof T.AllocationIssueKindType; Issue: typeof T.AllocationIssueType;
         CheckContext: typeof T.AllocationCheckContextTypeFor; SlotStatus: typeof T.AllocationSlotStatusType; Slot: typeof T.AllocationSlotType;
         Layout: typeof T.AllocationLayoutType;
+        OptimiseRequest: typeof T.AllocationOptimiseRequestTypeFor; OptimiseResult: typeof T.AllocationOptimiseResultTypeFor;
     };
 }
 
@@ -695,6 +732,7 @@ export const Allocation: AllocationNamespace = Object.assign(
             FitAsk: T.AllocationFitAskType, FitRequest: T.AllocationFitRequestTypeFor, FitResult: T.AllocationFitResultType, Fix: T.AllocationFixType,
             IssueKind: T.AllocationIssueKindType, Issue: T.AllocationIssueType, CheckContext: T.AllocationCheckContextTypeFor,
             SlotStatus: T.AllocationSlotStatusType, Slot: T.AllocationSlotType, Layout: T.AllocationLayoutType,
+            OptimiseRequest: T.AllocationOptimiseRequestTypeFor, OptimiseResult: T.AllocationOptimiseResultTypeFor,
         },
     },
 );

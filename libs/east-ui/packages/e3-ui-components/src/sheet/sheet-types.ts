@@ -8,39 +8,19 @@
  * events the surface reports, the effects a transition returns as data, and
  * the context a transition may ask about the sheet. The transitions live in
  * `sheet-state.ts` (the core), `sheet-link-state.ts` (the link editor),
- * `sheet-suggest-state.ts` (the copilot) and `sheet-lens-state.ts` (the lens
- * and the view tabs); every module imports its types from here so none
- * imports another's functions.
+ * `sheet-suggest-state.ts` (the copilot) and `sheet-tabs-state.ts` (the view
+ * tabs); every module imports its types from here so none imports another's
+ * functions.
  *
  * @packageDocumentation
  */
 
-import type { ValueTypeOf } from "@elaraai/east";
-import type { Slice } from "@elaraai/east-ui/internal";
 import type { SheetKind } from "./model.js";
 import type { SheetDropRefusalWord } from "./messages.js";
 import type { ParseOutcome } from "./parse/index.js";
 import type { LinkCandidate } from "./link/predict.js";
 import type { LinkHalves } from "./link/sides.js";
 import type { SheetCellValue, SheetMemberValue, SheetNounValue, SheetSavedView } from "./values.js";
-
-/** The slice's narrowing — the decoded `Slice.Types.State` a view snapshots. */
-export type SliceStateValue = ValueTypeOf<typeof Slice.Types.State>;
-
-/** The lens's context band width (B§8): rows shown either side of every hit. */
-export type LensContext = 0 | 1 | 3;
-
-/** The lens over the slice's narrowing (§6.1) — the QUERY itself is slice state, never held here. */
-export interface LensState {
-    /** Rows shown either side of every hit. */
-    context: LensContext;
-    /** Revealed row POSITIONS — a set, so overlapping bands merge and a band keeps its anchor. */
-    reveals: ReadonlySet<number>;
-    /** How far each band control has reached (`${band}:${where}` → presses) — the 1 · 3 · 10 · all escalation. */
-    steps: ReadonlyMap<string, number>;
-    /** A grouped sheet's fold overrides (#740): group id → folded. Persist into views like the reveals. */
-    folds: ReadonlyMap<string, boolean>;
-}
 
 /** What a row-space index holds: a row, a blank padding row, or a group summary. */
 export type SheetRowKind = "row" | "blank" | "group";
@@ -196,8 +176,8 @@ export interface SheetUiState {
     gsel: number | null;
     /** The session's rejection memory. */
     rejected: Rejections;
-    /** The lens over the slice's narrowing. */
-    lens: LensState;
+    /** A grouped sheet's fold overrides (#740): a group's or a line's id → folded (a line's `false`: its sub rows open). The open view keeps them; the narrowing itself is slice state, never held here. */
+    folds: ReadonlyMap<string, boolean>;
     /** The view tabs. */
     tabs: TabsState;
 }
@@ -255,18 +235,14 @@ export type SheetEvent =
     | { t: "proposal.take"; i: number }
     /** × on a proposal row — rejects it and remembers the pairing. */
     | { t: "proposal.reject"; i: number }
-    // ── The lens and the view tabs (B§8) ──
-    /** The context switch: ±0 / ±1 / ±3 — reveals reset. */
-    | { t: "lens.context"; context: LensContext }
-    /** A band control: reveal rows of the hidden run at positions `from`…`to` (inclusive) from its top, its bottom, both ends, or all of it — each press reaching further (1 · 3 · 10 · all). */
-    | { t: "band.reveal"; key: string; from: number; to: number; where: "top" | "bottom" | "both" | "all" }
-    /** The slice's narrowing changed underneath the lens: reveals reset, the ring returns to the top. */
-    | { t: "lens.narrowed" }
-    /** A tab is picked (`null` = the whole sheet): the leaving tab keeps its context and reveals, an unsaved query is discarded. */
+    // ── The narrowing and the view tabs (B§8) ──
+    /** The slice's narrowing changed underneath the sheet: the ring returns to the top. */
+    | { t: "narrowing.changed" }
+    /** A tab is picked (`null` = the whole sheet): the leaving tab keeps its folds, an unsaved query is discarded. */
     | { t: "tab.switch"; id: string | null }
     /** A tab opens WITHOUT persisting the one it leaves — the initial `activeView`; `folds`, the ones the last session left on it, when newer than the view's (#857). */
     | { t: "tab.open"; id: string; folds?: ReadonlyMap<string, boolean> | undefined }
-    /** `+ TAB` — snapshot the current narrowing, context and reveals as a view. */
+    /** `+ TAB` — snapshot the current narrowing and folds as a view. */
     | { t: "tab.create" }
     /** × or a middle click — the active tab falls back to the sheet. */
     | { t: "tab.close"; id: string }
@@ -318,9 +294,13 @@ export type SheetEffect =
     /**
      * ↓ past the last resident row, or ↑ above the first, on a paged sheet
      * whose source goes on (#860): the component asks for the window beyond,
-     * and the ring moves `dir` onto its row, at column `c`, once it lands.
+     * and the ring moves `dir` onto its row, at column `c`, once it lands. A
+     * page (#1398, CL10) — PageDown past the last resident row, PageUp above
+     * the first — says the row it pages from and how many rows a page moves:
+     * the window a page on is asked for, and the ring lands there — fetch,
+     * then move.
      */
-    | { t: "seek.step"; dir: 1 | -1; c: number }
+    | { t: "seek.step"; dir: 1 | -1; c: number; page?: { from: number; rows: number } | undefined }
     /** ⌘Home / ⌘End on a paged sheet not at that end (#860): the component jumps the source there, and the ring lands on its first or last row, at column `c`. */
     | { t: "seek.edge"; edge: "first" | "last"; c: number }
     /** Move the ring to a row by ID once the body has re-formed (a fold-all keeps the ring on its group's band). */
@@ -340,7 +320,7 @@ export interface SheetMachineCtx {
     rowCount: number;
     /** Declared columns. */
     colCount: number;
-    /** Grouped sheets have source key search and fold controls, without local lenses or views. */
+    /** A grouped sheet: its rows are groups — the records a lens narrows — with fold controls. */
     grouped?: boolean;
     /** A lens narrows the sheet — ↓ on the last row must not append. */
     lensActive: boolean;
@@ -438,14 +418,14 @@ export interface Transition {
 /** The empty rejection memory. */
 export const NO_REJECTIONS: Rejections = { fills: new Set(), follows: new Set() };
 
-/** The lens with nothing revealed and no fold overridden. */
-export const EMPTY_LENS: LensState = { context: 0, reveals: new Set(), steps: new Map(), folds: new Map() };
+/** No fold overridden. */
+export const NO_FOLDS: ReadonlyMap<string, boolean> = new Map();
 
 /** The initial UI state — `active` is the initial view tab, if the sheet opens on one; `folds`, the fold overrides it opens with (#857). */
 export function initialSheetState(sel: CellRef = { r: 0, c: 0 }, active: string | null = null, folds?: ReadonlyMap<string, boolean>): SheetUiState {
     return {
         sel, selEnd: null, edit: null, hover: null, msg: null, appended: 0, sugg: null, armed: null, gsel: null, rejected: NO_REJECTIONS,
-        lens: folds === undefined || folds.size === 0 ? EMPTY_LENS : { ...EMPTY_LENS, folds },
+        folds: folds === undefined || folds.size === 0 ? NO_FOLDS : folds,
         tabs: { active, seq: 1, renaming: null, renameVal: "" },
     };
 }

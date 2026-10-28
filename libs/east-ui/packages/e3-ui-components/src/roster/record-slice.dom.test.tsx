@@ -34,7 +34,9 @@ test("indexed staff visibility replaces atomically without narrowing coverage, a
     await act(async () => { store.write(key, encodeBeast2For(RecordSliceStateType)({ ...state, where: new Map([["name", variant("prefix", "Z. Nobody")]]), preset: none })); });
     await settle();
     expect(assignment(container, "s37")).toBe(drafted);
-    expect(slot(container, "main").querySelector("[data-roster-main]")?.hasAttribute("inert") ?? slot(container, "main").hasAttribute("inert")).toBe(true);
+    // Retained (#1398, CL8): aria-disabled, never inert.
+    const main = slot(container, "main").querySelector("[data-roster-main]")!;
+    expect([main.getAttribute("aria-disabled"), main.hasAttribute("inert")]).toEqual(["true", false]);
     await act(async () => { searching.release(); });
     await waitFor(() => expect(assignment(container, "s37")).toBeNull());
     expect(marks()).toEqual(coverage);

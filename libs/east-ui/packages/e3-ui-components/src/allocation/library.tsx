@@ -307,6 +307,8 @@ export interface LibraryArgs {
     /** A Find a fit's result, shown in the Resources tab until its chip clears it (A74). */
     find?: ResourceFind | undefined;
     onClearFind?: (() => void) | undefined;
+    /** Whether the Arrivals tab's count flashes (#1409): the latest run booked an arrival or returned one, and its highlight is on. */
+    arrivalsFlash?: boolean | undefined;
 }
 
 /** The picked card's action (A53, A87): its note, and its button. */
@@ -447,11 +449,13 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
     const hint = (tab: "arrivals" | "resources") => narrow ? `Select ${a(nouns.arrival)}, then Book`
         : tab === "arrivals" ? (layout === "table" ? `Drag onto a row’s ${one(nouns.arrival)} cell` : `Drag onto ${a(nouns.lane)} hour or ${a(nouns.resource)}`)
             : (layout === "table" ? `Drag onto a row’s ${one(nouns.resource)} cell` : `Drag onto a bin or an empty ${one(nouns.lane)} hour`);
+    // A tab its source reads again holds its cards retained (#1398, CL8): its action waits until it lands.
     const feet = (tab: "arrivals" | "resources") => <>
         <Box css={[styles.paneFoot, styles.paneHint]} data-allocation-library-hint="">{hint(tab)}</Box>
         {action !== undefined && <Box css={[styles.paneFoot, styles.paneAction]} data-allocation-library-action="">
             <Box as="span" css={styles.paneHint} data-tone={action.tone}>{action.note}</Box>
-            {action.button !== undefined && <Button size="xs" variant="outline" disabled={action.button.disabled} onClick={runAction}>
+            {action.button !== undefined && <Button size="xs" variant="outline" onClick={runAction}
+                disabled={action.button.disabled || (tab === "arrivals" ? arrivalTab : resourceTab).pane["aria-disabled"] === true}>
                 <FontAwesomeIcon icon={faInbox} />{action.button.label}
             </Button>}
         </Box>}
@@ -460,7 +464,7 @@ export function useAllocationLibrary(args: LibraryArgs): BuilderFrameDock | unde
         if (tab.type === "arrivals") {
             const library = scheduleLibrary({ id: drag.libraries.arrivals, items: arrivalItems, groupOptions: [{ key: "group", label: "Group" }],
                 noun: some({ singular: one(nouns.arrival), plural: other(nouns.arrival) }), onCardClick: some(arrivalClick) }, true);
-            return { key: "arrivals", label: nouns.arrival.other, count: arrivalTab.count,
+            return { key: "arrivals", label: nouns.arrival.other, count: arrivalTab.count, flash: args.arrivalsFlash === true,
                 body: <Box css={styles.pane} data-allocation-library="arrivals" {...arrivalTab.pane}
                 onPointerDownCapture={arm(drag.libraries.arrivals)} onKeyDownCapture={arm(drag.libraries.arrivals)}>
                 <EastChakraLibrary value={library} storageKey={drag.libraries.arrivals} extras={arrivalExtras} groupMark={overdueMark}

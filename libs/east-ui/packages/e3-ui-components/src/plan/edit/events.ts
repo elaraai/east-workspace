@@ -17,12 +17,13 @@ type Item = Extract<ReturnType<Kind["planEvent"]>, { type: "some" }>["value"]["i
 export type PlanEventReadValue = ScheduleRead<Item>;
 /** Shared editing, with the Plan's richer event projection. */
 export type PlanEventEditing = ScheduleEditing<Item>;
-/** The Plan's event editing inputs. */
+/** The Plan's event editing inputs: the shared ones, the rows each kind's cells hold among them (`held`, #1039). */
 export interface PlanEventEditingArgs extends Omit<ScheduleEditingArgs<Item>, "kinds"> {
     /** The Plan's event kinds. */
     kinds: readonly Kind[];
 }
-/** Adapts the Plan's event projection to the shared record editing history. */
+
+/** Adapts the Plan's event projection to the shared record editing history: each kind's events as Plan draws them. */
 export function usePlanEventEditing(args: PlanEventEditingArgs): PlanEventEditing {
     const kinds = useMemo(() => args.kinds.map(kind => ({ ...kind, event: kind.planEvent })), [args.kinds]);
     return useScheduleEditing({ ...args, kinds });

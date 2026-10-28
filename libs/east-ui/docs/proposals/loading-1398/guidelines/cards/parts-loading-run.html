@@ -1,0 +1,94 @@
+<!-- @dsCard group="Parts · Loading" name="Loading · unloaded run" viewport="700x3403" subtitle="Placeholder rows at a collection's own pitch · one shape per content kind · comfortable, compact, condensed · the Sheet's real row numbers · a grouped band · the narrow card · the failed run with Retry in place · the 150 ms reveal" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css"><link rel="stylesheet" href="loading-parts.css">
+<style>
+.kinds{grid-template-columns:136px minmax(0,1fr) minmax(0,1fr) 168px}
+.kinds>:first-child{white-space:normal}
+.kinds>:nth-child(4){white-space:normal;font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:1.4;color:var(--ink-4)}
+.kinds .kn{line-height:1.3;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)}
+.tall{height:48px}
+.cols{grid-template-columns:46px minmax(0,1fr) 104px 72px 64px 72px 112px}
+.shc{grid-template-columns:52px 120px minmax(0,1fr) 104px 80px 88px}
+.shm{grid-template-columns:44px minmax(0,1fr) 64px}
+.lbl2{display:grid;gap:4px}
+.cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:20px;background:var(--paper-2)}
+.fcols{grid-template-columns:46px minmax(0,1fr) 112px 72px 64px}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">Content kinds · what each value is drawn as before it lands</div>
+<div class="bf" id="kinds"></div>
+<div class="cap"><span class="f"><b>unread</b>: one shape per kind, in the exact slot the value will fill; a placeholder never states a value</span> · <span class="f">bars static --paper-3, square-ended: 12 for body values, 8 for labels and meta, 24 for large numbers, centred in the line box</span> · <span class="f">rects take their part's footprint and radius: the Chip's 22 (15 compact) at --r-sm, the Checkbox's 14 at 3</span> · <span class="f">the spec's "pill" is the Chip's rect: nothing is pill-shaped</span> · <span class="f">units, headers, arrows and labels stay real</span></div>
+</div>
+<div class="sec">
+<div class="k">A run at each density · Table, DataList, TreeView, the list layouts</div>
+<div class="it2"><div class="bf" id="d36"></div><div class="cap"><span class="f"><b>comfortable · 36</b></span> · <span class="f">two rows landed, then the run where it meets the viewport</span> · <span class="f">chips 22</span></div></div>
+<div class="it2"><div class="bf" id="d32"></div><div class="cap"><span class="f"><b>compact · 32</b></span> · <span class="f">chips 15, bars 12</span></div></div>
+<div class="it2"><div class="bf" id="d28"></div><div class="cap"><span class="f"><b>condensed · 28</b></span> · <span class="f">chips 15, bars 12</span></div></div>
+<div class="cap"><span class="f">the run's rows take the collection's pitch, rule included, so the extent and every row below are exact before the data lands</span> · <span class="f">real column rules, gutter and checkbox column; the checkbox is drawn disabled until its window lands, because selection is by key</span> · <span class="f">no gap, caption, pill or "not loaded" count between landed rows and the run</span> · <span class="f">one element per visible row, positioned from the scroll offset; aria-hidden</span></div>
+</div>
+<div class="sec">
+<div class="k">The Sheet · flat rows keep their real numbers</div>
+<div class="it2"><div class="bf" id="sheet"></div><div class="cap"><span class="f"><b>unread · after a jump below the loaded rows</b></span> · <span class="f">row numbers real: position + 1, the gutter's width taken from the count (16,667 → 52)</span> · <span class="f">reference and job a left bar · status a dot and a short bar · due a medium mono bar · quantity a short right bar</span> · <span class="f">a number can't be selected until its window lands; a click asks for it</span></div></div>
+<div class="trio" id="timing"></div>
+<div class="cap"><span class="f"><b>the reveal</b>: geometry draws at once; the fill and the footer's loading line only once the wait passes 150 ms, then stay at least 300 ms</span> · <span class="f">a 100 ms read shows neither</span> · <span class="f">values replace bars in place, row for row: nothing at or above the row in view moves</span></div>
+</div>
+<div class="sec">
+<div class="k">Grouped · a band and lines not yet read</div>
+<div class="it2"><div class="bf" id="grouped"></div><div class="cap"><span class="f"><b>unread · grouped</b></span> · <span class="f">the group head is a row at the run's pitch: chevron real, key an 8 bar, the Count a 24 × 16 rect, the aggregate a short bar</span> · <span class="f">its lines take the run's pitch; when the real lines land, growth goes below the row in view</span> · <span class="f">a band's "N rows" is a bar until its children land, never "~N"</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Card · the narrow layouts</div>
+<div class="bf"><div class="cards" id="cards"></div></div>
+<div class="cap"><span class="f"><b>unread · card</b></span> · <span class="f">the Item card at its kind's estimated height: a title bar in the 20 title line, one meta bar in the 16 meta line</span> · <span class="f">a title that is already known stays real</span> · <span class="f">the estimate comes from a real card of the kind, never a flat 900 px</span></div>
+</div>
+<div class="sec">
+<div class="k">Failed · the reason and Retry in place</div>
+<div class="it2"><div class="bf" id="failed"></div><div class="cap"><span class="f"><b>failed</b>: the run's first row in view carries the reason and Retry, positioned from the scroll offset, so it is always on screen</span> · <span class="f">circle-exclamation --neg, the reason Inter Tight 13 --ink in the record's noun, Retry the Default button</span> · <span class="f">the run's other rows keep their gutter and rules and carry nothing else: the failure is said once</span> · <span class="f">the landed rows stay</span></div></div>
+<div class="it2"><div class="bf" id="retry"></div><div class="cap"><span class="f"><b>retrying</b>: Retry takes the Button's loading form, the live dot leading its label</span> · <span class="f">past 150 ms the run's fill returns and the footer line reads "Loading work orders 8,301–8,500"</span></div></div>
+</div>
+</div>
+<div class="pl">&lt;Loading&gt; · state cold|unread|stale|failed|empty · density comfortable|compact|condensed · content text|number|date|boolean|chip|link|enum|label|aggregate|card · line idle|range|period|filtering|failed|narrow</div>
+<div class="ann"><b>UnloadedRun (east-ui-components collections; replaces SheetBandRow and WindowBand) (proposed)</b> · <span class="f">rows at the collection's pitch, rule included: 36 / 32 / 28; Sheet 36 at md (27 sm, 42 lg, 45 on a coarse pointer); Plan rows 42</span> · <span class="f">drawn only where the run meets the viewport, from the scroll offset, never a sticky child of a translated or clipped band</span> · <span class="f">one element per visible row; the virtualiser counts the run as one item</span> · <span class="f">real column and row rules, gutter, row numbers on flat sheets</span> · <span class="f">bars --paper-3, static, square-ended, 12 body / 8 label / 24 large, widths keyed to the row index</span> · <span class="f">text a left bar · number a short right bar · date a medium mono bar · boolean 14 × 14 radius 3 · chip, set, duty the Chip's rect 22 / 15 at --r-sm · link a chip rect each side of → · enum an 8 dot and a short bar · label 12, plus 8 on two-line rows · aggregate a short 8 or 12 bar · card the Item card with a title and a meta bar</span> · <span class="f">reveal after 150 ms, held at least 300 ms</span> · <span class="f">aria-hidden; the region aria-busy</span> · <span class="f">failed: circle-exclamation 14 --neg, reason 13 --ink, Default Retry, said once; the run's other rows bare</span></div>
+<script src="loading-parts.js"></script>
+<script>
+(()=>{const {I,N,W,bar,chip,rect,box,enm,lnk,cnt,stt,$}=L;
+const kinds=[
+['Text','<span>Cut panels</span>',bar(88),'a bar, aligned like the column'],
+['Number','<span class="n" style="margin-left:auto">1,900</span>','<span style="margin-left:auto;display:flex">'+bar(40)+'</span>','a short bar, right-aligned'],
+['Date · time','<span class="n" style="margin-left:auto">2026-10-01</span>','<span style="margin-left:auto;display:flex">'+bar(72)+'</span>','a medium bar, aligned like the column'],
+['Boolean','<span class="cb on" role="checkbox" aria-checked="true" aria-label="Rush"></span>',box(),'the Checkbox\'s 14 square, in its place'],
+['Chip · set · duty','<span class="ch">Night</span><span class="ch">Rush</span>',chip(48),'the Chip\'s rect, one per value slot'],
+['Link · from → to','<span class="ch">LD-2201</span><span class="kl"><span class="ar">→</span></span><span class="ch">K-209</span>',lnk(56),'a chip rect in each half'],
+['Enum','<span class="stt"><span class="dot pos"></span>Ready</span>',enm(48,8),'a dot and a short bar'],
+['Row label','<span class="n">JOB-10000</span>',bar(72),'a bar in the label column'],
+['Row label · two lines','<span class="lbl2"><span class="n">JOB-10000</span><span class="mt9">Ready</span></span>','<span class="lbl2">'+bar(72)+bar(40,8)+'</span>','a second, shorter bar',1],
+['Aggregate','<span class="mt9">268 h booked</span>',bar(56,8),'a short bar where the figure goes'],
+['Count','<span class="ct">31</span>',cnt(),'the Count\'s 24 × 16 rect'],
+];
+$('kinds',`<div class="tr th kinds"><span>Kind</span><span>Landed</span><span>Unread</span><span>Shape</span></div>`+kinds.map(k=>`<div class="tr kinds${k[4]?' tall':''}"><span class="kn">${k[0]}</span><span>${k[1]}</span><span aria-hidden="true">${k[2]}</span><span>${k[3]}</span></div>`).join(''));
+const loaded=[['WO-10000','Cut panels','Oct 01','100','Rush','pos','Ready'],['WO-10090','Inspect','Oct 01','1,900','Night','neu','Scheduled']];
+function table(h,cls){const ch=h===36?22:15,hd=`<div class="tr th cols ${cls}"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select all"></span></span><span>Work order</span><span>Job</span><span class="r">Due</span><span class="r">Qty</span><span>Tags</span><span>Status</span></div>`;
+const lr=loaded.map(r=>`<div class="tr cols ${cls}"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select ${r[0]}"></span></span><span class="n">${r[0]}</span><span>${r[1]}</span><span class="r n">${r[2]}</span><span class="r n">${r[3]}</span><span><span class="ch"${h===36?'':' style="height:15px;padding:0 4px;font-size:var(--fs-label-xs)"'}>${r[4]}</span></span><span>${stt(r[6],r[5])}</span></div>`).join('');
+const run=N(3,i=>`<div class="tr cols ${cls}" aria-hidden="true"><span><span class="cb dis"></span></span><span>${bar(W(80,i+2))}</span><span>${bar(W(72,i))}</span><span class="r">${bar(44)}</span><span class="r">${bar(32)}</span><span>${chip(40,ch)}</span><span>${enm(48,8)}</span></div>`);
+return hd+lr+run;}
+$('d36',table(36,''));$('d32',table(32,'c32'));$('d28',table(28,'c28'));
+const refs=['JOB-84820','JOB-84910','JOB-85000'],jobs=['Cut panels','Inspect','Cut panels'],qty=['1,300','700','100'];
+const shHead=`<span class="gh hd n"></span><span class="gh hd l">Reference</span><span class="gh hd l">Job</span><span class="gh hd l">Status</span><span class="gh hd r">Due</span><span class="gh hd r lc">Quantity</span>`;
+const shLoaded=refs.map((r,i)=>`<span class="gh n">${(8298+i).toLocaleString('en-GB')}</span><span class="sc id">${r}</span><span class="sc tx">${jobs[i]}</span><span class="sc en">Ready<span class="car">▾</span></span><span class="sc">Oct 21</span><span class="sc lc">${qty[i]}</span>`).join('');
+const shRun=n0=>N(6,i=>`<span class="gh n">${(n0+i).toLocaleString('en-GB')}</span><span class="sc id" aria-hidden="true">${bar(W(76,n0+i))}</span><span class="sc tx" aria-hidden="true">${bar(W(84,n0+i+1))}</span><span class="sc tx" aria-hidden="true">${enm(40)}</span><span class="sc" aria-hidden="true">${bar(48)}</span><span class="sc lc" aria-hidden="true">${bar(32)}</span>`);
+$('sheet',`<div class="sh shc">${shHead}${shLoaded}${shRun(8301)}</div>`);
+const mini=(st)=>{let rows='';for(let i=0;i<4;i++){const n=(8301+i).toLocaleString('en-GB');const c1=st==='geo'?'':st==='fill'?bar(W(64,8301+i)):`JOB-${85090+90*i}`,c2=st==='geo'?'':st==='fill'?bar(32):['1,900','1,300','700','100'][i];rows+=`<span class="gh n">${n}</span><span class="sc id">${c1}</span><span class="sc lc">${c2}</span>`;}
+return `<div class="bf"><div class="sh shm"><span class="gh hd n"></span><span class="gh hd l">Reference</span><span class="gh hd r lc">Qty</span>${rows}</div></div>`;};
+$('timing',`<div class="it2">${mini('geo')}<div class="cap"><b>0–150 ms</b> · geometry only: numbers, rules, columns</div></div><div class="it2">${mini('fill')}<div class="cap"><b>past 150 ms</b> · the fill, held ≥ 300 ms</div></div><div class="it2">${mini('land')}<div class="cap"><b>landed</b> · values in the same slots</div></div>`);
+const gh=(i)=>`<div class="tr cols" aria-hidden="true"><span><span class="chev open">${I('angle-right')}</span></span><span>${bar(W(64,i),8)}${cnt()}</span><span></span><span></span><span class="r">${bar(36)}</span><span></span><span></span></div>`;
+$('grouped',`<div class="tr th cols"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select all"></span></span><span>Work order</span><span>Job</span><span class="r">Due</span><span class="r">Qty</span><span>Tags</span><span>Status</span></div>`+gh(0)+N(3,i=>`<div class="tr cols" aria-hidden="true"><span><span class="cb dis"></span></span><span>${bar(W(80,i))}</span><span>${bar(W(72,i+1))}</span><span class="r">${bar(44)}</span><span class="r">${bar(32)}</span><span>${chip(40)}</span><span>${enm(48,8)}</span></div>`)+gh(3));
+const card=(t,h)=>`<div class="ic" aria-hidden="${t?'false':'true'}" style="min-height:${h}px"><div class="icb"><div class="ihd"><div class="l20">${t?`<span class="itt">${t}</span>`:bar(112)}</div><div class="l16">${bar(72,8)}</div></div></div></div>`;
+$('cards',card('',104)+card('',104)+card('Thu 9 · Inbound · Early',104));
+const fh=`<div class="tr th fcols"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select all"></span></span><span>Work order</span><span>Job</span><span class="r">Due</span><span class="r">Qty</span></div>`;
+const fl=loaded.map(r=>`<div class="tr fcols"><span><span class="cb" role="checkbox" aria-checked="false" aria-label="Select ${r[0]}"></span></span><span class="n">${r[0]}</span><span>${r[1]}</span><span class="r n">${r[2]}</span><span class="r n">${r[3]}</span></div>`).join('');
+const frow=b=>`<div class="tr fcols"><span><span class="cb dis"></span></span><span style="grid-column:2/-1"><span class="fail">${I('circle-exclamation')}<span class="msg">Couldn't read work orders <span class="num">8,301–8,500</span></span>${b}</span></span></div>`;
+$('failed',fh+fl+frow('<span class="bt md" role="button" aria-label="Retry work orders 8,301–8,500">Retry</span>')+N(2,i=>`<div class="tr fcols"><span><span class="cb dis"></span></span><span></span><span></span><span></span><span></span></div>`));
+$('retry',fh+fl+frow('<span class="bt md" role="button" aria-busy="true"><span class="ld"></span>Retry</span>')+N(2,i=>`<div class="tr fcols"><span><span class="cb dis"></span></span><span></span><span></span><span></span><span></span></div>`));
+})();
+</script>
+</body></html>

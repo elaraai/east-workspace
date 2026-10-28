@@ -23,12 +23,16 @@
  *     contents* (`Filter · Search +1`, or `3 filters · EU +1` when narrowing)
  *     — never the bare verb "narrow";
  *   - rank 7 — the icon alone, its tooltip naming the contents.
- * A one-affordance cluster's floor is its summary chip: it has nothing to
- * merge, and an icon would say less than the chip. The toolbar merges these
+ * A one-affordance cluster's ladder ends at its summary chip: it has nothing
+ * to merge, and an icon would say less than the chip. The toolbar merges these
  * steps with its other items', so the rail folds first, a record rail's
  * summary next ({@link SUMMARY_RANK}; the Filters editor counts each source
  * in its heading, #1358), and a host's own items ({@link HOST_RANK} and up)
- * after it.
+ * after it. Below the toolbar's whole ladder, every cluster's trigger is its
+ * filter icon alone, without its caret — a one-affordance cluster's summary
+ * chip too — the first rung of the row's floor (`FLOOR_RANK`, hand retest, 27
+ * Oct 2026), taken only where the ladder leaves the row too wide, so the
+ * history and Save stay in it.
  *
  * Every folded chip, the terminal chip and the icon open the sectioned
  * `Slice.Edit` popover (every affordance of the cluster flat, in `editor`

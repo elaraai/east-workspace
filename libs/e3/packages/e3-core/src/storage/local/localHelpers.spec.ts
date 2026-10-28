@@ -14,11 +14,12 @@
  * never observes a truncated/empty file.
  */
 
-import { describe, it, beforeEach, afterEach } from 'node:test';
+import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert';
+import { promises as fsPromises } from 'node:fs';
 import * as fs from 'node:fs/promises';
 import { join } from 'node:path';
-import { atomicWriteFile, objectPath } from './localHelpers.js';
+import { atomicWriteFile, objectPath, readReplacedFile } from './localHelpers.js';
 import { createTempDir, removeTempDir } from '../../test-helpers.js';
 
 describe('objectPath', () => {
@@ -41,21 +42,16 @@ describe('atomicWriteFile', () => {
   beforeEach(() => { dir = createTempDir(); });
   afterEach(() => { removeTempDir(dir); });
 
-  // POSIX-only. This reproduces the O_TRUNC torn-read race a bare fs.writeFile
-  // exposes (reader sees a 0-byte/partial file). On Windows rename-over-an-open
-  // file is a sharing violation (handled by renameWithRetry), not a torn read,
-  // and a tight raw-byte reader there starves the rename via libuv-threadpool
-  // ordering rather than exposing any real bug. Windows concurrent-read atomicity
-  // is covered end-to-end by the LocalRefStore execution/dataflow tests, which
-  // read+decode (a natural file-closed gap). Matches the repo's existing
-  // Windows-skip pattern for concurrency specs (e.g. runDetached.spec.ts).
-  it('a concurrent reader never observes a torn or empty file while the path is overwritten in place', { skip: process.platform === 'win32' }, async () => {
+  // This reproduces the O_TRUNC torn-read race a bare fs.writeFile exposes
+  // (reader sees a 0-byte/partial file). The reader reads as the stores' readers
+  // do, through readReplacedFile, in turns with the writer's rename: so on
+  // Windows, which refuses a rename over a file a read holds open, it never
+  // holds the file across the rename, however soon it reads again.
+  it('a concurrent reader never observes a torn or empty file while the path is overwritten in place', async () => {
     const target = join(dir, 'status.beast2');
     // Distinctly-sized multi-chunk payloads so each write spans multiple write()
     // calls — this widens the truncation window a bare fs.writeFile would expose,
-    // making a torn read overwhelmingly likely if atomicity regresses. Kept
-    // moderate so a concurrent reader on Windows doesn't hold the file long
-    // enough to starve the writer's rename.
+    // making a torn read overwhelmingly likely if atomicity regresses.
     const payloadA = Buffer.alloc(48 * 1024, 0xab);
     const payloadB = Buffer.alloc(32 * 1024, 0xcd);
     await atomicWriteFile(target, payloadA); // seed so the file always exists
@@ -64,14 +60,10 @@ describe('atomicWriteFile', () => {
     const reader = (async () => {
       const torn: number[] = [];
       while (!stop) {
-        const data = await fs.readFile(target);
+        const data = await readReplacedFile(target);
         const isA = data.length === payloadA.length && data[0] === 0xab && data[data.length - 1] === 0xab;
         const isB = data.length === payloadB.length && data[0] === 0xcd && data[data.length - 1] === 0xcd;
         if (!isA && !isB) torn.push(data.length);
-        // Yield between reads. A tight read loop holds the file open ~continuously,
-        // which on Windows starves the writer's rename (EPERM); a real poller reads
-        // periodically. This still overlaps writes often enough to catch a torn read.
-        await new Promise((r) => setTimeout(r, 1));
       }
       return torn;
     })();
@@ -85,6 +77,59 @@ describe('atomicWriteFile', () => {
     }
     const torn = await reader;
     assert.deepStrictEqual(torn, [], `reader observed ${torn.length} torn read(s); sizes: ${torn.slice(0, 5).join(',')}`);
+  });
+
+  it('takes turns between a read of the file and a rename over it, so a rename never meets a read of its own process, which Windows refuses', async () => {
+    const target = join(dir, 'status.beast2');
+    await atomicWriteFile(target, Buffer.from('old'));
+
+    // Windows' rule, on every platform: a rename over a file a read holds open
+    // is refused. The read holds the file until the test lets it go, and the
+    // write says when its staging file is written.
+    const { readFile, rename, writeFile } = fsPromises;
+    let reading = 0;
+    let refused = 0;
+    let letGo!: () => void;
+    const held = new Promise<void>((resolve) => { letGo = resolve; });
+    let staged!: () => void;
+    const staging = new Promise<void>((resolve) => { staged = resolve; });
+    mock.method(fsPromises, 'readFile', async (file: string) => {
+      reading++;
+      try {
+        await held;
+        return await readFile(file);
+      } finally {
+        reading--;
+      }
+    });
+    mock.method(fsPromises, 'writeFile', async (file: string, data: Uint8Array) => {
+      await writeFile(file, data);
+      if (file.startsWith(`${target}.`)) staged();
+    });
+    mock.method(fsPromises, 'rename', async (from: string, to: string) => {
+      if (to === target && reading > 0) {
+        refused++;
+        throw Object.assign(new Error(`EPERM: operation not permitted, rename '${from}' -> '${to}'`), { code: 'EPERM' });
+      }
+      await rename(from, to);
+    });
+    try {
+      const read = readReplacedFile(target);
+      let done = false;
+      const write = atomicWriteFile(target, Buffer.from('new')).then(() => { done = true; });
+      await staging;
+      // A turn of the event loop, by which the write has asked for its rename
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.deepStrictEqual({ refused, done }, { refused: 0, done: false }, 'the rename waits for the read to close the file');
+      letGo();
+      assert.strictEqual((await read).toString(), 'old', 'the read reads the file the rename has not replaced yet');
+      await write;
+      assert.strictEqual(refused, 0, 'no attempt met the read');
+      assert.strictEqual((await readReplacedFile(target)).toString(), 'new');
+    } finally {
+      letGo();
+      mock.restoreAll();
+    }
   });
 
   it('leaves no .partial staging files behind after sequential overwrites', async () => {

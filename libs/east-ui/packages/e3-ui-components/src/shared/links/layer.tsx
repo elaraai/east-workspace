@@ -27,12 +27,16 @@
  * place to spread its drag handle on them (`grip`, A69); thin GUIDES from the
  * pointer into rows (`guides`, A30); captions that take the pointer as the line
  * does, lighting it (`caption`); a link's tone (`data-tone`: a draft's, a
- * drag's verdict); links that light nothing while a drag is under way
+ * drag's verdict) on its group, its casing and its caption alike, so a host
+ * may draw a tone outlined; links that light nothing while a drag is under way
  * (`lights={false}`); and the lit link reported (`onLit`), for a host that
  * rings the ends itself (`halo={false}`), as the Allocation rings its bin card
  * and its resource's load bar (A67). The preview and the guides follow the
  * pointer wherever it is, so the bounds' clip does not cut them: the host's box
  * does, and they draw over the captions.
+ *
+ * Its measures are the links' look's (`look.ts`), which the Schematic's
+ * Canvas2D painter (`canvas.ts`, #1403) draws with too.
  *
  * The DOM's vocabulary is Plan's, where these parts began (`data-plan-link`,
  * `data-plan-ribbon-band`, `data-plan-casing`, …), so Plan's tests and its
@@ -48,22 +52,12 @@ import {
 import { chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
-import { RIBBON_CAPTION_PAD } from "./captions.js";
 import { RIBBON_SLOT_W, type RibbonEdgeSlot, type RibbonEnd, type RibbonPath } from "./geometry.js";
+import {
+    LINK_CASING as CASING, LINK_HALO_OUT as HALO_OUT, LINK_HALO_R as HALO_R, LINK_HIT_REACH as HIT_REACH, LINK_KNOCKOUT_H as KNOCKOUT_H,
+    LINK_KNOCKOUT_PAD as KNOCKOUT_PAD, LINK_KNOCKOUT_RISE as KNOCKOUT_RISE,
+} from "./look.js";
 
-/** How far beyond the band the hit area reaches, each side (px). */
-const HIT_REACH = 5;
-/** The paper either side of a link's ink — its casing (px). */
-const CASING = 1;
-/** A caption's knockout: its height, the space either side of its text, and
- *  how far above the text's baseline it starts (px). */
-const KNOCKOUT_H = 12;
-const KNOCKOUT_PAD = RIBBON_CAPTION_PAD;
-const KNOCKOUT_RISE = 9.5;
-/** A lit link's halo: how far outside an end it is drawn (the middle of its
- *  1px line), and its corner — an end's corner, 4 out (px). */
-const HALO_OUT = 4.5;
-const HALO_R = 7.5;
 /** A selected caption's ×: its square target, and the gap from the knockout (px). */
 const UNLINK_SIZE = 16;
 const UNLINK_GAP = 2;
@@ -168,10 +162,10 @@ function EndHalo({ end, side }: { end: RibbonEnd; side: "from" | "to" }) {
     );
 }
 
-/** A link's casing — the paper either side of its band and round its heads. */
+/** A link's casing — the paper either side of its band and round its heads; it carries the link's tone, for a host that outlines one. */
 function Casing({ r }: { r: LinkRibbon }) {
     return (
-        <g data-plan-ribbon-casing={r.id}>
+        <g data-plan-ribbon-casing={r.id} data-tone={r.tone}>
             <path data-plan-casing="band" d={r.stroke} strokeWidth={r.width + 2 * CASING} />
             <path data-plan-casing="head" d={r.head} />
             {r.tail !== "" && <path data-plan-casing="head" d={r.tail} />}
@@ -258,7 +252,7 @@ export function LinksLayer({
     const captionOf = (r: LinkRibbon, handle: LinkGripHandle) => {
         const { title, ...takes } = caption?.(r) ?? {};
         return (
-            <g key={`label-${r.id}`} data-plan-ribbon-label={r.id} data-selected={selected === r.id ? "" : undefined}
+            <g key={`label-${r.id}`} data-plan-ribbon-label={r.id} data-tone={r.tone} data-selected={selected === r.id ? "" : undefined}
                 data-lit={caption !== undefined && lit === r.id ? "" : undefined}
                 {...(caption === undefined ? {} : {
                     ...takes, ...handle,

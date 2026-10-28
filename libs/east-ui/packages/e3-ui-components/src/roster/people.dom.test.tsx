@@ -1,0 +1,288 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ * @vitest-environment jsdom
+ *
+ * The People grid (#1398) on e3 itself: what it draws again, and no more, as
+ * it is picked, scrolled and folded; ↑ and ↓ on a person's name step to the
+ * next person, past a group's band and its agency requests; Search Records
+ * finds the staff by their keys, a person far down the rows brought into
+ * view, and one the rail hides named by the choice that hides them, which a
+ * pick clears (the hidden pick); and where the rows rest comes back after a
+ * remount.
+ */
+import { afterEach, expect, test, vi } from "vitest";
+import { fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { StringType, decodeBeast2For, equalFor, printFor, variant } from "@elaraai/east";
+import { RecordSliceStateType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import type { UIStore } from "@elaraai/east-ui-components";
+import * as ex from "@elaraai/e3-ui/examples/roster/roster";
+import type { E3Request } from "../e3-web.test-utils.js";
+import { setRosterPeopleCardsProbe } from "./library.js";
+import { setPeopleDrawProbe } from "./views.js";
+import { act, narrow, narrowing, open, press, rosterHarness, settle, slot, type Choice } from "./harness.test-utils.js";
+const h = rosterHarness();
+const text = printFor(StringType);
+
+afterEach(() => { setPeopleDrawProbe(undefined); setRosterPeopleCardsProbe(undefined); });
+
+/** What the People grid draws from now on: each row and each person's day, by key, as often as it is drawn. */
+function draws() {
+    const rows = new Map<string, number>(), days = new Map<string, number>();
+    setPeopleDrawProbe((part, key) => { const into = part === "row" ? rows : days; into.set(key, (into.get(key) ?? 0) + 1); });
+    return { rows, days, clear: () => { rows.clear(); days.clear(); } };
+}
+/** The People rows mounted, by key. */
+const mountedRows = (c: HTMLElement) => [...slot(c, "main").querySelectorAll<HTMLElement>("[data-roster-person-row]")].map(row => row.getAttribute("data-roster-person-row")!);
+
+test("People draws a row and its days once (#1398, CL9): a pick draws again only the chips it marks, another Library tab nothing of the grid, a scroll only the rows it brings into view, and a fold no day of a person still shown; the People tab's cards are made once", async () => {
+    const { container } = await h.mount(ex.rosterWarehouse);
+    await press(within(slot(container, "toolbar")).getByRole("radio", { name: "People" }));
+    let cards = 0;
+    setRosterPeopleCardsProbe(() => { cards += 1; });
+    const drawn = draws();
+    // A duty picked: its chip says so, and nothing else is drawn or made again.
+    const chip = slot(container, "main").querySelector<HTMLElement>("[data-roster-assignment]")!;
+    await press(chip);
+    expect(chip.getAttribute("aria-pressed")).toBe("true");
+    expect([drawn.rows.size, drawn.days.size, cards]).toEqual([0, 0, 0]);
+    // Another tab of the Library: nothing of the grid.
+    await press(within(slot(container, "start")).getByRole("tab", { name: /^Activities/ }));
+    expect([drawn.rows.size, drawn.days.size, cards]).toEqual([0, 0, 0]);
+    // Scrolled down a few rows at a time until the second group's band comes into view below the first group's rows:
+    // each row a scroll brings into view drawn once, and none it kept mounted drawn again.
+    const scroller = slot(container, "main").querySelector<HTMLElement>("[data-virtual-rows]")!;
+    const second = () => [...slot(container, "main").querySelectorAll<HTMLElement>("[data-roster-group]")].find(band => band.getAttribute("aria-expanded") === "true" && band !== firstBand);
+    const firstBand = slot(container, "main").querySelector<HTMLElement>("[data-roster-group]")!;
+    for (let step = 1; step <= 40 && second() === undefined; step++) {
+        const before = mountedRows(container);
+        drawn.clear();
+        await act(async () => { scroller.scrollTop = step * 3 * 62; fireEvent.scroll(scroller); });
+        await settle();
+        const brought = mountedRows(container).filter(key => !before.includes(key));
+        expect(brought.length).toBeGreaterThan(0);
+        expect([...drawn.rows.keys()].sort()).toEqual([...brought].sort());
+        expect([...drawn.rows.values()].every(n => n === 1)).toBe(true);
+    }
+    // The second group folded: its rows go, and no day of a person of the first group, still shown, is drawn again.
+    drawn.clear();
+    const shown = mountedRows(container);
+    const band = second();
+    expect(band).toBeDefined();
+    await press(band!);
+    const still = mountedRows(container).filter(key => shown.includes(key));
+    expect(still.length).toBeGreaterThan(0);
+    expect([...drawn.days.keys()].filter(day => still.some(key => day.startsWith(`${key}.`)))).toEqual([]);
+    expect(cards).toBe(0);
+});
+
+/** The People grid's scroll box. */
+const scroller = (c: HTMLElement) => slot(c, "main").querySelector<HTMLElement>("[data-virtual-rows]")!;
+/** Scrolls the People grid down a few rows at a time until a band other than the first comes into view, open. */
+async function toSecondBand(c: HTMLElement): Promise<HTMLElement> {
+    const first = slot(c, "main").querySelector<HTMLElement>("[data-roster-group]")!;
+    const second = () => [...slot(c, "main").querySelectorAll<HTMLElement>("[data-roster-group]")].find(band => band !== first && band.getAttribute("aria-expanded") === "true");
+    for (let step = 1; step <= 40 && second() === undefined; step++) {
+        await act(async () => { scroller(c).scrollTop = step * 3 * 62; fireEvent.scroll(scroller(c)); });
+        await settle();
+    }
+    expect(second()).toBeDefined();
+    return second()!;
+}
+/** The key of the person whose name holds the focus. */
+const focusedPerson = () => document.activeElement?.getAttribute("data-roster-person-head") ?? null;
+
+test("↑ and ↓ on a person's name step to the next person and the one before, past a group's band and its agency requests, selecting them and focusing their name (#1398)", async () => {
+    const { container } = await open(ex.rosterWarehouse);
+    await press(within(slot(container, "toolbar")).getByRole("radio", { name: "People" }));
+    // Down the first group, a person at a time.
+    const names = () => [...slot(container, "main").querySelectorAll<HTMLElement>("[data-roster-person-head]")];
+    const [first, next] = names();
+    first!.focus();
+    await act(async () => { fireEvent.keyDown(first!, { key: "ArrowDown" }); });
+    await settle();
+    expect(focusedPerson()).toBe(next!.getAttribute("data-roster-person-head"));
+    expect(within(slot(container, "end")).getByText(next!.textContent!, { selector: "[data-inspector-title]" })).toBeTruthy();
+    // Across the boundary: the first person of the next group, ↑ — the first group's agency requests and the band passed
+    // over — the last person of the group before; ↓ back again.
+    const band = await toSecondBand(container);
+    const bandAt = Number(band.closest("[data-index]")!.getAttribute("data-index"));
+    /** The row at a place of the grid, mounted. */
+    const row = (i: number) => slot(container, "main").querySelector<HTMLElement>(`[data-index="${i}"]`);
+    for (let step = 1; step <= 5 && row(bandAt + 1) === null; step++) {
+        await act(async () => { scroller(container).scrollTop += 62; fireEvent.scroll(scroller(container)); });
+        await settle();
+    }
+    // The rows about the band: the first group's last person, its agency requests, the band, the next group's first person.
+    expect(row(bandAt - 1)!.querySelector("[data-roster-person-row]")!.getAttribute("data-roster-person-row")).toMatch(/^requests:/);
+    const last = row(bandAt - 2)!.querySelector<HTMLElement>("[data-roster-person-head]")!.getAttribute("data-roster-person-head");
+    const opening = row(bandAt + 1)!.querySelector<HTMLElement>("[data-roster-person-head]")!;
+    opening.focus();
+    await act(async () => { fireEvent.keyDown(opening, { key: "ArrowUp" }); });
+    await settle();
+    expect(focusedPerson()).toBe(last);
+    await act(async () => { fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" }); });
+    await settle();
+    expect(focusedPerson()).toBe(opening.getAttribute("data-roster-person-head"));
+});
+
+/**
+ * jsdom scrolls nothing a frame asks it to — the harness's `scrollTo` does nothing, and a scroll box has no extent to
+ * scroll through — so a row a pick brings into view, or a place a remount restores, would never be seen: here the
+ * grid's scroll box has room, and it scrolls as a page does, and says so. Its rows and bands measure themselves as the
+ * harness measures the boxes the virtualizer places them in, so the grid's floors are what it places the rows by.
+ */
+function scrollsAsAPageDoes() {
+    const rect = vi.mocked(Element.prototype.getBoundingClientRect);
+    const harness = rect.getMockImplementation()!;
+    rect.mockImplementation(function (this: Element) {
+        const height = this.hasAttribute("data-roster-person-row") ? 62 : this.hasAttribute("data-roster-group") ? 38 : undefined;
+        return height === undefined ? harness.call(this) : { x: 0, y: 0, top: 0, left: 0, right: 900, bottom: height, width: 900, height, toJSON() {} };
+    });
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return this.hasAttribute("data-virtual-rows") ? 1_000_000 : 0;
+    });
+    vi.spyOn(Element.prototype, "scrollTo").mockImplementation(function (this: Element, options?: ScrollToOptions | number) {
+        if (typeof options !== "object") return;
+        if (options.top !== undefined) this.scrollTop = options.top;
+        if (options.left !== undefined) this.scrollLeft = options.left;
+        this.dispatchEvent(new Event("scroll"));
+    } as Element["scrollTo"]);
+}
+
+/** Search Records' box, in the toolbar's row. */
+const searchBox = (c: HTMLElement) => slot(c, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search']")!;
+/** Types into the box, a key at a time, as a person does. */
+async function typeIntoSearch(c: HTMLElement, typed: string) {
+    const input = searchBox(c).querySelector<HTMLInputElement>("input")!;
+    for (const key of typed) {
+        const now = input.value + key;
+        await userEvent.type(input, key);
+        await waitFor(() => expect(input.value).toBe(now));
+    }
+}
+/**
+ * A query put in the box at once, as a paste is: one input event, so the box lists that query alone. Typed a key at a
+ * time, each key further apart than the box's debounce — as a loaded machine types — the box lists the prefixes on the
+ * way too, and asks of the people they list: what a test counts the requests of one listing by would count theirs.
+ */
+async function pasteIntoSearch(c: HTMLElement, typed: string) {
+    const input = searchBox(c).querySelector<HTMLInputElement>("input")!;
+    await act(async () => { input.focus(); fireEvent.input(input, { target: { value: typed } }); });
+    await settle();
+}
+/** The box's list — the listbox its input controls — its lines as they read. */
+const lines = (c: HTMLElement) => {
+    const list = document.getElementById(searchBox(c).querySelector("input")!.getAttribute("aria-controls") ?? "");
+    return list === null ? [] : [...list.querySelectorAll('[role="option"]')].map(option => option.textContent);
+};
+const inspected = (c: HTMLElement) => slot(c, "end").querySelector("[data-inspector-title]")?.textContent;
+
+test("Search Records seeks the staff by key (#1398): one on screen is selected and their name given the keyboard; a far one, their row not mounted, is selected, brought into view and given it there; one the rail hides says which choice hides them", async () => {
+    scrollsAsAPageDoes();
+    const { container, store } = await open(ex.rosterWarehouse);
+    await press(within(slot(container, "toolbar")).getByRole("radio", { name: "People" }));
+    await typeIntoSearch(container, "aald");
+    await waitFor(() => expect(lines(container)).toEqual(["aalder · A. Alder · Inbound"]));
+    fireEvent.keyDown(searchBox(container).querySelector("input")!, { key: "Enter" });
+    await settle();
+    expect(inspected(container)).toBe("A. Alder");
+    await waitFor(() => expect(focusedPerson()).toBe("aalder"));
+    // T. Kelp, of the last group, far below the rows mounted.
+    expect(slot(container, "main").querySelector('[data-roster-person-row="tkelp"]')).toBeNull();
+    await act(async () => { fireEvent.click(searchBox(container).querySelector("button[aria-label='Clear search']")!); });
+    await typeIntoSearch(container, "tkelp");
+    await waitFor(() => expect(lines(container)).toEqual(["tkelp · T. Kelp · Dispatch"]));
+    fireEvent.keyDown(searchBox(container).querySelector("input")!, { key: "Enter" });
+    await settle();
+    expect(inspected(container)).toBe("T. Kelp");
+    await waitFor(() => expect(slot(container, "main").querySelector('[data-roster-person-row="tkelp"]')).not.toBeNull());
+    await waitFor(() => expect(focusedPerson()).toBe("tkelp"));
+    // The rail narrowed to picking: T. Kelp is found, and said to be hidden by it.
+    await narrow(store, "rosterWarehouse", "people", new Map<string, Choice>([["team", variant("values", [text("picking")])]]));
+    await act(async () => { fireEvent.click(searchBox(container).querySelector("button[aria-label='Clear search']")!); });
+    await typeIntoSearch(container, "tkelp");
+    await waitFor(() => expect(lines(container)).toEqual([`tkelp · T. Kelp · Dispatch · ${BY_PICKING}`]));
+});
+
+/** The staff's record, as its dataset's requests name it. */
+const STAFF = "records.roster_staff";
+/** A membership read's body: the index whose runs it asks of, and the entry keys `(ik=…, k=…)` it asks. */
+const withinOf = (request: E3Request) => JSON.parse(new TextDecoder().decode(request.body)) as { index: string; keys: string[] };
+/** The row an entry key names: its record key. */
+const rowOf = (entry: string) => /k="([^"]+)"\)$/.exec(entry)![1]!;
+/** People of the picking group the box's first listing holds — A. Osier, D. Quarry — whom the rail's choice of picking shows: never asked of. */
+const PICKING: ReadonlySet<string> = new Set(["aosier", "dquarry"]);
+/** What hides a person of another group while the rail shows picking's, as the rail words the choice. */
+const BY_PICKING = "hidden by Group: picking — picking it clears that filter";
+const whereEqual = equalFor(RecordSliceWhereType);
+/** The duties' narrowing — the week's window the Roster writes into it — as the store keeps it. */
+const dutyWhere = (store: UIStore) => decodeBeast2For(RecordSliceStateType)(store.read("ex.rosterWarehouse.duty")!).where;
+
+test("a person the rail's narrowing hides is named by the people's choice that hides them, asked of e3 in one request — `hidden by the filters` until it has said — and a pick clears just it, the week's window kept, and selects them, their row brought into view and their name given the keyboard once the narrowing it leaves draws it (#1398)", async () => {
+    scrollsAsAPageDoes();
+    const { container, store } = await open(ex.rosterWarehouse);
+    await press(within(slot(container, "toolbar")).getByRole("radio", { name: "People" }));
+    await narrow(store, "rosterWarehouse", "people", new Map<string, Choice>([["team", variant("values", [text("picking")])]]));
+    const week = dutyWhere(store);
+    // Which of the people's choices hide T. Kelp, held on the wire: the line says the filters do.
+    const asking = h.e3.hold(request => request.kind === "within" && request.dataset === STAFF);
+    const before = h.requests("within", STAFF).length;
+    // The query put in at once: one listing, whose requests are what this counts.
+    await pasteIntoSearch(container, "tkelp");
+    await waitFor(() => expect(asking.held).toBeGreaterThan(0));
+    await waitFor(() => expect(lines(container)).toEqual(["tkelp · T. Kelp · Dispatch · hidden by the filters"]));
+    // Told: the group's choice, through the staff's index by group — a request a listing, for the people it lists that
+    // the narrowing hides and no others, T. Kelp asked of once.
+    await act(async () => { asking.release(); });
+    await waitFor(() => expect(lines(container)).toEqual([`tkelp · T. Kelp · Dispatch · ${BY_PICKING}`]));
+    await settle();
+    const reads = h.requests("within", STAFF).slice(before).map(withinOf);
+    expect(new Set(reads.map(read => read.index))).toEqual(new Set(["roster_staff_by_team_name"]));
+    const asked = reads.flatMap(read => read.keys.map(rowOf));
+    expect(asked.filter(key => key === "tkelp")).toEqual(["tkelp"]);
+    expect(asked.filter(key => PICKING.has(key))).toEqual([]);
+    // Listed again — the same query, put in at once, so its one listing is the first's: named at once, nothing asked again.
+    const listed = h.requests("within", STAFF).length;
+    await act(async () => { fireEvent.click(searchBox(container).querySelector("button[aria-label='Clear search']")!); });
+    await pasteIntoSearch(container, "tkelp");
+    await waitFor(() => expect(lines(container)).toEqual([`tkelp · T. Kelp · Dispatch · ${BY_PICKING}`]));
+    await settle();
+    expect(h.requests("within", STAFF).length).toBe(listed);
+    // Picked: the group's choice cleared, the week's window as it was, T. Kelp selected, their row drawn, and their name
+    // given the keyboard once the narrowing the pick leaves draws it.
+    fireEvent.keyDown(searchBox(container).querySelector("input")!, { key: "Enter" });
+    await settle();
+    expect(narrowing(store, "rosterWarehouse", "people").size).toBe(0);
+    expect(whereEqual(dutyWhere(store), week)).toBe(true);
+    expect(inspected(container)).toBe("T. Kelp");
+    await waitFor(() => expect(slot(container, "main").querySelector('[data-roster-person-row="tkelp"]')).not.toBeNull());
+    await waitFor(() => expect(focusedPerson()).toBe("tkelp"));
+});
+
+/** The row at the top of the People grid's view — the mounted row its scroll offset falls in — and the px scrolled into it. */
+function topRow(c: HTMLElement): { key: string | null; into: number } {
+    const top = scroller(c).scrollTop;
+    const placed = [...slot(c, "main").querySelectorAll<HTMLElement>("[data-index]")].map(el => ({ el, at: Number(/translateY\((-?[\d.]+)px\)/.exec(el.style.transform)?.[1] ?? NaN) }))
+        .filter(row => row.at <= top).sort((a, b) => b.at - a.at);
+    const row = placed[0];
+    if (row === undefined) return { key: null, into: 0 };
+    const key = row.el.querySelector("[data-roster-person-row]")?.getAttribute("data-roster-person-row") ?? row.el.querySelector("[data-roster-group]")?.getAttribute("data-roster-group") ?? null;
+    return { key, into: top - row.at };
+}
+
+test("where the People rows rest comes back after a remount: the row at the top, and the px into it (#1398)", async () => {
+    scrollsAsAPageDoes();
+    const first = await open(ex.rosterWarehouse);
+    await press(within(slot(first.container, "toolbar")).getByRole("radio", { name: "People" }));
+    await act(async () => { scroller(first.container).scrollTop = 20 * 62 + 17; fireEvent.scroll(scroller(first.container)); });
+    await settle();
+    const rested = topRow(first.container);
+    expect(rested.key).not.toBeNull();
+    // The scroll settles — the frame says so once it has rested — and is saved.
+    await waitFor(() => expect(Object.keys(localStorage).some(key => key.endsWith(".anchor") && localStorage.getItem(key)!.includes("person:"))).toBe(true));
+    first.unmount();
+    const again = await open(ex.rosterWarehouse);
+    await waitFor(() => expect(topRow(again.container)).toEqual(rested));
+});

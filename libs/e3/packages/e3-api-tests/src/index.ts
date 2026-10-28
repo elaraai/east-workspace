@@ -72,11 +72,15 @@ export { packageTests } from './suites/packages.js';
 export { workspaceTests } from './suites/workspaces.js';
 export { datasetTests } from './suites/datasets.js';
 export { datasetPageTests } from './suites/dataset-pages.js';
+export { datasetBatchTests } from './suites/dataset-batches.js';
 export { datasetTransferTests } from './suites/dataset-transfer.js';
 export { dataflowTests } from './suites/dataflow.js';
 export { functionTests } from './suites/functions.js';
 export { recordTests } from './suites/records.js';
 export { keyedRecordTests } from './suites/records-keyed.js';
+export { areaRecordTests } from './suites/records-area.js';
+export { placeRecordTests } from './suites/records-place.js';
+export { seriesRecordTests } from './suites/records-series.js';
 export { recordDeployTests } from './suites/record-deploy.js';
 export { inputDeployTests } from './suites/input-deploy.js';
 export { platformTests } from './suites/platform.js';
@@ -91,11 +95,15 @@ import { packageTests } from './suites/packages.js';
 import { workspaceTests } from './suites/workspaces.js';
 import { datasetTests } from './suites/datasets.js';
 import { datasetPageTests } from './suites/dataset-pages.js';
+import { datasetBatchTests } from './suites/dataset-batches.js';
 import { datasetTransferTests } from './suites/dataset-transfer.js';
 import { dataflowTests } from './suites/dataflow.js';
 import { functionTests } from './suites/functions.js';
 import { recordTests } from './suites/records.js';
 import { keyedRecordTests } from './suites/records-keyed.js';
+import { areaRecordTests } from './suites/records-area.js';
+import { placeRecordTests } from './suites/records-place.js';
+import { seriesRecordTests } from './suites/records-series.js';
 import { recordDeployTests } from './suites/record-deploy.js';
 import { inputDeployTests } from './suites/input-deploy.js';
 import { platformTests } from './suites/platform.js';
@@ -118,11 +126,15 @@ export const apiTestSuites: Readonly<Record<string, (setup: TestSetup<TestContex
   workspaces: workspaceTests,
   datasets: datasetTests,
   datasetPages: datasetPageTests,
+  datasetBatches: datasetBatchTests,
   datasetTransfer: datasetTransferTests,
   dataflow: dataflowTests,
   functions: functionTests,
   records: recordTests,
   keyedRecords: keyedRecordTests,
+  areaRecords: areaRecordTests,
+  placeRecords: placeRecordTests,
+  seriesRecords: seriesRecordTests,
   recordDeploy: recordDeployTests,
   inputDeploy: inputDeployTests,
   packageTransfer: packageTransferTests,

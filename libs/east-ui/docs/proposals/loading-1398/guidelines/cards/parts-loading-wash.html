@@ -1,0 +1,78 @@
+<!-- @dsCard group="Parts · Loading" name="Loading · region wash" viewport="700x1913" subtitle="For items whose positions aren't known yet · a time-grid day column, a month cell, a timeline row, an allocation lane-hour cell and a schematic area · under the real grid lines, shading and the now line · no item shapes" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css"><link rel="stylesheet" href="loading-parts.css">
+<style>
+.tlg{grid-template-columns:128px minmax(0,1fr)}
+.alg{grid-template-columns:48px repeat(3,minmax(0,1fr)) 40px}
+.ah{height:36px;box-sizing:border-box;display:flex;align-items:center;gap:8px;min-width:0;padding:0 12px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule);white-space:nowrap}
+.ah.s{height:28px}
+.ah:first-child,.ah.f{border-left:0;padding:0 8px}
+.ln{font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:600;color:var(--ink)}
+.ac{position:relative;height:36px;box-sizing:border-box;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.ac.f{border-left:0;display:flex;align-items:center;padding:0 8px}
+.ac.ch2{background:var(--paper-2)}
+.sw5{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.swb{position:relative;height:40px;box-sizing:border-box;border:1px solid var(--rule);border-radius:var(--r-sm);overflow:hidden}
+.nd{position:absolute;z-index:3;box-sizing:border-box;display:grid;gap:4px;padding:8px 12px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)}
+.nd .t{font-size:var(--fs-body);font-weight:600;color:var(--ink);white-space:nowrap}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">Time grid · Day and Week columns</div>
+<div class="bf" id="tg"></div>
+<div class="cap"><span class="f"><b>unread · time grid</b>: each day column takes the wash, edge to edge between its rules</span> · <span class="f">columns, weekdays, dates, hours, half hours, off-hours shading and the now line are real and draw over it</span> · <span class="f">each column's "N events" a short bar</span> · <span class="f">no event shape: nothing implies a time</span></div>
+</div>
+<div class="sec">
+<div class="k">Month · a cell below its date</div>
+<div class="bf" id="mo"></div>
+<div class="cap"><span class="f"><b>unread · month</b>: November 2026 after "next month"</span> · <span class="f">cells, captions and dates real; outside-month shading by the new month</span> · <span class="f">the wash fills each cell below its date; never "+N more" before the read</span></div>
+</div>
+<div class="sec">
+<div class="k">Timeline · a resource row's plot</div>
+<div class="bf" id="tl"></div>
+<div class="cap"><span class="f"><b>unread · timeline</b>: the ruler, the group, "2 resources" and the row heads real; "· N h booked" a short bar</span> · <span class="f">each row's plot one lane tall until its lanes land, then it grows below the row in view</span> · <span class="f">weekends and the now line read through the wash</span></div>
+</div>
+<div class="sec">
+<div class="k">Allocation · lane-hour cells</div>
+<div class="bf" id="al"></div>
+<div class="cap"><span class="f"><b>unread · lanes</b>: lane names, slot times, hours and the link channel real</span> · <span class="f">each lane head's "N bins · Q m³" a short bar</span> · <span class="f">each lane-hour cell takes the wash; slot bands hold one row until bins land, then grow below the row in view</span></div>
+</div>
+<div class="sec">
+<div class="k">Schematic · the window's unread area</div>
+<div class="bf"><div class="cvs" id="sc" style="height:240px"></div></div>
+<div class="cap"><span class="f"><b>unread · canvas</b>: the window's new cells take the wash, clipped to the cells being read</span> · <span class="f">the grid draws over it; items already read stay, real, until replaced</span> · <span class="f">no item shapes in the unread area</span></div>
+</div>
+<div class="sec">
+<div class="k">Grounds · the wash beside shading and selection</div>
+<div class="canvas"><div class="sw5">
+<div class="it2"><div class="swb" style="background:var(--paper)"></div><span class="cap">--paper · rest</span></div>
+<div class="it2"><div class="swb" style="background:var(--paper-2)"></div><span class="cap">--paper-2 · off-hours, weekend</span></div>
+<div class="it2"><div class="swb wash"></div><span class="cap">wash on --paper</span></div>
+<div class="it2"><div class="swb" style="background:var(--paper-2)"><i class="wl wash" style="inset:0"></i></div><span class="cap">wash on --paper-2</span></div>
+<div class="it2"><div class="swb" style="background:var(--paper-3)"></div><span class="cap">--paper-3 · selected</span></div>
+</div></div>
+<div class="cap"><span class="f"><b>why a wash, not the Skeleton's --paper-3</b>: an opaque --paper-3 would erase the real shading under it and read as a selected cell</span> · <span class="f">--ink at 6% darkens in light and lifts in dark, as --paper-3 does, so the step under it still reads</span></div>
+</div>
+</div>
+<div class="pl">&lt;Loading&gt; · state cold|unread|stale|failed|empty · density comfortable|compact|condensed · content text|number|date|boolean|chip|link|enum|label|aggregate|card · line idle|range|period|filtering|failed|narrow</div>
+<div class="ann"><b>LoadingWash (no east-ui slot)</b> · <span class="f">color-mix(in oklch, var(--ink) 6%, transparent), static</span> · <span class="f">fills the region an item could sit in: a day column, a resource column, a month cell below its date, a timeline row's plot, a lane-hour cell, a Plan row's plot, a canvas area</span> · <span class="f">edge to edge between the real rules, radius 0, nothing drawn inside it</span> · <span class="f">z-order: shading, wash, rules, now line</span> · <span class="f">no shimmer, sweep or fade; the footer line's dot is the only pulse</span> · <span class="f">shown after 150 ms, held at least 300 ms, gone in the commit that lands the period</span> · <span class="f">aria-hidden; the region aria-busy</span></div>
+<script src="loading-parts.js"></script>
+<script>
+(()=>{const {I,N,bar,cnt,$,tgrid,month}=L;
+$('tg',tgrid({from:6,to:12,off:[[6,8]],now:9.5,cols:[{h:'Mon 12',meta:bar(40,8),wash:1},{h:'Tue 13',meta:bar(40,8),wash:1},{h:'Wed 14',meta:bar(40,8),wash:1,today:1},{h:'Thu 15',meta:bar(40,8),wash:1}]}));
+$('mo',month([{n:'26',out:1,wash:1},{n:'27',out:1,wash:1},{n:'28',out:1,wash:1},{n:'29',out:1,wash:1},{n:'30',out:1,wash:1},{n:'31',out:1,wash:1},{n:'Nov 1',wash:1}]));
+const days=['Thu 22','Fri 23','Sat 24','Sun 25','Mon 26','Tue 27','Wed 28','Thu 29','Fri 30','Sat 31','Sun 1'],D=48;
+const ruler=`<div class="lrow tlg" style="border-bottom:0"><div class="lh" style="justify-content:flex-end;padding-bottom:6px"><span class="hk">Resources</span></div><div><div class="tier ctx"><span style="width:${D*10}px">October 2026</span><span style="width:${D}px;border-right:0">Nov</span></div><div class="tier">${days.map((d,i)=>`<span style="width:${D}px${i===days.length-1?';border-right:0':''}">${d}</span>`).join('')}</div></div></div>`;
+const plot=()=>`<i class="oh" style="top:0;bottom:0;left:${D*2}px;width:${D*2}px"></i><i class="oh" style="top:0;bottom:0;left:${D*9}px;width:${D*2}px"></i><i class="wl wash" style="inset:0"></i><i class="vl" style="left:${D*4}px"></i><i class="vl" style="left:${D*10}px"></i><i class="nowl" style="top:0;bottom:0;left:${D*5+20}px;width:1px"></i>`;
+const res=(nm)=>`<div class="lrow tlg" style="height:36px" aria-busy="true"><div class="lh" style="flex-direction:row;justify-content:flex-start;align-items:center;gap:8px"><span class="nm">${nm}</span>${bar(28,8)}</div><div class="pl2">${plot()}</div></div>`;
+$('tl',ruler+`<div class="gband" style="border-top:1px solid var(--rule)"><span class="chev open">${I('angle-right')}</span><span class="gt">Machines</span><span class="mt9">2 resources</span></div>`+res('Press A')+res('Press B'));
+const lanes=[['B-1',':15'],['B-2',':35'],['B-3',':55']];
+let a=`<div class="mw alg"><span class="ah f"><span class="hk">Lane</span></span>${lanes.map(l=>`<span class="ah"><span class="ln">${l[0]}</span><span class="mt9">at ${l[1]}</span></span>`).join('')}<span class="ah" style="justify-content:center">${I('link')}</span>`;
+a+=`<span class="ah s f"><span class="hk">Hour</span></span>${lanes.map(()=>`<span class="ah s">${bar(88,8)}</span>`).join('')}<span class="ah s"></span>`;
+for(let h=0;h<5;h++)a+=`<span class="ac f"><span class="mt9" style="font-size:var(--fs-label-sm)">${String(h).padStart(2,'0')}</span></span>${lanes.map(()=>`<span class="ac"><i class="wl wash" style="inset:0"></i></span>`).join('')}<span class="ac"></span>`;
+$('al',a+'</div>');
+let g='';for(let x=40;x<660;x+=40)g+=`<i class="gl" style="left:${x}px;top:0;bottom:0;width:1px"></i>`;for(let y=40;y<240;y+=40)g+=`<i class="gl" style="top:${y}px;left:0;right:0;height:1px"></i>`;
+const node=(x,y,t)=>`<span class="nd" style="left:${x}px;top:${y}px"><span class="t">${t}</span><span class="mt9">Running · 82%</span></span>`;
+$('sc',`<i class="wl wash" style="left:360px;top:0;right:0;bottom:0"></i>${g}${node(48,48,'Press A')}${node(48,136,'Press B')}${node(208,88,'Dryer 2')}`);
+})();
+</script>
+</body></html>

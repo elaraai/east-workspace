@@ -21,11 +21,77 @@
  * the sequence; were they to differ, the bundle would apply as one at its last
  * step's place, every step between its first and its last applying with it.
  *
+ * An item can be HELD to a range of its forms: one holding an open overlay to
+ * its one form, and a member of a bundle another item holds to the side of
+ * that bundle's step the bundle stands on — its other steps its own to take
+ * (`./index.tsx`). It starts at the range's least form and takes only the
+ * steps inside it.
+ *
+ * Below the ladder lies the row's FLOOR (hand retest, 27 Oct 2026): a step
+ * ranked at {@link FLOOR_RANK} or past it is a rung of the floor, not of the
+ * ladder. The toolbar takes a floor rung only once every step of the ladder
+ * has applied — the history's last among them — and the row still does not
+ * fit, so a row the ladder fits never takes one; its rungs give what the
+ * ladder keeps (the rail's icon its caret, the Elara eye its place in the
+ * row, into its builder's View — the two items' rungs one bundle), so the
+ * history and Save stay in the row where the ladder alone would run it past
+ * its end. An item's rungs follow its ladder steps ({@link ladderMost}).
+ *
  * @packageDocumentation
  */
 
 /** Slack, in CSS px, for sub-pixel widths when a row is compared with its box. */
 export const FIT_TOLERANCE_PX = 0.5;
+
+/**
+ * The first rank of the row's floor: a fold step at this rank or past it is a
+ * rung of the floor, taken only once the whole ladder has applied and the row
+ * still does not fit (see the module docs). Every ladder rank lies below it —
+ * the rail's 0–7, a host's from 10, the history's 100.
+ */
+export const FLOOR_RANK = 1000;
+
+/**
+ * The narrowest form an item's ladder takes it to: the form before its first
+ * floor step ({@link FLOOR_RANK}), or its last form where it has none. An
+ * item's steps apply in order, so every step after its first floor step is a
+ * floor step too.
+ *
+ * @param item - The item
+ * @returns The form index its ladder ends at
+ */
+export function ladderMost(item: FoldItem): number {
+    let floor = -Infinity;
+    for (let to = 1; to < item.forms; to++) {
+        floor = Math.max(floor, item.ranks[to - 1] ?? 0);
+        if (floor >= FLOOR_RANK) return to - 1;
+    }
+    return item.forms - 1;
+}
+
+/**
+ * An item kept to its ladder: held to the forms its ladder steps reach, never
+ * a floor rung — the forms it is held to already, where something holds it,
+ * and no further than {@link ladderMost} — unless it is held past them, which
+ * keeps it where it is held.
+ *
+ * @param item - The item
+ * @returns The item, its floor rungs out of reach
+ */
+export function onLadder(item: FoldItem): FoldItem {
+    const most = ladderMost(item);
+    const range = item.held ?? { least: 0, most: item.forms - 1 };
+    if (range.most <= most) return item;
+    return { ...item, held: { least: range.least, most: Math.max(most, range.least) } };
+}
+
+/** The forms an item is held to, each a form index: its least and its most. */
+export interface FoldRange {
+    /** The widest form it may take: the steps up to it stand applied. */
+    readonly least: number;
+    /** The narrowest form it may take: the steps past it stand unapplied. */
+    readonly most: number;
+}
 
 /** One item, as the fold model sees it. */
 export interface FoldItem {
@@ -35,8 +101,8 @@ export interface FoldItem {
     readonly ranks: readonly number[];
     /** The forms that draw nothing (the item hides): they take no width and no gap. */
     readonly empty: readonly boolean[];
-    /** The form the item keeps while it holds an open overlay, else `undefined`. */
-    readonly held: number | undefined;
+    /** The forms the item is held to while something holds it — `{ least: f, most: f }` keeps form `f` — else `undefined`. */
+    readonly held: FoldRange | undefined;
     /** Each fold step's bundle, when it has one: `bundles[i]` is the step from form `i` to `i + 1`. */
     readonly bundles?: readonly (string | undefined)[] | undefined;
 }
@@ -51,7 +117,8 @@ export interface FoldStep {
 
 /**
  * Every item's fold steps, in the order the toolbar applies them: by rank,
- * ties in item order. A held item takes no steps — it keeps its form.
+ * ties in item order. A held item takes only the steps inside the range it is
+ * held to — one held to a single form takes none.
  *
  * @param items - The toolbar's items, in their order
  * @returns The fold sequence
@@ -59,10 +126,10 @@ export interface FoldStep {
 export function foldSequence(items: readonly FoldItem[]): FoldStep[] {
     const steps: FoldStep[] = [];
     items.forEach((it, item) => {
-        if (it.held !== undefined) return;
+        const least = it.held?.least ?? 0, most = it.held?.most ?? it.forms - 1;
         // An item's steps apply in order, so a step never ranks below the one before it.
         let floor = -Infinity;
-        for (let to = 1; to < it.forms; to++) {
+        for (let to = least + 1; to <= most; to++) {
             floor = Math.max(floor, it.ranks[to - 1] ?? 0);
             const bundle = it.bundles?.[to - 1];
             steps.push(bundle === undefined ? { item, to, rank: floor } : { item, to, rank: floor, bundle });
@@ -97,7 +164,8 @@ export function splitsBundle(sequence: readonly FoldStep[], folds: number): bool
 }
 
 /**
- * The form each item takes once the first `folds` steps of the sequence apply.
+ * The form each item takes once the first `folds` steps of the sequence apply:
+ * a held item from the least form it is held to.
  *
  * @param items - The toolbar's items
  * @param sequence - Their fold sequence ({@link foldSequence})
@@ -105,7 +173,7 @@ export function splitsBundle(sequence: readonly FoldStep[], folds: number): bool
  * @returns Each item's form index
  */
 export function formsAt(items: readonly FoldItem[], sequence: readonly FoldStep[], folds: number): number[] {
-    const out = items.map((it) => it.held ?? 0);
+    const out = items.map((it) => it.held?.least ?? 0);
     for (let k = 0; k < folds && k < sequence.length; k++) {
         const step = sequence[k]!;
         out[step.item] = step.to;
@@ -143,7 +211,9 @@ export function rowWidth(
 /**
  * How many steps of the sequence to apply: the fewest whose row fits the
  * box, never a number that splits a bundle ({@link splitsBundle}). When even
- * the last does not fit, every step applies — the row then clips at its end.
+ * the last does not fit, every step applies — the toolbar then takes the
+ * floor's rungs, where it has kept them out of the sequence ({@link onLadder}),
+ * and past those the row clips at its end.
  *
  * @param items - The toolbar's items
  * @param sequence - Their fold sequence

@@ -6,8 +6,8 @@
  * The Allocation's frame (#1325) on the real in-page e3: its one toolbar row
  * at every width, the combined View fold that keeps the date, the layout and
  * Publish reachable in the narrowest frame (A1), the date picker's day marks
- * (A2), and the footer — Plan's rail, the layout's legend only (A79) — in both
- * themes.
+ * (A2), and the footer — Plan's rail, the layout's legend and the one loading
+ * line (A79, #1398), one line at every width — in both themes.
  */
 import { expect, test } from "playwright/test";
 import { toolbarFaults } from "./builder-frame";
@@ -84,27 +84,42 @@ for (const theme of ["light", "dark"] as const) {
         expect(await toolbarFaults(frame)).toEqual([]);
     });
 
-    test(`A79 — the footer is Plan's rail with the layout's legend only, each item on its own (${theme}) @desktop`, async ({ page }) => {
+    test(`A79 — the footer is Plan's rail with the layout's legend and the one loading line; narrower than its legend it stays one line, the legend ending at a whole item, then "…" (#1398) (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await open(page, "allocationKilnYard", theme);
         await size(page, entry, 1920);
         const footer = entry.locator("[data-allocation-footer]").first();
         await expect(footer.locator(":scope > [data-allocation-legend]")).toHaveCount(8);
-        await expect(footer.locator(":scope > :not([data-allocation-legend])")).toHaveCount(0);
+        // Beside the legend only the "…" a cut legend ends with, and the loading line, which says nothing once the day has landed.
+        await expect(footer.locator(":scope > :not([data-allocation-legend]):not([data-footer-more]):not([data-footer-line])")).toHaveCount(0);
+        await expect(footer.locator(":scope > [data-footer-line]")).toHaveAttribute("data-idle", "");
         const rail = await footer.evaluate(el => { const s = getComputedStyle(el), item = getComputedStyle(el.firstElementChild!);
             return { height: el.getBoundingClientRect().height, gap: s.columnGap, size: item.fontSize, weight: item.fontWeight, casing: item.textTransform, wrap: s.flexWrap }; });
         expect(rail).toEqual({ height: 28, gap: "14px", size: "10px", weight: "600", casing: "uppercase", wrap: "nowrap" });
         await expect(footer.locator("[data-allocation-legend=link]")).toHaveText("Link");
-        // Narrower than its legend, the rail wraps and stays wrapped: each item on its own, nothing past its edge.
-        const needed = await footer.evaluate(el => { const s = getComputedStyle(el), items = [...el.children];
+        // Narrower than its legend, the rail stays one 28px line: the legend ends at a whole item, then "…", nothing past
+        // the rail's edge and no word cut; an item cut is hidden whole.
+        const needed = await footer.evaluate(el => { const s = getComputedStyle(el), items = [...el.querySelectorAll(":scope > [data-allocation-legend]")];
             return items.reduce((w, i) => w + i.getBoundingClientRect().width, 0) + parseFloat(s.columnGap) * (items.length - 1)
                 + parseFloat(s.paddingLeft) + parseFloat(s.paddingRight); });
         await size(page, entry, Math.floor(needed) - 40);
-        const wrapped = await footer.evaluate(el => ({ wrap: getComputedStyle(el).flexWrap, overflow: el.scrollWidth - el.clientWidth,
-            items: [...el.children].every(item => item.getBoundingClientRect().right <= el.getBoundingClientRect().right + 0.5) }));
-        expect(wrapped).toEqual({ wrap: "wrap", overflow: 0, items: true });
         await settled(page);
-        expect(await footer.evaluate(el => getComputedStyle(el).flexWrap)).toBe("wrap");
+        const fit = await footer.evaluate(el => {
+            const box = el.getBoundingClientRect();
+            const shown = [...el.querySelectorAll<HTMLElement>(":scope > [data-allocation-legend]:not([data-footer-cut])")];
+            const more = el.querySelector<HTMLElement>(":scope > [data-footer-more]")!;
+            return {
+                wrap: getComputedStyle(el).flexWrap, height: box.height, overflow: el.scrollWidth - el.clientWidth,
+                more: !more.hasAttribute("data-footer-cut") && getComputedStyle(more).visibility === "visible",
+                inside: [...shown, more].every(item => item.getBoundingClientRect().right <= box.right + 0.5),
+                whole: shown.every(item => item.scrollWidth <= item.clientWidth + 1),
+                hidden: [...el.querySelectorAll<HTMLElement>(":scope > [data-allocation-legend][data-footer-cut]")].every(item => getComputedStyle(item).visibility === "hidden"),
+                kept: shown.length,
+            };
+        });
+        expect(fit).toMatchObject({ wrap: "nowrap", height: 28, overflow: 0, more: true, inside: true, whole: true, hidden: true });
+        expect(fit.kept).toBeGreaterThan(0);
+        expect(fit.kept).toBeLessThan(8);
     });
 
     test(`A2 — the picker marks each day Published · Draft · Not started: a 6px dot under its number, out of the day's flow (${theme}) @desktop`, async ({ page }) => {

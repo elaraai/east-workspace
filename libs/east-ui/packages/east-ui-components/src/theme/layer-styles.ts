@@ -241,6 +241,19 @@ export const layerStyles = defineLayerStyles({
             padding: "10px 14px",
         },
     },
+    /** The Elara tone (#1409, `Optimise Spec.md` §8): what a run of the app's
+     *  optimiser says when it lands — a 1 px `elara.ink` edge over a 6% `elara`
+     *  wash, in the banners' own geometry, so it stacks with a frame's other
+     *  banners as one of them (ruled 26 Oct 2026). */
+    "banner.elara": {
+        value: {
+            background: "color-mix(in oklch, {colors.elara} 6%, {colors.bg.surface})",
+            borderWidth: "1px",
+            borderColor: "elara.ink",
+            borderRadius: "4px",
+            padding: "10px 14px",
+        },
+    },
     /** Dashed surround for ephemeral / stale / partial banners — spec `.banner`. */
     "banner.dashed.stale": {
         value: {

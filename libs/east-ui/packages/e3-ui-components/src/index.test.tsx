@@ -12,7 +12,7 @@
 import { describe, test, expect } from "vitest";
 import { ArrayType, East, OptionType, StringType, equalFor, none, some, variant } from "@elaraai/east";
 import type { DataManifest } from "@elaraai/e3-types";
-import { DecisionConstraintType, DiffBindingType, Flowchart, decisionBindPlatformFn } from "@elaraai/e3-ui/internal";
+import { DecisionConstraintType, DiffBindingType, Flowchart, Schematic, decisionBindPlatformFn } from "@elaraai/e3-ui/internal";
 import {
     ClipboardImpl, DownloadImpl, OverlayImpl, ShareImpl, SliceApplyImpl, SliceImpl, StateImpl,
     hasExtensionRenderer,
@@ -37,6 +37,11 @@ describe("the package's root", () => {
     test("registers the Flowchart's renderer against its carrier as it loads, so a host's `<Flowchart>` draws (#1243)", () => {
         expect(root.EastChakraFlowchart).toBeDefined();
         expect(hasExtensionRenderer(Flowchart.Component.name)).toBe(true);
+    });
+
+    test("registers the Schematic's renderer against its carrier as it loads, so a host's `<Schematic>` draws (#1384)", () => {
+        expect(root.EastChakraSchematic).toBeDefined();
+        expect(hasExtensionRenderer(Schematic.Component.name)).toBe(true);
     });
 
     test("gives a host Decision.bind's implementation, so the platforms it lists from the exports bind decisions as UITaskPreview's do (#1222)", () => {

@@ -5,8 +5,8 @@
 
 /**
  * Every word the Plan says itself (#820) — ONE typed message table. The
- * canvas's own chrome (the toolbar, the footer, the diagnostics, the bands,
- * the narrow layout's tabs and cards), the words it gives a reader for what
+ * canvas's own chrome (the toolbar, the footer, the diagnostics, a failed
+ * run's line, the narrow layout's tabs and cards), the words it gives a reader for what
  * it shows only by shape or colour, and what its live region announces all
  * come from here. What the AUTHOR wrote — a row's label,
  * a footer item, a series title — is data, and never passes through it.
@@ -25,6 +25,8 @@
 
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
+import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
+import { eventsNotCounted, joinedWords as joined, kindPlural as pluralName } from "../shared/schedule/words.js";
 import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
 
 /** A lifecycle state as the words name it — `EventStateType`, with the
@@ -73,8 +75,14 @@ export type PlanInspectorSection = "fields" | "bulk" | "window" | "measures";
 /** A fact the inspector pane shows of an event or a row (#1197). */
 export type PlanInspectorFact = "resource" | "start" | "end" | "at" | "lane" | "state" | "quantity" | "group" | "events" | "hours" | "quantities";
 
-/** What the inspector pane counts when nothing is selected (#1197, PB41). */
-export type PlanInspectorStat = "events" | "hours" | "backlog";
+/**
+ * What the inspector pane counts when nothing is selected (#1197, PB41): the
+ * hours over the rows drawn (#1039), where a kind read by its cells counts
+ * its events exactly and its hours over the rows on screen. The hours are those
+ * of the kinds read — none where no kind's are, a kind past the cap named
+ * among those not counted.
+ */
+export type PlanInspectorStat = "events" | "hours" | "hoursInView" | "backlog";
 
 /**
  * The Plan's message table.
@@ -87,11 +95,14 @@ export type PlanInspectorStat = "events" | "hours" | "backlog";
  *
  * It carries the editing session's messages too ({@link EditingMessages},
  * #880: the history bar and the draft issues), so a host translates the
- * canvas's history bar where it translates the canvas; and the time scale's
+ * canvas's history bar where it translates the canvas; the time scale's
  * ({@link TimeMessages}, #1148: its ruler's week and quarter ticks and their
- * words), which the scale the Plan shares with the Calendar speaks.
+ * words), which the scale the Plan shares with the Calendar speaks; and the
+ * footer's loading line over a paged source ({@link PagedLoadingMessages},
+ * #1398: `lineLoading`, `lineFiltering`, `lineFailed`, `lineShort`), in what
+ * the rail counts the rows in.
  */
-export interface PlanMessages extends EditingMessages, TimeMessages {
+export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadingMessages {
     // ── The frame ──────────────────────────────────────────────────────────
     /** The treegrid's accessible name. */
     gridLabel: () => string;
@@ -146,17 +157,15 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     /** An axis the grid had to truncate. */
     truncated: (p: { n: number; count: string }) => string;
 
-    // ── The transport line (#567 D9) ───────────────────────────────────────
-    /** A resident prefix — `1,200 loaded of 8,431`. */
-    transportLoaded: (p: { loaded: string; total: string | undefined }) => string;
-    /** A resident run in the middle — `elements 39,801–41,000 of 50,000`. */
-    transportRange: (p: { from: string; to: string; total: string | undefined }) => string;
-    /** The line while a window is in flight. */
-    transportLoading: (p: { line: string }) => string;
-
     // ── The footer's counts (#1193) ────────────────────────────────────────
     /** The event kinds' events in the window — `64 events`. */
     footerEvents: (p: { n: number; count: string }) => string;
+    /**
+     * The event kinds' events in the window when a kind's are not counted (#1039): its count is no number of them, the
+     * days they run on — `13 events, print jobs not counted`; `count` `undefined` when no kind's are counted, `print
+     * jobs not counted`. `kinds` are their names as running text writes them.
+     */
+    footerEventsNotCounted: (p: { n: number; count: string | undefined; kinds: readonly string[] }) => string;
     /** The event kinds' unscheduled events — `9 in backlog`. */
     footerBacklog: (p: { n: number; count: string }) => string;
     /** The changes waiting on Save — `4 pending`. */
@@ -165,6 +174,12 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     footerSaved: (p: { when: string }) => string;
     /** What a source's Save notice counts (#1344) — the `rows` source's `row`, `rows`; an event kind's `print job event`: `kind` its name as running text writes it. */
     saveNoticeNoun: (p: { kind: string | undefined; n: number }) => string;
+    /**
+     * What the footer's loading line names a failed read of the event kinds' rows by (#1398, CL3): the kinds whose own
+     * events it could not read, as the rail counts them — `print job events`, `print job events and stop events`
+     * (`kinds` each kind's noun) — else, none of theirs failing, the rows.
+     */
+    eventsFailedNoun: (p: { kinds: readonly string[] }) => string;
 
     // ── The narrowing (#1344) ──────────────────────────────────────────────
     /** A source of the slice whose narrowing could not be read: its banner's title — `Customers results unavailable`; `name` its label, or the noun the rail counts it in. */
@@ -179,6 +194,17 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     libraryNarrowed: (p: { tab: PlanLibraryTabWord; name: string }) => string;
     /** The line under it. */
     libraryNarrowedHint: (p: { tab: PlanLibraryTabWord; name: string }) => string;
+
+    // ── Too many events to draw (#1039) ────────────────────────────────────
+    /** The notice's title: a kind with more events in view than it draws, and no summary to shade them at this
+     *  resolution — `12,480 print job events in view`; `kind` its name as running text writes it. */
+    tooManyEvents: (p: { kind: string; n: number; count: string }) => string;
+    /** The notice's title for a kind whose count is no number of its events, a day index's (#1039) — `Print job events in
+     *  view: not counted`; `kind` its name as running text writes it. */
+    tooManyEventsNotCounted: (p: { kind: string }) => string;
+    /** The line under it: the resolution its summary shades at — `Too many to draw at this resolution: switch to month to
+     *  see where they fall`; `undefined`, it has none. */
+    tooManyEventsHint: (p: { resolution: string | undefined }) => string;
 
     // ── The library pane (#1195) ───────────────────────────────────────────
     /** The library pane's name. */
@@ -240,6 +266,14 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     inspectorNoValue: () => string;
     /** What a count says it counts when nothing is selected. */
     inspectorStat: (p: { stat: PlanInspectorStat; n: number }) => string;
+    /**
+     * What a row's facts, or the window's, leave out (#1039), as one line: the kinds they count none of, too many of
+     * their events in view, none of them read — `Print jobs not counted: too many to draw at this resolution` — and the
+     * kinds whose events they count but whose hours they do not, none of them read — `Print job hours not counted: too
+     * many to draw at this resolution`; both, `Print jobs and Press check hours not counted: …`. `kinds` and `hours` are
+     * the kinds' names.
+     */
+    inspectorNotCounted: (p: { kinds: readonly string[]; hours: readonly string[] }) => string;
     /** A hint when nothing is selected — three of them. */
     inspectorHint: (p: { n: 1 | 2 | 3 }) => string;
     /** One event's overlaps banner (#1198, PB53) — `Overlaps 2 events on Press B2`: `on` is its resource's name. */
@@ -271,20 +305,15 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     expandControl: () => string;
 
     // ── Rows and bands ─────────────────────────────────────────────────────
-    /** A group's derived member count — `8 rows`, or `~8 rows` while it covers only
-     *  the loaded windows (a top-level section on a paged canvas still
-     *  loading — the one parent whose members span windows, #822). */
-    groupMeta: (p: { n: number; count: string; partial: boolean }) => string;
+    /** A group's derived member count — `8 rows`. While it covers only the
+     *  loaded windows (a top-level section on a paged canvas still loading —
+     *  the one parent whose members span windows, #822) it is a short bar,
+     *  never a count (#1398, CL13). */
+    groupMeta: (p: { n: number; count: string }) => string;
     /** What a links focus's gap band stands for — `12 hidden rows`. */
     hiddenRows: (p: { n: number; count: string; what: "row" | "group" }) => string;
-    /** An unloaded run whose window is in flight. */
-    bandLoading: (p: { from: string; to: string }) => string;
-    /** An unloaded run above the resident rows. */
-    bandEarlier: (p: { n: number; count: string }) => string;
-    /** An unloaded run below the resident rows. */
-    bandLater: (p: { n: number; count: string }) => string;
-    /** A window whose read failed. */
-    windowFailed: (p: { from: string; to: string; reason: string }) => string;
+    // A run of rows not drawn yet says nothing (#1398, CL3); a failed one says so once, in the footer line's words
+    // (`lineFailed`, `retryRange`, `PagedLoadingMessages`).
     /** A failed window's retry button. */
     retry: () => string;
     /** A run bar's churn counter — `moved ×3`. */
@@ -354,8 +383,11 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     tabRows: () => string;
     /** The Measures tab. */
     tabMeasures: () => string;
-    /** A tab's count — `~` over a partial prefix. */
-    tabCount: (p: { n: number; count: string; partial: boolean }) => string;
+    /** A tab's count — "…" in its place over a partial prefix, until the source's read completes (#1398, CL13). */
+    tabCount: (p: { n: number; count: string }) => string;
+    /** A tab's count where a paged source's entries make no fixed number of what it lists — the Measures tab's, where
+     *  some entries make more chart rows than others (#1398): `not counted`, as the Plan's event counts say theirs. */
+    tabNotCounted: () => string;
     /** The card and section for rows in no group. */
     otherRows: () => string;
     /** Back to the group list. */
@@ -447,8 +479,6 @@ export interface PlanMessages extends EditingMessages, TimeMessages {
     announceGrain: (p: { grain: PlanGrainWord }) => string;
     /** The resolution changed. */
     announceResolution: (p: { resolution: string }) => string;
-    /** A paged source's window landed — `Loaded elements 201–400 of 5,000`. */
-    announceLanded: (p: { from: string; to: string; total: string | undefined }) => string;
 }
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
@@ -493,10 +523,6 @@ const FOCUS_TAG: Record<PlanFocusTagWord, string> = {
 const listed = (parts: ReadonlyArray<string | undefined>): string =>
     parts.filter((p): p is string => p !== undefined && p !== "").join(", ");
 
-/** Words joined as English reads a list — `a`, `a or b`, `a, b or c` (`and` in place of `or` when asked). */
-const joined = (words: readonly string[], last: "or" | "and"): string =>
-    words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} ${last} ${words[words.length - 1]}`;
-
 /** The fields a card's patch sets, as a noun — `customer`, `customer and stock` (an underscore a space); a patch that sets none, `card`. */
 const fieldNoun = (fields: readonly string[]): string =>
     fields.length === 0 ? "card" : joined(fields.map((f) => f.replace(/_/g, " ")), "and");
@@ -508,20 +534,13 @@ const withArticle = (noun: string): string => `${/^[aeiou]/i.test(noun) ? "an" :
 const narrowedNoun = (tab: PlanLibraryTabWord, name: string): string =>
     (tab === "events" ? "templates" : tab === "backlog" ? "backlog events" : tab === "series" ? "series" : name);
 
-/** A kind's name in the plural, as English makes one — `Stop` → `Stops`, `Delivery` → `Deliveries`; a name that ends in `s` stays. */
-const pluralName = (name: string): string => {
-    if (/s$/i.test(name)) return name;
-    if (/[^aeiou]y$/i.test(name)) return `${name.slice(0, -1)}ies`;
-    if (/(x|z|ch|sh)$/i.test(name)) return `${name}es`;
-    return `${name}s`;
-};
-
 /**
  * The Plan's English messages — the default table.
  */
 export const planMessages: PlanMessages = {
     ...editingMessages,
     ...timeMessages,
+    ...pagedLoadingMessages,
     gridLabel: () => "Plan",
     noWindow: () => "NO WINDOW — declare an axis window, or bind a slice whose range supplies it",
     noWindowOrdinal: () => "NO WINDOW — an ordinal axis needs at least one declared value",
@@ -557,15 +576,13 @@ export const planMessages: PlanMessages = {
     searchFailed: ({ reason }) => `search failed — ${reason}`,
     truncated: ({ count }) => `showing the first ${count} buckets — zoom in`,
 
-    transportLoaded: ({ loaded, total }) => (total !== undefined ? `${loaded} loaded of ${total}` : `${loaded} loaded`),
-    transportRange: ({ from, to, total }) => (total !== undefined ? `elements ${from}–${to} of ${total}` : `elements ${from}–${to}`),
-    transportLoading: ({ line }) => `${line} · Loading…`,
-
     footerEvents: ({ n, count }) => `${count} ${plural(n, "event", "events")}`,
+    footerEventsNotCounted: ({ n, count, kinds }) => eventsNotCounted({ n, count, kinds }),
     footerBacklog: ({ count }) => `${count} in backlog`,
     footerPending: ({ count }) => `${count} pending`,
     footerSaved: ({ when }) => `saved ${when}`,
     saveNoticeNoun: ({ kind, n }) => (kind === undefined ? plural(n, "row", "rows") : `${kind} ${plural(n, "event", "events")}`),
+    eventsFailedNoun: ({ kinds }) => (kinds.length === 0 ? "rows" : joined(kinds, "and")),
 
     narrowingUnavailable: ({ name }) => `${name.charAt(0).toUpperCase()}${name.slice(1)} results unavailable`,
     narrowingChanged: ({ name }) => `${name.charAt(0).toUpperCase()}${name.slice(1)} results changed; retry the narrowing.`,
@@ -573,6 +590,12 @@ export const planMessages: PlanMessages = {
     windowUnavailable: ({ axis }) => (axis === "time" ? "Dates unavailable" : "Window unavailable"),
     libraryNarrowed: ({ tab, name }) => `No ${narrowedNoun(tab, name)} match the filters`,
     libraryNarrowedHint: ({ tab, name }) => `Change or clear the filters to see more ${narrowedNoun(tab, name)}.`,
+
+    tooManyEvents: ({ kind, n, count }) => `${count} ${kind} ${plural(n, "event", "events")} in view`,
+    tooManyEventsNotCounted: ({ kind }) => `${kind.charAt(0).toUpperCase()}${kind.slice(1)} events in view: not counted`,
+    tooManyEventsHint: ({ resolution }) => (resolution === undefined
+        ? "Too many to draw at this resolution: narrow the filters, or zoom in."
+        : `Too many to draw at this resolution: switch to ${resolution} to see where they fall.`),
 
     libraryPane: () => "Library",
     libraryTab: ({ tab }) => (tab === "events" ? "Events" : tab === "backlog" ? "Backlog" : "Series"),
@@ -618,8 +641,10 @@ export const planMessages: PlanMessages = {
     inspectorNoBucket: () => "Click the row's plot to read its measures at that bucket.",
     inspectorNoValue: () => "—",
     inspectorStat: ({ stat, n }) => ({
-        events: plural(n, "Event", "Events"), hours: "Hours", backlog: "In backlog",
+        events: plural(n, "Event", "Events"), hours: "Hours", hoursInView: "Hours in view", backlog: "In backlog",
     })[stat],
+    inspectorNotCounted: ({ kinds, hours }) =>
+        `${joined([...kinds.map(pluralName), ...hours.map((kind) => `${kind} hours`)], "and")} not counted: too many to draw at this resolution`,
     inspectorHint: ({ n }) => (n === 1 ? "Click an event to see it here — Shift, ⌘ or Ctrl adds another."
         : n === 2 ? "Click a row's plot to see the row and its measures at that bucket."
             : "Esc clears what is selected."),
@@ -638,12 +663,8 @@ export const planMessages: PlanMessages = {
     linksControl: () => "Focus linked rows",
     expandControl: () => "Expand row",
 
-    groupMeta: ({ n, count, partial }) => `${partial ? "~" : ""}${count} ${plural(n, "row", "rows")}`,
+    groupMeta: ({ n, count }) => `${count} ${plural(n, "row", "rows")}`,
     hiddenRows: ({ n, count, what }) => `${count} hidden ${what}${n === 1 ? "" : "s"}`,
-    bandLoading: ({ from, to }) => `Loading elements ${from}–${to}`,
-    bandEarlier: ({ count }) => `${count} earlier elements — scroll to load`,
-    bandLater: ({ count }) => `${count} more elements — scroll to load`,
-    windowFailed: ({ from, to, reason }) => `Elements ${from}–${to} could not be read — ${reason}`,
     retry: () => "Retry",
     moved: ({ count }) => `moved ×${count}`,
     rollupCaption: ({ count, quantity }) =>
@@ -679,7 +700,8 @@ export const planMessages: PlanMessages = {
     tabGroups: () => "Groups",
     tabRows: () => "Rows",
     tabMeasures: () => "Measures",
-    tabCount: ({ count, partial }) => `${partial ? "~" : ""}${count}`,
+    tabCount: ({ count }) => count,
+    tabNotCounted: () => "not counted",
     otherRows: () => "Other rows",
     backToGroups: () => "← Groups",
     backToAllRows: () => "← All rows",
@@ -731,8 +753,6 @@ export const planMessages: PlanMessages = {
     announceCleared: () => "Selection cleared",
     announceGrain: ({ grain }) => `Grain: ${grain}`,
     announceResolution: ({ resolution }) => `Resolution: ${resolution}`,
-    announceLanded: ({ from, to, total }) =>
-        (total !== undefined ? `Loaded elements ${from}–${to} of ${total}` : `Loaded elements ${from}–${to}`),
 };
 
 const PlanMessagesContext = createContext<PlanMessages>(planMessages);
@@ -772,7 +792,7 @@ export interface PlanMessagesProviderProps {
  * const GERMAN: Partial<PlanMessages> = {
  *     allRows: () => "← Alle Zeilen",
  *     tabRows: () => "Zeilen",
- *     groupMeta: ({ count, partial }) => `${partial ? "~" : ""}${count} Zeilen`,
+ *     groupMeta: ({ count }) => `${count} Zeilen`,
  * };
  *
  * <I18nProvider locale="de-DE">

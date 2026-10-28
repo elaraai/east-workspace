@@ -22,6 +22,12 @@
  *   patches, library tabs and types it is written with on `Flowchart`
  *   (`Flowchart.values`, `Flowchart.value`, `Flowchart.over`,
  *   `Flowchart.patch`, `Flowchart.library`, `Flowchart.Types`).
+ * - `<Schematic>` — the 2D world-coordinate drawing of the app's own records:
+ *   items, zones, links and nets, each record's fields mapped to its roles,
+ *   with its kinds, details, templates, layers, library tabs, pattern and
+ *   geometry helpers and types on `Schematic` (`Schematic.items`,
+ *   `Schematic.details`, `Schematic.layers`, `Schematic.library.*`,
+ *   `Schematic.hatch()`, …, `Schematic.Types`).
  * - `Schedule` — the event and resource kinds the Calendar and Plan's builder
  *   share (`Schedule.events`, `Schedule.resources`), and what a builder
  *   publishes (`Schedule.periods`).
@@ -161,7 +167,7 @@ export {
 // `Sheet.field`, `Sheet.apply`, `Sheet.Types`), and its props.
 export {
     Sheet, type SheetNamespace, type SheetOptions, type SheetCommon, type SheetTemplates, type SheetTemplatesConfig, type SheetTemplatesProp,
-    type SheetLibraryTab, type SheetLibraryTabConfig,
+    type SheetLibraryTab, type SheetLibraryTabConfig, type SheetOptimiseRequestType, type SheetOptimiseResultType,
 } from './sheet/index.js';
 
 // The Flowchart (#1243–#1250): the state-transition flowchart a solution
@@ -186,6 +192,23 @@ export {
     type FlowchartRowType, type FlowchartPatchOf, type FlowchartPatchInput,
 } from './flowchart/index.js';
 
+// The Schematic (#1381): the 2D world-coordinate drawing a solution mounts,
+// `<Schematic>` — its kinds over the app's own records (items, zones, links
+// and nets, each by slot), their details and templates, its layers read from
+// the app's record, its library's tabs, the pattern and geometry helpers and
+// the East types it is written with (`Schematic.items`, `Schematic.details`,
+// `Schematic.layers`, `Schematic.library.*`, `Schematic.hatch()`,
+// `Schematic.Types`), and its props.
+export {
+    Schematic, type SchematicNamespace, type SchematicTypes, type SchematicProps, type SchematicLayers, type SchematicLayersConfig,
+    type SchematicNarrowedOptions,
+    type SchematicItemsConfig, type SchematicZonesConfig, type SchematicLinksConfig, type SchematicNetsConfig, type SchematicDetailsConfig,
+    type SchematicItems, type SchematicZones, type SchematicLinks, type SchematicNets, type SchematicDetails, type SchematicRecord,
+    type SchematicEnd, type SchematicSide, type SchematicStatusConfig, type SchematicValuesOf, type SchematicTemplates, type SchematicTemplatesConfig,
+    type SchematicLibrary, type SchematicLibraryTab, type SchematicLibraryTabConfig,
+    type SchematicPatternConfig, type SchematicPolylineConfig, type SchematicVertexInput, type SchematicVertices, type SchematicToneLiteral,
+} from './schematic/index.js';
+
 // Schedule (#1218, #1190): the event and resource kinds the Calendar and
 // Plan's builder share — `Schedule.events`, `Schedule.resources`,
 // `Schedule.field`, `Schedule.patch`, `Schedule.days`, `Schedule.unscheduled`
@@ -199,6 +222,13 @@ export {
     type SchedulePeriods, type SchedulePeriodsConfig, type ScheduleQuantity, type ScheduleRecordHandle, type ScheduleResourceKind,
     type ScheduleResourcesConfig, type ScheduleTemplate,
 } from './schedule/index.js';
+// The optimiser's request and answer over a Calendar's or a Plan's event kinds (#1409): the types `Calendar.Types` and
+// `Plan.Types` build them with, for an app that names them in its own code.
+export {
+    type ScheduleOptimiseRecordsOf, type ScheduleOptimiseRequestType, type ScheduleOptimiseResultType, type ScheduleOptimiseRows,
+} from './schedule/optimise.js';
+// The handle a Calendar's, a Plan's or a Sheet's `optimise` takes (#1409): any `Func.bind` handle, checked at build.
+export { type OptimiseHandle } from './utils/optimise.js';
 
 // e3 `<Diff>` tag + its types
 export { Diff } from './runtime/diff.js';
@@ -285,8 +315,8 @@ export { Calendar, type CalendarProps, type CalendarLibraryTab } from "./calenda
 // Record-backed staffing roster.
 export { Roster, type RosterProps, type RosterNamespace } from "./roster/index.js";
 export type {
-    RosterActivitiesConfig, RosterGroups, RosterGroupsConfig, RosterPositions, RosterPositionsConfig, RosterProposals, RosterProposalsConfig,
-    RosterShifts, RosterShiftsConfig,
+    RosterActivitiesConfig, RosterGroups, RosterGroupsConfig, RosterPatterns, RosterPatternsConfig, RosterPositions, RosterPositionsConfig,
+    RosterProposals, RosterProposalsConfig, RosterShifts, RosterShiftsConfig,
 } from "./roster/lists.js";
 export type { RosterTargets, RosterTargetsConfig } from "./roster/targets.js";
 export type { RosterLibraryTab } from "./roster/library.js";

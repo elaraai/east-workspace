@@ -16,7 +16,7 @@ import {
 } from '@elaraai/e3-core/portable';
 import { decodeBody, sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
-import { datasetPathOf } from './dataset-path.js';
+import { batchReadsNamed, datasetPathOf } from './dataset-path.js';
 import {
   TransferUploadRequestType,
   TransferUploadResponseType,
@@ -151,10 +151,16 @@ export function createTransferRoutes(
   // Authenticated API routes (mounted at /api/repos/:repo/workspaces/:ws/datasets)
   // =========================================================================
 
-  // POST routes use catch-all wildcard and dispatch based on URL suffix:
+  // POST routes use catch-all wildcard and dispatch based on URL suffix, and
+  // leave every other POST — a dataset's batch reads — to the dataset routes
+  // mounted after these:
   // - .../datasets/<path>/upload          → init transfer
   // - .../datasets/<path>/upload/<id>     → commit transfer
-  api.post('/*', async (c) => {
+  // A POST naming a batch read is a read of the dataset at its own path,
+  // whatever that ends in — a dataset named `upload` among them — and an
+  // upload's init and commit name none, so it passes on whatever its path.
+  api.post('/*', async (c, next) => {
+    if (batchReadsNamed(c) > 0) return next();
     const fullPath = c.req.path;
 
     // Check for commit: .../upload/<uuid>
@@ -168,8 +174,7 @@ export function createTransferRoutes(
       return handleInit(c);
     }
 
-    // Not a transfer route — return 404
-    return new Response('Not found', { status: 404 });
+    await next();
   });
 
   // GET routes dispatch the same way, and leave every other read to the

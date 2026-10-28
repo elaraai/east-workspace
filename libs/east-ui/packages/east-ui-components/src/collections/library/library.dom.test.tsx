@@ -15,8 +15,9 @@
  * to show (#1186), the shared empty state: the host's words for no items, or
  * `No matches` for a search or a filter that hides every card, its mark Font
  * Awesome's open box (#1263). A host that takes a draggable card's ⏎ (#1187)
- * gets it, while Space still picks the card up. A compact Library's add action
- * is Font Awesome's plus beside its words (#1263).
+ * gets it, while Space still picks the card up — in retained content (#1398,
+ * CL8) neither, nor a card's × or the add, while a click still selects. A
+ * compact Library's add action is Font Awesome's plus beside its words (#1263).
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -474,6 +475,33 @@ describe("Library — nothing to show (#1186)", () => {
         await pick("Bay 1");
         expect(said(container)).toBeNull();
     });
+
+    test("while cards it is to list are read (#1398, CL13), its pending rows follow the cards it holds and it says nothing; mounted throughout, its search box keeps its text and the focus as they land", async () => {
+        const page = (items: LibraryItemValue[], pending: boolean) => (
+            <ChakraProvider value={system}>
+                <EastChakraLibrary value={library(items)} storageKey="library-test" empty={{ title: "No registers" }} pending={pending} />
+            </ChakraProvider>
+        );
+        const { container, rerender } = render(page([], true));
+        const cards = () => [...container.querySelectorAll("[data-library-item]")].map(el => el.getAttribute("data-library-item"));
+        const rows = () => container.querySelector<HTMLElement>("[data-library-pending]");
+        // None read yet: the pending rows alone — no empty state, the box counting nothing it does not know.
+        expect([rows()?.children.length, rows()?.getAttribute("aria-hidden"), said(container), cards()]).toEqual([8, "true", null, []]);
+        const search = screen.getByRole("textbox", { name: "Search library" }) as HTMLInputElement;
+        expect(search.placeholder).toBe("Search items…");
+        await act(async () => { search.focus(); fireEvent.change(search, { target: { value: "s1" } }); });
+        expect(said(container)).toBeNull();
+        // Some read: they show, the rest still pending after them.
+        rerender(page([card("S101", "saw", "Bay 1")], true));
+        expect(cards()).toEqual(["S101"]);
+        expect(container.querySelector("[data-library-item='S101']")!.compareDocumentPosition(rows()!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // All read: no pending row; the same box, its text and the focus, the search finding among them.
+        rerender(page([card("S101", "saw", "Bay 1"), card("F401", "booth", "Bay 4"), card("S102", "saw", "Bay 2")], false));
+        expect(rows()).toBeNull();
+        expect(screen.getByRole("textbox", { name: "Search library" })).toBe(search);
+        expect([search.value, document.activeElement === search, cards()]).toEqual(["s1", true, ["S101", "S102"]]);
+        expect(search.placeholder).toBe("Search 3 items…");
+    });
 });
 
 describe("Library — a host's ⏎ (#1187)", () => {
@@ -533,6 +561,42 @@ describe("Library — a host's ⏎ (#1187)", () => {
         await act(async () => { fireEvent.keyDown(pinned, { key: "Enter" }); });
         expect(clicked).toEqual(["pinned"]);
         expect(entered).toEqual(["edge"]);
+    });
+
+    test("in retained content (#1398, CL8) a card stays focusable and its click still selects, but ⏎ places nothing, no key picks it up, its × takes nothing back and the add adds nothing", async () => {
+        const entered: string[] = [], clicked: string[] = [], removed: string[] = [];
+        let added = 0;
+        const value: LibraryValue = { ...palette(clicked), addLabel: some("New template"), onAdd: some(() => { added += 1; return null; }) };
+        const extras = (item: LibraryItemValue) => ({ remove: { label: `Take ${item.key} back`, onRemove: () => { removed.push(item.key); } } });
+        const page = (held: boolean) => (
+            <ChakraProvider value={system}>
+                <DragLayerProvider>
+                    <div aria-disabled={held ? true : undefined}>
+                        <EastChakraLibrary value={value} storageKey="library-test" onCardEnter={key => { entered.push(key); }} extras={extras} />
+                    </div>
+                </DragLayerProvider>
+            </ChakraProvider>
+        );
+        const { container, rerender } = render(page(true));
+        const edge = cardOf(container, "edge");
+        expect(edge.tabIndex).toBe(0);
+        edge.focus();
+        expect(document.activeElement).toBe(edge);
+        press("Enter");
+        press("Space");
+        await tick();
+        expect([entered, edge.hasAttribute("data-dragging")]).toEqual([[], false]);
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Take edge back" })); });
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "New template" })); });
+        await act(async () => { fireEvent.click(edge); });
+        expect([removed, added, clicked]).toEqual([[], 0, ["edge"]]);
+        // Landed: each does what it does.
+        rerender(page(false));
+        cardOf(container, "edge").focus();
+        press("Enter");
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Take edge back" })); });
+        await act(async () => { fireEvent.click(screen.getByRole("button", { name: "New template" })); });
+        expect([entered, removed, added]).toEqual([["edge"], ["edge"], 1]);
     });
 
     test("without a host's ⏎, Enter picks a draggable card up, as it always has", async () => {

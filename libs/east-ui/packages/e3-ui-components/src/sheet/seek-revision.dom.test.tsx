@@ -7,17 +7,18 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { none, some } from "@elaraai/east";
-import { useSheetSeek } from "./use-seek.js";
+import { useSheetSeek, type SheetSeekNarrowing } from "./use-seek.js";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
 afterEach(cleanup);
 
-/** No resident rows, so no positions — one array, so a re-render keeps it. */
-const NO_POSITIONS: number[] = [];
+/** A listed row the narrowing hides, as the box lists it. */
+const hidden = (key: string) => `${key} · hidden`;
 
-/** Four resident rows: `a`, `b` at 198–199, then — window 1 (200–399) failed — `c`, `d` at 400–401 (#853). */
-const ACROSS_A_FAILURE: SheetRowValue[] = ["a", "b", "c", "d"].map((id) => ({ id, owned: false, cells: new Map(), lines: [], band: none, subRows: [] }));
-const ACROSS_A_FAILURE_AT = [198, 199, 400, 401];
+/** The rows `r0`, `r1`, … at their places: a window of them, read through the source by position. */
+function rowsAt(offset: bigint, limit: bigint): SheetRowValue[] {
+    return Array.from({ length: Number(limit) }, (_x, i) => ({ id: `r${Number(offset) + i}`, owned: false, cells: new Map(), lines: [], band: none, subRows: [] }));
+}
 
 function source(revision: string, found: boolean): SheetPagedSourceValue {
     return {
@@ -27,10 +28,29 @@ function source(revision: string, found: boolean): SheetPagedSourceValue {
     };
 }
 
+/** A source whose pages are the rows at their places, each asked noted. */
+function listedSource(asked: [bigint, bigint][]): SheetPagedSourceValue {
+    return { ...source("a", true), page: (offset, limit) => { asked.push([offset, limit]); return some(rowsAt(offset, limit)); } };
+}
+
+/** A narrowing that holds every third row, what the box asks of it noted, and the picks it is asked to reveal. */
+function everyThird() {
+    const asks: { from: number; keys: readonly string[]; held: readonly boolean[] }[] = [];
+    const reveals: [number, string][] = [];
+    const narrowing: SheetSeekNarrowing = {
+        held: (from, count) => some(Array.from({ length: count }, (_x, i) => (from + i) % 3 === 0)),
+        hiddenLine: hidden,
+        askHidden: (from, keys, held) => { asks.push({ from, keys, held }); },
+        reveal: (row, key) => { reveals.push([row, key]); },
+        version: 0,
+    };
+    return { narrowing, asks, reveals };
+}
+
 test("a new revision cancels a pending query and releases its jump pin", async () => {
     const jump = vi.fn();
     const clear = vi.fn();
-    const hook = renderHook(({ src }) => useSheetSeek(src, [], NO_POSITIONS, jump, clear), {
+    const hook = renderHook(({ src }) => useSheetSeek(src, jump, clear, undefined), {
         initialProps: { src: source("a", false) },
     });
     let outcome: Promise<unknown>;
@@ -47,17 +67,44 @@ test("a new revision cancels a pending query and releases its jump pin", async (
     expect(clear).toHaveBeenCalled();
 });
 
-test("the match list reads resident rows by their source positions, and stops at a failed window's hole (#853)", async () => {
-    const hook = renderHook(() => useSheetSeek(source("a", true), ACROSS_A_FAILURE, ACROSS_A_FAILURE_AT, vi.fn(), vi.fn()));
+test("the match list reads the run's rows through the source by their places — a far one as well as one in view — and marks those a narrowing hides, asking which filters hide them (#1398, CL10)", async () => {
+    const asked: [bigint, bigint][] = [];
+    const src = listedSource(asked);
+    const { narrowing, asks } = everyThird();
+    const hook = renderHook(() => useSheetSeek(src, vi.fn(), vi.fn(), narrowing));
     const search = hook.result.current.search!;
-    expect(await search.listRange(198, 5)).toEqual(["a", "b"]);
-    expect(await search.listRange(400, 5)).toEqual(["c", "d"]);
-    expect(await search.listRange(200, 5)).toEqual([]);
+    // Far from any row the sheet has drawn: read by its place, its key the box shows once picked.
+    expect(await search.listRange(9_000, 3)).toEqual([
+        { row: 9_000, label: "r9000", text: "r9000" },
+        { row: 9_001, label: "r9001 · hidden", text: "r9001" },
+        { row: 9_002, label: "r9002 · hidden", text: "r9002" },
+    ]);
+    expect(asked).toEqual([[9_000n, 3n]]);
+    // The narrowing is asked which of its filters hide the rows it hides, by the rows listed and whether it holds each.
+    expect(asks).toEqual([{ from: 9_000, keys: ["r9000", "r9001", "r9002"], held: [true, false, false] }]);
+    // Nothing narrowing the rows: none is marked.
+    const plain = renderHook(() => useSheetSeek(src, vi.fn(), vi.fn(), undefined));
+    expect(await plain.result.current.search!.listRange(4, 2)).toEqual([{ row: 4, label: "r4", text: "r4" }, { row: 5, label: "r5", text: "r5" }]);
+});
+
+test("a pick of a listed row the narrowing hides is revealed — never a jump under the narrowing that hides it — and one it holds is jumped to (the hidden pick)", async () => {
+    const jump = vi.fn();
+    const { narrowing, reveals } = everyThird();
+    const hook = renderHook(() => useSheetSeek(listedSource([]), jump, vi.fn(), narrowing));
+    await hook.result.current.search!.listRange(9_000, 3);
+    act(() => { hook.result.current.search!.jump(9_001); });
+    expect(reveals).toEqual([[9_001, "r9001"]]);
+    expect(jump).not.toHaveBeenCalled();
+    expect(hook.result.current.target).toBeUndefined();
+    act(() => { hook.result.current.search!.jump(9_000); });
+    expect(jump).toHaveBeenCalledWith(9_000);
+    expect(hook.result.current.target).toBe(9_000);
+    expect(reveals).toHaveLength(1);
 });
 
 test("unmount rejects a pending search instead of leaving the control waiting", async () => {
     const clear = vi.fn();
-    const hook = renderHook(() => useSheetSeek(source("a", false), [], NO_POSITIONS, vi.fn(), clear));
+    const hook = renderHook(() => useSheetSeek(source("a", false), vi.fn(), clear, undefined));
     let outcome: Promise<unknown>;
     act(() => { outcome = hook.result.current.search!.find({ prefix: "x" }).catch(e => e); });
     hook.unmount();

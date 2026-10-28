@@ -150,43 +150,74 @@ describe("bands (#819)", () => {
     const tail: PlanBodyItem = { kind: "band", band: { block: 0, at: "tail", from: 800, to: 4_999, px: 134_400 } };
     const PAGED = [head, vis(C1, 0), vis(C2, 0), tail];
 
-    test("a step onto a band lands on it, asks for the adjacent window, and waits — no scroll", () => {
+    test("a step past the rows read asks for the window beside the run, the focus waiting where it is — never on the run, no scroll (#1398, CL10)", () => {
         const nav = items(PAGED);
         expect(planNavKey(nav, "r:c2", "ArrowDown", 0)).toEqual({
-            t: "band", key: "b:0:tail", align: undefined, demand: { kind: "band", block: 0, at: "tail" },
-            intent: { t: "step", from: "r:c2", dir: 1 },
+            t: "fetch", demand: { kind: "band", block: 0, at: "tail" }, intent: { t: "step", from: "r:c2", dir: 1 },
         });
         expect(planNavKey(nav, "r:c1", "ArrowUp", 0)).toEqual({
-            t: "band", key: "b:0:head", align: undefined, demand: { kind: "band", block: 0, at: "head" },
-            intent: { t: "step", from: "r:c1", dir: -1 },
+            t: "fetch", demand: { kind: "band", block: 0, at: "head" }, intent: { t: "step", from: "r:c1", dir: -1 },
         });
     });
 
-    test("Home and End onto a band go to the source's far edges — scrolled there, the far window asked for", () => {
+    test("Home and End past a run read the source's first or last window where it is — the view staying put — and land on its row once it is in (#1398, CL10)", () => {
         const nav = items(PAGED);
-        expect(planNavKey(nav, "r:c1", "Home", 0)).toEqual({
-            t: "band", key: "b:0:head", align: "start", demand: { kind: "band", block: 0, at: "head", px: 0 }, intent: { t: "first" },
-        });
-        expect(planNavKey(nav, "r:c1", "End", 0)).toEqual({
-            t: "band", key: "b:0:tail", align: "end", demand: { kind: "band", block: 0, at: "tail", px: 134_399 }, intent: { t: "last" },
-        });
+        expect(planNavKey(nav, "r:c1", "Home", 0)).toEqual({ t: "edge", edge: "first" });
+        expect(planNavKey(nav, "r:c1", "End", 0)).toEqual({ t: "edge", edge: "last" });
+        // From the run itself too: the run at the end is no row to stop on.
+        expect(planNavKey(nav, "b:0:tail", "End", 0)).toEqual({ t: "edge", edge: "last" });
     });
 
-    test("a band names its block — a move onto a later block's band asks that block (#823)", () => {
+    test("a band names its block — a move past the rows read asks that block (#823)", () => {
         const second: PlanBodyItem = { kind: "band", band: { block: 2, at: "head", from: 0, to: 199, px: 640 } };
         const nav = items([vis(C1, 0), vis(C2, 0), second]);
         expect(planNavKey(nav, "r:c2", "ArrowDown", 0)).toEqual({
-            t: "band", key: "b:2:head", align: undefined, demand: { kind: "band", block: 2, at: "head" },
-            intent: { t: "step", from: "r:c2", dir: 1 },
+            t: "fetch", demand: { kind: "band", block: 2, at: "head" }, intent: { t: "step", from: "r:c2", dir: 1 },
         });
     });
 
-    test("a page never jumps a band — it stops on it, headed past", () => {
+    test("a page onto a band asks for the window past it, headed the rest of its way (#1398, CL10)", () => {
         const nav = items(PAGED);
+        // 1,000px of viewport: c2 is 32px on, and the rest of the page waits past the band.
         expect(planNavKey(nav, "r:c1", "PageDown", 1000)).toEqual({
-            t: "band", key: "b:0:tail", align: "auto", demand: { kind: "band", block: 0, at: "tail" },
-            intent: { t: "step", from: "r:c2", dir: 1 },
+            t: "fetch", demand: { kind: "band", block: 0, at: "tail" }, intent: { t: "page", from: "r:c2", dir: 1, rest: 968, by: "px" },
         });
+        expect(planNavKey(nav, "r:c2", "PageUp", 70)).toEqual({
+            t: "fetch", demand: { kind: "band", block: 0, at: "head" }, intent: { t: "page", from: "r:c1", dir: -1, rest: 38, by: "px" },
+        });
+        // A viewport not yet measured pages by rows.
+        expect(planNavKey(nav, "r:c2", "PageDown", 0)).toEqual({
+            t: "fetch", demand: { kind: "band", block: 0, at: "tail" }, intent: { t: "page", from: "r:c2", dir: 1, rest: 10, by: "items" },
+        });
+    });
+
+    test("a key that moves through a run holding the focus waits for its rows (#1398, CL10)", () => {
+        const nav = items(PAGED);
+        for (const key of ["ArrowDown", "ArrowUp", "PageDown", "PageUp"] as const) expect(planNavKey(nav, "b:0:tail", key, 70)).toEqual({ t: "wait", key });
+        expect(planNavKey(nav, "b:0:head", "PageDown", 70)).toEqual({ t: "wait", key: "PageDown" });
+    });
+
+    test("a page across a band lands a page on once the rows past it land — never at the loaded edge, never on a band (#1398, CL10)", () => {
+        const intent = { t: "page" as const, from: "r:c2", dir: 1 as const, rest: 70, by: "px" as const };
+        // The window past the band is still on its way.
+        expect(resolveNavIntent(items(PAGED), intent, MIDDLE)).toEqual({ t: "pending" });
+        const [C3, C4, C5, C6] = ["c3", "c4", "c5", "c6"].map((key) => row(key, span()));
+        const landed = (rows: PlanRowValue[], after: PlanBodyItem[] = [tail]) => planNavItems({
+            pinned: [], pinnedHeights: [],
+            items: [head, vis(C1, 0), vis(C2, 0), ...rows.map((r) => vis(r, 0)), ...after], heights: [1, 32, 32, ...rows.map(() => 32), ...after.map(() => 1)],
+            index: indexRows([C1, C2, ...rows]), chartsExpanded: new Set(), focusCtx: undefined,
+        });
+        // Landed: 70px on from c2 is three rows on.
+        expect(resolveNavIntent(landed([C3!, C4!, C5!, C6!]), intent, MIDDLE)).toEqual({ t: "resolved", key: "r:c5" });
+        // Fewer rows landed than the page: never the last before the band still unread — the window past it is asked for,
+        // and the page waits for it.
+        expect(resolveNavIntent(landed([C3!]), intent, MIDDLE)).toEqual({ t: "pending", ask: { kind: "band", block: 0, at: "tail" } });
+        // The source's end on the way: its last row.
+        expect(resolveNavIntent(landed([C3!], []), intent, MIDDLE)).toEqual({ t: "resolved", key: "r:c3" });
+        // By rows, where the viewport was not measured.
+        expect(resolveNavIntent(landed([C3!, C4!, C5!, C6!]), { ...intent, rest: 2, by: "items" }, MIDDLE)).toEqual({ t: "resolved", key: "r:c4" });
+        // The row it set out from is gone: cancelled.
+        expect(resolveNavIntent(items([head, vis(C1, 0), tail]), intent, MIDDLE)).toEqual({ t: "cancel" });
     });
 
     const MIDDLE = { loading: false, atStart: false, atEnd: false };
@@ -217,12 +248,21 @@ describe("bands (#819)", () => {
     test("Home and End resolve only once the source's own first and last elements are resident", () => {
         const loaded = items([vis(C1, 0), vis(C2, 0)]);
         // The rows showing are not the source's ends while its windows load.
-        expect(resolveNavIntent(loaded, { t: "last" }, { loading: true, atStart: true, atEnd: false })).toEqual({ t: "pending" });
-        expect(resolveNavIntent(loaded, { t: "first" }, { loading: true, atStart: false, atEnd: true })).toEqual({ t: "pending" });
-        expect(resolveNavIntent(loaded, { t: "last" }, WHOLE)).toEqual({ t: "resolved", key: "r:c2" });
-        expect(resolveNavIntent(loaded, { t: "first" }, WHOLE)).toEqual({ t: "resolved", key: "r:c1" });
+        expect(resolveNavIntent(loaded, { t: "last", from: "r:c1" }, { loading: true, atStart: true, atEnd: false })).toEqual({ t: "pending" });
+        expect(resolveNavIntent(loaded, { t: "first", from: "r:c2" }, { loading: true, atStart: false, atEnd: true })).toEqual({ t: "pending" });
+        expect(resolveNavIntent(loaded, { t: "last", from: "r:c1" }, WHOLE)).toEqual({ t: "resolved", key: "r:c2" });
+        expect(resolveNavIntent(loaded, { t: "first", from: "r:c2" }, WHOLE)).toEqual({ t: "resolved", key: "r:c1" });
         // A band at the end is never the answer.
-        expect(resolveNavIntent(items(PAGED), { t: "first" }, WHOLE)).toEqual({ t: "pending" });
+        expect(resolveNavIntent(items(PAGED), { t: "first", from: "r:c2" }, WHOLE)).toEqual({ t: "pending" });
+    });
+
+    test("Home and End are cancelled once the row they set out from is gone before the far end is in — the rows they waited among another's now (#1398, CL10)", () => {
+        // A new narrowing's rows, the row Home set out from not among them, the source's start not yet resident.
+        const other = items([vis(C2, 0), tail]);
+        expect(resolveNavIntent(other, { t: "first", from: "r:c1" }, MIDDLE)).toEqual({ t: "cancel" });
+        expect(resolveNavIntent(other, { t: "last", from: "r:c1" }, MIDDLE)).toEqual({ t: "cancel" });
+        // In: it lands, wherever it set out from.
+        expect(resolveNavIntent(items([vis(C2, 0)]), { t: "last", from: "r:c1" }, WHOLE)).toEqual({ t: "resolved", key: "r:c2" });
     });
 
     test("a failed window is a row of its own — a move onto it resolves there", () => {

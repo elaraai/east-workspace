@@ -331,6 +331,38 @@ describe("the theme follows the design system (app_design_system/tokens)", () =>
     });
 });
 
+// ─── The elara tokens (#1409, O6) ───────────────────────────────────────────
+
+/**
+ * The optimiser's colour, which the design system does not declare yet: the
+ * Optimise design (`libs/east-ui/docs/proposals/Optimise Spec.md` §8) holds
+ * each token to the brand scale's cyan end, per colour mode — `brand.400` in
+ * light, `brand.300` in dark — mixed as it says. Each row is a token and its
+ * value in each mode, in the design system's own terms.
+ */
+const ELARA: ReadonlyArray<readonly [theme: string, light: string, dark: string]> = [
+    ["colors.elara", "{--brand-400}", "{--brand-300}"],
+    ["colors.elara.ink", "{--brand-d}", "{--brand-300}"],
+    ["colors.elara.glow", "color-mix(in oklch, {--brand-400} 75%, transparent)", "color-mix(in oklch, {--brand-300} 60%, transparent)"],
+    ["colors.elara.wash", "color-mix(in oklch, {--brand-400} 32%, {--paper})", "color-mix(in oklch, {--brand-300} 24%, {--paper})"],
+    ["colors.elara.edge", "color-mix(in oklch, {--brand-400} 60%, {--brand-d})", "{--brand-300}"],
+    ["colors.elara.soft", "color-mix(in oklch, {--brand-400} 55%, transparent)", "color-mix(in oklch, {--brand-300} 40%, transparent)"],
+];
+
+describe("the elara tokens follow the Optimise design (#1409, O6)", () => {
+    test.each(ELARA)("%s is the brand scale's cyan end, per colour mode", (theme, light, dark) => {
+        for (const [mode, spec] of [["light", light], ["dark", dark]] as const) {
+            const want = normal(spec.replace(/\{(--[\w-]+)\}/gu, (_m, ds: string) => dsValue(ds, mode)));
+            expect(normal(themeValue(theme, mode)), `${theme} in ${mode} drifted from the Optimise design`).toBe(want);
+        }
+    });
+
+    test("in light, elara is never the only sign: its ink is the brand's solid, which reads at 3:1 and better", () => {
+        expect(normal(themeValue("colors.elara.ink", "light"))).toBe(normal(themeValue("colors.brand.solid", "light")));
+        expect(normal(themeValue("colors.elara.ink", "dark"))).toBe(normal(themeValue("colors.elara", "dark")));
+    });
+});
+
 // ─── Every token a theme module names exists ────────────────────────────────
 
 /** The theme's own modules: every `.ts` under `theme/`, tests aside. */

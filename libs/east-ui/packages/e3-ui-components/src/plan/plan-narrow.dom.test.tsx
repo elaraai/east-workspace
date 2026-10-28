@@ -7,8 +7,8 @@
  * Plan narrow-layout DOM tests (§10 / #570) — below the compact width the
  * canvas is a review tool: tabs, cards, the shared ruler and the chips; a
  * section header's go mark is Font Awesome's chevron (#1263). A pan writes the
- * window as the record Slice's half-open range (#1344), the rows' source the
- * Plan's dated rows on e3 itself (`rail.test-utils.ts`, #1376). A canvas
+ * window as the record Slice's half-open range (#1344), held by a source of it
+ * — the Plan's dated rows on e3 itself (`rail.test-utils.ts`, #1376). A canvas
  * persists its toggles under its storageKey (#813), and the harness clears
  * them after each test; its jsdom has what Zag's tabs find their triggers
  * through when an arrow key moves between them (`CSS.escape`, #819).
@@ -247,14 +247,14 @@ describe("Plan narrow layout (§10 / #570)", () => {
     });
 
     test("Measures stacks the chart rows at expanded density with their ticks overlaid; a two-finger drag pans the window", async () => {
-        // The rows' source holds the window, W27..W39.
+        // The dated rows' source holds the window, W27..W39.
         const rail = await bindRail(() => Slice.bindRecords("plan.narrow.pan", {
-            rows: {
+            dated: {
                 source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
                 fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
             },
         }), ["range"]);
-        const part = rail.part("rows");
+        const part = rail.part("dated");
         const range = () => { const w = recordSliceWindow(part)!; return { from: new Date(w.min), to: new Date(w.max) }; };
         const { container } = renderPlan(fixture({ slice: some(rail.chrome) }), "plan-570-measures");
         // A tab is Zag's (#819): its click selects on the machine's next turn.
@@ -378,23 +378,24 @@ describe("Plan narrow layout (§10 / #570)", () => {
         expect(container.querySelector("[data-plan-tab]")).toBeNull();
     });
 
-    test("over a partial paged prefix only a top-level SECTION's count is `~`-marked — a group per entry's is exact (#822)", async () => {
+    test("over a partial paged prefix only a top-level SECTION's count is a placeholder — a group per entry's is exact (#822, #1398 CL13); the Rows count is the source's own, as it has counted itself — never the rows it has read", async () => {
         // The cards say what the desktop bands say: a section's members are
         // its series' entries, which the windows share out, so its count is an
-        // understatement until the source is exhausted; a group strip's
-        // members ride in its own entry, which its window holds whole.
+        // understatement until the source is exhausted — a short bar, never a
+        // count the read has not finished; a group strip's members ride in its
+        // own entry, which its window holds whole.
         const groupKind = variant("group", { summary: variant("aggregate", variant("mean", null)) });
         const sec = sectionId("sec");
         // The canvas as the IR derives it (#823): the section's header is a
         // FIXED block, its member series a block under it, and the group
         // strips' series a block of its own.
         const w0 = [
-            { fixed: true, parent: none, rows: [planRow("sec", groupKind, { id: sec, gutter: gutter("Hall 1") })] },
-            { fixed: false, parent: some(sec), rows: [
+            { fixed: true, parent: none, charts: none, rows: [planRow("sec", groupKind, { id: sec, gutter: gutter("Hall 1") })] },
+            { fixed: false, parent: some(sec), charts: none, rows: [
                 planRow("s1", heatKind([40, 60]), { parentId: sec }),
                 planRow("s2", heatKind([50, 70]), { parentId: sec }),
             ] },
-            { fixed: false, parent: none, rows: [
+            { fixed: false, parent: none, charts: none, rows: [
                 planRow("g1", groupKind, { gutter: gutter("Hall 2") }),
                 planRow("a", heatKind([70, 98]), { parent: "g1" }),
                 planRow("b", heatKind([60, 80]), { parent: "g1" }),
@@ -413,17 +414,75 @@ describe("Plan narrow layout (§10 / #570)", () => {
             "plan-822-narrow-partial");
         // The strips make Groups the landing: one card per group.
         await waitFor(() => expect(container.querySelector(sectionSel("sec", [], "data-plan-groupcard"))).toBeTruthy());
-        expect(container.querySelector(sectionSel("sec", [], "data-plan-groupcard"))!.textContent).toContain("~2 rows");
+        const section = container.querySelector(sectionSel("sec", [], "data-plan-groupcard"))!;
+        expect(section.querySelector('[data-shape="aggregate"]')).not.toBeNull();
+        expect(section.textContent).not.toMatch(/\brows?\b/);
         const strip = container.querySelector(rowSel("g1", "data-plan-groupcard"))!.textContent;
         expect(strip).toContain("2 rows");
         expect(strip).not.toContain("~");
+        // The tabs: the groups counted, and the rows as the source counts them — its 600, as the rail counts a paged source,
+        // never the four it has read.
+        const counts = Object.fromEntries([...container.querySelectorAll("[data-plan-tab]")]
+            .map((tab) => [tab.getAttribute("data-plan-tab"), tab.querySelector("[data-plan-tabcount]")!.textContent]));
+        expect(counts).toEqual({ groups: "2", rows: "600" });
+        expect(container.querySelector("[data-plan-tab='rows'] [data-plan-tabcount]")!.getAttribute("data-plan-tabcount")).toBe("600");
         // The Rows tab's section headers say the same.
         fireEvent.click(container.querySelector("[data-plan-tab='rows']")!);
         await waitFor(() => expect(container.querySelector(sectionSel("sec", [], "data-plan-section"))).toBeTruthy());
-        expect(container.querySelector(sectionSel("sec", [], "data-plan-section"))!.textContent).toContain("~2 rows");
+        const head = container.querySelector(sectionSel("sec", [], "data-plan-section"))!;
+        expect(head.querySelector('[data-shape="aggregate"]')).not.toBeNull();
+        expect(head.textContent).not.toMatch(/\brows?\b/);
         const header = container.querySelector(rowSel("g1", "data-plan-section"))!.textContent;
         expect(header).toContain("2 rows");
         expect(header).not.toContain("~");
+    });
+
+    /**
+     * A paged source of 450 entries whose first window alone lands (#1398): a hand-built chart row leading every
+     * window — a fixed block, which no entry makes — then each entry's rows in two blocks, a chart row each in the
+     * first and a span row each in the second. `perEntry` is what the first block says each of its entries makes of
+     * chart rows: as the IR says it of a chart series, or nothing, as of one whose `match` decides by entry.
+     */
+    function measuredPlan(id: string, perEntry: bigint | undefined): PlanRootValue {
+        const entries = Array.from({ length: 200 }, (_u, i) => i);
+        const w0 = [
+            { fixed: true, parent: none, charts: none, rows: [planRow("target", chartKind, { gutter: gutter("TARGET", { id: true }) })] },
+            { fixed: false, parent: none, charts: perEntry === undefined ? none : some(perEntry), rows: entries.map((i) => planRow(`c${i}`, chartKind)) },
+            { fixed: false, parent: none, charts: some(0n), rows: entries.map((i) => planRow(`s${i}`, spanKind([]))) },
+        ];
+        const source = {
+            // Window 0 lands; the 250 entries past it never do.
+            page: (offset: bigint) => (offset === 0n ? some(w0) : none),
+            total: () => some(450n),
+            id,
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        };
+        return { ...planRoot([]), rows: variant("paged", source) } as unknown as PlanRootValue;
+    }
+    /** A narrow tab's count, as it reads and as it says it. */
+    const tabCount = (container: HTMLElement, tab: string) => {
+        const count = container.querySelector(`[data-plan-tab='${tab}'] [data-plan-tabcount]`)!;
+        return [count.textContent, count.getAttribute("data-plan-tabcount")];
+    };
+
+    test("over a paged source whose entries each make as many chart rows, Measures counts what the source makes — its count times theirs, beside the rows no entry makes — never what has loaded (#1398, ruled 27 Oct 2026)", async () => {
+        const { container } = renderPlan(measuredPlan("narrow-measures-exact", 1n), "plan-1398-measures-exact");
+        await waitFor(() => expect(container.querySelector("[data-plan-tab='measures']")).toBeTruthy());
+        // 450 entries a chart row each, and the hand-built one: never the 201 of them the first window holds, nor `…`
+        // while the rest are read.
+        expect(container.querySelector("[data-plan-body][data-plan-partial]")).not.toBeNull();
+        expect(tabCount(container, "measures")).toEqual(["451", "451"]);
+        expect(tabCount(container, "rows")).toEqual(["450", "450"]);
+    });
+
+    test("over a paged source whose entries make no fixed number of chart rows, Measures says they are not counted (#1398, ruled 27 Oct 2026)", async () => {
+        const { container } = renderPlan(measuredPlan("narrow-measures-varies", undefined), "plan-1398-measures-varies");
+        await waitFor(() => expect(container.querySelector("[data-plan-tab='measures']")).toBeTruthy());
+        expect(tabCount(container, "measures")).toEqual(["not counted", "notCounted"]);
+        // The rows are still the source's own count.
+        expect(tabCount(container, "rows")).toEqual(["450", "450"]);
     });
 
     test("the shared fold control remains available on both the narrow list and the wide canvas", () => {

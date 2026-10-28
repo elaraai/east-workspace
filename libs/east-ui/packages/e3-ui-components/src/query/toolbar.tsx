@@ -12,7 +12,10 @@
  * button, its shortcut in a `Kbd`, which folds away first, and "Running" with
  * a spinner while a run goes. A row short of room still (#1229) folds Copy jq
  * and Save… into one ⋯ chip, in one step: its menu holds the two, Save…
- * opening the save popover from the chip; Run keeps its folded form.
+ * opening the save popover from the chip; Run keeps its folded form. Where
+ * even the whole ladder leaves the row too wide — a phone's — Run is its icon
+ * alone, named Run, a rung of the row's floor (`FLOOR_RANK`, hand retest, 27
+ * Oct 2026), so the row never runs past its end.
  *
  * **Visual · jq** is the Query tab's own ({@link viewToolbarItem}): the `seg`
  * strip Studio's canvas holds Desktop · Tablet in, at the top of the tab's
@@ -26,7 +29,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { Box, Button, Kbd, Menu as ChakraMenu, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faCode, faCopy, faDiagramProject, faEllipsis, faPlay } from "@fortawesome/free-solid-svg-icons";
-import { ChipMenu, type ToolbarItem } from "@elaraai/east-ui-components";
+import { ChipMenu, FLOOR_RANK, type ToolbarItem } from "@elaraai/east-ui-components";
 import type { QueryWords } from "./model/words.js";
 import { Tip, type Styles } from "./parts.js";
 
@@ -188,6 +191,14 @@ export function queryToolbarItems(options: QueryToolbarOptions): ToolbarItem[] {
             </Button>
         </Tip>
     );
+    // At the row's floor: the icon alone, named Run, its spinner alone while a run goes.
+    const runIcon = (
+        <Tip label={m.runTip()}>
+            <Button size="sm" variant="solid" loading={running} aria-label={m.run()} data-query-run="" onClick={onRun}>
+                <FontAwesomeIcon icon={faPlay} />
+            </Button>
+        </Tip>
+    );
     const copy = (iconOnly: boolean) => (
         <CopyJq copyText={copyText} label={m.copyJq()} done={m.copied()} iconOnly={iconOnly} styles={styles} />
     );
@@ -200,6 +211,6 @@ export function queryToolbarItems(options: QueryToolbarOptions): ToolbarItem[] {
             key: "more", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE, held: saving,
             forms: [null, saveFrom(<QueryMore copyText={copyText} onSaveAs={onSaveAs} words={words} />)],
         },
-        { key: "run", side: "end", forms: [run(true), run(false)], rank: RANK_RUN_KEYS, version: running },
+        { key: "run", side: "end", forms: [run(true), run(false), runIcon], rank: [RANK_RUN_KEYS, FLOOR_RANK], version: running },
     ];
 }

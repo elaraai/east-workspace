@@ -14,8 +14,8 @@
  * runs.
  *
  * The vocabulary lives in `sheet-types.ts`; the link editor's transitions in
- * `sheet-link-state.ts`; the copilot's in `sheet-suggest-state.ts`; the lens's
- * and the view tabs' in `sheet-lens-state.ts`.
+ * `sheet-link-state.ts`; the copilot's in `sheet-suggest-state.ts`; the view
+ * tabs' in `sheet-tabs-state.ts`.
  *
  * Non-negotiable transition rules (unit-tested as a table in
  * `sheet-state.test.ts`):
@@ -24,8 +24,8 @@
  *   proposal → the row fill (rows stay) → every suggestion → range → a dirty
  *   tab reverts → a clean tab returns to the sheet.
  * - **The slice owns the query**: the reducer never stores it; a narrowing
- *   change resets the reveals; a tab switch is a `slice.write` effect; tabs
- *   never own rows.
+ *   change returns the ring to the top; a tab switch is a `slice.write`
+ *   effect; tabs never own rows.
  * - **Tab ladder** (B§4.4 / B§6): the inline ghost or armed candidate → one
  *   predicted chip → hop From → To (a locked half is skipped) → commit right;
  *   with fills pending and no editor: arm the next target, then write it and
@@ -38,9 +38,9 @@
  *   and ⌘Home / ⌘End to the sheet's first or last cell (the last row that is
  *   not blank padding); PageUp / PageDown move a page of rows; ⇧ stretches a
  *   range instead. On a paged sheet ↓ past the last resident row, ↑ above the
- *   first and ⌘Home / ⌘End toward an end not yet resident ask the component
- *   for the window there (`seek.step`, `seek.edge`) — the ring lands once it
- *   arrives.
+ *   first, a page past either (#1398, CL10) and ⌘Home / ⌘End toward an end
+ *   not yet resident ask the component for the window there (`seek.step`,
+ *   `seek.edge`) — the ring lands once it arrives.
  * - **An unchanged buffer writes nothing** (#852): an editor closed on the
  *   text it opened with commits no write — nor takes a ghost when it was
  *   never touched — so opening a cell and pressing ⏎ never changes it.
@@ -51,10 +51,10 @@
  *   fill or the selected proposal rejects it and remembers.
  * - **Grouped rows (#740)**: arrows land on a band like a row; Space or the
  *   chevron folds it; the summary gutter selects its children. Insertion
- *   uses explicit controls. Grouped sheets have no local lens or view tabs.
- *   A line with SUB ROWS takes Space the way a band does: they show or
- *   hide (⇧Space: every line of the group); the ring never lands on a sub
- *   row.
+ *   uses explicit controls. A lens over a grouped sheet narrows its groups,
+ *   the records (#1349). A line with SUB ROWS takes Space the way a band
+ *   does: they show or hide (⇧Space: every line of the group); the ring
+ *   never lands on a sub row.
  *
  * @packageDocumentation
  */
@@ -71,9 +71,9 @@ import {
     suggestKey, escSuggest, fillRow, takeFill, takeProposals, rejectProposal, applyReady, applyLanded, rekeySuggest, clearSuggest, afterRowsChanged,
 } from "./sheet-suggest-state.js";
 import {
-    setContext, bandReveal, narrowed, switchTab, createTab, closeTab, updateTab, revertTab,
+    narrowed, switchTab, createTab, closeTab, updateTab, revertTab,
     renameStart, renameChange, renameCommit, renameCancel, reorderTab, escTabs, searchKey,
-} from "./sheet-lens-state.js";
+} from "./sheet-tabs-state.js";
 import type { SheetCellValue } from "./values.js";
 
 export * from "./sheet-types.js";
@@ -246,11 +246,11 @@ function lastFilledRow(ctx: SheetMachineCtx): number {
 function toggleFold(s: SheetUiState, r: number, ctx: SheetMachineCtx): Transition {
     const g = ctx.groupAt?.(r);
     if (g === undefined) return { state: s, effects: [] };
-    const folds = new Map(s.lens.folds);
+    const folds = new Map(s.folds);
     folds.set(g.id, !g.folded);
     const effects: SheetEffect[] = [];
     const moved = moveTo(s, { r, c: s.sel.c }, ctx, effects, false);
-    return { state: { ...moved, lens: { ...moved.lens, folds }, msg: { id: g.folded ? "groupOpened" : "groupFolded", noun: ctx.groupNoun?.singular } }, effects };
+    return { state: { ...moved, folds, msg: { id: g.folded ? "groupOpened" : "groupFolded", noun: ctx.groupNoun?.singular } }, effects };
 }
 
 /**
@@ -276,13 +276,13 @@ function refindOfRing(r: number, ctx: SheetMachineCtx): string | undefined {
 function foldAll(s: SheetUiState, folded: boolean, ctx: SheetMachineCtx): Transition {
     const ids = ctx.groupIds ?? [];
     if (ids.length === 0) return { state: s, effects: [] };
-    const folds = new Map(s.lens.folds);
+    const folds = new Map(s.folds);
     for (const id of ids) folds.set(id, folded);
     const effects: SheetEffect[] = [];
     const refind = refindOfRing(s.sel.r, ctx);
     if (refind !== undefined) effects.push({ t: "select.id", id: refind, c: s.sel.c });
     const msg: SheetNotice = { id: folded ? "groupsFolded" : "groupsOpened", n: ids.length, noun: ctx.groupNoun?.singular, nouns: ctx.groupNoun?.plural };
-    return { state: { ...s, selEnd: null, gsel: null, lens: { ...s.lens, folds }, msg }, effects };
+    return { state: { ...s, selEnd: null, gsel: null, folds, msg }, effects };
 }
 
 /**
@@ -294,7 +294,7 @@ function toggleSubRows(s: SheetUiState, r: number, all: boolean, ctx: SheetMachi
     const st = ctx.lineSubRowsAt?.(r);
     if (st === undefined) return { state: s, effects: [] };
     const open = !st.open;
-    const folds = new Map(s.lens.folds);
+    const folds = new Map(s.folds);
     const ids = all ? st.group : [st.id];
     for (const id of ids) folds.set(id, !open);
     const effects: SheetEffect[] = [];
@@ -304,7 +304,7 @@ function toggleSubRows(s: SheetUiState, r: number, all: boolean, ctx: SheetMachi
     const msg: SheetNotice = all
         ? open ? { id: "subRowsShownAll", n, noun } : { id: "subRowsHidAll", noun }
         : open ? { id: "subRowsShown", n } : { id: "subRowsHid" };
-    return { state: { ...moved, lens: { ...moved.lens, folds }, msg }, effects };
+    return { state: { ...moved, folds, msg }, effects };
 }
 
 /** The sheet's keyboard (B§6) — no editor open. */
@@ -368,7 +368,14 @@ function sheetKey(s: SheetUiState, e: Extract<SheetEvent, { t: "key" }>, ctx: Sh
             // A page of rows — the rows the frame shows — however they draw.
             const n = Math.max(1, Math.floor(ctx.pageRows?.() ?? 10));
             const base = e.shift && s.selEnd !== null ? s.selEnd : s.sel;
-            return moveOrExtend({ r: base.r + (e.key === "PageDown" ? n : -n), c: base.c });
+            const down = e.key === "PageDown";
+            // A page past the resident rows of a paged sheet whose source goes on that way (#1398, CL10): the window a
+            // page on is asked for, and the ring lands there once it is in — fetch, then move — never at the loaded edge.
+            if (!e.shift && (down ? base.r + n >= ctx.rowCount && ctx.edges?.atEnd === false : base.r - n < 0 && ctx.edges?.atStart === false)) {
+                effects.push({ t: "seek.step", dir: down ? 1 : -1, c: base.c, page: { from: base.r, rows: n } });
+                return dropPick({ state: s.selEnd === null ? s : { ...s, selEnd: null }, effects });
+            }
+            return moveOrExtend({ r: base.r + (down ? n : -n), c: base.c });
         }
         case "Tab": {
             const taken = suggestKey(s, e, ctx);
@@ -469,8 +476,8 @@ function editorKey(s: SheetUiState, e: Extract<SheetEvent, { t: "editor.key" }>,
  * @returns The next state plus the effects the component must run
  */
 export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCtx): Transition {
-    // Tab, lens, band and search events run on a grouped sheet too: its lens
-    // works on the lines (#845).
+    // Tab, narrowing and search events run on a grouped sheet too: its lens
+    // works on the groups, the records (#1349).
     switch (e.t) {
         case "cell.down": {
             // A click commits an open editor in place first.
@@ -614,12 +621,8 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
             return acceptSuggestion(s, ctx, state => takeProposals(state, ctx, e.i));
         case "proposal.reject":
             return rejectProposal(s, ctx, e.i);
-        // ── The lens and the tabs (B§8) ────────────────────────────────────
-        case "lens.context":
-            return { state: setContext(s, e.context), effects: [] };
-        case "band.reveal":
-            return { state: bandReveal(s, e), effects: [] };
-        case "lens.narrowed":
+        // ── The narrowing and the tabs (B§8) ───────────────────────────────
+        case "narrowing.changed":
             return narrowed(s, ctx);
         case "tab.switch":
         case "tab.create":
@@ -634,7 +637,7 @@ export function sheetReducer(s: SheetUiState, e: SheetEvent, ctx: SheetMachineCt
         case "tab.open": {
             const t = switchTab(s, ctx, e.id, false);
             // The folds the last session left on this tab (#857), newer than the view's own.
-            return e.folds === undefined || t.state === s ? t : { ...t, state: { ...t.state, lens: { ...t.state.lens, folds: e.folds } } };
+            return e.folds === undefined || t.state === s ? t : { ...t, state: { ...t.state, folds: e.folds } };
         }
         case "tab.update":
             return updateTab(s, ctx);

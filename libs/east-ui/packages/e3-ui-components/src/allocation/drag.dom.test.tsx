@@ -15,7 +15,7 @@ import { fireEvent, within } from "@testing-library/react";
 import { FloatType, SortedMap, StringType, compareFor, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
-import { pointAt, press as key, stubScrollIntoView, tick } from "@elaraai/east-ui-components/testing";
+import { announced, pointAt, press as key, stubScrollIntoView, tick } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import { act, allocationHarness, settle, slot, smallestYard, stubLinkGeometry } from "./harness.test-utils.js";
 import { allocationWords } from "./model.js";
@@ -350,6 +350,8 @@ describe("a card body's drag between lane hours", () => {
         // A body's drag ranks and marks no resource (A24).
         expect(c.querySelectorAll("[data-allocation-rank], [data-refused], [data-run]")).toHaveLength(0);
         await release();
+        // Said to a screen reader as the board shows the lane hour, in the drag layer's words, never by its keys.
+        expect(announced()).toBe("LD-2203 · 24 m³ was dropped on B-2 · 00:35.");
         await press(toolbar(c).getByRole("button", { name: editingMessages.apply() }));
         const moved = (await h.read(ex.kilnBins)).get("3103")!;
         expect([moved.bay, moved.at, [...moved.kilns]]).toEqual(["B-2", hour(0, 35), [["K-109", 24]]]);

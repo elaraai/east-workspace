@@ -8,23 +8,37 @@
  * the narrowing's one rail over its bins, its lanes, its resources and its
  * arrivals, and each one's count, in both layouts (#1336, #1339) — the bins'
  * day the board's own navigation, never a chip of the rail (#1372) — the
- * issues chip, the shared history and Publish — each folding by its rank,
- * history last, and in the narrowest frame the date, the layout, Save and
- * Publish reachable through the combined View fold.
+ * issues chip, Search Records over the bins' keys (#1398), worded so — its box the first
+ * thing the row folds, to its icon (ruled 25 Oct 2026) — the shared history
+ * and Publish — each folding by its rank, the history last of the ladder, and
+ * in the narrowest frame the date, the layout, Save and Publish reachable
+ * through the combined View fold. Below the ladder the row's floor drops the
+ * rail's caret, and then, with the app's optimiser, takes the Elara eye —
+ * before the history item at every other width — into that View as its
+ * entry, never out of the toolbar (ruled 27 Oct 2026, "Into the View menu").
+ * The status, the issues and Publish keep their slots from cold load,
+ * whatever the day's read (#1398, CL1): unread, the status and the issues are
+ * placeholders, the issues slot empty at none, and Publish in its slot, off,
+ * wherever it cannot publish.
  *
  * @packageDocumentation
  */
 
+import { useState, type ReactElement } from "react";
 import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarDay, faChartGantt, faLink, faTable, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import type { SortedMap } from "@elaraai/east";
-import { ChipMenu, historyToolbarItem, type EditingWords, type HistoryAction, type ToolbarItem } from "@elaraai/east-ui-components";
-import { HOST_RANK, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
+import {
+    ChipMenu, OPTIMISE_RANK, historyToolbarItem, useKeySearchToolbarItem, type HistoryAction, type KeySearchSource, type ToolbarItem,
+} from "@elaraai/east-ui-components";
+import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
+import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import type { AllocationCommands } from "./actions.js";
 import type { AllocationEditing } from "./editing.js";
+import type { AllocationWords } from "./messages.js";
 import type { AllocationWindow } from "./window.js";
 import { DAY, allocationWords, type AllocationStyles, type AllocationValue, type Day, type Issue, type Load, type ResourceRow } from "./model.js";
 import { other, type Nouns } from "./nouns.js";
@@ -34,6 +48,9 @@ const LAYOUTS = [{ key: "table", label: "Table", icon: faTable }, { key: "timeli
 
 /** `1 issue`, `3 issues`. */
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** The eye's step into the View and the View's step that draws its entry (ruled 27 Oct 2026, "Into the View menu"): one bundle, applied together. */
+const EYE_INTO_VIEW = "allocation.optimise";
 
 /** The issues the chip, the Issues tab and the summary count: warning and danger, never neutral or info (A64). */
 export function countedIssues(issues: readonly Issue[]): Issue[] {
@@ -77,9 +94,16 @@ interface ToolbarArgs extends AllocationWindow {
     commands: AllocationCommands;
     /** The editing; `undefined` for a read-only board. */
     editing: AllocationEditing | undefined;
-    words: EditingWords;
+    /** The board's words: its message table, the editing session's among them, and the app's formatters. */
+    words: AllocationWords;
     /** The day's status chip's words (A3): Not started, Draft, Published, or the app's own case; `undefined` without periods. */
     status: string | undefined;
+    /**
+     * Whether the day is not read yet (#1398, CL1): its status, its issues and Publish keep their slots, the status a
+     * placeholder — never "Not started" before its row is read — and the issues one too, each unseen at its footprint
+     * until the frame's reveal says so.
+     */
+    unread: boolean;
     /** Whether Publish is under way. */
     publishing: boolean;
     /** The open picker's days' statuses, by day: their marks. */
@@ -93,6 +117,19 @@ interface ToolbarArgs extends AllocationWindow {
     onClearFocus: () => void;
     /** The board's nouns: what the narrowing's summary counts each source in, and what heads each source's fields, folded. */
     nouns: Nouns;
+    /** Search Records over the bins' keys (#1398); `undefined` without a source of the bins to seek. */
+    search?: KeySearchSource | undefined;
+    /** The Elara eye (#1409): the run's toolbar item, listed immediately before the history item; `undefined` with no optimiser. */
+    optimise?: ToolbarItem | undefined;
+    /**
+     * The eye's entry (ruled 27 Oct 2026, "Into the View menu"): what the View lists in the eye's place, beside the issues,
+     * where the row's floor folds the eye into it; `undefined` with no eye.
+     */
+    optimiseEntry?: ReactElement | undefined;
+    /** Whether a run of the optimiser is out (#1409, R2): the history item stays, its actions locked. */
+    locked?: boolean | undefined;
+    /** Whether the issues chip flashes (#1409): a run's result landed, and its highlight is on. */
+    issuesFlash?: boolean | undefined;
 }
 
 /** The board's toolbar items: the shared Toolbar's, ranked around `HOST_RANK`. */
@@ -112,33 +149,49 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
     });
     const chip = useRecipe({ key: "chip" });
+    // Search Records (#1398): primary-key navigation over the bins' record, at the row's end, its words saying so — `Search
+    // bins by key`. Its box is the first thing the row folds, to its icon, before the rail and the day's steps (ruled 25 Oct
+    // 2026); at the row's last step it goes into the View, beside the date and the controls.
+    const search = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK, label: words.m.keySearch() });
     const summary = issueSummary(issues);
     const status = args.publishing ? "Publishing" : args.status;
-    // Publish: only over periods, on a day that takes edits.
+    const unread = args.unread;
+    // Publish: only over periods, on a day that takes edits; its slot held wherever the board publishes and edits at all.
     const canPublish = value.periods.type === "some" && commands.canEdit() && !args.publishing;
-    // The history: wherever the day takes edits, and wherever a draft of another day waits to be saved.
+    const heldPublish = value.periods.type === "some" && !value.settings.readOnly;
+    // The history: wherever the day takes edits, and wherever a draft of another day waits to be saved. A day not read yet
+    // keeps it as the last day read had it, so a read landing never shifts the toolbar nor folds it again (#1398, CL1).
     const history = editing?.history;
-    const showHistory = history !== undefined && !value.settings.readOnly && (commands.canEdit() || history.pending > 0 || history.status !== "idle");
+    const historyNow = history !== undefined && !value.settings.readOnly && (commands.canEdit() || args.locked === true || history.pending > 0 || history.status !== "idle");
+    const [historyHeld, setHistoryHeld] = useState(historyNow);
+    if (!unread && historyHeld !== historyNow) setHistoryHeld(historyNow);
+    const showHistory = history !== undefined && (historyNow || (unread && historyHeld));
     const layout = (key: "table" | "timeline") => setView({ ...view, layout: key });
     const layoutSeg = (name: string) => <Seg label="Layout" scope="allocation" name={name} items={LAYOUTS} active={view.layout} onPick={layout} />;
     const focus = args.focus;
-    // The narrowest frame's one popover: the layout, the focus, the issues and Publish beside the date (A1). The focus's chip comes
-    // with them, so its Show all stays reachable on a phone, where no Esc is (A13, A78).
-    const controls = <Box css={styles.controls}>
+    // The Elara eye (#1409) and its entry: at the row's floor the eye goes into the View, which lists it in its place
+    // (ruled 27 Oct 2026, "Into the View menu"); an eye with no entry keeps to the row.
+    const eye = args.optimise !== undefined && args.optimiseEntry !== undefined ? { item: args.optimise, entry: args.optimiseEntry } : undefined;
+    // The narrowest frame's one popover: the layout, the focus, the issues and Publish beside the date (A1) — and, at the row's
+    // floor, the eye's entry beside the issues. The focus's chip comes with them, so its Show all stays reachable on a phone,
+    // where no Esc is (A13, A78).
+    const controls = (withEye: boolean) => <Box css={styles.controls}>
+        {search?.forms[0]}
         {layoutSeg("compact-layout")}
         {timeline && focus !== undefined && focusChip(false)}
         {value.inspector && summary.count > 0 && <Button size="xs" variant="ghost" onClick={args.onIssues}>{summary.label}</Button>}
-        {canPublish && <Button size="xs" variant="solid" onClick={() => commands.publish()}>Publish</Button>}
+        {withEye && eye?.entry}
+        {heldPublish && <Button size="xs" variant="solid" disabled={!canPublish} onClick={() => commands.publish()}>Publish</Button>}
     </Box>;
     const menu = <ChipMenu label="View" icon={faCalendarDay} onSelect={key => {
         if (key === "table" || key === "timeline") layout(key);
         else if (key === "previous") args.step(-1); else if (key === "next") args.step(1);
-        else if (key === "issues") args.onIssues(); else if (key === "publish") commands.publish();
+        else if (key === "issues") args.onIssues(); else if (key === "publish" && canPublish) commands.publish();
     }}>
         {LAYOUTS.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}
         <ChakraMenu.Separator /><ChakraMenu.Item value="previous">Previous day</ChakraMenu.Item><ChakraMenu.Item value="next">Next day</ChakraMenu.Item>
         {value.inspector && summary.count > 0 && <ChakraMenu.Item value="issues">{summary.label}</ChakraMenu.Item>}
-        {canPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish">Publish</ChakraMenu.Item></>}
+        {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!canPublish}>Publish</ChakraMenu.Item></>}
     </ChipMenu>;
     // The focus chip (A13, A81): `K-203 · 3 bins · 31 m³`, `· hidden by Filters` when its row is narrowed out; × or Esc clears it.
     function focusChip(compact: boolean) {
@@ -152,29 +205,43 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
             <chakra.button type="button" css={styles.focusClear} aria-label="Show all" title="Show all · Esc" onClick={args.onClearFocus}><FontAwesomeIcon icon={faXmark} /></chakra.button>
         </chakra.span>;
     }
-    const navigation = (compact = false, combined = false) => <TimeNavigator scope="allocation" date={view.date} period="day" sunday={false}
+    const navigation = (compact = false, combined = false, withEye = false) => <TimeNavigator scope="allocation" date={view.date} period="day" sunday={false}
         onChange={date => setView({ ...view, date })} compact={compact} label={combined ? "View" : "Choose plan day"} initialPanel="day"
         onWeeks={args.onPickerWeeks} legend="Published · Draft · Not started"
         dayMarker={date => { const held = args.picker.get(date); return <Box as="span" css={styles.pickerDot} data-state={held === undefined ? "empty" : held.type === "other" ? "draft" : held.type} />; }}
-        controls={combined ? controls : undefined} />;
+        controls={combined ? controls(withEye) : undefined} />;
     return [
         ...rail,
         { key: "allocation.layout", side: "start", rank: HOST_RANK + 1, bundle: "allocation.view", forms: [layoutSeg("layout"), null] },
         { key: "allocation.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["allocation.view", "allocation.controls"], forms: [null, menu, null] },
-        { key: "allocation.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "allocation.controls"], forms: [navigation(), navigation(true), navigation(true, true)] },
+        // The day's navigation: compact, then the View holding the date and the controls; and, with an eye, at the row's
+        // floor the View holding its entry too, in the step that takes the eye from the row (a rung of the floor).
+        { key: "allocation.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6, OPTIMISE_RANK], bundle: [undefined, "allocation.controls", EYE_INTO_VIEW],
+            forms: [navigation(), navigation(true), navigation(true, true), ...(eye === undefined ? [] : [navigation(true, true, true)])] },
         // Its icon, then — in the narrowest frame — into the View's popover with the controls (A1): a chip that cannot fold would run the row
         // past its end at 294px.
         timeline && focus !== undefined && { key: "allocation.focus", side: "start", rank: [HOST_RANK + 2, HOST_RANK + 6], bundle: [undefined, "allocation.controls"],
             forms: [focusChip(false), focusChip(true), null] },
-        status !== undefined && { key: "allocation.status", side: "start", rank: HOST_RANK, forms: [
-            <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>, null] },
-        summary.count > 0 && value.inspector && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [
-            <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} onClick={args.onIssues}
-                aria-label={summary.aria} title={summary.tip} data-allocation-issues="">
+        // The status, the issues and Publish keep their slots from cold load, whatever the day's read (#1398, CL1): a read
+        // landing never shifts the toolbar nor folds it again. Unread, the status and the issues are placeholders.
+        status !== undefined && { key: "allocation.status", side: "start", rank: HOST_RANK, forms: [unread
+            ? <Box css={[styles.status, styles.heldSlot]} data-allocation-status="" data-pending="" title="Plan status">
+                <PlaceholderShape kind="enum" index={0} /></Box>
+            : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>, null] },
+        value.inspector && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
+            ? <Box css={styles.heldSlot} data-allocation-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
+            : summary.count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} onClick={args.onIssues}
+                aria-label={summary.aria} title={summary.tip} data-allocation-issues="" data-opn={args.issuesFlash === true ? "" : undefined}>
                 <FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{summary.label}</span>
-            </chakra.button>, null] },
-        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction }),
-        canPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="xs" variant="solid" onClick={() => commands.publish()}>Publish</Button>, null] },
+            </chakra.button>
+                : <Box css={styles.heldSlot} data-allocation-issues="" aria-hidden="true" />, null] },
+        search !== undefined && { ...search, forms: [...search.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "allocation.controls"] },
+        // The Elara eye (#1409), immediately before the history item, whose actions a run out locks (R2): in the row at every
+        // width the ladder and the rail's caret leave it room, and else the View's entry, never out of the toolbar.
+        eye === undefined ? args.optimise : { ...eye.item, forms: [...eye.item.forms, null], rank: OPTIMISE_RANK, bundle: EYE_INTO_VIEW },
+        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onAction: args.onAction, locked: args.locked === true }),
+        // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the day can't publish.
+        heldPublish && { key: "allocation.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!canPublish} onClick={() => commands.publish()}>Publish</Button>, null] },
     ];
 }
 

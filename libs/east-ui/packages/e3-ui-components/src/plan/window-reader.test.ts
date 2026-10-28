@@ -8,7 +8,8 @@
  * which needs one as it loads (#1177).
  *
  * Reading a paged source's windows (#577) — once each, each window the
- * canvas's blocks, keyed block by block (#823).
+ * canvas's blocks, keyed block by block (#823) — through the windowed read the
+ * Sheet's driver shares (`shared/windowed.ts`, #1398).
  *
  * "Once" is the property under test, and it is not an optimisation: re-reading
  * the loaded prefix on every evaluation is what made a long prefix evict its own
@@ -19,10 +20,15 @@ import { describe, test, expect, vi } from "vitest";
 import { some, none } from "@elaraai/east";
 import type { PlanWireBlock, PlanWireRow } from "./model.js";
 import type { PlanPagedSourceValue } from "./use-plan-paging.js";
-import { readWindow, readWindows, pruneCache, type WindowCache, type WindowFailures, type WindowRead } from "./window-reader.js";
+import { pruneWindows, readWindows as readReader } from "../shared/windowed.js";
+import { planWindowReader, readWindow, type WindowCache, type WindowFailures, type WindowRead } from "./window-reader.js";
 import { rowId, rowKey, testKeyOf } from "./plan.test-utils.js";
 
 const PAGE = 200;
+
+/** The canvas's read of a source's windows, as its driver reads them: the shared read through the Plan's reader. */
+const readWindows = (source: PlanPagedSourceValue, windows: readonly number[], cache: WindowCache, pageSize: number, failures: WindowFailures) =>
+    readReader(planWindowReader(source), windows, cache, pageSize, failures);
 
 /** A fresh failure record — every read below owns one, as the driver does. */
 const noFailures = (): WindowFailures => new Map();
@@ -35,11 +41,13 @@ function wire(key: string, parent?: string): PlanWireRow {
     } as unknown as PlanWireRow;
 }
 
-/** One wire block — a data series' rows unless `fixed`, under `parent` (#823). */
-function block(rows: PlanWireRow[], opts?: { fixed?: boolean; parent?: string }): PlanWireBlock {
+/** One wire block — a data series' rows unless `fixed`, under `parent` (#823), each entry making `charts` chart rows
+ *  where it says so (#1398). */
+function block(rows: PlanWireRow[], opts?: { fixed?: boolean; parent?: string; charts?: bigint }): PlanWireBlock {
     return {
         fixed: opts?.fixed === true,
         parent: opts?.parent !== undefined ? some(rowId(opts.parent)) : none,
+        charts: opts?.charts !== undefined ? some(opts.charts) : none,
         rows,
     } as unknown as PlanWireBlock;
 }
@@ -193,10 +201,10 @@ describe("window reader — a failure belongs to its window (#811)", () => {
 });
 
 describe("window reader — a window is the canvas's blocks (#823)", () => {
-    test("each block is kept apart and keyed on its own, and names its shape", () => {
+    test("each block is kept apart and keyed on its own, and names its shape — what each entry makes of chart rows among it (#1398)", () => {
         const read = readWindow([
             block([wire("hdr")], { fixed: true }),
-            block([wire("a", "hdr"), wire("b", "hdr")], { parent: "hdr" }),
+            block([wire("a", "hdr"), wire("b", "hdr")], { parent: "hdr", charts: 2n }),
             block([wire("a"), wire("c")]),
         ]);
         expect(read.blocks.map(keys)).toEqual([["hdr"], ["a", "b"], ["a", "c"]]);
@@ -206,9 +214,9 @@ describe("window reader — a window is the canvas's blocks (#823)", () => {
         // within a block, the window keys it as ever.
         expect(read.blocks[2]![0]!.key).toBe(rowKey("a"));
         expect(read.shape).toEqual([
-            { fixed: true, parent: undefined },
-            { fixed: false, parent: rowKey("hdr") },
-            { fixed: false, parent: undefined },
+            { fixed: true, parent: undefined, charts: undefined },
+            { fixed: false, parent: rowKey("hdr"), charts: 2 },
+            { fixed: false, parent: undefined, charts: undefined },
         ]);
     });
 });
@@ -217,14 +225,14 @@ describe("window reader — pruning", () => {
     test("dropping evicted windows is what actually frees the memory", () => {
         const empty: WindowRead = { blocks: [], shape: [] };
         const cache: WindowCache = new Map([[0, empty], [1, empty], [2, empty], [9, empty]]);
-        const dropped = pruneCache(cache, new Set([1, 2]));
+        const dropped = pruneWindows(cache, new Set([1, 2]));
         expect(dropped).toBe(2);
         expect([...cache.keys()].sort((a, b) => a - b)).toEqual([1, 2]);
     });
 
     test("an evicted window's FAILURE goes too — demanded again later, it is asked afresh (#811)", () => {
         const failures: WindowFailures = new Map([[3, "boom"], [8, "boom"]]);
-        expect(pruneCache(failures, new Set([3, 4]))).toBe(1);
+        expect(pruneWindows(failures, new Set([3, 4]))).toBe(1);
         expect([...failures.keys()]).toEqual([3]);
     });
 });

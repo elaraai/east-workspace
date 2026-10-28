@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-records";
+import type { E3Request } from "../e3-web.test-utils.js";
 import { frameScrolls } from "./frame.test-utils.js";
 import { act, settle, sheetHarness } from "./frame/harness.test-utils.js";
 
@@ -30,15 +31,17 @@ async function setup() {
     return { ...ui, record, deployed, rows, row, tab };
 }
 
-test("indexed Sheet keeps source order, restores saved narrowing and saves hidden drafts by original primary key", async () => {
+test("indexed Sheet keeps the record's order under its lens, restores saved narrowing and saves hidden drafts by original primary key", async () => {
     const ui = await setup();
     await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());
     await settle();
     const ids = () => ui.rows().map(row => row.dataset.rowId);
     const initialIds = ids();
-    expect(initialIds.slice(0, 3)).toEqual(["JOB-10000", "JOB-10090", "JOB-10180"]);
+    // The rail opens on Ready, every third order: the lens draws them one after another, each at its number in the record (#1349).
+    expect(initialIds.slice(0, 3)).toEqual(["JOB-10000", "JOB-10003", "JOB-10006"]);
+    expect(ui.rows().slice(0, 3).map((row) => row.querySelector('[data-slot="gutterNumber"]')!.textContent)).toEqual(["1", "4", "7"]);
     expect(ui.tab("all").textContent).toContain("50,000");
-    expect(ui.container.querySelector('[data-slot="contextOption"]')).toBeNull();
+    expect(ui.container.querySelector('[data-slot="toolbarCount"]')?.textContent).toBe("16,667 matches");
     expect(h.requests("read", ORDERS)).toEqual([]);
 
     fireEvent.mouseDown(ui.container.querySelector('[data-slot="tabAdd"]')!, { button: 0 });
@@ -112,4 +115,190 @@ test("indexed Sheet keeps source order, restores saved narrowing and saves hidde
     fireEvent.mouseDown(ui.tab("all"), { button: 0 });
     await settle();
     expect(ui.container.querySelector('[data-record-save-notice]')).toBeNull();
+});
+
+test("a scroll far from the rows, every page it shows on its way, is never covered again: the run drawn where the view is, main busy, and the rows land there (#1398, CL5)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());
+    await settle();
+    // The whole sheet: every order, a page at a time.
+    fireEvent.mouseDown(ui.tab("all"), { button: 0 });
+    await settle();
+    await waitFor(() => expect(ui.row("JOB-10001")).not.toBeNull());
+    const main = () => ui.container.querySelector<HTMLElement>('[data-frame-slot="main"]')!;
+    const covered = () => ui.container.querySelector("[data-builder-loading]");
+    expect(covered()).toBeNull();
+    // Every page of the orders held on its way to e3 from now until let land; the view goes to the record's middle.
+    const pages = h.e3.hold((request) => request.kind === "page" && request.dataset === ORDERS);
+    const frame = main().querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+    await act(async () => {
+        frame.scrollTop = Math.round(frame.scrollHeight / 2);
+        frame.dispatchEvent(new Event("scroll"));
+    });
+    await waitFor(() => expect(pages.held).toBeGreaterThan(0), { timeout: 10_000 });
+    await settle();
+    // Nothing the view shows is read yet, and nothing covers the frame: the run stands where the view is, its region busy.
+    expect(covered()).toBeNull();
+    expect(ui.row("JOB-10000")).toBeNull();
+    expect(main().querySelector("[data-unloaded-run]")).not.toBeNull();
+    expect(main().getAttribute("aria-busy")).toBe("true");
+    await act(async () => { pages.release(); });
+    // The pages land where the view is, each row at its number, and the region is no longer busy.
+    await waitFor(() => expect(main().getAttribute("aria-busy")).toBe("false"), { timeout: 10_000 });
+    const numbers = ui.rows().map((row) => Number(row.querySelector('[data-slot="gutterNumber"]')!.textContent));
+    expect(numbers.length).toBeGreaterThan(0);
+    expect(Math.min(...numbers)).toBeGreaterThan(20_000);
+    expect(covered()).toBeNull();
+});
+
+/** A page of the work orders' own entries from `from` on, as the whole sheet reads them a page at a time. */
+const pageFrom = (from: number, to = Number.POSITIVE_INFINITY) => (request: E3Request) => {
+    const at = Number(request.query.get("offset") ?? 0);
+    return request.kind === "page" && request.dataset === ORDERS && request.query.get("index") === null && at >= from && at < to;
+};
+
+test("the view sent far over rows not read waits for them from the scroll itself — main busy, the footer's line on its reveal clock, before their page is even asked, as the view comes to rest — and the line names them once asked, and goes as they land (#1398, CL3)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());
+    await settle();
+    // The whole sheet: every order, a page at a time.
+    fireEvent.mouseDown(ui.tab("all"), { button: 0 });
+    await settle();
+    await waitFor(() => expect(ui.row("JOB-10001")).not.toBeNull());
+    const main = () => ui.container.querySelector<HTMLElement>('[data-frame-slot="main"]')!;
+    const footerLine = () => ui.container.querySelector<HTMLElement>('[data-frame-slot="footer"] [data-footer-line]')!;
+    const line = () => footerLine().querySelector("[data-line-text]")?.textContent ?? "";
+    expect(main().getAttribute("aria-busy")).not.toBe("true");
+    // The pages far from the rows held on their way; the view goes three fifths down the record.
+    const far = h.e3.hold(pageFrom(1_000));
+    const sent = h.requests("page", ORDERS).length;
+    const frame = main().querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+    // The scroll and what it draws flushed at once, in one synchronous scope — no timer runs in it, so the view has not
+    // dwelt yet and its page waits for it.
+    act(() => {
+        frame.scrollTop = Math.round(frame.scrollHeight * 0.6);
+        frame.dispatchEvent(new Event("scroll"));
+    });
+    // The scroll's own report: the view over the run that stands for them, no page of them asked yet — it waits for them
+    // already, main busy and the line's clock running from here, never once their page is asked.
+    expect(main().querySelector("[data-unloaded-run]")).not.toBeNull();
+    expect(h.requests("page", ORDERS).slice(sent)).toEqual([]);
+    expect(main().getAttribute("aria-busy")).toBe("true");
+    // At rest: their pages asked, and the line names them — the rows where the view is.
+    await far.holding;
+    await settle();
+    expect(main().getAttribute("aria-busy")).toBe("true");
+    await waitFor(() => expect(line()).toMatch(/^Loading rows \d/));
+    const first = Number((/\d[\d,]*/.exec(line())?.[0] ?? "0").replace(/,/g, ""));
+    expect(first).toBeGreaterThan(25_000);
+    // Landed: the rows drawn where the view is, and the line idle.
+    await act(async () => { far.release(); });
+    await settle();
+    await waitFor(() => expect(footerLine().hasAttribute("data-idle")).toBe(true), { timeout: 10_000 });
+    expect(Math.min(...ui.rows().map((row) => Number(row.querySelector('[data-slot="gutterNumber"]')!.textContent)))).toBeGreaterThan(25_000);
+    expect(main().getAttribute("aria-busy")).not.toBe("true");
+});
+
+test("another session's write while ⌘End's page is on its way keeps what the rows shown were read from: a gesture on them puts them back as they were, never as runs not read, while they are read again (#1398, CL10)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());
+    await settle();
+    // The whole sheet: every order, a page at a time.
+    fireEvent.mouseDown(ui.tab("all"), { button: 0 });
+    await settle();
+    await waitFor(() => expect(ui.row("JOB-10005")).not.toBeNull());
+    const card = ui.container.querySelector<HTMLElement>("[data-sheet-card]")!;
+    const cell = (id: string) => ui.row(id)?.querySelector<HTMLElement>('[data-slot="cell"][data-key="quantity"]') ?? null;
+    fireEvent.mouseDown(cell("JOB-10005")!, { button: 0 });
+    // ⌘End, the record's last page on its way: the rows shown stand in.
+    const last = h.e3.hold(pageFrom(49_800));
+    await act(async () => { fireEvent.keyDown(card, { key: "End", ctrlKey: true }); });
+    await last.holding;
+    await settle();
+    expect(card.getAttribute("aria-disabled")).toBe("true");
+    // Another session changes the last order: the record moves to a new revision while the page is still on its way.
+    const before = await h.read(ex.indexedWorkOrders);
+    const next = new Map(before);
+    const changed = before.get("JOB-59999")!;
+    next.set("JOB-59999", { ...changed, quantity: changed.quantity + 100n });
+    await h.patch(ex.indexedWorkOrders, next);
+    expect(cell("JOB-10005")?.hasAttribute("data-selected")).toBe(true);
+    // A press on the rows standing in puts them back — their pages read again at the new revision, held on their way:
+    // what they were read from stands in for them meanwhile, the rows where they were.
+    const first = h.e3.hold(pageFrom(0, 600));
+    fireEvent.mouseDown(cell("JOB-10005")!, { button: 0 });
+    await first.holding;
+    await settle();
+    expect(card.hasAttribute("aria-disabled")).toBe(false);
+    expect(ui.row("JOB-10000")).not.toBeNull();
+    expect(cell("JOB-10005")?.hasAttribute("data-selected")).toBe(true);
+    await act(async () => { first.release(); last.release(); });
+    await settle();
+    expect(cell("JOB-10005")?.hasAttribute("data-selected")).toBe(true);
+    expect(ui.row("JOB-59999")).toBeNull();
+});
+
+test("⌘End past rows not read keeps the rows shown standing in — retained, the grid aria-disabled in a busy main, the ring on its cell, taking no edit — until the last page lands, then the ring is on the last row; a gesture on them meanwhile puts them back; ⌘Home likewise to the first (#1398, CL10)", async () => {
+    const ui = await setup();
+    await waitFor(() => expect(ui.row("JOB-10000")).not.toBeNull());
+    await settle();
+    // The whole sheet: every order, a page at a time.
+    fireEvent.mouseDown(ui.tab("all"), { button: 0 });
+    await settle();
+    await waitFor(() => expect(ui.row("JOB-10005")).not.toBeNull());
+    const card = ui.container.querySelector<HTMLElement>("[data-sheet-card]")!;
+    const main = () => ui.container.querySelector<HTMLElement>('[data-frame-slot="main"]')!;
+    const cell = (id: string, key: string) => ui.row(id)?.querySelector<HTMLElement>(`[data-slot="cell"][data-key="${key}"]`) ?? null;
+    const active = () => document.getElementById(card.getAttribute("aria-activedescendant") ?? "");
+    const line = () => ui.container.querySelector('[data-frame-slot="footer"] [data-footer-line] [data-line-text]')?.textContent;
+    /** The rows shown stand in where they were — `row` among them — the ring on its cell, retained in a busy main. */
+    const standing = (row: string, ring: HTMLElement | null) => {
+        expect(ui.row(row)).not.toBeNull();
+        expect(ring?.hasAttribute("data-selected")).toBe(true);
+        expect(active()).toBe(ring);
+        expect(card.getAttribute("aria-disabled")).toBe("true");
+        expect(main().getAttribute("aria-busy")).toBe("true");
+    };
+    fireEvent.mouseDown(cell("JOB-10005", "quantity")!, { button: 0 });
+    // The record's last page held on its way until the test lets it land.
+    const last = h.e3.hold(pageFrom(49_800));
+    await act(async () => { fireEvent.keyDown(card, { key: "End", ctrlKey: true }); });
+    await last.holding;
+    await settle();
+    standing("JOB-10000", cell("JOB-10005", "quantity"));
+    // The line says the last page is read, once the wait passes its reveal.
+    await waitFor(() => expect(line()).toBe("Loading rows 49,801–50,000"));
+    // They take no edit; and the key that asked for one is a gesture on them, which puts them back as they were — live,
+    // the jump dropped — so the last page landing now draws nothing over them.
+    await act(async () => { fireEvent.keyDown(card, { key: "x" }); });
+    expect(ui.container.querySelector('[data-slot="editorInput"]')).toBeNull();
+    expect(card.hasAttribute("aria-disabled")).toBe(false);
+    await act(async () => { last.release(); });
+    await settle();
+    expect(cell("JOB-10005", "quantity")?.hasAttribute("data-selected")).toBe(true);
+    expect(ui.row("JOB-10000")).not.toBeNull();
+    expect(ui.row("JOB-59999")).toBeNull();
+    // ⌘End again: the ring on the last row, the last cell of the record.
+    await act(async () => { fireEvent.keyDown(card, { key: "End", ctrlKey: true }); });
+    await waitFor(() => expect(cell("JOB-59999", "quantity")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+    expect(active()).toBe(cell("JOB-59999", "quantity"));
+    expect(ui.row("JOB-10000")).toBeNull();
+    expect(card.hasAttribute("aria-disabled")).toBe(false);
+    // ⌘Home, the first page read anew — another session's change moved the record on — and held on its way: the last
+    // rows stand in, the ring on the last row, until it lands; then the ring is on the first.
+    const before = await h.read(ex.indexedWorkOrders);
+    const moved = new Map(before);
+    const changed = before.get("JOB-10001")!;
+    moved.set("JOB-10001", { ...changed, quantity: changed.quantity + 100n });
+    await h.patch(ex.indexedWorkOrders, moved);
+    const first = h.e3.hold(pageFrom(0, 200));
+    await act(async () => { fireEvent.keyDown(card, { key: "Home", ctrlKey: true }); });
+    await first.holding;
+    await settle();
+    standing("JOB-59999", cell("JOB-59999", "quantity"));
+    await act(async () => { first.release(); });
+    await waitFor(() => expect(cell("JOB-10000", "reference")?.hasAttribute("data-selected")).toBe(true), { timeout: 10_000 });
+    expect(active()).toBe(cell("JOB-10000", "reference"));
+    expect(card.hasAttribute("aria-disabled")).toBe(false);
+    expect(h.requests("read", ORDERS)).toEqual([]);
 });

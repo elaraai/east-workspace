@@ -316,14 +316,15 @@ describe('an app mounted from the portable entry alone', () => {
     assert.deepEqual(decodeBeast2For(ResponseType(NullType))(await bytes(started)), variant('success', null));
 
     // A client polls the run's state, as the state store keeps it, until the
-    // run has ended.
+    // run has ended: a run that has recorded its end is answered `stopping`
+    // until it has let its workspace go, and ended once it is answered neither.
     const decodeState = decodeBeast2For(ResponseType(DataflowExecutionStateType));
     let state: DataflowExecutionState;
     for (;;) {
       const answer = decodeState(await bytes(await app.request(`/api/repos/${REPO}/workspaces/${WS}/dataflow/execution`)));
       if (answer.type !== 'success') assert.fail(`the poll was refused: ${answer.value.type}`);
       state = answer.value;
-      if (state.status.type !== 'running') break;
+      if (state.status.type !== 'running' && state.status.type !== 'stopping') break;
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     assert.equal(state.status.type, 'completed');

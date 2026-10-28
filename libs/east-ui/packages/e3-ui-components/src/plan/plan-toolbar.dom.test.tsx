@@ -13,12 +13,17 @@
  * the key search folds into its icon; the fold toggle and the resolution then
  * fold into the date navigator's View, as Calendar's and Roster's do, and the
  * overlaps chip with them; the history item folds last, to its buttons. The window is the date
- * navigator's on a time axis, so the rows' range field is no chip of the rail;
- * on a number axis the leading source's range is, and another source's range
- * follows it. A segment's menu chip draws Font Awesome's caret (#1263). The
+ * navigator's on a time axis, so the range field of a source holding it is no
+ * chip of the rail; on a number axis the leading source's range is, and
+ * another source's range follows it. The canvas's rows' source holds no
+ * window: its dates stay a chip, and with no source holding the window the
+ * navigator steps the canvas's own. A segment's menu chip draws Font Awesome's caret (#1263). The
  * rail is the Plan's records' on e3 itself (`rail.test-utils.ts`, #1376): its
  * counts are e3's. jsdom lays nothing out, so each item's width is stubbed by
- * the form it shows; the gap is 10px.
+ * the form it shows; the gap is 10px. The row's ResizeObserver is captured, so
+ * a test moves the row's width the way the browser reports it: the toolbar
+ * draws again only as its items move, and the Plan hands it the same items
+ * while what they show holds.
  */
 
 import { describe, test, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
@@ -50,10 +55,29 @@ import { RAIL_MODULES, bindRail } from "./rail.test-utils.js";
 const h = e3Harness(RAIL_MODULES, { measure: false });
 
 // jsdom lacks ResizeObserver; the toolbar observes its row and items through it.
-class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
+/** The observers the page made, to deliver the row's width change through. */
+const observers: { cb: ResizeObserverCallback; targets: Set<Element> }[] = [];
+class ResizeObserverStub {
+    private readonly entry: { cb: ResizeObserverCallback; targets: Set<Element> };
+    constructor(cb: ResizeObserverCallback) { this.entry = { cb, targets: new Set() }; observers.push(this.entry); }
+    observe(el: Element) { this.entry.targets.add(el); }
+    unobserve(el: Element) { this.entry.targets.delete(el); }
+    disconnect() { this.entry.targets.clear(); }
+}
 
 /** The stubbed layout: the toolbar row's box. */
 const row = { px: 0 };
+
+/** Moves the toolbar row's width and tells the row's observer, as the browser does. */
+function resize(px: number) {
+    row.px = px;
+    act(() => {
+        for (const o of observers) {
+            const at = [...o.targets].find((t) => t.hasAttribute("data-toolbar"));
+            if (at !== undefined) o.cb([{ target: at } as ResizeObserverEntry], {} as ResizeObserver);
+        }
+    });
+}
 
 /** Each item's width in each of its forms, widest first (a hidden form has no box). */
 const FORM_PX: Record<string, readonly number[]> = {
@@ -101,6 +125,7 @@ afterAll(() => {
 const W27 = new Date("2026-06-29T00:00:00Z");
 const W28 = new Date("2026-07-06T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
+const W40 = new Date("2026-09-28T00:00:00Z");
 
 /** The window the toolbar's navigator reads: twelve weeks from W27, by the week. */
 const WEEKLY: PlanScale = planScale({ kind: "time", window: { min: W27, max: W39 }, resolution: "week", words: PLAN_WORDS })!;
@@ -109,13 +134,13 @@ const WEEKLY: PlanScale = planScale({ kind: "time", window: { min: W27, max: W39
 const STEPS: PlanScale = planScale({ kind: "number", window: { min: 1, max: 9 }, step: 1, words: PLAN_WORDS })!;
 
 /**
- * The rail over the canvas's rows (#1344): one source, `rows`, its owner and
- * hall fields chips of the rail and its range — the window — the date
- * navigator's, nothing narrowed: two rows in the window — Team A's in W27,
- * Team B's in W28, both in Hall 1, another session's — as the canvas hands
- * them over.
+ * The rail over the dated rows (#1344): one source, `dated`, holding the
+ * window as an event kind's or a tab's does — its owner and hall fields chips
+ * of the rail and its range — the window — the date navigator's, nothing
+ * narrowed: two rows in the window — Team A's in W27, Team B's in W28, both in
+ * Hall 1, another session's — as the canvas hands them over.
  *
- * @returns The chrome's narrowing parts
+ * @returns The chrome's narrowing parts, its lead the dated rows'
  */
 async function railParts(): Promise<ChromeParts> {
     await h.patch(records.planDatedRows, new Map([
@@ -123,15 +148,15 @@ async function railParts(): Promise<ChromeParts> {
         ["r2", { at: W28, owner: "Team B", hall: "Hall 1" }],
     ]));
     const rail = await bindRail(() => Slice.bindRecords("plan.toolbar.ladder", {
-        rows: {
+        dated: {
             source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt, records.planDatedRowsByOwnerAt, records.planDatedRowsByHallAt] }),
             fields: { owner: { label: "Owner", hints: ["Team A", "Team B"] }, hall: { label: "Hall", hints: ["Hall 1"] }, at: { label: "Dates" } },
             range: "at", search: [], initial: { at: { from: W27, to: W39 } },
         },
     }), ["fields", "summary"]);
-    const part = rail.part("rows");
-    const holder = { source: "rows", part };
-    return { slices: rail.chrome, windowParts: [holder], lead: holder, rowsPart: part, nouns: { rows: "rows" }, affordances: ["fields", "summary"] };
+    const part = rail.part("dated");
+    const holder = { source: "dated", part };
+    return { slices: rail.chrome, windowParts: [holder], lead: holder, nouns: { dated: "dated rows" }, affordances: ["fields", "summary"] };
 }
 
 /** A key search over a seekable source's String keys — the toolbar mounts it; nothing here searches. */
@@ -180,10 +205,16 @@ function Items({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlap
     const styles = useSlotRecipe({ key: "plan" })() as unknown as Record<string, Record<string, unknown>>;
     const chrome: PlanChrome = {
         words: PLAN_WORDS, styles, storageKey: "plan.toolbar", scale: WEEKLY,
-        slices: undefined, windowParts: [], lead: undefined, rowsPart: undefined, eventParts: [], nouns: {}, windowError: undefined,
+        slices: undefined, windowParts: [], lead: undefined, rowsPart: undefined, eventParts: [], nouns: {}, rowsNoun: "rows", windowError: undefined,
+        // The date navigator's moves: its own test hears them.
+        moveWindow: () => {},
         affordances: [], resolutions: [], grain: undefined, transport: undefined, search: undefined,
+        // How the frame shows the source being read (#1398): the toolbar never reads it.
+        cold: undefined, busy: false, pitch: 42,
         diagnostics: { skipped: 0 },
-        history: undefined, sessions: [], events: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
+        history: undefined, sessions: [], events: undefined, cells: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
+        // Whether a command writes now: the toolbar's items write nothing of their own.
+        writable: true,
         // The inspector's reads: the toolbar takes none.
         inspect: { row: () => undefined, valueAt: () => undefined },
         // The overlaps chip's selection (#1198): its own test hears it.
@@ -248,12 +279,10 @@ const OVERLAPS_LADDER: readonly LadderStep[] = [
 function walk(parts: ChromeParts, start: ReadonlyMap<string, number>, ladder: readonly LadderStep[], overlaps?: PlanOverlaps) {
     let forms = new Map(start);
     row.px = needs(forms);
-    const harness = () => <ChakraProvider value={system}><Harness parts={parts} {...(overlaps === undefined ? {} : { overlaps })} /></ChakraProvider>;
-    const ui = render(harness());
+    const ui = render(<ChakraProvider value={system}><Harness parts={parts} {...(overlaps === undefined ? {} : { overlaps })} /></ChakraProvider>);
     expect(stateOf(ui.container)).toEqual(forms);
     const at = (px: number) => {
-        row.px = px;
-        ui.rerender(harness());
+        resize(px);
         return stateOf(ui.container);
     };
     for (const step of ladder) {
@@ -284,17 +313,17 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         expect([...stateOf(container).keys()]).toEqual(["record-slices", "record-summary", "groups", "time-navigation", "resolution", "history"]);
         const end = [...container.querySelectorAll("[data-toolbar-item][data-toolbar-end]")].map((el) => el.getAttribute("data-toolbar-item"));
         expect(end).toEqual(["record-summary"]);
-        // The rail holds the rows' fields; their range is the window, the date navigator's — no chip of the rail.
+        // The rail holds the dated rows' fields; their range is the window, the date navigator's — no chip of the rail.
         const chips = [...container.querySelectorAll("[data-toolbar-item='record-slices'] [data-record-slice-field]")]
             .map((el) => `${el.getAttribute("data-record-slice-source")}.${el.getAttribute("data-record-slice-field")}`);
-        expect(chips).toEqual(["rows.owner", "rows.hall"]);
+        expect(chips).toEqual(["dated.owner", "dated.hall"]);
         expect(container.querySelector("[data-toolbar-item='time-navigation'] [data-time-navigation='plan']")).not.toBeNull();
         // The window holds every row: the summary names none; a narrowing that hides some names them, in the Plan's
         // words (#1358), as e3 counts them.
         expect(container.querySelector("[data-toolbar-item='record-summary']")!.textContent).toBe("");
-        await act(async () => { parts.rowsPart!.choose("owner", [printFor(StringType)("Team A")]); });
+        await act(async () => { parts.lead!.part.choose("owner", [printFor(StringType)("Team A")]); });
         await settle();
-        expect(container.querySelector("[data-toolbar-item='record-summary']")!.textContent).toBe("1 of 2 rows");
+        expect(container.querySelector("[data-toolbar-item='record-summary']")!.textContent).toBe("1 of 2 dated rows");
         // A Plan approves and rejects nothing (#1260): no review item, no batch verbs.
         expect(container.querySelector('[data-toolbar-item="review"], [data-review-batch]')).toBeNull();
         // The history item leaves the session's error to the frame's banners.
@@ -330,14 +359,14 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         const folded = new Map([["record-slices", 4], ["record-summary", 1], ["groups", 0], ["time-navigation", 0], ["resolution", 0], ["history", 0]]);
         row.px = needs(folded);
         const parts = await everything();
-        parts.rowsPart!.choose("owner", [printFor(StringType)("Team A")]);
+        parts.lead!.part.choose("owner", [printFor(StringType)("Team A")]);
         const { container } = render(<ChakraProvider value={system}><Harness parts={parts} /></ChakraProvider>);
         expect(stateOf(container)).toEqual(folded);
         await userEvent.setup().click(container.querySelector("[data-toolbar-item='record-slices'] [data-slot='railTrigger']")!);
         const editor = await screen.findByRole("dialog");
         // The count is e3's, of the record's index.
         await settle();
-        expect(editor.querySelector("[data-record-slices-summary]")!.textContent).toBe("1 of 2 rows");
+        expect(editor.querySelector("[data-record-slices-summary]")!.textContent).toBe("1 of 2 dated rows");
     });
 
     test("on a seekable source the key search follows the rail and its summary; it folds to its icon after them, before the history (PB21)", async () => {
@@ -399,6 +428,29 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         expect(container.querySelector("[data-toolbar-item='time-navigation']")).toBeNull();
     });
 
+    test("a slice with no source holding the window keeps the date navigator, which steps the canvas's own; the canvas's rows' dates stay a chip of the rail (#1344)", async () => {
+        // The canvas's rows' source, its range naming their dates — which holds no window: the rows never follow the dates.
+        const rail = await bindRail(() => Slice.bindRecords("plan.toolbar.own", {
+            rows: {
+                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+                fields: { at: { label: "Dates" } }, range: "at",
+            },
+        }), ["fields"]);
+        const moved: (readonly [number, number])[] = [];
+        row.px = 4000;
+        const { container } = render(<ChakraProvider value={system}><Harness parts={{
+            slices: rail.chrome, affordances: ["fields"], moveWindow: (min, max) => { moved.push([min, max]); },
+        }} /></ChakraProvider>);
+        await settle();
+        const chips = [...container.querySelectorAll("[data-toolbar-item='record-slices'] [data-record-slice-field]")]
+            .map((el) => `${el.getAttribute("data-record-slice-source")}.${el.getAttribute("data-record-slice-field")}`);
+        expect(chips).toEqual(["rows.at"]);
+        // The navigator's Next steps the twelve weeks a week on: the canvas's own window, W28 to W40.
+        const navigator = container.querySelector<HTMLElement>("[data-toolbar-item='time-navigation']")!;
+        fireEvent.click(within(navigator).getByRole("button", { name: "Next week" }));
+        expect(moved).toEqual([[W28.getTime(), W40.getTime()]]);
+    });
+
     test("the overlaps chip shortens to its glyph and its count, its name the whole words; a click selects both events of the first pair (#1198, PB52)", () => {
         const pair = onePair();
         const selected: (readonly string[])[] = [];
@@ -409,8 +461,7 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         expect(stateOf(ui.container).get("overlaps")).toBe(0);
         expect(chip().getAttribute("data-plan-overlaps")).toBe("");
         expect(chip().textContent).toBe("1 overlap");
-        row.px = 109;
-        ui.rerender(<ChakraProvider value={system}><Harness parts={parts} overlaps={pair} /></ChakraProvider>);
+        resize(109);
         expect(stateOf(ui.container).get("overlaps")).toBe(1);
         expect(chip().getAttribute("data-plan-overlaps")).toBe("short");
         expect(chip().textContent).toBe("1");

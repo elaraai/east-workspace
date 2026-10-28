@@ -68,9 +68,11 @@ export type { PlanBand, PlanWindowFailure } from "./model.js";
  * (or which band) the viewport is over, and the driver maps that back to a
  * block and a window through the origin map (#823: each paged block pages on
  * its own, so demand follows the block the viewport is in). No layout
- * knowledge crosses the boundary.
+ * knowledge crosses the boundary. With it, where the caller can say, the
+ * windows the view shows (`shows`): what the footer's loading line and the
+ * frame's busy follow (#1398), never a window read ahead of the view.
  */
-export type PlanViewport =
+export type PlanViewport = (
     | { kind: "row"; key: string }
     | {
         kind: "band";
@@ -84,7 +86,11 @@ export type PlanViewport =
         px?: number | undefined;
     }
     /** A failed window's band — it names its own block and window (#811). */
-    | { kind: "window"; block: number; w: number };
+    | { kind: "window"; block: number; w: number }
+) & {
+    /** The windows the view shows — each row's, a run's nearest its rows; absent, the driver takes any window in flight as the view's. */
+    shows?: readonly number[] | undefined;
+};
 
 /** Elements the band covers, for its caption. */
 export function bandElements(band: PlanBand): number {

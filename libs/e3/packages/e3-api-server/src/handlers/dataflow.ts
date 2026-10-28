@@ -29,7 +29,7 @@ import type { DataflowOrchestrator, ExecutionStateStore, StorageBackend, TaskRun
 import { sendSuccess, sendError, sendSuccessWithStatus } from '../beast2.js';
 import { conditionalHeaders, sendNotModified, workspaceStatusTag } from '../conditional.js';
 import { errorToVariant } from '../errors.js';
-import { sendLockRefusal, stoppingRunBefore } from '../stopping-run.js';
+import { endedRunHolds, sendLockRefusal, stoppingRunBefore } from '../stopping-run.js';
 import type { DataflowRunnerLease, OpenDataflowRunner } from '../dataflow-runner.js';
 import {
   WorkspaceStatusResultType,
@@ -481,6 +481,12 @@ const POLL_PAGES = 8;
  * the orchestrator running it keeps in memory; and it carries the server's
  * budget when it has one.
  *
+ * A run is answered as ended — `completed`, `failed` or `aborted` — only once
+ * it has let its workspace go, so a client that polls a run to its end and
+ * then collects garbage, deploys or starts a run is not refused. A run records
+ * its end just before it lets go, and is answered `stopping` meanwhile
+ * ({@link endedRunHolds}), its summary and its end already given.
+ *
  * @remarks
  * The poll reads the run's summary, not its whole state, and reads its events
  * only when the summary's last is past the cursor, so a poll that has every
@@ -503,6 +509,8 @@ const POLL_PAGES = 8;
  * past that one: a poll whose `nextSeq` is before `lastSeq` left events for
  * the next.
  *
+ * @param storage - Storage backend, whose lock service says whether a run that
+ *   has ended still holds its workspace
  * @param stateStore - The store the repository's runs keep their state in
  * @param orchestrator - The orchestrator that runs the repository's dataflows
  * @param repoPath - The repository's path
@@ -512,6 +520,7 @@ const POLL_PAGES = 8;
  * @returns The execution state, or `execution_not_found`
  */
 export async function getDataflowExecution(
+  storage: StorageBackend,
   stateStore: ExecutionStateStore,
   orchestrator: DataflowOrchestrator,
   repoPath: string,
@@ -532,6 +541,7 @@ export async function getDataflowExecution(
   // Each page is read up to the summary's last event, so a run that goes on
   // recording never has a page read past what the poll serves.
   let run: ExecutionStateSummary | null;
+  let holds = false;
   const apiEvents: DataflowExecutionState['events'] = [];
   let nextSeq = since;
   try {
@@ -551,6 +561,10 @@ export async function getDataflowExecution(
         }
       }
     }
+    // Whether a run that has ended still holds its workspace, asked after its
+    // summary: it lets go after it records its end, so a run read as ended
+    // that holds nothing now has let go for good.
+    if (run !== null) holds = await endedRunHolds(storage, repoPath, workspace, run);
   } catch (err) {
     return sendError(DataflowExecutionStateType, errorToVariant(err));
   }
@@ -560,8 +574,9 @@ export async function getDataflowExecution(
     }));
   }
 
-  // Convert status to API format: a running run asked to stop is stopping
-  const apiStatus = summaryToApiStatus(run);
+  // Convert status to API format: a running run asked to stop is stopping, and
+  // so is one that has ended and has not yet let its workspace go
+  const apiStatus = holds ? 'stopping' : summaryToApiStatus(run);
   let status: DataflowExecutionState['status'];
   switch (apiStatus) {
     case 'running':

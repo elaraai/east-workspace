@@ -17,8 +17,8 @@ import { isObjectHash } from '../../objects.js';
 import { compareUnitKeys } from '../../upgrades/parts.js';
 import { OBJECT_CONCURRENCY, eachAtMost } from '../../concurrency.js';
 import {
-  atomicWriteFile, executionPath, executionRevisionPath, moveRevision, readRevision, runOf, runningAttemptOf, runningPath, runsPath,
-  workspaceRevisionPath,
+  atomicWriteFile, executionPath, executionRevisionPath, moveRevision, readReplacedFile, readRevision, runOf, runningAttemptOf, runningPath,
+  runsPath, workspaceRevisionPath,
 } from './localHelpers.js';
 import { removeStaleLocks } from './LocalLockService.js';
 
@@ -57,7 +57,7 @@ const decodeUpgradeProgress = decodeBeast2For(RepositoryUpgradeProgressType);
 async function readHash(file: string): Promise<string | null> {
   let data: Buffer;
   try {
-    data = await fs.readFile(file);
+    data = await readReplacedFile(file);
   } catch (err) {
     if (isNotFoundError(err)) return null;
     throw err;
@@ -102,6 +102,11 @@ async function unlinkIfPresent(file: string): Promise<void> {
  *   its runs — its own attempts, never a split task's units — an East `null`;
  * - `adoptions/<ab>/<rest>.beast2`: the manifest a delivery became;
  * - `dataflows/<ws>/<runId>.beast2`: a run's record.
+ *
+ * Each record is replaced whole, staged and renamed over
+ * (`atomicWriteFile`), and read in its file's turn (`readReplacedFile`), so
+ * a poll in the process writing a record never holds it open across the
+ * rename, which Windows refuses.
  */
 export class LocalRefStore implements RefStore {
   // -------------------------------------------------------------------------
@@ -111,7 +116,7 @@ export class LocalRefStore implements RefStore {
   async repositoryRead(repo: string): Promise<RepositoryRecord | null> {
     let data: Buffer;
     try {
-      data = await fs.readFile(path.join(repo, REPOSITORY_RECORD_FILE));
+      data = await readReplacedFile(path.join(repo, REPOSITORY_RECORD_FILE));
     } catch (err) {
       if (isNotFoundError(err)) return null;
       throw err;
@@ -132,7 +137,7 @@ export class LocalRefStore implements RefStore {
   async repositoryUpgradeRead(repo: string): Promise<RepositoryUpgradeProgress | null> {
     let data: Buffer;
     try {
-      data = await fs.readFile(path.join(repo, REPOSITORY_UPGRADE_FILE));
+      data = await readReplacedFile(path.join(repo, REPOSITORY_UPGRADE_FILE));
     } catch (err) {
       if (isNotFoundError(err)) return null;
       throw err;
@@ -278,7 +283,7 @@ export class LocalRefStore implements RefStore {
    *  `workspaceRead`, `workspaceReadAll` and `workspaceRevision` read by. */
   private async readWorkspaceRecord(repo: string, name: string): Promise<Uint8Array | null> {
     try {
-      return await fs.readFile(this.workspacePath(repo, name));
+      return await readReplacedFile(this.workspacePath(repo, name));
     } catch (err) {
       if (isNotFoundError(err)) return null;
       throw err;
@@ -355,7 +360,7 @@ export class LocalRefStore implements RefStore {
   /** Reads the attempt's `status.beast2` as it is. */
   async executionReadBytes(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<Uint8Array | null> {
     try {
-      return await fs.readFile(path.join(executionPath(repo, taskHash, inputsHash, executionId), 'status.beast2'));
+      return await readReplacedFile(path.join(executionPath(repo, taskHash, inputsHash, executionId), 'status.beast2'));
     } catch (err) {
       if (isNotFoundError(err)) {
         return null;
@@ -627,7 +632,7 @@ export class LocalRefStore implements RefStore {
   async executionOwnerRead(repo: string, taskHash: string, inputsHash: string, executionId: string): Promise<ExecutionOwner | null> {
     let data: Buffer;
     try {
-      data = await fs.readFile(path.join(executionPath(repo, taskHash, inputsHash, executionId), 'owner.beast2'));
+      data = await readReplacedFile(path.join(executionPath(repo, taskHash, inputsHash, executionId), 'owner.beast2'));
     } catch (err) {
       if (isNotFoundError(err)) {
         return null;
@@ -739,7 +744,7 @@ export class LocalRefStore implements RefStore {
 
     let data: Buffer;
     try {
-      data = await fs.readFile(runPath);
+      data = await readReplacedFile(runPath);
     } catch (err) {
       if (isNotFoundError(err)) {
         return null;

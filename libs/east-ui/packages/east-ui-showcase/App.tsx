@@ -40,9 +40,13 @@ import { LogoCollapsed, LogoFull } from "./components/ElaraLogo";
 import { useThemeMode } from "./theme-mode";
 import { DocList, type DocScrollTarget } from "./components/DocList";
 import { catalog, navSections, type CatalogEntry } from "./catalog";
-import { ALL_PAGES, SECTION_EAST } from "./showcase-config";
 
 const SIDEBAR_KEY = "east-ui-showcase.sidebar-collapsed";
+
+/** The page the showcase opens on without a link: its first section's first
+ *  category. Every page is one category's: the e3 examples of a page are one
+ *  area's, whose workspace the page's e3 starts as they show (#1397). */
+const FIRST_CATEGORY = navSections[0]?.categories[0] ?? "";
 
 function useSidebarCollapsed(): [boolean, () => void] {
     const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -70,15 +74,6 @@ function useSidebarCollapsed(): [boolean, () => void] {
     return [collapsed, toggle];
 }
 
-/** The section whose "All" page `selected` is, or undefined for a plain
- *  category. */
-function sectionForAllPage(selected: string): string | undefined {
-    return Object.keys(ALL_PAGES).find(section => ALL_PAGES[section] === selected);
-}
-
-/** Entries for the current page. The All pseudo-categories concatenate a
- *  whole section, ordered (category, pathKey) to match the sidebar; the
- *  stable sort preserves each file's example order. */
 /** Resolve a location.hash to a selection + optional scroll target.
  *
  *  Grammar (all derived from catalog pathKeys, so URLs stay slug-clean):
@@ -97,8 +92,6 @@ function resolveHash(raw: string): { category: string; pathKey?: string; name?: 
     const cat = catalog.find(e =>
         e.category.toLowerCase() === lower || e.pathKey.split("/", 1)[0] === lower);
     if (cat) return { category: cat.category };
-    const all = Object.values(ALL_PAGES).find(p => p.toLowerCase().replace(/\s+/g, "-") === lower);
-    if (all) return { category: all };
     return undefined;
 }
 
@@ -109,24 +102,17 @@ function hashForCategory(category: string): string {
     return category.toLowerCase().replace(/\s+/g, "-");
 }
 
+/** Entries for the current page: its category's, in catalog order. */
 function entriesFor(selected: string): CatalogEntry[] {
-    const section = sectionForAllPage(selected);
-    if (section !== undefined) {
-        return catalog
-            .filter(e => e.section === section)
-            .sort((a, b) => a.category.localeCompare(b.category) || a.pathKey.localeCompare(b.pathKey));
-    }
     return catalog.filter(e => e.category === selected);
 }
 
 export function App() {
     const [search, setSearch] = useState("");
     const initial = useMemo(() => resolveHash(window.location.hash), []);
-    const [selectedCategory, setSelectedCategory] = useState<string>(
-        initial?.category ?? ALL_PAGES[SECTION_EAST]);
+    const [selectedCategory, setSelectedCategory] = useState<string>(initial?.category ?? FIRST_CATEGORY);
     const [scrollTarget, setScrollTarget] = useState<DocScrollTarget | undefined>(
         initial?.pathKey ? { pathKey: initial.pathKey, name: initial.name, nonce: 0 } : undefined);
-    const isAllPage = sectionForAllPage(selectedCategory) !== undefined;
 
     /* Deep links: the hash is the single source of shareable state. The
      * anchor on each example writes `#<pathKey>/<name>`; landing on (or
@@ -195,7 +181,7 @@ export function App() {
                 <Box flex="1" minH={0} display="flex" flexDirection="column">
                     {filtered.length === 0
                         ? <Text color="fg.muted" px="24px" py="32px">No examples match your search.</Text>
-                        : <DocList key={selectedCategory} entries={filtered} showCategories={isAllPage} scrollTarget={scrollTarget} />}
+                        : <DocList key={selectedCategory} entries={filtered} scrollTarget={scrollTarget} />}
                 </Box>
             </Flex>
         </Flex>
@@ -266,37 +252,23 @@ function NavSections({ selected, onSelect, headerExtra }: {
                         </Box>
                         {sIdx === 0 && headerExtra}
                     </Flex>
-                    {(() => {
-                        const items: Array<{ key: string; label: string; count: number }> = [
-                            {
-                                key: ALL_PAGES[sec.section],
-                                label: "All",
-                                count: catalog.filter(e => e.section === sec.section).length,
-                            },
-                            ...sec.categories.map(cat => ({
-                                key: cat,
-                                label: cat,
-                                count: catalog.filter(e => e.category === cat).length,
-                            })),
-                        ];
-                        return items.map(item => {
-                            const active = selected === item.key;
-                            return (
-                                <chakra.button
-                                    key={item.key}
-                                    type="button"
-                                    onClick={() => onSelect(item.key)}
-                                    aria-current={active ? "page" : undefined}
-                                    css={styles.item}
-                                >
-                                    <Box flex="1" textAlign="left">{item.label}</Box>
-                                    <Text as="span" textStyle="mono.sm" color="fg.muted" letterSpacing="0">
-                                        {item.count}
-                                    </Text>
-                                </chakra.button>
-                            );
-                        });
-                    })()}
+                    {sec.categories.map(cat => {
+                        const active = selected === cat;
+                        return (
+                            <chakra.button
+                                key={cat}
+                                type="button"
+                                onClick={() => onSelect(cat)}
+                                aria-current={active ? "page" : undefined}
+                                css={styles.item}
+                            >
+                                <Box flex="1" textAlign="left">{cat}</Box>
+                                <Text as="span" textStyle="mono.sm" color="fg.muted" letterSpacing="0">
+                                    {catalog.filter(e => e.category === cat).length}
+                                </Text>
+                            </chakra.button>
+                        );
+                    })}
                 </Fragment>
             ))}
         </Box>
@@ -481,9 +453,7 @@ function ThemeToggle() {
 }
 
 function Breadcrumb({ category }: { category: string }) {
-    const section =
-        sectionForAllPage(category) ??
-        navSections.find(s => s.categories.includes(category))?.section ?? "East UI";
+    const section = navSections.find(s => s.categories.includes(category))?.section ?? "East UI";
     return (
         <Text textStyle="breadcrumb">
             {/* `link` — `brand.solid`, the design system's `--brand-d` in each

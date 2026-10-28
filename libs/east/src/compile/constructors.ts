@@ -4,7 +4,8 @@
  */
 import type { AnalyzedIR } from "../analyze.js";
 import { compareFor } from "../comparison.js";
-import { compile_internal } from "./ir.js";
+import { asValue } from "./flow.js";
+import { compile_ir } from "./ir.js";
 import { lazyReadErrorAt, type RuntimeContext } from "./runtime.js";
 import { createTypedArray } from "./typed_arrays.js";
 import { matrix } from "../containers/matrix.js";
@@ -41,12 +42,22 @@ function readWhole(arg: AnalyzedIR, compiled: (ctx: RuntimeContext) => any, loc_
     : (ctx: RuntimeContext) => read(compiled(ctx));
 }
 
-/** Compiles the structs, variants, refs, and the collection literals. */
+/** A constructor's part, compiled: a signal it gives is thrown. */
+function part(child: AnalyzedIR, ctx: Record<string, EastTypeValue>, platform: Record<string, (...args: any[]) => any>, asyncPlatformFns: Set<string>, platformDef: PlatformFunction[], compilingNodes: Set<IR>): (ctx: RuntimeContext) => any {
+  return asValue(child, compile_ir(child, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes));
+}
+
+/**
+ * Compiles the structs, variants, refs, and the collection literals.
+ *
+ * Each computes a value from its parts', so a control statement a part
+ * leaves is thrown (`asValue`, `flow.ts`).
+ */
 export function compile_constructors(ir: AnalyzedIR<StructIR | VariantIR | NewRefIR | NewArrayIR | NewSetIR | NewDictIR | NewVectorIR | NewMatrixIR>, ctx: Record<string, EastTypeValue>, platform: Record<string, (...args: any[]) => any>, asyncPlatformFns: Set<string>, platformDef: PlatformFunction[], compilingNodes: Set<IR>, source_map: SourceMap | null): (ctx: RuntimeContext) => any {
   const loc_id = ir.value.loc_id;
   if (ir.type === "Struct") {
     const fields = ir.value.fields.map(f => {
-      return readWhole(f.value, compile_internal(f.value, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes), loc_id, source_map);
+      return readWhole(f.value, part(f.value, ctx, platform, asyncPlatformFns, platformDef, compilingNodes), loc_id, source_map);
     });
     const keys = ir.value.fields.map(f => f.name);
     if (ir.value.isAsync) {
@@ -62,14 +73,14 @@ export function compile_constructors(ir: AnalyzedIR<StructIR | VariantIR | NewRe
     }
   } else if (ir.type === "Variant") {
     const k = ir.value.case;
-    const v = readWhole(ir.value.value, compile_internal(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes), loc_id, source_map);
+    const v = readWhole(ir.value.value, part(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, compilingNodes), loc_id, source_map);
     if (ir.value.isAsync) {
       return async (ctx: RuntimeContext) => variant(k, await v(ctx));
     } else {
       return (ctx: RuntimeContext) => variant(k, v(ctx));
     }
   } else if (ir.type === "NewRef") {
-    const value = readWhole(ir.value.value, compile_internal(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes), loc_id, source_map);
+    const value = readWhole(ir.value.value, part(ir.value.value, ctx, platform, asyncPlatformFns, platformDef, compilingNodes), loc_id, source_map);
     if (ir.value.isAsync) {
       return async (ctx: RuntimeContext) => ref(await value(ctx));
     } else {
@@ -77,7 +88,7 @@ export function compile_constructors(ir: AnalyzedIR<StructIR | VariantIR | NewRe
     }
   } else if (ir.type === "NewArray") {
     const values = ir.value.values.map(a => {
-      return readWhole(a, compile_internal(a, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes), loc_id, source_map);
+      return readWhole(a, part(a, ctx, platform, asyncPlatformFns, platformDef, compilingNodes), loc_id, source_map);
     });
     if (ir.value.isAsync) {
       return async (ctx: RuntimeContext) => {
@@ -92,7 +103,7 @@ export function compile_constructors(ir: AnalyzedIR<StructIR | VariantIR | NewRe
     }
   } else if (ir.type === "NewSet") {
     const values = ir.value.values.map(a => {
-      return readWhole(a, compile_internal(a, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes), loc_id, source_map);
+      return readWhole(a, part(a, ctx, platform, asyncPlatformFns, platformDef, compilingNodes), loc_id, source_map);
     });
     const keyComparer = compareFor(ir.value.type.value);
     if (ir.value.isAsync) {
@@ -109,8 +120,8 @@ export function compile_constructors(ir: AnalyzedIR<StructIR | VariantIR | NewRe
   } else if (ir.type === "NewDict") {
     const values = ir.value.values.map(({key, value}) => {
       return [
-        readWhole(key, compile_internal(key, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes), loc_id, source_map),
-        readWhole(value, compile_internal(value, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes), loc_id, source_map),
+        readWhole(key, part(key, ctx, platform, asyncPlatformFns, platformDef, compilingNodes), loc_id, source_map),
+        readWhole(value, part(value, ctx, platform, asyncPlatformFns, platformDef, compilingNodes), loc_id, source_map),
       ] as const;
     });
     const keyComparer = compareFor(ir.value.type.value.key);
@@ -128,7 +139,7 @@ export function compile_constructors(ir: AnalyzedIR<StructIR | VariantIR | NewRe
   } else if (ir.type === "NewVector") {
     const elementType = ir.value.type.value; // element EastTypeValue
     const values = ir.value.values.map(a => {
-      return compile_internal(a, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes)
+      return part(a, ctx, platform, asyncPlatformFns, platformDef, compilingNodes);
     });
     if (ir.value.isAsync) {
       return async (ctx: RuntimeContext) => {
@@ -149,7 +160,7 @@ export function compile_constructors(ir: AnalyzedIR<StructIR | VariantIR | NewRe
     const rows = Number(ir.value.rows);
     const cols = Number(ir.value.cols);
     const values = ir.value.values.map(a => {
-      return compile_internal(a, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes)
+      return part(a, ctx, platform, asyncPlatformFns, platformDef, compilingNodes);
     });
     if (ir.value.isAsync) {
       return async (ctx: RuntimeContext) => {

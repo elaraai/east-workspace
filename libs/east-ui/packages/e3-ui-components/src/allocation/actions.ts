@@ -113,6 +113,11 @@ export interface AllocationState {
     readonly editing: AllocationEditing | undefined;
     /** Whether the day's reads have landed and no Publish is under way: a gesture waits for them. */
     readonly ready: boolean;
+    /**
+     * Whether what main shows is retained while a narrowing of it is read (#1398, CL8): readable, focusable and
+     * selectable, its controls in place, and every gesture refused until it lands.
+     */
+    readonly retained?: boolean | undefined;
 }
 
 /** The board's commands. */
@@ -194,6 +199,8 @@ export function allocationCommands(state: AllocationState, select: (next: Select
     const bins = value.bin.kind.key;
     const available = editing !== undefined && schedule !== undefined && state.ready && !value.settings.readOnly
         && editableStatus(state.heldPeriod.status) && editableStatus(state.period.status) && schedule.available(bins);
+    // Retained, the board keeps its controls and takes no gesture (#1398, CL8).
+    const takes = available && state.retained !== true;
     // Every bin key the board holds: read, drafted, the day's as drafted and as stored, the record's own when it is read whole, or this gesture's.
     const taken = (minted: ReadonlySet<string>) => (key: string) => minted.has(key) || state.read.has(key) || plan.bins.has(key) || held.bins.has(key)
         || schedule?.draftsOf(bins).has(key) === true || schedule?.held(bins, key) !== undefined;
@@ -218,7 +225,7 @@ export function allocationCommands(state: AllocationState, select: (next: Select
     };
     /** One gesture, one transaction (A75): on a copy of the day as drafted, never what the board read; its bins recorded as one step. */
     const write = (label: string, origin: Origin, change: (next: Day) => void): boolean => {
-        if (!available) return false;
+        if (!takes) return false;
         const next = domain.copyDay(plan);
         change(next);
         return record(changesOf(next), origin, label);
@@ -343,11 +350,11 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         },
         row(id, bytes) {
             const was = plan.bins.get(id);
-            if (!available || was === undefined || sameRowBytes(bytes, domain.encodeRow(was.row))) return false;
+            if (!takes || was === undefined || sameRowBytes(bytes, domain.encodeRow(was.row))) return false;
             return record([{ kind: bins, id, row: bytes }], "typed", "Edit bin");
         },
         field(id, path, next) {
-            if (!available || !plan.bins.has(id)) return false;
+            if (!takes || !plan.bins.has(id)) return false;
             const change = fieldChange(value.bin.kind, id, path, next);
             return change !== undefined && record([change], "typed", "Edit bin");
         },

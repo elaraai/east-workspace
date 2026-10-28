@@ -28,6 +28,7 @@ import './allocation/index.js';            // → implementUIComponent(Allocatio
 import './plan/index.js';                 // → implementUIComponent(PlanComponent, EastChakraPlanPayload)
 import './sheet/frame/index.js';          // → implementUIComponent(SheetComponent, EastChakraSheet)
 import './flowchart/index.js';            // → implementUIComponent(Flowchart.Component, EastChakraFlowchart)
+import './schematic/index.js';            // → implementUIComponent(Schematic.Component, EastChakraSchematic)
 
 // Platform — reactive dataset cache, runtime, and React hooks for Data.bind
 export * from './platform/index.js';
@@ -171,6 +172,10 @@ export {
 // The Flowchart (#1243) — its renderer registers itself against the Flowchart
 // extension on import; its slot recipe is east-ui-components' theme's.
 export { EastChakraFlowchart, type EastChakraFlowchartProps, type FlowchartValue } from './flowchart/index.js';
+
+// The Schematic (#1384) — its renderer registers itself against the Schematic
+// extension on import; its slot recipe is east-ui-components' theme's.
+export { EastChakraSchematic, type EastChakraSchematicProps, type SchematicValue, type SchematicItemValue } from './schematic/index.js';
 
 // Components
 export { ErrorBoundary, type ErrorBoundaryProps } from './components/ErrorBoundary.js';

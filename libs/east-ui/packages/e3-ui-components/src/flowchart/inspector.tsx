@@ -47,6 +47,13 @@
  * transition's own Details, the author's (FB45), show in place of its form:
  * the row as bytes, and its `update`, the edited row back as one transaction.
  *
+ * Details keeps the keyboard (#1398): a control that goes with the view it was
+ * pressed in — Delete, which shows the open flow; Duplicate and a transition's
+ * link, which select another; a refused edit's form drawn again — leaves the
+ * focus on the heading of the view drawn in its place
+ * (`../shared/focus-home.ts`), never on the page's body: it names what Details
+ * shows now, and the next Tab goes on through the controls under it.
+ *
  * Issues (FB37) lists the open flow's issues — two of one key, which holds
  * Save off; a state naming a missing lane; a transition naming a missing
  * state; a decision's queue naming one; a Save's conflict or refusal — each
@@ -71,6 +78,7 @@ import {
     EastChakraComponent, EmptyStateView, FieldForm, fieldFormMessages, getSomeorUndefined, useDataStable,
     type BuilderFrameDock, type FieldFormWords, type FieldOption,
 } from "@elaraai/east-ui-components";
+import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import {
     deleteDecision, deleteLane, deleteLink, deleteState, deleteStates, describeFlow, duplicateState, laneStates, linkKeyOf, linkRow, moveStates,
     setDecisionRow, setLaneRow, setLinkRow, setStateRow, stateRow, type FlowchartEdit,
@@ -234,12 +242,12 @@ export function inspectorPane(props: FlowchartInspectorProps): BuilderFrameDock 
 // The shared parts
 // ============================================================================
 
-/** A view's head: what it shows, its name under that, and its chip. */
+/** A view's head: what it shows, its name under that, and its chip — its view's home, where the keyboard lands as a control goes with the view. */
 function Head({ styles, what, name, chip, words }: {
     styles: Styles; what: string; name: string | undefined; chip: "pending" | "new" | "deleted" | "noRow" | undefined; words: FlowchartWords;
 }) {
     return (
-        <Box css={styles.head}>
+        <Box css={styles.head} {...FOCUS_HOME_PROPS}>
             <Box css={styles.eyebrow} data-inspector-what="">{what}</Box>
             {name !== undefined && <Box css={styles.name} data-inspector-name="">{name}</Box>}
             <Box css={styles.marks}>
@@ -410,15 +418,24 @@ interface ViewProps extends FlowchartInspectorProps {
 // Details
 // ============================================================================
 
-/** The Details tab: what is selected — a state, a transition, a decision, a lane, several states — or the open flow. */
+/**
+ * The Details tab: what is selected — a state, a transition, a decision, a lane, several states — or the open flow; the
+ * keyboard kept as a control goes with the view it was in, on the heading of the view drawn in its place.
+ */
 const FlowchartInspectorDetails = memo(function FlowchartInspectorDetails(props: FlowchartInspectorProps) {
     const styles = useSlotRecipe({ key: "flowchartInspector" })() as Styles;
-    const { flow, selection, deleted } = props;
-    if (flow === undefined) {
-        return deleted ? <DeletedFlow {...props} styles={styles} /> : <NoFlow {...props} styles={styles} />;
-    }
-    const view = { ...props, styles };
-    // Each selection its own view: what was typed for one never lands on the next.
+    const home = useFocusHome();
+    return (
+        <Box ref={home.ref} css={styles.home} onFocus={home.onFocus} onBlur={home.onBlur} data-inspector-home="">
+            {detailsView({ ...props, styles })}
+        </Box>
+    );
+});
+
+/** What Details shows, a view a selection: what was typed for one never lands on the next. */
+function detailsView(view: ViewProps): ReactNode {
+    const { flow, selection, deleted } = view;
+    if (flow === undefined) return deleted ? <DeletedFlow {...view} /> : <NoFlow {...view} />;
     if (selection === null) return <FlowView key="flow" {...view} flow={flow} />;
     switch (selection.kind) {
         case "state": return <StateView key={`state:${selection.key}`} {...view} flow={flow} at={selection.key} />;
@@ -427,7 +444,7 @@ const FlowchartInspectorDetails = memo(function FlowchartInspectorDetails(props:
         case "lane": return <LaneView key={`lane:${selection.key}`} {...view} flow={flow} at={selection.key} />;
         case "states": return <SeveralView key="states" {...view} flow={flow} picked={selection.keys} />;
     }
-});
+}
 
 /** A row's view: the open flow, and the key of what it shows. */
 interface RowProps extends ViewProps {
@@ -774,7 +791,7 @@ function SeveralView({ flow, picked, styles, words, edit, available, reveal }: V
     );
     return (
         <Box css={styles.root} data-flowchart-inspector="several">
-            <Box css={styles.head}>
+            <Box css={styles.head} {...FOCUS_HOME_PROPS}>
                 <Box css={styles.summary} data-inspector-several="">{m.inspectorWhat({ what: "states", n: picked.length, count: words.number(picked.length) })}</Box>
             </Box>
             <Edits styles={styles} available={available} actions={actions}>

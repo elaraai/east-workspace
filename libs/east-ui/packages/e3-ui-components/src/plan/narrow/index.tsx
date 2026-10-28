@@ -41,9 +41,13 @@
  * to report a mounted range, so the cards report themselves: an
  * `IntersectionObserver` watches every row card, and the last one on screen
  * is the viewport the driver pages around — prefetching past it, keeping what
- * is on screen resident. Once a list shows every resident row, its load-more
- * becomes the canvas's tail band in list form: scrolling it into view, or
- * tapping it, loads the next window.
+ * is on screen resident. Once a list shows every resident row, the canvas's
+ * tail band stands after them in list form: scrolling it into view loads the
+ * next window. Its `N more rows` counts the source, never what has loaded —
+ * the rows read and not shown yet, and every one the source holds past them
+ * (`…` while that is not known) — and a tap past the rows read asks for the
+ * next window at once, its cards coming as it lands (#1398, ruled 27 Oct
+ * 2026).
  *
  * The cards (`cards.tsx`), the ruler (`chrome.tsx`), the list demand
  * (`demand.ts`) and the row walks (`lists.ts`) live beside this shell (#815).
@@ -58,7 +62,7 @@
  * view, as the desktop canvas scrolls to the row.
  */
 
-import { useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type PointerEvent, type ReactNode } from "react";
 import { Box, Tabs } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronRight } from "@fortawesome/free-solid-svg-icons";
@@ -71,11 +75,11 @@ import { GridSeparators } from "../rows/RowShell.js";
 import { HeatCells } from "../rows/HeatRow.js";
 import { PlanPartBoundary } from "../rows/PartBoundary.js";
 import { RowDiagnostic } from "../rows/RowDiagnostic.js";
-import { bandCaption, failureCaption } from "../rows/WindowBand.js";
+import { LoadingFailedLine, PlaceholderCard, PlaceholderShape, loadingLineText } from "@elaraai/east-ui-components/internal";
 import { bandElements } from "../use-plan-paging.js";
 import {
     rowHeight, spansWindows,
-    type PlanDerived, type PlanRowIndex, type PlanRowValue, type PlanWindowFailure,
+    type PlanBand, type PlanDerived, type PlanRowIndex, type PlanRowValue, type PlanWindowFailure,
 } from "../model.js";
 import { appendAll } from "../reductions.js";
 import { statusText } from "../a11y.js";
@@ -99,6 +103,8 @@ export const PLAN_NARROW_BELOW = 480;
 /** Cards shown before the `N more …` load-more, per list. */
 const PAGE_GROUPS = 6;
 const PAGE_ROWS = 8;
+/** A row card's height, px: what a paged source's tail draws its placeholder cards at (#1398) — a head line over a span plot. */
+const PENDING_CARD_PX = 72;
 /** A card body's inset from the list edge: 12px list padding + 1px card
  *  border + 12px body margin — the recipe's `narrowRuler` margin matches. */
 const BODY_INSET_PX = 25;
@@ -107,11 +113,15 @@ const OTHER_SCOPE = " other";
 
 type NarrowTab = "groups" | "rows" | "measures";
 
+/** What a tab counts: a number; `pending` while it would count only what has landed (`…`, #1398, CL13); `notCounted`
+ *  where the source's entries make no fixed number of what it lists. */
+type TabCount = number | "pending" | "notCounted";
+
 /** One run of row cards on the Rows tab — under a group header when the
  *  list is unscoped, bare when it is one group's rows. */
 interface RowSection {
     key: string;
-    header?: { scope: RowKey; label: string; meta: string | undefined; value: string | undefined; tone: string | undefined };
+    header?: { scope: RowKey; label: string; meta: ReactNode | undefined; value: string | undefined; tone: string | undefined };
     rows: PlanRowValue[];
 }
 
@@ -129,10 +139,25 @@ export interface PlanNarrowProps {
     expandGutterBody: UIValue | null;
     /** Whether the root declares `expandRender` at all. */
     canExpand: boolean;
-    /** Whether the source is not yet exhausted (`PlanTransport.partial`) — the
-     *  tab counts, and a top-level section's member count, then cover only the
-     *  loaded windows (`spansWindows`, #822). */
+    /** Whether the source is not yet exhausted (`PlanTransport.partial`) — a
+     *  tab count of what has loaded is then `…`, and a top-level section's
+     *  member count a placeholder (`spansWindows`, #822, #1398 CL13). */
     partial: boolean | undefined;
+    /**
+     * A paged source's own count, once a completed read says it (#1398, CL13):
+     * what the Rows tab counts, as the rail counts the source — never the rows
+     * read so far. `undefined` on an inline canvas, and while the count is not
+     * known — or is a new narrowing's, the last narrowing's rows standing in.
+     */
+    pagedCount?: number | undefined;
+    /**
+     * What the Measures tab counts over a paged source (#1398, ruled 27 Oct 2026, "Exact where it can be"): the chart
+     * rows the source makes — its count times what each of its entries makes across the paged blocks, where every entry
+     * makes as many, beside the blocks no entry makes — or `"notCounted"`, where some block's entries make no fixed
+     * number of them, which the tab says. Never what has loaded: `undefined` while the source has not counted itself, or
+     * a new narrowing's rows are read, and on an inline canvas.
+     */
+    pagedMeasures?: number | "notCounted" | undefined;
     /** A bounded frame — the list scrolls inside it. */
     fill: boolean;
     /** Windows whose read failed (#811) — a card each, with a Retry. */
@@ -142,6 +167,8 @@ export interface PlanNarrowProps {
     /** A paged source's demand (#812) — absent on an inline canvas, which
      *  has nothing to demand. */
     paging?: PlanNarrowPaging | undefined;
+    /** What the rail counts the rows in — `work orders`: what a failed window's line names them by (#1398). */
+    noun: string;
     /** Each drafted row's mark, by row key (#880) — a card wears its row's. */
     marks: ReadonlyMap<RowKey, PlanDraftMark>;
 }
@@ -149,20 +176,46 @@ export interface PlanNarrowProps {
 const selectSelected = (s: PlanSnapshot) => s.store.ui.selected;
 const selectScroll = (s: PlanSnapshot) => s.scroll;
 
+/**
+ * A paged source's tail in list form (#812, #1398): placeholder cards at a row
+ * card's height, saying nothing. The list's observer demands the next window
+ * as they come into view; with no observer to say so, their showing does — the
+ * reader has revealed every row there is.
+ */
+function PendingTail({ tail, watch, onLoadMore, styles }: {
+    tail: PlanBand;
+    watch: ((el: HTMLElement | null) => (() => void) | undefined) | undefined;
+    onLoadMore: () => void;
+    styles: Styles;
+}) {
+    useEffect(() => {
+        if (watch === undefined) onLoadMore();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- shown once at each place the run ends (its key)
+    }, []);
+    return (
+        <Box ref={watch} css={styles.narrowPending} data-plan-more="source" data-plan-elements={bandElements(tail)}
+            aria-busy={tail.loading !== undefined ? "true" : undefined}>
+            <PlaceholderCard height={PENDING_CARD_PX} index={tail.from} />
+            <PlaceholderCard height={PENDING_CARD_PX} index={tail.from + 1} />
+        </Box>
+    );
+}
+
 /** The narrow shell: tabs · ruler · card list. */
 export function PlanNarrow({
     styles, index, derived, view, dense, storageKey,
-    expandBody, expandGutterBody, canExpand, partial, fill,
-    failures, onRetry, paging, marks,
+    expandBody, expandGutterBody, canExpand, partial, pagedCount, pagedMeasures, fill,
+    failures, onRetry, paging, marks, noun,
 }: PlanNarrowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
     const words = usePlanWords();
-    // A member count as a group's meta (#820) — `~` while it covers only the
-    // loaded windows.
-    const membersMeta = (count: number, over: boolean) =>
-        words.m.groupMeta({ n: count, count: words.number(count), partial: over });
+    // A member count as a group's meta (#820) — a short bar while it covers only the loaded windows: never a count
+    // the read has not finished (#1398, CL13).
+    const membersText = (count: number): string => words.m.groupMeta({ n: count, count: words.number(count) });
+    const membersMeta = (count: number, over: boolean): ReactNode =>
+        (over ? <PlaceholderShape kind="aggregate" index={count} /> : membersText(count));
     // Whether a group's derived count covers only the loaded windows: a
     // top-level section's, on a source not yet exhausted — every other
     // group's members ride in its own entry (#822).
@@ -347,28 +400,22 @@ export function PlanNarrow({
 
     const revealMore = (key: NarrowTab) =>
         setReveal((r) => ({ ...r, [key]: r[key] + (key === "groups" ? PAGE_GROUPS : PAGE_ROWS) }));
-    const more = (key: NarrowTab, label: string) => (
-        <Box as="button" css={styles.narrowMore} data-plan-more={key} onClick={() => revealMore(key)}>
+    const more = (key: NarrowTab, label: string, then?: () => void) => (
+        <Box as="button" css={styles.narrowMore} data-plan-more={key} onClick={() => { revealMore(key); then?.(); }}>
             {label}
         </Box>
     );
     // A list that shows every resident row while the source holds more
-    // (#812): the canvas's tail band in list form. Scrolling it into view (the
-    // list's observer) or tapping it demands the next window; the tap also
-    // opens the next page, so the landed rows show without a second tap. Keyed
-    // by where the unloaded run starts, so a landing that leaves it on screen
-    // re-arms the observer instead of stranding the list.
-    const loadMore = (key: NarrowTab) => {
+    // (#812): the canvas's tail band in list form — placeholder cards at a
+    // row card's height, their title and meta bars, saying nothing (#1398,
+    // CL2, CL3). Scrolling them into view (the list's observer) demands the
+    // next window; once it lands, the list's own next page offers its rows.
+    // Keyed by where the unloaded run starts, so a landing that leaves them on
+    // screen re-arms the observer instead of stranding the list.
+    const loadMore = () => {
         const tail = paging?.tail;
         if (paging === undefined || tail === undefined) return null;
-        return (
-            <Box key={`source-${tail.from}`} ref={watch} as="button" css={styles.narrowMore}
-                data-plan-more="source" data-plan-elements={bandElements(tail)}
-                aria-busy={tail.loading !== undefined ? "true" : undefined}
-                onClick={() => { revealMore(key); paging.onLoadMore(); }}>
-                {bandCaption(tail, words)}
-            </Box>
-        );
+        return <PendingTail key={`source-${tail.from}`} tail={tail} watch={watch} onLoadMore={paging.onLoadMore} styles={styles} />;
     };
 
     let list: ReactNode;
@@ -416,8 +463,8 @@ export function PlanNarrow({
                 {hidden.length > 0 ? more("groups", words.m.moreGroups({
                     n: hidden.length,
                     count: words.number(hidden.length),
-                    members: hiddenRs > 0 ? membersMeta(hiddenRs, false) : undefined,
-                })) : loadMore("groups")}
+                    members: hiddenRs > 0 ? membersText(hiddenRs) : undefined,
+                })) : loadMore()}
                 {ungrouped.length > 0 && (
                     <Box css={styles.narrowCard} data-plan-groupcard="other" onClick={() => openGroup(OTHER_SCOPE)}>
                         <Box css={styles.narrowCardHead}>
@@ -458,7 +505,24 @@ export function PlanNarrow({
             }
             for (const row of shown) body.push(renderRowCard(row, false));
         }
-        const rest = total - (rowLimit - Math.max(0, budget));
+        const shownRows = rowLimit - Math.max(0, budget);
+        // What is left to show (#1398, ruled 27 Oct 2026, "Exact where it can be"). Over a paged source not read whole it
+        // is never what has loaded: the rows read and not shown yet, and every one the source holds past them, its run not
+        // read after the rows (`beyond`) — where the list is the source's rows one after another, as the Rows tab counts
+        // them; `…` while the source has not counted itself, and where the rows listed are a group's or the groups' that
+        // run on past the windows read. Else the rows not shown yet, which are all there are.
+        const unreadLeft = paging !== undefined && partial === true
+            && (scope === null || (scopeGroup !== undefined && countPartial(scopeGroup)));
+        const beyond = paging?.beyond;
+        const rest: number | "pending" = !unreadLeft ? total - shownRows
+            : scope === null && !hasGroups && beyond !== undefined ? Math.max(0, total - shownRows) + beyond : "pending";
+        // Past the rows read, the source's tail stands where the next of them go — its placeholder cards, asking for the
+        // window past the run as they come into view — and a tap past them asks for it at once.
+        const pastRead = unreadLeft && shownRows >= total;
+        const moreRows = rest === "pending" || rest > 0
+            ? more("rows", words.m.moreRows(rest === "pending" ? { n: 2, count: "…" } : { n: rest, count: words.number(rest) }),
+                () => { if (unreadLeft && shownRows + PAGE_ROWS > total) paging?.onLoadMore(); })
+            : null;
         list = (
             <>
                 {(scopeGroup !== undefined || scope === OTHER_SCOPE) && (
@@ -471,13 +535,14 @@ export function PlanNarrow({
                         )}
                         <Box css={styles.narrowScopeTitle}>{scopeGroup !== undefined ? scopeGroup.gutter.label : words.m.otherRows()}</Box>
                         <Box css={styles.narrowScopeMeta}>
-                            {[members !== undefined && members > 0 ? membersMeta(members, false) : undefined, scopeValue].filter(Boolean).join(" · ")}
+                            {[members !== undefined && members > 0 ? membersText(members) : undefined, scopeValue].filter(Boolean).join(" · ")}
                         </Box>
                     </Box>
                 )}
-                {total === 0 && <Box css={styles.narrowEmpty}>{words.m.noRows()}</Box>}
+                {/* "No rows" only once a completed read says so (#1398, CL13): never while the source holds more. */}
+                {total === 0 && paging?.tail === undefined && <Box css={styles.narrowEmpty}>{words.m.noRows()}</Box>}
                 {body}
-                {rest > 0 ? more("rows", words.m.moreRows({ n: rest, count: words.number(rest) })) : loadMore("rows")}
+                {unreadLeft ? <>{pastRead && loadMore()}{moreRows}</> : moreRows ?? loadMore()}
             </>
         );
     } else {
@@ -486,7 +551,7 @@ export function PlanNarrow({
         list = (
             <>
                 {shown.map((row) => renderRowCard(row, true))}
-                {rest > 0 ? more("measures", words.m.moreMeasures({ n: rest, count: words.number(rest) })) : loadMore("measures")}
+                {rest > 0 ? more("measures", words.m.moreMeasures({ n: rest, count: words.number(rest) })) : loadMore()}
             </>
         );
     }
@@ -495,13 +560,20 @@ export function PlanNarrow({
     // no fill, the mono eyebrow grammar, the hairline baseline the active
     // underline overlaps — so the strip cannot drift from the spec by
     // re-declaring it, and brings Zag's keyboard and tabpanels (#819).
-    // Counts ride each label as plain numerals (never a tinted pill); a paged
-    // prefix marks them `~`.
+    // Counts ride each label as plain numerals (never a tinted pill). Over a paged source the Rows tab counts what the
+    // source does, once its count is read — the rail's count, never the rows read so far — and a count that covers only
+    // what has landed is `…` (#1398, CL13). Its Measures tab counts the chart rows the source makes where each of its
+    // entries makes as many, and says they are not counted where that varies, as the Plan's event counts say theirs
+    // (ruled 27 Oct 2026) — never what has loaded either.
     const rowCount = allDataRows(index).length;
-    const tabs: Array<{ key: NarrowTab; label: string; count: number }> = [
+    const loaded = (n: number): TabCount => (partial !== true ? n : "pending");
+    const tabs: Array<{ key: NarrowTab; label: string; count: TabCount }> = [
         ...(hasGroups ? [{ key: "groups" as const, label: words.m.tabGroups(), count: rootGroups.length }] : []),
-        { key: "rows" as const, label: words.m.tabRows(), count: rowCount },
-        ...(hasMeasures ? [{ key: "measures" as const, label: words.m.tabMeasures(), count: chartRows.length }] : []),
+        { key: "rows" as const, label: words.m.tabRows(), count: pagedCount ?? loaded(rowCount) },
+        ...(hasMeasures ? [{
+            key: "measures" as const, label: words.m.tabMeasures(),
+            count: paging === undefined ? loaded(chartRows.length) : pagedMeasures ?? "pending",
+        }] : []),
     ];
 
     return (
@@ -512,10 +584,11 @@ export function PlanNarrow({
                     {tabs.map((t) => (
                         <Tabs.Trigger key={t.key} value={t.key} data-plan-tab={t.key}>
                             {t.label}
+                            {/* "…" while it counts only what has landed: never a count the read has not finished (#1398, CL13);
+                                words where the source's entries make no fixed number of what it counts. */}
                             <Box as="span" css={styles.narrowTabCount} data-plan-tabcount={t.count}>
-                                {words.m.tabCount({
-                                    n: t.count, count: words.number(t.count), partial: partial === true && t.key !== "groups",
-                                })}
+                                {typeof t.count === "number" ? words.m.tabCount({ n: t.count, count: words.number(t.count) })
+                                    : t.count === "notCounted" ? words.m.tabNotCounted() : "…"}
                             </Box>
                         </Tabs.Trigger>
                     ))}
@@ -528,19 +601,19 @@ export function PlanNarrow({
                         onPointerDown={onPointerDown} onPointerMove={onPointerMove}
                         onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd}>
                         <NarrowRuler styles={styles} />
-                        {/* A window whose read failed (#811) — its reason and a Retry,
-                            above whatever did land. */}
-                        {(failures ?? []).map((f) => (
-                            <Box key={`failed-${f.w}`} css={styles.narrowCard} data-plan-failed={f.w} role="alert">
-                                <Box css={styles.narrowCardHead}>
-                                    <Box css={styles.partError}>{failureCaption(f, words)}</Box>
-                                    <Box as="button" css={styles.windowRetry} data-plan-retry={f.w}
-                                        onClick={(e: React.MouseEvent) => { e.stopPropagation(); onRetry?.(f.w); }}>
-                                        {words.m.retry()}
+                        {/* A window whose read failed (#811) — said once, as the canvas's run says it (#1398, CL11):
+                            the reason and Retry, above whatever did land. */}
+                        {(failures ?? []).map((f) => {
+                            const range = { from: words.number(f.from + 1), to: words.number(f.to + 1) };
+                            return (
+                                <Box key={`failed-${f.w}`} css={styles.narrowCard} data-plan-failed={f.w}>
+                                    <Box css={styles.narrowCardHead}>
+                                        <LoadingFailedLine message={loadingLineText(words.m.lineFailed({ noun, ...range }))}
+                                            retry={{ onRetry: () => onRetry?.(f.w), label: words.m.retry(), name: words.m.retryRange({ noun, ...range }) }} />
                                     </Box>
                                 </Box>
-                            </Box>
-                        ))}
+                            );
+                        })}
                         {list}
                     </Tabs.Content>
                 )))}

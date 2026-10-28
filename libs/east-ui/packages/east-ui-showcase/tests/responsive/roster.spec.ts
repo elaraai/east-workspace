@@ -5,6 +5,7 @@
 /** Roster against the real in-page e3: the mock's geometry and shared builder behavior. */
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { frameAt, toolbarFaults } from "./builder-frame";
+import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
 const FILE = "e3/roster/roster";
 async function open(page: Page, name = "rosterWarehouse", theme: "light" | "dark" = "light") {
@@ -48,9 +49,9 @@ const railFields = (frame: Locator) => frame.locator(RAIL).first().evaluate(rail
     const trigger = rail.querySelector("button[aria-label^='Filters:']")?.getAttribute('aria-label') ?? '';
     return { fields: [...live, ...folded].sort(), named: ['Group', 'Position', 'Trainer', 'Agency', 'Skill', 'Name'].every(label => trigger.includes(label)) };
 });
+/** The Roster's example unmounted and mounted again, what it shows read back from e3. */
 async function remount(page: Page, name: string) {
-    await page.evaluate(() => { location.hash = '#e3/plan/plan/planTargetState'; });
-    await expect(page.locator('[data-plan-frame]').first()).toBeVisible();
+    await leaveBuilder(page);
     await page.evaluate(({ file, name }) => { location.hash = `#${file}/${name}`; }, { file: FILE, name });
     const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${FILE}/${name}"]`) });
     await entry.scrollIntoViewIfNeeded(); await expect(entry.locator('[data-roster-frame]').first()).toBeVisible();
@@ -107,7 +108,10 @@ for (const theme of ['light', 'dark'] as const) {
                     return b.left < p.left - 1 || b.right > p.right + 1 ? [card.getAttribute('data-roster-card')] : [];
                 }))).toEqual([]);
             } else await expect(main.locator('[data-roster-grid="shifts"]')).toBeVisible();
-            expect(await frame.locator('[data-roster-footer]').evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+            // The footer stays one 28px line at every width, nothing past its edge (#1398, CL3).
+            const footer = frame.locator('[data-roster-footer]');
+            expect(await footer.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+            expect(await footer.evaluate(el => el.getBoundingClientRect().height), `${width}px footer`).toBe(28);
         }
         // Essential domain commands survive the folded form, alongside the shared Save.
         await expect(frame.getByRole('button', { name: 'Save', exact: true })).toBeVisible();
@@ -140,18 +144,21 @@ for (const theme of ['light', 'dark'] as const) {
         await page.keyboard.press('Enter');
         await expect(page.getByRole('dialog')).toHaveCount(0);
     });
-    test(`People omits period controls in every toolbar form (${theme}) @narrow`, async ({ page }) => {
+    test(`People offers Week · Month in every toolbar form, Week alone on a phone, and Shifts keeps its own period (#1406, P1, P31) (${theme}) @narrow`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1080 });
         const entry = await open(page, 'rosterWarehouse', theme), frame = entry.locator('[data-roster-frame]').first();
         for (const width of [1440, 768, 294]) {
             await size(page, entry, width);
             await view(page, frame, 'People');
-            await expect(frame.getByRole('radiogroup', { name: 'Period', exact: true })).toHaveCount(0);
-            const folded = frame.getByRole('button', { name: 'View', exact: true });
-            if (await folded.isVisible()) {
-                await folded.click();
-                await expect(page.getByRole('menuitem', { name: /^(Day|Week)$/ })).toHaveCount(0);
-                await expect(page.getByRole('dialog').getByRole('radiogroup', { name: 'Period', exact: true })).toHaveCount(0);
+            // Below 480px of main the People layout is the phone's cards, by week only (P31); above it, Week · Month.
+            const offered = width < 480 ? ['Week'] : ['Week', 'Month'];
+            const row = frame.getByRole('radiogroup', { name: 'Period', exact: true });
+            if (await row.isVisible()) await expect(row.getByRole('radio')).toHaveText(offered);
+            else {
+                await frame.getByRole('button', { name: 'View', exact: true }).click();
+                const items = page.getByRole('menuitem', { name: /^(Day|Week|Month)$/ });
+                if (await items.count() > 0) await expect(items).toHaveText(offered);
+                else await expect(page.getByRole('dialog').getByRole('radiogroup', { name: 'Period', exact: true }).getByRole('radio')).toHaveText(offered);
                 await page.keyboard.press('Escape');
             }
             expect(await toolbarFaults(frame)).toEqual([]);
@@ -160,6 +167,14 @@ for (const theme of ['light', 'dark'] as const) {
         // Back on Shifts, its chosen period is kept: on the row from a 1920px frame, where the rail's summary and the view both fit.
         await size(page, entry, 1920);
         await expect(frame.getByRole('radio', { name: 'Day', exact: true })).toHaveAttribute('aria-checked', 'true');
+        // People's own period is kept as well: Month chosen there stands across a visit to Shifts.
+        await view(page, frame, 'People'); await view(page, frame, 'Month');
+        await expect(frame.locator('[data-roster-grid="people-month"]')).toBeVisible();
+        await view(page, frame, 'Shifts');
+        await expect(frame.getByRole('radio', { name: 'Day', exact: true })).toHaveAttribute('aria-checked', 'true');
+        await view(page, frame, 'People');
+        await expect(frame.locator('[data-roster-grid="people-month"]')).toBeVisible();
+        await view(page, frame, 'Week');
     });
     test(`phone edits a named assignment and saves through e3 (${theme}) @narrow`, async ({ page }) => {
         const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
@@ -354,12 +369,12 @@ for (const theme of ['light', 'dark'] as const) {
         const initial = await rows.evaluateAll(nodes => nodes.map(el => el.getAttribute('data-roster-person-row')));
         await scroll.evaluate(el => el.scrollTo({ top: el.scrollHeight })); await settled(page);
         const row = rows.filter({ has: page.locator('[data-roster-assignment]') })
-            .filter({ has: page.getByRole('button', { name: 'Off · assign', exact: true }) }).last();
+            .filter({ has: page.locator('[data-roster-assign]') }).last();
         const person = await row.getAttribute('data-roster-person-row');
         expect(initial).not.toContain(person);
         const source = row.locator('[data-roster-assignment]').first();
         const id = await source.getAttribute('data-roster-assignment');
-        const target = row.locator('[data-roster-person-day]').filter({ has: page.getByRole('button', { name: 'Off · assign', exact: true }) }).first();
+        const target = row.locator('[data-roster-person-day]').filter({ has: page.locator('[data-roster-assign]') }).first();
         const destination = await target.getAttribute('data-roster-person-day');
         await source.scrollIntoViewIfNeeded();
         const from = (await source.boundingBox())!;
@@ -375,6 +390,49 @@ for (const theme of ['light', 'dark'] as const) {
         const again = await remount(page, 'rosterPeople'); await size(page, entry, 960);
         await again.locator('[data-roster-grid="people"] [data-virtual-rows]').evaluate(el => el.scrollTo({ top: el.scrollHeight }));
         await expect(again.locator(`[data-roster-person-day="${destination}"] [data-roster-assignment="${id}"]`)).toHaveCount(1);
+    });
+    test(`People is never pulled back: a jump past rows not yet drawn stays where it was put as the rows there mount, the end stays the end, and ↓ on a name focuses the next person's with its ring (#1398) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, 'rosterPeople', theme); await size(page, entry, 960);
+        const frame = entry.locator('[data-roster-frame]').first();
+        await closeInspector(frame); await settled(page);
+        const scroll = frame.locator('[data-roster-grid="people"] [data-virtual-rows]');
+        /** Where the view stands: its offset, the furthest it goes, and the row at its top by key with the px into it. */
+        const place = () => scroll.evaluate(el => {
+            const view = el.getBoundingClientRect();
+            const rows = [...el.querySelectorAll<HTMLElement>('[data-roster-person-row], [data-roster-group]')]
+                .map(row => ({ key: row.getAttribute('data-roster-person-row') ?? `group:${row.getAttribute('data-roster-group')}`, box: row.getBoundingClientRect() }))
+                .filter(row => row.box.bottom > view.top + 1).sort((a, b) => a.box.top - b.box.top);
+            return { top: el.scrollTop, max: el.scrollHeight - el.clientHeight, row: rows[0]?.key, into: Math.round(view.top - (rows[0]?.box.top ?? view.top)) };
+        });
+        const { max } = await place();
+        expect(max).toBeGreaterThan(2_000);
+        // Past rows the view has not drawn: a third of the way, two thirds, then the end — each where it was put once the
+        // rows there have mounted and measured, never pulled back (a row taller than the rest, a group's requests, may
+        // carry the view on with the rows it shows, or grow the rows below it; never pull it back).
+        for (const at of [Math.round(max / 3), Math.round((2 * max) / 3), Number.MAX_SAFE_INTEGER]) {
+            const put = await scroll.evaluate((el, top) => { el.scrollTop = top; return el.scrollTop; }, at);
+            await settled(page);
+            expect((await place()).top, `put at ${put}`).toBeGreaterThanOrEqual(put - 1);
+        }
+        // At the end it holds: the same row at the top, the same px into it, after the page has rested again.
+        const end = await place();
+        await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+        await settled(page);
+        expect(await place()).toEqual(end);
+        // ↑ / ↓ on a person's name: from the first person in view, ↓ focuses the next person's name, its ring drawn, and selects them.
+        await scroll.evaluate(el => { el.scrollTop = 0; }); await settled(page);
+        const names = frame.locator('[data-roster-person-head]');
+        const [first, second] = [await names.nth(0).getAttribute('data-roster-person-head'), await names.nth(1).getAttribute('data-roster-person-head')];
+        await names.nth(0).focus();
+        await page.keyboard.press('ArrowDown');
+        const focused = frame.locator(`[data-roster-person-head="${second}"]`);
+        await expect(focused).toBeFocused();
+        expect(first).not.toBe(second);
+        const ring = await focused.evaluate(el => { const s = getComputedStyle(el); return { visible: el.matches(':focus-visible'), style: s.outlineStyle, width: s.outlineWidth }; });
+        expect(ring).toEqual({ visible: true, style: 'solid', width: '2px' });
+        await page.keyboard.press('ArrowUp');
+        await expect(frame.locator(`[data-roster-person-head="${first}"]`)).toBeFocused();
     });
     test(`custom numeric inspector keeps decimal typing through Save (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== 'desktop', 'Custom inspector typing; narrow default forms are tested separately.');
@@ -445,9 +503,11 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(proposal.getByRole('button', { name: 'Accept proposal for N. Ochre' })).toHaveCount(1);
         await expect(proposal.getByRole('button', { name: 'Reject proposal for N. Ochre' })).toHaveCount(1);
         const footer = frame.locator('[data-roster-footer]');
-        // Permanent, agency staff, requested, open and hours needed: overtime is the app's pay's to say.
+        // Permanent, agency staff, requested, open and hours needed: overtime is the app's pay's to say. Beside them only the
+        // "…" a cut legend ends with, and the one loading line, saying nothing once the week has landed (#1398).
         await expect(footer.locator(':scope > [data-roster-legend]')).toHaveCount(5);
-        await expect(footer.locator(':scope > :not([data-roster-legend])')).toHaveCount(0);
+        await expect(footer.locator(':scope > :not([data-roster-legend]):not([data-footer-more]):not([data-footer-line])')).toHaveCount(0);
+        await expect(footer.locator(':scope > [data-footer-line]')).toHaveAttribute('data-idle', '');
         const actual = await railStyle(footer); expect(actual.height).toBe(28);
         const groupBands = () => frame.locator('[data-roster-group]').evaluateAll(groups => groups.map(el => {
             const b = el.getBoundingClientRect(), grid = el.parentElement!.getBoundingClientRect();
@@ -471,9 +531,10 @@ for (const theme of ['light', 'dark'] as const) {
         expect(await headings.evaluateAll(nodes => nodes.length > 0 && nodes.every(el => getComputedStyle(el).textAlign === 'center'))).toBe(true);
         expect(await groupBands()).toEqual(Array.from({ length: 3 }, () => ({ left: true, width: true, align: 'left' })));
         await view(page, frame, 'People');
+        // The People week's header is the mock's 36px (#1406, §8), its rule under it.
         expect(await headerTypography()).toEqual(Array.from({ length: 7 }, () => shiftType));
-        expect(await headings.evaluateAll(nodes => nodes.map(el => el.getBoundingClientRect().height))).toEqual(Array(7).fill(28));
-        expect(await headings.first().evaluate(el => el.parentElement!.getBoundingClientRect().height)).toBe(29);
+        expect(await headings.evaluateAll(nodes => nodes.map(el => el.getBoundingClientRect().height))).toEqual(Array(7).fill(36));
+        expect(await headings.first().evaluate(el => el.parentElement!.getBoundingClientRect().height)).toBe(37);
         expect(await headings.evaluateAll(nodes => nodes.length === 7 && nodes.every(el => getComputedStyle(el).textAlign === 'center'))).toBe(true);
         const peopleBands = await groupBands();
         expect(peopleBands.length).toBeGreaterThan(0);

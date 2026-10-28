@@ -23,7 +23,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { none, some, variant, type option } from "@elaraai/east";
 import {
-    useDragLayerOptional, useDragTarget, type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type DropCellOptions, type DropVeto,
+    useDragLayerOptional, useDragMessages, useDragTarget, type CellCoord, type DragEventValue, type DragPayload, type DragTargetConfig, type DropCellOptions,
+    type DropVeto,
 } from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { linkedQuantity, type AllocationCommands } from "./actions.js";
@@ -535,6 +536,8 @@ export interface AllocationDrag {
     gripOfEvent: (event: DragEventValue) => Grip | undefined;
     /** Where the drag rests, as its targets report it (`dropTarget`): what the board's marks and its links read. */
     rest: DragRestStore;
+    /** A target's name, for what the drag layer says to a screen reader: as the board shows it, never its keys. */
+    name: (target: Target) => string;
 }
 
 /**
@@ -563,6 +566,7 @@ export function dropTarget(drag: AllocationDrag, target: Target): { veto: DropVe
                 return { text: verdict.caption, warn: verdict.warn };
             },
             onLeave: () => drag.rest.leave(target),
+            name: () => drag.name(target),
         },
     };
 }
@@ -632,6 +636,19 @@ export function useAllocationDrag(surface: string, enabled: boolean, scene: Drop
     // The drop, checked again through the command (A35).
     const live = useRef({ scene, ranks, onRefuse });
     live.current = { scene, ranks, onRefuse };
+    // What the drag layer says of a target to a screen reader, in its words for a cell, as the Roster and the Calendar say
+    // theirs: a lane hour — a free Table row's too — by its lane's name and its time, a resource's row and the fits marker by
+    // the resource's name, a bin's Table row by its arrival's code; never their keys.
+    const words = useDragMessages();
+    const name = useMemo(() => (target: Target): string => {
+        const now = live.current.scene;
+        const hour = (lane: string, at: Date) => words.cell({ row: now.laneLabel(lane), slot: formatDatePattern("HH:mm", at) });
+        if (target.kind === "lane") return hour(target.lane, target.at);
+        if (target.kind === "resource") return words.cell({ row: nameOf(now, target.resource), slot: "" });
+        const row = rowOfKey(target.row);
+        if (row === undefined) return words.cell({ row: target.row, slot: "" });
+        return "bin" in row ? words.cell({ row: codeOfBin(now, row.bin), slot: "" }) : hour(row.lane, row.at);
+    }, [words]);
     const config = useMemo((): DragTargetConfig => {
         const targetOfEvent = (event: DragEventValue) => event.type === "move" ? targetOf(event.value.to) : event.type === "add" ? targetOf(event.value.into) : undefined;
         return {
@@ -660,5 +677,5 @@ export function useAllocationDrag(surface: string, enabled: boolean, scene: Drop
     // Where the drag rests: one store for the board's life, empty once no drag is under way.
     const [rest] = useState(() => new DragRestStore());
     useEffect(() => { if (grip === undefined) rest.clear(); }, [grip, rest]);
-    return { surface, libraries, enabled, grip, subject, asked, arm: setArmed, answer, ranks, verdict: judge(true), peek: judge(false), gripOfPayload, gripOfEvent, rest };
+    return { surface, libraries, enabled, grip, subject, asked, arm: setArmed, answer, ranks, verdict: judge(true), peek: judge(false), gripOfPayload, gripOfEvent, rest, name };
 }

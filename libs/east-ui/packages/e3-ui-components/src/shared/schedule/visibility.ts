@@ -96,16 +96,19 @@ export function useKeyVisibility(value: KeyVisibilityInput, words: KeyVisibility
         return some(keys);
     }, [source, snapshotted, scan, value.visible, value.rows, words.changed]);
     const { result } = useTrackedEvaluation(read);
-    const last = useRef<option<Set<string>>>(none);
-    if (result.ok && result.value.type === "some") last.current = result.value;
-    const keys = last.current.type === "some" ? last.current : EMPTY;
+    // The last complete membership as it showed: what stands in while a new narrowing resolves (#1398, CL8) — every row
+    // while nothing narrowed (the payload's own keys, or `none`), never the keys read of no row, so a first choice keeps
+    // every row showing until its own rows land.
+    const last = useRef<{ readonly keys: option<Set<string>> } | undefined>(undefined);
+    if (result.ok && result.value.type === "some") last.current = { keys: source === undefined ? value.visible : result.value };
+    const keys = last.current?.keys ?? EMPTY;
     const loading = result.ok && result.value.type === "none";
     const error = result.ok ? undefined : result.error instanceof Error ? result.error.message : words.failed;
     const retry = () => {
         if (value.recordSlice?.type === "some") value.recordSlice.value.slice.retry();
         else if (snapshotted !== undefined) snapshotted.refresh(none);
     };
-    return { keys: source === undefined ? value.visible : keys, ready: last.current.type === "some", loading, error, retry };
+    return { keys: source === undefined ? value.visible : keys, ready: last.current !== undefined, loading, error, retry };
 }
 
 /** A Slice over several records' chrome, as a builder's payload carries it: each source's part. */

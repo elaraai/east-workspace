@@ -141,7 +141,7 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *             { code: "R2140", family: "CNC router" }, { code: "R2141", family: "CNC router" }, { code: "R2145", family: "CNC router" },
  *             { code: "P3210", family: "4-side planer" }, { code: "A7301", family: "assembly bench" },
  *         ], ArrayType(MachineType));
- *         // One rail over the jobs: the sheet's rows are what its `rows` source narrows them to, through the record's indexes.
+ *         // One rail over the jobs: the sheet's rows are the record's, its `rows` source's narrowing drawn over them as the lens.
  *         const slice = $.let(Slice.bindRecords("sheet_stress", {
  *             rows: {
  *                 source: Data.bindPaged(sheetStressJobs, { indexes: [sheetStressByActivity, sheetStressByStatus, sheetStressByNotes] }),
@@ -155,11 +155,11 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *         }));
  *         // Each view keeps every source's narrowing, by name: an activity's value is its `.east` literal, a search its prefix.
  *         const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet_stress_views", [
- *             { id: "spraying", name: "SPRAYING", context: 1n, reveals: [], folds: new Map(),
+ *             { id: "spraying", name: "SPRAYING", folds: new Map(),
  *               narrowing: new Map([["rows", { where: new Map([["activity", variant("values", ["\"Spraying\""])]]), preset: none, resolution: none }]]) },
- *             { id: "routers", name: "ROUTERS", context: 0n, reveals: [], folds: new Map(),
+ *             { id: "routers", name: "ROUTERS", folds: new Map(),
  *               narrowing: new Map([["rows", { where: new Map([["activity", variant("values", ["\"Routing\""])]]), preset: none, resolution: none }]]) },
- *             { id: "urgent", name: "URGENT", context: 0n, reveals: [], folds: new Map(),
+ *             { id: "urgent", name: "URGENT", folds: new Map(),
  *               narrowing: new Map([["rows", { where: new Map([["notes", variant("prefix", "urgent")]]), preset: none, resolution: none }]]) },
  *         ]));
  *         return (
@@ -461,7 +461,7 @@ export interface SheetDriverValue {
  *         const activities = $.let(Data.bind(sheetWorkshopActivities));
  *         const operationTemplates = $.let(Data.bind(sheetWorkshopOperationTemplates));
  *         const orderTemplates     = $.let(Data.bind(sheetWorkshopOrderTemplates));
- *         // The orders read whole, for the footer's count: the sheet pages its rows from the rail's `rows` source,
+ *         // The orders read whole, for the footer's count: the sheet reads its rows through the rail's `rows` source,
  *         // so `orders` is the patch door its Save commits through, never read whole.
  *         const allOrders  = $.let(Data.bind(sheetWorkshopOrders));
  *         const views      = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet.workshop.views", []));

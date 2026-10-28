@@ -12,7 +12,7 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { BooleanType, DateTimeType, DictType, IntegerType, OptionType, StringType, StructType, ArrayType, EastTypeType, VariantType, encodeBeast2For, isTypeValueEqual, some, toEastTypeValue, variant } from '@elaraai/east';
+import { BooleanType, DateTimeType, DictType, IntegerType, NullType, OptionType, StringType, StructType, ArrayType, EastTypeType, VariantType, dictPatchOpsType, encodeBeast2For, isTypeEqual, isTypeValueEqual, none, some, toEastTypeValue, variant, type EastType } from '@elaraai/east';
 import { RunnerType } from './runner.js';
 import {
   MigrationObjectType,
@@ -20,11 +20,15 @@ import {
   RecordCommitType,
   RecordIndexObjectType,
   RecordObjectType,
+  RecordSummaryOpType,
+  RecordSummaryTotalsType,
   decodeMigrationObject,
   decodeMutationObject,
   decodeRecordCommit,
   decodeRecordIndexObject,
   decodeRecordObject,
+  indexCollectionType,
+  mutationDeltaType,
   type MigrationObject,
   type MutationObject,
   type RecordCommit,
@@ -125,17 +129,47 @@ describe('decodeRecordIndexObject', () => {
     valueType: toEastTypeValue(IntegerType),
     buildIr: 'c'.repeat(64),
     runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('whole', null) }),
+    form: variant('entries', null),
   };
 
-  it('round-trips a current index object, its types among it', () => {
-    const decoded = decodeRecordIndexObject(encodeBeast2For(RecordIndexObjectType)(index));
-    // A decoded type value carries no memoized identity, so only the East
-    // comparison says whether two of them are the same type.
-    assert.ok(isTypeValueEqual(decoded.keyType, index.keyType));
-    assert.ok(isTypeValueEqual(decoded.valueType, index.valueType));
+  /** A decoded index object with its types checked off separately: a decoded
+   *  type value carries no memoized identity, so only the East comparison
+   *  says whether two of them are the same type. */
+  function read(bytes: Uint8Array, as: RecordIndexObject): Omit<RecordIndexObject, 'keyType' | 'valueType'> {
+    const decoded = decodeRecordIndexObject(bytes);
+    assert.ok(isTypeValueEqual(decoded.keyType, as.keyType));
+    assert.ok(isTypeValueEqual(decoded.valueType, as.valueType));
     const { keyType: _keyType, valueType: _valueType, ...rest } = decoded;
+    return rest;
+  }
+
+  it('round-trips a current index object, its types among it', () => {
     const { keyType: _k, valueType: _v, ...expected } = index;
-    assert.deepEqual(rest, expected);
+    assert.deepEqual(read(encodeBeast2For(RecordIndexObjectType)(index), index), expected);
+  });
+
+  it('round-trips a summary index object, the merge its build sums by among it (#1039)', () => {
+    const summary: RecordIndexObject = {
+      ...index,
+      multi: true,
+      valueIr: none,
+      valueType: toEastTypeValue(RecordSummaryTotalsType),
+      form: variant('summary', { mergeIr: 'd'.repeat(64) }),
+    };
+    const { keyType: _k, valueType: _v, ...expected } = summary;
+    assert.deepEqual(read(encodeBeast2For(RecordIndexObjectType)(summary), summary), expected);
+  });
+
+  it('refuses an index object an older SDK exported before it named its collection, naming the fix (#1039)', () => {
+    const PreFormIndexType = StructType({
+      keyIr: StringType, multi: BooleanType, valueIr: OptionType(StringType), keyType: EastTypeType,
+      valueType: EastTypeType, buildIr: StringType, runner: RunnerType,
+    });
+    const { form: _form, ...older } = index;
+    assert.throws(
+      () => decodeRecordIndexObject(encodeBeast2For(PreFormIndexType)(older)),
+      /^Error: the index object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
+    );
   });
 
   it('refuses an index object whose runner predates its decode, naming the fix', () => {
@@ -156,6 +190,23 @@ describe('decodeRecordIndexObject', () => {
       () => decodeRecordIndexObject(older),
       /^Error: the index object does not decode: the package was exported by an older e3 SDK — re-export it with the current one \(/,
     );
+  });
+});
+
+describe('mutationDeltaType', () => {
+  const ik = StructType({ __tile: DateTimeType, press: StringType });
+  const caseOf = (delta: EastType, part: 'key' | 'value', name: string): EastType =>
+    ((delta as unknown as Record<'key' | 'value', { cases: Record<string, EastType> }>)[part]).cases[name]!;
+
+  it("carries a summary's changes as add ops, under its `{ik, k: Null}` keys, beside an index's patch ops (#1039)", () => {
+    const delta = mutationDeltaType([
+      { name: 'primary', keyType: StringType, collectionType: DictType(StringType, IntegerType) },
+      { name: 'jobs_by_press_month', keyType: StructType({ ik, k: NullType }), collectionType: indexCollectionType(NullType, ik, RecordSummaryTotalsType), summary: true },
+      { name: 'jobs_by_press_week', keyType: StructType({ ik, k: StringType }), collectionType: indexCollectionType(StringType, ik, IntegerType) },
+    ]);
+    assert.ok(isTypeEqual(caseOf(delta, 'value', 'jobs_by_press_month'), RecordSummaryOpType));
+    assert.ok(isTypeEqual(caseOf(delta, 'key', 'jobs_by_press_month'), StructType({ ik, k: NullType })));
+    assert.ok(isTypeEqual(caseOf(delta, 'value', 'jobs_by_press_week'), dictPatchOpsType(IntegerType)));
   });
 });
 

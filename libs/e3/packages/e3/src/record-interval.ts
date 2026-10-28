@@ -4,7 +4,7 @@
  */
 
 /** Centred interval-tree keys for ordinary maintained record indexes. */
-import { DateTimeType, East, Expr, IntegerType, OptionType, SetType, StructType, isTypeEqual, none, some,
+import { DateTimeType, East, Expr, IntegerType, OptionType, SetType, StructType, isTypeEqual, none, printType, some,
   type EastType, type FunctionExpr } from '@elaraai/east';
 import type { IndexFunction } from './record-index.js';
 
@@ -62,17 +62,18 @@ export const intervalEntries = East.function([IntegerType, IntegerType], SetType
  */
 export function intervalKey(name: string, keyType: EastType, valueType: EastType, on: readonly string[],
   interval: { from: string; to: string }, prefix?: { fn: IndexFunction; multi: boolean }) {
-  if (valueType.type !== 'Struct') throw new Error(`e3.recordIndex '${name}' interval requires Struct rows`);
+  if (valueType.type !== 'Struct') throw new Error(`e3.recordIndex.interval '${name}' indexes a record with Struct rows`);
   const rowType = valueType as StructType<Record<string, EastType>>;
   const startType = rowType.fields[interval.from];
   const endType = rowType.fields[interval.to];
-  for (const [field, type] of [[interval.from, startType], [interval.to, endType]] as const) {
-    if (type === undefined || (!isTypeEqual(type, DateTimeType) && !isTypeEqual(type, OptionType(DateTimeType)))) {
-      throw new Error(`e3.recordIndex '${name}' interval field '${field}' must be DateTime or Option<DateTime>`);
+  for (const [option, field, type] of [['from', interval.from, startType], ['to', interval.to, endType]] as const) {
+    if (type === undefined) throw new Error(`e3.recordIndex.interval '${name}' ${option} names unknown row field '${field}'`);
+    if (!isTypeEqual(type, DateTimeType) && !isTypeEqual(type, OptionType(DateTimeType))) {
+      throw new Error(`e3.recordIndex.interval '${name}' ${option} names '${field}', of type ${printType(type)}: ${option} is a DateTime or an Option<DateTime> field`);
     }
   }
   if (on.includes(interval.from) || on.includes('__interval') || interval.from === '__interval') {
-    throw new Error(`e3.recordIndex '${name}' interval start and reserved '__interval' cannot be leading fields`);
+    throw new Error(`e3.recordIndex.interval '${name}': its start '${interval.from}' and the reserved '__interval' cannot be leading fields`);
   }
   const fields = Object.fromEntries(on.map(field => {
     const type = rowType.fields[field]!;

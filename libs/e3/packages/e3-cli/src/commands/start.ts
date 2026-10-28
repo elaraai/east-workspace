@@ -363,7 +363,8 @@ async function executeRemote(
  * is taken only once its events are all printed. A poll that served nothing
  * past its cursor counts as caught up, whatever the summary names, so a store
  * whose summary runs ahead of its events is not polled in a tight loop. A run
- * asked to stop, `stopping`, has not ended until it has stopped.
+ * answered `stopping` — asked to stop and not yet stopped, or ended and still
+ * holding its workspace — has not ended until it has let the workspace go.
  *
  * @param poll - Polls the run from a cursor
  * @param isAborted - Whether the caller has stopped following

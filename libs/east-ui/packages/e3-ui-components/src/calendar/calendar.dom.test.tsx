@@ -29,8 +29,13 @@ describe("Calendar in the shared frame", () => {
         expect(event(container, "service", "service1").hasAttribute("data-overlap")).toBe(true);
         expect(event(container, "shift", "shift1").hasAttribute("data-overlap")).toBe(false);
         expect(container.querySelector("[data-calendar-overlaps]")?.textContent).toContain("1");
+        // The footer is the legend, the "…" a cut legend ends with, and the one shared loading line (#1398) — saying nothing once
+        // the window has landed.
         const footer = container.querySelector("[data-calendar-footer]")!;
-        expect([...footer.children].map(item => item.getAttribute("data-calendar-legend"))).toEqual(["job", "service", "shift"]);
+        expect([...footer.querySelectorAll(":scope > [data-calendar-legend]")].map(item => item.getAttribute("data-calendar-legend"))).toEqual(["job", "service", "shift"]);
+        expect([...footer.children].every(item => item.hasAttribute("data-calendar-legend") || item.hasAttribute("data-footer-more")
+            || item.hasAttribute("data-footer-line"))).toBe(true);
+        expect(footer.querySelector("[data-footer-line]")!.hasAttribute("data-idle")).toBe(true);
         expect(footer.textContent).not.toMatch(/pending|backlog|saved|events in view/);
     });
     test("optional library and inspector really omit their panes; every example is the same Calendar", async () => {
@@ -124,6 +129,65 @@ describe("Calendar in the shared frame", () => {
     });
 });
 
+
+describe("the board keeps the keyboard (retest C4 and C5, 27 Oct 2026)", () => {
+    /** The period the time navigator shows, as its trigger names it. */
+    const period = (c: HTMLElement) => slot(c, "toolbar").querySelector("[data-time-navigation=calendar] [data-time-trigger]")?.textContent;
+    const board = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-calendar-main]")!;
+
+    test("Delete on the event the keyboard is on deletes it, the keyboard staying on the board, so Ctrl+Z there puts it back", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        const job = event(container, "job", "job1");
+        await press(job);
+        await act(async () => { job.focus(); });
+        await act(async () => { fireEvent.keyDown(job, { key: "Delete" }); }); await settle();
+        expect(event(container, "job", "job1")).toBeNull();
+        // On the board, never the page's body: the keys go on to the Calendar.
+        expect(document.activeElement).toBe(board(container));
+        await act(async () => { fireEvent.keyDown(document.activeElement!, { key: "z", ctrlKey: true }); }); await settle();
+        expect(event(container, "job", "job1")).not.toBeNull();
+    });
+
+    test("a click on an empty part of the board, or of the Backlog, puts the keyboard in the Calendar: `]` and `[` step its period from there", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        const user = userEvent.setup();
+        const before = period(container);
+        // The board's hours, clear of its events: a part of it that takes no gesture (jsdom lays no column out to draw in).
+        await user.click(board(container).querySelector<HTMLElement>("[data-calendar-gutter]")!); await settle();
+        expect(container.querySelector("[data-calendar-frame]")!.contains(document.activeElement)).toBe(true);
+        await user.keyboard("]"); await settle();
+        expect(period(container)).not.toBe(before);
+        // The Backlog's list, clear of its cards.
+        await press(within(slot(container, "start")).getByRole("tab", { name: /Backlog/ }));
+        await act(async () => { (document.activeElement as HTMLElement | null)?.blur(); });
+        await user.click(slot(container, "start").querySelector<HTMLElement>('[data-library$=".library.backlog"]')!); await settle();
+        expect(container.querySelector("[data-calendar-frame]")!.contains(document.activeElement)).toBe(true);
+        // `[[` is the `[` key in user-event's keys, whose `[` opens a key's name.
+        await user.keyboard("[["); await settle();
+        expect(period(container)).toBe(before);
+    });
+
+    test("Enter on an event, the Inspector folded, opens its Details — the key going no further than the Calendar", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(within(slot(container, "end")).getByRole("button", { name: "Collapse Inspector" }));
+        expect(slot(container, "end").hasAttribute("data-collapsed")).toBe(true);
+        const job = event(container, "job", "job1");
+        await press(job);
+        // A click selects it, and opens nothing.
+        expect(slot(container, "end").hasAttribute("data-collapsed")).toBe(true);
+        const heard: string[] = [];
+        const hear = (e: KeyboardEvent) => { heard.push(e.key); };
+        document.addEventListener("keydown", hear);
+        try {
+            await act(async () => { job.focus(); fireEvent.keyDown(job, { key: "Enter" }); }); await settle();
+        } finally {
+            document.removeEventListener("keydown", hear);
+        }
+        expect(slot(container, "end").hasAttribute("data-collapsed")).toBe(false);
+        expect(slot(container, "end").textContent).toContain("Mounting brackets");
+        expect(heard).toEqual([]);
+    });
+});
 
 describe("Calendar explicit action forms", () => {
     test("a bound template creates a typed event on the first free compatible resource; Undo removes the entire creation", async () => {
@@ -259,4 +323,106 @@ describe("Calendar explicit action forms", () => {
         expect(await commits(ex.calendarServices)).toEqual(["patch", ...deployed.services]);
     });
 
+});
+
+describe("the agenda keeps the keyboard as a card's action takes its card away (#1398)", () => {
+    /** A card's control the focus is put on, then pressed: what holds the focus after. */
+    async function pressFocused(control: HTMLElement): Promise<Element> {
+        control.focus();
+        expect(document.activeElement).toBe(control);
+        await press(control);
+        return document.activeElement ?? document.body;
+    }
+    /** The agenda's cards in its order, each by its event. */
+    const cards = (c: HTMLElement) => [...c.querySelectorAll("[data-calendar-card]")].map(el => el.getAttribute("data-calendar-card")!);
+    const cardOf = (c: HTMLElement, id: string) => [...c.querySelectorAll<HTMLElement>("[data-calendar-card]")].find(el => el.getAttribute("data-calendar-card") === id)!;
+    /** The card an element stands in, by its event, and whether it is that card's head. */
+    const standing = (el: Element) => {
+        const at = el.closest("[data-calendar-card]");
+        return [at?.getAttribute("data-calendar-card") ?? null, at !== null && at.querySelector("button") === el];
+    };
+
+    test("Delete and Return to backlog take a card away: the focus lands on the head of the card after it — the last one's, before it — never on the page's body", async () => {
+        const { container } = await h.mount(ex.calendarOperations); await width(390);
+        const order = cards(container);
+        expect(order.length).toBeGreaterThan(3);
+        let focused = await pressFocused(within(cardOf(container, order[0]!)).getByRole("button", { name: "Delete" }));
+        expect(cards(container)).not.toContain(order[0]);
+        expect(focused).not.toBe(document.body);
+        expect(standing(focused)).toEqual([order[1], true]);
+        // The first card that offers Return to backlog: the event goes to the Backlog, the focus to the card after it.
+        const now = cards(container);
+        const i = now.findIndex(id => within(cardOf(container, id)).queryByRole("button", { name: "Return to backlog" }) !== null);
+        expect(i).toBeGreaterThanOrEqual(0);
+        focused = await pressFocused(within(cardOf(container, now[i]!)).getByRole("button", { name: "Return to backlog" }));
+        expect(cards(container)).not.toContain(now[i]);
+        expect(standing(focused)).toEqual([now[i + 1] ?? now[i - 1], true]);
+        // The agenda's last card: the focus lands on the one before it.
+        const rest = cards(container);
+        focused = await pressFocused(within(cardOf(container, rest.at(-1)!)).getByRole("button", { name: "Delete" }));
+        expect(standing(focused)).toEqual([rest.at(-2), true]);
+    });
+
+    test("Move takes a card to another of the agenda's days, from the popover its card opened: the focus lands on its head there, never on the page's body", async () => {
+        const { container } = await h.mount(ex.calendarOperations); await width(390);
+        const days = [...container.querySelectorAll("[data-calendar-day]")].map(day => day.getAttribute("data-calendar-day"));
+        const dayOf = (id: string) => cardOf(container, id)?.closest("[data-calendar-day]")?.getAttribute("data-calendar-day");
+        // A card of Thursday 1 October, the week's fourth day: a day later is the agenda's Friday.
+        const id = container.querySelector('[data-calendar-day="2026-10-01"] [data-calendar-card]')!.getAttribute("data-calendar-card")!;
+        const move = within(cardOf(container, id)).getByRole("button", { name: "Move" });
+        move.focus();
+        await press(move);
+        const dialog = within(document.body).getByRole("dialog");
+        // A day later: the start's day stepped up, taken as the focus leaves its field.
+        const start = dialog.querySelector<HTMLElement>('[data-field="start"]')!;
+        const user = userEvent.setup();
+        await user.click(start.querySelector<HTMLElement>('[role="spinbutton"][aria-label^="day"]')!);
+        await user.keyboard("{ArrowUp}");
+        while (start.contains(document.activeElement)) await user.tab();
+        await settle();
+        await press(within(dialog).getByRole("button", { name: "Move" }));
+        expect(dayOf(id)).toBe("2026-10-02");
+        expect(days).toContain("2026-10-02");
+        const focused = document.activeElement ?? document.body;
+        expect(focused).not.toBe(document.body);
+        expect(standing(focused)).toEqual([id, true]);
+    });
+});
+
+describe("the inspector keeps the keyboard as a control goes with its view (#1398)", () => {
+    /** A Details control the focus is put on, then pressed: what holds the focus after — never the page's body. */
+    async function pressFocused(control: HTMLElement): Promise<Element> {
+        control.focus();
+        expect(document.activeElement).toBe(control);
+        await press(control);
+        return document.activeElement ?? document.body;
+    }
+    test("Delete takes the event away: the focus lands on what the inspector shows in its place, Nothing selected, never on the page's body", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(event(container, "job", "job1"));
+        const focused = await pressFocused(slot(container, "end").querySelector<HTMLElement>('[data-calendar-action="delete"]')!);
+        expect(event(container, "job", "job1")).toBeNull();
+        expect(focused).not.toBe(document.body);
+        expect([focused.hasAttribute("data-focus-home"), slot(container, "end").contains(focused), focused.textContent]).toEqual([
+            true, true, "Nothing selectedSelect an event to inspect its schedule and fields.",
+        ]);
+    });
+    test("Return to backlog goes with the scheduled event's actions: the focus lands on the event's heading, never on the page's body", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(event(container, "job", "job1"));
+        const focused = await pressFocused(slot(container, "end").querySelector<HTMLElement>('[data-calendar-action="unschedule"]')!);
+        // The event is in the backlog now, Details showing it unscheduled.
+        expect(slot(container, "end").querySelector('[data-calendar-action="unschedule"]')).toBeNull();
+        expect(focused).not.toBe(document.body);
+        expect([focused.hasAttribute("data-focus-home"), focused.querySelector("[data-inspector-title]")?.textContent, focused.querySelector("[data-inspector-when]")?.textContent])
+            .toEqual([true, "Mounting brackets · batch 42", "Unscheduled"]);
+    });
+    test("Delete selected takes several away: the focus lands on Nothing selected, never on the page's body", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(event(container, "job", "job1"));
+        await act(async () => { fireEvent.click(event(container, "service", "service1"), { ctrlKey: true }); }); await settle();
+        const focused = await pressFocused(within(slot(container, "end")).getByRole("button", { name: "Delete selected" }));
+        expect(focused).not.toBe(document.body);
+        expect([focused.hasAttribute("data-focus-home"), focused.textContent]).toEqual([true, "Nothing selectedSelect an event to inspect its schedule and fields."]);
+    });
 });

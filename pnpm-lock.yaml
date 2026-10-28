@@ -1057,6 +1057,9 @@ importers:
       d3-time:
         specifier: ^3.1.0
         version: 3.1.0
+      rbush:
+        specifier: ^4.0.1
+        version: 4.0.1
       use-local-storage-state:
         specifier: ^19.5.0
         version: 19.5.0(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -1106,6 +1109,9 @@ importers:
       '@types/d3-time':
         specifier: ^3.0.4
         version: 3.0.4
+      '@types/rbush':
+        specifier: ^4.0.0
+        version: 4.0.0
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14
@@ -1354,9 +1360,6 @@ importers:
       leaflet:
         specifier: ^1.9.4
         version: 1.9.4
-      rbush:
-        specifier: ^4.0.1
-        version: 4.0.1
       react-markdown:
         specifier: ^9.0.0
         version: 9.1.0(@types/react@19.2.14)(react@19.2.4)
@@ -1403,9 +1406,6 @@ importers:
       '@types/node':
         specifier: ^22.18.1
         version: 22.19.15
-      '@types/rbush':
-        specifier: ^4.0.0
-        version: 4.0.0
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14

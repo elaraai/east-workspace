@@ -40,7 +40,6 @@ type DocItem = HeadItem | EntryItem;
 
 interface TocEntry { name: string; index: number }
 interface TocGroup { key: string; title: string; index: number; entries: TocEntry[] }
-interface TocSection { category: string; groups: TocGroup[] }
 
 /** `"sales-dashboard"` → `"Sales Dashboard"`. */
 function titleFor(pathKey: string): string {
@@ -53,13 +52,13 @@ function titleFor(pathKey: string): string {
 
 /** Flatten entries (already in document order) into the virtualizer's item
  *  list — one head per consecutive pathKey run, then its entries — plus the
- *  TOC tree. `withCategories` splits the TOC by category for the All pages. */
-function buildItems(entries: readonly CatalogEntry[], withCategories: boolean): {
+ *  TOC's groups. */
+function buildItems(entries: readonly CatalogEntry[]): {
     items: DocItem[];
-    sections: TocSection[];
+    groups: TocGroup[];
 } {
     const items: DocItem[] = [];
-    const sections: TocSection[] = [];
+    const groups: TocGroup[] = [];
     let group: TocGroup | undefined;
     for (const entry of entries) {
         if (group === undefined || group.key !== entry.pathKey) {
@@ -73,18 +72,12 @@ function buildItems(entries: readonly CatalogEntry[], withCategories: boolean): 
                 count,
             });
             group = { key: entry.pathKey, title: titleFor(entry.pathKey), index: items.length - 1, entries: [] };
-            const category = withCategories ? entry.category : "";
-            const section = sections.at(-1);
-            if (section === undefined || section.category !== category) {
-                sections.push({ category, groups: [group] });
-            } else {
-                section.groups.push(group);
-            }
+            groups.push(group);
         }
         items.push({ kind: "entry", key: `e:${entry.pathKey}:${entry.name}`, groupKey: entry.pathKey, entry });
         group.entries.push({ name: entry.name, index: items.length - 1 });
     }
-    return { items, sections };
+    return { items, groups };
 }
 
 /** Pre-measurement height estimate; the virtualizer's ResizeObserver
@@ -112,17 +105,12 @@ export interface DocScrollTarget {
 
 export function DocList({
     entries,
-    showCategories = false,
     scrollTarget,
 }: {
     entries: readonly CatalogEntry[];
-    showCategories?: boolean;
     scrollTarget?: DocScrollTarget;
 }) {
-    const { items, sections } = useMemo(
-        () => buildItems(entries, showCategories),
-        [entries, showCategories],
-    );
+    const { items, groups } = useMemo(() => buildItems(entries), [entries]);
     const parentRef = useRef<HTMLDivElement>(null);
     const targetIndex = scrollTarget === undefined ? -1 : items.findIndex(item => scrollTarget.name !== undefined
         ? item.kind === "entry" && item.groupKey === scrollTarget.pathKey && item.entry.name === scrollTarget.name
@@ -232,7 +220,7 @@ export function DocList({
                 </Box>
             </Box>
             <Toc
-                sections={sections}
+                groups={groups}
                 activeGroupKey={activeGroupKey}
                 onJump={i => virtualizer.scrollToIndex(i, { align: "start" })}
             />
@@ -263,15 +251,15 @@ function GroupHead({ item, first }: { item: HeadItem; first: boolean }) {
 /* ------------------------------------------------------------------ */
 
 function Toc({
-    sections,
+    groups,
     activeGroupKey,
     onJump,
 }: {
-    sections: TocSection[];
+    groups: TocGroup[];
     activeGroupKey: string | null;
     onJump: (index: number) => void;
 }) {
-    if (sections.length === 0) return null;
+    if (groups.length === 0) return null;
     return (
         <Box
             as="nav"
@@ -288,51 +276,44 @@ function Toc({
             borderLeftColor="border.subtle"
         >
             <Text textStyle="nav.eyebrow" mb="10px">On this page</Text>
-            {sections.map((sec, i) => (
-                <Box key={sec.category || i} mb="6px">
-                    {sec.category && (
-                        <Text textStyle="nav.eyebrow" color="fg" mt="16px" mb="4px">
-                            {sec.category}
-                        </Text>
-                    )}
-                    {sec.groups.map(g => {
-                        const active = g.key === activeGroupKey;
-                        return (
-                            <Box key={g.key}>
-                                <TocLink active={active} onClick={() => onJump(g.index)}>
-                                    {g.title}
-                                </TocLink>
-                                {/* Only the active group expands its examples —
-                                 *  keeps the TOC bounded on example-heavy pages. */}
-                                {active && g.entries.map(en => (
-                                    <chakra.button
-                                        key={en.name}
-                                        type="button"
-                                        onClick={() => onJump(en.index)}
-                                        display="block"
-                                        textAlign="left"
-                                        w="100%"
-                                        py="2px"
-                                        pl="14px"
-                                        border="0"
-                                        background="transparent"
-                                        cursor="pointer"
-                                        fontFamily="mono"
-                                        fontSize="10.5px"
-                                        color="fg.muted"
-                                        overflow="hidden"
-                                        textOverflow="ellipsis"
-                                        whiteSpace="nowrap"
-                                        _hover={{ color: "brand.700" }}
-                                    >
-                                        {en.name}
-                                    </chakra.button>
-                                ))}
-                            </Box>
-                        );
-                    })}
-                </Box>
-            ))}
+            <Box mb="6px">
+                {groups.map(g => {
+                    const active = g.key === activeGroupKey;
+                    return (
+                        <Box key={g.key}>
+                            <TocLink active={active} onClick={() => onJump(g.index)}>
+                                {g.title}
+                            </TocLink>
+                            {/* Only the active group expands its examples —
+                             *  keeps the TOC bounded on example-heavy pages. */}
+                            {active && g.entries.map(en => (
+                                <chakra.button
+                                    key={en.name}
+                                    type="button"
+                                    onClick={() => onJump(en.index)}
+                                    display="block"
+                                    textAlign="left"
+                                    w="100%"
+                                    py="2px"
+                                    pl="14px"
+                                    border="0"
+                                    background="transparent"
+                                    cursor="pointer"
+                                    fontFamily="mono"
+                                    fontSize="10.5px"
+                                    color="fg.muted"
+                                    overflow="hidden"
+                                    textOverflow="ellipsis"
+                                    whiteSpace="nowrap"
+                                    _hover={{ color: "brand.700" }}
+                                >
+                                    {en.name}
+                                </chakra.button>
+                            ))}
+                        </Box>
+                    );
+                })}
+            </Box>
         </Box>
     );
 }

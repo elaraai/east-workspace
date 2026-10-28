@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { packLanes, type LaneSpan } from "./lanes.js";
+import { packLanes, setLanesProbe, type LaneSpan } from "./lanes.js";
 
 /** An event from one time of day to another, in minutes since midnight. */
 const ev = (from: string, to: string): LaneSpan => {
@@ -69,6 +69,53 @@ describe("packLanes", () => {
             { lane: 1, lanes: 2, span: 1 },
             { lane: 0, lanes: 2, span: 1 },
         ]);
+    });
+
+    it("stretches each event of a long cluster by searching each lane's events, never sweeping the cluster a lane (#1398, CL9)", () => {
+        // A day-long event, 20 at once at its start, then 400 a minute or two each, one after another: one cluster of 421
+        // in 21 lanes, as a year-long reservation and a press's jobs are. Each of the 400 takes lane 1 and stretches over the
+        // 19 lanes the 20 left free.
+        const spans: LaneSpan[] = [{ start: 0, end: 1440 }, ...Array.from({ length: 20 }, () => ({ start: 0, end: 10 })),
+            ...Array.from({ length: 400 }, (_, i) => ({ start: 20 + i * 3, end: 22 + i * 3 }))];
+        let examined = 0;
+        setLanesProbe(() => { examined += 1; });
+        try {
+            const places = packLanes(spans);
+            expect(places[0]).toEqual({ lane: 0, lanes: 21, span: 1 });
+            expect(places.slice(1, 21).map(place => place.lane)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+            expect(places.slice(21).every(place => place.lane === 1 && place.lanes === 21 && place.span === 20)).toBe(true);
+            // Each event examines the lanes to its right by a search of each lane's events, in order: a search its log.
+            const lanes = 21;
+            expect(examined).toBeLessThanOrEqual(spans.length * lanes * (Math.ceil(Math.log2(spans.length)) + 2));
+        } finally {
+            setLanesProbe(undefined);
+        }
+    });
+
+    it("stretches every event exactly as far as no event of the lanes to its right overlaps it, instants and ties among them (#1398, CL9)", () => {
+        // A seeded run over clusters of every shape — instants, events starting together, events inside others — held
+        // to the rule itself: each lane an event spans beyond its own holds no event overlapping it, and the lane past
+        // its span, where there is one, holds one that does. Events of other clusters overlap none of it.
+        let seed = 1398;
+        const next = (n: number): number => {
+            seed = (seed * 16807) % 2147483647;
+            return seed % n;
+        };
+        const overlapping = (a: LaneSpan, b: LaneSpan): boolean => a.start < b.end && b.start < a.end;
+        for (let round = 0; round < 300; round += 1) {
+            const spans: LaneSpan[] = Array.from({ length: 1 + next(40) }, () => {
+                const start = next(80);
+                return { start, end: start + next(3) * next(12) };
+            });
+            const places = packLanes(spans);
+            spans.forEach((span, i) => {
+                const place = places[i]!;
+                const lanesHold = (lane: number): boolean =>
+                    spans.some((other, j) => j !== i && places[j]!.lane === lane && overlapping(span, other));
+                for (let lane = place.lane + 1; lane < place.lane + place.span; lane += 1) expect(lanesHold(lane)).toBe(false);
+                if (place.lane + place.span < place.lanes) expect(lanesHold(place.lane + place.span)).toBe(true);
+            });
+        }
     });
 
     it("answers in the order the events were given, whatever their times", () => {

@@ -11,8 +11,8 @@ import { printFor } from "../serialization/east.js";
 import { type EastTypeValue, EastTypeValueType } from "../type_of_type.js";
 
 /* The pieces every compiled closure and builtin shares: the context values
- * variables live in, the control-flow exceptions, the iteration locks, and
- * the call into a compiled East function a builtin makes. */
+ * variables live in, the iteration locks, and the call into a compiled East
+ * function a builtin makes. Control flow is compiled as values (`flow.ts`). */
 
 export const printTypeValue = printFor(EastTypeValueType) as (type: EastTypeValue) => string;
 
@@ -95,38 +95,13 @@ export const unlockForIteration = (obj: any) => {
   }
 };
 
-/** @internal An exception throw for the purpose of early function return */
-export class ReturnException {
-  constructor(public value: any) {}
-}
-
-/** @internal An exception throw for the purpose of early loop continue */
-export class ContinueException {
-  constructor(public label: string) {}
-}
-
-/** @internal An exception throw for the purpose of early loop break */
-export class BreakException {
-  constructor(public label: string) {}
-}
-
-/** Used to call a compiled function with the given arguments and handle errors within builtin functions */
+/** Used to call a compiled function with the given arguments within builtin functions: the function gives
+ *  its value, and a call nested too deeply is an East error at the builtin's location. */
 export function call_function(loc_id: bigint, source_map: SourceMap | null, compiled_f: (...args: any[]) => any, ...args: any[]): any {
   try {
     return compiled_f(...args);
   } catch (e: unknown) {
-    if (e instanceof ReturnException) {
-      return e.value;
-    } else if (e instanceof EastError) {
-      // TODO: push loc_id to EastError once SourceMap resolution is wired up
-      throw(e);
-    } else if (e instanceof ContinueException) {
-      throw new Error(`continue failed to find label ${e.label} at loc_id ${loc_id}`)
-    } else if (e instanceof BreakException) {
-      throw new Error(`break failed to find label ${e.label} at loc_id ${loc_id}`)
-    } else {
-      throw callDepthErrorAt(e, loc_id, source_map);
-    }
+    throw callDepthErrorAt(e, loc_id, source_map);
   }
 }
 

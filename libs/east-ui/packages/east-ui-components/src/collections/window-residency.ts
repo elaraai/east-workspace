@@ -37,6 +37,14 @@
  * construction: the demand range and the pins are floors, and the budget loses
  * if it conflicts.
  *
+ * # Prefetch follows the direction of travel (#1398, CL6)
+ *
+ * The demand ring is `ahead` windows the way the viewport is travelling and
+ * `behind` the other — two ahead and one behind by default — and a step
+ * extends the run ahead first. A driver says which way it travels
+ * ({@link travelOf}); a window that leaves the ring is no longer read, and
+ * the paged runtime aborts its request while it is still in flight.
+ *
  * @packageDocumentation
  */
 
@@ -93,28 +101,56 @@ export const DEFAULT_RESIDENCY: ResidencyOptions = {
     evictTo: 0.75,
 };
 
-/** The window range the viewport wants resident, clamped to the source. */
+/** Which way the viewport travels through the windows: `1` toward the end, `-1` toward the start. */
+export type Travel = 1 | -1;
+
+/**
+ * Which way the viewport travels, from where it was to where it is: the way it
+ * moved, or the way it last moved while it holds still.
+ *
+ * @param from - The window it was in
+ * @param to - The window it is in
+ * @param last - The way it last travelled
+ * @returns The way it travels
+ */
+export function travelOf(from: number, to: number, last: Travel): Travel {
+    return to > from ? 1 : to < from ? -1 : last;
+}
+
+/**
+ * The window range the viewport wants resident, clamped to the source: `ahead`
+ * windows the way it travels and `behind` the other (CL6).
+ *
+ * @param ledger - The window ledger (for the window count)
+ * @param viewportWindow - The window the viewport is looking at
+ * @param opts - Policy
+ * @param travel - Which way it travels; toward the end unless given
+ * @returns The windows it wants, inclusive
+ */
 export function demandRange(
     ledger: WindowLedger,
     viewportWindow: number,
     opts: ResidencyOptions,
+    travel: Travel = 1,
 ): { from: number; to: number } {
     const last = Math.max(0, ledger.windows - 1);
     const at = Math.min(last, Math.max(0, viewportWindow));
     return {
-        from: Math.max(0, at - opts.behind),
-        to: Math.min(last, at + opts.ahead),
+        from: Math.max(0, at - (travel === 1 ? opts.behind : opts.ahead)),
+        to: Math.min(last, at + (travel === 1 ? opts.ahead : opts.behind)),
     };
 }
 
 /**
  * One step of demand: start at the viewport, extend by a single window toward
- * what it wants, or rebase when it has moved far away.
+ * what it wants — the way it travels first — or rebase when it has moved far
+ * away.
  *
  * @param r - Current residency
  * @param ledger - The window ledger (for the window count)
  * @param viewportWindow - The window the viewport is looking at
  * @param opts - Policy
+ * @param travel - Which way it travels; toward the end unless given
  * @returns The next residency (the same object when already satisfied)
  */
 export function step(
@@ -122,9 +158,10 @@ export function step(
     ledger: WindowLedger,
     viewportWindow: number,
     opts: ResidencyOptions,
+    travel: Travel = 1,
 ): Residency {
     if (ledger.windows === 0) return r;
-    const want = demandRange(ledger, viewportWindow, opts);
+    const want = demandRange(ledger, viewportWindow, opts, travel);
 
     if (isEmpty(r)) {
         const at = Math.min(Math.max(viewportWindow, 0), ledger.windows - 1);
@@ -138,10 +175,15 @@ export function step(
         return { ...r, lo: at, hi: at };
     }
 
-    // Extend toward the viewport first (ahead), then behind. One window per
-    // step: one landing, one geometry revision.
-    if (want.to > r.hi) return { ...r, hi: r.hi + 1 };
-    if (want.from < r.lo) return { ...r, lo: r.lo - 1 };
+    // Extend ahead first — the way the viewport travels — then behind. One
+    // window per step: one landing, one geometry revision.
+    if (travel === 1) {
+        if (want.to > r.hi) return { ...r, hi: r.hi + 1 };
+        if (want.from < r.lo) return { ...r, lo: r.lo - 1 };
+    } else {
+        if (want.from < r.lo) return { ...r, lo: r.lo - 1 };
+        if (want.to > r.hi) return { ...r, hi: r.hi + 1 };
+    }
     return r;
 }
 
@@ -158,6 +200,7 @@ export function step(
  * @param ledger - The ledger (rows per measured window)
  * @param viewportWindow - The window the viewport is looking at
  * @param opts - Policy
+ * @param travel - Which way the viewport travels; toward the end unless given
  * @returns The trimmed residency (the same object when nothing was dropped)
  */
 export function trim(
@@ -165,22 +208,23 @@ export function trim(
     ledger: WindowLedger,
     viewportWindow: number,
     opts: ResidencyOptions,
+    travel: Travel = 1,
 ): Residency {
     if (isEmpty(r)) return r;
     let { lo, hi } = r;
     if (rowsIn(ledger, residentWindows({ lo, hi, pins: r.pins })) <= opts.maxRows) return r;
 
-    const want = demandRange(ledger, viewportWindow, opts);
+    const want = demandRange(ledger, viewportWindow, opts, travel);
     const target = opts.maxRows * opts.evictTo;
     const droppable = (w: number): boolean =>
         w < want.from || w > want.to ? !r.pins.has(w) : false;
 
     while (lo < hi && rowsIn(ledger, residentWindows({ lo, hi, pins: r.pins })) > target) {
-        // Drop the end further from the viewport; ties drop the head, which is
-        // what a downward scroll leaves behind.
+        // Drop the end further from the viewport; ties drop the end the
+        // viewport travels away from — what a scroll leaves behind.
         const headDistance = viewportWindow - lo;
         const tailDistance = hi - viewportWindow;
-        const dropHead = headDistance >= tailDistance;
+        const dropHead = headDistance > tailDistance || (headDistance === tailDistance && travel === 1);
         if (dropHead && droppable(lo)) { lo += 1; continue; }
         if (!dropHead && droppable(hi)) { hi -= 1; continue; }
         // The far end is protected — try the other one before giving up.
@@ -193,14 +237,38 @@ export function trim(
     return lo === r.lo && hi === r.hi ? r : { ...r, lo, hi };
 }
 
-/** One commit: demand a window, then trim. */
+/**
+ * One commit: demand a window, then trim.
+ *
+ * @param r - Current residency
+ * @param ledger - The window ledger
+ * @param viewportWindow - The window the viewport is looking at
+ * @param opts - Policy
+ * @param travel - Which way the viewport travels; toward the end unless given
+ * @returns The next residency (the same object when nothing moved)
+ */
 export function advance(
     r: Residency,
     ledger: WindowLedger,
     viewportWindow: number,
     opts: ResidencyOptions = DEFAULT_RESIDENCY,
+    travel: Travel = 1,
 ): Residency {
-    return trim(step(r, ledger, viewportWindow, opts), ledger, viewportWindow, opts);
+    return trim(step(r, ledger, viewportWindow, opts, travel), ledger, viewportWindow, opts, travel);
+}
+
+/**
+ * The windows that left the run between two residencies: what a driver stops
+ * reading, and whose requests still in flight the paged runtime aborts.
+ *
+ * @param before - The run before
+ * @param after - The run after
+ * @returns The windows resident before and not after, ascending
+ */
+export function leftRun(before: Residency, after: Residency): number[] {
+    const out: number[] = [];
+    for (let w = before.lo; w <= before.hi; w++) if (w < after.lo || w > after.hi) out.push(w);
+    return out;
 }
 
 /** Pin a window (a pending seek target) so no trim can drop it. */

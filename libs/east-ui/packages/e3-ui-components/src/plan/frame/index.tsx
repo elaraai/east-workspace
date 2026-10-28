@@ -35,9 +35,15 @@
  *   now line, the pinned rows, the rows — or, below 480px of main, the
  *   narrow layout's tabs and cards — the links and the overlays;
  * - **the footer** — the event kinds' counts (the events in the window, the
- *   backlog, and when a kind's record was last saved), the changes waiting on
- *   Save, the author's items, and a paged canvas's
- *   transport line;
+ *   backlog, and when a kind's record was last saved; "…" until their first
+ *   read lands, never 0), the changes waiting on Save, the author's items, and
+ *   the shared loading line, which says what of a paged source the view waits
+ *   for, and a read of the event kinds' rows that failed, in the kinds' words,
+ *   with Retry (#1398) — live under the cold-load skeleton, which covers
+ *   the rest of the frame at the rows' pitch until the source's first window
+ *   lands; after it a read in flight covers nothing, and main is busy. The
+ *   line and the runs' placeholders show on the Plan's one reveal clock
+ *   (`LoadingReveal`, CL4);
  * - **the overlaps** (#1198, PB51–PB53) — read with the counts: two events of
  *   a kind that warns of them, on one resource at once. Each event in a pair
  *   wears the warn ring on the canvas, the toolbar's chip counts the pairs and
@@ -57,14 +63,17 @@
  * `id` too (`planKeys(id).series`, PB29, `hidden.ts`), and only while the
  * library lists that tab, as nothing else could show it again: the event
  * kinds' rows leave it out through the `blocks` seam, and the canvas leaves
- * out the Plan's own `rows` it hides.
+ * out the Plan's own `rows` it hides. An event kind hidden there is in none of
+ * the canvas's figures — the footer's counts and the inspector's — and nothing
+ * says so (#1039).
  *
  * The narrowing is the Plan's one `Slice.bindRecords` (#1344): the canvas
  * reads its `rows` source and each event kind's through their parts
- * (`root/sources.ts`), and the frame follows the others itself through the
- * shared `FollowSources` — each resource kind's, whose shown resources are
- * the rows its kind draws and the bulk edit's Chooser offers, each templates
- * list's, and each an author's tab names. A source whose narrowing could not
+ * (`root/sources.ts`), and a paged resource kind's, whose windows are its
+ * narrowing's rows; the frame follows the others itself through the shared
+ * `FollowSources` — each resource kind's read whole, whose shown resources
+ * are the rows its kind draws and the bulk edit's Chooser offers, each
+ * templates list's, and each an author's tab names. A source whose narrowing could not
  * be read says so in a banner, with Retry, as a window that could not be
  * written does; a resource kind's narrowing resolving keeps the rows it
  * showed, busy. After a Save, the footer says what left each source's
@@ -84,13 +93,14 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { Fragment, memo, useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { SortedMap, StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
 import { Plan, PlanComponent, PlanEventBlocksType, PlanEventPagedType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, useDataStable, usePersistedState,
+    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useDataStable, usePersistedState,
 } from "@elaraai/east-ui-components";
+import { LoadingReveal } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
 import type { KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import { usePlanCanvas } from "../canvas.js";
@@ -104,7 +114,7 @@ import { PlanFooter, type PlanSaveNotice } from "../shell/Footer.js";
 import type { PlanRootValue } from "../model.js";
 import { PlanOverlapsContext } from "../rows/element-overlap.js";
 import { usePlanWords, useResolvedPlanWords } from "../words.js";
-import { PlanKindsReader, type PlanKindsRead, type PlanOverlaps } from "./counts.js";
+import { PlanKindsReader, type PlanBacklogEntry, type PlanKindsRead, type PlanOverlaps } from "./counts.js";
 import { NONE_HIDDEN, hiddenOf, rowsHiddenOf } from "./hidden.js";
 import { NO_INSPECTED, PlanSelectionReader, usePlanInspector, usePlanInspectorSelection, type PlanInspectedEvent } from "./inspector.js";
 import { tabLibrary, usePlanLibrary, type PlanPickValue } from "./library.js";
@@ -185,7 +195,10 @@ const NO_PARTS: readonly PlanEventPart[] = [];
 const NO_NOTICES: readonly PlanSaveNotice[] = [];
 
 /** What the event kinds read before their first read answers: no counts, and the rail hides nothing of the backlog. */
-const NOTHING_READ: PlanKindsRead = { counts: undefined, backlog: { narrowing: [], hidden: undefined, clear: undefined } };
+const NOTHING_READ: PlanKindsRead = { counts: undefined, backlog: { narrowing: [], hidden: undefined, counting: false, clear: undefined }, retained: false };
+
+/** No unscheduled event: a Plan with no event kinds. */
+const NO_UNSCHEDULED: readonly PlanBacklogEntry[] = [];
 
 const compareString = compareFor(StringType);
 const stringEqual = equalFor(StringType);
@@ -271,6 +284,8 @@ export interface EastChakraPlanProps {
     canDrop?: PlanEventCanDrop | undefined;
     /** What each source of the slice the frame follows shows (#1344) — each resource kind's, templates list's and tab's; none, a Plan whose payload follows none. */
     followed?: FollowedSources | undefined;
+    /** The app's optimiser (#1409) — the payload carries its binding: what the Elara eye calls by name; none, no eye. */
+    optimise?: { readonly name: string } | undefined;
 }
 
 /**
@@ -280,7 +295,7 @@ export interface EastChakraPlanProps {
  * @returns The Plan, in its frame
  */
 export const EastChakraPlan = memo(function EastChakraPlan({
-    value, storageKey, events, kinds, resources, library: given, inspector, applyMode, canDrop, followed = NONE_FOLLOWED,
+    value, storageKey, events, kinds, resources, library: given, inspector, applyMode, canDrop, followed = NONE_FOLLOWED, optimise,
 }: EastChakraPlanProps) {
     const library = useDataStable(given ?? NO_LIBRARY, libraryEqual);
     const id = getSomeorUndefined(value.id);
@@ -308,7 +323,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     const busy = resourceKinds.some((kind) => followed.get(kind.key)?.shown.busy === true);
     const canvas = usePlanCanvas({
         value, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds: kinds ?? NO_KINDS, applyMode,
-        resources: resourceKinds, tabs: library, canDrop: veto, shown, busy,
+        resources: resourceKinds, tabs: library, canDrop: veto, shown, busy, optimise,
     });
     return <>{canvas.provide(
         <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} resources={resourceKinds} library={library}
@@ -318,6 +333,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     && (prev.followed ?? NONE_FOLLOWED) === (next.followed ?? NONE_FOLLOWED)
     && (prev.inspector === true) === (next.inspector === true)
     && (prev.applyMode ?? "batch") === (next.applyMode ?? "batch")
+    && (prev.optimise === undefined ? next.optimise === undefined : next.optimise !== undefined && stringEqual(prev.optimise.name, next.optimise.name))
     && (Object.is(prev.canDrop, next.canDrop) || canDropEquivalent(prev.canDrop ?? NO_VETO, next.canDrop ?? NO_VETO))
     && sameEventRows(prev.events, next.events)
     && (prev.kinds === next.kinds || eventKindsEquivalent(prev.kinds ?? NO_KINDS, next.kinds ?? NO_KINDS))
@@ -363,13 +379,16 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const now = root.axis.type === "time" ? getSomeorUndefined(root.axis.value.now) ?? mounted : mounted;
     const pick = useMemo((): PlanPickValue | undefined => getSomeorUndefined(root.pick), [root.pick]);
     // What the event kinds read, counted with every kind's drafts in place (#1194) — the counts, the overlaps, the
-    // backlog — and what the rail hides of the backlog (#1344), reported by a component of its own.
+    // backlog — and what the rail hides of the backlog (#1344), held with its cards (#1398), reported by a component of
+    // its own.
     const [kindsRead, setKindsRead] = useState<PlanKindsRead>(NOTHING_READ);
     const counts = kinds.length > 0 ? kindsRead.counts : undefined;
     const start = usePlanLibrary({
         library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards: chrome?.takesCards === true,
-        unscheduled: counts?.unscheduled, takesEvents: chrome?.takesEvents === true, patchKinds: chrome?.patchKinds ?? NO_PATCH_KINDS,
-        followed, backlogNarrowing: kindsRead.backlog,
+        // A Plan with no event kinds reads no backlog: there is nothing to wait for.
+        unscheduled: kinds.length === 0 ? NO_UNSCHEDULED : counts?.unscheduled,
+        takesEvents: chrome?.takesEvents === true, patchKinds: chrome?.patchKinds ?? NO_PATCH_KINDS,
+        followed, backlogNarrowing: kindsRead.backlog, backlogRetained: kinds.length > 0 && kindsRead.retained, backlogFlash: chrome?.optimise?.backlogFlash,
     });
     // The overlaps (#1198): the toolbar's chip, the warn rings, the inspector's banner.
     const overlaps = counts?.overlaps;
@@ -378,7 +397,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     // What is selected, and the selected events, read by a component of their own (#1344).
     const selection = usePlanInspectorSelection(inspector);
     const [selected, setSelected] = useState<readonly PlanInspectedEvent[]>(NO_INSPECTED);
-    const end = usePlanInspector({ shown: inspector, kinds, resources, chrome, counts, keys, words, selection, events: selected, shownResources: shown });
+    const end = usePlanInspector({ shown: inspector, kinds, resources, chrome, counts, keys, words, selection, events: selected, shownResources: shown, hidden });
     // The Plan's one history (#1194): the history item reads it as one session.
     const history = chrome?.history;
     const session = history?.session;
@@ -386,24 +405,30 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const selectedEvents = usePlanSelector(snapshot => snapshot.store.ui.elements);
     const eventEditing = chrome?.events;
     const selectEvents = chrome?.selectEvents;
-    // The frame owns shortcuts even when no inspector is declared or its pane is collapsed.
+    // Delete writes only while the canvas takes a write: never while a run of the optimiser is out (R2), nor while what
+    // it shows stands in, retained (#1398, CL8).
+    const writable = chrome?.writable === true;
+    // The frame owns shortcuts even when no inspector is declared or its pane is collapsed; a key it acts on goes no
+    // further than the Plan (#1398).
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
         if (event.defaultPrevented || event.nativeEvent.isComposing || typedInto(event.target)) return;
         const action = historyShortcut(event);
         if (action !== undefined && onAction !== undefined) {
-            event.preventDefault();
+            takeKey(event);
             onAction(action);
         } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === "Delete" || event.key === "Backspace")
-            && removePlanEvents(selectedEvents, eventEditing)) {
-            event.preventDefault();
+            && writable && removePlanEvents(selectedEvents, eventEditing)) {
+            takeKey(event);
             selectEvents?.([]);
         }
-    }, [onAction, selectedEvents, eventEditing, selectEvents]);
+    }, [onAction, selectedEvents, eventEditing, selectEvents, writable]);
     // A Plan with no control to show — no slice, no search, no group to fold, no overlaps, no editing — draws no toolbar.
     const toolbar = items.some((item) => item !== undefined && item !== false) ? items : undefined;
     // Each session's banners, in the history's order: `data`'s, then each event kind's, named — then each source the
     // frame follows whose narrowing could not be read, with Retry, and a window that could not be written (#1344).
     const bannerNodes: ReactNode[] = [];
+    // A run of the optimiser's banner first (#1409).
+    if (chrome?.optimise?.banner) bannerNodes.push(<Fragment key="optimise">{chrome.optimise.banner}</Fragment>);
     if (chrome !== undefined && history !== undefined) {
         for (const held of chrome.sessions) {
             bannerNodes.push(<SessionBanners key={held.key} session={held.session} words={chrome.words} onAction={held.onAction}
@@ -426,6 +451,20 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
             </Box>,
         );
     }
+    // A kind with more events in view than it draws, and no summary to shade them at this resolution (#1039): its rows
+    // hatched, and this — how many there are, or that they are not counted where its count is no number of them (a day
+    // index's), and the resolution its summary shades at.
+    for (const notice of chrome?.cells?.notices ?? []) {
+        const kind = notice.name.toLocaleLowerCase(words.locale);
+        bannerNodes.push(
+            <Box key={`cells:${notice.kind}`} data-plan-banner="cells" data-plan-kind={notice.kind}>
+                <BannerView status="info"
+                    title={notice.events === undefined ? m.tooManyEventsNotCounted({ kind })
+                        : m.tooManyEvents({ kind, n: notice.events, count: words.number(notice.events) })}
+                    description={m.tooManyEventsHint({ resolution: notice.resolution === undefined ? undefined : m.resolutionName({ resolution: notice.resolution }).toLocaleLowerCase(words.locale) })} />
+            </Box>,
+        );
+    }
     const banners = bannerNodes.length > 0 ? <>{bannerNodes}</> : undefined;
     // After a Save, what left each source's narrowing (#1344): the `rows` source's rows, each event kind's events.
     const rowsPart = chrome?.rowsPart;
@@ -441,30 +480,49 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
         }
         return out.length === 0 ? NO_NOTICES : out;
     }, [rowsPart, eventParts, m, words.locale]);
+    // What the footer's counts say before the event kinds' first read lands (#1398, CL13): "…", never 0.
+    const kindsUnread = kinds.length > 0 && kindsRead.counts === undefined;
     const footer = chrome !== undefined
-        ? <PlanFooter styles={chrome.styles} items={chrome.footer} transport={chrome.transport}
-            counts={counts} pending={session?.pending} narrow={chrome.narrow} notices={notices} />
+        ? <PlanFooter styles={chrome.styles} items={chrome.footer} transport={chrome.transport} noun={chrome.rowsNoun}
+            counts={counts} unread={kindsUnread} pending={session?.pending} notices={notices}
+            optimise={chrome.optimise === undefined ? undefined : { line: chrome.optimise.line, legend: chrome.optimise.legend, flash: chrome.optimise.flash }} />
         : undefined;
+    // The Plan's one reveal clock (#1398, CL4): the footer's line and the runs' placeholders show once a read the view
+    // waits for has passed the delay, and are held once shown — a flip renders them, never the frame.
+    const loading = chrome?.transport?.loading;
+    const waiting = loading !== undefined && loading.kind !== "failed";
+    // The run's landing (#1409) is measured and drawn over the whole frame — the bars and the counts alike.
+    const optimiseLanding = chrome?.optimise?.landing;
     return (
-        <Box css={styles.frame} data-plan-frame="" data-plan-bound={bound !== undefined ? "" : undefined}
-            style={{ ...vars, height: bound?.height, maxHeight: bound?.maxHeight }}>
+        <Box ref={optimiseLanding?.ref} css={optimiseLanding === undefined ? styles.frame : [styles.frame, optimiseLanding.css]} data-plan-frame="" data-plan-bound={bound !== undefined ? "" : undefined}
+            style={{ ...vars, height: bound?.height, maxHeight: bound?.maxHeight }} {...optimiseLanding?.attributes}>
             {kinds.length > 0 && (
-                <PlanKindsReader kinds={kinds} scale={chrome?.scale} drafts={chrome?.events?.drafts} parts={eventParts} onRead={setKindsRead} />
+                <PlanKindsReader kinds={kinds} scale={chrome?.scale} drafts={chrome?.events?.drafts} parts={eventParts} cells={chrome?.cells}
+                    hidden={hidden} onRead={setKindsRead} />
             )}
             {inspector && (
-                <PlanSelectionReader kinds={kinds} elements={selection.elements} drafts={chrome?.events?.drafts} editing={chrome?.events} onRead={setSelected} />
+                <PlanSelectionReader kinds={kinds} elements={selection.elements} drafts={chrome?.events?.drafts} editing={chrome?.events}
+                    held={chrome?.cells?.held} onRead={setSelected} />
             )}
-            <BuilderFrame
-                storageKey={keys.frame}
-                toolbar={toolbar}
-                banners={banners}
-                start={start}
-                end={end}
-                footer={footer}
-                onKeyDown={onKeyDown}
-            >
-                <PlanOverlapsContext.Provider value={overlapKeys}>{main}</PlanOverlapsContext.Provider>
-            </BuilderFrame>
+            <LoadingReveal waiting={waiting}>
+                <BuilderFrame
+                    storageKey={keys.frame}
+                    toolbar={toolbar}
+                    banners={banners}
+                    start={start}
+                    end={end}
+                    footer={footer}
+                    // A paged source's cold load is the frame's skeleton at the rows' pitch, its footer live and saying
+                    // what is read; after it, a read the view waits for covers nothing, and main is busy (#1398).
+                    loading={chrome?.cold}
+                    busy={chrome?.busy}
+                    loadingPitch={chrome?.pitch}
+                    liveFooter
+                    onKeyDown={onKeyDown}
+                >
+                    <PlanOverlapsContext.Provider value={overlapKeys}>{main}</PlanOverlapsContext.Provider>
+                </BuilderFrame>
+            </LoadingReveal>
         </Box>
     );
 }
@@ -509,7 +567,7 @@ export const EastChakraPlanPayload = memo(function EastChakraPlanPayload({ value
             {(followed) => (
                 <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
                     resources={value.resources} library={value.library} inspector={value.inspector} applyMode={value.settings.applyMode.type}
-                    canDrop={value.canDrop} followed={followed} />
+                    canDrop={value.canDrop} followed={followed} optimise={value.optimise.type === "some" ? { name: value.optimise.value.name } : undefined} />
             )}
         </FollowSources>
     );

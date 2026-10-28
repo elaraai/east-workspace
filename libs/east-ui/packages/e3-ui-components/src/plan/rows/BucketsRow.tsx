@@ -52,6 +52,7 @@ import { runStateKey, type PlanRowMove } from "./SpanRow.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
 import { PlanDraftedContext, usePlanElementDrafted } from "./element-draft.js";
+import { usePlanElementOp } from "./element-optimise.js";
 import { BucketCell, type BucketCellTile } from "./BucketCell.js";
 import { usePlanMovable } from "../edit/movable.js";
 import type { PlanMovable } from "../edit/store.js";
@@ -114,6 +115,9 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
     const overlap = usePlanElementOverlap(ev.key);
     // An event its drafts changed wears the brand tint in a brand border (#1196).
     const drafted = usePlanElementDrafted(ev.key);
+    // What a run of the optimiser did to its event (#1409, R17), while it is still the run's draft.
+    const op = usePlanElementOp(ev.key);
+    const optimised = drafted ? op : undefined;
     const label = ev.label.type === "some" ? ev.label.value : undefined;
     // A tile has one instant — its extent is that instant twice.
     const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
@@ -142,6 +146,9 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
             data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
             data-overlap={overlap ? "" : undefined}
             data-draft={drafted ? "" : undefined}
+            data-op={optimised?.op}
+            data-fill={optimised !== undefined ? "own" : undefined}
+            title={optimised?.provenance}
             data-folded={folded ? "" : undefined}
             data-pulse={ev.animation.type === "some" && ev.animation.value.type === "pulse" ? "" : undefined}
             flex={hFill ? "1" : undefined}

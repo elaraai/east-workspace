@@ -6,7 +6,7 @@
 /**
  * Every word the Sheet says itself (#861) — ONE typed message table, the
  * Plan's #820 table's twin. The toolbar and the view tabs, the header, the
- * rows, bands and gap pills, the strip, the editor and the link cells, the
+ * rows, a failed run's line, the strip, the editor and the link cells, the
  * footer and the history bar, the insertion chips, the message each gesture
  * leaves, and the words it gives a reader for what it shows only by look all
  * come from here. What the AUTHOR wrote — a column's header, a group's noun,
@@ -30,6 +30,8 @@
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { editingMessages, type EditingMessages } from "@elaraai/east-ui-components";
 import { type EditHistoryWord } from "@elaraai/east-ui-components/internal";
+import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
+import { hiddenByText } from "../shared/schedule/hidden.js";
 import { pluralKind } from "./link/grammar.js";
 import type { SheetKind } from "./model.js";
 
@@ -104,7 +106,7 @@ export type SheetDropRefusalWord =
  * number, as written. `noun` / `nouns` are the host's words for a group
  * (#844), `header` a column's header, `name` a view's name — the author's.
  */
-export interface SheetMessages extends EditingMessages {
+export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     // ── Counting ───────────────────────────────────────────────────────────
     /** A count of the host's groups — `3 plans`. */
     countNoun: (p: { n: number; count: string; noun: string; nouns: string }) => string;
@@ -114,20 +116,26 @@ export interface SheetMessages extends EditingMessages {
     groupNouns: () => string;
 
     // ── The toolbar (§7) ───────────────────────────────────────────────────
-    /** The context switch's accessible name. */
-    contextSwitch: () => string;
-    /** The context switch's label. */
-    contextLabel: () => string;
-    /** A context option — `none`, `±1`. */
-    contextOption: (p: { n: number; count: string }) => string;
-    /** The lens's count line — `3 matches · 2 context`. */
-    lensCount: (p: { n: number; count: string; context: string | undefined }) => string;
+    /** The lens's count line — `3 matches`. */
+    lensCount: (p: { n: number; count: string }) => string;
     /** The badge on a paged sheet's narrowing chrome, which sees only the loaded rows. */
     scopeBadge: () => string;
     /** The key search's icon — what a toolbar short of room folds its box to — and the head of the popover it opens the box in (#1221). */
     keySearch: () => string;
     /** The key search's icon and popover head once the views fold into it, over the search box — the row's last rung (#1345). */
     keySearchViews: () => string;
+    /**
+     * A row the key search lists that the rail's narrowing hides — `JOB-10001 · hidden by the filters` (#1398, CL10) —
+     * until e3 has said which of the `rows` source's choices hide it: a pick of it then clears every one, and goes to the row.
+     */
+    keySearchHidden: (p: { key: string }) => string;
+    /**
+     * The same row once e3 has said which choices hide it — `JOB-10001 · hidden by Status: Ready — picking it clears that
+     * filter`: a pick of it clears them and goes to the row, every other choice kept. `filters` are those choices and
+     * `also` any the pick clears with them, a choice that cannot stand without one of them — each as the rail words it
+     * (`Status: Ready`).
+     */
+    keySearchHiddenBy: (p: { key: string; filters: readonly string[]; also: readonly string[] }) => string;
 
     // ── The view tabs (B§8) ────────────────────────────────────────────────
     /** The tablist's accessible name. */
@@ -137,7 +145,7 @@ export interface SheetMessages extends EditingMessages {
     /** The whole-sheet tab's hover title. */
     tabAllTitle: () => string;
     /** A view's hover title: what it narrows by, and the gestures it takes. */
-    viewTitle: (p: { scope: SheetScopeWord; query: string; context: string | undefined }) => string;
+    viewTitle: (p: { scope: SheetScopeWord; query: string }) => string;
     /** A new view's name when there is no query to name it from — stored with the view. */
     viewName: (p: { seq: string }) => string;
     /** The rename box's accessible name. */
@@ -232,35 +240,17 @@ export interface SheetMessages extends EditingMessages {
     /** The footer's line for an issue the history bar went to. */
     issueAt: (p: { where: string; message: string }) => string;
 
-    // ── Bands, gaps, failures ──────────────────────────────────────────────
-    /** An unloaded run's pill. */
-    bandUnloaded: (p: { n: number; count: string; loading: boolean }) => string;
+    // ── Failures ───────────────────────────────────────────────────────────
+    // A run of rows not drawn yet says nothing (#1398, CL3); a failed one says so once, in the footer line's words
+    // (`lineFailed`, `retryRange`, `PagedLoadingMessages`).
     /** A failed read's retry. */
     retry: () => string;
-    /** A window whose read failed (#853). */
-    windowFailed: (p: { from: string; to: string; reason: string }) => string;
+    /** Why the lens draws a record's rows as a failed band (#1349): which of them the narrowing holds disagrees with where e3 placed its rows — the record changed between the two reads. */
+    lensChanged: () => string;
     /** A row that threw as it drew. */
     rowFailed: (p: { number: string; reason: string }) => string;
     /** A paged source that failed before anything landed. */
     noSource: (p: { reason: string }) => string;
-    /** How far a gap control reaches — `+3`. */
-    gapMore: (p: { n: number; count: string }) => string;
-    /** The gap's top control. */
-    gapAfter: (p: { n: number; count: string; row: string }) => string;
-    /** Its title. */
-    gapAfterTitle: (p: { row: string }) => string;
-    /** The gap's bottom control. */
-    gapBefore: (p: { n: number; count: string; row: string }) => string;
-    /** Its title. */
-    gapBeforeTitle: (p: { row: string }) => string;
-    /** The gap's count — `12 hidden`. */
-    gapHidden: (p: { n: number; count: string }) => string;
-    /** The count's title. */
-    gapHiddenTitle: () => string;
-    /** The gap's show-everything control. */
-    gapAll: () => string;
-    /** Its accessible name and title. */
-    gapAllName: () => string;
 
     // ── Grouped rows (#740) ────────────────────────────────────────────────
     /** A band's rowheader — `plan 2, 5 lines`. */
@@ -303,12 +293,8 @@ export interface SheetMessages extends EditingMessages {
     // ── The footer (B§9) ───────────────────────────────────────────────────
     /** A grouped sheet's count line — `3 plans · 14 lines`, and `· 2 loose rows` when rows stand between the groups (#846). */
     summary: (p: { groups: string; n: number; lines: string; nLoose: number; loose: string; nSub: number; subRows: string }) => string;
-    /** The transport line — `600 loaded of 1,000`. */
-    transport: (p: { loaded: string; total: string | undefined }) => string;
-    /** The same line while a window is on its way. */
-    transportLoading: (p: { line: string }) => string;
-    /** The transport line's failure (#853). */
-    transportFailed: (p: { reason: string }) => string;
+    // The footer's loading line over a paged source (#1398, CL3), in what the rail counts the rows in: `lineLoading`,
+    // `lineFiltering`, `lineFailed` and `lineShort` (`PagedLoadingMessages`).
     /** The key hint — a selected suggestion. */
     hintProposal: () => string;
     /** The key hint — the ring on a band. */
@@ -579,6 +565,10 @@ export interface SheetMessages extends EditingMessages {
     inspectorNoIssues: (p: { part: "title" | "hint" }) => string;
     /** An issue's place and field — `row 4 · Qty`. */
     inspectorIssueAt: (p: { where: string; field: string | undefined }) => string;
+    /** An issue whose row the rail's narrowing hides, in its line — `hidden by the filters` — until e3 has said which choices: a click then clears every one. */
+    inspectorIssueHidden: () => string;
+    /** …and once it has, as the key search's line says it — `hidden by Status: Ready — picking it clears that filter` (`keySearchHiddenBy`). */
+    inspectorIssueHiddenBy: (p: { filters: readonly string[]; also: readonly string[] }) => string;
     /** The footer's last save, from the record's commits — `saved 14:02` (SB22). */
     savedAt: (p: { when: string }) => string;
     /** The banner over an entry the record does not hold (SB15). */
@@ -607,26 +597,29 @@ export interface SheetMessages extends EditingMessages {
 
 const plural = (n: number, one: string, many: string): string => (n === 1 ? one : many);
 
+/** A row the rail's narrowing hides, by the choices that do — joined as the rail's `Replaces …` joins them — and what a pick of it clears: the hidden pick's English. */
+const hiddenBy = hiddenByText;
+
 /** The English table — the default: the editing session's words, then the sheet's own. */
 export const sheetMessages: SheetMessages = {
     ...editingMessages,
+    ...pagedLoadingMessages,
     countNoun: ({ n, count, noun, nouns }) => `${count} ${plural(n, noun, nouns)}`,
     groupNoun: () => "group",
     groupNouns: () => "groups",
 
-    contextSwitch: () => "Context rows either side of a hit",
-    contextLabel: () => "context",
-    contextOption: ({ n, count }) => (n === 0 ? "none" : `±${count}`),
-    lensCount: ({ n, count, context }) => `${count} ${plural(n, "match", "matches")}${context !== undefined ? ` · ${context} context` : ""}`,
+    lensCount: ({ n, count }) => `${count} ${plural(n, "match", "matches")}`,
     scopeBadge: () => "loaded rows only",
     keySearch: () => "Search Records",
     keySearchViews: () => "Views and search",
+    keySearchHidden: ({ key }) => `${key} · hidden by the filters`,
+    keySearchHiddenBy: ({ key, filters, also }) => `${key} · ${hiddenBy(filters, also)}`,
 
     tabList: () => "Views",
     tabAll: () => "All",
     tabAllTitle: () => "Every row — the whole sheet",
-    viewTitle: ({ scope, query, context }) => {
-        const what = scope === "query" ? `"${query}"${context !== undefined ? ` · ±${context}` : ""}`
+    viewTitle: ({ scope, query }) => {
+        const what = scope === "query" ? `"${query}"`
             : scope === "range" ? "a date window"
                 : scope === "filter" ? "a filter"
                     : "no filter — the whole sheet";
@@ -642,7 +635,7 @@ export const sheetMessages: SheetMessages = {
     tabAdd: () => "tab",
     tabAddName: () => "New tab from this view",
     tabAddTitle: ({ query }) => (query
-        ? "New tab from this search — query, context and expanded bands, evaluated live"
+        ? "New tab from this search — its query, evaluated live"
         : "New tab — no filter yet; search inside it and ⏎ to scope it"),
     tabMenuName: ({ name }) => `Views: ${name}`,
     tabMenuTitle: () => "Switch views, or save this one as a new tab",
@@ -678,20 +671,10 @@ export const sheetMessages: SheetMessages = {
     issueGroupCheck: ({ reason }) => `Group readiness failed: ${reason}`,
     issueAt: ({ where, message }) => `${where}: ${message}`,
 
-    bandUnloaded: ({ count, loading }) => `${count} ${loading ? "loading" : "not loaded"}`,
     retry: () => "Retry",
-    windowFailed: ({ from, to, reason }) => `Elements ${from}–${to} could not be read — ${reason}`,
+    lensChanged: () => "the record changed while they were read",
     rowFailed: ({ number, reason }) => `Row ${number} could not be drawn — ${reason}`,
     noSource: ({ reason }) => `NO ROWS — the paged source could not be read. ${reason} `,
-    gapMore: ({ count }) => `+${count}`,
-    gapAfter: ({ count, row }) => `Show ${count} more after row ${row}`,
-    gapAfterTitle: ({ row }) => `Show the rows just after row ${row}`,
-    gapBefore: ({ count, row }) => `Show ${count} more before row ${row}`,
-    gapBeforeTitle: ({ row }) => `Show the rows just before row ${row}`,
-    gapHidden: ({ count }) => `${count} hidden`,
-    gapHiddenTitle: () => "Expand — each click reaches further",
-    gapAll: () => "all",
-    gapAllName: () => "Show every hidden row",
 
     groupName: ({ noun, number, n, count }) => `${noun} ${number}, ${count} ${plural(n, "line", "lines")}`,
     groupTitle: ({ noun }) => `Select the ${noun}'s lines — delete removes them`,
@@ -714,10 +697,7 @@ export const sheetMessages: SheetMessages = {
 
     summary: ({ groups, n, lines, nLoose, loose, nSub, subRows }) =>
         `${groups} · ${lines} ${plural(n, "line", "lines")}${nLoose > 0 ? ` · ${loose} loose ${plural(nLoose, "row", "rows")}` : ""}${nSub > 0 ? ` · ${subRows} sub ${plural(nSub, "row", "rows")}` : ""}`,
-    transport: ({ loaded, total }) => (total !== undefined ? `${loaded} loaded of ${total}` : `${loaded} loaded`),
-    transportLoading: ({ line }) => `${line} · Loading…`,
-    transportFailed: ({ reason }) => ` · could not be read — ${reason} `,
-    hintProposal: () => "⏎ adds the selected row · ⌫ rejects it · esc deselects",
+    hintProposal:() => "⏎ adds the selected row · ⌫ rejects it · esc deselects",
     hintBand: ({ noun }) => `⏎ renames the ${noun} · Space folds it · ⇧Space folds all · click its number to select its lines`,
     hintSubRows: ({ open, n, count, noun }) => `Space ${open ? "hides" : "shows"} its ${count} sub ${plural(n, "row", "rows")} · ⇧Space every line's in the ${noun} · ⏎ edit`,
     hintRows: ({ n, count }) => `${count} ${plural(n, "row", "rows")} selected · ⌫ deletes them · ⌘C copies`,
@@ -891,6 +871,8 @@ export const sheetMessages: SheetMessages = {
     inspectorReading: () => "Reading the row…",
     inspectorNoIssues: ({ part }) => (part === "title" ? "No issues" : "Every draft is complete — nothing stands in the way of Save."),
     inspectorIssueAt: ({ where, field }) => (field === undefined ? where : `${where} · ${field}`),
+    inspectorIssueHidden: () => "hidden by the filters",
+    inspectorIssueHiddenBy: ({ filters, also }) => hiddenBy(filters, also),
     savedAt: ({ when }) => `saved ${when}`,
     entryMissing: ({ key }) => `The record holds no entry "${key}" — the sheet is empty and read only until it does`,
     railRows: () => "rows",
@@ -972,7 +954,7 @@ export interface SheetMessagesProviderProps {
  * const GERMAN: Partial<SheetMessages> = {
  *     tabAll: () => "Alle",
  *     scopeBadge: () => "nur geladene Zeilen",
- *     transport: ({ loaded, total }) => (total !== undefined ? `${loaded} von ${total} geladen` : `${loaded} geladen`),
+ *     lineLoading: ({ noun, from, to }) => (from === undefined || to === undefined ? [`${noun} werden geladen…`] : [`${noun} `, { strong: `${from}–${to}` }, " werden geladen"]),
  * };
  *
  * <I18nProvider locale="de-DE">

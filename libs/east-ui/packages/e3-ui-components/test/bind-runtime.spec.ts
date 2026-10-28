@@ -177,11 +177,38 @@ describe("BindRuntime — reactive tracking", () => {
         runtime.trackPath(h.workspace, sourcePath);
         runtime.trackPath(h.workspace, patchPath);
         const keys = runtime.disableTracking();
-        assert.deepEqual(keys.sort(), [
+        assert.deepEqual([...keys.keys()].sort(), [
             datasetCacheKey(h.workspace, patchPath),
             datasetCacheKey(h.workspace, sourcePath),
         ].sort());
         assert.equal(runtime.isTracking(), false);
+    });
+
+    test("a staged write tracks its dataset at the version it read it at: the write moves the dataset past it", async () => {
+        const { runtime } = await seeded(10);
+        const key = datasetCacheKey(h.workspace, sourcePath);
+        const handle = runtime.buildRawHandle(floatTypeValue, sourcePath, undefined, "staged");
+        runtime.enableTracking();
+        const before = runtime.keyVersion(key);
+        handle.write(50);
+        assert.deepEqual([...runtime.disableTracking()], [[key, before]], "the version the evaluation read");
+        assert.ok(runtime.keyVersion(key) > before, "the staged write moved the dataset past it");
+    });
+
+    test("an evaluation that writes in staged mode as it reads settles: the run its write moved reads the dataset at the version it left, and writing the same bytes again moves nothing", async () => {
+        const { runtime } = await seeded(10);
+        const handle = runtime.buildRawHandle(floatTypeValue, sourcePath, undefined, "staged");
+        /** One run, as a tracked evaluation runs one: it reads the dataset and stages 50, and says whether a key it read moved since it read it. */
+        const run = (): boolean => {
+            runtime.enableTracking();
+            handle.read();
+            handle.write(50);
+            return [...runtime.disableTracking()].some(([key, version]) => runtime.keyVersion(key) !== version);
+        };
+        // The first run read 10 and staged 50: the dataset moved past what it read, so it runs again.
+        assert.equal(run(), true);
+        // The second reads 50 and stages 50: nothing moves, so it is the last.
+        assert.equal(run(), false);
     });
 
     test("has() is tracked as a read of the source, in every mode and patch shape", async () => {
@@ -192,7 +219,7 @@ describe("BindRuntime — reactive tracking", () => {
             const handle = runtime.buildRawHandle(floatTypeValue, sourcePath, patch, mode);
             runtime.enableTracking();
             assert.equal(handle.has(), false);
-            assert.deepEqual(runtime.disableTracking(), [datasetCacheKey(h.workspace, sourcePath)], `${mode}, ${patch ? "with" : "no"} patch`);
+            assert.deepEqual([...runtime.disableTracking().keys()], [datasetCacheKey(h.workspace, sourcePath)], `${mode}, ${patch ? "with" : "no"} patch`);
         }
     });
 });

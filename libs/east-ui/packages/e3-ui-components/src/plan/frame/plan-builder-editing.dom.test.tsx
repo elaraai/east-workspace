@@ -24,7 +24,7 @@
 import { describe, test, expect } from "vitest";
 import { fireEvent, renderHook, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DateTimeType, East, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, East, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages, fieldFormMessages, getRegisteredPlatformImplementations, type EditHistoryJoined } from "@elaraai/east-ui-components";
 import { Data, Plan, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
@@ -215,7 +215,7 @@ describe("every gesture is one transaction (PB43)", () => {
         /** An event as Plan draws it, the drafts in place: when it runs, and where. */
         const where = (kind: string, id: string) => {
             // Each kind reads its record whole: the range it would look in first (#1199) is its axis's.
-            const read = kinds.get(kind)!.planEvent(id, editing().draftsOf(kind), FIRST, LAST);
+            const read = kinds.get(kind)!.planEvent(id, editing().draftsOf(kind), FIRST, LAST, none);
             if (read.type === "none") return undefined;
             const item = read.value.item;
             const time = (t: typeof item.start) => (t.type === "some" ? printInstant(t.value) : "-");

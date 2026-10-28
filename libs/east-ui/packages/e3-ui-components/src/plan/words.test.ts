@@ -38,13 +38,22 @@ describe("a derived number (#810)", () => {
         expect(de.percent(0.6)).toMatch(/^60\s%$/u);
     });
 
-    test("a group's member count — spelled out (#949), `~`-marked while it covers a partial prefix (#567 D9)", () => {
-        const meta = (w: PlanWords, n: number, partial: boolean) => w.m.groupMeta({ n, count: w.number(n), partial });
-        expect(meta(PLAN_WORDS, 1, false)).toBe("1 row");
-        expect(meta(PLAN_WORDS, 8, false)).toBe("8 rows");
-        expect(meta(PLAN_WORDS, 1204, false)).toBe("1,204 rows");
-        expect(meta(PLAN_WORDS, 1204, true)).toBe("~1,204 rows");
-        expect(meta(de, 1204, true)).toBe("~1.204 rows");
+    test("a group's member count — spelled out (#949), in the locale; over a partial prefix it is no count at all, a short bar (#1398, CL13)", () => {
+        const meta = (w: PlanWords, n: number) => w.m.groupMeta({ n, count: w.number(n) });
+        expect(meta(PLAN_WORDS, 1)).toBe("1 row");
+        expect(meta(PLAN_WORDS, 8)).toBe("8 rows");
+        expect(meta(PLAN_WORDS, 1204)).toBe("1,204 rows");
+        expect(meta(de, 1204)).toBe("1.204 rows");
+    });
+});
+
+describe("what the inspector does not count (#1039)", () => {
+    test("one line: the kinds it counts none of, and the kinds whose hours it does not count — never two lines", () => {
+        const line = (kinds: readonly string[], hours: readonly string[]) => PLAN_WORDS.m.inspectorNotCounted({ kinds, hours });
+        expect(line(["Print job"], [])).toBe("Print jobs not counted: too many to draw at this resolution");
+        expect(line([], ["Print job"])).toBe("Print job hours not counted: too many to draw at this resolution");
+        expect(line(["Print job"], ["Press check"])).toBe("Print jobs and Press check hours not counted: too many to draw at this resolution");
+        expect(line(["Print job", "Delivery"], ["Press check"])).toBe("Print jobs, Deliveries and Press check hours not counted: too many to draw at this resolution");
     });
 });
 

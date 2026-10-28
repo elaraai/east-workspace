@@ -4,12 +4,12 @@
  */
 
 // What a component's doc-example spec reads — the Plan's (#1177), the Sheet's
-// (#862, #1179) and the Flowchart's (#1243). Each `@example` under the
-// component's `src/<dir>/` is the verbatim `fn` of an `example()` in its
-// `test/<dir>/<dir>*.examples.ts(x)` that a spec runs, behind imports from the
-// public packages and the module-scope statements of that file it reaches,
-// each written as it is there. An example edited without its docs, or a doc
-// example no test runs, fails the component's spec.
+// (#862, #1179), the Flowchart's (#1243) and the Schematic's (#1384). Each
+// `@example` under the component's `src/<dir>/` is the verbatim `fn` of an
+// `example()` in its `test/<dir>/<dir>*.examples.ts(x)` that a spec runs,
+// behind imports from the public packages and the module-scope statements of
+// that file it reaches, each written as it is there. An example edited without
+// its docs, or a doc example no test runs, fails the component's spec.
 
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";

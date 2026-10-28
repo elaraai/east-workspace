@@ -1,0 +1,180 @@
+/* Shared parts for the "Parts · Loading" cards and the builders' loading cards (Components · Collections). Token-only; one-line rules. Loads after slice-parts.css.
+   Reproduced from their foundation cards, at those cards' values: Row (.tr .cb), Sheet cell (.sh .gh .sc), Tree row (.chev .ct), Time axis header (.tier .nowc), Item card (.ic), Empty state (.es), Slice summary & legend (.ff .li), History bar (.bt.pri), Skeleton (.sk).
+   New in this pass and listed in Loading.style-changes.md: the unloaded run, the region wash (.wash), the footer's loading line (.ldl), the retained mark (.stl); the failed-region message (.flt2), for regions with no row to hold a line, is the Schematic card's, copied. */
+.pl{padding-top:12px;font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:1.6;letter-spacing:0.04em;color:var(--ink-3)}
+.pl+.ann{padding-top:4px}
+.duo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;min-width:0}
+.trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start;min-width:0}
+.duo>*,.trio>*{min-width:0}
+.it2{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;min-width:0;align-content:start}
+.mono{font-family:var(--font-mono);font-feature-settings:"tnum" 1}
+.hk{white-space:nowrap;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4)}
+.mt9{white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-xs);letter-spacing:0.04em;color:var(--ink-4)}
+.guide{position:absolute;left:0;right:0;z-index:6;border-top:1px dashed var(--ink-4);pointer-events:none}
+.cutl,.cutr{position:absolute;top:0;bottom:0;z-index:6;border-left:1px dashed var(--ink-4);pointer-events:none}
+/* BuilderFrame — the Frame; the shared toolbar band on top, the shared footer rail below */
+.bf{position:relative;display:flex;flex-direction:column;min-width:0;box-sizing:border-box;border:1px solid var(--rule-strong);border-radius:var(--r-lg);overflow:hidden;background:var(--paper)}
+.bf>.band{border-bottom:1px solid var(--rule)}
+.bf.narrow{width:360px;max-width:100%}
+.vw{position:relative;display:flex;min-width:0;overflow:hidden}
+.vw>.main{position:relative;flex:1 1 0;min-width:0;overflow:hidden}
+.nv{display:inline-flex;align-items:center;gap:4px}
+.bt.pri{height:32px;padding:0 12px;background:var(--brand-d);border-color:var(--brand-d);color:var(--paper);font-weight:600}
+.bt.md.dis,.bt.dis{border-color:var(--rule);background:var(--paper);color:var(--ink-5)}
+.dot.neu{background:var(--ink-4)}
+/* library pane — Tabs, the Search input, Item cards */
+.lib{flex:none;width:208px;box-sizing:border-box;display:flex;flex-direction:column;border-right:1px solid var(--rule);background:var(--paper)}
+.lib .tabs{height:40px;box-sizing:border-box;display:flex;align-items:stretch;gap:16px;padding:0 12px;border-bottom:1px solid var(--rule)}
+.lib .tabs .tab{padding:0}
+.lib .pb{display:grid;gap:8px;padding:12px}
+.lib .cap2{display:flex;justify-content:space-between;align-items:center}
+/* footer rail — the Footer band: 36, pad 0 20, --paper-2, hairline above, mono 10.5 --ink-3, tabular */
+.ff{height:36px;box-sizing:border-box;flex:none;display:flex;align-items:center;gap:12px;padding:0 20px;background:var(--paper-2);border-top:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-md);font-feature-settings:"tnum" 1;line-height:1;color:var(--ink-3);white-space:nowrap}
+.ff b{font-weight:600;color:var(--ink)}
+.ff .lk{color:var(--brand-d);font-weight:500}
+/* the legend (or hints) at the start, at its content width: the legend stays whole and never moves; hints end at a whole hint, then "…" (fitted in loading-parts.js) */
+.lgd{flex:none;display:flex;align-items:center;gap:8px}
+.li{height:20px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;gap:8px;padding:0 4px;border-radius:var(--r-sm);font-weight:500;color:var(--ink-3)}
+.li .sw{width:14px;height:3px;flex:none;border-radius:1px;background:var(--brand-d)}
+.li .sw.s2{background:var(--teal-500)}
+.li .sw.dh{height:0;border-top:1px dashed var(--ink-4);background:transparent}
+.li .sw.dw{height:0;border-top:1px dashed var(--warn);background:transparent}
+.li .sw.tk{width:1px;height:12px;background:var(--ink)}
+.li .sw.mu{background:var(--ink-5)}
+.li>i{font-size:10px;color:var(--ink-4)}
+.kbd{height:20px;min-width:20px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;background:var(--paper-2);border:1px solid var(--rule-strong);border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:500;line-height:1;color:var(--ink-2)}
+.hn{flex:none;display:inline-flex;align-items:center;gap:4px}
+/* the loading line — its own slot at the rail's trailing end, taking only the space left: its full text, its short form or the dot alone, each whole (fitted in loading-parts.js); never an ellipsis, never wraps the rail */
+.ldl{flex:0 1 auto;min-width:0;max-width:64%;margin-left:auto;display:inline-flex;align-items:center;gap:8px;color:var(--ink-3)}
+.ldl:empty{display:none}
+.ldl .t{min-width:0;overflow:hidden;line-height:16px}
+/* the line's text, kept for screen readers when the dot stands alone */
+.vh{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.ldl.err .t,.ldl.err .t b{color:var(--neg-text)}
+.ldl .sep{flex:none}
+.ldl .lk{flex:none}
+/* placeholders — the Skeleton's static --paper-3 shapes, in the slot each value will fill */
+.sk{flex:none}
+.b8{height:8px}.b12{height:12px}.b24{height:24px}
+.kc{height:22px;border-radius:var(--r-sm)}.kc.k15{height:15px}
+.kr{border-radius:var(--r-md)}.kr.rs{border-radius:var(--r-sm)}
+.kb{width:14px;height:14px;border-radius:3px}
+.kd{width:8px;height:8px;border-radius:var(--r-full)}
+.skc{width:24px;height:16px;border-radius:var(--r-sm)}
+.ke,.kl{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.kl{gap:4px}.kl .ar{font-family:var(--font-mono);font-size:var(--fs-label-md);color:var(--ink-4)}
+/* the region wash — --ink at 6%, under the real grid lines and the now line; shading reads through it */
+.wash{background:color-mix(in oklch,var(--ink) 6%,transparent)}
+.wl{position:absolute;z-index:1;pointer-events:none}
+/* failure in place */
+.fail{display:flex;align-items:center;gap:8px;min-width:0}
+.fail>i{flex:none;font-size:14px;color:var(--neg)}
+.fail .msg{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-body);font-size:var(--fs-body);color:var(--ink)}
+/* an empty line takes the failed line's slot and shape, the Empty state's glyph at the icon's size, no Retry */
+.fail>.gy{flex:none;font-size:14px}
+.fail>.lkk{flex:none;font-size:var(--fs-body);white-space:nowrap}
+/* a failure said once where no row can hold a line (the Schematic's canvas, the Calendar's month and time grids) — the Schematic card's message box, at the region's top-left; a grid with rows takes the failed line (.fail) in its first row in view */
+.flt2{position:absolute;z-index:4;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)}
+/* rows — the Row card: 36 / 32 / 28, rule included, ruled top-only, cells pad 0 12, first and last 20 */
+.tr{height:36px;box-sizing:border-box;display:grid;align-items:stretch;border-top:1px solid var(--rule);font-size:var(--fs-body);color:var(--ink);background:var(--paper)}
+.tr>*{min-width:0;display:flex;align-items:center;gap:8px;padding:0 12px;white-space:nowrap}
+.tr>:first-child{padding-left:20px}.tr>:last-child{padding-right:20px}
+.tr.th{border-top:0}
+.tr.th>*{font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4)}
+.tr.c32{height:32px}.tr.c28{height:28px}
+.tr.sel{background:var(--paper-3)}
+.r{justify-content:flex-end}
+.n{font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-weight:500}
+.n6{font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-weight:600}
+/* retained (stale) — the Row card's stale: dashed --rule-strong rules, --ink-3; editing off */
+.tr.stale{border-top:1px dashed var(--rule-strong);border-bottom:1px dashed var(--rule-strong);color:var(--ink-3)}
+.tr.stale+.tr{border-top:0}
+.stl,.stl .n,.stl .n6,.stl .ch,.stl .gk{color:var(--ink-3)}
+.cb{position:relative;width:14px;height:14px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--rule-strong);border-radius:3px;background:var(--paper)}
+.cb.on{background:var(--brand-d);border-color:var(--brand-d)}
+.cb.on::after{content:"";width:4px;height:8px;box-sizing:border-box;border:solid var(--paper);border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}
+.cb.dis{border-color:var(--rule);background:transparent}
+/* group head — the Table's groupHead: chevron, key mono 10/600 caps --ink, Count, aggregates 600 */
+.gk{white-space:nowrap;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink)}
+.chev{width:16px;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:14px;color:var(--ink-3)}
+.chev.open>i{transform:rotate(90deg)}
+.ct{height:16px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;padding:0 4px;background:var(--paper-3);border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;font-feature-settings:"tnum" 1;line-height:1;color:var(--ink-2)}
+/* the Sheet — the Sheet cell card's cells on a 1px --rule grid at the Sheet's pitch, 36 at md, rule included; header 24, pad 0 8; the gutter holds the row number */
+.sh{display:grid;background:var(--paper)}
+.sh>*{height:36px;box-sizing:border-box;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);background:var(--paper)}
+.sh>.lc{border-right:0}
+.sh>.gh.hd{height:25px}
+.sh>.band42{grid-column:1/-1;height:42px;border-right:0;display:flex;align-items:center;gap:8px;padding:0 8px}
+.gh{display:flex;align-items:center;justify-content:center;padding:0 8px;white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4)}
+.gh.l{justify-content:flex-start}.gh.r{justify-content:flex-end}
+.gh.n{letter-spacing:0;font-weight:500}
+.sc{position:relative;display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;padding:0 8px;white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-body);font-weight:500;color:var(--ink)}
+.sc.tx{justify-content:flex-start;font-family:var(--font-body);font-feature-settings:normal;font-weight:400}
+.sc.id{justify-content:flex-start}
+.sc.en{justify-content:space-between;font-family:var(--font-body);font-feature-settings:normal;font-weight:400}
+.sc.bo{justify-content:center}
+.car{font-family:var(--font-mono);font-size:var(--fs-body);line-height:1;color:var(--ink-4)}
+.sh>.stl{border-bottom-style:dashed;border-bottom-color:var(--rule-strong);color:var(--ink-3)}
+.sh>.sel{background:var(--paper-3)}
+/* time — the Time axis header: context tier 24 over tick tier 24, 1px --rule under each; now 1px --brand-d; the flag 16 */
+.tier{height:24px;box-sizing:border-box;display:flex;border-bottom:1px solid var(--rule);background:var(--paper)}
+.tier>span{flex:none;box-sizing:border-box;display:flex;align-items:center;justify-content:center;min-width:0;overflow:hidden;border-right:1px solid var(--rule);white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:500;color:var(--ink-4)}
+.tier.ctx>span{justify-content:flex-start;padding:0 12px;font-weight:600;letter-spacing:0.16em;text-transform:uppercase}
+.nowc{height:16px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 4px;border-radius:var(--r-sm);background:var(--brand-d);font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:600;line-height:1;color:var(--paper);white-space:nowrap}
+.nowl{position:absolute;z-index:3;background:var(--brand-d);pointer-events:none}
+.oh{position:absolute;z-index:0;background:var(--paper-2);pointer-events:none}
+/* item card — the Item card: --paper, 1px --rule-strong, --r-md, pad 12, title DM Sans 15/600, meta mono 9.5 */
+.ic{box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr);min-width:0;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)}
+.ic .icb{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;align-content:start;padding:12px;min-width:0}
+.ic .ihd{display:grid;gap:4px;min-width:0}
+.ic .itt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:600;letter-spacing:-0.01em;line-height:20px;color:var(--ink)}
+.ic .imt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-xs);letter-spacing:0.04em;line-height:16px;color:var(--ink-4)}
+.ic .l20{height:20px;display:flex;align-items:center}.ic .l16{height:16px;display:flex;align-items:center}
+.ic .ift{height:36px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;border-top:1px solid var(--rule)}
+.ic.sel{background:var(--paper-3);border-color:var(--ink)}
+/* empty — the Empty state card */
+.es{display:grid;justify-items:center;text-align:center;padding:32px 20px}
+.gy{font-family:var(--font-mono);font-size:var(--fs-num);line-height:1;color:var(--rule-strong)}
+.ttl{padding-top:8px;font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:700;letter-spacing:-0.01em;line-height:1.3;color:var(--ink)}
+.ckl{margin:0;padding:12px 0 0;list-style:none;display:grid;gap:8px;max-width:280px;text-align:left}
+.ckl li{display:flex;align-items:baseline;gap:8px;font-size:var(--fs-body);line-height:20px;color:var(--ink-2);white-space:nowrap}
+.ckl .bx{width:14px;flex:none;text-align:center;font-family:var(--font-mono);color:var(--ink-4)}
+.lkk{color:var(--brand-d);font-weight:500}
+/* canvas items with no card yet (calendar event, bin, schematic item) — the Item card's frame and voice, compact (proposed part, see the change list) */
+.ev{position:absolute;z-index:2;box-sizing:border-box;display:grid;align-content:start;gap:2px;min-width:0;overflow:hidden;padding:4px 8px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)}
+.ev .et{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-body-sm);font-weight:600;line-height:16px;color:var(--ink)}
+.ev .em{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-xs);line-height:14px;color:var(--ink-4)}
+.stl .ev .et,.ev.stl .et{color:var(--ink-3)}
+/* time grid (Calendar Day, Week, Resources) — column heads 32, 48 per hour, hour and half-hour rules --rule, labels mono 10 --ink-4 */
+.tgh,.tgd{display:grid;background:var(--paper)}
+.chd{height:32px;box-sizing:border-box;display:flex;align-items:center;gap:8px;min-width:0;padding:0 12px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule);white-space:nowrap}
+.chd:first-child{border-left:0}
+.chd .mt9{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tgd{position:relative}
+.tgd>.col{position:relative;min-width:0;border-left:1px solid var(--rule)}
+.tgd>.gut{position:relative}
+.hl{position:absolute;left:0;right:0;z-index:2;height:0;border-top:1px solid var(--rule);pointer-events:none}
+.hlab{position:absolute;right:8px;z-index:2;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:500;line-height:16px;color:var(--ink-4)}
+/* month — cells 112, the date mono 10/600 top-left, outside the month --paper-2 */
+.mw{display:grid;background:var(--paper)}
+.mh{height:28px;box-sizing:border-box;display:flex;align-items:center;padding:0 8px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.mc{position:relative;height:112px;box-sizing:border-box;min-width:0;padding:8px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.mh:nth-child(7n+1),.mc:nth-child(7n+1){border-left:0}
+.mc.out{background:var(--paper-2)}
+.dn{position:relative;z-index:2;display:flex;align-items:center;gap:8px;height:16px;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-2)}
+.mc.out .dn{color:var(--ink-4)}
+.mc .chs{position:relative;z-index:2;display:grid;gap:4px;padding-top:8px}
+.mc .chs .ch{min-width:0;max-width:100%;overflow:hidden}
+.mc .chs .ch>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mc .more{font-family:var(--font-mono);font-size:var(--fs-label-md);color:var(--brand-d)}
+/* timeline and lanes — head column 128 with names at 20, lanes 36, weekends --paper-2 through the lanes */
+.lrow{position:relative;display:grid;min-width:0;border-bottom:1px solid var(--rule);background:var(--paper)}
+.lrow>.lh{position:relative;z-index:2;display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:0;padding:0 12px 0 20px;border-right:1px solid var(--rule);white-space:nowrap}
+.lrow>.lh .nm{font-size:var(--fs-body);color:var(--ink);overflow:hidden;text-overflow:ellipsis}
+.lrow>.pl2{position:relative;min-width:0}
+.vl{position:absolute;top:0;bottom:0;z-index:2;width:0;border-left:1px solid var(--rule);pointer-events:none}
+.gband{height:36px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 20px;border-bottom:1px solid var(--rule);background:var(--paper)}
+.gband .gt{font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:700;letter-spacing:-0.01em;color:var(--ink)}
+/* canvas (Schematic) — 1px --rule grid every 40 */
+.cvs{position:relative;overflow:hidden;background:var(--paper)}
+.gl{position:absolute;z-index:2;pointer-events:none;background:var(--rule)}

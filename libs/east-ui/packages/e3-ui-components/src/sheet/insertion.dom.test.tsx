@@ -4,7 +4,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, expect, test } from "vitest";
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, DictType, East, IntegerType, NullType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
 import { Paged, State } from "@elaraai/east-ui/internal";
@@ -42,7 +42,9 @@ function mount(sheet: SheetValue) {
         fireEvent.mouseEnter(row.querySelector('[data-slot="insertPoint"]')!);
         return ui.container.querySelector('[data-slot="insertLayer"] [data-slot="insertRow"]')!;
     };
-    return { ...ui, rows, input, flush, press, finish, insertAbove, refresh: (value: SheetValue) => ui.rerender(component(value)) };
+    /** The status the history item shows while a Save's revision loads — the footer's loading line is a status of its own. */
+    const saveStatus = () => within(ui.container.querySelector<HTMLElement>('[data-slot="history"]')!).queryByRole("status");
+    return { ...ui, rows, input, flush, press, finish, insertAbove, saveStatus, refresh: (value: SheetValue) => ui.rerender(component(value)) };
 }
 
 test("insertion before the first row emits one draft gesture, saves in order and preserves constructor and hidden fields", async () => {
@@ -60,7 +62,7 @@ test("insertion before the first row emits one draft gesture, saves in order and
     expect(saved.sheet.rows.value.map(row => row.cells.get("task"))).toEqual([variant("String", "Inserted"), variant("String", "First"), variant("String", "Second")]);
     ui.refresh(saved);
     expect((ui.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(ui.queryByRole("status")).toBeNull();
+    expect(ui.saveStatus()).toBeNull();
 });
 
 test("repeated insertion resolves against local identities and Undo restores each exact step", async () => {

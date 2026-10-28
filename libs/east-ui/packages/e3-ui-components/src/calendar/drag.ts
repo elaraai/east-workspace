@@ -4,9 +4,9 @@
  */
 
 /** Calendar's adaptation of the shared drag grammar to Schedule commands. */
-import { useRef } from "react";
+import { useCallback, useMemo, useRef, type MutableRefObject } from "react";
 import { none, some } from "@elaraai/east";
-import { dropEvent, useDragTarget, type CellCoord, type DragEventValue, type DragPayload } from "@elaraai/east-ui-components";
+import { dropEvent, useDragTarget, useFormatters, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import { initialPlacement, type CalendarCommands, type CalendarPlacement, type CalendarSource } from "./actions.js";
 import { moveSpan, resizeSpan } from "../shared/time/drag.js";
 import { timeScale } from "../shared/time/scale.js";
@@ -23,26 +23,60 @@ export interface CalendarDrag {
     enabled: boolean;
     run: (event: DragEventValue, checkOnly: boolean) => string | undefined;
     preview: (coord: CellCoord, payload: DragPayload) => CalendarPlacement | undefined;
+    /** A drag's words where it rests: why a drop there is refused, if it is, the event's name, and the instant it lands at in the locale's date and time. */
     caption: (coord: CellCoord, payload: DragPayload, allowed: boolean) => string;
     create: (start: Date, end: Date, resource: CalendarItem["resource"]) => void;
 }
 interface DragArgs {
     value: CalendarValue; key: string; commands: CalendarCommands | undefined; narrow: boolean;
     items: readonly CalendarItem[]; backlog: readonly CalendarItem[]; selection: readonly CalendarItem[];
+    /** The Backlog a page at a time (#1424): what a card it listed is, by its id — where a drag of it finds its event. */
+    served?: { served(id: string): CalendarItem | undefined } | undefined;
     /** The templates the rail shows, by their card's id: what a drop or a drawn event is made from (#1343). */
     templates: ReadonlyMap<string, CalendarSource>;
     activeTemplate: string | undefined; onError: (message: string | undefined) => void;
 }
-/** No layer is registered in narrow or read-only mode. */
+/**
+ * No layer is registered in narrow or read-only mode. The same adapter while what it reads holds (#1398, CL9): what the
+ * views draw with it draws again only as it changes — and its `grab` the same function while the adapter lives, so an
+ * event's block, which calls it, draws again for none of the adapter's other moves.
+ */
 export function useCalendarDrag(args: DragArgs): CalendarDrag {
-    const { value, key, commands, narrow, items, backlog, selection, activeTemplate, onError } = args;
+    const { value, key, commands, narrow, items, backlog, served, selection, activeTemplate, onError } = args;
     const enabled = commands !== undefined && !narrow;
     const grabbed = useRef<{ id: string; offset: number } | undefined>(undefined);
+    const grab = useCallback((item: CalendarItem, instant: Date) => {
+        grabbed.current = { id: eventKey(item), offset: item.start.type === "some" ? instant.getTime() - item.start.value.getTime() : 0 };
+    }, []);
     const sources = args.templates;
+    // The locale's date and time, which the caption says where a drag lands in, as the Calendar prints every date.
+    const format = useFormatters();
+    const drag = useMemo(() => calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed, grab, format }),
+        [value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grab, format]);
+    const { run } = drag;
+    const target = useMemo(() => {
+        if (!enabled) return null;
+        const libraries = value.library.map(tab => calendarLibraryId(key, tab.type === "tab" ? `tab:${tab.value.name}` : tab.type));
+        return { id: key, sources: libraries, kinds: { add: true, move: true, resize: true, remove: true, trash: false },
+            returns: { libraries: value.library.some(tab => tab.type === "backlog") ? [calendarLibraryId(key, "backlog")] : [],
+                canDrop: (event: DragEventValue) => run(event, true) === undefined },
+            onDrag: (event: DragEventValue) => { const refusal = run(event, false); onError(refusal); return refusal === undefined; },
+        };
+    }, [enabled, key, value.library, run, onError]);
+    useDragTarget(target);
+    return drag;
+}
+/** The drag's verdicts over the period as it stands: what a drop runs, what a hover previews and what a press grabs. */
+function calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed, grab, format }: {
+    value: CalendarValue; key: string; commands: CalendarCommands | undefined; items: readonly CalendarItem[]; backlog: readonly CalendarItem[];
+    served: DragArgs["served"]; selection: readonly CalendarItem[]; sources: ReadonlyMap<string, CalendarSource>; activeTemplate: string | undefined;
+    onError: (message: string | undefined) => void; enabled: boolean; grabbed: MutableRefObject<{ id: string; offset: number } | undefined>;
+    grab: CalendarDrag["grab"]; format: Formatters;
+}): CalendarDrag {
     const sourceItem = (encoded: string): CalendarItem | undefined => {
         const parsed = parseEventKey(encoded);
         return parsed.success ? [...items, ...backlog].find(item => item.kind === parsed.value.kind && item.key === parsed.value.key)
-            ?? commands?.editing.read(parsed.value.kind, parsed.value.key)?.item : undefined;
+            ?? served?.served(encoded) ?? commands?.editing.read(parsed.value.kind, parsed.value.key)?.item : undefined;
     };
     const resource = (row: string): CalendarItem["resource"] => {
         const read = parseResourceKey(row); return read.success ? some(read.value) : none;
@@ -96,14 +130,7 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
         const next = moveSpan(scale, span, (target.start.getTime() - item.start.value.getTime()) / QUARTER, true);
         return commands.move(moving, next.start.getTime() - span.start.getTime(), moving.length === 1 && event.value.to.row !== "" ? target.resource : undefined, checkOnly);
     };
-    const libraries = value.library.map(tab => calendarLibraryId(key, tab.type === "tab" ? `tab:${tab.value.name}` : tab.type));
-    useDragTarget(enabled ? { id: key, sources: libraries, kinds: { add: true, move: true, resize: true, remove: true, trash: false },
-        returns: { libraries: value.library.some(tab => tab.type === "backlog") ? [calendarLibraryId(key, "backlog")] : [],
-            canDrop: event => run(event, true) === undefined },
-        onDrag: event => { const refusal = run(event, false); onError(refusal); return refusal === undefined; },
-    } : null);
-    return { surface: key, enabled, run,
-        grab: (item, instant) => { grabbed.current = { id: eventKey(item), offset: item.start.type === "some" ? instant.getTime() - item.start.value.getTime() : 0 }; },
+    return { surface: key, enabled, run, grab,
         adjust: (instant, payload) => payload?.kind === "event" && grabbed.current?.id === payload.from.event
             ? new Date(instant.getTime() - grabbed.current.offset) : instant,
         readTime: slot => { const parsed = parseTimeKey(slot); return parsed.success ? parsed.value : undefined; },
@@ -139,7 +166,7 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
             const name = payload.label ?? (payload.kind === "item" ? payload.from.key : payload.from.event);
             const candidate = dropEvent(payload, coord, false);
             const refusal = allowed || candidate === undefined ? undefined : run(candidate, true);
-            return `${refusal === undefined ? "" : `${refusal} · `}${name}${at.success ? ` · ${at.value.toISOString().slice(0, 16).replace("T", " ")} UTC` : ""}`;
+            return `${refusal === undefined ? "" : `${refusal} · `}${name}${at.success ? ` · ${format.dateTime(at.value)}` : ""}`;
         },
         create(start, end, resource) {
             if (!enabled || commands === undefined) return;

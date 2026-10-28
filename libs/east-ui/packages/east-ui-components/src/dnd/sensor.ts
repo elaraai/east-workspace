@@ -26,7 +26,8 @@
  *
  * Once a touch drag engages, the page does not pan for the rest of it. Escape,
  * a window resize or a hidden page cancels the drag, and the click a drag ends
- * with never reaches the element it began on.
+ * with never reaches the element it began on. Neither sensor picks a drag up in
+ * retained content (`aria-disabled`, #1398, CL8: {@link inRetained}).
  *
  * The keyboard sensor picks a focused draggable up with a start key, drops it
  * with an end key and cancels it with a cancel key (the layer's: Space or
@@ -34,7 +35,12 @@
  * it lasts, and only they move it — to wherever the layer's coordinate getter
  * says; a modifier or a letter pressed mid-drag leaves it where it rests. The
  * layer scrolls what a step lands on into view, so the sensor scrolls nothing
- * itself.
+ * itself. A key either sensor acts on — the keyboard's start, end, cancel and
+ * arrow keys, the pointer drag's Escape — is taken (`takeKey`, #1398): it goes
+ * no further than the drag, so a shortcut of the page on the same key never
+ * hears it. While a drag is in flight its keys are heard on the document as
+ * they go down to their target, ahead of everything under it — a builder's own
+ * keys, which take the arrows and Escape too, never hear one the drag takes.
  *
  * Both write the drag's modifiers and position into the layer's
  * {@link DragTrack}, and leave their `abort` there while they carry a drag:
@@ -49,6 +55,8 @@ import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import type {
     Activators, DraggableNode, KeyboardCodes, KeyboardCoordinateGetter, SensorInstance, SensorProps,
 } from "@dnd-kit/core";
+import { takeKey } from "../editing/shortcuts.js";
+import { inRetained } from "./retained.js";
 
 /** The drag in flight, as its sensor reports it — written by the sensors, read by the layer. */
 export interface DragTrack {
@@ -139,7 +147,8 @@ export class DragPointerSensor implements SensorInstance {
             listen<PointerEvent>(this.doc, "pointermove", this.handleMove, { passive: false }),
             listen<PointerEvent>(this.doc, "pointerup", this.handleUp),
             listen<PointerEvent>(this.doc, "pointercancel", this.handlePointerCancel),
-            listen<KeyboardEvent>(this.doc, "keydown", this.handleKey),
+            // Ahead of everything under the document: the Escape that cancels the drag is the drag's.
+            listen<KeyboardEvent>(this.doc, "keydown", this.handleKey, { capture: true }),
             listen<KeyboardEvent>(this.doc, "keyup", this.handleKey),
             listen(this.doc, "visibilitychange", this.cancel),
             listen(win, "resize", this.cancel),
@@ -159,10 +168,10 @@ export class DragPointerSensor implements SensorInstance {
         }
     }
 
-    /** The draggable's activator: the primary button's press, of any pointer type. */
+    /** The draggable's activator: the primary button's press, of any pointer type — never in retained content. */
     static activators: Activators<DragPointerOptions> = [{
         eventName: "onPointerDown",
-        handler: ({ nativeEvent }: { nativeEvent: PointerEvent }) => nativeEvent.button === 0,
+        handler: ({ nativeEvent }: { nativeEvent: PointerEvent }) => nativeEvent.button === 0 && !inRetained(nativeEvent.target),
     }];
 
     /** Engage the drag. */
@@ -221,7 +230,10 @@ export class DragPointerSensor implements SensorInstance {
 
     private readonly handleKey = (event: KeyboardEvent): void => {
         this.props.options.track.altKey = event.altKey;
-        if (event.type === "keydown" && (event.key === "Escape" || event.code === "Escape")) this.cancel();
+        if (event.type === "keydown" && (event.key === "Escape" || event.code === "Escape")) {
+            takeKey(event);
+            this.cancel();
+        }
     };
 
     /** Stand down, or cancel an engaged drag. */
@@ -312,21 +324,23 @@ export class DragKeyboardSensor implements SensorInstance {
         props.activeNode.node.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
         props.onStart({ x: 0, y: 0 });
         // The key that picked the drag up is still on its way to the document:
-        // listen from the next task, or it would drop what it just picked up.
+        // listen from the next task, or it would drop what it just picked up —
+        // ahead of everything under the document, so the drag's keys are its own.
         this.timer = setTimeout(() => {
             this.timer = undefined;
-            this.listeners.push(listen<KeyboardEvent>(this.doc, "keydown", this.handleKeyDown));
+            this.listeners.push(listen<KeyboardEvent>(this.doc, "keydown", this.handleKeyDown, { capture: true }));
         }, 0);
     }
 
-    /** The draggable's activator: a start key pressed on the draggable itself — never in a control inside it. */
+    /** The draggable's activator: a start key pressed on the draggable itself — never in a control inside it, nor in retained content. */
     static activators: Activators<DragKeyboardOptions> = [{
         eventName: "onKeyDown",
         handler: (event: ReactKeyboardEvent, { keyboardCodes }: DragKeyboardOptions, { active }: { active: DraggableNode }) => {
             if (!keyboardCodes.start.includes(event.nativeEvent.code)) return false;
             const activator = active.activatorNode.current;
             if (activator !== null && event.target !== activator) return false;
-            event.preventDefault();
+            if (inRetained(event.target)) return false;
+            takeKey(event);
             return true;
         },
     }];
@@ -335,19 +349,19 @@ export class DragKeyboardSensor implements SensorInstance {
         const { options } = this.props;
         options.track.altKey = event.altKey;
         if (options.keyboardCodes.end.includes(event.code)) {
-            event.preventDefault();
+            takeKey(event);
             this.detach();
             this.props.onEnd();
             return;
         }
         if (options.keyboardCodes.cancel.includes(event.code)) {
-            event.preventDefault();
+            takeKey(event);
             this.cancel();
             return;
         }
         if (!ARROWS.has(event.code)) return;
         // The arrows are the drag's: nowhere to go that way is a step not taken, never a page scroll.
-        event.preventDefault();
+        takeKey(event);
         const context = this.props.context.current;
         const rect = context.collisionRect;
         const current = rect !== null ? { x: rect.left, y: rect.top } : { x: 0, y: 0 };

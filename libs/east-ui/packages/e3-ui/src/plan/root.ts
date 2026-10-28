@@ -188,7 +188,8 @@ export interface PlanBindHandle {
 export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> {
     /** The shared axis declaration (`Plan.axis` / `.time` / `.number` / `.ordinal`) — fixes the canvas kind `K`.
      *  A time or number axis states its `window`, or a source of the Plan's `slice` holds it in its `range`
-     *  (#1344) — there is no fit to the data (#822), inline or paged. */
+     *  (#1344) — an event kind's or a tab's, never the canvas's rows' — there is no fit to the data (#822), inline or
+     *  paged. */
     axis: PlanAxisInput<K>;
     /** The source — a KEYED collection: a `Dict<K, R>` value or expression (a
      *  `$.let`-bound map, `Data.bind(...).read()`) or a whole-value bind handle
@@ -343,7 +344,8 @@ function seriesSourceOf(list: ExprType<EastType>): EastType | undefined {
  *
  * @remarks
  * Window and resolution have no callbacks by design: they are writes to the
- * ranges and resolutions of a Plan's slice — hosts observe the slice. A change
+ * ranges and resolutions of a Plan's slice — hosts observe the slice — or,
+ * while no source of it holds the window, the canvas's own (#1344). A change
  * to the data — a dropped card, a moved or resized element — is a draft of the
  * `editing` session, saved as one checked batch (#880, #825).
  */
@@ -407,12 +409,13 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
         );
     }
     // There is no fit to the data (#822): every canvas states its window, or
-    // its slice holds it, a source's `range` — inline and paged alike.
+    // its slice holds it, a source's `range` — inline and paged alike — never
+    // the canvas's rows' (#1344).
     if (WINDOWLESS_AXES.has(config.axis as object) && chrome.type === "none") {
         throw new Error(
             "Plan: the axis states no `window` and no `slice` is bound — declare the window " +
-            "(`Plan.axis({ window: { min, max }, … })`), or bind a slice a source of which holds it in its `range`: " +
-            "slice={{ slice: Slice.bindRecords(key, { rows: { source, range } }) }}. " +
+            "(`Plan.axis({ window: { min, max }, … })`), or bind a slice a source of which holds it in its `range` — " +
+            "an event kind's, or a tab's: slice={{ slice: Slice.bindRecords(key, { <kind>: { source, range } }) }}. " +
             "A canvas never fits its axis to the data, so it reads the same inline and paged.",
         );
     }

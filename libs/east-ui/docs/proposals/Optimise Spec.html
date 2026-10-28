@@ -1,0 +1,1373 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Optimise Spec</title>
+<!-- The hi-fi mock of the e3-ui builders' Optimise: the Elara eye in the toolbar, the run, the landing of its result as one
+     edit, and the highlight, in the Roster, Calendar, Sheet, Plan and Allocation (libs/east-ui/docs/proposals/Optimise Spec.md,
+     elaraai/east-workspace#1409). From the Claude Design export "Optimise", made with the East Design System and #1398's loading
+     parts; its sample data is the repo's own synthetic corpora (the warehouse's people, the print shop's jobs, the kiln yard's
+     loads). Self-contained but for Font Awesome (cdnjs) and the fonts (Google Fonts). The page's controls compare the ideas the
+     spec left open; the rulings of 25 Oct 2026 fixed them: the eye alone pulses while running (Pulse), the landing glows in
+     reading order (Cascade), the highlight lasts 8 s. Each card's Run plays its run, Reset returns it; the eye in a card's
+     toolbar runs and stops it; Undo, Redo, Cancel and Apply are the card's edit bar. -->
+<style>
+/* East — color tokens.
+ * Two layers:
+ *   1. Raw scales (--brand-*, --gray-*, accent hues) — NEVER use directly in components.
+ *   2. Semantic aliases — the ONLY colors components may reference:
+ *      --ink…--ink-5, --paper…--paper-3, --rule, --rule-strong, --brand, --brand-d,
+ *      --brand-dd, --brand-tint, --pos, --neg, --warn, --info, their text steps
+ *      --pos-text…--info-text, the sequential ramp --heat-1…--heat-5, and
+ *      --bg-inverse / --fg-inverse (Stamp and Tooltip only).
+ * The rest of the old page-level set (--bg-*, --fg-*, --border-*, --card-*, --link*,
+ * --brand-l) is DEPRECATED — see the last block of this file.
+ * Both themes resolve through the same semantic names; a component written
+ * against semantics works in dark mode for free. */
+
+:root {
+  /* ===== RAW: brand deep-teal scale ===== */
+  --brand-50:  #f0fffe;
+  --brand-100: #c2fcfc;
+  --brand-200: #94f9f9;
+  --brand-300: #79f8f8;
+  --brand-400: #5ce5e5;
+  --brand-500: #488e97;
+  --brand-600: #3a7780;
+  --brand-700: #2b4b55;
+  --brand-800: #1f363d;
+  --brand-900: #111b22;
+
+  /* ===== RAW: cool green-gray neutrals ===== */
+  --gray-50:  #f8fafa;
+  --gray-100: #f1f5f5;
+  --gray-200: #e2e8e8;
+  --gray-300: #cbd5d5;
+  --gray-400: #9bb0b0;
+  --gray-500: #6b8080;
+  --gray-600: #4a5f5f;
+  --gray-700: #374848;
+  --gray-800: #253333;
+  --gray-900: #1a2626;
+
+  /* ===== RAW: chart-only accent hues (see chart conventions) ===== */
+  --teal-500:   #14b8a6;
+  --purple-500: #8b5cf6;
+  --blue-500:   #3b82f6;
+  --green-500:  #22c55e;
+  --orange-500: #f97316;
+  --red-500:    #ef4444;
+  --yellow-500: #eab308;
+
+  /* ===== SEMANTIC: ink (text) scale, darkest → lightest ===== */
+  --ink:   #111b22;   /* primary text, headings */
+  --ink-2: #2b4b55;   /* strong secondary text */
+  --ink-3: #4a5f5f;   /* secondary text, ledes */
+  --ink-4: #5d7171;   /* labels, captions, annotations, placeholders — 5.2 / 4.9 / 4.7:1 on --paper / -2 / -3, 4.7:1 on --brand-tint */
+  --ink-5: #9bb0b0;   /* disabled text and icons, muted marks (the muted tone, 3rd stacked-column segment) — never readable text (2.3:1) */
+
+  /* ===== SEMANTIC: paper (surface) scale ===== */
+  --paper:   #ffffff; /* frames, rows, controls */
+  --paper-2: #f8fafa; /* page background, bands, sidebar, rail; hover on --paper */
+  --paper-3: #f1f5f5; /* wells, count chips; selected rows and cells; hover on --paper-2 */
+
+  /* ===== SEMANTIC: rules (borders are structural, never decorative) ===== */
+  --rule:        #e2e8e8;  /* 1px inside-card dividers */
+  --rule-strong: #cbd5d5;  /* frame edges, input and overlay borders */
+
+  /* ===== SEMANTIC: brand ===== */
+  --brand:      #488e97;  /* marks, dots */
+  --brand-d:    #3a7780;  /* interactive brand (buttons, links, checks) — text and ticks on it are --paper */
+  --brand-dd:   #2b4b55;  /* hover / pressed brand */
+  --brand-tint: #e8f6f7;  /* an active control or a dirty value — the ONLY tinted bg allowed; chart bands at 0.7 */
+
+  /* ===== SEMANTIC: valence (muted, never saturated) ===== */
+  /* base = dots, marks and 6% washes (≥ 3:1 on every paper);
+     -text = valence set as text: ≥ 4.5:1 on --paper, --paper-2, --paper-3 and
+     --brand-tint, and on its own 6% wash over each of them — so a DeltaPill
+     holds in a selected or dirty row */
+  --pos:  #2f7a5b;
+  --neg:  #b85a4a;
+  --warn: #b6842b;
+  --info: #416b9f;  /* its own blue hue, distinct from --brand-d */
+  --pos-text:  #2a7557;
+  --neg-text:  #a94c3e;
+  --warn-text: #8f6100;
+  --info-text: var(--info);  /* the base already passes: 4.6:1 on its wash over --brand-tint */
+
+  /* ===== SEMANTIC: page-level ===== */
+  --bg-inverse:   var(--brand-900);  /* Stamp and Tooltip fill only */
+  --fg-inverse:   #ffffff;           /* text on --bg-inverse */
+
+  /* ===== SEMANTIC: sequential ramp — heat cells and map areas, one measure's magnitude =====
+     Declared in both theme scopes so each step mixes that theme's --brand-d and --paper.
+     Value text --ink on 1–3, --paper on 4–5. */
+  --heat-1: color-mix(in oklch, var(--brand-d) 12%, var(--paper));
+  --heat-2: color-mix(in oklch, var(--brand-d) 32%, var(--paper));
+  --heat-3: color-mix(in oklch, var(--brand-d) 56%, var(--paper));
+  --heat-4: var(--brand-d);
+  --heat-5: var(--brand-dd);
+}
+
+/* ===== Dark theme — same semantic names, inverted values ===== */
+[data-theme="dark"], .dark {
+  --ink:   #f1f5f5;
+  --ink-2: #cfd9d9;
+  --ink-3: #aec3c3;
+  --ink-4: #96acac;   /* 6.5 / 5.5 / 4.6:1 on --paper / -2 / -3 */
+  --ink-5: #4a5f5f;
+
+  --paper:   #1a2626;
+  --paper-2: #253333;
+  --paper-3: #2e3f3f;   /* selected rows — every ink from --ink-4 up holds 4.5:1 on it */
+
+  --rule:        #374848;
+  --rule-strong: #4a5f5f;
+
+  --brand:      #488e97;
+  --brand-d:    #65b2bd;   /* interactive brand lifts one step in dark; 4.6:1 on --paper-3 */
+  --brand-dd:   #81ccd5;
+  --brand-tint: #1f363d;
+
+  --pos:  #4da583;
+  --neg:  #d98a7c;
+  --warn: #d4a74f;
+  --info: #7ca7df;
+  --pos-text:  #67bf9c;
+  --neg-text:  #eb9b8c;
+  --warn-text: #d7aa52;
+  --info-text: #87b3eb;
+
+  --bg-inverse:   #ffffff;
+  --fg-inverse:   var(--brand-900);
+
+  --heat-1: color-mix(in oklch, var(--brand-d) 12%, var(--paper));
+  --heat-2: color-mix(in oklch, var(--brand-d) 32%, var(--paper));
+  --heat-3: color-mix(in oklch, var(--brand-d) 56%, var(--paper));
+  --heat-4: var(--brand-d);
+  --heat-5: var(--brand-dd);
+}
+
+/* ===== DEPRECATED: duplicate page-level set =====
+ * Never use in new work. Each name is kept only as an alias of its
+ * replacement so older mocks still resolve, and is declared in both theme
+ * scopes so the alias follows the theme. */
+:root {
+  --bg-primary:    var(--paper);        /* use --paper */
+  --bg-secondary:  var(--paper-2);      /* use --paper-2 */
+  --bg-tertiary:   var(--paper-3);      /* use --paper-3 */
+  --fg-primary:    var(--ink);          /* use --ink */
+  --fg-secondary:  var(--ink-3);        /* use --ink-3 */
+  --fg-muted:      var(--ink-4);        /* use --ink-4 */
+  --border-subtle: var(--rule);         /* use --rule */
+  --border-strong: var(--rule-strong);  /* use --rule-strong */
+  --border-focus:  var(--brand);        /* use --shadow-focus */
+  --card-bg:       var(--paper);        /* use --paper */
+  --card-border:   var(--rule-strong);  /* use --rule-strong */
+  --link:          var(--brand-d);      /* use --brand-d */
+  --link-hover:    var(--brand-dd);     /* use --brand-dd */
+  --brand-l:       var(--brand-200);    /* no replacement */
+}
+[data-theme="dark"], .dark {
+  --bg-primary:    var(--paper);
+  --bg-secondary:  var(--paper-2);
+  --bg-tertiary:   var(--paper-3);
+  --fg-primary:    var(--ink);
+  --fg-secondary:  var(--ink-3);
+  --fg-muted:      var(--ink-4);
+  --border-subtle: var(--rule);
+  --border-strong: var(--rule-strong);
+  --border-focus:  var(--brand);
+  --card-bg:       var(--paper);
+  --card-border:   var(--rule-strong);
+  --link:          var(--brand-d);
+  --link-hover:    var(--brand-dd);
+}
+
+</style>
+<style>
+/* East — spacing, radii, shadow, and motion tokens. */
+:root {
+  /* spacing (4px base) — Main frames pad 20px, rail frames 12px, rows 12px
+     horizontal, internal gaps 8px. Never an off-scale px. */
+  --sp-0: 0; /* @kind spacing */ --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px;
+  --sp-6: 24px; --sp-8: 32px; --sp-10: 40px; --sp-12: 48px; --sp-16: 64px; --sp-20: 80px;
+
+  /* radii — East is square-ish: chips, counts, NEW, DeltaPill and kbd 4px;
+     buttons, inputs, menus and popovers 6px; frames, dialogs, the Commit bar
+     and the Stamp 10px. Nothing pill-shaped: --r-full only on avatars/dots. */
+  --r-sm: 4px; --r-md: 6px; --r-lg: 10px; --r-full: 9999px;
+
+  /* shadows — the focus ring is the ONE allowed shadow: outside on controls,
+     inset on cells and rows. Nothing else is ever shadowed (frames, menus,
+     popovers, dialogs, the Commit bar); structure comes from 1px rules.
+     Light: 3px of --brand at 35%. Dark: 3px of --brand-d at 80%, which holds
+     3.5:1 on --paper-3 (the dark block below). */
+  --shadow-focus: 0 0 0 3px rgba(72, 142, 151, 0.35);
+  --shadow-focus-inset: inset 0 0 0 3px rgba(72, 142, 151, 0.35);
+  /* DEPRECATED — not allowed; kept only so older mocks resolve. */
+  --shadow-xs: 0 1px 2px rgba(17, 27, 34, 0.05);
+  --shadow-sm: 0 1px 2px rgba(17, 27, 34, 0.06), 0 1px 3px rgba(17, 27, 34, 0.08);
+  --shadow-md: 0 4px 6px -1px rgba(17, 27, 34, 0.08), 0 2px 4px -2px rgba(17, 27, 34, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(17, 27, 34, 0.10), 0 4px 6px -4px rgba(17, 27, 34, 0.08);
+  --shadow-xl: 0 20px 25px -5px rgba(17, 27, 34, 0.12), 0 8px 10px -6px rgba(17, 27, 34, 0.10);
+
+  /* motion — fast and matter-of-fact; no bounces. fast = hover/focus,
+     base = panels, banners, the Commit bar, slow = run pulse, diff settle.
+     --ease-out for everything that moves; --ease-in-out for state toggles only. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1); /* @kind other */
+  --dur-fast: 120ms; /* @kind other */ --dur-base: 200ms; /* @kind other */ --dur-slow: 360ms; /* @kind other */
+}
+
+/* Dark: 35% of --brand disappears on the dark papers, so the ring takes the
+   lifted --brand-d at 80% — 4.6 / 4.0 / 3.5:1 on --paper / -2 / -3. */
+[data-theme="dark"], .dark {
+  --shadow-focus: 0 0 0 3px color-mix(in oklch, var(--brand-d) 80%, transparent);
+  --shadow-focus-inset: inset 0 0 0 3px color-mix(in oklch, var(--brand-d) 80%, transparent);
+}
+
+</style>
+<style>
+/* East — typography tokens.
+ * Three families, three jobs:
+ *   --font-brand (DM Sans)      display: page, frame and dialog titles
+ *   --font-body  (Inter Tight)  running UI text
+ *   --font-mono  (JetBrains Mono) ALL numerals (tabular) incl. large numbers,
+ *                               labels/eyebrows, keys, statuses, kbd — the system's "data voice"
+ * JetBrains Mono loads italic 400 for the muted "no data" value, the only italic.
+ * DM Sans is a flagged substitution for the rounded geometric sans in the
+ * Elara lockup. All three load from Google Fonts. */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+
+:root {
+  --font-brand: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body:  'Inter Tight', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:  'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* sizes — only the sizes the guidelines use.
+     labels (mono): 9.5 annotation lines, section eyebrows · 10 eyebrows, table
+     headers, axis labels · 10.5 compact/condensed breadcrumb, legend · 11
+     breadcrumb, tabs, segmented control, tooltip, sidebar items */
+  --fs-label-xs: 9.5px; /* @kind font */ --fs-label-sm: 10px; /* @kind font */ --fs-label-md: 10.5px; /* @kind font */ --fs-label-lg: 11px; /* @kind font */
+  /* running text (Inter Tight): 12.5 buttons, captions · 13 body, table cells · 14 ledes */
+  --fs-body-sm: 12.5px; /* @kind font */ --fs-body: 13px; /* @kind font */ --fs-body-lg: 14px; /* @kind font */
+  /* titles (DM Sans): 15 empty state · 16 condensed bar · 18 compact bar, h3 · 20 dialog, h2 · 24 page, h1 */
+  --fs-title-xs: 15px; /* @kind font */ --fs-title-sm: 16px; /* @kind font */ --fs-title-md: 18px; /* @kind font */ --fs-title-lg: 20px; /* @kind font */ --fs-title-xl: 24px; /* @kind font */
+  /* large numbers (mono, tabular, 600): Stat values, data-rail cells */
+  --fs-num: 26px; /* @kind font */
+
+  --fw-light: 300; /* @kind font */ --fw-normal: 400; /* @kind font */ --fw-medium: 500; /* @kind font */
+  --fw-semibold: 600; /* @kind font */ --fw-bold: 700; /* @kind font */ --fw-extra: 800; /* @kind font */
+
+  --lh-tight: 1.25; /* @kind font */ --lh-snug: 1.375; /* @kind font */ --lh-normal: 1.5; /* @kind font */ --lh-relaxed: 1.625; /* @kind font */
+}
+
+</style>
+<style>
+/* East — base semantic element styles. */
+html, body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--paper-2);
+  font-feature-settings: "tnum" 1;
+  margin: 0;
+}
+
+[data-theme="dark"], .dark { color: var(--ink); } /* re-resolve inherited text colour inside a dark-scoped subtree */
+
+.h1, h1 { font-family: var(--font-brand); font-size: var(--fs-title-xl); font-weight: var(--fw-bold);     line-height: var(--lh-tight); letter-spacing: -0.02em;  color: var(--ink); }
+.h2, h2 { font-family: var(--font-brand); font-size: var(--fs-title-lg); font-weight: var(--fw-bold);     line-height: var(--lh-tight); letter-spacing: -0.015em; color: var(--ink); }
+.h3, h3 { font-family: var(--font-brand); font-size: var(--fs-title-md); font-weight: var(--fw-semibold); line-height: var(--lh-snug);  letter-spacing: -0.01em;  color: var(--ink); }
+.h4, h4 { font-family: var(--font-brand); font-size: var(--fs-title-sm); font-weight: var(--fw-semibold); line-height: var(--lh-snug);  letter-spacing: -0.01em;  color: var(--ink); }
+.h5, h5 { font-family: var(--font-brand); font-size: var(--fs-title-xs); font-weight: var(--fw-bold);     line-height: var(--lh-snug);  letter-spacing: -0.01em;  color: var(--ink); }
+.h6, h6 { font-family: var(--font-body);  font-size: var(--fs-body-lg);  font-weight: var(--fw-semibold); line-height: var(--lh-normal); color: var(--ink); }
+
+.p, p    { font-size: var(--fs-body);    line-height: var(--lh-relaxed); color: var(--ink); }
+.lead    { font-size: var(--fs-body-lg); line-height: var(--lh-relaxed); color: var(--ink-3); }
+.small   { font-size: var(--fs-body-sm); line-height: var(--lh-normal);  color: var(--ink-3); }
+.caption { font-size: var(--fs-body-sm); line-height: var(--lh-normal);  color: var(--ink-4); letter-spacing: 0.02em; }
+.eyebrow { font-family: var(--font-mono); font-size: var(--fs-label-sm); font-weight: var(--fw-semibold); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-4); }
+.mono    { font-family: var(--font-mono); font-feature-settings: "tnum" 1; }
+.num     { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-weight: var(--fw-medium); }
+.num-lg  { font-family: var(--font-mono); font-feature-settings: "tnum" 1; font-size: var(--fs-num); font-weight: var(--fw-semibold); line-height: 1; }
+.code, code { font-family: var(--font-mono); font-size: 0.92em; background: var(--paper-3); padding: 1px 5px; border-radius: var(--r-sm); color: var(--ink); }
+
+a       { color: var(--brand-d); text-decoration: none; }
+a:hover { color: var(--brand-dd); text-decoration: underline; text-underline-offset: 2px; }
+
+</style>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<style>
+/* Shared parts for the "Parts · Toolbar & slice" cards. Token-only; one-line rules.
+   These draw the improvement pass: each value that differs from east-ui is marked (proposed) on its card and listed in base-components.md › Toolbar & slice: proposed changes. */
+body{margin:0;padding:16px 20px;background:var(--paper-2)}
+.wrap{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;max-width:660px}
+.sec{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;min-width:0}
+.k{font-family:var(--font-mono);font-size:var(--fs-label-xs);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4)}
+.cap{font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:1.5;letter-spacing:0.04em;color:var(--ink-4)}
+.ann{font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:1.6;letter-spacing:0.04em;color:var(--ink-4);padding-top:12px}
+.ann .f,.cap .f{white-space:normal}
+.ann b,.cap b{font-weight:600;color:var(--ink-2)}
+.canvas{display:grid;gap:16px;padding:20px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-lg);min-width:0}
+.line{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-width:0}
+.line.g12{gap:12px}.line.g16{gap:16px}.line.g20{gap:20px}
+.num{font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-weight:500}
+a{color:var(--brand-d)}a:hover{color:var(--brand-dd)}
+@keyframes east-pulse{0%{transform:scale(1);opacity:0.6}25%,100%{transform:scale(2.5);opacity:0}}
+/* frames and bands — one band on every host: 44, pad 0 + the Frame's padding (20 Main, 12 rail) */
+.slice{border:1px solid var(--rule-strong);border-radius:var(--r-lg);overflow:hidden;background:var(--paper);box-sizing:border-box}
+.band{box-sizing:border-box;min-height:44px;display:flex;align-items:center;padding:0 20px;background:var(--paper)}
+.band.rl{padding:0 12px}
+.band.rule{border-bottom:1px solid var(--rule)}
+.band.touch{min-height:56px}
+.stub{height:12px;background:var(--paper)}
+/* the toolbar row */
+.tb{display:flex;flex-wrap:nowrap;align-items:center;align-self:stretch;flex:1 1 0%;min-width:0;gap:12px;overflow-x:clip;padding-inline:3px;margin-inline:-3px}
+.it{flex:none;display:inline-flex;align-items:center}
+.it.end{margin-left:auto}
+.it.fh{align-self:stretch}
+/* rail cluster — slots 12 apart, icon → control 4 */
+.cl{display:inline-flex;align-items:center;gap:12px;flex:none}
+.af{display:inline-flex;align-items:center;gap:4px;flex:none}
+.fi{width:14px;flex:none;display:inline-flex;justify-content:center;font-size:10px;color:var(--ink-4)}
+.ctl,.run{display:inline-flex;align-items:center;gap:8px;flex:none}
+.runs{display:inline-flex;align-items:center;gap:12px;flex:none}
+.runcap,.ecap,.cxl{font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-4);white-space:nowrap}
+.tg{display:inline-flex;align-items:center;gap:4px;flex:none;border-radius:var(--r-sm)}
+.tg>.cr{font-size:8px;color:var(--ink-4);transition:transform var(--dur-fast) var(--ease-in-out)}
+.tg.hv .ch{background:var(--paper-2)}
+.tg.op .ch{background:var(--paper-3)}
+.tg.hv .ch.br,.tg.op .ch.br{background:var(--brand-tint);border-color:var(--brand-dd)}
+.tg.op>.cr,.ch.op .cr{transform:rotate(180deg)}
+.tg.fo{box-shadow:var(--shadow-focus)}
+/* rail chip — 22, pad 0 8, gap 4, mono 11 */
+.ch{height:22px;box-sizing:border-box;display:inline-flex;align-items:center;gap:4px;padding:0 8px;border:1px solid var(--rule-strong);border-radius:var(--r-sm);background:var(--paper);font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:500;line-height:1;font-feature-settings:"tnum" 1;color:var(--ink-2);white-space:nowrap;flex:none}
+.ch.cp{font-size:var(--fs-label-md);font-weight:600;letter-spacing:0.1em;text-transform:uppercase}
+.ch.br{background:var(--brand-tint);border-color:var(--brand-d);color:var(--brand-dd)}
+.ch.da{border-style:dashed;color:var(--ink-4)}
+.ch.mo{border-color:var(--brand-d);color:var(--brand-dd);font-weight:600}
+.ch.io{width:22px;padding:0;justify-content:center}
+.ch .ic{font-size:10px}.ch .pl{font-size:9px}
+.ch .cr{font-size:8px;transition:transform var(--dur-fast) var(--ease-in-out)}
+.ch .me{color:var(--ink-3)}
+.ch .x,.ch .pen{align-self:stretch;flex:none;width:20px;margin-right:-8px;display:inline-flex;align-items:center;justify-content:center;border-radius:0 calc(var(--r-sm) - 1px) calc(var(--r-sm) - 1px) 0}
+.ch .x{font-size:var(--fs-label-lg);color:var(--brand-d)}
+.ch .pen{font-size:9px;color:var(--ink-3)}
+.ch .dt{width:8px;height:8px;flex:none;box-sizing:border-box;border-radius:var(--r-full);border:1px solid var(--ink-4);background:transparent}
+.ch .dt.on{border:0;background:var(--brand-d)}
+.ch.hv{background:var(--paper-2)}
+.ch.op{background:var(--paper-3)}
+.ch.br.hv,.ch.br.op{background:var(--brand-tint);border-color:var(--brand-dd)}
+.ch.hv .x,.ch .x.hv,.ch .pen.hv{color:var(--brand-dd)}
+.ch.fo{box-shadow:var(--shadow-focus)}
+.ch.tgt .x,.ch.tgt .pen{outline:1px dashed var(--ink-4);outline-offset:-1px}
+/* search pill — 28, --r-md, the Kbd hint */
+.sp{width:200px;height:28px;box-sizing:border-box;flex:none;display:flex;align-items:center;gap:8px;padding:0 4px 0 12px;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper);font-family:var(--font-mono);font-size:var(--fs-label-lg);color:var(--ink);white-space:nowrap}
+.sp .q{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.sp .ph{color:var(--ink-4)}
+.sp .mg{font-size:10px;color:var(--ink-4)}
+.sp .kh{height:20px;min-width:20px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;background:var(--paper-2);border:1px solid var(--rule-strong);border-radius:var(--r-sm);font-size:var(--fs-label-lg);font-weight:500;line-height:1;color:var(--ink-2)}
+.sp .cx{width:20px;height:20px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-sm);font-size:11px;color:var(--ink-3)}
+.sp .cx.hv{background:var(--paper-2);color:var(--ink)}
+.tcar{display:inline-block;width:1px;height:13px;vertical-align:middle;background:var(--ink)}
+.sp.hv{background:var(--paper-2)}
+.sp.fo{box-shadow:var(--shadow-focus)}
+/* SegmentGroup sm 24 — the SegmentGroup card */
+.sg{display:inline-flex;flex:none;height:24px;box-sizing:border-box;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper)}
+.sg .o{position:relative;display:inline-flex;align-items:center;padding:0 8px;font-family:var(--font-mono);font-size:var(--fs-label-md);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;line-height:1;color:var(--ink-4);white-space:nowrap}
+.sg .o+.o{border-left:1px solid var(--rule-strong)}
+.sg .o:first-child{border-radius:calc(var(--r-md) - 1px) 0 0 calc(var(--r-md) - 1px)}
+.sg .o:last-child{border-radius:0 calc(var(--r-md) - 1px) calc(var(--r-md) - 1px) 0}
+.sg .o.on{background:var(--brand-tint);color:var(--brand-dd)}
+.sg .o.hv{background:var(--paper-2);color:var(--ink-2)}
+.sg .o.fo{z-index:1;box-shadow:var(--shadow-focus)}
+.sg .o.dis{color:var(--ink-5)}
+.cxw{display:inline-flex;align-items:center;gap:8px;flex:none}
+/* paged badge — the Tag, dashed: partial */
+.bdg{height:20px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;padding:0 8px;background:var(--paper-3);border:1px dashed var(--rule-strong);border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:500;line-height:1;color:var(--ink-3);white-space:nowrap}
+/* counts — Slice.Summary's voice everywhere */
+.sum,.cnt{font-family:var(--font-mono);font-size:var(--fs-label-md);font-feature-settings:"tnum" 1;color:var(--ink-3);white-space:nowrap}
+.sum b,.cnt b{font-weight:600;color:var(--ink)}
+/* Status — dot + word */
+.stt{display:inline-flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:var(--fs-label-md);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;line-height:1;color:var(--ink-3);white-space:nowrap}
+.dot{position:relative;width:8px;height:8px;flex:none;box-sizing:border-box;border-radius:var(--r-full);background:var(--brand)}
+.dot.warn{background:var(--warn)}.dot.neg{background:var(--neg)}
+.dot.stale{background:transparent;border:1px dashed var(--ink-4)}
+.dot.live::after{content:"";position:absolute;inset:0;border-radius:var(--r-full);background:inherit;animation:east-pulse calc(var(--dur-slow) * 4) var(--ease-out) infinite}
+.dg .t{flex:none;max-width:320px}.dg .w{font-size:10px;color:var(--warn)}
+/* buttons — the Button card: sm 24, md 32 */
+.bt{height:24px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:0 8px;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper);font-family:var(--font-body);font-size:var(--fs-body-sm);font-weight:500;line-height:1;color:var(--ink);white-space:nowrap}
+.bt i{font-size:14px}
+.bt.md{height:32px;padding:0 12px}.bt.md i{font-size:16px}
+.bt.ib{width:24px;padding:0}.bt.ib i{font-size:12px}
+.bt.gh{border-color:transparent;background:transparent;color:var(--ink-3)}
+.bt.hv{background:var(--paper-2)}.bt.gh.hv{background:var(--paper-3);color:var(--ink)}
+.bt.op{background:var(--paper-3)}
+.bt.fo{box-shadow:var(--shadow-focus)}
+.bt.dis{border-color:var(--rule);background:var(--paper);color:var(--ink-5)}
+.bt.gh.dis{border-color:transparent;background:transparent}
+.bt .wn{color:var(--warn)}.bt.dis .wn{color:var(--ink-5)}
+.bt .mt{font-family:var(--font-mono);font-size:var(--fs-label-lg);font-feature-settings:"tnum" 1;color:var(--ink-3)}
+.bt .n{font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:600;font-feature-settings:"tnum" 1}
+.bt .ld{position:relative;width:8px;height:8px;flex:none;border-radius:var(--r-full);background:currentColor}
+.bt .ld::after{content:"";position:absolute;inset:0;border-radius:var(--r-full);background:inherit;animation:east-pulse calc(var(--dur-slow) * 4) var(--ease-out) infinite}
+.bt.gone{visibility:hidden}
+@media (prefers-reduced-motion:reduce){.bt .ld::after,.dot.live::after{animation:none;opacity:0}}
+.hb{display:inline-flex;align-items:center;gap:8px;flex:none}
+/* touch — coarse pointer: band 56, chips 34, other targets 44 */
+.touch .ch{height:34px;padding:0 12px;gap:8px}
+.touch .ch.io{width:34px;padding:0}
+.touch .ch .x,.touch .ch .pen{width:34px;margin-right:-12px}
+.touch .sp{height:44px;width:200px}
+.touch .bt{height:44px;padding:0 12px}.touch .bt.ib{width:44px;padding:0}
+.touch .sg{height:44px}.touch .sg .o{padding:0 12px}
+.touch .tg{gap:8px}
+/* Sheet view tabs — the Tabs part, full band height */
+.tset{display:flex;align-items:stretch;align-self:stretch;gap:16px;flex:none}
+.tlist{display:flex;align-items:stretch;gap:16px}
+.tset.closed .tlist{gap:12px}
+.tab{display:inline-flex;align-items:center;gap:8px;padding:0 4px;font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;line-height:1;color:var(--ink-4);white-space:nowrap;flex:none}
+.tab.on{box-shadow:inset 0 -2px 0 var(--ink);color:var(--ink)}
+.tab.hv{background:var(--paper-2);color:var(--ink-2)}
+.tab.fo{box-shadow:var(--shadow-focus-inset)}.tab.on.fo{box-shadow:inset 0 -2px 0 var(--ink),var(--shadow-focus-inset)}
+.tab .nm{flex:none}
+.tset.capped .tab .nm,.tset.closed .tab .nm{max-width:72px;overflow:hidden;text-overflow:ellipsis;padding-right:1px}
+.tab .tc{font-weight:500;color:var(--ink-4)}
+.tab .tx{width:14px;height:14px;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:9px;color:var(--ink-4);visibility:hidden}
+.tab.on .tx,.tab.hv .tx,.tab.fo .tx{visibility:visible}
+.tmore{display:inline-flex;align-items:center;gap:4px;padding:0 4px;font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:600;letter-spacing:0.16em;line-height:1;color:var(--ink-4);white-space:nowrap;flex:none}
+.tmore i{font-size:8px}
+.tset>.ch{align-self:center}
+/* popover — SliceEditPopover on the Popover part: head and foot pad 8 12, body 12, md 320 · lg 360 */
+.pop{position:relative;box-sizing:border-box;display:flex;flex-direction:column;max-width:100%;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)}
+.pop.sm{width:320px}.pop.lg{width:360px}
+.arw{position:absolute;top:-6px;width:12px;height:6px}
+.arw::before{content:"";position:absolute;left:0;top:0;border-style:solid;border-width:0 6px 6px;border-color:transparent transparent var(--rule-strong)}
+.arw::after{content:"";position:absolute;left:1px;top:1px;border-style:solid;border-width:0 5px 5px;border-color:transparent transparent var(--paper)}
+.pop .hd{display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;border-bottom:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-md);font-weight:600;letter-spacing:0.04em;line-height:1.3;color:var(--ink);white-space:nowrap}
+.pop .hd .ac{color:var(--brand-dd)}
+.pop .cls{margin-left:auto;width:24px;height:24px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-md);font-size:12px;color:var(--ink-3)}
+.pop .cls.hv{background:var(--paper-3);color:var(--ink)}
+.pop .bd{display:flex;flex-direction:column;gap:12px;padding:12px;min-width:0}
+.pop .bd.fl{padding:0;gap:0}
+.pop .ft{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--rule);background:var(--paper-2);border-radius:0 0 calc(var(--r-md) - 1px) calc(var(--r-md) - 1px);font-family:var(--font-body);font-size:var(--fs-body-sm)}
+.pop .ft .lk{font-weight:500;color:var(--brand-d);white-space:nowrap}.pop .ft .lk.hv{color:var(--brand-dd);text-decoration:underline;text-underline-offset:2px}
+.pop .ft .acts{margin-left:auto;display:inline-flex;align-items:center;gap:8px}
+.esec{display:flex;flex-direction:column;gap:8px;min-width:0}
+.ebody{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}
+.hint{font-family:var(--font-mono);font-size:var(--fs-label-sm);line-height:1.4;color:var(--ink-3)}
+.hint.er{color:var(--neg-text)}
+/* fields in a popover body — the Input's 32 */
+.fld{height:32px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper);font-family:var(--font-body);font-size:var(--fs-body);color:var(--ink);white-space:nowrap;min-width:0}
+.fld .v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.fld .v.r{text-align:right}
+.fld .ph{color:var(--ink-4)}
+.fld .dn{margin-left:auto;flex:none;font-size:10px;color:var(--ink-4)}
+.fld .dn.cv{font-size:8px}
+.fld.m{font-family:var(--font-mono);font-weight:500;font-feature-settings:"tnum" 1}
+.fld.fo{box-shadow:var(--shadow-focus)}
+.fld.inv{border-color:var(--neg)}
+.fld.tags{height:auto;min-height:32px;flex-wrap:wrap;padding:4px;gap:4px}
+.fld.tags .ph{padding:0 8px;font-family:var(--font-mono)}
+.srch{height:32px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 12px;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper);font-family:var(--font-body);font-size:var(--fs-body);color:var(--ink);white-space:nowrap;min-width:0}
+.srch>i{flex:none;font-size:14px;color:var(--ink-4)}
+.srch .q{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.srch .ph{color:var(--ink-4)}
+.srch .x{flex:none;font-family:var(--font-mono);font-size:var(--fs-body);line-height:1;color:var(--ink-3)}
+.srch.fo{box-shadow:var(--shadow-focus)}
+.stk{display:flex;flex-direction:column;gap:8px;min-width:0}
+.stk .ctrls{display:flex;align-items:center;gap:8px;min-width:0}
+.rng{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.line>.rng,.stk>.rng{flex:none;flex-wrap:nowrap}
+.rng .j{font-family:var(--font-body);font-size:var(--fs-body);color:var(--ink-4)}
+.brow{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(100px,max-content) minmax(80px,1fr);align-items:center;gap:8px;min-width:0}
+.brow .hint{grid-column:1/-1}
+/* menu items — the Menu card */
+.menu{box-sizing:border-box;width:200px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md);padding:4px 0}
+.mi{height:32px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 12px;font-family:var(--font-body);font-size:var(--fs-body-sm);color:var(--ink);white-space:nowrap}
+.mi.hv{background:var(--paper-2)}
+.mi.fo{box-shadow:var(--shadow-focus-inset)}
+.mi .ck{margin-left:auto;font-size:10px;color:var(--brand-d)}
+/* tooltip — the Tooltip card */
+.tip{display:inline-flex;align-items:center;gap:4px 8px;max-width:240px;box-sizing:border-box;padding:8px 12px;background:var(--bg-inverse);color:var(--fg-inverse);border:1px solid var(--rule-strong);border-radius:var(--r-md);font-family:var(--font-mono);font-size:var(--fs-label-lg);line-height:1.5;white-space:nowrap}
+.tip.wr{flex-wrap:wrap;white-space:normal}
+.tip .keys{display:inline-flex;align-items:center;gap:4px}
+.tip .kc{height:20px;min-width:20px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;border:1px solid color-mix(in oklch,var(--fg-inverse) 40%,transparent);border-radius:var(--r-sm);font-size:var(--fs-label-lg);font-weight:500;line-height:1}
+/* skeleton — the Skeleton card */
+.sk{display:block;background:var(--paper-3)}
+
+</style>
+<style>
+/* Shared parts for the "Parts · Loading" cards and the builders' loading cards (Components · Collections). Token-only; one-line rules. Loads after slice-parts.css.
+   Reproduced from their foundation cards, at those cards' values: Row (.tr .cb), Sheet cell (.sh .gh .sc), Tree row (.chev .ct), Time axis header (.tier .nowc), Item card (.ic), Empty state (.es), Slice summary & legend (.ff .li), History bar (.bt.pri), Skeleton (.sk).
+   New in this pass and listed in Loading.style-changes.md: the unloaded run, the region wash (.wash), the footer's loading line (.ldl), the retained mark (.stl); the failed-region message (.flt2), for regions with no row to hold a line, is the Schematic card's, copied. */
+.pl{padding-top:12px;font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:1.6;letter-spacing:0.04em;color:var(--ink-3)}
+.pl+.ann{padding-top:4px}
+.duo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;align-items:start;min-width:0}
+.trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start;min-width:0}
+.duo>*,.trio>*{min-width:0}
+.it2{display:grid;grid-template-columns:minmax(0,1fr);gap:4px;min-width:0;align-content:start}
+.mono{font-family:var(--font-mono);font-feature-settings:"tnum" 1}
+.hk{white-space:nowrap;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4)}
+.mt9{white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-xs);letter-spacing:0.04em;color:var(--ink-4)}
+.guide{position:absolute;left:0;right:0;z-index:6;border-top:1px dashed var(--ink-4);pointer-events:none}
+.cutl,.cutr{position:absolute;top:0;bottom:0;z-index:6;border-left:1px dashed var(--ink-4);pointer-events:none}
+/* BuilderFrame — the Frame; the shared toolbar band on top, the shared footer rail below */
+.bf{position:relative;display:flex;flex-direction:column;min-width:0;box-sizing:border-box;border:1px solid var(--rule-strong);border-radius:var(--r-lg);overflow:hidden;background:var(--paper)}
+.bf>.band{border-bottom:1px solid var(--rule)}
+.bf.narrow{width:360px;max-width:100%}
+.vw{position:relative;display:flex;min-width:0;overflow:hidden}
+.vw>.main{position:relative;flex:1 1 0;min-width:0;overflow:hidden}
+.nv{display:inline-flex;align-items:center;gap:4px}
+.bt.pri{height:32px;padding:0 12px;background:var(--brand-d);border-color:var(--brand-d);color:var(--paper);font-weight:600}
+.bt.md.dis,.bt.dis{border-color:var(--rule);background:var(--paper);color:var(--ink-5)}
+.dot.neu{background:var(--ink-4)}
+/* library pane — Tabs, the Search input, Item cards */
+.lib{flex:none;width:208px;box-sizing:border-box;display:flex;flex-direction:column;border-right:1px solid var(--rule);background:var(--paper)}
+.lib .tabs{height:40px;box-sizing:border-box;display:flex;align-items:stretch;gap:16px;padding:0 12px;border-bottom:1px solid var(--rule)}
+.lib .tabs .tab{padding:0}
+.lib .pb{display:grid;gap:8px;padding:12px}
+.lib .cap2{display:flex;justify-content:space-between;align-items:center}
+/* footer rail — the Footer band: 36, pad 0 20, --paper-2, hairline above, mono 10.5 --ink-3, tabular */
+.ff{height:36px;box-sizing:border-box;flex:none;display:flex;align-items:center;gap:12px;padding:0 20px;background:var(--paper-2);border-top:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-md);font-feature-settings:"tnum" 1;line-height:1;color:var(--ink-3);white-space:nowrap}
+.ff b{font-weight:600;color:var(--ink)}
+.ff .lk{color:var(--brand-d);font-weight:500}
+/* the legend (or hints) at the start, at its content width: the legend stays whole and never moves; hints end at a whole hint, then "…" (fitted in loading-parts.js) */
+.lgd{flex:none;display:flex;align-items:center;gap:8px}
+.li{height:20px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;gap:8px;padding:0 4px;border-radius:var(--r-sm);font-weight:500;color:var(--ink-3)}
+.li .sw{width:14px;height:3px;flex:none;border-radius:1px;background:var(--brand-d)}
+.li .sw.s2{background:var(--teal-500)}
+.li .sw.dh{height:0;border-top:1px dashed var(--ink-4);background:transparent}
+.li .sw.dw{height:0;border-top:1px dashed var(--warn);background:transparent}
+.li .sw.tk{width:1px;height:12px;background:var(--ink)}
+.li .sw.mu{background:var(--ink-5)}
+.li>i{font-size:10px;color:var(--ink-4)}
+.kbd{height:20px;min-width:20px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;padding:0 4px;background:var(--paper-2);border:1px solid var(--rule-strong);border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:500;line-height:1;color:var(--ink-2)}
+.hn{flex:none;display:inline-flex;align-items:center;gap:4px}
+/* the loading line — its own slot at the rail's trailing end, taking only the space left: its full text, its short form or the dot alone, each whole (fitted in loading-parts.js); never an ellipsis, never wraps the rail */
+.ldl{flex:0 1 auto;min-width:0;max-width:64%;margin-left:auto;display:inline-flex;align-items:center;gap:8px;color:var(--ink-3)}
+.ldl:empty{display:none}
+.ldl .t{min-width:0;overflow:hidden;line-height:16px}
+/* the line's text, kept for screen readers when the dot stands alone */
+.vh{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.ldl.err .t,.ldl.err .t b{color:var(--neg-text)}
+.ldl .sep{flex:none}
+.ldl .lk{flex:none}
+/* placeholders — the Skeleton's static --paper-3 shapes, in the slot each value will fill */
+.sk{flex:none}
+.b8{height:8px}.b12{height:12px}.b24{height:24px}
+.kc{height:22px;border-radius:var(--r-sm)}.kc.k15{height:15px}
+.kr{border-radius:var(--r-md)}.kr.rs{border-radius:var(--r-sm)}
+.kb{width:14px;height:14px;border-radius:3px}
+.kd{width:8px;height:8px;border-radius:var(--r-full)}
+.skc{width:24px;height:16px;border-radius:var(--r-sm)}
+.ke,.kl{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.kl{gap:4px}.kl .ar{font-family:var(--font-mono);font-size:var(--fs-label-md);color:var(--ink-4)}
+/* the region wash — --ink at 6%, under the real grid lines and the now line; shading reads through it */
+.wash{background:color-mix(in oklch,var(--ink) 6%,transparent)}
+.wl{position:absolute;z-index:1;pointer-events:none}
+/* failure in place */
+.fail{display:flex;align-items:center;gap:8px;min-width:0}
+.fail>i{flex:none;font-size:14px;color:var(--neg)}
+.fail .msg{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-body);font-size:var(--fs-body);color:var(--ink)}
+/* an empty line takes the failed line's slot and shape, the Empty state's glyph at the icon's size, no Retry */
+.fail>.gy{flex:none;font-size:14px}
+.fail>.lkk{flex:none;font-size:var(--fs-body);white-space:nowrap}
+/* a failure said once where no row can hold a line (the Schematic's canvas, the Calendar's month and time grids) — the Schematic card's message box, at the region's top-left; a grid with rows takes the failed line (.fail) in its first row in view */
+.flt2{position:absolute;z-index:4;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)}
+/* rows — the Row card: 36 / 32 / 28, rule included, ruled top-only, cells pad 0 12, first and last 20 */
+.tr{height:36px;box-sizing:border-box;display:grid;align-items:stretch;border-top:1px solid var(--rule);font-size:var(--fs-body);color:var(--ink);background:var(--paper)}
+.tr>*{min-width:0;display:flex;align-items:center;gap:8px;padding:0 12px;white-space:nowrap}
+.tr>:first-child{padding-left:20px}.tr>:last-child{padding-right:20px}
+.tr.th{border-top:0}
+.tr.th>*{font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4)}
+.tr.c32{height:32px}.tr.c28{height:28px}
+.tr.sel{background:var(--paper-3)}
+.r{justify-content:flex-end}
+.n{font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-weight:500}
+.n6{font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-weight:600}
+/* retained (stale) — the Row card's stale: dashed --rule-strong rules, --ink-3; editing off */
+.tr.stale{border-top:1px dashed var(--rule-strong);border-bottom:1px dashed var(--rule-strong);color:var(--ink-3)}
+.tr.stale+.tr{border-top:0}
+.stl,.stl .n,.stl .n6,.stl .ch,.stl .gk{color:var(--ink-3)}
+.cb{position:relative;width:14px;height:14px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--rule-strong);border-radius:3px;background:var(--paper)}
+.cb.on{background:var(--brand-d);border-color:var(--brand-d)}
+.cb.on::after{content:"";width:4px;height:8px;box-sizing:border-box;border:solid var(--paper);border-width:0 2px 2px 0;transform:translateY(-1px) rotate(45deg)}
+.cb.dis{border-color:var(--rule);background:transparent}
+/* group head — the Table's groupHead: chevron, key mono 10/600 caps --ink, Count, aggregates 600 */
+.gk{white-space:nowrap;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink)}
+.chev{width:16px;flex:none;display:inline-flex;align-items:center;justify-content:center;font-size:14px;color:var(--ink-3)}
+.chev.open>i{transform:rotate(90deg)}
+.ct{height:16px;box-sizing:border-box;flex:none;display:inline-flex;align-items:center;padding:0 4px;background:var(--paper-3);border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;font-feature-settings:"tnum" 1;line-height:1;color:var(--ink-2)}
+/* the Sheet — the Sheet cell card's cells on a 1px --rule grid at the Sheet's pitch, 36 at md, rule included; header 24, pad 0 8; the gutter holds the row number */
+.sh{display:grid;background:var(--paper)}
+.sh>*{height:36px;box-sizing:border-box;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);background:var(--paper)}
+.sh>.lc{border-right:0}
+.sh>.gh.hd{height:25px}
+.sh>.band42{grid-column:1/-1;height:42px;border-right:0;display:flex;align-items:center;gap:8px;padding:0 8px}
+.gh{display:flex;align-items:center;justify-content:center;padding:0 8px;white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4)}
+.gh.l{justify-content:flex-start}.gh.r{justify-content:flex-end}
+.gh.n{letter-spacing:0;font-weight:500}
+.sc{position:relative;display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0;padding:0 8px;white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-body);font-weight:500;color:var(--ink)}
+.sc.tx{justify-content:flex-start;font-family:var(--font-body);font-feature-settings:normal;font-weight:400}
+.sc.id{justify-content:flex-start}
+.sc.en{justify-content:space-between;font-family:var(--font-body);font-feature-settings:normal;font-weight:400}
+.sc.bo{justify-content:center}
+.car{font-family:var(--font-mono);font-size:var(--fs-body);line-height:1;color:var(--ink-4)}
+.sh>.stl{border-bottom-style:dashed;border-bottom-color:var(--rule-strong);color:var(--ink-3)}
+.sh>.sel{background:var(--paper-3)}
+/* time — the Time axis header: context tier 24 over tick tier 24, 1px --rule under each; now 1px --brand-d; the flag 16 */
+.tier{height:24px;box-sizing:border-box;display:flex;border-bottom:1px solid var(--rule);background:var(--paper)}
+.tier>span{flex:none;box-sizing:border-box;display:flex;align-items:center;justify-content:center;min-width:0;overflow:hidden;border-right:1px solid var(--rule);white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:500;color:var(--ink-4)}
+.tier.ctx>span{justify-content:flex-start;padding:0 12px;font-weight:600;letter-spacing:0.16em;text-transform:uppercase}
+.nowc{height:16px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 4px;border-radius:var(--r-sm);background:var(--brand-d);font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:600;line-height:1;color:var(--paper);white-space:nowrap}
+.nowl{position:absolute;z-index:3;background:var(--brand-d);pointer-events:none}
+.oh{position:absolute;z-index:0;background:var(--paper-2);pointer-events:none}
+/* item card — the Item card: --paper, 1px --rule-strong, --r-md, pad 12, title DM Sans 15/600, meta mono 9.5 */
+.ic{box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr);min-width:0;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)}
+.ic .icb{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;align-content:start;padding:12px;min-width:0}
+.ic .ihd{display:grid;gap:4px;min-width:0}
+.ic .itt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:600;letter-spacing:-0.01em;line-height:20px;color:var(--ink)}
+.ic .imt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-xs);letter-spacing:0.04em;line-height:16px;color:var(--ink-4)}
+.ic .l20{height:20px;display:flex;align-items:center}.ic .l16{height:16px;display:flex;align-items:center}
+.ic .ift{height:36px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px;border-top:1px solid var(--rule)}
+.ic.sel{background:var(--paper-3);border-color:var(--ink)}
+/* empty — the Empty state card */
+.es{display:grid;justify-items:center;text-align:center;padding:32px 20px}
+.gy{font-family:var(--font-mono);font-size:var(--fs-num);line-height:1;color:var(--rule-strong)}
+.ttl{padding-top:8px;font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:700;letter-spacing:-0.01em;line-height:1.3;color:var(--ink)}
+.ckl{margin:0;padding:12px 0 0;list-style:none;display:grid;gap:8px;max-width:280px;text-align:left}
+.ckl li{display:flex;align-items:baseline;gap:8px;font-size:var(--fs-body);line-height:20px;color:var(--ink-2);white-space:nowrap}
+.ckl .bx{width:14px;flex:none;text-align:center;font-family:var(--font-mono);color:var(--ink-4)}
+.lkk{color:var(--brand-d);font-weight:500}
+/* canvas items with no card yet (calendar event, bin, schematic item) — the Item card's frame and voice, compact (proposed part, see the change list) */
+.ev{position:absolute;z-index:2;box-sizing:border-box;display:grid;align-content:start;gap:2px;min-width:0;overflow:hidden;padding:4px 8px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)}
+.ev .et{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-body-sm);font-weight:600;line-height:16px;color:var(--ink)}
+.ev .em{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-xs);line-height:14px;color:var(--ink-4)}
+.stl .ev .et,.ev.stl .et{color:var(--ink-3)}
+/* time grid (Calendar Day, Week, Resources) — column heads 32, 48 per hour, hour and half-hour rules --rule, labels mono 10 --ink-4 */
+.tgh,.tgd{display:grid;background:var(--paper)}
+.chd{height:32px;box-sizing:border-box;display:flex;align-items:center;gap:8px;min-width:0;padding:0 12px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule);white-space:nowrap}
+.chd:first-child{border-left:0}
+.chd .mt9{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tgd{position:relative}
+.tgd>.col{position:relative;min-width:0;border-left:1px solid var(--rule)}
+.tgd>.gut{position:relative}
+.hl{position:absolute;left:0;right:0;z-index:2;height:0;border-top:1px solid var(--rule);pointer-events:none}
+.hlab{position:absolute;right:8px;z-index:2;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:500;line-height:16px;color:var(--ink-4)}
+/* month — cells 112, the date mono 10/600 top-left, outside the month --paper-2 */
+.mw{display:grid;background:var(--paper)}
+.mh{height:28px;box-sizing:border-box;display:flex;align-items:center;padding:0 8px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.mc{position:relative;height:112px;box-sizing:border-box;min-width:0;padding:8px;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.mh:nth-child(7n+1),.mc:nth-child(7n+1){border-left:0}
+.mc.out{background:var(--paper-2)}
+.dn{position:relative;z-index:2;display:flex;align-items:center;gap:8px;height:16px;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:var(--ink-2)}
+.mc.out .dn{color:var(--ink-4)}
+.mc .chs{position:relative;z-index:2;display:grid;gap:4px;padding-top:8px}
+.mc .chs .ch{min-width:0;max-width:100%;overflow:hidden}
+.mc .chs .ch>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mc .more{font-family:var(--font-mono);font-size:var(--fs-label-md);color:var(--brand-d)}
+/* timeline and lanes — head column 128 with names at 20, lanes 36, weekends --paper-2 through the lanes */
+.lrow{position:relative;display:grid;min-width:0;border-bottom:1px solid var(--rule);background:var(--paper)}
+.lrow>.lh{position:relative;z-index:2;display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:0;padding:0 12px 0 20px;border-right:1px solid var(--rule);white-space:nowrap}
+.lrow>.lh .nm{font-size:var(--fs-body);color:var(--ink);overflow:hidden;text-overflow:ellipsis}
+.lrow>.pl2{position:relative;min-width:0}
+.vl{position:absolute;top:0;bottom:0;z-index:2;width:0;border-left:1px solid var(--rule);pointer-events:none}
+.gband{height:36px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 20px;border-bottom:1px solid var(--rule);background:var(--paper)}
+.gband .gt{font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:700;letter-spacing:-0.01em;color:var(--ink)}
+/* canvas (Schematic) — 1px --rule grid every 40 */
+.cvs{position:relative;overflow:hidden;background:var(--paper)}
+.gl{position:absolute;z-index:2;pointer-events:none;background:var(--rule)}
+
+</style>
+<style>
+/* Optimise: the Elara eye button, the run, the landing and the unapplied result, plus the five builder mocks it is drawn on. Loads after slice-parts.css and loading-parts.css. Token-only, one-line rules.
+   Proposed tokens, aliases of the brand scale's cyan end (the raw scale feeds aliases, as --heat-* does), declared in both theme scopes so each mixes that theme's --paper:
+   --elara (pulse and landing glow), --elara-ink (the mark where it must read, 3:1 or better), --elara-glow and --elara-wash (the landing), --elara-edge and --elara-soft (the steady glow on an Elara change until Apply). */
+:root{--elara:var(--brand-400);--elara-ink:var(--brand-d);--elara-glow:color-mix(in oklch,var(--brand-400) 75%,transparent);--elara-wash:color-mix(in oklch,var(--brand-400) 32%,var(--paper));--elara-edge:color-mix(in oklch,var(--brand-400) 60%,var(--brand-d));--elara-soft:color-mix(in oklch,var(--brand-400) 55%,transparent)}
+[data-theme="dark"]{--elara:var(--brand-300);--elara-ink:var(--brand-300);--elara-glow:color-mix(in oklch,var(--brand-300) 60%,transparent);--elara-wash:color-mix(in oklch,var(--brand-300) 24%,var(--paper));--elara-edge:var(--brand-300);--elara-soft:color-mix(in oklch,var(--brand-300) 40%,transparent)}
+/* the eye — the Elara mark, ring and iris in their own colours */
+.eye{display:block;flex:none;overflow:visible;fill:currentColor}
+.eye .iris,.eye .echo{transform-box:fill-box;transform-origin:center}
+.eye .echo{opacity:0}
+/* the eye button — icon-only Default md 32 (sm 24); the mark 16 (14) */
+.bt.eyeb{position:relative;width:32px;height:32px;padding:0;color:var(--ink-2);cursor:pointer;transition:background-color var(--dur-fast) var(--ease-out),border-color var(--dur-fast) var(--ease-out)}
+.bt.eyeb.sm{width:24px;height:24px}
+.bt.eyeb:hover,.bt.eyeb.hv{background:var(--paper-2)}
+.bt.eyeb:hover .iris,.bt.eyeb.hv .iris{fill:var(--elara-ink)}
+.bt.eyeb:focus-visible,.bt.eyeb.fo{outline:0;box-shadow:var(--shadow-focus)}
+.bt.eyeb .stop{position:absolute;font-size:11px;opacity:0}
+.bt.eyeb.run{border-color:var(--elara-ink);color:var(--elara-ink);animation:op-halo calc(var(--dur-slow) * 4) var(--ease-out) infinite}
+.bt.eyeb.run .iris{fill:var(--elara)}
+.bt.eyeb.run .echo{fill:var(--elara);animation:op-echo calc(var(--dur-slow) * 4) var(--ease-out) infinite}
+.bt.eyeb.run:hover,.bt.eyeb.run.shov{background:var(--paper)}
+.bt.eyeb.run:hover .eye,.bt.eyeb.run.shov .eye{opacity:0}
+.bt.eyeb.run:hover .stop,.bt.eyeb.run.shov .stop{opacity:1}
+.bt.eyeb.dis{border-color:var(--rule);background:var(--paper);color:var(--ink-5);cursor:default}
+.bt.eyeb.dis .iris{fill:var(--ink-5)}
+.bt.eyeb.blink .ring,.bt.eyeb.blink .iris,.bt.eyeb.blinkloop .ring,.bt.eyeb.blinkloop .iris{transform-box:view-box;transform-origin:center}
+.bt.eyeb.blink .ring,.bt.eyeb.blink .iris{animation:op-blink 560ms var(--ease-in-out) 1}
+.bt.eyeb.blinkloop .ring,.bt.eyeb.blinkloop .iris{animation:op-blinkloop 2880ms var(--ease-in-out) infinite}
+.bt.eyeb .tip{position:absolute;top:calc(100% + 8px);right:0;z-index:30;display:none;white-space:nowrap;pointer-events:none;font-family:var(--font-body);font-size:var(--fs-body-sm);font-weight:500;letter-spacing:0;text-transform:none}
+.bt.eyeb:hover .tip,.bt.eyeb:focus-visible .tip,.bt.eyeb.tipon .tip{display:inline-flex}
+.bt.eyeb .tip .t1,.bt.eyeb.run .tip .t0{display:none}
+.bt.eyeb.run .tip .t1{display:inline}
+@keyframes op-halo{0%{box-shadow:0 0 0 0 transparent}25%{box-shadow:0 0 12px 2px var(--elara-glow)}100%{box-shadow:0 0 0 0 transparent}}
+@keyframes op-echo{0%{transform:scale(1);opacity:0.8}25%,100%{transform:scale(2.4);opacity:0}}
+@keyframes op-blink{0%,100%{transform:scaleY(1)}45%{transform:scaleY(0.12)}}
+@keyframes op-blinkloop{0%,22%,100%{transform:scaleY(1)}10%{transform:scaleY(0.12)}}
+/* the edit bar — the builders' own: Undo, Redo, Cancel, Apply, icon-only sm 24; the run is one step in it, like a manual edit */
+.eb4{display:inline-flex;align-items:center;gap:8px;flex:none}
+.eb4 .bt.ib{width:32px;height:32px;cursor:pointer}.eb4 .bt.ib i{font-size:14px}
+.eb4 .bt.dis{cursor:default}
+/* the alert when it's done — the BuilderFrame alert under the toolbar: inset 0 12 12, --r-md, 1px edge, a title and one line, no actions; tone elara (proposed): 1px --elara-ink, 6% --elara wash; error: --neg. In over --dur-base, out over --dur-base as it collapses */
+.optb{border-bottom:1px solid var(--rule)}
+.opf .optb .band{border-bottom:0}
+.opal{display:flex;align-items:flex-start;gap:12px;margin:0 12px 12px;padding:12px 16px;box-sizing:border-box;max-height:120px;overflow:hidden;background:color-mix(in oklch,var(--elara) 6%,var(--paper));border:1px solid var(--elara-ink);border-radius:var(--r-md);animation:op-band var(--dur-base) var(--ease-out) both;transition:opacity var(--dur-base) var(--ease-out),max-height var(--dur-base) var(--ease-out),margin var(--dur-base) var(--ease-out),padding var(--dur-base) var(--ease-out)}
+.opal.out{opacity:0;max-height:0;margin-bottom:0;padding-top:0;padding-bottom:0}
+.opal .am{flex:none;display:flex;padding-top:2px;font-size:16px;color:var(--elara-ink)}
+.opal .am .iris{fill:var(--elara)}
+.opal .ab{min-width:0;display:grid;gap:4px}
+.opal .at{font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:600;letter-spacing:-0.01em;line-height:20px;color:var(--ink)}
+.opal .ad{font-size:var(--fs-body);line-height:20px;color:var(--ink-3)}
+.opal.err{background:color-mix(in oklch,var(--neg) 6%,var(--paper));border-color:var(--neg)}
+.opal.err .am{color:var(--neg)}
+@keyframes op-band{from{opacity:0}to{opacity:1}}
+.li .sw.el{width:14px;height:8px;box-sizing:border-box;border-radius:2px;background:var(--brand-tint);box-shadow:0 0 0 1px var(--elara-edge),0 0 4px 1px var(--elara-soft)}
+/* while running — three treatments to compare: the eye alone (pulse), a scan line across the scope, the scope breathing */
+.opscope{outline:1px dashed transparent;outline-offset:-4px;animation:op-breathe calc(var(--dur-slow) * 4) var(--ease-out) infinite}
+.opscanw{position:absolute;bottom:0;z-index:6;overflow:hidden;pointer-events:none}
+.opscanw>i{position:absolute;top:0;bottom:0;left:0;width:2px;background:var(--elara);box-shadow:0 0 12px 4px var(--elara-glow);animation:op-scan calc(var(--dur-slow) * 4) linear infinite}
+@keyframes op-breathe{0%,100%{outline-color:color-mix(in oklch,var(--elara-ink) 20%,transparent)}25%{outline-color:var(--elara-ink)}}
+@keyframes op-scan{0%{left:0}100%{left:100%}}
+/* the landing — one commit; each new or changed entry flares cyan in reading order and settles in 1.4 s to the steady glow it keeps until Apply */
+.oplan{animation:op-in 1400ms var(--ease-out) var(--d,0ms) both}
+.oplan[data-op=chg]{animation-name:op-chg}
+.oplan[data-fill=own]{animation-name:op-in-own}
+.oplan[data-fill=own][data-op=chg]{animation-name:op-chg-own}
+.oplan[data-fill=cell]{animation-name:op-in-cell}
+.oplan[data-op=del],.oplan[data-op=from]{animation-name:op-out;animation-fill-mode:forwards}
+.oplan[data-fill=cell] .opv{animation:op-v 160ms linear var(--d,0ms) both}
+.oplan[data-opn]{animation-name:op-num}
+[data-opn]{border-radius:var(--r-sm)}
+@keyframes op-in{0%{opacity:0;background-color:var(--elara-wash);box-shadow:0 0 0 1px var(--elara),0 0 0 0 transparent}10%{opacity:1;background-color:var(--elara-wash);box-shadow:0 0 0 1px var(--elara),0 0 18px 4px var(--elara-glow)}100%{opacity:1;background-color:var(--brand-tint);box-shadow:0 0 0 1px var(--elara-edge),0 0 8px 1px var(--elara-soft)}}
+@keyframes op-chg{0%{background-color:var(--elara-wash);box-shadow:0 0 0 1px var(--elara),0 0 18px 4px var(--elara-glow)}100%{background-color:var(--brand-tint);box-shadow:0 0 0 1px var(--elara-edge),0 0 8px 1px var(--elara-soft)}}
+@keyframes op-in-own{0%{opacity:0;box-shadow:0 0 0 1px var(--elara),0 0 0 0 transparent}10%{opacity:1;box-shadow:0 0 0 1px var(--elara),0 0 18px 4px var(--elara-glow)}100%{opacity:1;box-shadow:0 0 0 1px var(--elara-edge),0 0 8px 1px var(--elara-soft)}}
+@keyframes op-chg-own{0%{box-shadow:0 0 0 1px var(--elara),0 0 18px 4px var(--elara-glow)}100%{box-shadow:0 0 0 1px var(--elara-edge),0 0 8px 1px var(--elara-soft)}}
+@keyframes op-in-cell{0%{background-color:var(--paper);box-shadow:inset 0 0 0 1px transparent,inset 0 0 0 0 transparent}10%{background-color:var(--elara-wash);box-shadow:inset 0 0 0 1px var(--elara),inset 0 0 14px 2px var(--elara-glow)}100%{background-color:var(--brand-tint);box-shadow:inset 0 0 0 1px var(--elara-edge),inset 0 0 8px 0 var(--elara-soft)}}
+@keyframes op-v{0%{opacity:0}100%{opacity:1}}
+@keyframes op-out{0%{box-shadow:0 0 0 1px var(--elara),0 0 12px 3px var(--elara-glow)}100%{box-shadow:0 0 0 1px transparent,0 0 0 0 transparent}}
+@keyframes op-num{0%{background-color:transparent}12%{background-color:var(--elara-wash)}100%{background-color:transparent}}
+/* after it lands — every entry Elara added or changed is an edit: the dirty fill until Apply, Cancel or Undo. For the highlight (8 s, or until Apply) it also keeps a steady cyan glow, and removed and moved-from entries show as cyan-dashed ghosts; then the glow fades and the ghosts go, as a manual edit looks */
+.dirty [data-op=add]:not([data-fill=own]),.dirty [data-op=chg]:not([data-fill=own]){background-color:var(--brand-tint)}
+.opf [data-op=add],.opf [data-op=chg]{transition:box-shadow 600ms var(--ease-out)}
+.lit [data-op=add],.lit [data-op=chg]{box-shadow:0 0 0 1px var(--elara-edge),0 0 8px 1px var(--elara-soft)}
+.lit [data-fill=cell][data-op=add],.lit [data-fill=cell][data-op=chg]{box-shadow:inset 0 0 0 1px var(--elara-edge),inset 0 0 8px 0 var(--elara-soft)}
+.opf:not(.lit) [data-op=del],.opf:not(.lit) [data-op=from]{display:none}
+.lit .ch[data-op=del]{border-style:dashed;border-color:var(--elara-edge);background:transparent;color:var(--ink-4);text-decoration:line-through}
+.lit .ch[data-op=del] .me{color:var(--ink-4)}
+.lit .ev[data-op=from],.lit .bin[data-op=from]{border-style:dashed;border-color:var(--elara-edge);background:transparent}
+.lit .ev[data-op=from] .et,.lit .ev[data-op=from] .em,.lit .bin[data-op=from] .t,.lit .bin[data-op=from] .m{color:var(--ink-4)}
+.lit .pbar[data-op=from]{border:1px dashed var(--elara-edge);background:transparent;color:var(--ink-4)}
+.lit .lc[data-op=chg] .t2,.lit .lc[data-op=add] .t2{color:var(--ink-3)}
+/* frame plumbing */
+.opf .band{border-bottom:1px solid var(--rule)}
+.opbd{position:relative}
+.nr{white-space:nowrap;font-family:var(--font-mono);font-style:italic;font-weight:400;color:var(--ink-4)}
+/* collapsed side rails — Library and Inspector, 44 */
+.rail{flex:none;width:44px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;background:var(--paper)}
+.rail.l{border-right:1px solid var(--rule)}.rail.r{border-left:1px solid var(--rule)}
+.rail .rh{width:100%;height:40px;box-sizing:border-box;flex:none;display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--rule);font-size:12px;color:var(--ink-3)}
+.rail .rb{display:flex;flex-direction:column;align-items:center;gap:8px;padding-top:12px}
+.rail .tile{width:28px;height:28px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-md);background:var(--paper-3);font-size:12px;color:var(--ink-2)}
+.rail .vt{writing-mode:vertical-rl;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-3)}
+.rail .wn{font-size:11px;color:var(--warn)}
+/* the library pane — tabs, the collapse chevron, search with the grouping button, grouped item cards; scrolls inside the frame's height */
+.libx{position:relative;flex:none;width:256px;border-right:1px solid var(--rule);background:var(--paper)}
+.libx>.in{position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden}
+.libx .tabs{height:40px;box-sizing:border-box;flex:none;display:flex;align-items:stretch;gap:16px;padding:0 12px;border-bottom:1px solid var(--rule)}
+.libx .tabs .tab{padding:0}
+.libx .tabs .rhc{margin-left:auto;align-self:center;font-size:12px;color:var(--ink-3)}
+.libx .srow{flex:none;display:flex;align-items:center;gap:8px;padding:12px;border-bottom:1px solid var(--rule)}
+.libx .srow .srch{flex:1;min-width:0}
+.libx .lst{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:8px;padding:12px}
+.libx .lgh{flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:4px}
+.libx .lgh .hk{display:inline-flex;align-items:center;gap:8px}
+.libx .lgh .wn{font-size:11px;color:var(--warn)}
+.libx .lft{flex:none;padding:8px 12px;border-top:1px solid var(--rule);font-size:var(--fs-body-sm);color:var(--ink-3)}
+.lc{position:relative;flex:none;display:flex;align-items:flex-start;gap:8px;padding:8px 12px 8px 8px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md)}
+.lc .gr{flex:none;padding-top:4px;font-size:10px;color:var(--ink-5)}
+.lc .tl{flex:none;width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-sm);background:var(--paper-3);font-size:12px;color:var(--ink-3)}
+.lc .tt{flex:1;min-width:0;display:grid;gap:2px}
+.lc .t1{display:flex;justify-content:space-between;gap:8px;min-width:0;font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:600;letter-spacing:-0.01em;line-height:20px;color:var(--ink);white-space:nowrap}
+.lc .t1.mono{font-family:var(--font-mono);font-size:var(--fs-body);letter-spacing:0}
+.lc .t1 .v{font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-body);font-weight:600}
+.lc .t2{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:14px;color:var(--ink-4)}
+.lc .t2.wt{color:var(--warn-text)}
+/* Roster · People week — the People grid as rebuilt from production: toolbar 44 of 24 px controls, rows 36 (comfortable), shift chips 24, quiet off days, hours in the name column 232, the Weeks library 272, the Inspector 320, the last-action band under the toolbar; the frame a fixed height, so the band takes its room from the grid */
+.opf.rvf{height:552px}
+.opf.own .optb{border-bottom:0}
+.opf.fix>.opbd{flex:1 1 0;min-height:0;display:flex}
+.bt.eyeb.t24{width:32px;height:24px;flex:none}
+.rtb{height:44px;box-sizing:border-box;display:flex;align-items:center;gap:12px;padding:0 20px;border-bottom:1px solid var(--rule);background:var(--paper);white-space:nowrap}
+.rtb .fb{flex:none;display:inline-flex;align-items:center;gap:4px}
+.rtb .fb>span{width:32px;height:24px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--brand-d);border-radius:var(--r-sm);background:var(--brand-tint);color:var(--brand-dd);font-size:10px}
+.rtb .cv{font-size:8px;color:var(--ink-4)}
+.rsg{flex:none;display:inline-flex;height:24px;box-sizing:border-box;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper)}
+.rsg>span{display:inline-flex;align-items:center;padding:0 8px;font-family:var(--font-mono);font-size:var(--fs-label-md);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;line-height:1;color:var(--ink-4)}
+.rsg>span+span{border-left:1px solid var(--rule-strong)}
+.rsg>span:first-child{border-radius:5px 0 0 5px}.rsg>span:last-child{border-radius:0 5px 5px 0}
+.rsg>span.on{background:var(--brand-tint);color:var(--brand-dd)}
+.rib{flex:none;width:32px;height:24px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper);color:var(--ink-2);font-size:12px}
+.rnv{flex:none;display:inline-flex;align-items:center;gap:4px}
+.rgh24{width:24px;height:24px;flex:none;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-md);color:var(--ink-3);font-size:12px}
+.rgh24.dis{color:var(--ink-5)}
+.rdt{height:24px;box-sizing:border-box;display:inline-flex;align-items:center;gap:8px;padding:0 8px;border-radius:var(--r-md);font-size:var(--fs-body-sm);font-weight:500;color:var(--ink)}
+.rdt .w{font-family:var(--font-mono);font-size:var(--fs-label-lg);font-feature-settings:"tnum" 1;color:var(--ink-3)}
+.rst{flex:none;height:20px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 8px;border-radius:var(--r-sm);background:var(--paper-3);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;line-height:1;color:var(--ink-3)}
+.rti{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:4px}
+.rti .rgh24{font-size:11px}
+.riss{height:24px;box-sizing:border-box;display:inline-flex;align-items:center;gap:8px;padding:0 8px;border:1px solid var(--warn);border-radius:var(--r-sm);background:var(--paper);font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:500;font-feature-settings:"tnum" 1;line-height:1;color:var(--warn-text);white-space:nowrap}
+.riss i{font-size:11px;color:var(--warn)}
+.riss.ok{border-color:var(--rule-strong);color:var(--ink-3)}.riss.ok i{color:var(--pos)}
+.rte{flex:none;display:inline-flex;align-items:center;gap:8px}
+.rte .cn{font-family:var(--font-mono);font-size:var(--fs-label-md);font-feature-settings:"tnum" 1;color:var(--ink-3);white-space:nowrap}
+.rte .cn b{font-weight:600;color:var(--ink)}
+.rhb{width:24px;height:24px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper);color:var(--ink-2);font-size:12px;cursor:pointer}
+.rhb:hover{background:var(--paper-2)}
+.rhb.dis{border-color:var(--rule);color:var(--ink-5);cursor:default}.rhb.dis:hover{background:var(--paper)}
+.rpub{flex:none;height:32px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 12px;border:1px solid var(--brand-d);border-radius:var(--r-md);background:var(--brand-d);font-family:var(--font-body);font-size:var(--fs-body-sm);font-weight:500;line-height:1;color:var(--paper)}
+/* the band under the toolbar — the People view's last action: 36, pad 8 20, the tone's 6% wash, 1px tone rule below, mark, who (mono caps), the line, Undo →, dismiss */
+.rband{flex:none;min-height:36px;max-height:60px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:8px 20px;overflow:hidden;background:color-mix(in oklch,var(--tw) 6%,transparent);border-bottom:1px solid var(--tn);animation:op-band var(--dur-base) var(--ease-out) both;transition:opacity var(--dur-base) var(--ease-out),max-height var(--dur-base) var(--ease-out),min-height var(--dur-base) var(--ease-out),padding var(--dur-base) var(--ease-out),border-bottom-width var(--dur-base) var(--ease-out)}
+.rband.out{opacity:0;min-height:0;max-height:0;padding-top:0;padding-bottom:0;border-bottom-width:0}
+.rband .mk{width:8px;height:8px;flex:none;border-radius:var(--r-full);background:var(--tn)}
+.rband .mk.eye{width:14px;height:14px;display:flex;border-radius:0;background:none;color:var(--elara-ink)}
+.rband .mk.eye .iris{fill:var(--elara)}
+.rband .who{flex:none;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:var(--tt)}
+.rband .tx{flex:1;min-width:0;font-size:var(--fs-body);line-height:20px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rband .tx .v{font-family:var(--font-mono);font-weight:500;font-feature-settings:"tnum" 1}
+.rband .ul{flex:none;font-family:var(--font-body);font-size:var(--fs-body-sm);font-weight:500;color:var(--brand-d);cursor:pointer;white-space:nowrap}
+.rband .ul:hover{color:var(--brand-dd);text-decoration:underline}
+.rband .x{flex:none;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-md);color:var(--ink-3);font-size:14px;cursor:pointer}
+.rband .x:hover{background:var(--paper-3);color:var(--ink)}
+.rvb{flex:1;min-width:0;min-height:0;display:flex}
+.rlib{width:272px;flex:none;display:flex;flex-direction:column;min-height:0;background:var(--paper-2);border-right:1px solid var(--rule)}
+.rins{width:320px;flex:none;display:flex;flex-direction:column;min-height:0;background:var(--paper-2);border-left:1px solid var(--rule)}
+.rph{height:36px;flex:none;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 8px 0 12px;border-bottom:1px solid var(--rule)}
+.rph>i{font-size:12px;color:var(--ink-3)}
+.rph .t{font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink);white-space:nowrap}
+.rph .cl{margin-left:auto;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-md);color:var(--ink-3);font-size:11px}
+.rcnt{height:18px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 4px;border:1px solid var(--rule);border-radius:var(--r-sm);background:var(--paper-3);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:500;font-feature-settings:"tnum" 1;line-height:1;color:var(--ink-3)}
+.rsrch{flex:none;padding:8px 12px;border-bottom:1px solid var(--rule)}
+.rsrch>span{height:28px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 8px;border:1px solid var(--rule-strong);border-radius:var(--r-md);background:var(--paper);font-family:var(--font-mono);font-size:var(--fs-label-lg);color:var(--ink-4)}
+.rsrch i{font-size:10px;color:var(--ink-4)}
+.rll{flex:1;min-height:0;overflow:hidden}
+.rlday{display:grid;grid-template-columns:12px minmax(0,1fr);gap:0 8px;padding:6px 12px;background:var(--paper-2);border-bottom:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-xs);font-weight:600;line-height:1;color:var(--ink-4)}
+.r7{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));text-align:center}
+.rlw{display:grid;grid-template-columns:12px minmax(0,1fr);gap:6px 8px;padding:8px 12px;border-bottom:1px solid var(--rule);background:var(--paper-2);cursor:grab}
+.rlw:hover{background:var(--paper-3)}
+.rlw>i{grid-row:1/span 2;align-self:center;font-size:10px;color:var(--ink-4)}
+.rlw .hd{display:flex;align-items:baseline;justify-content:space-between;gap:8px;min-width:0}
+.rlw .nm{min-width:0;font-size:var(--fs-body);font-weight:500;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rlw .mt{flex:none;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-feature-settings:"tnum" 1;color:var(--ink-4)}
+.rlw .r7{height:18px;align-items:center}
+.rmk{height:18px;margin:0 2px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;background:color-mix(in oklch,var(--t) 32%,var(--paper));border:1px solid color-mix(in oklch,var(--t) 70%,var(--paper));border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;line-height:1;color:var(--ink)}
+.rmk.off{background:color-mix(in oklch,var(--ink) 7%,transparent);border:0}
+.rlf{flex:none;padding:8px 12px;border-top:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:1.5;letter-spacing:0.04em;color:var(--ink-4);text-wrap:pretty}
+.rgrid{flex:1;min-width:0;overflow:hidden;position:relative;background:var(--paper)}
+.rgw{position:relative}
+.rgh{position:sticky;top:0;z-index:2;height:36px;box-sizing:border-box;display:grid;grid-template-columns:232px minmax(0,1fr);background:var(--paper);border-bottom:1px solid var(--rule-strong)}
+.rgh .pn{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 12px 0 20px;font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4);white-space:nowrap}
+.r7d,.r7c{min-width:0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));column-gap:1px;background:var(--rule);border-left:1px solid var(--rule-strong)}
+.r7d>span{min-width:0;display:flex;align-items:center;justify-content:center;gap:6px;background:var(--paper);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;font-feature-settings:"tnum" 1;white-space:nowrap;color:var(--ink-4)}
+.r7d>span b{font-weight:600;color:var(--ink-2)}
+.rgb{height:36px;box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:0 20px;background:var(--paper-2);border-bottom:1px solid var(--rule)}
+.rgb>i{width:12px;font-size:10px;color:var(--ink-3)}
+.rgb .gn{font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:700;letter-spacing:-0.01em;color:var(--ink)}
+.rgb .gc{font-family:var(--font-mono);font-size:var(--fs-label-sm);font-feature-settings:"tnum" 1;color:var(--ink-4)}
+.rrow{display:grid;grid-template-columns:232px minmax(0,1fr);height:36px;box-sizing:border-box;border-bottom:1px solid var(--rule)}
+.rnm{min-width:0;display:flex;align-items:center;gap:8px;padding:0 12px 0 20px;background:var(--paper)}
+.rnm .nm{min-width:0;font-size:var(--fs-body);font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rag{flex:none;height:16px;box-sizing:border-box;display:inline-flex;align-items:center;padding:0 4px;border:1px solid var(--rule-strong);border-radius:var(--r-sm);font-family:var(--font-mono);font-size:var(--fs-label-xs);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;line-height:1;color:var(--ink-3)}
+.rhr{margin-left:auto;flex:none;display:grid;justify-items:end;gap:3px}
+.rhr .h{font-family:var(--font-mono);font-size:var(--fs-label-md);font-weight:500;font-feature-settings:"tnum" 1;line-height:1;white-space:nowrap;color:var(--ink-2)}
+.rhr .h.ov{color:var(--warn-text)}
+.rhr .b{position:relative;width:56px;height:3px;overflow:hidden;background:var(--paper-3)}
+.rhr .b i{position:absolute;left:0;top:0;bottom:0;background:var(--brand-d)}
+.rhr .b i.ov{background:var(--warn)}
+.rdc{position:relative;min-width:0;display:flex;align-items:center;padding:0 4px;background:var(--paper)}
+.rdc.dt{background:var(--brand-tint)}
+.rchip{flex:1;min-width:0;height:24px;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding:0 6px;border:1px solid color-mix(in oklch,var(--t) 70%,var(--paper));border-radius:var(--r-sm);background:color-mix(in oklch,var(--t) 32%,var(--paper));font-family:var(--font-body);font-size:var(--fs-body-sm);font-weight:500;line-height:1;text-align:left;white-space:nowrap;color:var(--ink);cursor:pointer}
+.rchip:hover{background:color-mix(in oklch,var(--t) 44%,var(--paper))}
+.rchip .l{flex:none}
+.rchip .tm{min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--font-mono);font-size:var(--fs-label-md);font-feature-settings:"tnum" 1;font-weight:500;color:var(--ink-2)}
+.rchip .tm.x{font-weight:600;color:var(--ink)}
+.rchip>i{flex:none;margin-left:auto;font-size:10px;color:var(--warn-text)}
+.roff{flex:1;min-width:0;height:24px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:4px;padding:0;border:0;border-radius:var(--r-sm);background:color-mix(in oklch,var(--ink) 7%,transparent);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;letter-spacing:0.12em;text-transform:uppercase;line-height:1;color:transparent;cursor:pointer}
+.roff i{font-size:9px}
+.roff:hover{color:var(--ink-2);background:color-mix(in oklch,var(--ink) 12%,transparent)}
+.rghost{position:absolute;left:4px;right:4px;top:50%;z-index:2;height:24px;margin-top:-12px;box-sizing:border-box;display:flex;align-items:center;gap:6px;padding:0 6px;border:1px dashed var(--elara-edge);border-radius:var(--r-sm);background:var(--brand-tint);font-size:var(--fs-body-sm);font-weight:500;line-height:1;white-space:nowrap;color:var(--ink-4);text-decoration:line-through}
+.rghost .tm{font-family:var(--font-mono);font-size:var(--fs-label-md)}
+.rie{display:flex;flex-direction:column;align-items:center;gap:8px;padding:48px 12px;text-align:center}
+.rie .t{font-family:var(--font-brand);font-size:var(--fs-title-xs);font-weight:700;color:var(--ink)}
+.rie .c{display:grid;gap:4px;font-family:var(--font-mono);font-size:var(--fs-label-sm);line-height:1.5;color:var(--ink-3);text-align:left}
+.rleg{flex:none;min-height:36px;box-sizing:border-box;display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:8px 20px;background:var(--paper-2);border-top:1px solid var(--rule);font-family:var(--font-mono);font-size:var(--fs-label-sm);color:var(--ink-3)}
+.rleg>.it{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.rleg .bx{flex:none;width:16px;height:16px;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-sm);font-size:var(--fs-label-xs);font-weight:600;line-height:1;color:var(--ink)}
+.rleg .bx.t{background:color-mix(in oklch,var(--t) 32%,var(--paper));border:1px solid color-mix(in oklch,var(--t) 70%,var(--paper))}
+.rleg .bx.off{background:color-mix(in oklch,var(--ink) 7%,transparent)}
+.rleg .bx i{font-size:10px;color:var(--warn-text)}
+.rleg .bx.chg{background:var(--brand-tint);border:1px solid var(--brand-d)}
+.rleg .bx.pv{border:1px dashed var(--brand-d)}
+.rleg .bx.el{background:var(--brand-tint);box-shadow:0 0 0 1px var(--elara-edge),0 0 4px 1px var(--elara-soft)}
+.rleg .tx{font-size:var(--fs-label-md);font-weight:600;font-feature-settings:"tnum" 1;color:var(--ink)}
+.rleg .ldl{font-size:var(--fs-label-md)}
+.rleg b{font-weight:600;color:var(--ink)}
+/* Calendar · Week — 48 an hour; events the Item card's frame, compact */
+.cal .col{position:relative}
+/* Sheet — cells 36 */
+.sh.opsh{position:relative}
+.sc .opv{display:contents}
+/* Plan — the horizon row 38, label column 128, rows 42, bars 20 */
+.pgr{grid-template-columns:128px minmax(0,1fr)}
+.lh2{display:grid;align-content:center;gap:4px}
+.lh2 .id{font-size:var(--fs-body);font-weight:600;color:var(--ink)}
+.opplan{position:relative}
+.hz{height:38px}
+.hz .base{position:absolute;left:0;right:0;top:27px;border-top:1px solid var(--rule-strong)}
+.hz .win{position:absolute;top:10px;height:18px;background:var(--brand-tint);opacity:0.7}
+.hz .hdl{position:absolute;top:8px;width:4px;height:22px;border-radius:var(--r-sm);background:var(--brand-d)}
+.pbar{position:absolute;z-index:2;top:11px;height:20px;box-sizing:border-box;display:flex;align-items:center;padding:0 8px;border-radius:var(--r-sm);background:var(--brand-d);font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:600;color:var(--paper);white-space:nowrap;overflow:hidden}
+/* Allocation · Timeline — lane-hour cells 36, bins the Item card's frame; the resource pane */
+.al{position:relative;flex:1;min-width:0;display:grid;grid-template-columns:40px repeat(3,minmax(0,1fr)) 32px;align-content:start;background:var(--paper)}
+.al>*,.rp>*{position:relative;box-sizing:border-box;min-width:0;border-left:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.al>.f{border-left:0}
+.al .h1,.rp .h1{height:36px;display:flex;align-items:center;gap:8px;padding:0 8px;white-space:nowrap}
+.al .h2,.rp .h2{height:28px;display:flex;align-items:center;padding:0 8px;white-space:nowrap}
+.al .hc{display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--ink-4)}
+.al .lnm{font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:600;color:var(--ink)}
+.al .c{height:36px}
+.al .c.hr{display:flex;align-items:center;justify-content:center}
+.al .ch2{background:var(--paper-2)}
+.rp{flex:none;width:236px;display:grid;grid-template-columns:minmax(0,1fr) 44px 44px;align-content:start;background:var(--paper)}
+.rp .rr{height:36px;display:grid;align-content:center;gap:2px;padding:0 8px;white-space:nowrap;overflow:hidden}
+.rp .rr .k{font-family:var(--font-mono);font-size:var(--fs-label-lg);font-weight:600;color:var(--ink)}
+.rp .wk{height:36px;display:flex;align-items:center;padding:0 4px}
+.rp .today{background:var(--paper-2)}
+.ldb{height:20px;box-sizing:border-box;display:flex;align-items:center;padding:0 4px;border-radius:var(--r-sm);background:var(--teal-500);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;color:var(--paper);white-space:nowrap;overflow:hidden}
+.bin{position:absolute;z-index:2;top:3px;left:4px;right:4px;height:30px;box-sizing:border-box;display:grid;padding:2px 6px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-md);overflow:hidden}
+.bin .t{display:flex;justify-content:space-between;gap:4px;font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-label-sm);font-weight:600;line-height:14px;color:var(--ink);white-space:nowrap}
+.bin .m{font-family:var(--font-mono);font-size:var(--fs-label-xs);line-height:12px;color:var(--ink-4);white-space:nowrap}
+/* reduced motion: no pulse, scan, breathing or cascade; the steady glow still marks Elara's changes */
+@media (prefers-reduced-motion:reduce){.bt.eyeb.run,.bt.eyeb.run .echo,.opscope,.opscanw>i,.bt.eyeb.blink .ring,.bt.eyeb.blink .iris,.bt.eyeb.blinkloop .ring,.bt.eyeb.blinkloop .iris{animation:none}.opscanw{display:none}.oplan{animation-duration:1ms;animation-delay:0ms}}
+
+</style>
+<style>
+body{margin:0;padding:32px 32px 64px;background:var(--paper-3)}
+a{color:var(--brand-d)}a:hover{color:var(--brand-dd)}
+.hd0{display:grid;gap:12px;max-width:1424px;padding-bottom:32px}
+.hd0 .tt{display:flex;align-items:center;gap:12px;color:var(--ink)}
+.hd0 .tt .iris{fill:var(--elara-ink)}
+.hd0 h1{margin:0;font-family:var(--font-brand);font-size:var(--fs-title-xl);font-weight:700;letter-spacing:-0.02em;color:var(--ink)}
+.lede{margin:0;max-width:880px;font-size:var(--fs-body-lg);line-height:1.5;color:var(--ink-3);text-wrap:pretty}
+.ctls{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;max-width:1424px;box-sizing:border-box;padding:12px 16px;background:var(--paper);border:1px solid var(--rule-strong);border-radius:var(--r-lg)}
+.ctl{display:inline-flex;align-items:center;gap:8px}
+.ctl .sg .o,.ctl .bt{cursor:pointer}
+.pg0{display:grid;gap:40px;max-width:2024px}
+.grp{display:grid;gap:12px}
+.grp>h2{margin:0;font-family:var(--font-brand);font-size:var(--fs-title-md);font-weight:700;letter-spacing:-0.01em;color:var(--ink)}
+.row{display:grid;grid-template-columns:repeat(auto-fill,700px);gap:24px}
+.row.wide{grid-template-columns:repeat(auto-fill,1000px)}
+.cardx{width:700px;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr);align-content:start;gap:12px;padding:16px 20px 20px;background:var(--paper-2);border:1px solid var(--rule);border-radius:var(--r-lg);color:var(--ink)}
+.row.wide .cardx{width:1000px}
+.row.xw{grid-template-columns:repeat(auto-fill,1640px)}
+.row.xw .cardx{width:1640px}
+.kh{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.kx{display:flex;gap:16px}
+.kx .lk{font-family:var(--font-mono);font-size:var(--fs-label-md);font-weight:500;color:var(--brand-d);cursor:pointer}
+.kx .lk:hover{color:var(--brand-dd)}
+.cardx .cap{text-wrap:pretty}
+.cardx .canvas{grid-template-columns:minmax(0,1fr)}
+.sw8{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px}
+.sw8>span{display:grid;justify-items:start;align-content:start;gap:8px;min-height:88px}
+.sw8 .cap{white-space:nowrap}
+.lt{display:grid;grid-template-columns:64px repeat(4,minmax(0,1fr));gap:12px;align-items:center}
+.evb{position:relative;display:block;height:48px}
+.bxb{position:relative;display:block;height:28px}
+.pm{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) minmax(164px,1.2fr);gap:12px;align-items:start}
+.pm>span{display:grid;gap:8px;justify-items:start}
+.cell1{display:grid;grid-template-columns:minmax(0,1fr);border-left:1px solid var(--rule);border-top:1px solid var(--rule)}
+.mini{display:grid;gap:8px}
+.ebrow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.ebrow>span{display:grid;gap:8px;justify-items:start}
+.ev .em i{font-size:9px;margin-right:4px}
+</style>
+</head>
+<body>
+<header class="hd0">
+<div class="tt"><svg class="eye" width="24" height="24" viewBox="0 0 82.9 82.9" aria-hidden="true" id="logo"></svg><h1>Optimise</h1></div>
+<p class="lede">The eye sends the period in view to the optimiser as one RPC, an e3 function call, which takes 5–10 s. While it runs, the eye pulses cyan and the footer counts the seconds; hovering the eye stops it. The result lands in one commit as an edit, the same as a manual one: Undo, Redo, Cancel and Apply in the edit bar handle it. As it lands, every new or changed entry flares cyan in reading order and keeps a cyan glow, and an alert under the toolbar says what changed. After a few seconds the alert and the glow go, and the changes stay as unapplied edits. Each builder shows an empty period and one with entries, in light and dark; the controls switch the ideas on every card.</p>
+<div class="ctls" id="ctl"></div>
+</header>
+<main class="pg0">
+<section class="grp"><h2>The eye</h2><div class="row" id="show"></div></section>
+<section class="grp"><h2>Roster · People week</h2><div class="row xw" data-spec="roster" data-scen="empty"></div><div class="row xw" data-spec="roster" data-scen="exist"></div></section>
+<section class="grp"><h2>Calendar · Week</h2><div class="row wide" data-spec="calendar" data-scen="empty"></div><div class="row wide" data-spec="calendar" data-scen="exist"></div></section>
+<section class="grp"><h2>Sheet</h2><div class="row wide" data-spec="sheet" data-scen="empty"></div><div class="row wide" data-spec="sheet" data-scen="exist"></div></section>
+<section class="grp"><h2>Plan</h2><div class="row wide" data-spec="plan" data-scen="empty"></div><div class="row wide" data-spec="plan" data-scen="exist"></div></section>
+<section class="grp"><h2>Allocation · Timeline</h2><div class="row wide" data-spec="allocation" data-scen="empty"></div><div class="row wide" data-spec="allocation" data-scen="exist"></div></section>
+<section class="grp"><div class="ann" style="max-width:1424px"><b>&lt;OptimiseButton&gt; (proposed) · BuilderFrame alert · the edit bar</b> · <span class="f">icon-only Default md 32 (sm 24), the Elara eye 16 (14), in the toolbar's trailing cluster before the edit bar</span> · <span class="f">rest --ink-2; hover --paper-2 and the iris --elara-ink; tooltip "Optimise {period}"</span> · <span class="f">running: edge and ring --elara-ink, iris --elara, an iris echo and a 12 px halo on the live-pulse cycle (360 ms in, 1080 ms rest); hovering shows Stop; the builder stays live</span> · <span class="f">footer line while running: Optimising {period} · {n} s, then Stopped · nothing changed if stopped</span> · <span class="f">landing: one commit, pushed onto the edit history as one edit; glow in reading order within 760 ms, at most 40 ms a step; each flare 1400 ms --ease-out from --elara-wash and an 18 px --elara-glow to a steady 1px --elara-edge and 8 px --elara-soft; totals flash last</span> · <span class="f">alert under the toolbar: a title and one line, no actions: Elara optimised {period} · {n} changes: {added}, {changed}, {removed}. Undo or apply them like any edit; No changes; Couldn't optimise {period}, which stays until the next run</span> · <span class="f">the highlight lasts 8 s (or until Apply): the glow, the cyan-dashed ghosts of removed and moved entries, the alert; then the glow fades over 600 ms, the ghosts go and the alert collapses over --dur-base</span> · <span class="f">after that the changes look like manual edits: the dirty fill until Apply; Undo reverts the run in one step, Redo brings it back, Cancel drops every unapplied edit</span> · <span class="f">tokens (proposed): --elara --brand-400 light, --brand-300 dark · --elara-ink --brand-d light, --brand-300 dark · --elara-edge, --elara-soft, --elara-glow, --elara-wash mixed per theme</span> · <span class="f">reduced motion: no pulse, scan, breathing or cascade; the steady glow still marks the changes</span><br><b>Conflicts</b> · <span class="f">the halo and the glow are shadows; the system allows only the focus ring</span> · <span class="f">the echo, halo, scan and breathing loop; the system's only loop is the status-dot pulse</span> · <span class="f">the alert and the glow time out; the Banner card says banners never auto-dismiss</span> · <span class="f">the guide says there is no logo yet; the eye uses the Elara mark from Elara_AI_Lockup_Collapsed.svg</span> · <span class="f">--elara on light paper is about 1.5:1, so in light the edge and ring use --elara-ink or --elara-edge</span></div></section>
+</main>
+<script>
+/* Shared markup for the "Parts · Loading" cards and the builders' loading cards (Components · Collections).
+   Markup only: every style is a class in slice-parts.css or loading-parts.css. */
+(function(){
+const I=(n,c)=>`<i class="fa-solid fa-${n}${c?' '+c:''}" aria-hidden="true"></i>`;
+const N=(n,f)=>Array.from({length:n},(_,i)=>f(i)).join('');
+/* text bars are keyed to the row's index, not its place in the viewport, so the pattern never crawls as a run scrolls */
+const W=(b,i)=>Math.round(b*[1,.74,.88,.62,.94][((i%5)+5)%5]);
+const bar=(w,h)=>`<span class="sk b${h||12}" style="width:${w}px"></span>`;
+const chip=(w,h)=>`<span class="sk kc${h===15?' k15':''}" style="width:${w}px"></span>`;
+const rect=(w,h,sm)=>`<span class="sk kr${sm?' rs':''}" style="width:${w}px;height:${h}px"></span>`;
+const box=()=>'<span class="sk kb"></span>';
+const enm=(w,h)=>`<span class="ke"><span class="sk kd"></span>${bar(w,h||12)}</span>`;
+const lnk=(w,h)=>`<span class="kl">${chip(w,h)}<span class="ar">→</span>${chip(w,h)}</span>`;
+const cnt=()=>'<span class="sk skc"></span>';
+/* a failure said once where no row can hold a line (the Schematic's canvas, the Calendar's month and time grids): the Schematic card's message box, at the region's top-left; a grid with rows takes the failed line in its first row in view instead */
+const fmsg=(h,x,y)=>`<span class="flt2" style="left:${x}px;top:${y}px"><span class="fail">${I('circle-exclamation')}<span class="msg">${h}</span></span><span class="bt md" role="button">Retry</span></span>`;
+/* footer rail; data-s holds the line's short form, used when the space left is short */
+const leg=a=>a.map(([t,s])=>`<span class="li">${s?`<span class="sw ${s}"></span>`:''}${t}</span>`).join('');
+const line=(k,h,s)=>{if(k==='idle')return '<span class="ldl" role="status"></span>';const d=` data-s="${s||(k==='err'?'Couldn\'t read':/^Filtering/.test(h)?'Filtering…':'Loading…')}"`;return k==='err'?`<span class="ldl err" role="status"${d}><span class="dot neg"></span><span class="t">${h}</span><span class="sep">·</span><span class="lk" role="button">Retry</span></span>`:`<span class="ldl" role="status"${d}><span class="dot live"></span><span class="t">${h}</span></span>`;};
+const foot=(lg,ln)=>`<div class="ff"><span class="lgd">${lg||''}</span>${ln||line('idle')}</div>`;
+/* toolbar band */
+const it=(h,c)=>`<span class="it${c?' '+c:''}">${h}</span>`;
+const tb=a=>`<div class="band"><div class="tb">${a.join('')}</div></div>`;
+const seg=(l,on)=>`<span class="sg" role="radiogroup" aria-label="View">${l.map((x,i)=>`<span class="o${i===on?' on':''}" role="radio" aria-checked="${i===on}">${x}</span>`).join('')}</span>`;
+const nav=t=>`<span class="nv"><span class="bt ib gh" role="button" aria-label="Previous period">${I('chevron-left')}</span><span class="ch" role="button" aria-haspopup="dialog">${t}${I('chevron-down','cr')}</span><span class="bt ib gh" role="button" aria-label="Next period">${I('chevron-right')}</span></span>`;
+const sum=h=>`<span class="sum">${h}</span>`;
+const stt=(w,c)=>`<span class="stt"><span class="dot ${c||'neu'}"></span>${w}</span>`;
+const iss=n=>`<span class="bt" role="button" aria-label="${n} issues, go to the first">${I('triangle-exclamation','wn')}<span class="n">${n}</span></span>`;
+const pub=d=>`<span class="bt pri${d?' dis':''}" role="button"${d?' aria-disabled="true"':''}>Publish</span>`;
+const hist=d=>`<span class="hb"><span class="bt ib gh${d?' dis':''}" role="button" aria-label="Undo">${I('arrow-rotate-left')}</span><span class="bt ib gh dis" role="button" aria-label="Redo" aria-disabled="true">${I('arrow-rotate-right')}</span><span class="bt ib${d?' dis':''}" role="button" aria-label="Discard changes">${I('trash-can')}</span><span class="bt${d?' dis':''}" role="button">Apply</span></span>`;
+const flt=t=>`<span class="tg" role="button" aria-haspopup="dialog"><span class="ch${t?' br':''}">${I('filter','ic')}${t?`<span>${t}</span>`:''}</span>${I('chevron-down','cr')}</span>`;
+/* held toolbar slots: status a dot and a short bar, issues and Publish rects at their buttons' footprints */
+const held={stt:()=>enm(40,8),iss:()=>rect(44,24),pub:()=>rect(76,32)};
+/* footer fit — 1 the legend (or the Plan's counts) stays whole and in place; 2 the Sheet's hints end at a whole hint, then "…"; 3 the line shows its full text if it fits whole; 4 else its short form if that fits whole; 5 else the dot alone, its full text kept for screen readers; 6 a failure's floor is the dot and Retry. No ellipsis on the line's text.
+   Narrow, where the legend itself can't fit: the legend ends at a whole item, then "…", and the line shows its short form */
+const fitFoot=ff=>{const lg=ff.querySelector('.lgd'),ln=ff.querySelector('.ldl'),t=ln&&ln.querySelector('.t'),sp=ln&&ln.querySelector('.sep');if(!lg)return;
+if(lg.dataset.f==null)lg.dataset.f=lg.innerHTML;else lg.innerHTML=lg.dataset.f;
+if(t){if(t.dataset.f==null)t.dataset.f=t.innerHTML;else t.innerHTML=t.dataset.f;t.classList.remove('vh');}if(sp)sp.style.display='';
+const hints=!!lg.querySelector('.hn'),u=[];
+[...lg.childNodes].forEach(n=>{const sep=n.textContent.trim()==='·';if(!hints||sep||!u.length)u.push([n]);else u[u.length-1].push(n);});
+const keep=k=>{lg.textContent='';u.slice(0,k).forEach(g=>g.forEach(n=>lg.appendChild(n)));if(k<u.length)lg.insertAdjacentHTML('beforeend','<span>…</span>');};
+const cs=getComputedStyle(ff),av=ff.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight),gp=parseFloat(cs.columnGap)||0;
+const over=()=>lg.offsetWidth+(ln&&ln.childElementCount?gp+ln.scrollWidth:0)>av+1,cut=()=>!!t&&!t.classList.contains('vh')&&t.scrollWidth>t.clientWidth+1,bad=()=>over()||cut();
+const short=()=>{t.classList.remove('vh');if(sp)sp.style.display='';if(ln.dataset.s)t.textContent=ln.dataset.s;},alone=()=>{t.innerHTML=t.dataset.f;t.classList.add('vh');if(sp)sp.style.display='none';};
+let k=u.length;
+if(!t){while(k>1&&over())keep(--k);return;}
+if(hints)while(k>1&&bad())keep(--k);
+if(!bad())return;
+short();if(!bad())return;
+alone();if(!bad())return;
+short();while(k>1&&bad())keep(--k);};
+/* a line's optional tail (.opt), on the footer's rule: one line, no cut word; the tail shows only when the whole line fits, else it drops whole, kept for screen readers */
+const fitOpt=o=>{o.classList.remove('vh');const m=o.closest('.msg');if(m&&m.scrollWidth>m.clientWidth+1)o.classList.add('vh');};
+let fq=0;const fitAll=()=>{fq=0;document.querySelectorAll('.ff').forEach(fitFoot);document.querySelectorAll('.msg .opt').forEach(fitOpt);};
+const qfit=()=>{if(!fq){fq=1;const go=()=>{if(fq)fitAll();};requestAnimationFrame(go);setTimeout(go,60);}};
+addEventListener('load',qfit);addEventListener('resize',qfit);
+if(document.fonts){document.fonts.addEventListener('loadingdone',qfit);document.fonts.ready.then(qfit);}
+if(window.ResizeObserver)new ResizeObserver(qfit).observe(document.documentElement);
+const $=(id,h)=>{const e=document.getElementById(id);if(e)e.innerHTML=h;qfit();};
+/* time grid: o = {cols:[{h, meta, today, wash, ev:[[from,to,title,meta]], stl}], from, to, off:[[a,b]], now, g}  (48 per hour) */
+const tgrid=o=>{const g=o.g||56,P=48,H=(o.to-o.from)*P,n=o.cols.length,tc=`${g}px repeat(${n},minmax(0,1fr))`,y=t=>Math.round((t-o.from)*P);
+let h=`<div class="tgh" style="grid-template-columns:${tc}"><span class="chd"></span>${o.cols.map(c=>`<span class="chd">${c.today?`<span class="nowc">${c.h}</span>`:`<span class="hk">${c.h}</span>`}${c.meta||''}</span>`).join('')}</div>`;
+let gut='';for(let t=o.from;t<o.to;t++){if(o.now===t)continue;gut+=`<span class="hlab" style="top:${y(t)+2}px">${String(t).padStart(2,'0')}:00</span>`;}
+const lines=N((o.to-o.from)*2-1,i=>`<i class="hl" style="top:${(i+1)*P/2}px"></i>`);
+const cols=o.cols.map(c=>`<div class="col${c.stl?' stl':''}"${c.stl?' style="border-left-style:dashed;border-left-color:var(--rule-strong)"':''}>${(o.off||[]).map(([a,b])=>`<i class="oh" style="left:0;right:0;top:${y(a)}px;height:${y(b)-y(a)}px"></i>`).join('')}${c.wash?'<i class="wl wash" style="inset:0"></i>':''}${lines}${(c.ev||[]).map(e=>`<span class="ev" style="left:4px;right:4px;top:${y(e[0])+1}px;height:${y(e[1])-y(e[0])-2}px"><span class="em">${e[3]}</span><span class="et">${e[2]}</span></span>`).join('')}${c.fail||''}</div>`).join('');
+const now=o.now!=null?`<i class="nowl" style="left:${g}px;right:0;top:${y(o.now)}px;height:1px"></i><span class="nowc" style="position:absolute;z-index:4;right:${'calc(100% - '+(g-4)+'px)'};top:${y(o.now)-8}px">${String(Math.floor(o.now)).padStart(2,'0')}:${String(Math.round(o.now%1*60)).padStart(2,'0')}</span>`:'';
+return h+`<div class="tgd" style="grid-template-columns:${tc};height:${H}px"><div class="gut">${gut}</div>${cols}${now}</div>`;};
+/* month: days [{n, out, today, wash, chips:[..], more, stl}] under weekday heads; a chip's text truncates inside its own box */
+const month=(days,heads)=>`<div class="mw" style="grid-template-columns:repeat(7,minmax(0,1fr))">${(heads||['Mon','Tue','Wed','Thu','Fri','Sat','Sun']).map(d=>`<span class="mh"><span class="hk">${d}</span></span>`).join('')}${days.map(d=>`<div class="mc${d.out?' out':''}"${d.stl?' style="border-bottom-style:dashed;border-bottom-color:var(--rule-strong)"':''}><span class="dn">${d.today?`<span class="nowc">${d.n}</span>`:d.n}</span>${d.wash?'<i class="wl wash" style="left:0;right:0;top:28px;bottom:0"></i>':''}${d.chips?`<span class="chs${d.stl?' stl':''}">${d.chips.map(c=>`<span class="ch"><span>${c}</span></span>`).join('')}${d.more?`<span class="more">${d.more}</span>`:''}</span>`:''}</div>`).join('')}</div>`;
+window.L={I,N,W,bar,chip,rect,box,enm,lnk,cnt,fmsg,leg,line,foot,it,tb,seg,nav,sum,stt,iss,pub,hist,flt,held,$,tgrid,month};
+})();
+
+</script>
+<script>
+/* The Elara eye: dot centres from uploads/Elara_AI_Lockup_Collapsed.svg (viewBox 82.9, dot r 2.2), split into the ring and the iris so each can take its own colour. */
+window.ELARA_EYE={ring:[[80.7,51.2],[77.4,54.5],[74.2,57.8],[70.9,61.1],[67.6,64.3],[64.3,67.6],[61.1,70.9],[57.8,74.1],[54.5,77.4],[51.3,80.7],[80.7,44.7],[77.4,48],[74.2,51.2],[70.9,54.5],[67.6,57.8],[64.3,61.1],[61.1,64.3],[57.8,67.6],[54.5,70.9],[51.3,74.1],[48,77.4],[44.7,80.7],[80.7,38.2],[77.4,41.4],[74.2,44.7],[44.7,74.1],[41.4,77.4],[38.2,80.7],[80.7,31.6],[77.4,34.9],[74.2,38.2],[38.2,74.1],[34.9,77.4],[31.6,80.7],[77.4,28.3],[74.2,31.6],[31.6,74.1],[28.4,77.4],[74.2,25.1],[70.9,28.3],[28.4,70.9],[25.1,74.1],[70.9,21.8],[67.6,25.1],[25.1,67.6],[21.8,70.9],[67.6,18.5],[64.3,21.8],[21.8,64.3],[18.5,67.6],[64.3,15.3],[61.1,18.5],[18.5,61.1],[15.3,64.3],[61.1,12],[57.8,15.3],[15.3,57.8],[12,61.1],[57.8,8.7],[54.5,12],[12,54.5],[8.7,57.8],[8.7,51.2],[5.5,54.5],[8.7,44.7],[5.5,48],[2.2,51.2],[8.7,38.2],[5.5,41.4],[2.2,44.7],[28.4,12],[25.1,15.3],[21.8,18.5],[18.5,21.8],[15.3,25.1],[12,28.3],[8.7,31.6],[5.5,34.9],[2.2,38.2],[25.1,8.7],[21.8,12],[18.5,15.3],[15.3,18.5],[12,21.8],[8.7,25.1],[5.5,28.3],[2.2,31.6],[54.5,5.4],[51.3,8.7],[51.3,2.2],[48,5.4],[44.7,8.7],[44.7,2.2],[41.4,5.4],[38.2,8.7],[38.2,2.2],[34.9,5.4],[31.6,8.7],[31.6,2.2],[28.4,5.4]],iris:[[57.8,48],[54.5,51.2],[51.3,54.5],[48,57.8],[57.8,41.4],[54.5,44.7],[51.3,48],[48,51.2],[44.7,54.5],[41.4,57.8],[57.8,34.9],[54.5,38.2],[51.3,41.4],[48,44.7],[44.7,48],[41.4,51.2],[38.2,54.5],[34.9,57.8],[54.5,31.6],[51.3,34.9],[48,38.2],[44.7,41.4],[41.4,44.7],[38.2,48],[34.9,51.2],[31.6,54.5],[51.3,28.3],[48,31.6],[44.7,34.9],[41.4,38.2],[38.2,41.4],[34.9,44.7],[31.6,48],[28.4,51.2],[48,25.1],[44.7,28.3],[41.4,31.6],[38.2,34.9],[34.9,38.2],[31.6,41.4],[28.4,44.7],[25.1,48],[41.4,25.1],[38.2,28.3],[34.9,31.6],[31.6,34.9],[28.4,38.2],[25.1,41.4],[34.9,25.1],[31.6,28.3],[28.4,31.6],[25.1,34.9]]};
+
+</script>
+<script>
+/* Optimise: the Elara eye, the run, the landing and the highlight, shared by Optimise.html.
+   The builders' own chrome carries it: the eye in the toolbar, the footer line while the call runs, the BuilderFrame alert under the toolbar when it's done, and the edit bar (Undo, Redo, Cancel, Apply): the result is one edit in the history, like a manual edit.
+   Markup only: styles in optimise-parts.css. Needs loading-parts.js (L) and elara-eye.js. */
+(function(){
+const {I,$}=L;
+/* page settings — the ideas to compare */
+const S={run:'pulse',land:'cascade',dur:6000,out:'ok',hold:8000};
+const circ=a=>a.map(([x,y])=>`M${(x-2.2).toFixed(2)} ${y}a2.2 2.2 0 1 0 4.4 0a2.2 2.2 0 1 0-4.4 0`).join('');
+const RING=circ(ELARA_EYE.ring),IRIS=circ(ELARA_EYE.iris);
+const eye=s=>`<svg class="eye" width="${s||16}" height="${s||16}" viewBox="0 0 82.9 82.9" aria-hidden="true" focusable="false"><path class="ring" d="${RING}"/><circle class="echo" cx="41.45" cy="41.45" r="17"/><path class="iris" d="${IRIS}"/></svg>`;
+/* the eye button: rest, running (Stop on hover) */
+const btn=(s,lbl,o={})=>{const c=o.cls!=null?o.cls:s&&s.phase==='running'?'run':'';
+return `<span class="bt eyeb${o.sm?' sm':''}${o.t24?' t24':''}${c?' '+c:''}" role="button" tabindex="0" aria-label="${/\brun\b/.test(c)?'Stop optimising':lbl}" data-act="eye">${eye(o.sm||o.t24?14:16)}<i class="fa-solid fa-stop stop" aria-hidden="true"></i><span class="tip"><span class="t0">${lbl}</span><span class="t1">Stop optimising</span></span></span>`;};
+/* the edit bar — the builders' own: Undo, Redo, Cancel, Apply */
+const edit=s=>{const f=s&&s.f||{},u=!!f.undo,r=!!f.redo,d=!!(s&&s.dirty),b=(on,act,ic,lbl,x)=>`<span class="bt ib${x||''}${on?'':' dis'}" role="button" tabindex="0" aria-label="${lbl}" data-act="${act}"${on?'':' aria-disabled="true"'}>${I(ic)}</span>`;
+return `<span class="eb4">${b(u,'undo','arrow-rotate-left','Undo')}${b(r,'redo','arrow-rotate-right','Redo')}${b(d,'cancel','xmark','Cancel edits')}${b(d,'apply','check','Apply edits',' ap')}</span>`;};
+const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+const diff=(a,b)=>{const d={};new Set([...Object.keys(a),...Object.keys(b)]).forEach(k=>{const x=a[k],y=b[k];if(x==null&&y!=null)d[k]={op:'add',to:y};else if(x!=null&&y==null)d[k]={op:'del',from:x};else if(!same(x,y))d[k]={op:'chg',from:x,to:y};});return d;};
+/* entry attributes: data-op drives the landing, the highlight and the edit fill; the title says where it came from */
+const oa=(s,k,fill)=>{const d=s.diff&&s.diff[k];if(!d)return '';const r=s.f.runNo,w=s.f.spec.was;const t=d.op==='chg'?`Was ${w(d.from,k)} · Elara run #${r}`:d.op==='del'?`Removed by Elara · run #${r}`:`Added by Elara · run #${r}`;return ` data-op="${d.op}"${fill?` data-fill="${fill}"`:''} title="${t}"`;};
+const from=(s,fill)=>` data-op="from"${fill?` data-fill="${fill}"`:''} title="Moved by Elara · run #${s.f.runNo}"`;
+const opn=(s,changed)=>s.lit&&changed?' data-opn="1"':'';
+const leg=(s,a)=>L.leg(a)+(s.lit?'<span class="li"><span class="sw el"></span>Elara change</span>':'');
+const counts=d=>{const c={add:0,chg:0,del:0};Object.values(d||{}).forEach(x=>c[x.op]++);return c;};
+/* the footer line while the call is out, in the loading pass's slot */
+const pad=n=>(n<10?'\u2007':'')+n;
+const line=f=>{const p=f.spec.period[f.scen];
+if(f.phase==='running'){const n=Math.max(1,Math.round((Date.now()-f.t0)/1000));return `<span class="ldl" role="status" data-s="Optimising…"><span class="dot el live"></span><span class="t">Optimising <b>${p}</b> · <span class="opsec">${pad(n)}</span> s</span></span>`;}
+if(f.note==='stop')return `<span class="ldl" role="status" data-s="Stopped"><span class="dot neu"></span><span class="t">Stopped · nothing changed</span></span>`;
+return '<span class="ldl" role="status"></span>';};
+/* the alert when it's done — the BuilderFrame alert under the toolbar: a title and one line, no actions; it goes after the highlight */
+const alert=f=>{const p=f.spec.period[f.scen],a=f.alert;if(!a)return '';const mk=(cls,mark,t,d)=>`<div class="opal${cls?' '+cls:''}" role="status"><span class="am">${mark}</span><span class="ab"><span class="at">${t}</span><span class="ad">${d}</span></span></div>`;
+if(a==='done'){const c=counts(diff(f.undo||f.base,f.model)),n=c.add+c.chg+c.del,parts=[c.add&&`${c.add} added`,c.chg&&`${c.chg} changed`,c.del&&`${c.del} removed`].filter(Boolean).join(', ');return mk('',eye(16),`Elara optimised ${p}`,`${n} ${n===1?'change':'changes'}: ${parts}. Undo or apply them like any edit.`);}
+if(a==='none')return mk('',eye(16),'No changes',`Elara found nothing to improve in ${p}.`);
+if(a==='fail')return mk('err',I('circle-exclamation'),`Couldn't optimise ${p}`,'Nothing changed. Run it again from the eye.');
+return '';};
+/* frames */
+const frames=[];let uid=0;
+const st=f=>{const dirty=f.model!==f.base;return {f,model:f.model,prev:f.lit?f.undo:null,diff:dirty?diff(f.base,f.model):null,dirty,lit:f.lit,phase:f.phase,scen:f.scen,side:f.model===f.after?'after':'before'};};
+const draw=(f,parts)=>{parts=parts||'tb al bd ff';const s=st(f),sp=f.spec,fr=document.getElementById(f.id);
+fr.classList.toggle('dirty',s.dirty);fr.classList.toggle('lit',!!f.lit);fr.classList.toggle('running',f.phase==='running');
+if(parts.includes('tb'))$(f.id+'-tb',sp.tb(s));
+if(parts.includes('al'))document.getElementById(f.id+'-al').innerHTML=(sp.alert||alert)(f);
+if(parts.includes('bd'))$(f.id+'-bd',sp.body(s));
+if(parts.includes('ff'))$(f.id+'-ff',sp.foot?sp.foot(s,line(f)):L.foot(sp.legend(s),line(f)));};
+const clr=f=>{clearTimeout(f.timer);clearInterval(f.tick);clearTimeout(f.noteT);clearTimeout(f.holdT);clearTimeout(f.settleT);};
+const scope=(f,on)=>{const fr=document.getElementById(f.id);fr.querySelectorAll('.opscope').forEach(e=>e.classList.remove('opscope'));fr.querySelectorAll('.opscanw').forEach(e=>e.remove());if(!on)return;
+if(S.run==='breathe')fr.querySelectorAll('[data-sc]').forEach(e=>e.classList.add('opscope'));
+if(S.run==='scan')fr.querySelectorAll('[data-scan]').forEach(h=>{const [l,r,t]=h.dataset.scan.split(',');h.insertAdjacentHTML('beforeend',`<span class="opscanw" style="left:${l}px;right:${r}px;top:${t||0}px" aria-hidden="true"><i></i></span>`);});};
+/* the highlight ends: the glow fades, ghosts of removed and moved entries go, the alert collapses; the changes stay as edits */
+const unlit=f=>{f.lit=false;const fr=document.getElementById(f.id);fr.classList.remove('lit');const a=fr.querySelector('.opal,.rband'),tok=f.alert;if(a){a.classList.add('out');setTimeout(()=>{if(f.alert===tok){f.alert=null;draw(f,'al');}},260);}else f.alert=null;draw(f,'tb ff');};
+const hold=f=>{clearTimeout(f.holdT);if(S.hold!=='apply')f.holdT=setTimeout(()=>unlit(f),+S.hold);};
+const run=f=>{clr(f);if(f.lit)unlit(f);f.note=null;f.alert=null;f.phase='running';f.t0=Date.now();f.runNo=++OP.runs;draw(f,'tb al ff');scope(f,1);
+f.tick=setInterval(()=>{const e=document.querySelector('#'+f.id+'-ff .opsec');if(e)e.textContent=pad(Math.max(1,Math.round((Date.now()-f.t0)/1000)));},1000);f.timer=setTimeout(()=>finish(f),S.dur);};
+const stop=f=>{clr(f);scope(f,0);f.phase='idle';f.note='stop';draw(f,'tb ff');f.noteT=setTimeout(()=>{f.note=null;draw(f,'ff');},2500);};
+const blink=f=>{const b=document.querySelector('#'+f.id+' .bt.eyeb');if(b){b.classList.add('blink');setTimeout(()=>b.classList.remove('blink'),700);}};
+const finish=f=>{clr(f);scope(f,0);f.phase='idle';const out=f.model===f.after?'none':S.out;
+if(out!=='ok'){f.alert=out;draw(f,'tb al ff');if(out==='none'){blink(f);hold(f);f.holdT=setTimeout(()=>unlit(f),S.hold==='apply'?8000:+S.hold);}return;}
+f.undo=f.model;f.redo=null;f.model=f.after;f.lit=true;f.alert='done';draw(f);land(f);hold(f);};
+/* the landing: one commit, then the glow in reading order — column by column, top to bottom — inside 760 ms; totals last */
+const land=f=>{const fr=document.getElementById(f.id),els=[...fr.querySelectorAll('.opbd [data-op]')],nums=[...fr.querySelectorAll('[data-opn]')];
+const pos=els.map(e=>{const r=e.getBoundingClientRect();return {e,x:Math.round(r.left/12),y:r.top};}).sort((a,b)=>a.x-b.x||a.y-b.y);
+const n=pos.length,step=S.land==='together'?0:Math.min(40,760/Math.max(1,n));
+pos.forEach((p,i)=>{p.e.style.setProperty('--d',Math.round(i*step)+'ms');p.e.classList.add('oplan');});
+const end=Math.round(n*step)+120;nums.forEach(e=>{e.style.setProperty('--d',end+'ms');e.classList.add('oplan');});
+f.settleT=setTimeout(()=>fr.querySelectorAll('.oplan').forEach(e=>e.classList.remove('oplan')),end+1500);};
+const reset=f=>{clr(f);scope(f,0);f.phase='idle';f.note=null;f.alert=null;f.lit=false;f.undo=f.redo=null;f.base=f.model=f.before;draw(f);};
+const act=(f,a)=>{if(a==='eye'){if(f.phase==='running')stop(f);else run(f);return;}if(a==='reset'){reset(f);return;}if(a==='play'){reset(f);run(f);return;}if(f.phase==='running')return;
+if(a==='dismiss'){clearTimeout(f.holdT);unlit(f);return;}
+if(a==='undo'&&f.undo){clr(f);f.redo=f.model;f.model=f.undo;f.undo=null;f.lit=false;f.alert=null;draw(f);}
+else if(a==='redo'&&f.redo){clr(f);f.undo=f.model;f.model=f.redo;f.redo=null;f.lit=true;draw(f);land(f);hold(f);}
+else if(a==='cancel'&&f.model!==f.base){const n=Object.keys(diff(f.base,f.model)).length;clr(f);f.model=f.base;f.undo=f.redo=null;f.lit=false;f.alert=f.spec.alert?'discarded':null;f.an=n;draw(f);if(f.alert)f.holdT=setTimeout(()=>unlit(f),4000);}
+else if(a==='apply'&&f.model!==f.base){const n=Object.keys(diff(f.base,f.model)).length;clr(f);f.base=f.model;f.undo=f.redo=null;f.lit=false;f.alert=f.spec.alert?'applied':null;f.an=n;draw(f);if(f.alert)f.holdT=setTimeout(()=>unlit(f),4000);}
+else if(a==='reset')reset(f);
+else if(a==='play'){reset(f);run(f);}};
+const mount=(host,spec,scen)=>{const f={id:'op'+(++uid),host,spec,scen,phase:'idle',before:spec.scen[scen].before,after:spec.scen[scen].after};f.base=f.model=f.before;
+host.innerHTML=`<div class="bf opf${spec.frame?' '+spec.frame:''}" id="${f.id}"><div class="optb"><div id="${f.id}-tb"></div><div id="${f.id}-al"></div></div><div class="opbd" id="${f.id}-bd"></div><div id="${f.id}-ff"></div></div>`;
+const card=host.closest('.cardx')||host;
+card.addEventListener('click',e=>{const a=e.target.closest('[data-act]');if(a&&card.contains(a)&&!a.classList.contains('dis'))act(f,a.dataset.act);});
+card.addEventListener('keydown',e=>{const a=e.target.closest('[data-act]');if(a&&(e.key==='Enter'||e.key===' ')){e.preventDefault();a.click();}});
+frames.push(f);draw(f);return f;};
+/* page controls */
+const ctl=(k,lbl,opts)=>`<span class="ctl"><span class="hk">${lbl}</span><span class="sg" role="radiogroup" aria-label="${lbl}">${opts.map(([v,t])=>`<span class="o${String(S[k])===v?' on':''}" role="radio" tabindex="0" aria-checked="${String(S[k])===v}" data-k="${k}" data-v="${v}">${t}</span>`).join('')}</span></span>`;
+const drawCtl=el=>{el.innerHTML=ctl('run','While running',[['pulse','Pulse'],['scan','Scan'],['breathe','Breathe']])+ctl('land','Landing',[['cascade','Cascade'],['together','Together']])+ctl('hold','Highlight for',[['4000','4 s'],['8000','8 s'],['apply','Until apply']])+ctl('dur','The call takes',[['3000','3 s'],['6000','6 s'],['10000','10 s']])+ctl('out','Result',[['ok','Lands'],['none','No changes'],['fail','Fails']])+`<span class="ctl"><span class="bt md pri" role="button" tabindex="0" data-g="play">Run all</span><span class="bt md" role="button" tabindex="0" data-g="reset">Reset all</span></span>`;};
+const controls=el=>{drawCtl(el);
+el.addEventListener('click',e=>{const o=e.target.closest('[data-k]');if(o){const k=o.dataset.k;S[k]=k==='dur'?+o.dataset.v:o.dataset.v;drawCtl(el);return;}const b=e.target.closest('[data-g]');if(!b)return;if(b.dataset.g==='play')frames.forEach(f=>{reset(f);run(f);});else frames.forEach(reset);});
+el.addEventListener('keydown',e=>{const o=e.target.closest('[data-k],[data-g]');if(o&&(e.key==='Enter'||e.key===' ')){e.preventDefault();o.click();}});};
+window.OP={S,eye,btn,edit,alert,line,oa,from,opn,leg,diff,mount,controls,frames,runs:42};
+})();
+
+</script>
+<script>
+/* Optimise: the five builder mocks, each in its real chrome (toolbar with the edit bar, library pane or collapsed rails, inspector rail, footer) and two cases: an empty period and one with entries already in it.
+   Each spec: period, cap, label, scen {before, after}, was(value), tb(s), body(s), legend(s). s = {f, model, prev, diff, dirty, lit, phase, scen, side}. */
+(function(){
+const {I}=L;
+const held='<span style="display:inline-block;width:44px"></span>';
+const wrapN=(s,changed,h)=>`<span${OP.opn(s,changed)}>${h}</span>`;
+const hh=n=>String(n).padStart(2,'0')+':00';
+const icb=(ic,lbl)=>`<span class="bt ib" role="button" tabindex="0" aria-label="${lbl}">${I(ic)}</span>`;
+const railL=n=>`<div class="rail l"><span class="rh">${I('angles-right')}</span><span class="rb"><span class="tile">${I('layer-group')}</span><span class="ct">${n}</span><span class="vt">Library</span></span></div>`;
+const railR=(n,w)=>`<div class="rail r"><span class="rh">${I('angles-left')}</span><span class="rb"><span class="tile">${I('sliders')}</span><span class="ct">${n}</span>${w?I('triangle-exclamation','wn'):''}<span class="vt">Inspector</span></span></div>`;
+const srch=ph=>`<div class="srow"><span class="srch">${I('magnifying-glass')}<span class="q ph">${ph}</span></span><span class="bt ib" role="button" aria-label="Group by" style="width:32px;height:32px">${I('layer-group')}</span></div>`;
+const SPECS={};
+
+/* Roster · People week — the People grid as rebuilt from production (People Month View, week): shift chips, quiet off days, hours in the name column, the Weeks library, the Inspector, the last-action band under the toolbar */
+{const SH={E:{n:'Early',s:6,e:14,st:'06–14',tm:'06:00–14:00',t:'--blue-500'},L:{n:'Late',s:14,e:22,st:'14–22',tm:'14:00–22:00',t:'--green-500'},N:{n:'Night',s:22,e:30,st:'22–06',tm:'22:00–06:00',t:'--yellow-500'}};
+const P=[['A. Alder',5],['B. Lupin',5],['H. Grove',5],['J. Marram',5],['R. Hawthorn',5],['C. Rowan',3],['D. Sedge',5],['G. Teasel',3],['W. Holly',5,1]];
+const WD={exist:{n:11,d:[12,13,14,15,16,17,18],r:'Mar 12 – 18, 2028'},empty:{n:12,d:[19,20,21,22,23,24,25],r:'Mar 19 – 25, 2028'}};
+const DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+const LIB=[['Early · Sun–Thu','EEEEE..'],['Early · Mon–Fri','.EEEEE.'],['Late · Sun–Thu','LLLLL..'],['Late · Mon–Fri','.LLLLL.'],['Night · Sun–Wed','NNNN...'],['Night · Wed–Sat','...NNNN'],['Forward rotation','EELLN..'],['Early to late','.EEELL.'],['Weekend earlies','E....EE'],['Weekend nights','N....NN'],['Part time · earlies','.E.E.E.'],['Part time · lates','..L.L.L'],['Off','.......']];
+const mk=rows=>{const m={};rows.forEach((r,p)=>r.split('').forEach((v,d)=>{if(v!=='.')m[p+'|'+d]=v;}));return m;};
+const h2=n=>String(n).padStart(2,'0');
+/* own times: H. Grove's Wed in W11 runs 07–15; kept only while the day is unchanged */
+const OWN={exist:{'2|3':[7,15]}};
+const ex=(sc,k,m)=>{const o=OWN[sc]&&OWN[sc][k];return o&&SPECS.roster.scen[sc].before[k]===m[k]?o:null;};
+/* the People view's issues, inside the week: a quick return under 10 h of rest, 7 days in a row, more shifts than the contract */
+const issues=(m,sc)=>{const out=[];P.forEach(([nm,c],pi)=>{const v=d=>m[pi+'|'+d];let n=0;
+for(let d=0;d<7;d++){if(v(d))n++;if(d&&v(d)&&v(d-1)){const x=ex(sc,pi+'|'+d,m),xp=ex(sc,pi+'|'+(d-1),m),s0=x?x[0]:SH[v(d)].s,e0=xp?xp[1]:SH[v(d-1)].e;if(s0+24-e0<10)out.push({id:'rest|'+pi+'|'+d,pi,days:[d-1,d]});}}
+if(n===7)out.push({id:'streak|'+pi,pi,days:[0,1,2,3,4,5,6]});
+if(n>c)out.push({id:'contract|'+pi,pi,days:[]});});return out;};
+const band=(tone,mark,who,t,v,vc,undo)=>`<div class="rband" role="status" style="${tone}">${mark}<span class="who">${who}</span><span class="tx">${t}${v?`<span class="v" style="color:${vc}">${v}</span>`:''}</span>${undo?'<span class="ul" role="button" tabindex="0" data-act="undo">Undo →</span>':''}<span class="x" role="button" tabindex="0" aria-label="Dismiss" title="Dismiss" data-act="dismiss">${I('xmark')}</span></div>`;
+const EL='--tw:var(--elara);--tn:var(--elara-ink);--tt:var(--elara-ink)';
+SPECS.roster={period:{empty:'W12',exist:'W11'},label:{empty:'Empty week',exist:'Week with shifts'},frame:'own fix rvf',
+cap:{empty:'W12 is not started: every day Off. Elara fills 40 shifts to contract hours from the weekly patterns, with no quick returns.',exist:'W11 is a draft with 6 issues. Elara changes 11 days: it clears 3 quick returns, breaks a 7-day run, trims 2 people back to contract and fills R. Hawthorn to 40 h.'},
+scen:{empty:{before:{},after:mk(['EEEEE..','.LLLLL.','.EEEEE.','LLLLL..','EELLN..','.E.E.E.','.EEELL.','..L.L.L','...NNNN'])},
+exist:{before:mk(['LLLLE..','EEEEEEE','.EEEEE.','NNNNE..','..LL...','.E.E.E.','NLLLL..','L.L.LL.','.......']),after:mk(['LLLLL..','EEEEE..','.EEEEE.','NNNN..E','.ELLLL.','.E.E.E.','N.LLLL.','L.L.L..','.......'])}},
+was:v=>SH[v].n,
+tb(s){const w=WD[s.scen],is=issues(s.model,s.scen),i0=s.prev?issues(s.prev,s.scen):is,n=s.diff?Object.keys(s.diff).length:0,f=s.f||{},ni=is.length,ch=ni!==i0.length;
+const hb=(ok,act,ic,lbl)=>`<span class="rhb${ok?'':' dis'}" role="button" tabindex="0" aria-label="${lbl}" title="${lbl}" data-act="${act}"${ok?'':' aria-disabled="true"'}>${I(ic)}</span>`;
+const iss=ni?`<span class="riss" role="button" title="Step to the next issue"${OP.opn(s,ch)}>${I('triangle-exclamation')}${ni} ${ni===1?'issue':'issues'}</span>`:`<span class="riss ok"${OP.opn(s,ch)}>${I('check')}No issues</span>`;
+return `<div class="rtb"><span class="fb" role="button" aria-label="Filter" title="Filter"><span>${I('filter')}</span>${I('chevron-down','cv')}</span><span class="rsg" role="radiogroup" aria-label="View"><span role="radio" aria-checked="false">Shifts</span><span class="on" role="radio" aria-checked="true">People</span></span><span class="rib" role="button" aria-label="Display options" title="Display options">${I('sliders')}</span><span class="rsg" role="radiogroup" aria-label="Period"><span class="on" role="radio" aria-checked="true">Week</span><span role="radio" aria-checked="false">Month</span></span><span class="rnv"><span class="rgh24" role="button" aria-label="Previous week">${I('chevron-left')}</span><span class="rdt" role="button" aria-haspopup="dialog">${w.r}<span class="w">W${w.n}</span>${I('chevron-down','cv')}</span><span class="rgh24" role="button" aria-label="Next week">${I('chevron-right')}</span></span><span class="rst">Draft</span><span class="rti"><span class="rgh24${ni?'':' dis'}" role="button" aria-label="Previous issue">${I('chevron-left')}</span>${iss}<span class="rgh24${ni?'':' dis'}" role="button" aria-label="Next issue">${I('chevron-right')}</span></span>${OP.btn(s,'Optimise W'+w.n,{t24:1})}<span class="rte">${n?`<span class="cn"><b>${n}</b> changed ${n===1?'day':'days'}</span>`:''}${hb(!!f.undo,'undo','arrow-rotate-left','Undo')}${hb(!!f.redo,'redo','arrow-rotate-right','Redo')}${hb(s.dirty,'cancel','xmark','Discard changes')}${hb(s.dirty,'apply','check','Apply changes')}</span><span class="rpub" role="button">Publish</span></div>`;},
+/* the band under the toolbar — the People view's last action: Elara's run in place of "You", with Undo → and dismiss; gone after the highlight */
+alert(f){const w=WD[f.scen],a=f.alert,eye=`<span class="mk eye">${OP.eye(14)}</span>`,dot='<span class="mk"></span>';if(!a)return '';
+if(a==='done'){const n=Object.keys(OP.diff(f.undo||{},f.model)).length,ib=issues(f.undo||{},f.scen).map(x=>x.id),ic=issues(f.model,f.scen).map(x=>x.id),add=ic.filter(x=>!ib.includes(x)).length,gone=ib.filter(x=>!ic.includes(x)).length,pt=[];if(add)pt.push(add+' new issue'+(add>1?'s':''));if(gone)pt.push(gone+' resolved');
+return band(EL,eye,'Elara',`Optimised W${w.n} · ${n} changed ${n===1?'day':'days'}`,' · '+(pt.length?pt.join(' · '):'no change to issues'),add?'var(--warn-text)':gone?'var(--pos-text)':'var(--ink-3)',!!f.undo);}
+if(a==='none')return band(EL,eye,'Elara',`No changes to W${w.n}`,' · nothing to improve','var(--ink-3)');
+if(a==='fail')return band('--tw:var(--neg);--tn:var(--neg);--tt:var(--neg-text)',dot,'Elara',`Couldn't optimise W${w.n} · nothing changed`);
+if(a==='applied')return band('--tw:var(--pos);--tn:var(--pos);--tt:var(--pos-text)',dot,'Applied',`${f.an} changed ${f.an===1?'day':'days'} saved to the draft roster`);
+if(a==='discarded')return band('--tw:var(--info);--tn:var(--info);--tt:var(--info-text)',dot,'You',`Discarded ${f.an} changed ${f.an===1?'day':'days'}`);
+return '';},
+body(s){const w=WD[s.scen],is=issues(s.model,s.scen),fl={};is.forEach(x=>x.days.forEach(d=>{fl[x.pi+'|'+d]=1;}));
+const lib=`<div class="rlib"><div class="rph">${I('layer-group')}<span class="t">Library · Weeks</span><span class="rcnt">${LIB.length}</span><span class="cl" role="button" aria-label="Collapse library" title="Collapse library">${I('angles-left')}</span></div><div class="rsrch"><span>${I('magnifying-glass')}Search weeks</span></div><div class="rll"><div class="rlday"><span></span><div class="r7">${'SMTWTFS'.split('').map(c=>`<span>${c}</span>`).join('')}</div></div>${LIB.map(([nm,p])=>{const k=p.replace(/\./g,'').length;return `<div class="rlw" title="${nm} · ${p.split('').map(c=>c==='.'?'·':c).join(' ')}">${I('grip-vertical')}<div class="hd"><span class="nm">${nm}</span><span class="mt">${k?`${k} shift${k>1?'s':''} · ${k*8}h`:'no shifts'}</span></div><div class="r7">${p.split('').map(c=>c==='.'?'<span class="rmk off"></span>':`<span class="rmk" style="--t:var(${SH[c].t})">${c}</span>`).join('')}</div></div>`;}).join('')}</div><div class="rlf">Drag a week onto a person’s week. It replaces all seven days.</div></div>`;
+const head=`<div class="rgh"><div class="pn"><span>People · Week</span><span>Hours</span></div><div class="r7d">${DN.map((d,i)=>`<span>${d}<b>${w.d[i]}</b></span>`).join('')}</div></div>`;
+const rows=P.map(([nm,c,ag],pi)=>{let k=0,k0=0;const cells=DN.map((dn,d)=>{const key=pi+'|'+d,v=s.model[key],df=s.diff&&s.diff[key],lbl=`${dn} ${w.d[d]}`;if(v)k++;if(s.prev&&s.prev[key])k0++;let h='';
+if(v){const sh=SH[v],x=ex(s.scen,key,s.model),own=x?`${h2(x[0])}–${h2(x[1])}`:'',fg=!!fl[key],a=OP.oa(s,key,'own');h=`<button class="rchip" style="--t:var(${sh.t})"${a||` title="${nm} · ${lbl} · ${sh.n} ${x?own+' · own times':sh.tm}${fg?' · part of an issue':''}"`}><span class="l">${sh.n}</span><span class="tm${x?' x':''}">${x?own:sh.st}</span>${fg?I('triangle-exclamation'):''}</button>`;}
+else h=`<button class="roff" title="${nm} · ${lbl} · Off · assign a shift">${I('plus')}Assign</button>`;
+if(df&&df.op==='del'){const sh=SH[df.from];h+=`<span class="rghost"${OP.oa(s,key)}><span>${sh.n}</span><span class="tm">${sh.st}</span></span>`;}
+return `<div class="rdc${df?' dt':''}" data-sc>${h}</div>`;}).join('');
+const hrs=k*8,con=c*8,ov=hrs>con;
+return `<div class="rrow"><div class="rnm"><span class="nm">${nm}</span>${ag?'<span class="rag">Agency</span>':''}<span class="rhr"><span class="h${ov?' ov':''}"${OP.opn(s,!!s.prev&&k!==k0)}>${hrs} / ${con} h</span><span class="b"><i${ov?' class="ov"':''} style="width:${Math.min(hrs/con,1)*100}%"></i></span></span></div><div class="r7c">${cells}</div></div>`;}).join('');
+const ins=`<div class="rins"><div class="rph">${I('sliders')}<span class="t">Inspector</span><span class="cl" role="button" aria-label="Collapse inspector" title="Collapse inspector">${I('angles-right')}</span></div><div class="rie"><span class="gy">☐</span><span class="t">Nothing selected</span><div class="c"><span>☐ Click a day or a person’s week</span><span>☐ Or step through issues in the toolbar</span></div></div></div>`;
+return `<div class="rvb">${lib}<div class="rgrid"><div class="rgw" data-scan="233,0,36">${head}<div class="rgb">${I('chevron-down')}<span class="gn">Inbound</span><span class="gc">${P.length} people</span></div>${rows}<div class="rgb">${I('chevron-right')}<span class="gn">Outbound</span><span class="gc">9 people</span></div></div></div>${ins}</div>`;},
+foot(s,ln){const it=(bx,l)=>`<span class="it">${bx}<span>${l}</span></span>`;
+return `<div class="rleg">${['E','L','N'].map(v=>it(`<span class="bx t" style="--t:var(${SH[v].t})">${v}</span>`,`${SH[v].n} ${SH[v].st}`)).join('')}${it('<span class="bx off"></span>','Off')}${it(`<span class="bx">${I('triangle-exclamation')}</span>`,'Part of an issue')}${it('<span class="tx">07–15</span>','Own times')}${it('<span class="tx">OUTBOUND</span>','Shift in another group')}${it('<span class="bx chg"></span>','Changed, not applied')}${it('<span class="bx pv"></span>','Drop preview')}${it('<span class="bx el"></span>','Elara change')}${ln}</div>`;}};}
+
+/* Calendar · Week — backlog events scheduled into free time; one moved to make room */
+{const IT={brochures:['October brochures','Job','Press A',3,'print'],clean:['Press A clean','Maintenance','Press A',2,'wrench'],ink:['Ink delivery','Goods in','Dock 1',1,'truck'],proof:['Proof review','Job','Studio',1,'print'],posters:['Weekend posters','Job','Press B',3,'print'],service:['Press B service','Maintenance','Press B',2,'wrench'],flyers:['Flyers reprint','Job','Press B',2,'print']};
+const DAYS=['Mon 5','Tue 6','Wed 7','Thu 8','Fri 9'],F=8,T=14,PH=48;
+const POOL={empty:['brochures','clean','ink','proof','posters','service'],exist:['brochures','clean','proof','posters','ink','service','flyers']};
+const ev=(k,st,a)=>{const t=IT[k];return `<span class="ev"${a} style="left:4px;right:4px;top:${(st-F)*PH+1}px;height:${t[3]*PH-2}px"><span class="em">${I(t[4])}${hh(st)}–${hh(st+t[3])}</span><span class="et">${t[0]}</span>${t[3]>1?`<span class="em">${t[2]}</span>`:''}</span>`;};
+const card=k=>{const t=IT[k];return `<div class="lc"><span class="gr">${I('grip-vertical')}</span><span class="tl">${I(t[4])}</span><span class="tt"><span class="t1"><span>${t[0]}</span></span><span class="t2">${t[1]} · ${t[3]} h · ${t[2]}</span></span></div>`;};
+SPECS.calendar={period:{empty:'Oct 5 – 9',exist:'Oct 5 – 9'},label:{empty:'Empty week',exist:'Week with events'},
+cap:{empty:'No events this week and 6 in the backlog. Elara schedules all 6 into free time on the right presses.',exist:'4 events and 3 in the backlog. Elara schedules the 3 and moves Proof review to Tuesday to free Wednesday morning.'},
+scen:{empty:{before:{},after:{clean:[0,8],brochures:[0,10],ink:[1,8],proof:[1,9],posters:[2,9],service:[3,8]}},
+exist:{before:{brochures:[0,9],clean:[1,8],proof:[2,10],posters:[3,9]},after:{brochures:[0,9],clean:[1,8],proof:[1,10],posters:[3,9],ink:[0,12],service:[2,8],flyers:[4,9]}}},
+was:v=>`${DAYS[v[0]]} ${hh(v[1])}`,
+tb(s){return L.tb([L.it(L.flt()),L.it(L.seg(['Calendar','Resources','Timeline'],0)),L.it(L.seg(['Day','Week','Month'],1)),L.it(L.nav('Oct 5 – 9, 2026')),L.it(OP.btn(s,'Optimise Oct 5 – 9'),'end'),L.it(OP.edit(s))]);},
+body(s){const back=POOL[s.scen].filter(k=>!s.model[k]),b0=s.prev?POOL[s.scen].filter(k=>!s.prev[k]).length:back.length,n=back.length;
+const lib=`<div class="libx"><div class="in"><div class="tabs"><span class="tab on" role="tab" aria-selected="true"><span class="nm">Backlog</span><span class="tc"${OP.opn(s,n!==b0)}>${n} of ${n}</span></span><span class="rhc">${I('angles-left')}</span></div>${srch(`Search ${n} ${n===1?'item':'items'}…`)}<div class="lst">${n?`<div class="lgh"><span class="hk">No date</span><span class="mt9">${n}</span></div>${back.map(card).join('')}`:'<div class="es" style="padding:24px 0"><span class="gy">☐</span><span class="ttl">No backlog events</span></div>'}</div></div></div>`;
+const per=(m,d)=>m?Object.values(m).filter(v=>v[0]===d).length:null;
+const head=`<div class="tgh" style="grid-template-columns:56px repeat(5,minmax(0,1fr))"><span class="chd"></span>${DAYS.map((d,i)=>{const c=per(s.model,i),c0=per(s.prev,i);return `<span class="chd"><span class="hk">${d}</span><span class="mt9"${OP.opn(s,c0!=null&&c!==c0)}>${c} ${c===1?'event':'events'}</span></span>`;}).join('')}</div>`;
+let gut='';for(let t=F+1;t<T;t++)gut+=`<span class="hlab" style="top:${(t-F)*PH-8}px">${hh(t)}</span>`;
+const lines=L.N((T-F)*2-1,i=>`<i class="hl" style="top:${(i+1)*PH/2}px"></i>`);
+const cols=DAYS.map((d,i)=>{let e='';if(s.diff)Object.entries(s.diff).forEach(([k,x])=>{if(x.op==='chg'&&x.from[0]===i)e+=ev(k,x.from[1],OP.from(s));});Object.entries(s.model).forEach(([k,v])=>{if(v[0]===i)e+=ev(k,v[1],OP.oa(s,k));});return `<div class="col" data-sc>${lines}${e}</div>`;}).join('');
+return `<div class="vw cal">${lib}<div class="main">${head}<div class="tgd" style="grid-template-columns:56px repeat(5,minmax(0,1fr));height:${(T-F)*PH}px" data-scan="56,0,0"><div class="gut">${gut}</div>${cols}</div></div>${railR(0)}</div>`;},
+legend:s=>`<span class="li">${I('print')}Job</span><span class="li">${I('wrench')}Maintenance</span><span class="li">${I('truck')}Goods in</span>`+(s.lit?'<span class="li"><span class="sw el"></span>Elara change</span>':'')};}
+
+/* Sheet — work orders get a line and a due date */
+{const R=[['JOB-10000','Cut panels','100'],['JOB-10090','Inspect','1,900'],['JOB-10180','Cut panels','1,300'],['JOB-10270','Fold','700'],['JOB-10360','Inspect','100'],['JOB-10450','Cut panels','1,900'],['JOB-10540','Fold','1,300'],['JOB-10630','Inspect','700']];
+const LN=['Line 1','Line 2','Line 1','Line 3','Line 2','Line 1','Line 3','Line 2'],DU=['Oct 19','Oct 19','Oct 20','Oct 20','Oct 21','Oct 21','Oct 22','Oct 22'];
+const mk=(rows,ov)=>{const m={};rows.forEach(i=>{m[i+'|line']=LN[i];m[i+'|due']=DU[i];});return Object.assign(m,ov||{});};
+const set=m=>new Set(Object.keys(m).map(k=>k.split('|')[0])).size;
+const c=(s,k,t)=>{const v=s.model[k];return `<span class="sc${t?' '+t:''}" data-sc${OP.oa(s,k,'cell')}>${v?`<span class="opv">${v}${t==='en'?'<span class="car">▾</span>':''}</span>`:'<span class="nr">not set</span>'}</span>`;};
+const hints='<span class="hn"><span class="kbd">⏎</span>edit</span><span>·</span><span class="hn"><span class="kbd">esc</span>cancel</span><span>·</span><span>click a row number to select it</span><span>·</span><span class="hn"><span class="kbd">⌘</span><span class="kbd">C</span>/<span class="kbd">⌘</span><span class="kbd">V</span></span><span>round-trips with Excel</span>';
+SPECS.sheet={period:{empty:'8 work orders',exist:'8 work orders'},label:{empty:'No lines or dates',exist:'Some set'},
+cap:{empty:'8 work orders with no line and no due date. Elara sets both on every row.',exist:'5 rows are set and 3 are not. Elara fills the 3, moves JOB-10090 to Line 3 and brings JOB-10270 forward a day.'},
+scen:{empty:{before:{},after:mk([0,1,2,3,4,5,6,7])},exist:{before:mk([0,1,2,3,4],{'3|due':'Oct 21'}),after:mk([0,1,2,3,4,5,6,7],{'1|line':'Line 3','3|due':'Oct 19'})}},
+was:v=>v,
+tb(s){const n=set(s.model),n0=s.prev?set(s.prev):n;return L.tb([L.it(`<span class="tset"><span class="tlist" role="tablist"><span class="tab on" role="tab" aria-selected="true"><span class="nm">This week</span><span class="tc">8</span></span></span><span class="ch cp da" role="button">${I('plus','pl')}Tab</span></span>`,'fh'),L.it(L.flt()),L.it(wrapN(s,n!==n0,L.sum(`<b>${n}</b> of 8 scheduled`)),'end'),L.it(OP.btn(s,'Optimise 8 work orders')),L.it(OP.edit(s))]);},
+body(s){let h=`<div class="sh opsh" style="grid-template-columns:52px 136px minmax(0,1fr) 160px 128px 104px" data-scan="188,0,25"><span class="gh hd n"></span><span class="gh hd l">Reference</span><span class="gh hd l">Job</span><span class="gh hd l">Line</span><span class="gh hd r">Due</span><span class="gh hd r lc">Quantity</span>`;
+R.forEach((r,i)=>{h+=`<span class="gh n">${i+1}</span><span class="sc id">${r[0]}</span><span class="sc tx">${r[1]}</span>${c(s,i+'|line','en')}${c(s,i+'|due','')}<span class="sc lc">${r[2]}</span>`;});return h+'</div>';},
+legend:s=>hints+(s.lit?'<span>·</span><span class="li"><span class="sw el"></span>Elara change</span>':'')};}
+
+/* Plan — backlog jobs placed on presses; two moved to clear an overlap and meet a due date */
+{const D=58,DAYS=['Th 01','Fr 02','Sa 03','Su 04','Mo 05','Tu 06','We 07','Th 08','Fr 09','Sa 10','Su 11','Mo 12','Tu 13','We 14'],ROWS=['Press A','Press B','Press C','Press D'];
+const J={j1:'JOB-10810',j2:'JOB-10900',j3:'JOB-10990',j4:'JOB-11080',j5:'JOB-11170',j6:'JOB-11260',j7:'JOB-11350'};
+const POOL={empty:['j1','j2','j3','j4','j5','j6'],exist:['j1','j2','j3','j4','j5','j6','j7']};
+const bar=(k,v,a)=>`<span class="pbar"${a} style="left:${v[1]*D+2}px;width:${v[2]*D-4}px">${J[k]}</span>`;
+const hz=`<div class="lrow pgr hz"><div class="lh" style="flex-direction:row;align-items:center;justify-content:flex-start;gap:8px"><span class="hk">Horizon</span><span class="mt9">· 88 d</span></div><div class="pl2"><i class="base"></i><i class="win" style="left:0;width:${D*14}px"></i><i class="hdl" style="left:0"></i><i class="hdl" style="left:${D*14-4}px"></i></div></div>`;
+const ruler=`<div class="lrow pgr" style="border-bottom:0"><div class="lh" style="justify-content:flex-end;padding-bottom:6px"><span class="hk">Resource</span></div><div><div class="tier ctx"><span style="width:${D*4}px">Week of Sep 28, 2026</span><span style="width:${D*7}px">Week of Oct 5, 2026</span><span style="width:${D*3}px;border-right:0">Week of Oct 12</span></div><div class="tier">${DAYS.map((d,i)=>`<span style="width:${D}px${i===13?';border-right:0':''}">${i===1?'<span class="nowc">Fr 02</span>':d}</span>`).join('')}</div></div></div>`;
+SPECS.plan={period:{empty:'Oct 1 – 14',exist:'Oct 1 – 14'},label:{empty:'Nothing placed',exist:'Jobs placed'},
+cap:{empty:'4 presses and 6 jobs in the backlog. Elara places all 6 inside the window.',exist:'5 jobs placed, 2 in the backlog, and JOB-10900 overlaps JOB-10810. Elara places the 2, moves JOB-10900 after the overlap and JOB-11170 to Press C to meet its due date.'},
+scen:{empty:{before:{},after:{j1:[0,0,3],j2:[0,4,2],j3:[1,1,3],j4:[2,0,2],j5:[2,3,4],j6:[3,2,3]}},exist:{before:{j1:[0,0,3],j2:[0,2,2],j3:[1,1,3],j4:[2,0,2],j5:[3,5,3]},after:{j1:[0,0,3],j2:[0,4,2],j3:[1,1,3],j4:[2,0,2],j5:[2,3,3],j6:[3,1,3],j7:[1,5,2]}}},
+was:v=>`${ROWS[v[0]]} · ${DAYS[v[1]]}`,
+tb(s){const n=Object.keys(s.model).length,n0=s.prev?Object.keys(s.prev).length:n;return L.tb([L.it(`<span class="tg" role="button" aria-haspopup="dialog"><span class="ch br">${I('filter','ic')}<span>Filters</span></span>${I('chevron-down','cr')}</span>`),L.it(L.nav('Oct 1 – 14, 2026')),L.it(L.seg(['Month','Week','Day'],2)),L.it(wrapN(s,n!==n0,L.sum(`<b>${n}</b> jobs placed`)),'end'),L.it(OP.btn(s,'Optimise Oct 1 – 14')),L.it(OP.edit(s))]);},
+body(s){const per=(m,r)=>m?Object.values(m).filter(v=>v[0]===r).length:null;
+const rows=ROWS.map((nm,r)=>{let b='';if(s.diff)Object.entries(s.diff).forEach(([k,x])=>{if(x.op==='chg'&&x.from[0]===r)b+=bar(k,x.from,OP.from(s,'own'));});Object.entries(s.model).forEach(([k,v])=>{if(v[0]===r)b+=bar(k,v,OP.oa(s,k,'own'));});const c=per(s.model,r),c0=per(s.prev,r);
+return `<div class="lrow pgr" style="height:42px"><div class="lh"><span class="lh2"><span class="id">${nm}</span><span class="mt9"${OP.opn(s,c0!=null&&c!==c0)}>${c} ${c===1?'job':'jobs'}</span></span></div><div class="pl2" data-sc>${L.N(13,i=>`<i class="vl" style="left:${D*(i+1)}px"></i>`)}<i class="nowl" style="top:0;bottom:0;left:${D+24}px;width:1px"></i>${b}</div></div>`;}).join('');
+return hz+ruler+`<div class="opplan" data-scan="128,0,0">${rows}</div>`;},
+legend(s){const back=POOL[s.scen].filter(k=>!s.model[k]).length,b0=s.prev?POOL[s.scen].filter(k=>!s.prev[k]).length:back;return `<span><b>0</b> pending</span><span>·</span><span><b>212</b> events</span><span>·</span><span${OP.opn(s,back!==b0)}><b>${back}</b> in backlog</span>`+(s.lit?'<span>·</span><span class="li"><span class="sw el"></span>Elara change</span>':'');}};}
+
+/* Allocation · Timeline — arrivals allocated to lane hours; one bin moved to free B-2 */
+{const LN=[['B-1',':15'],['B-2',':35'],['B-3',':55']];
+const B={b1:['LD-2201',35,'K-209','BRK · R1 · spec MC14 · 7 d','due Wed 12 · window Tue–Thu',0],b2:['LD-2202',27,'K-102','STB · P1 · spec MC08 · 9 d','due Wed 12 · window Wed–Fri',0],b3:['LD-2203',24,'K-109','BRK · R2 · spec MC12 · 8 d','was due Tue 11 · overdue',1],b4:['LD-2204',47,'K-501','RDG · R1 · spec MC10 · 8 d','due Thu 13 · window Wed–Fri',0],b5:['LD-2205',12,'K-304','ASH · P2 · spec MC12 · 9 d','due Wed 12 · window Tue–Thu',0],b6:['LD-2206',31,'K-210','MRS · P1 · spec MC10 · 8 d','was due Tue 11 · overdue',1]};
+const POOL=['b1','b2','b3','b4','b5','b6'];
+const RES=[['K-101','31 m³ · takes 16–32','C-3140',31],['K-102','27 m³ · takes 16–32','',27],['K-103','Hall A · 32 m³','',0],['K-104','Hall A · 32 m³','',0],['K-105','32 m³ · takes 16–32','C-3143',32],['K-106','20 m³ · takes 12–24','',20]];
+const META={empty:{before:{iss:0},after:{iss:0}},exist:{before:{iss:3},after:{iss:1}}};
+const bin=(k,a)=>`<span class="bin"${a}><span class="t"><span>${B[k][0]}</span><span>${B[k][1]} m³</span></span><span class="m">→ ${B[k][2]}</span></span>`;
+const lane=(m,l)=>{if(!m)return null;const ks=Object.keys(m).filter(k=>m[k][0]===l);return `${ks.length} ${ks.length===1?'bin':'bins'} · ${ks.reduce((a,k)=>a+B[k][1],0)} m³`;};
+const lc=(s,k,v)=>{const b=B[k],a=v?OP.oa(s,k):'';return `<div class="lc"${a}><span class="gr">${I('grip-vertical')}</span><span class="tt"><span class="t1 mono"><span>${b[0]}</span><span class="v">${b[1]} m³</span></span><span class="t2">${b[3]}</span><span class="t2${b[5]&&!v?' wt':''}">${v?`in ${LN[v[0]][0]} ${String(v[1]).padStart(2,'0')}${LN[v[0]][1]} on ${b[2]}`:b[4]}</span></span></div>`;};
+const grp=(h,n,body)=>n?`<div class="lgh"><span class="hk">${h}</span><span class="mt9">${n}</span></div>${body}`:'';
+SPECS.allocation={period:{empty:'Wed 12 May',exist:'Wed 12 May'},label:{empty:'Nothing allocated',exist:'Bins allocated'},
+cap:{empty:'6 arrivals and no bins allocated. Elara allocates all 6 to lane hours by volume and destination.',exist:'4 bins allocated and 2 arrivals. Elara allocates the 2 and moves LD-2203 from B-2 to B-1 to free B-2 at 01:00.'},
+scen:{empty:{before:{},after:{b1:[0,0],b2:[1,0],b3:[0,1],b4:[2,1],b5:[1,2],b6:[2,3]}},exist:{before:{b1:[0,0],b2:[1,0],b3:[1,1],b4:[2,1]},after:{b1:[0,0],b2:[1,0],b3:[0,1],b4:[2,1],b5:[1,2],b6:[2,3]}}},
+was:v=>`${LN[v[0]][0]} · ${hh(v[1])}`,
+tb(s){const m=META[s.scen][s.side],p=s.prev?META[s.scen].before:m;return L.tb([L.it(L.flt()),L.it(L.seg(['Table','Timeline'],1)),L.it(L.nav('Wed, May 12, 2027')),L.it(L.stt('Draft'),'end'),L.it(m.iss?wrapN(s,p.iss!==m.iss,L.iss(m.iss)):held),L.it(OP.btn(s,'Optimise Wed 12 May')),L.it(OP.edit(s)),L.it(L.pub())]);},
+body(s){const un=POOL.filter(k=>!s.model[k]),ov=un.filter(k=>B[k][5]),rd=un.filter(k=>!B[k][5]),al=POOL.filter(k=>s.model[k]).sort((a,b)=>s.model[a][1]-s.model[b][1]||s.model[a][0]-s.model[b][0]);
+const lib=`<div class="libx"><div class="in"><div class="tabs"><span class="tab on" role="tab" aria-selected="true"><span class="nm">Arrivals</span></span><span class="tab" role="tab" aria-selected="false"><span class="nm">Resources</span></span><span class="rhc">${I('angles-left')}</span></div>${srch('Find an arrival or site')}<div class="lst">${grp(`${I('triangle-exclamation','wn')}Overdue`,ov.length,ov.map(k=>lc(s,k)).join(''))}${grp('Ready around now',rd.length,rd.map(k=>lc(s,k)).join(''))}${grp('Allocated',al.length,al.map(k=>lc(s,k,s.model[k])).join(''))}</div><div class="lft">Drag onto a lane hour or a resource</div></div></div>`;
+let g=`<div class="al" data-scan="40,32,64"><span class="h1 f"><span class="hk">Lane</span></span>${LN.map(l=>`<span class="h1"><span class="lnm">${l[0]}</span><span class="mt9">at ${l[1]}</span></span>`).join('')}<span class="h1 hc"></span><span class="h2 f"><span class="hk">Hour</span></span>${LN.map((l,i)=>{const t=lane(s.model,i),t0=lane(s.prev,i);return `<span class="h2"><span class="mt9"${OP.opn(s,t0!=null&&t!==t0)}>${t}</span></span>`;}).join('')}<span class="h2 hc">${I('link')}</span>`;
+for(let h=0;h<6;h++){g+=`<span class="c hr f"><span class="mt9" style="font-size:var(--fs-label-sm)">${String(h).padStart(2,'0')}</span></span>`;for(let l=0;l<3;l++){let c='';if(s.diff)Object.entries(s.diff).forEach(([k,x])=>{if(x.op==='chg'&&x.from[0]===l&&x.from[1]===h)c+=bin(k,OP.from(s));});Object.entries(s.model).forEach(([k,v])=>{if(v[0]===l&&v[1]===h)c+=bin(k,OP.oa(s,k));});g+=`<span class="c" data-sc>${c}</span>`;}g+='<span class="c ch2"></span>';}
+g+='</div>';
+const rp=`<div class="rp"><span class="h1"><span class="hk">Week</span></span><span class="h1"><span class="hk">W18</span></span><span class="h1"><span class="hk">W19</span></span><span class="h2"><span class="hk">Resource</span></span><span class="h2"></span><span class="h2 today"><span class="mt9">12</span></span>${RES.map(r=>`<span class="rr"><span class="k">${r[0]}</span><span class="mt9">${r[1]}</span></span><span class="wk">${r[2]?`<span class="ch" style="padding:0 4px;font-size:var(--fs-label-xs)">${r[2]}</span>`:''}</span><span class="wk today">${r[3]?`<span class="ldb" style="width:36px">${r[3]}</span>`:''}</span>`).join('')}</div>`;
+return `<div class="vw">${lib}<div class="main" style="display:flex">${g}${rp}</div>${railR(3,1)}</div>`;},
+legend:s=>OP.leg(s,[['Bin','sw mu'],['Draft','sw dh'],["Today's load",'sw s2'],['Prior job','sw mu'],['Next job','sw dh'],['Overlap','sw dw'],['Link','sw tk']])};}
+
+window.OPSPECS=SPECS;
+})();
+
+</script>
+<script>
+(()=>{const {I}=L;
+document.getElementById('logo').outerHTML=OP.eye(24);
+OP.controls(document.getElementById('ctl'));
+const TH=[['light','Light'],['dark','Dark']];
+document.querySelectorAll('.row[data-spec]').forEach(r=>{const sp=OPSPECS[r.dataset.spec],sc=r.dataset.scen;
+r.innerHTML=TH.map(([t,n])=>`<div class="cardx"${t==='dark'?' data-theme="dark"':''}><div class="kh"><span class="k">${sp.label[sc]} · ${n}</span><span class="kx"><span class="lk" role="button" tabindex="0" data-act="play">Run</span><span class="lk" role="button" tabindex="0" data-act="reset">Reset</span></span></div><div class="host"></div><div class="cap">${sp.cap[sc]}</div></div>`).join('');
+r.querySelectorAll('.host').forEach(h=>OP.mount(h,sp,sc));});
+/* the eye's states, the landing on each kind of entry, the highlight, the footer line, the alert and the edit bar */
+const b=(cls,sm)=>OP.btn(null,'Optimise W11',{cls,sm});
+const states=[['Rest',b('')],['Hover',b('hv tipon')],['Focus',b('fo')],['Running',b('run')],['Stop',b('run shov')],['No changes',b('blinkloop')],['sm 24',b('',1)],['sm running',b('run',1)]];
+const at=(name,t)=>`animation:${name} 1400ms linear -${t}ms 1 normal both paused`;
+const T=[[100,'0.1 s'],[400,'0.4 s'],[1400,'1.4 s · highlight'],[null,'after 8 s']];
+const chip=t=>`<span class="ch" data-op="add"${t==null?'':` style="${at('op-in',t)}"`}><span class="me">UL</span>E</span>`;
+const cell=t=>`<div class="sh cell1"><span class="sc en" data-op="add" data-fill="cell"${t==null?'':` style="${at('op-in-cell',t)}"`}><span class="opv">Line 2<span class="car">▾</span></span></span></div>`;
+const ev=t=>`<span class="evb"><span class="ev" data-op="add" style="inset:0${t==null?'':';'+at('op-in',t)}"><span class="em">${I('print')}09:00–10:00</span><span class="et">Proof review</span></span></span>`;
+const bar=t=>`<span class="bxb"><span class="pbar" data-op="add" data-fill="own" style="top:4px;left:0;width:112px${t==null?'':';'+at('op-in-own',t)}">JOB-10810</span></span>`;
+const col=(x,f)=>x[0]==null?`<span class="opf dirty">${f(null)}</span>`:`<span class="opf dirty lit">${f(x[0])}</span>`;
+const lt=`<div class="lt"><span></span>${T.map(x=>`<span class="cap">${x[1]}</span>`).join('')}${[['Chip',chip],['Cell',cell],['Event',ev],['Bar',bar]].map(([n,f])=>`<span class="cap">${n}</span>${T.map(x=>col(x,f)).join('')}`).join('')}</div>`;
+const pm=`<div class="pm opf dirty lit"><span><span class="ch" data-op="add" title="Added by Elara · run #43"><span class="me">UL</span>E</span><span class="cap"><b>Added</b> · the edit fill and the glow</span></span><span><span class="ch" data-op="chg" title="Was UL L · Elara run #43"><span class="me">UL</span>E</span><span class="cap"><b>Changed</b> · "Was UL L" on hover</span></span><span><span class="ch" data-op="del" title="Removed by Elara · run #43"><span class="me">AG</span>N</span><span class="cap"><b>Removed</b> · a struck ghost for the highlight</span></span><span><span class="bxb" style="width:100%"><span class="pbar" data-op="from" data-fill="own" style="top:4px;left:0;width:76px">JOB-10900</span><span class="pbar" data-op="chg" data-fill="own" style="top:4px;left:80px;width:76px">JOB-10900</span></span><span class="cap"><b>Moved</b> · a ghost where it was</span></span></div>`;
+const fake=(o)=>Object.assign({spec:{period:{x:'12–18 Mar'}},scen:'x',base:{},model:{a:1,b:1,c:1,d:2},undo:{d:1,e:1}},o);
+const ff=`<div class="bf">${L.foot('',OP.line(fake({phase:'running',t0:Date.now()-4000})))}</div>`;
+const al=`<div class="mini">${['done','none','fail'].map(a=>`<div class="bf"><div class="optb"><div>${L.tb([L.it(L.nav('W11 · Mar 12 – 18')),L.it(OP.btn(null,'Optimise W11',{cls:''}),'end'),L.it(OP.edit({f:{undo:a==='done'},dirty:a==='done'}))])}</div>${OP.alert(fake({alert:a}))}</div><div class="stub"></div></div>`).join('')}</div>`;
+const eb=`<div class="ebrow"><span>${OP.edit({f:{},dirty:false})}<span class="cap"><b>Clean</b> · nothing to undo or apply</span></span><span>${OP.edit({f:{undo:1},dirty:true})}<span class="cap"><b>After the run</b> · Undo reverts it in one step; Cancel and Apply act on every unapplied edit</span></span><span>${OP.edit({f:{redo:1},dirty:false})}<span class="cap"><b>After Undo</b> · Redo brings the run back</span></span></div>`;
+const show=TH.map(([t,n])=>`<div class="cardx"${t==='dark'?' data-theme="dark"':''}><div class="kh"><span class="k">The eye · ${n}</span></div>
+<div class="canvas"><div class="k">States</div><div class="sw8">${states.map(([l,h])=>`<span><span class="cap">${l}</span>${h}</span>`).join('')}</div></div>
+<div class="canvas"><div class="k">Landing · the flare, the highlight, then a plain edit</div>${lt}</div>
+<div class="canvas"><div class="k">During the highlight</div>${pm}</div>
+<div class="canvas"><div class="k">While running · the footer line</div>${ff}</div>
+<div class="canvas"><div class="k">When it's done · the alert under the toolbar, no actions</div>${al}</div>
+<div class="canvas"><div class="k">The edit bar · the run is one edit</div>${eb}</div>
+<div class="cap">The alert and the glow go after the highlight; a failure stays until the next run. Undo, Redo, Cancel and Apply are the builder's own.</div></div>`).join('');
+L.$('show',show);
+})();
+</script>
+</body></html>

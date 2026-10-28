@@ -20,6 +20,12 @@ export interface PlanNarrowPaging {
     /** The unloaded run after the resident rows, when there is one — and
      *  which of its elements are loading (#1082). */
     tail: PlanBand | undefined;
+    /**
+     * How many of the source's elements lie past the resident rows, not read — its blocks' unloaded runs after their
+     * rows (#1398): beside the rows read and not shown yet, what the list's `N more rows` counts. `undefined` while the
+     * source has not counted itself, or a new narrowing's rows are read.
+     */
+    beyond: number | undefined;
     /** Where the list is — the last row card on screen. */
     onViewport: (key: RowKey) => void;
     /** Demand the window after the resident run. */

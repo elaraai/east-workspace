@@ -16,7 +16,7 @@ import { describe, test, expect } from "vitest";
 import { createLedger, observeWindow, type WindowLedger } from "./window-ledger.js";
 import {
     NO_RESIDENCY, DEFAULT_RESIDENCY, isEmpty, residentWindows,
-    demandRange, step, trim, advance, pin,
+    demandRange, step, trim, advance, pin, travelOf, leftRun,
     type Residency, type ResidencyOptions,
 } from "./window-residency.js";
 
@@ -158,6 +158,48 @@ describe("residency — eviction", () => {
         l = observeWindow(l, 0, { px: 2000, rows: 100 });
         const r: Residency = { lo: 0, hi: 30, pins: new Set() };
         expect(trim(r, l, 15, tight)).toBe(r);
+    });
+});
+
+describe("residency — prefetch follows the direction of travel (#1398, CL6)", () => {
+    test("two windows ahead the way the viewport travels, one behind", () => {
+        const l = measured(50);
+        expect(demandRange(l, 20, DEFAULT_RESIDENCY, 1)).toEqual({ from: 19, to: 22 });
+        expect(demandRange(l, 20, DEFAULT_RESIDENCY, -1)).toEqual({ from: 18, to: 21 });
+        // Toward the end unless told otherwise: what every driver asked before it said which way it travels.
+        expect(demandRange(l, 20, DEFAULT_RESIDENCY)).toEqual(demandRange(l, 20, DEFAULT_RESIDENCY, 1));
+    });
+
+    test("a step extends ahead first: up the source when travelling up", () => {
+        const l = measured(50);
+        let r = step(NO_RESIDENCY, l, 20, DEFAULT_RESIDENCY, -1);   // [20,20]
+        r = step(r, l, 20, DEFAULT_RESIDENCY, -1);
+        expect([r.lo, r.hi]).toEqual([19, 20]);
+        r = step(r, l, 20, DEFAULT_RESIDENCY, -1);
+        expect([r.lo, r.hi]).toEqual([18, 20]);
+        r = step(r, l, 20, DEFAULT_RESIDENCY, -1);
+        expect([r.lo, r.hi]).toEqual([18, 21]);
+        expect(step(r, l, 20, DEFAULT_RESIDENCY, -1)).toBe(r);
+    });
+
+    test("trimming drops what the travel leaves behind on a tie", () => {
+        const l = measured(50, 100);
+        const tight: ResidencyOptions = { ...DEFAULT_RESIDENCY, maxRows: 400, evictTo: 0.5 };
+        const r: Residency = { lo: 10, hi: 20, pins: new Set() };
+        // Centred on 15: travelling down keeps its ring [14, 17], travelling up its ring [13, 16] — each trimmed to its demand.
+        const down = trim(r, l, 15, tight, 1);
+        const up = trim(r, l, 15, tight, -1);
+        expect([[down.lo, down.hi], [up.lo, up.hi]]).toEqual([[14, 17], [13, 16]]);
+    });
+
+    test("which way the viewport travels: the way it moved, or the way it last moved while it holds", () => {
+        expect([travelOf(3, 5, -1), travelOf(5, 3, 1), travelOf(4, 4, -1), travelOf(4, 4, 1)]).toEqual([1, -1, -1, 1]);
+    });
+
+    test("the windows that leave the run: what a driver stops reading, its requests aborted", () => {
+        expect(leftRun({ lo: 10, hi: 14, pins: new Set() }, { lo: 12, hi: 16, pins: new Set() })).toEqual([10, 11]);
+        expect(leftRun({ lo: 10, hi: 14, pins: new Set() }, { lo: 40, hi: 40, pins: new Set() })).toEqual([10, 11, 12, 13, 14]);
+        expect(leftRun(NO_RESIDENCY, { lo: 1, hi: 2, pins: new Set() })).toEqual([]);
     });
 });
 

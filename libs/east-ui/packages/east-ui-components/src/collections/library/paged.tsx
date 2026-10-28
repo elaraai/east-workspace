@@ -18,9 +18,20 @@
  * search hides, with Show all. A search the rail's choices block says which,
  * with the rail's Clear filters.
  *
+ * A new narrowing — the rail's, or the tab's own search's — never blinks
+ * (#1398, CL8; #1424): the rows that last landed stand in, retained —
+ * aria-disabled in a busy region, readable and taking no gesture that edits —
+ * until the new narrowing's count and its first rows land, and are swapped
+ * whole then, its view starting again at its start; a new revision's rows, or a
+ * new count's at the same revision — its host's drafts moving its rows — stand
+ * in the same way, the view kept. A read again of the rows it showed — the same
+ * narrowing, revision and count, its windows let go meanwhile — keeps them
+ * until they land again. Only the first read, and rows scrolled into view, draw
+ * the pending rows.
+ *
  * @packageDocumentation
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Skeleton, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { type option, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType, RecordSliceFieldType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
@@ -77,8 +88,11 @@ export interface PagedLibrarySearch<T> {
 export interface PagedLibraryProps<T> {
     source: LibraryPageSource<T>;
     id: string;
+    /** A row's card: `filtered`, it draws faded as context and never drags, as a resident Library's filtered card does. */
     item(row: T): LibraryItemValue;
     onOpen(key: string): void;
+    /** ⏎ on a card, by its key: what a card that drops does at once — the Schematic's backlog row placed (#1390, SC13). */
+    onEnter?: ((key: string) => void) | undefined;
     /** What it says while its source holds no row, in its host's words (`No flows`). */
     empty?: LibraryEmpty | undefined;
     /**
@@ -101,9 +115,18 @@ export interface PagedLibraryProps<T> {
 /** What it says with no row, and neither words of its host's. */
 const NO_ROWS: LibraryEmpty = { title: "No matches", description: "Change or clear the filters to see more records." };
 
-const PAGE_SIZE = 32;
+/**
+ * How many rows a paged palette reads a page: its source's `page(offset, limit)` is asked a window of this many at a
+ * time, its first `page(0, PAGED_LIBRARY_PAGE)` — what a host whose figures must swap with the palette's rows waits on
+ * (the Calendar's Backlog count, #1424).
+ */
+export const PAGED_LIBRARY_PAGE = 32;
+/** The rows a narrowing reads first: from its start. */
+const FIRST_ROWS = { start: 0, end: 12 } as const;
 const estimateSize = () => 56;
 const EMPTY_DIMS: string[] = [];
+/** Retained content (#1398, CL8): what stands in while a new narrowing is read — aria-disabled in a busy region. */
+const RETAINED = { "aria-busy": true, "aria-disabled": true } as const;
 
 /** Labels as running text lists them: `Lane`, `Lane and Owner`, `Lane, Owner and State count`. */
 function listed(labels: readonly string[]): string {
@@ -113,10 +136,12 @@ function listed(labels: readonly string[]): string {
 /**
  * Render only the visible rows and request their adjacent windows. Changing
  * query identity — the rail's, or the tab's own search's — starts the
- * viewport again; a revision replaces all its reads. With no row it says so
- * in the Library's empty state: its host's narrowing's words and Clear filters
- * while one narrows it, else its host's words; a search that finds no row,
- * `No matches`; a search the rail's choices block, which, with Clear filters.
+ * viewport again, the rows that last landed standing in, retained, until the
+ * new narrowing's first rows land; a revision replaces all its reads. With no
+ * row it says so in the Library's empty state: its host's narrowing's words and
+ * Clear filters while one narrows it, else its host's words; a search that
+ * finds no row, `No matches`; a search the rail's choices block, which, with
+ * Clear filters.
  * @param props - The paged source, card projection, opening action, what it says with no row, and its search
  * @returns A virtualized palette with the standard Library cards, under its search box when it has one
  * @internal
@@ -165,13 +190,15 @@ export function PagedLibrary<T>(props: PagedLibraryProps<T>) {
                     <Toolbar items={[librarySearchItem(box)]} />
                 </Box>
             )}
-            <PagedRows key={`${source.id}|${known?.narrowed ?? ""}|${query}`} {...props} query={query} styles={styles} onShowAll={() => onQuery("")} />
+            <PagedRows {...props} identity={`${source.id}|${known?.narrowed ?? ""}|${query}`} query={query} styles={styles} onShowAll={() => onQuery("")} />
         </Box>
     );
 }
 
 /** Props of {@link PagedRows}. */
 interface PagedRowsProps<T> extends PagedLibraryProps<T> {
+    /** The narrowing its rows are of — its source, the rail's narrowing and the tab's own search's text — as one. */
+    identity: string;
     /** The tab's own search's text, as it reads; empty, none. */
     query: string;
     /** The `library` recipe's styles. */
@@ -180,12 +207,49 @@ interface PagedRowsProps<T> extends PagedLibraryProps<T> {
     onShowAll: () => void;
 }
 
-/** The palette's rows: the source as the rail narrows it, or what the tab's own search finds within it. */
-function PagedRows<T>({ source, id, item, onOpen, empty, narrowing, search, noMatch, query, styles, onShowAll }: PagedRowsProps<T>) {
+/** One read of a palette's rows: its count, its rows by place, and what its search read. */
+interface RowsRead<T> {
+    /** How many rows it holds; `undefined` while it is counted. */
+    readonly count: number | undefined;
+    /** The rows read, by place. */
+    readonly rows: ReadonlyMap<number, T>;
+    /** What the tab shows without its search: what the footer counts the search's hidden rows against. */
+    readonly shown: number | undefined;
+    /** Whether its search read it. */
+    readonly searching: boolean;
+    /** The rail's choices that block its search. */
+    readonly blocking: readonly Field[] | undefined;
+    /** The fields its search may read. */
+    readonly fields: readonly Field[];
+    /** Its search's text. */
+    readonly query: string;
+    /** The revision it read at; `undefined` before one is known. */
+    readonly revision: string | undefined;
+}
+
+/** Whether a read has landed: its count known, and every row of the range it reads that the count holds read. */
+function landedAt<T>(read: RowsRead<T>, range: { readonly start: number; readonly end: number }): boolean {
+    if (read.count === undefined) return false;
+    const end = Math.min(range.end, read.count);
+    for (let at = range.start; at < end; at++) if (!read.rows.has(at)) return false;
+    return true;
+}
+
+/**
+ * The palette's rows: the source as the rail narrows it, or what the tab's own search finds within it. A new narrowing
+ * reads from its start, the read that last landed standing in, retained, until its count and its first rows land; a
+ * new revision of the same narrowing, or a new count at the same revision, keeps its view, the last read standing in
+ * until the rows in view land at it.
+ */
+function PagedRows<T>({ identity, source, id, item, onOpen, onEnter, empty, narrowing, search, noMatch, query, styles, onShowAll }: PagedRowsProps<T>) {
     const words = useFormatters();
-    const [range, setRange] = useState({ start: 0, end: 12 });
-    const read = useCallback(() => {
+    // The rows in view and the narrowing they are of: a new narrowing reads from its start.
+    const [viewed, setViewed] = useState<{ readonly identity: string; readonly start: number; readonly end: number }>({ identity, ...FIRST_ROWS });
+    const range = viewed.identity === identity ? viewed : FIRST_ROWS;
+    const { start, end } = range;
+    const read = useCallback((): RowsRead<T> => {
         const revision = source.revision();
+        const at = revision.type === "some" ? revision.value : undefined;
         let total = source.total();
         let page = (offset: bigint, limit: bigint) => source.page(offset, limit);
         // What the tab shows without its search: what the footer counts the search's hidden rows against.
@@ -198,10 +262,10 @@ function PagedRows<T>({ source, id, item, onOpen, empty, narrowing, search, noMa
             const where = search.part.read().where;
             const target = pagedSearchTarget(search.part.config, where);
             fields = pagedSearchFields(search.part.config);
-            if (target?.blocking !== undefined) return { count: 0, rows: new Map<number, T>(), shown, searching, blocking: target.blocking, fields };
+            if (target?.blocking !== undefined) return { count: 0, rows: new Map<number, T>(), shown, searching, blocking: target.blocking, fields, query, revision: at };
             if (target?.field !== undefined) {
                 const within = pagedSearchWhere(target.field, where, query);
-                if (within === null) return { count: 0, rows: new Map<number, T>(), shown, searching, blocking, fields };
+                if (within === null) return { count: 0, rows: new Map<number, T>(), shown, searching, blocking, fields, query, revision: at };
                 total = search.part.countWhere(within);
                 page = (offset, limit) => search.page(within, offset, limit);
             }
@@ -209,41 +273,61 @@ function PagedRows<T>({ source, id, item, onOpen, empty, narrowing, search, noMa
         const count = total.type === "some" ? Number(total.value) : undefined;
         const rows = new Map<number, T>();
         if (revision.type === "some" && count !== 0) {
-            for (const window of planWindows(range, PAGE_SIZE, count).needed) {
-                const offset = window * PAGE_SIZE;
-                const got = page(BigInt(offset), BigInt(PAGE_SIZE));
+            for (const window of planWindows({ start, end }, PAGED_LIBRARY_PAGE, count).needed) {
+                const offset = window * PAGED_LIBRARY_PAGE;
+                const got = page(BigInt(offset), BigInt(PAGED_LIBRARY_PAGE));
                 if (got.type === "some") got.value.forEach((row, i) => rows.set(offset + i, row));
             }
         }
-        return { count, rows, shown, searching, blocking, fields };
-    }, [source, range, search, query]);
+        return { count, rows, shown, searching, blocking, fields, query, revision: at };
+    }, [source, start, end, search, query]);
     const { result } = useTrackedEvaluation(read);
+    // The read that last landed, and the narrowing it is of: while a new narrowing's count and first rows are read — or a
+    // new revision's of the rows in view, or a new count's at the same revision, its host's drafts moving its rows — it
+    // stands in, retained (#1398, CL8), and is swapped whole once they land, never the pending rows again. Rows scrolled
+    // into view at the same revision and count are read as pending rows, the rest kept live.
+    const landed = useRef<{ readonly identity: string; readonly read: RowsRead<T> } | undefined>(undefined);
+    if (result.ok && landedAt(result.value, range)) landed.current = { identity, read: result.value };
+    const last = landed.current;
+    const standing = result.ok && last !== undefined && (last.identity !== identity || last.read.revision !== result.value.revision
+        || (result.value.count !== undefined && result.value.count !== last.read.count));
+    // The narrowing the rows shown are of: its view is its own, so the swap starts the new one's at its start.
+    const shownIdentity = standing ? last.identity : identity;
     const onRangeChange = useCallback((next: { startIndex: number; endIndex: number }, scrolling: boolean) => {
         if (scrolling) return;
-        setRange(old => old.start === next.startIndex && old.end === next.endIndex + 1
-            ? old : { start: next.startIndex, end: next.endIndex + 1 });
-    }, []);
+        setViewed(old => old.identity === shownIdentity && old.start === next.startIndex && old.end === next.endIndex + 1
+            ? old : { identity: shownIdentity, start: next.startIndex, end: next.endIndex + 1 });
+    }, [shownIdentity]);
     if (!result.ok) return <BannerView status="error" title={result.error instanceof Error ? result.error.message : "The list could not be read"} />;
-    const { count, rows, shown, searching, blocking, fields } = result.value;
+    // A read again of the rows it showed — the same narrowing, revision and count, or its count not read yet, its windows
+    // let go meanwhile — keeps what landed of them until they land again: the same rows at the same places, never the
+    // pending rows over them; rows scrolled into view still read as pending rows.
+    const now = result.value;
+    const again = !standing && last !== undefined && last.read !== now;
+    const { count, rows, shown, searching, blocking, fields, query: searched } = standing ? last.read
+        : again ? { ...now, count: now.count ?? last.read.count, rows: new Map([...last.read.rows, ...now.rows]) } : now;
     // A search the rail's choices block says which; one that finds nothing says so; else the rail's words, or the host's.
     const said: LibraryEmpty = blocking !== undefined
         ? { title: "No search with these filters", description: `Clear the filters on ${listed(blocking.map((f) => f.label))} to search by ${listed(fields.map((f) => f.label))}.` }
-        : searching ? noMatch ?? { title: "No matches", description: `Nothing matches "${query}".` }
+        : searching ? noMatch ?? { title: "No matches", description: `Nothing matches "${searched}".` }
             : narrowing?.empty ?? empty ?? NO_ROWS;
     const onClear = blocking !== undefined || !searching ? narrowing?.onClear : undefined;
     // What the search hides of what the rail shows; a search the rail blocks has read nothing, and hides nothing.
     const hidden = searching && blocking === undefined && shown !== undefined && count !== undefined && shown > count ? shown - count : 0;
+    const retained = standing ? RETAINED : undefined;
     return (
         <>
-            {count === 0 ? <LibraryEmptyState said={said} onClear={onClear} /> : (
-                <VirtualRows height={undefined} maxHeight={undefined} fillParent count={count ?? 8} estimateSize={estimateSize}
-                    onRangeChange={onRangeChange}
+            {count === 0 ? (retained === undefined ? <LibraryEmptyState said={said} onClear={onClear} />
+                : <Box {...retained}><LibraryEmptyState said={said} onClear={onClear} /></Box>) : (
+                <VirtualRows key={shownIdentity} height={undefined} maxHeight={undefined} fillParent count={count ?? 8} estimateSize={estimateSize}
+                    onRangeChange={onRangeChange} rootProps={retained}
                     renderRow={index => {
                         const row = rows.get(index);
+                        const card = row === undefined ? undefined : item(row);
                         return <Box css={styles.pagedRow} data-library-position={index}>
-                            {row === undefined ? <Skeleton css={styles.pagedSkeleton} aria-label="Loading record" /> :
-                                <LibraryCard libraryId={id} item={item(row)} dimOrder={EMPTY_DIMS} activeDims={EMPTY_DIMS}
-                                    filtered={false} styles={styles} onCardClick={onOpen} onCardEnter={undefined} />
+                            {card === undefined ? <Skeleton css={styles.pagedSkeleton} aria-label="Loading record" /> :
+                                <LibraryCard libraryId={id} item={card} dimOrder={EMPTY_DIMS} activeDims={EMPTY_DIMS}
+                                    filtered={card.filtered} styles={styles} onCardClick={onOpen} onCardEnter={onEnter} />
                             }
                         </Box>;
                     }} />

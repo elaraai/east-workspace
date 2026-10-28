@@ -24,14 +24,22 @@
  *   (#1198) — its events in the window — how many, how long, how much of each
  *   unit — and its measures at the bucket a click on its plot named; an event
  *   kind's Unassigned row, the kind's events on no resource; any other row,
- *   what it draws at that bucket;
- * - **nothing** (PB41): the window's counts and three hints.
+ *   what it draws at that bucket. A kind past the cap is counted on no row,
+ *   and the row says so, never 0; a kind hidden in the Series tab is in no
+ *   figure, and nothing says so (#1039). While the cells a paged resource's
+ *   kinds are read by have not landed for it — scrolled out of the blocks
+ *   read, or before the first read — its figures are placeholders, never 0,
+ *   until they land (#1398, CL13);
+ * - **nothing** (PB41): the window's counts — the hours those of the kinds
+ *   read, the kinds whose events or hours are not counted named in one line
+ *   (#1039) — and three hints.
  *
  * Each event is read as the kinds' editing reads it (`read`, its kind's own
  * `planEvent`), its kind's drafts in place, tracked, so a commit to its record
  * reads it again, and an event no longer there is left out — a kind read a
  * window at a time (#1199) looking for it among the rows the canvas holds,
- * then reading it by its key. The read runs in a component of its own
+ * then reading it by its key, and a kind read by its cells (#1039) among the
+ * rows they hold, read again as they move. The read runs in a component of its own
  * ({@link PlanSelectionReader}), which hands the frame the events only when
  * they move: a kind narrowed through its source of the slice lands its key
  * searches one by one, and each would otherwise render the whole frame
@@ -48,8 +56,18 @@
  * of each event under a new key, the copies then selected; Delete; and the
  * bulk edit — the state, the resource, a shift of a day or an hour — over every
  * event selected that takes it, across kinds. They sit in one fieldset, off
- * while a selected kind takes no gesture — a write of its with no answer, its
- * drafts out of date.
+ * while the canvas takes no write — a run of the app's optimiser out (#1409,
+ * R2), or what it shows standing in, retained (#1398, CL8) — or a selected
+ * kind takes no gesture — a write of its with no answer, its drafts out of
+ * date — and each gesture asks the same again as it lands, so a control of a
+ * kind's own inspector the fieldset does not reach writes nothing meanwhile.
+ *
+ * It keeps the keyboard (#1398): a control that goes with the view it was
+ * pressed in — Duplicate, which selects the copies, an overlap's line, which
+ * selects what it names — leaves the focus on the heading of the view drawn in
+ * its place (`../../shared/focus-home.ts`), never on the page's body; Nothing
+ * selected, which has no heading, is its own home. Delete hands the keyboard
+ * to the canvas's row instead, as its selection's command does.
  *
  * Styles are the `planInspector` recipe's, the form's `fieldForm`'s and the
  * buttons the shared `button`'s; the pane — its collapse control and its rail
@@ -59,6 +77,7 @@
  */
 
 import { ScheduleInspectorHead } from "../../shared/schedule/inspector-head.js";
+import { FOCUS_HOME_PROPS, useFocusHome } from "../../shared/focus-home.js";
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -69,10 +88,12 @@ import {
 } from "@elaraai/east";
 import { EventStateType } from "@elaraai/east-ui";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
-import { PlanEventItemType, ScheduleEventRefType, ScheduleResourceRefType, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
+import { PlanEventItemType, ScheduleEventRefType, ScheduleResourceRefType, planHideId, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, useTrackedEvaluation, type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
+import { PlaceholderShape } from "@elaraai/east-ui-components/internal";
+import { heldRowOf } from "../../shared/schedule/editing.js";
 import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
 import { usePlanResourceRows, type PlanResourceLookup, type PlanResourceRefValue } from "./resources.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
@@ -84,11 +105,13 @@ import type { PlanStateWord } from "../messages.js";
 import { rowKeyOf } from "../model.js";
 import type { RowKey } from "../plan-state.js";
 import { quantityText, totalsByUnit, totalsText, type PlanQuantityValue } from "../quantity.js";
+import { scheduleWithinCap, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import type { PlanChrome } from "../root/chrome.js";
-import type { PlanEventShownValue } from "../root/events.js";
+import { eventReadRange, type PlanEventShownValue } from "../root/events.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
 import type { PlanEventCounts } from "./counts.js";
+import { hides } from "./hidden.js";
 import type { PlanValue } from "./index.js";
 
 /** The names a Plan keeps its viewer's state under. */
@@ -155,9 +178,17 @@ function stateOfWord(word: PlanStateWord): ValueTypeOf<typeof EventStateType> {
         : variant(word, null) as ValueTypeOf<typeof EventStateType>;
 }
 
-/** Whether the selected events' kinds each take a gesture now: what the edits' fieldset is on for. */
-function writableFor(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined): boolean {
-    return editing !== undefined && events.length > 0 && events.every((event) => editing.available(event.kind.key));
+/**
+ * Whether the selected events take a gesture now: what the edits' fieldset is on for, and what each of its gestures
+ * asks again as it lands.
+ *
+ * @param events - The selected events
+ * @param editing - The event kinds' editing
+ * @param canvas - Whether the canvas takes a write now (`PlanChrome.writable`): no run of the optimiser out, nothing standing in
+ * @returns Whether the canvas takes a write, and every selected event's kind takes a gesture
+ */
+function writableFor(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined, canvas: boolean): boolean {
+    return canvas && editing !== undefined && events.length > 0 && events.every((event) => editing.available(event.kind.key));
 }
 
 /** One selected event, read: its element's key, its kind, and the event as Plan draws it, with its row. */
@@ -230,21 +261,27 @@ export interface PlanInspectorProps {
     events: readonly PlanInspectedEvent[];
     /** The resources the rail shows, by resource kind (#1344): what the bulk edit offers of a kind its source narrows. */
     shownResources: PlanEventShownValue;
+    /** The ids the viewer hides in the Series tab: a kind hidden there is in no figure of a row's. */
+    hidden: readonly string[];
 }
 
 /**
  * The selected events, read through their kinds, their drafts in place —
  * tracked, so a commit to a kind's record reads them again; an event no
- * longer there is left out.
+ * longer there is left out. An event of a kind the cells' reader gives cells
+ * (#1039) is read from the rows they hold, which no tracked read listens to:
+ * it is read again as they move — the cells a commit reads again.
  *
  * @param kinds - The event kinds
  * @param elements - The selected events, by their elements' keys
  * @param drafts - Every kind's drafts (#1194) — the same object while they hold
  * @param editing - The kinds' editing, which reads an event where the canvas reads its rows (#1199); none without a window
+ * @param cellRows - The rows the cells' reader holds of each kind it gives cells — the same object while they hold; none before it hands any on
  * @returns The events, in the order they were selected — the last read's while a read is in flight or has failed
  */
 function useSelectedEvents(
     kinds: PlanValue["events"], elements: readonly string[], drafts: EventDrafts, editing: PlanEventEditing | undefined,
+    cellRows: ScheduleCellsRead["held"] | undefined,
 ): readonly InspectedEvent[] {
     const bySlot = useMemo(() => new Map(kinds.map((kind) => [kind.key, kind] as const)), [kinds]);
     const readEvent = editing?.read;
@@ -255,13 +292,15 @@ function useSelectedEvents(
             if (!ref.success) continue;
             const kind = bySlot.get(ref.value.kind);
             if (kind === undefined) continue;
-            // The editing reads the latest drafts — these, which re-run the read as they move.
+            // The editing reads the latest drafts — these, which re-run the read as they move — and the latest rows the
+            // cells hold, the kind's here.
             const got = readEvent !== undefined ? readEvent(kind.key, ref.value.key)
-                : getSomeorUndefined(kind.planEvent(ref.value.key, drafts.get(ref.value.kind) ?? NO_DRAFTS, NO_RANGE, NO_RANGE));
+                : getSomeorUndefined(kind.planEvent(ref.value.key, drafts.get(ref.value.kind) ?? NO_DRAFTS, NO_RANGE, NO_RANGE,
+                    heldRowOf(cellRows, ref.value.kind, ref.value.key)));
             if (got !== undefined) out.push({ key, kind, item: got.item, row: got.row });
         }
         return out;
-    }, [bySlot, elements, drafts, readEvent]);
+    }, [bySlot, elements, drafts, readEvent, cellRows]);
     const { result } = useTrackedEvaluation(read);
     const held = useRef<readonly InspectedEvent[]>(NO_EVENTS);
     return useMemo(() => {
@@ -294,6 +333,8 @@ export interface PlanSelectionReaderProps {
     drafts: EventDrafts | undefined;
     /** The kinds' editing, which reads an event where the canvas reads its rows; none without a window. */
     editing: PlanEventEditing | undefined;
+    /** The rows the cells' reader holds of each kind it gives cells (#1039): an event of such a kind is read again as they move. */
+    held: ScheduleCellsRead["held"] | undefined;
     /** Where the events go: called only when they move. */
     onRead: (events: readonly PlanInspectedEvent[]) => void;
 }
@@ -306,8 +347,8 @@ export interface PlanSelectionReaderProps {
  * @param props - What is read, and where it goes
  * @returns Nothing: it reads
  */
-export function PlanSelectionReader({ kinds, elements, drafts, editing, onRead }: PlanSelectionReaderProps): null {
-    const events = useSelectedEvents(kinds, elements, drafts ?? NONE_DRAFTED, editing);
+export function PlanSelectionReader({ kinds, elements, drafts, editing, held, onRead }: PlanSelectionReaderProps): null {
+    const events = useSelectedEvents(kinds, elements, drafts ?? NONE_DRAFTED, editing, held);
     const reported = useRef<readonly InspectedEvent[]>(NO_EVENTS);
     useLayoutEffect(() => {
         // The same events, by identity: the read holds its last while what it read holds.
@@ -321,11 +362,11 @@ export function PlanSelectionReader({ kinds, elements, drafts, editing, onRead }
 /**
  * The inspector pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - Whether it is given, the kinds, the resources, the canvas's facts, the counts, the keys, the words, what is selected, the selected events and the resources the rail shows
+ * @param props - Whether it is given, the kinds, the resources, the canvas's facts, the counts, the keys, the words, what is selected, the selected events, the resources the rail shows and the ids the viewer hides
  * @returns The pane — 320px wide, its collapsed state kept per viewer, its rail saying what is selected — or `undefined`, no pane, when the Plan is given no inspector
  */
 export function usePlanInspector({
-    shown, kinds, resources, chrome, counts, keys, words, selection, events, shownResources,
+    shown, kinds, resources, chrome, counts, keys, words, selection, events, shownResources, hidden,
 }: PlanInspectorProps): BuilderFrameDock | undefined {
     const { m } = words;
     // No `inspector`: no pane (#1197).
@@ -343,7 +384,7 @@ export function usePlanInspector({
         detail,
         body: (
             <PlanInspectorBody selection={selection} events={events} kinds={kinds} resources={resources} chrome={chrome}
-                counts={counts} keys={keys} words={words} shownResources={shownResources} />
+                counts={counts} keys={keys} words={words} shownResources={shownResources} hidden={hidden} />
         ),
     };
 }
@@ -360,11 +401,26 @@ interface BodyProps {
     words: PlanWords;
     /** The resources the rail shows, by resource kind (#1344). */
     shownResources: PlanEventShownValue;
+    /** The ids the viewer hides in the Series tab. */
+    hidden: readonly string[];
 }
 
-/** The pane's body: one event, several, a row, or nothing. */
+/**
+ * The pane's body: one event, several, a row, or nothing — in a region that keeps the keyboard as a control goes with its
+ * view, on the heading of the view drawn in its place (see the module docs).
+ */
 const PlanInspectorBody = memo(function PlanInspectorBody(props: BodyProps) {
     const styles = useSlotRecipe({ key: "planInspector" })() as Styles;
+    const home = useFocusHome();
+    return (
+        <Box ref={home.ref} css={styles.home} onFocus={home.onFocus} onBlur={home.onBlur} data-inspector-home="">
+            {bodyView(props, styles)}
+        </Box>
+    );
+});
+
+/** What the body shows: one event, several, a row, or nothing. */
+function bodyView(props: BodyProps, styles: Styles): ReactNode {
     const { selection, events, chrome } = props;
     // Each event its own view: what one showed never lands on the next.
     if (events.length === 1) return <OneEvent key={events[0]!.key} {...props} styles={styles} event={events[0]!} />;
@@ -374,7 +430,7 @@ const PlanInspectorBody = memo(function PlanInspectorBody(props: BodyProps) {
         if (row !== undefined) return <RowView key={row.key} {...props} styles={styles} chrome={chrome} rowKey={row.key} at={selection.at} />;
     }
     return <NothingSelected styles={styles} counts={props.counts} words={props.words} />;
-});
+}
 
 // ============================================================================
 // Words
@@ -584,9 +640,13 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
     const { kind } = event;
     const item = event.item;
     const roles = kind.roles;
-    // Its edits (#1194): steps of the Plan's one history, on while its kind takes a gesture.
+    // Its edits (#1194): steps of the Plan's one history, on while the canvas takes a write and its kind a gesture.
     const editing = chrome?.events;
-    const writable = writableFor([event], editing);
+    const writable = writableFor([event], editing, chrome?.writable === true);
+    // What its gestures ask as they land — this render's — so the kind's own inspector, handed `update`, is not made
+    // again as the edits turn off and on.
+    const writes = useRef(writable);
+    writes.current = writable;
     // What it overlaps (#1198, PB53): its kind's events on its resource at once — a line each, which selects it.
     const peers = counts?.overlaps.peers.get(event.key) ?? [];
     const start = getSomeorUndefined(item.start);
@@ -615,13 +675,14 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
     // A field edited (PB42): one transaction, written through the kind's own `write`, its value as bytes at the field's type.
     const onField = useCallback((path: readonly string[], next: unknown) => {
         const spec = specs.find((s) => samePath(s.path, path));
-        if (editing === undefined || spec === undefined) return;
+        if (editing === undefined || spec === undefined || !writes.current) return;
         const value = encodeBeast2For(spec.type)(next as never);
         editing.record([{ kind: kind.key, id: item.key, gesture: variant("field", { path: [...path], value }) }], "typed", labelOf("Edit", [event]));
     }, [editing, specs, kind.key, item.key, event]);
-    // The kind's own inspector's `update` (PB60): the edited event, whole, one transaction.
+    // The kind's own inspector's `update` (PB60): the edited event, whole, one transaction — none while the edits are off,
+    // whatever control of the kind's own the fieldset does not reach.
     const update = useCallback((edited: Uint8Array): null => {
-        editing?.record([{ kind: kind.key, id: item.key, row: edited }], "typed", labelOf("Edit", [event]));
+        if (writes.current) editing?.record([{ kind: kind.key, id: item.key, row: edited }], "typed", labelOf("Edit", [event]));
         return null;
     }, [editing, kind.key, item.key, event]);
     // The kind's own inspector (PB60): what it returns for the event, in place of the form.
@@ -638,7 +699,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
 
     return (
         <Box css={styles.root} data-plan-inspector="event">
-            <ScheduleInspectorHead styles={styles} kind={kind} title={item.title} when={whenText(item, kind.instant, words)} status={status} />
+            <ScheduleInspectorHead styles={styles} kind={kind} title={item.title} when={whenText(item, kind.instant, words)} status={status} home />
             {/* Under the head, as the Calendar's inspector has it (§8) — and out
                 of the edits' fieldset, so its lines select while that is disabled. */}
             {peers.length > 0 && chrome !== undefined && (
@@ -675,11 +736,11 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                 )}
                 <Box css={styles.actions} data-inspector-actions="">
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled={!canDuplicate([event], editing)}
-                        data-inspector-action="duplicate" onClick={() => duplicateEvents([event], editing, chrome, selection.row)}>
+                        data-inspector-action="duplicate" onClick={() => { if (writes.current) duplicateEvents([event], editing, chrome, selection.row); }}>
                         {m.inspectorAction({ action: "duplicate" })}
                     </chakra.button>
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
-                        onClick={() => deleteEvents([event], editing, chrome)}>
+                        onClick={() => { if (writes.current) deleteEvents([event], editing, chrome); }}>
                         {m.inspectorAction({ action: "delete" })}
                     </chakra.button>
                 </Box>
@@ -701,9 +762,9 @@ interface SeveralProps extends BodyProps {
 function SeveralEvents({ events, kinds, resources, words, styles, chrome, selection, shownResources }: SeveralProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
-    // Its edits (#1194): steps of the Plan's one history, on while every selected kind takes a gesture.
+    // Its edits (#1194): steps of the Plan's one history, on while the canvas takes a write and every selected kind a gesture.
     const editing = chrome?.events;
-    const writable = writableFor(events, editing);
+    const writable = writableFor(events, editing, chrome?.writable === true);
     // Each kind's count, in the kinds' order.
     const counted = kinds
         .map((kind) => ({ kind, n: events.filter((e) => stringEqual(e.kind.key, kind.key)).length }))
@@ -758,7 +819,7 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
     }, [events]);
     // The bulk edit (PB39): over every selected event that takes it, across kinds, one transaction.
     const onBulk = useCallback((path: readonly string[], next: unknown) => {
-        if (editing === undefined) return;
+        if (editing === undefined || !writable) return;
         if (samePath(path, ["state"])) {
             // A state chosen: written into each event whose kind reads one, at its state field.
             const chosen = getSomeorUndefined(next as option<ValueTypeOf<typeof STATE_CHOICE>>);
@@ -786,10 +847,10 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
             });
             editing.record(changes, "move", labelOf("Move", events));
         }
-    }, [editing, events]);
+    }, [editing, events, writable]);
     // A shift in time (PB39): every scheduled event a day or an hour either way, on its resource, one transaction.
     const shift = (by: -1 | 1, unit: "day" | "hour") => {
-        if (editing === undefined) return;
+        if (editing === undefined || !writable) return;
         const ms = by * (unit === "day" ? 86_400_000 : 3_600_000);
         const changes = events.flatMap((e): PlanEventChange[] => {
             const start = getSomeorUndefined(e.item.start);
@@ -802,7 +863,7 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
     };
     return (
         <Box css={styles.root} data-plan-inspector="events">
-            <Box css={styles.head}>
+            <Box css={styles.head} {...FOCUS_HOME_PROPS}>
                 <Box css={styles.summary} data-inspector-several="">{m.inspectorEvents({ n: events.length, count: words.number(events.length) })}</Box>
                 <Box css={styles.marks}>
                     {counted.map(({ kind, n }) => (
@@ -838,11 +899,11 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
                 </Box>
                 <Box css={styles.actions} data-inspector-actions="">
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled={!canDuplicate(events, editing)}
-                        data-inspector-action="duplicate" onClick={() => duplicateEvents(events, editing, chrome, selection.row)}>
+                        data-inspector-action="duplicate" onClick={() => { if (writable) duplicateEvents(events, editing, chrome, selection.row); }}>
                         {m.inspectorAction({ action: "duplicate" })}
                     </chakra.button>
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
-                        onClick={() => deleteEvents(events, editing, chrome)}>
+                        onClick={() => { if (writable) deleteEvents(events, editing, chrome); }}>
                         {m.inspectorAction({ action: "delete" })}
                     </chakra.button>
                 </Box>
@@ -888,11 +949,18 @@ function targetOf(series: string, path: readonly string[], kinds: PlanValue["eve
     return lost !== undefined ? { kind: "unassigned", event: lost } : { kind: "row" };
 }
 
-/** A row's events in the window: how many, how long, and their quantities. */
+/** No kind named. */
+const NO_NAMES: readonly string[] = [];
+
+/** A row's events in the window: how many, how long, and their quantities — and the kinds counted none of. */
 interface WindowFacts {
+    /** Whether any kind on the row is counted: the figures below are theirs. */
+    readonly counted: boolean;
     readonly events: number;
     readonly minutes: number;
     readonly quantities: readonly PlanQuantityValue[];
+    /** The kinds on the row past the cap (#1039): none of their events is read, so the row counts none of them, and says so. */
+    readonly uncounted: readonly PlanEventKindValue[];
 }
 
 /** A `time` instant's Date; `undefined` for an instant of another arm. */
@@ -900,30 +968,70 @@ function timeOf(t: PlanScale["window"]["min"]): Date | undefined {
     return t.type === "time" ? t.value : undefined;
 }
 
+/** A row's facts on their way (#1398, CL13): the cells its kinds are read by have not landed for its resource. */
+const ROW_LOADING = "loading";
+
 /**
  * The events in the window a row stands for — a resource's, or an event
  * kind's on no resource — read through the kinds, their drafts in place,
- * tracked.
+ * tracked. A kind the cells' reader gives cells (#1039) reads them from what
+ * its cells hold — every event of a row on screen — never over the window,
+ * and while the reader holds none for the row's resource — scrolled out of the
+ * blocks read, or before the first read lands — the row's facts are on their
+ * way, never 0, until its cells land. A kind past the cap, none of whose
+ * events is read, is counted on no row: the row says it is not counted, never
+ * 0. A kind hidden in the Series tab is no part of what the canvas shows: in
+ * no figure, and nothing says so. Every other kind — each is counted before it
+ * is read — is read over the window only once its count over the range the
+ * canvas reads is within the cap.
  *
  * @param target - What the row stands for
  * @param kinds - The event kinds
  * @param scale - The shared scale: its window
  * @param drafts - Every kind's drafts (#1194) — the same object while they hold
- * @returns The facts; `undefined` for a row that stands for no events, and before the first read answers
+ * @param cells - The kinds' cells and counts, when the reader decides a kind
+ * @param hidden - The ids the viewer hides in the Series tab
+ * @returns The facts, or {@link ROW_LOADING} while its cells are on their way; `undefined` for a row that stands for no events, and before the first read answers
  */
-function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: PlanScale, drafts: EventDrafts): WindowFacts | undefined {
+function useWindowFacts(
+    target: RowTarget, kinds: PlanValue["events"], scale: PlanScale, drafts: EventDrafts, cells: ScheduleCellsRead | undefined, hidden: readonly string[],
+): WindowFacts | typeof ROW_LOADING | undefined {
     const from = timeOf(scale.window.min);
     const to = timeOf(scale.window.max);
-    const read = useCallback((): WindowFacts | typeof READING | undefined => {
-        if (target.kind === "row" || from === undefined || to === undefined) return undefined;
+    // The range the canvas reads: what a kind is capped over.
+    const range = eventReadRange(scale);
+    const readFrom = range?.from.getTime();
+    const readTo = range?.to.getTime();
+    const read = useCallback((): WindowFacts | typeof READING | typeof ROW_LOADING | undefined => {
+        if (target.kind === "row" || from === undefined || to === undefined || readFrom === undefined || readTo === undefined) return undefined;
         const on = target.kind === "resource" ? some({ kind: target.resources.key, key: target.key }) : undefined;
+        let counted = false;
         let events = 0;
         let minutes = 0;
         const quantities: PlanQuantityValue[] = [];
+        const uncounted: PlanEventKindValue[] = [];
         for (const kind of kinds) {
             if (target.kind === "resource" ? !kind.takes.some((slot) => stringEqual(slot, target.resources.key)) : !stringEqual(kind.key, target.event.key)) continue;
-            const items = kind.planItems(from, to, drafts.get(kind.key) ?? NO_DRAFTS);
+            // Hidden in the Series tab: no part of what the canvas shows — in no figure, and nothing says so.
+            if (hides(hidden, planHideId.events(kind.key))) continue;
+            // Past the cap: none of its events is read, so the row counts none of them — not counted, never 0.
+            if (cells?.capped.has(kind.key) === true) {
+                uncounted.push(kind);
+                continue;
+            }
+            const held = cells?.reads.get(kind.key);
+            // Read by its cells, which the reader holds none of for this resource — scrolled out of the blocks read, or
+            // not landed yet: its figures are on their way, never 0 (#1398, CL13).
+            if (held !== undefined && target.kind === "resource" && cells!.drawn !== undefined && !cells!.drawn.has(target.key)) return ROW_LOADING;
+            // Every kind is counted before it is read: given no cells, it is read over the window once it is within the cap.
+            if (held === undefined) {
+                const within = scheduleWithinCap(kind.count, new Date(readFrom), new Date(readTo));
+                if (within.type !== "some" || !within.value) return READING;
+            }
+            const kindDrafts = (held === undefined ? drafts : cells!.drafts).get(kind.key) ?? NO_DRAFTS;
+            const items = kind.planItems(from, to, kindDrafts, held === undefined ? none : some(held));
             if (items.type === "none") return READING;
+            counted = true;
             for (const item of items.value) {
                 if (on !== undefined ? !resourceEqual(item.resource, on) : item.resource.type !== "none") continue;
                 events += 1;
@@ -932,10 +1040,11 @@ function useWindowFacts(target: RowTarget, kinds: PlanValue["events"], scale: Pl
                 if (quantity !== undefined) quantities.push(quantity);
             }
         }
-        return { events, minutes, quantities };
-    }, [target, kinds, from, to, drafts]);
+        return { counted, events, minutes, quantities, uncounted };
+    }, [target, kinds, from, to, readFrom, readTo, drafts, cells, hidden]);
     const { result } = useTrackedEvaluation(read);
-    const held = useRef<WindowFacts | undefined>(undefined);
+    // The last facts read — or that they are on their way — held while a read is in flight or failed.
+    const held = useRef<WindowFacts | typeof ROW_LOADING | undefined>(undefined);
     return useMemo(() => {
         if (!result.ok) {
             console.error("[Plan] the row's events could not be read:", result.error);
@@ -956,13 +1065,13 @@ interface RowProps extends BodyProps {
 }
 
 /** A row: a resource's name, lines and group, its overlaps, its events in the window and its measures at a bucket — or an Unassigned row's events, or what any other row draws at a bucket. */
-function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles }: RowProps) {
+function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles, hidden }: RowProps) {
     const { m } = words;
     const { inspect, scale } = chrome;
     const row = inspect.row(rowKey)!;
     const id = row.id.value;
     const target = useMemo(() => targetOf(id.series, id.path, kinds, resources), [id, kinds, resources]);
-    const facts = useWindowFacts(target, kinds, scale, chrome.events?.drafts ?? NONE_DRAFTED);
+    const facts = useWindowFacts(target, kinds, scale, chrome.events?.drafts ?? NONE_DRAFTED, chrome.cells, hidden);
     // Its overlaps (#1198, PB40): the pairs on its resource in the window, a line each, which selects the pair.
     const on = target.kind === "resource" ? some({ kind: target.resources.key, key: target.key }) : undefined;
     const pairs = on === undefined ? [] : (counts?.overlaps.pairs ?? []).filter((pair) => resourceEqual(pair.first.resource, on));
@@ -987,7 +1096,7 @@ function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles }
     const eyebrow = target.kind === "resource" ? target.resources.name : target.kind === "unassigned" ? target.event.name : m.inspectorRow();
     return (
         <Box css={styles.root} data-plan-inspector="row">
-            <Box css={styles.head}>
+            <Box css={styles.head} {...FOCUS_HOME_PROPS}>
                 <Box css={styles.eyebrow} data-inspector-kind="">{eyebrow}</Box>
                 <Box css={styles.name} data-inspector-title="">{title}</Box>
                 {lines.map((line, i) => <Box key={i} css={styles.when} data-inspector-line="">{line}</Box>)}
@@ -1007,7 +1116,13 @@ function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles }
                     }))}
                     onSelect={chrome.selectEvents} />
             )}
-            {facts !== undefined && (
+            {facts === ROW_LOADING ? (
+                // Its cells on their way (#1398, CL13): each figure a placeholder in its place, never 0, until they land.
+                <Box as="dl" css={styles.facts} data-inspector-window="" aria-busy="true">
+                    <Fact styles={styles} fact="events" label={m.inspectorFact({ fact: "events" })} value={<PlaceholderShape kind="number" index={0} />} />
+                    <Fact styles={styles} fact="hours" label={m.inspectorFact({ fact: "hours" })} value={<PlaceholderShape kind="number" index={1} />} />
+                </Box>
+            ) : facts !== undefined && facts.counted && (
                 <Box as="dl" css={styles.facts} data-inspector-window="">
                     <Fact styles={styles} fact="events" label={m.inspectorFact({ fact: "events" })} value={words.number(facts.events)} />
                     <Fact styles={styles} fact="hours" label={m.inspectorFact({ fact: "hours" })} value={hoursText(facts.minutes, words)} />
@@ -1015,6 +1130,10 @@ function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles }
                         <Fact styles={styles} fact="quantities" label={m.inspectorFact({ fact: "quantities" })} value={totalsText(totalsByUnit(facts.quantities), words)} />
                     )}
                 </Box>
+            )}
+            {/* The kinds the row counts none of (#1039): past the cap, none of their events read — said so, never 0. */}
+            {facts !== undefined && facts !== ROW_LOADING && facts.uncounted.length > 0 && (
+                <Box css={styles.hint} data-inspector-not-counted="">{m.inspectorNotCounted({ kinds: facts.uncounted.map((kind) => kind.name), hours: NO_NAMES })}</Box>
             )}
             {measures.length > 0 && (
                 <Box css={styles.measures} data-inspector-measures="">
@@ -1043,12 +1162,17 @@ function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles }
 function NothingSelected({ styles, counts, words }: { styles: Styles; counts: PlanEventCounts | undefined; words: PlanWords }) {
     const { m } = words;
     const stats = counts === undefined ? [] : [
-        { stat: "events" as const, n: counts.events, text: words.number(counts.events) },
-        { stat: "hours" as const, n: counts.minutes, text: hoursText(counts.minutes, words) },
+        // A kind whose events are not counted (#1039) is in no count: where no kind's are, there is none.
+        ...(counts.events !== undefined ? [{ stat: "events" as const, n: counts.events, text: words.number(counts.events) }] : []),
+        // The hours of the kinds read — where no kind's are, none; a kind read by its cells counts its hours over the rows
+        // drawn (#1039), and the stat says so.
+        ...(counts.minutes !== undefined
+            ? [{ stat: counts.drawn ? "hoursInView" as const : "hours" as const, n: counts.minutes, text: hoursText(counts.minutes, words) }] : []),
         ...(counts.backlog !== undefined ? [{ stat: "backlog" as const, n: counts.backlog, text: words.number(counts.backlog) }] : []),
     ];
     return (
-        <Box css={styles.root} data-plan-inspector="none">
+        // No heading: the view is its own home, where the keyboard lands as the control it was on goes (#1398).
+        <Box css={styles.root} data-plan-inspector="none" {...FOCUS_HOME_PROPS}>
             {stats.length > 0 && (
                 <Box css={styles.stats} data-inspector-counts="">
                     {stats.map(({ stat, n, text }) => (
@@ -1057,6 +1181,13 @@ function NothingSelected({ styles, counts, words }: { styles: Styles; counts: Pl
                             <Box as="span" css={styles.statLabel}>{m.inspectorStat({ stat, n })}</Box>
                         </Box>
                     ))}
+                </Box>
+            )}
+            {/* The kinds whose events in the window are not counted, and those whose hours are not (#1039): said so in one
+                line, never 0. */}
+            {counts !== undefined && (counts.uncounted.length > 0 || counts.hoursNotCounted.length > 0) && (
+                <Box css={styles.hint} data-inspector-not-counted="">
+                    {m.inspectorNotCounted({ kinds: counts.uncounted.map((kind) => kind.name), hours: counts.hoursNotCounted.map((kind) => kind.name) })}
                 </Box>
             )}
             <Box as="ul" css={styles.hints}>

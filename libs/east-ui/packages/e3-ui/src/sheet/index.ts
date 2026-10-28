@@ -29,7 +29,8 @@
  * `record.ts` (a record's rows, #1182), `templates.ts` (`Sheet.templates`,
  * the Rows tab's cards from templates records, #1345), `library.ts`
  * (`Sheet.library.*`, the library pane's tabs, #1186),
- * `fields.ts` (`Sheet.field`, the inspector pane's forms, #1188) and
+ * `fields.ts` (`Sheet.field`, the inspector pane's forms, #1188),
+ * `optimise.ts` (the optimiser's request and answer over the rows, #1409) and
  * `views.ts` (the views' bind handle).
  *
  * `Sheet` is the tag and the namespace at once, as east-ui's `Table` is: one
@@ -109,6 +110,7 @@ import { SheetComponent, SheetTag, createSheetPayload, type SheetTagType } from 
 import { libraryColumns, libraryRows, libraryTab } from "./library.js";
 import { sheetTemplates } from "./templates.js";
 import { SheetField } from "./fields.js";
+import { SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor } from "./optimise.js";
 import { createSubRows, createSubRow } from "./sub-rows.js";
 import {
     createGroup,
@@ -282,6 +284,7 @@ export {
     type SheetLibraryTabConfig,
 } from "./library.js";
 export { SheetFieldType, SheetFormType, SheetFormsType } from "./fields.js";
+export { SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor, type SheetOptimiseRequestType, type SheetOptimiseResultType } from "./optimise.js";
 export {
     type SheetGroupCell,
     type SheetGroupConfig,
@@ -689,7 +692,7 @@ export interface SheetNamespace extends SheetTagType {
         Check: typeof SheetCheckType;
         /** A link column's arity rule on the wire ({@link SheetArityType}). */
         Arity: typeof SheetArityType;
-        /** One saved view: every source's narrowing, by name, the lens's context and reveals, and a grouped sheet's folds ({@link SheetRecordViewType}, #1345). */
+        /** One saved view: every source's narrowing, by name, and a grouped sheet's folds ({@link SheetRecordViewType}, #1345). */
         RecordView: typeof SheetRecordViewType;
         /** The WIRE edit event ({@link SheetEditType}); internal gesture transport. */
         WireEdit: typeof SheetEditType;
@@ -711,6 +714,10 @@ export interface SheetNamespace extends SheetTagType {
         Proposal: typeof SheetProposalTypeFor;
         /** `CheckContext(R)` — what an author's member check sees; `CheckContext(P, "lines")` on a grouped sheet ({@link SheetCheckContextTypeFor}, {@link SheetGroupCheckContextTypeFor}). */
         CheckContext: typeof sheetCheckContextType;
+        /** `OptimiseRequest(R, K?)` — what the app's optimiser is asked (#1409): the run and the rows in view by key ({@link SheetOptimiseRequestTypeFor}). */
+        OptimiseRequest: typeof SheetOptimiseRequestTypeFor;
+        /** `OptimiseResult(R, K?)` — what it answers (#1409): the rows, complete ({@link SheetOptimiseResultTypeFor}). */
+        OptimiseResult: typeof SheetOptimiseResultTypeFor;
     };
 }
 
@@ -803,6 +810,8 @@ const SHEET_MEMBERS = {
         Patch: SheetPatchTypeFor,
         Proposal: SheetProposalTypeFor,
         CheckContext: sheetCheckContextType,
+        OptimiseRequest: SheetOptimiseRequestTypeFor,
+        OptimiseResult: SheetOptimiseResultTypeFor,
     },
 };
 
@@ -819,11 +828,14 @@ const SHEET_MEMBERS = {
  *   `entry.id` — its rows, its groups, or its groups with loose rows between
  *   them (`Sheet.Types.Entry(P, "lines")`, #846). Or they are `data`'s: an
  *   `Array<R>`, a bind handle or a paged source, identified by `id`. Or they
- *   are the `rows` source's of `slice` (#1345): the rows it narrows to,
- *   paged from it, Save committing through `onApply`.
+ *   are the record of the `rows` source of `slice` (#1345, #1349): its rows,
+ *   every one in the record's order, paged from it, Save committing through
+ *   `onApply`.
  * - **The narrowing** (`slice={{ slice: Slice.bindRecords(key, { rows, … }) }}`)
- *   is one rail on the toolbar: its `rows` source narrows the rows, and each
- *   other source the templates list or the library tab that names it.
+ *   is one rail on the toolbar. Its `rows` source's narrowing is drawn over
+ *   the rows as the lens (#1349), as a filtered spreadsheet: only the rows it
+ *   keeps, one after another, each at its row number. Each other source
+ *   narrows the templates list or the library tab that names it.
  * - **Every gesture is a draft** of the shared editing session, which the
  *   history item in the one toolbar undoes, redoes and discards. Over a
  *   record, Save commits the drafts as one patch through the record's patch
@@ -847,8 +859,8 @@ const SHEET_MEMBERS = {
  *   sources: a dropped card is `newRow`'s (or `newGroup`'s) defaults with the
  *   template's fields over them.
  * - **Views** (`views`) are a bind handle of `Array<Sheet.Types.RecordView>`,
- *   each every source's narrowing: `State.bind` keeps them per viewer,
- *   `Data.bind` shares them.
+ *   each every source's narrowing, by the source's name, and a grouped sheet's
+ *   folds: `State.bind` keeps them per viewer, `Data.bind` shares them.
  * - **The namespace**: the columns (`Sheet.column.*`, row type first),
  *   registers (`Sheet.register.members` / `.concat`) and the driver
  *   (`Sheet.driver`), link rules (`Sheet.link.*`), proposed rows and new-row

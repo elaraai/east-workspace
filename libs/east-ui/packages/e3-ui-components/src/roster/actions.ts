@@ -16,7 +16,11 @@
  * key a record read a window at a time holds unread is its Save's own
  * conflict, never an overwrite (`shared/schedule/records.ts`). A find edits
  * nothing: it asks the app's fit (#1334). Publish runs Save, then writes the
- * week's status once every record reads back as saved (`publishPeriod`).
+ * week's status once every record reads back as saved (`publishPeriod`). A
+ * pattern dropped on a person's week (#1406, D4) replaces its seven days as
+ * one step, `Apply pattern`: a day the pattern leaves as it is keeps its duty,
+ * a day it changes runs the pattern's shift in the person's home group at the
+ * shift's own times, and an off day removes the person's duties that day.
  *
  * @packageDocumentation
  */
@@ -29,9 +33,9 @@ import { fieldChange, mintKey, periodPublishChange } from "../shared/schedule/re
 import { PERIODS, TARGETS, type RosterEditing } from "./editing.js";
 import type { RosterFind } from "./fit.js";
 import {
-    activityOf, availableProposals, compareDate, dayOfSlot, editableStatus, positionFor, rosterTimes, sameSlot, shiftTimes, startReach,
-    startingAt, weekKey, type Assignment, type Context, type Issue, type PlacedDuties, type PlacedPeriod, type PlacedTargets, type Requirement,
-    type Roles, type RosterPayload, type RosterValue, type Selection, type Slot, type StoredDuty, type Week, type Who,
+    activityOf, availableProposals, compareDate, dayOfSlot, editableStatus, patternOf, patternProblem, positionFor, rosterDomain, rosterTimes, sameSlot, shiftTimes,
+    startReach, startingAt, weekKey, type Assignment, type Context, type Issue, type Pattern, type Person, type PlacedDuties, type PlacedPeriod, type PlacedTargets,
+    type Requirement, type Roles, type RosterPayload, type RosterValue, type Selection, type Slot, type StoredDuty, type Week, type WeekState, type Who,
 } from "./model.js";
 
 /** Where a place command gets its person or request. */
@@ -61,6 +65,8 @@ export interface RosterState {
     /** Its own row as drafted, and as stored. */
     readonly period: PlacedPeriod;
     readonly heldPeriod: PlacedPeriod;
+    /** Every week of the span in view, drafts in place (#1406): what a pattern dropped on one of them applies to; the week above among them. */
+    readonly weeks?: readonly WeekState[] | undefined;
     /** Every duty the Roster has read, each read's by key: what a new key is minted unique among. */
     readonly read: readonly ReadonlyMap<string, StoredDuty>[];
     /** Every target the Roster has read, by key. */
@@ -69,12 +75,27 @@ export interface RosterState {
     readonly editing: RosterEditing | undefined;
     /** Whether the week's reads have landed and the rail is not mid-read: a gesture waits for them. */
     readonly ready: boolean;
+    /**
+     * Whether what main shows is retained while a narrowing of it is read (#1398, CL8): readable, focusable and
+     * selectable, its controls in place, and every gesture refused until it lands.
+     */
+    readonly retained?: boolean | undefined;
 }
 
 /** All mutation paths use these guarded commands, each one step of the history. */
 export interface RosterCommands {
     /** Whether the week takes a gesture now: editable, its reads landed, its records' sessions writable. */
     readonly available: boolean;
+    /** Whether a week of the span takes a gesture (#1406): the month's cells each ask of their own week. */
+    readonly availableIn: (held: WeekState) => boolean;
+    /** Whether any week in view takes a gesture: the week, or one of the month's — what registers drag sources and targets (P32). */
+    readonly editable: boolean;
+    /**
+     * Why every gesture is refused while a run of the optimiser holds the week (#1409, R2) — `Elara is optimising W11`
+     * — and `undefined` while none does: the week's controls stay in place, inert, never swapped for a read-only
+     * week's `Off`.
+     */
+    readonly locked: string | undefined;
     place(source: RosterSource, slot: Slot, checkOnly?: boolean): string | undefined;
     update(id: string, change: RolesChange, origin?: Origin, checkOnly?: boolean): string | undefined;
     activity(id: string, activity: option<string>, checkOnly?: boolean): string | undefined;
@@ -90,6 +111,39 @@ export interface RosterCommands {
     fix(issue: Issue): string | undefined;
     copy(): void;
     publish(): void;
+    /**
+     * A pattern over a person's week (#1406, D4): what applying it changes — each day kept, set to a shift or taken off,
+     * and the person's week as it leaves it — or why it cannot be applied, in the caption's words (P19).
+     */
+    pattern(person: string, start: Date, key: string): PatternPlan | string;
+    /** Applies a pattern to a person's week as one step of the history, `Apply pattern` (P17); one that changes nothing applies nothing (P18). */
+    applyPattern(person: string, start: Date, key: string, checkOnly?: boolean): string | undefined;
+}
+
+/** One day of a pattern applied to a person's week: left as it is, set to a shift, or taken off. */
+export interface PatternDay {
+    /** The day of the week, from zero. */
+    readonly day: number;
+    /** The shift the day runs after the pattern; `undefined` for a day off. */
+    readonly shift: string | undefined;
+    /** Whether the pattern leaves the day as it is, sets its shift, or takes it off. */
+    readonly kind: "keep" | "set" | "off";
+}
+
+/** A pattern applied to a person's week, planned (#1406): what the drop records, and what the preview draws and checks. */
+export interface PatternPlan {
+    readonly pattern: Pattern;
+    readonly person: Person;
+    /** The week's first day. */
+    readonly start: Date;
+    /** Each of the seven days. */
+    readonly days: readonly PatternDay[];
+    /** The changes, as one step; none where the week already matches. */
+    readonly changes: readonly ScheduleChange[];
+    /** The person's week as the pattern leaves it, each duty by key — kept, moved, or new under a minted key: what a preview's check runs over. */
+    readonly candidates: ReadonlyMap<string, Assignment>;
+    /** The duties the pattern removes, by key. */
+    readonly removed: readonly string[];
 }
 
 const sameBytes = equalFor(BlobType);
@@ -113,7 +167,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
     const weekId = weekKey(start);
     const available = editing !== undefined && schedule !== undefined && state.ready && !value.settings.readOnly && editableStatus(state.heldPeriod.status)
         && editableStatus(week.status) && schedule.available(duty);
-    const blocked = () => available ? undefined : "This week is not available to edit.";
+    const blocked = () => !available ? "This week is not available to edit." : state.retained === true ? "This week is still being read." : undefined;
     const validSlot = (slot: Slot) => slot.day >= 0n && slot.day < 7n && value.groups.some(g => g.key === slot.group) && value.shifts.some(s => s.key === slot.shift);
     // Every duty's key the Roster holds: read, drafted, minted by this gesture, or the record's own when it is read whole.
     const takenDuty = (minted: ReadonlySet<string>) => (key: string) => minted.has(key) || state.read.some(read => read.has(key))
@@ -165,8 +219,18 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
         const row = value.periods.value.dismiss(held === undefined ? none : some(held), new Set(dismissed));
         return { kind: PERIODS, id: weekId, row };
     };
+    /** Whether a week of the span takes a gesture now: editable, as the week above is told, by its own status. */
+    const availableIn = (held: WeekState) => editing !== undefined && schedule !== undefined && state.ready && !value.settings.readOnly
+        && editableStatus(held.heldPeriod.status) && editableStatus(held.week.status) && schedule.available(duty);
+    /** A week of the span by its first day: the week above, or one of the span's. */
+    const weekAt = (at: Date): WeekState | undefined => compareDate(at, start) === 0
+        ? { start, week, held: state.held, duties: state.duties, heldDuties: state.heldDuties, targets: state.targets, period: state.period, heldPeriod: state.heldPeriod }
+        : state.weeks?.find(held => compareDate(held.start, at) === 0);
     const api: RosterCommands = {
         available,
+        availableIn,
+        editable: available || (state.weeks ?? []).some(held => availableIn(held)),
+        locked: undefined,
         place(source, slot, checkOnly = false) {
             const refused = blocked(); if (refused !== undefined) return refused;
             if (!validSlot(slot)) return "Choose a configured shift in this week.";
@@ -352,6 +416,93 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             record(changes, "insert", "Copy previous week's roster");
         },
         publish() { if (available && value.periods.type === "some") publish(); },
+        pattern(person, at, key) {
+            const held = weekAt(at);
+            const who = value.people.find(p => p.key === person);
+            if (held === undefined || who === undefined) return "Drop a pattern on a person's week.";
+            if (!availableIn(held)) return "This week is not available to edit.";
+            if (state.retained === true) return "This week is still being read.";
+            const pattern = patternOf(value, key);
+            if (pattern === undefined || patternProblem(value, pattern) !== undefined) return "Choose a configured shift.";
+            const domain = rosterDomain(value.duty.rowType);
+            const changes: ScheduleChange[] = [];
+            const candidates = new Map<string, Assignment>();
+            const removed: string[] = [];
+            const days: PatternDay[] = [];
+            const minted = new Set<string>();
+            const whoRef: Who = variant("person", person);
+            // The person's duties of the week, each day's in time order.
+            const theirs = [...held.week.assignments].filter(([, a]) => a.who.type === "person" && a.who.value === person)
+                .sort(([, a], [, b]) => compareDate(a.start, b.start));
+            for (let day = 0; day < 7; day++) {
+                const current = theirs.filter(([, a]) => Number(a.slot.day) === day);
+                const target = pattern.days[day]!;
+                if (target.type === "none") {
+                    // A day off: the person's duties that day go, restorable until Save (B56).
+                    for (const [id] of current) { changes.push({ kind: duty, id, remove: true }); removed.push(id); }
+                    days.push({ day, shift: undefined, kind: current.length === 0 ? "keep" : "off" });
+                    continue;
+                }
+                const slot: Slot = { day: BigInt(day), group: who.group, shift: target.value };
+                const own = shiftTimes(value, slot, at);
+                if (own === undefined) return "Choose a configured shift.";
+                const first = current[0];
+                if (first !== undefined) {
+                    const [id, a] = first;
+                    // The day as the pattern has it already: the shift, in the home group, at the shift's own times.
+                    if (a.slot.group === slot.group && a.slot.shift === slot.shift && compareDate(a.start, own.from) === 0 && compareDate(a.end, own.to) === 0) {
+                        candidates.set(id, a);
+                        days.push({ day, shift: target.value, kind: "keep" });
+                    } else {
+                        // Moved to the pattern's shift at the shift's own times, its position kept, its activity kept within the group and cleared across one (B49).
+                        const row = held.duties.rows.get(id);
+                        if (row === undefined) return "This duty is no longer present.";
+                        const next = times.move(row.roles, at, slot, context);
+                        if (next.type !== "some") return "Choose a configured shift.";
+                        const roles: Roles = { ...next.value, start: own.from, end: own.to, activity: a.slot.group === slot.group ? next.value.activity : none };
+                        const written = value.duty.write(row.bytes, roles);
+                        if (written.type !== "some") return "This duty cannot be moved there.";
+                        changes.push({ kind: duty, id, row: written.value });
+                        candidates.set(id, { ...a, slot, start: own.from, end: own.to, hours: value.duty.read(written.value, id).hours, activity: roles.activity });
+                        days.push({ day, shift: target.value, kind: "set" });
+                    }
+                    // A second duty that day goes: a pattern's day is one shift.
+                    for (const [extra] of current.slice(1)) { changes.push({ kind: duty, id: extra, remove: true }); removed.push(extra); }
+                    continue;
+                }
+                // A new duty on the pattern's shift, at the shift's start for its hours, in the home group, at the person's position, with no activity.
+                const roles = times.newDuty(whoRef, slot, at, positionFor(value, whoRef), none, context);
+                if (roles.type !== "some") return "Choose a configured shift.";
+                const bytes = value.duty.create(roles.value);
+                if (bytes.type !== "some") return "This roster takes no people.";
+                const id = mintKey(takenDuty(minted));
+                minted.add(id);
+                changes.push({ kind: duty, id, row: bytes.value, created: true });
+                candidates.set(id, { slot, who: whoRef, position: roles.value.position.type === "some" ? roles.value.position.value : "", activity: none,
+                    start: roles.value.start, end: roles.value.end, hours: roles.value.hours, row: domain.decodeRow(bytes.value) });
+                days.push({ day, shift: target.value, kind: "set" });
+            }
+            return { pattern, person: who, start: at, days, changes, candidates, removed };
+        },
+        applyPattern(person, at, key, checkOnly = false) {
+            const plan = api.pattern(person, at, key);
+            if (typeof plan === "string") return plan;
+            if (checkOnly || plan.changes.length === 0) return undefined;
+            if (record(plan.changes, "drop", "Apply pattern")) select({ type: "personWeek", key: person, start: at.getTime() });
+            return undefined;
+        },
+    };
+    // A pattern over a person's week is planned once per week state (#1406, P19): the drag layer asks the cell's veto
+    // of every move the pointer makes over the row, the ghost's caption and the row's preview ask too, and the plan is
+    // pure over the state — so each reads the one plan, and a drop takes it with the keys it minted. A new state is a
+    // new `rosterCommands`, and so a new table.
+    const plans = new Map<string, PatternPlan | string>();
+    const planned = api.pattern;
+    api.pattern = (person, at, key) => {
+        const id = `${person}\u0000${weekKey(at)}\u0000${key}`;
+        let plan = plans.get(id);
+        if (plan === undefined) { plan = planned(person, at, key); plans.set(id, plan); }
+        return plan;
     };
     return api;
 }

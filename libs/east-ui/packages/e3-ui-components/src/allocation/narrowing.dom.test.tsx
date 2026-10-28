@@ -14,7 +14,7 @@
  * filter change builds nothing again: the board's body runs no more, and no
  * payload is decoded (#1354).
  */
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { StringType, decodeBeast2For, encodeBeast2For, none, printFor, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
@@ -65,8 +65,10 @@ const total = (bands: readonly { rows: number; bins: number; free: number }[]) =
 });
 const summary = (c: HTMLElement) => slot(c, "toolbar").querySelector("[data-record-slices-summary]")?.textContent;
 const HALL_A = ["K-101", "K-102", "K-103", "K-104", "K-105", "K-106", "K-107", "K-108", "K-109", "K-110"];
-const bayPages = () => h.requests("page", "records.yard_bays").filter(r => r.query.get("index") === ex.yardBaysByArea.name);
-const kilnPages = () => h.requests("page", "records.kilns").filter(r => r.query.get("index")?.startsWith("kilns_by_") === true);
+/** The reads of a record's rows through its indexes: its pages, and its reads of several runs in one (#1351). */
+const indexReads = (dataset: string) => [...h.requests("page", dataset), ...h.requests("runs", dataset)];
+const bayPages = () => indexReads("records.yard_bays").filter(r => r.query.get("index") === ex.yardBaysByArea.name);
+const kilnPages = () => indexReads("records.kilns").filter(r => r.query.get("index")?.startsWith("kilns_by_") === true);
 afterEach(() => { vi.restoreAllMocks(); });
 
 describe("one rail over the lanes, the resources and the arrivals", () => {
@@ -122,6 +124,20 @@ describe("one rail over the lanes, the resources and the arrivals", () => {
 });
 
 describe("the Table, narrowed", () => {
+    // jsdom scrolls nothing a frame asks it to, and its scroll box has no extent to scroll through: here the Table's has
+    // room, and it scrolls as a page does, and says so — only when it moved, as a page says it. A narrowing moves where the
+    // Table's view rests (#1398).
+    beforeEach(() => {
+        vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+            return this.hasAttribute("data-virtual-rows") ? 1_000_000 : 0;
+        });
+        vi.spyOn(Element.prototype, "scrollTo").mockImplementation(function (this: Element, options?: ScrollToOptions | number) {
+            if (typeof options !== "object" || options.top === undefined || options.top === this.scrollTop) return;
+            this.scrollTop = options.top;
+            this.dispatchEvent(new Event("scroll"));
+        } as Element["scrollTo"]);
+    });
+
     test("unnarrowed: 80 rows, 26 bins and 54 free slots", async () => {
         const { c } = await open(ex.allocationTable);
         expect(total(await folded(c))).toEqual({ rows: 80, bins: 26, free: 54 });
@@ -164,6 +180,47 @@ describe("the Table, narrowed", () => {
         expect(total(await folded(c))).toEqual({ rows: 38, bins: 4, free: 34 });
     });
 
+    test("a narrowing keeps the row at the top of the Table where the narrowing holds it — by its key, and the px into it — and else the Table starts at its top (#1398)", async () => {
+        const { c, store } = await open(ex.allocationTable);
+        const pane = c.querySelector<HTMLElement>("[data-allocation-table] [data-virtual-rows]")!;
+        /** Each line the Table has mounted — its row, or its band — and where it starts: its column's top, then each line's height before it. */
+        const mounted = () => {
+            const column = pane.querySelector<HTMLElement>("[data-index]")!.parentElement!;
+            let y = Number(/translateY\((-?[\d.]+)px\)/.exec(column.style.transform)![1]);
+            return [...column.querySelectorAll<HTMLElement>(":scope > [data-index]")].map(line => {
+                const band = line.querySelector("[data-allocation-band]");
+                const row = line.querySelector<HTMLElement>("[data-allocation-row]");
+                const at = { key: row?.getAttribute("data-allocation-row") ?? `band ${band?.textContent}`, lane: row?.children[1]?.textContent, y };
+                y += band !== null ? 38 : 36;
+                return at;
+            });
+        };
+        /** The line at the top of the view, and the px scrolled into it. */
+        const atTop = () => {
+            const lines = mounted();
+            const line = lines.findLast(l => l.y <= pane.scrollTop)!;
+            return { key: line.key, into: pane.scrollTop - line.y };
+        };
+        /** Scroll, and let the scroll settle: TanStack clears its scrolling flag 150ms after the last scroll event. */
+        const scrollAndRest = async (px: number) => {
+            await act(async () => { pane.scrollTop = px; fireEvent.scroll(pane); });
+            await act(async () => { await new Promise((r) => setTimeout(r, 250)); });
+        };
+        // A row of lane B-1 well down the Table at the top of the view, 10px into it.
+        await scrollAndRest(36 * 30);
+        const b1 = mounted().find(l => l.lane === "B-1" && l.y > pane.scrollTop)!;
+        await scrollAndRest(b1.y + 10);
+        expect(atTop()).toEqual({ key: b1.key, into: 10 });
+        // The North bays — B-1 and B-2 — hold it: once their rows are in, it is still at the top, 10px into it.
+        await narrow(store, "allocationTable", "bays", "area", ["North"]);
+        await waitFor(() => expect(mounted().some(l => l.lane === "B-3")).toBe(false));
+        expect(atTop()).toEqual({ key: b1.key, into: 10 });
+        // The South bay — B-3 — does not: the Table starts at its top.
+        await narrow(store, "allocationTable", "bays", "area", ["South"]);
+        await waitFor(() => expect(mounted().some(l => l.lane === "B-1")).toBe(false));
+        expect(pane.scrollTop).toBe(0);
+    });
+
     test("a split bin shows while any of its resources shows", async () => {
         const { c, store } = await open(ex.allocationSplit);
         await press(toolbar(c).getByRole("radio", { name: "Table" }));
@@ -200,6 +257,24 @@ describe("the Table, narrowed", () => {
         await narrow(store, "allocationTable", "kilns", "group", ["Hall A"]);
         await waitFor(() => expect(tableRow(c, "bin:3103")).toBeNull());
         expect([issues(), load()]).toEqual(before);
+    });
+
+    test("with every read of the records held, a narrowing not read before — Cover › Covered — says `Filtering bins…` on the footer's line while the board waits for it, never the day's loading, until it lands (retest A2)", async () => {
+        const { c, store } = await open(ex.allocationTable);
+        await waitFor(() => expect(tableRow(c, "bin:3101")).not.toBeNull());
+        const line = () => slot(c, "footer").querySelector<HTMLElement>("[data-footer-line]")!;
+        // Every read of the records held on its way to e3, as a slow e3 holds them: the bays' new membership, and the bins read under it.
+        const reads = new Set(["page", "find", "runs", "rows", "within", "read"]);
+        const held = h.e3.hold(request => request.dataset?.startsWith("records.") === true && reads.has(request.kind));
+        await narrow(store, "allocationTable", "bays", "cover", ["Covered"]);
+        await waitFor(() => expect(slot(c, "main").getAttribute("aria-busy")).toBe("true"));
+        await waitFor(() => expect(line().hasAttribute("data-idle")).toBe(false));
+        expect(line().querySelector("[data-line-text]")?.textContent).toBe("Filtering bins…");
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(line().hasAttribute("data-idle")).toBe(true));
+        expect(slot(c, "main").getAttribute("aria-busy")).toBe("false");
+        expect(tableRow(c, "bin:3101")).not.toBeNull();
     });
 
     test("a narrowing that leaves nothing says so, in either layout, and Clear filters brings every row back", async () => {
@@ -258,6 +333,62 @@ describe("the Timeline, narrowed", () => {
         expect(c.querySelector('[data-allocation-resource="K-202"]')!.getAttribute("aria-pressed")).toBe("true");
     });
 
+    test("a narrowing read while the day stands in keeps the day's bins in their cells, retained — stale, aria-disabled, never inert: focusable and selectable, Delete and a drag refused — until it lands (#1398, CL5, CL8)", async () => {
+        const { c, store } = await open(ex.allocationKilnYard);
+        await waitFor(() => expect(cards(c)).toHaveLength(26));
+        const board = () => slot(c, "main").querySelector<HTMLElement>("[data-allocation-main]")!;
+        const card = () => c.querySelector<HTMLElement>('[data-allocation-card="3103"]')!;
+        expect(board().hasAttribute("data-allocation-stale")).toBe(false);
+        // The bays' reads held on their way to e3: the lanes' new membership is in flight.
+        const held = h.e3.hold(request => request.dataset === "records.yard_bays");
+        await narrow(store, "allocationKilnYard", "bays", "area", ["North"]);
+        expect([board().hasAttribute("data-allocation-stale"), board().getAttribute("aria-disabled"), board().hasAttribute("inert")]).toEqual([true, "true", false]);
+        // The day stands in, whole: its lanes and its bins as they were, never a cover.
+        expect([laneHeads(c), cards(c).length]).toEqual([["B-1", "B-2", "B-3"], 26]);
+        expect(c.querySelector("[data-builder-loading]")).toBeNull();
+        // A bin is focusable and selectable; Delete removes nothing, and a drag picks nothing up.
+        card().focus();
+        expect(document.activeElement).toBe(card());
+        await press(card());
+        expect(card().getAttribute("aria-pressed")).toBe("true");
+        await act(async () => { fireEvent.keyDown(card(), { key: "Delete" }); });
+        await settle();
+        expect(cards(c)).toHaveLength(26);
+        await act(async () => { fireEvent.pointerDown(card(), { pointerId: 1, pointerType: "mouse", clientX: 0, clientY: 0 });
+            fireEvent.pointerMove(document, { pointerId: 1, pointerType: "mouse", clientX: 20, clientY: 20 }); });
+        expect(card().hasAttribute("data-dragging")).toBe(false);
+        await act(async () => { fireEvent.pointerUp(document, { pointerId: 1, pointerType: "mouse", clientX: 20, clientY: 20 }); });
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(laneHeads(c)).toEqual(["B-1", "B-2"]));
+        expect([board().hasAttribute("data-allocation-stale"), board().hasAttribute("aria-disabled"), board().hasAttribute("inert")]).toEqual([false, false, false]);
+        // Landed: the selection kept, and Delete takes the bin back.
+        expect(card().getAttribute("aria-pressed")).toBe("true");
+        await act(async () => { fireEvent.keyDown(card(), { key: "Delete" }); });
+        await settle();
+        expect(cards(c)).not.toContain("3103");
+    });
+
+    test("whatever source's narrowing is read — the lanes', the resources' or the arrivals' — the footer's line says the board's bins are being filtered, `Filtering bins…`, until it lands (#1398, CL3)", async () => {
+        const { c, store } = await open(ex.allocationKilnYard);
+        await waitFor(() => expect(cards(c)).toHaveLength(26));
+        const line = () => slot(c, "footer").querySelector<HTMLElement>("[data-footer-line]")!;
+        const reads: readonly { source: "bays" | "kilns" | "arrivals"; field: string; values: readonly string[]; dataset: string }[] = [
+            { source: "bays", field: "area", values: ["North"], dataset: "records.yard_bays" },
+            { source: "kilns", field: "group", values: ["Bulk"], dataset: "records.kilns" },
+            { source: "arrivals", field: "spec", values: ["MC14"], dataset: "records.arrivals" },
+        ];
+        for (const read of reads) {
+            // The source's reads held on their way to e3: its new membership is in flight, the last standing in.
+            const held = h.e3.hold(request => request.dataset === read.dataset);
+            await narrow(store, "allocationKilnYard", read.source, read.field, read.values);
+            await waitFor(() => expect(line().querySelector("[data-line-text]")?.textContent, read.source).toBe("Filtering bins…"));
+            await act(async () => { held.release(); });
+            await settle();
+            await waitFor(() => expect(line().hasAttribute("data-idle"), read.source).toBe(true));
+        }
+    });
+
     test("a failed lane read keeps the last lanes, says `Lane results unavailable`, and Retry reads the lanes again", async () => {
         const { c, store } = await open(ex.allocationKilnYard);
         await waitFor(() => expect(cards(c)).toHaveLength(26));
@@ -266,9 +397,10 @@ describe("the Timeline, narrowed", () => {
         const banner = () => within(slot(c, "banners")).queryByText("Lane results unavailable");
         await waitFor(() => expect(banner()).not.toBeNull());
         expect(within(slot(c, "banners")).queryByText("Resource results unavailable")).toBeNull();
-        // The last complete membership still shows, and the board takes no gesture.
+        // The last complete membership still shows, retained (#1398, CL8): aria-disabled, taking no gesture.
         expect(laneHeads(c)).toEqual(["B-1", "B-2", "B-3"]);
-        expect(slot(c, "main").querySelector("[data-allocation-main]")!.hasAttribute("inert")).toBe(true);
+        const board = slot(c, "main").querySelector("[data-allocation-main]")!;
+        expect([board.getAttribute("aria-disabled"), board.hasAttribute("inert")]).toEqual(["true", false]);
         // The service answers again: Retry asks again at once.
         failing();
         await press(within(slot(c, "banners")).getByRole("button", { name: "Retry" }));

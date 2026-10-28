@@ -23,7 +23,12 @@
  * (`hasPending` / `getBuffered`) stay synchronous. Writes update the
  * in-memory cache synchronously and persist to IndexedDB write-through.
  *
- * Subscribers are notified per-key on writes / discards / hydrate.
+ * Subscribers are notified per-key on writes / discards / hydrate. A write of
+ * the bytes an entry holds already moves nothing — no version, no
+ * notification, no save — as the UI store's write of an equal value: a
+ * tracked evaluation runs again when a key it read moves after its read, so
+ * one that stages the value it reads settles, where each write moving the key
+ * would run it again without end.
  *
  * Entries are kept per server and repository, the store's scope, which the
  * provider sets: IndexedDB is one per browser origin, and two servers or
@@ -40,8 +45,11 @@
  * @packageDocumentation
  */
 
+import { BlobType, equalFor } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
 import { datasetCacheKey } from "./dataset-store.js";
+
+const blobEqual = equalFor(BlobType);
 
 // ============================================================================
 // Public types
@@ -97,7 +105,8 @@ export interface StagedStoreInterface {
     getEntry(workspace: string, path: TreePath): StagedEntry | undefined;
 
     /** Write a buffered value. Snapshot is pinned on the first call for a
-     *  given path; subsequent writes update only the buffered value. */
+     *  given path; subsequent writes update only the buffered value, and one
+     *  of the bytes the entry holds already changes nothing and tells no one. */
     write(
         workspace: string,
         path: TreePath,
@@ -325,6 +334,8 @@ export class StagedStore implements StagedStoreInterface {
     ): void {
         const key = this.keyOf(workspace, path);
         const existing = this.entries.get(key);
+        // The bytes it holds already: nothing moves, so an evaluation that stages what it reads settles (see the module docs).
+        if (existing !== undefined && blobEqual(existing.buffered, buffered)) return;
         const next: StagedEntry = existing
             ? { snapshot: existing.snapshot, buffered }
             : { snapshot: snapshotIfNew, buffered };

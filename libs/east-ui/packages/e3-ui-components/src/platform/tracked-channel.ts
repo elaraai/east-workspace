@@ -41,22 +41,33 @@ export abstract class TrackedChannelStore<E extends ChannelEntry> {
     private readonly keySubscribers = new Map<string, Set<() => void>>();
     private readonly keyVersions = new Map<string, number>();
 
-    // Reactive tracking — read closures push their channel keys here while a
-    // Reactive.Root render is being tracked.
-    private trackingContext: Set<string> | null = null;
+    // Reactive tracking — read closures record their channel keys here while a
+    // Reactive.Root render is being tracked, each with its version as first read.
+    private trackingContext: Map<string, number> | null = null;
 
     /** Build a fresh channel entry in its initial (idle) state. */
     protected abstract createEntry(): E;
 
     // ----- reactive tracking ----------------------------------------------
 
-    enableTracking(): Set<string> {
-        this.trackingContext = new Set();
+    /**
+     * Start recording the channels an evaluation reads.
+     *
+     * @returns What it records: each channel read, with its version as first read
+     */
+    enableTracking(): ReadonlyMap<string, number> {
+        this.trackingContext = new Map();
         return this.trackingContext;
     }
 
-    disableTracking(): string[] {
-        const keys = this.trackingContext ? [...this.trackingContext] : [];
+    /**
+     * Stop recording.
+     *
+     * @returns Each channel the evaluation read, with its version as it first read it — a channel a launch it made
+     *   notified since stands at another
+     */
+    disableTracking(): ReadonlyMap<string, number> {
+        const keys = this.trackingContext ?? new Map<string, number>();
         this.trackingContext = null;
         return keys;
     }
@@ -73,10 +84,11 @@ export abstract class TrackedChannelStore<E extends ChannelEntry> {
         return this.trackingContext?.has(key) ?? false;
     }
 
-    /** Record a channel-key dependency for the current render (no-op when not
+    /** Record a channel-key dependency for the current render, at its version
+     *  as it is read now unless the render read it before (no-op when not
      *  tracking). */
     protected track(key: string): void {
-        this.trackingContext?.add(key);
+        if (this.trackingContext !== null && !this.trackingContext.has(key)) this.trackingContext.set(key, this.getKeyVersion(key));
     }
 
     // ----- subscription shim ------------------------------------------------
@@ -99,6 +111,23 @@ export abstract class TrackedChannelStore<E extends ChannelEntry> {
 
     getKeyVersion(key: string): number {
         return this.keyVersions.get(key) ?? 0;
+    }
+
+    /** How many channels' versions the store keeps: what a spec holds its bounds to, beside its channels. */
+    protected versionsKept(): number {
+        return this.keyVersions.size;
+    }
+
+    /**
+     * Let a channel's version go, once nothing subscribes to it: a channel a
+     * subclass let go is versioned no longer, so the versions kept are those
+     * of the channels it holds and those a reader subscribes to. A reader
+     * still subscribed keeps the version it read until it lets the channel go.
+     *
+     * @param key - The channel
+     */
+    protected forgetVersion(key: string): void {
+        if (!this.keySubscribers.has(key)) this.keyVersions.delete(key);
     }
 
     /** Whether anything is subscribed to a channel. */

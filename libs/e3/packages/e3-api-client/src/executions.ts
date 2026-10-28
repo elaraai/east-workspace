@@ -200,7 +200,9 @@ export function dataflowEventsRemain(state: Pick<DataflowExecutionState, 'nextSe
  * Execute dataflow on a workspace with client-side polling.
  *
  * Starts execution, polls until complete, and returns the result, with every
- * event of the run however many polls it takes.
+ * event of the run however many polls it takes. The server answers a run that
+ * has ended `stopping` until it has let its workspace go, so a gc, a deploy or
+ * a run asked of once this returns takes the workspace.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
@@ -449,9 +451,10 @@ async function latestRunId(url: string, repo: string, workspace: string, options
  * run `stopping` until it has stopped. Either way the client follows the run
  * it cancelled — the workspace's latest, as the cancel was asked — until its
  * status is neither `running` nor `stopping`, or another run has followed it.
- * A start, a deploy or a removal of the workspace straight after finds the
- * run gone, but for the moment it takes to let the workspace go, which the
- * server answers with a `Retry-After` that those calls wait out.
+ * The poll answers a run that has ended `stopping` until it has let the
+ * workspace go, so a start, a deploy or a removal of the workspace straight
+ * after finds the run gone. One that races the run's end from elsewhere is
+ * answered with a `Retry-After`, which those calls wait out.
  *
  * @param url - Base URL of the API server
  * @param repo - Repository name

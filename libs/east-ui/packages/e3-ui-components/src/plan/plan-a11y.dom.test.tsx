@@ -185,6 +185,8 @@ const item = (c: HTMLElement, key: string) =>
     c.querySelector(key.startsWith("r:") ? itemSel(key.slice(2)) : `[data-plan-item="${key}"]`) as HTMLElement;
 const gridOf = (c: HTMLElement) => c.querySelector('[role="treegrid"]') as HTMLElement;
 const announced = (c: HTMLElement) => c.querySelector("[data-plan-announce]")!.textContent;
+/** The footer's loading line: the one live region a load is said in (#1398, CL12). */
+const footerLine = (c: HTMLElement) => c.querySelector('[data-frame-slot="footer"] [data-footer-line]') as HTMLElement;
 /** The focused item's key, in the test's words. */
 const focusedItem = () => {
     const key = (document.activeElement as HTMLElement | null)?.getAttribute("data-plan-item");
@@ -192,6 +194,26 @@ const focusedItem = () => {
 };
 const press = (key: string, opts: { shiftKey?: boolean } = {}) =>
     fireEvent.keyDown(document.activeElement as HTMLElement, { key, ...opts });
+
+/**
+ * jsdom lays nothing out: the bounded frame's viewport and the header are
+ * stood in for (the #812 tests' stand-ins), each test of the calling describe
+ * with them in place.
+ */
+function standInLayout(): void {
+    const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+    const realClientHeight = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!;
+    const stubbed = (el: Element) => (el.getAttribute("data-virtual-rows") === "bounded" ? 400
+        : el.hasAttribute("data-plan-header") ? 40 : 0);
+    beforeEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get(this: HTMLElement) { return stubbed(this); } });
+        Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get(this: Element) { return stubbed(this); } });
+    });
+    afterEach(() => {
+        Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
+        Object.defineProperty(Element.prototype, "clientHeight", realClientHeight);
+    });
+}
 
 // ── The treegrid ──────────────────────────────────────────────────────────
 describe("the canvas is a treegrid (#819)", () => {
@@ -271,20 +293,7 @@ describe("the canvas is a treegrid (#819)", () => {
     });
 
     describe("under virtualization", () => {
-        // jsdom lays nothing out: the bounded frame's viewport and the header
-        // are stood in for (the #812 tests' stand-ins).
-        const realOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
-        const realClientHeight = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!;
-        const stubbed = (el: Element) => (el.getAttribute("data-virtual-rows") === "bounded" ? 400
-            : el.hasAttribute("data-plan-header") ? 40 : 0);
-        beforeEach(() => {
-            Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, get(this: HTMLElement) { return stubbed(this); } });
-            Object.defineProperty(Element.prototype, "clientHeight", { configurable: true, get(this: Element) { return stubbed(this); } });
-        });
-        afterEach(() => {
-            Object.defineProperty(HTMLElement.prototype, "offsetHeight", realOffsetHeight);
-            Object.defineProperty(Element.prototype, "clientHeight", realClientHeight);
-        });
+        standInLayout();
 
         test("a mounted row says its place among ALL the rows — scrolled or not", () => {
             const rows = Array.from({ length: 200 }, (_u, i) => planRow(`r${String(i).padStart(3, "0")}`, span()));
@@ -308,15 +317,16 @@ describe("the canvas is a treegrid (#819)", () => {
 });
 
 // ── Paged sources ─────────────────────────────────────────────────────────
-/** A paged source whose windows past `openUpTo` stay in flight until opened
- *  and their channel fired (the #815 tests' held source). */
-function heldSource(windows: number, rowsPer: number, openUpTo = 0) {
+/** A paged source whose windows past `openUpTo` — and any it holds `closed` — stay in flight until opened and their
+ *  channel fired (the #815 tests' held source) — and, made `uncounted`, whose count stays in flight until `counted` and
+ *  `total` fired. */
+function heldSource(windows: number, rowsPer: number, openUpTo = 0, opts: { uncounted?: boolean } = {}) {
     const subs = new Map<string, Set<() => void>>();
     let recording: string[] | null = null;
     const tracker: ReactiveTracker = {
         id: "plan-819-channels",
         enableTracking() { recording = []; },
-        disableTracking() { const r = recording ?? []; recording = null; return r; },
+        disableTracking() { const r = recording ?? []; recording = null; return new Map(r.map((key) => [key, 0])); },
         getStore: () => ({
             subscribe(key, cb) {
                 const set = subs.get(key) ?? new Set<() => void>();
@@ -327,16 +337,19 @@ function heldSource(windows: number, rowsPer: number, openUpTo = 0) {
             getKeyVersion: () => 0,
         }),
     };
-    const state = { openUpTo };
+    const state = { openUpTo, counted: opts.uncounted !== true, closed: new Set<number>() };
     const source = {
         id: "plan-819-held",
         page: (offset: bigint) => {
             const w = Number(offset) / PLAN_PAGE_SIZE;
             recording?.push(`w${w}`);
-            if (w > state.openUpTo) return none;
+            if (w > state.openUpTo || state.closed.has(w)) return none;
             return some(Array.from({ length: rowsPer }, (_u, i) => planRow(`w${w}r${String(i).padStart(2, "0")}`, span())));
         },
-        total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
+        total: () => {
+            recording?.push("total");
+            return state.counted ? some(BigInt(windows * PLAN_PAGE_SIZE)) : none;
+        },
         seek: none,
         revision: () => none,
         refresh: () => null,
@@ -350,32 +363,79 @@ describe("paged canvases (#819)", () => {
     // Sixteen rows a window: window 0 fills the jsdom viewport, so the demand
     // rests on its ring [0, 2] — windows 1 and 2 in flight, 3 and 4 not asked
     // for, and all four the band (#876).
-    test("an unloaded run is ONE row — the band — and the rows that land before it take their numbers", async () => {
+    test("an unloaded run is ONE row — the band — at its first row's place, counting as the rows it stands for; the load is said once, in the footer's line", async () => {
         const held = heldSource(5, 16);
         const { container } = renderPlan(planRoot([], { source: held.source }), "plan-819-paged");
         await waitFor(() => expect(item(container, "r:w0r15")).toBeTruthy());
+        // The windows on the wire are the footer's to say, in its polite live region, once the wait passes its reveal (#1398, CL12).
+        await waitFor(() => expect(footerLine(container).querySelector("[data-line-text]")?.textContent).toBe("Loading rows 201–600"));
+        expect([footerLine(container).getAttribute("role"), footerLine(container).getAttribute("aria-live")]).toEqual(["status", "polite"]);
         const grid = gridOf(container);
         // Window 0's rows, then the band for elements 201–1,000: the windows
         // in flight are the band's until they land. It says which of its
         // elements are loading — those two windows', not the two past them
-        // that nothing has asked for (#1082).
-        expect(grid.getAttribute("aria-rowcount")).toBe("17");
+        // that nothing has asked for (#1082). One row of the grid, it counts
+        // as the rows it stands for — a row an element, until their windows
+        // say what they draw (#1398, CL12).
+        expect(grid.getAttribute("aria-rowcount")).toBe(String(16 + 800));
         expect(item(container, "b:0:tail").getAttribute("role")).toBe("row");
         expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("17");
         expect(item(container, "b:0:tail").getAttribute("data-plan-elements")).toBe("800");
-        expect(item(container, "b:0:tail").textContent).toBe("Loading elements 201–600");
+        // No caption in the gap (#1398, CL3): the run's rows are placeholders, hidden from a reader; it is busy.
+        expect(item(container, "b:0:tail").textContent).toBe("");
+        expect(item(container, "b:0:tail").querySelectorAll("[data-run-row]:not([aria-hidden='true'])")).toHaveLength(0);
         expect(item(container, "b:0:tail").getAttribute("aria-busy")).toBe("true");
         act(() => {
             held.state.openUpTo = 2;
             held.fire("w1");
         });
-        expect(grid.getAttribute("aria-rowcount")).toBe("49");
+        expect(grid.getAttribute("aria-rowcount")).toBe(String(48 + 400));
         expect(item(container, "r:w1r00").getAttribute("aria-rowindex")).toBe("17");
         expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("49");
-        expect(announced(container)).toBe("Loaded elements 201–600 of 1,000");
-        // Nothing the band covers is in flight now: it says how many elements it holds.
-        expect(item(container, "b:0:tail").textContent).toBe("400 more elements — scroll to load");
+        // The canvas's own region says nothing of a window landing: a page is no announcement.
+        expect(announced(container)).not.toMatch(/load/i);
+        // Nothing the band covers is in flight now: it is not busy, and still says nothing.
+        expect(item(container, "b:0:tail").textContent).toBe("");
         expect(item(container, "b:0:tail").hasAttribute("aria-busy")).toBe(false);
+        // The footer's line goes once its hold is over.
+        await waitFor(() => expect(footerLine(container).hasAttribute("data-idle")).toBe(true));
+    });
+
+    describe("over every row of the source (#1398, CL12)", () => {
+        standInLayout();
+
+        test("the grid counts every row, read or not, and each row says its place among them all — unknown, -1, until the source counts itself", async () => {
+            // A row an element, as a record's rows are: five windows, a thousand rows.
+            const held = heldSource(5, PLAN_PAGE_SIZE, 0, { uncounted: true });
+            const { container } = renderPlan(planRoot([], { source: held.source, height: "400px" }), "plan-1398-rowcount");
+            await waitFor(() => expect(item(container, "r:w0r00")).toBeTruthy());
+            // Window 0 landed before the count: its rows say their places, and the total is unknown — ARIA's -1, as the Sheet's.
+            expect(gridOf(container).getAttribute("aria-rowcount")).toBe("-1");
+            expect(item(container, "r:w0r00").getAttribute("aria-rowindex")).toBe("1");
+            act(() => {
+                held.state.counted = true;
+                held.fire("total");
+            });
+            // Counted: the total, never the rows read — window 0's two hundred, and the run's eight hundred.
+            await waitFor(() => expect(gridOf(container).getAttribute("aria-rowcount")).toBe("1000"));
+            expect(item(container, "r:w0r00").getAttribute("aria-rowindex")).toBe("1");
+            // Down to the run: one row of the grid, at its first row's place.
+            const frame = container.querySelector('[data-virtual-rows="bounded"]') as HTMLElement;
+            act(() => {
+                frame.scrollTop = PLAN_PAGE_SIZE * 32;
+                fireEvent.scroll(frame);
+            });
+            await waitFor(() => expect(item(container, "b:0:tail")).toBeTruthy());
+            expect(item(container, "b:0:tail").getAttribute("aria-rowindex")).toBe("201");
+            act(() => {
+                held.state.openUpTo = 2;
+                held.fire("w1");
+            });
+            // Windows 1 and 2 land in the run's place, their first row where the run's was: the count holds.
+            await waitFor(() => expect(item(container, "r:w1r00")).toBeTruthy());
+            expect(item(container, "r:w1r00").getAttribute("aria-rowindex")).toBe("201");
+            expect(gridOf(container).getAttribute("aria-rowcount")).toBe("1000");
+        });
     });
 });
 
@@ -535,7 +595,7 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         expect(row.getAttribute("aria-selected")).toBe("true");
     });
 
-    test("↓ past the loaded rows asks the source for more, and focus goes on to the first row that lands — announced", async () => {
+    test("↓ past the loaded rows asks the source for more — the focus waiting on the last row read, never on the run — and goes on to the first row that lands (#1398, CL10)", async () => {
         // A hundred windows: the band's run is long, and the demand for its
         // first windows leaves the rest of it a band.
         const held = heldSource(100, 16, 2);
@@ -544,9 +604,9 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         act(() => gridOf(container).focus());
         for (let i = 0; i < 47; i++) press("ArrowDown");
         expect(focusedItem()).toBe("r:w2r15");
-        // Onto the band: it holds focus while the windows beside it are asked for.
+        // Past the rows read: the windows beside the run are asked for, and the focus waits where it is.
         press("ArrowDown");
-        expect(focusedItem()).toBe("b:0:tail");
+        expect(focusedItem()).toBe("r:w2r15");
         act(() => {
             held.state.openUpTo = 5;
             held.fire("w3");
@@ -554,10 +614,11 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         // The rows landed where the band's top was — focus moved on to the first.
         await waitFor(() => expect(focusedItem()).toBe("r:w3r00"));
         expect(item(container, "r:w3r00").getAttribute("aria-rowindex")).toBe("49");
-        expect(announced(container)).toMatch(/^Loaded elements 601–/);
+        // A load is the footer's line's to say, once a load (#1398, CL12): the canvas's region announces no page.
+        expect(announced(container)).not.toMatch(/load/i);
     });
 
-    test("past the last loaded row, the band stands for the windows still in flight (#876) — focus waits on it, then moves on to the first row that lands", async () => {
+    test("past the last loaded row, the band stands for the windows still in flight (#876) — the focus waits on the row, then moves on to the first row that lands (#1398, CL10)", async () => {
         const held = heldSource(5, 16);
         const { container } = renderPlan(planRoot([], { source: held.source }), "plan-819-inflight");
         await waitFor(() => expect(item(container, "r:w0r15")).toBeTruthy());
@@ -565,21 +626,22 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         for (let i = 0; i < 15; i++) press("ArrowDown");
         expect(focusedItem()).toBe("r:w0r15");
         // Windows 1 and 2 are on the wire, and the move asks for window 3 too:
-        // the band stands for all of them, so focus lands on it and waits.
+        // the band stands for all of them, and the focus waits on the last row read.
         press("ArrowDown");
-        expect(focusedItem()).toBe("b:0:tail");
+        expect(focusedItem()).toBe("r:w0r15");
         expect(item(container, "b:0:tail").getAttribute("data-plan-elements")).toBe("800");
-        expect(item(container, "b:0:tail").textContent).toBe("Loading elements 201–800");
+        expect(item(container, "b:0:tail").getAttribute("aria-busy")).toBe("true");
         act(() => {
             held.state.openUpTo = 2;
             held.fire("w1");
         });
         // Windows 1 and 2 land where the band's top was; focus goes on to the
-        // first. The band is loading window 3 still — and says just that.
+        // first. The band is loading window 3 still: busy, saying nothing (#1398, CL3).
         await waitFor(() => expect(focusedItem()).toBe("r:w1r00"));
         expect(item(container, "r:w1r00").getAttribute("aria-rowindex")).toBe("17");
         expect(item(container, "b:0:tail").getAttribute("data-plan-elements")).toBe("400");
-        expect(item(container, "b:0:tail").textContent).toBe("Loading elements 601–800");
+        expect(item(container, "b:0:tail").getAttribute("aria-busy")).toBe("true");
+        expect(item(container, "b:0:tail").textContent).toBe("");
     });
 
     test("End reaches the source's last row and Home its first — across the unloaded run", async () => {
@@ -595,6 +657,64 @@ describe("one tab stop, and the keyboard map (#819)", () => {
         press("Home");
         await waitFor(() => expect(focusedItem()).toBe("r:w0r00"));
         expect(item(container, "r:w0r00").getAttribute("aria-rowindex")).toBe("1");
+    });
+
+    test("End past rows not read keeps the rows shown standing in — retained, the canvas aria-disabled in a busy main, the focus on the row it set out from — until the source's last window lands, then the focus is on its last row; a move meanwhile puts them back; Home likewise to the first (#1398, CL10)", async () => {
+        // A hundred windows of sixteen rows, the first three read; the rest on the wire until the test lets them land.
+        const held = heldSource(100, 16, 2);
+        const { container } = renderPlan(planRoot([], { source: held.source }), "plan-1398-edges");
+        await waitFor(() => expect(item(container, "r:w2r15")).toBeTruthy());
+        const body = () => container.querySelector("[data-plan-body]")!;
+        const main = () => container.querySelector('[data-frame-slot="main"]')!;
+        /** The rows shown stand in where they were — `row` among them — the focus on `focus`, retained in a busy main. */
+        const standing = (row: string, focus: string) => {
+            expect(item(container, row)).toBeTruthy();
+            expect(focusedItem()).toBe(focus);
+            expect(body().getAttribute("aria-disabled")).toBe("true");
+            expect(main().getAttribute("aria-busy")).toBe("true");
+        };
+        act(() => gridOf(container).focus());
+        press("ArrowDown");
+        expect(focusedItem()).toBe("r:w0r01");
+        press("End");
+        standing("r:w0r00", "r:w0r01");
+        // The line says the last window is read, once the wait passes its reveal.
+        await waitFor(() => expect(footerLine(container).querySelector("[data-line-text]")?.textContent).toBe("Loading rows 19,801–20,000"));
+        // A move among them puts them back as they were — live, the jump dropped — so the last window, landing now, draws
+        // nothing over them.
+        press("ArrowDown");
+        expect(focusedItem()).toBe("r:w0r02");
+        expect(body().hasAttribute("aria-disabled")).toBe(false);
+        act(() => {
+            held.state.openUpTo = 99;
+            held.fire("w99");
+        });
+        expect(item(container, "r:w0r00")).toBeTruthy();
+        expect(item(container, "r:w99r15")).toBeNull();
+        expect(focusedItem()).toBe("r:w0r02");
+        // End again, the windows past the third on the wire once more: the rows stand in until the last lands, then the
+        // focus is on its last row.
+        held.state.openUpTo = 2;
+        press("End");
+        standing("r:w0r00", "r:w0r02");
+        act(() => {
+            held.state.openUpTo = 99;
+            held.fire("w99");
+        });
+        await waitFor(() => expect(focusedItem()).toBe("r:w99r15"));
+        expect(item(container, "r:w0r00")).toBeNull();
+        expect(body().hasAttribute("aria-disabled")).toBe(false);
+        // Home, the first window on the wire: the last rows stand in, the focus on the last row, until it lands; then the
+        // focus is on the first.
+        held.state.closed.add(0);
+        press("Home");
+        standing("r:w99r15", "r:w99r15");
+        act(() => {
+            held.state.closed.delete(0);
+            held.fire("w0");
+        });
+        await waitFor(() => expect(focusedItem()).toBe("r:w0r00"));
+        expect(body().hasAttribute("aria-disabled")).toBe(false);
     });
 });
 

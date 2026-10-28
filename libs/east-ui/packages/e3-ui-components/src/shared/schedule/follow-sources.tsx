@@ -10,8 +10,9 @@
  * visibility is read through the shared source visibility
  * (`useSourceVisibility`), so a choice on the rail narrows every place the
  * source's rows appear; a source the rail does not narrow reads no page and
- * hides nothing. One component reads one source, so a payload naming another
- * set of sources keeps each one's hooks in order.
+ * hides nothing. One component reads one source — the shared chain,
+ * `each-source.tsx` — so a payload naming another set of sources keeps each
+ * one's hooks in order.
  *
  * @packageDocumentation
  */
@@ -20,6 +21,7 @@ import { useCallback, useMemo, useRef, type ReactNode } from "react";
 import { StringType, equalFor, none, some, type ArrayType, type ValueTypeOf } from "@elaraai/east";
 import type { RowSourceType } from "@elaraai/east-ui";
 import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
+import { EachSource } from "./each-source.js";
 import { useSourceVisibility, type KeyVisibilityWords } from "./visibility.js";
 import { useSourceShown, type SourceShown } from "./source-tab.js";
 
@@ -46,12 +48,7 @@ export interface FollowedSource {
 /** The sources a builder's tabs follow, by the source's name. */
 export type FollowedSources = ReadonlyMap<string, FollowedSource>;
 
-/** The sources read so far, in order. */
-type Read = readonly (readonly [string, FollowedSource])[];
-
-const NOTHING_READ: Read = [];
-
-/** What a source shows when it narrows nothing: every row, which no read needs. */
+/** What it does not narrow shows every row, which no read needs. */
 const NO_ROWS: readonly { key: string }[] = [];
 
 /** Props of {@link FollowSources}. */
@@ -70,11 +67,11 @@ export interface FollowSourcesProps {
     children: (followed: FollowedSources) => ReactNode;
 }
 
-/** A step of the reading: the sources read before this one. */
-interface FollowAtProps extends FollowSourcesProps {
-    at: number;
-    read: Read;
-}
+/** What every source's read is given: the rail, the narrowed keys, the nouns and the words. */
+type FollowContext = Pick<FollowSourcesProps, "chrome" | "narrowed" | "nouns" | "said">;
+
+/** One source read: its name, and what it shows. */
+type FollowedEntry = readonly [string, FollowedSource];
 
 /**
  * Reads each source a builder's tabs follow, and renders `children` with
@@ -83,19 +80,24 @@ interface FollowAtProps extends FollowSourcesProps {
  * @param props - The rail, the narrowed keys, the sources, their nouns and what a failed narrowing says
  * @returns What `children` renders
  */
-export function FollowSources(props: FollowSourcesProps): ReactNode {
-    return <FollowAt {...props} at={0} read={NOTHING_READ} />;
+export function FollowSources({ chrome, narrowed, sources, nouns, said, children }: FollowSourcesProps): ReactNode {
+    const context = useMemo((): FollowContext => ({ chrome, narrowed, nouns, said }), [chrome, narrowed, nouns, said]);
+    return (
+        <EachSource sources={sources} context={context} read={useFollowedSource}>
+            {(read) => <Followed read={read} render={children} />}
+        </EachSource>
+    );
 }
 
-/** The source at `at`, or — every source read — what `children` renders. */
-function FollowAt(props: FollowAtProps): ReactNode {
-    return props.at < props.sources.length ? <FollowOne {...props} /> : <Followed read={props.read} render={props.children} />;
-}
-
-/** Reads one source, then the ones after it. */
-function FollowOne(props: FollowAtProps): ReactNode {
-    const { chrome, narrowed, sources, nouns, said, at, read } = props;
-    const source = sources[at]!;
+/**
+ * One source a builder's tabs follow, read in its own component: what it shows and how its narrowing stands.
+ *
+ * @param source - The source's name
+ * @param context - The rail, the narrowed keys, the nouns and the words
+ * @returns The source's name and what it shows, the same pair while they hold
+ */
+function useFollowedSource(source: string, context: FollowContext): FollowedEntry {
+    const { chrome, narrowed, nouns, said } = context;
     const part = useMemo(() => chrome?.slice.parts.find((p) => stringEqual(p.source, source)), [chrome, source]);
     const name = part !== undefined && part.label.type === "some" ? part.label.value : nouns.get(source) ?? source;
     const words = useMemo(() => said(name), [said, name]);
@@ -107,12 +109,11 @@ function FollowOne(props: FollowAtProps): ReactNode {
     retryRef.current = visibility.retry;
     const retry = useCallback(() => retryRef.current(), []);
     const error = visibility.error;
-    const next = useMemo((): Read => [...read, [source, { shown, error, retry, name }] as const], [read, source, shown, error, retry, name]);
-    return <FollowAt {...props} at={at + 1} read={next} />;
+    return useMemo((): FollowedEntry => [source, { shown, error, retry, name }], [source, shown, error, retry, name]);
 }
 
-/** Every source read: what `render` renders with them, by name. */
-function Followed({ read, render }: { read: Read; render: FollowSourcesProps["children"] }): ReactNode {
+/** Every source read: what `render` renders with them, by name — the same map while each source's read holds. */
+function Followed({ read, render }: { read: readonly FollowedEntry[]; render: FollowSourcesProps["children"] }): ReactNode {
     const followed = useMemo((): FollowedSources => new Map(read), [read]);
     return <>{render(followed)}</>;
 }

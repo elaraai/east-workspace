@@ -82,7 +82,11 @@ function speed(d: number): number {
     return d >= EDGE || d < 0 ? 0 : MIN_SPEED + (MAX_SPEED - MIN_SPEED) * (1 - d / EDGE);
 }
 
-/** The velocity a point gives a container: toward the edge it rests near, where the container can go. */
+/**
+ * The velocity a point gives a container: toward the edge it rests near, where the container can go — along an axis it
+ * scrolls on alone (#1442): one that clips its content on the other (`overflow: auto hidden`) is never scrolled along it,
+ * so the content never moves out from under a still pointer with no scrollbar to bring it back.
+ */
 function velocity(el: HTMLElement, point: Point): Point {
     const r = el === page()
         ? { left: 0, top: 0, right: window.innerWidth, bottom: window.innerHeight }
@@ -92,8 +96,8 @@ function velocity(el: HTMLElement, point: Point): Point {
     const up = point.y - r.top;
     const right = r.right - point.x;
     const left = point.x - r.left;
-    const vy = can.down && speed(down) > 0 ? speed(down) : can.up && speed(up) > 0 ? -speed(up) : 0;
-    const vx = can.right && speed(right) > 0 ? speed(right) : can.left && speed(left) > 0 ? -speed(left) : 0;
+    const vy = !scrolls(el, "y") ? 0 : can.down && speed(down) > 0 ? speed(down) : can.up && speed(up) > 0 ? -speed(up) : 0;
+    const vx = !scrolls(el, "x") ? 0 : can.right && speed(right) > 0 ? speed(right) : can.left && speed(left) > 0 ? -speed(left) : 0;
     return { x: vx, y: vy };
 }
 

@@ -27,7 +27,7 @@ import type { KeyVisibility } from "./visibility.js";
 export interface SourceShown {
     /** The keys that show: `none` while the source narrows nothing. */
     keys: option<Set<string>>;
-    /** A new membership resolving, or the last read failed: the tab takes no gesture, as main takes none. */
+    /** A new membership resolving, or the last read failed: the tab's cards are retained, as main's are. */
     busy: boolean;
     /** Whether a complete membership has resolved: until it has, an empty tab says nothing of the filters. */
     ready: boolean;
@@ -59,8 +59,11 @@ export interface SourceTab<C> {
     narrowing: LibraryNarrowing | undefined;
     /** An empty tab's own words; none while its narrowing has not resolved (the rail's banner speaks for it). */
     empty: LibraryEmpty | undefined;
-    /** The pane's attributes: busy, and taking no gesture, while its source resolves or after its read fails. */
-    pane: { "aria-busy"?: true; inert?: true };
+    /**
+     * The pane's attributes while its source resolves or after its read fails: busy, and its cards retained (#1398,
+     * CL8) — readable, focusable and selectable, aria-disabled; the builder's commands take no drag of them meanwhile.
+     */
+    pane: { "aria-busy"?: true; "aria-disabled"?: true };
 }
 
 /**
@@ -114,6 +117,6 @@ export function sourcesTab<C>(args: {
         count: narrowedCount(words, shownCards.length, cards.length, sources.some(source => source.keys.type === "some")),
         narrowing,
         empty: sources.some(source => source.keys.type === "some" && !source.ready) ? undefined : { title: `No ${noun}` },
-        pane: sources.some(source => source.busy) ? { "aria-busy": true, inert: true } : {},
+        pane: sources.some(source => source.busy) ? { "aria-busy": true, "aria-disabled": true } : {},
     };
 }

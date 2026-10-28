@@ -21,7 +21,7 @@ function query(id: string, total: number, pending = false) {
         },
         page: offset => {
             reads.push(offset);
-            return state.pending ? none : some([{ fixed: false, parent: none,
+            return state.pending ? none : some([{ fixed: false, parent: none, charts: none,
                 rows: offset >= total ? [] : [{ id: rowId(`${id}:${offset}`), parent: none }],
             } as unknown as PlanWireBlock]);
         },

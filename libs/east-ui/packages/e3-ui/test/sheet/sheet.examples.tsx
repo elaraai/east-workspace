@@ -22,8 +22,9 @@ import e3 from "@elaraai/e3";
 // - `sheetBasic`, the smallest: a record's entries as the rows (§3.1);
 // - `sheetVariants`, THE configurator: the sheet's options as axes, over the
 //   host's rows (`data`), committed through `onApply`;
-// - `sheetStress`, two thousand rows of a record, read only, paged through
-//   the indexes its rail narrows them by, and views over that narrowing;
+// - `sheetStress`, two thousand rows of a record, read only, the narrowing
+//   its rail makes through the record's indexes drawn over them as the lens,
+//   and views over that narrowing;
 // - `sheetLibrary`, a library of the author's own (§4.4);
 // - `sheetWorkshop`, the flagship — the joinery workshop's orders (§3.3):
 //   groups, the driver and registers, the link grammar, the copilot,
@@ -310,17 +311,18 @@ export const sheetStressByNotes = e3.recordIndex("sheet_stress_by_notes", sheetS
 
 /**
  * Stress (§3.8) — two thousand jobs of an e3 record, read only, every row
- * virtualised, paged a window at a time. The rail is the sheet's
+ * virtualised, in the record's order. The rail is the sheet's
  * `Slice.bindRecords`: its `rows` source narrows the jobs by activity, by
  * status and by a prefix of their notes, each through the record's own index,
- * and the sheet pages what it narrows to. Saved views each keep every
- * source's narrowing (`Sheet.Types.RecordView`, its values `.east` literals),
- * the first one open, kept per viewer through a `State` bind handle. It is
- * given no pane.
+ * and the sheet draws the narrowing over the jobs as the lens (#1349), a
+ * filtered spreadsheet: only the jobs it keeps, one after another, each at
+ * its row number. Saved views each keep every source's narrowing
+ * (`Sheet.Types.RecordView`, its values `.east` literals), the first one
+ * open, kept per viewer through a `State` bind handle. It is given no pane.
  */
 export const sheetStress = example({
-    keywords: ["Sheet", "stress", "virtualization", "2000", "rows", "performance", "readOnly", "slice", "Slice.bindRecords", "rows", "Data.bindPaged", "recordIndex", "record", "search", "filter", "views", "RecordView", "State.bind", "activeView", "set", "register", "concat", "footer", "paged", "Reactive", "State"],
-    description: "Two thousand jobs of an e3 record, read only and virtualised in the sheet's frame, paged in the order of the rail's narrowing — by activity, by status and by a prefix of their notes, each through the record's index — with saved views kept per viewer, each every source's narrowing",
+    keywords: ["Sheet", "stress", "virtualization", "2000", "rows", "performance", "readOnly", "slice", "Slice.bindRecords", "rows", "Data.bindPaged", "recordIndex", "record", "search", "filter", "lens", "views", "RecordView", "State.bind", "activeView", "set", "register", "concat", "footer", "paged", "Reactive", "State"],
+    description: "Two thousand jobs of an e3 record, read only and virtualised in the sheet's frame, in the record's order, the rail's narrowing — by activity, by status and by a prefix of their notes, each through the record's index — drawn over them as the lens, a filtered spreadsheet showing only the jobs it keeps, with saved views kept per viewer, each every source's narrowing",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const MachineType = StructType({ code: StringType, family: StringType });
@@ -328,7 +330,7 @@ export const sheetStress = example({
                 { code: "R2140", family: "CNC router" }, { code: "R2141", family: "CNC router" }, { code: "R2145", family: "CNC router" },
                 { code: "P3210", family: "4-side planer" }, { code: "A7301", family: "assembly bench" },
             ], ArrayType(MachineType));
-            // One rail over the jobs: the sheet's rows are what its `rows` source narrows them to, through the record's indexes.
+            // One rail over the jobs: the sheet's rows are the record's, its `rows` source's narrowing drawn over them as the lens.
             const slice = $.let(Slice.bindRecords("sheet_stress", {
                 rows: {
                     source: Data.bindPaged(sheetStressJobs, { indexes: [sheetStressByActivity, sheetStressByStatus, sheetStressByNotes] }),
@@ -342,11 +344,11 @@ export const sheetStress = example({
             }));
             // Each view keeps every source's narrowing, by name: an activity's value is its `.east` literal, a search its prefix.
             const views = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet_stress_views", [
-                { id: "spraying", name: "SPRAYING", context: 1n, reveals: [], folds: new Map(),
+                { id: "spraying", name: "SPRAYING", folds: new Map(),
                   narrowing: new Map([["rows", { where: new Map([["activity", variant("values", ["\"Spraying\""])]]), preset: none, resolution: none }]]) },
-                { id: "routers", name: "ROUTERS", context: 0n, reveals: [], folds: new Map(),
+                { id: "routers", name: "ROUTERS", folds: new Map(),
                   narrowing: new Map([["rows", { where: new Map([["activity", variant("values", ["\"Routing\""])]]), preset: none, resolution: none }]]) },
-                { id: "urgent", name: "URGENT", context: 0n, reveals: [], folds: new Map(),
+                { id: "urgent", name: "URGENT", folds: new Map(),
                   narrowing: new Map([["rows", { where: new Map([["notes", variant("prefix", "urgent")]]), preset: none, resolution: none }]]) },
             ]));
             return (
@@ -631,7 +633,8 @@ const workshopRecommend = East.asyncPlatform(
  * learned from the order, and an async model. A check on each order, and a
  * footer counting every operation. One rail, its `Slice.bindRecords` over
  * three records (#1345): the orders, by status and customer — the sheet's
- * rows, paged from it, Save committing through the record's patch door — and
+ * rows, the record's own, its narrowing drawn over them as the lens (#1349),
+ * Save committing through the record's patch door — and
  * the operation and order templates, each a record of its own, by their
  * group; views kept per viewer hold every source's narrowing. Both panes: the
  * library lists the templates the rail shows, the statuses — a card dropped
@@ -649,7 +652,7 @@ export const sheetWorkshop = example({
             const activities = $.let(Data.bind(sheetWorkshopActivities));
             const operationTemplates = $.let(Data.bind(sheetWorkshopOperationTemplates));
             const orderTemplates     = $.let(Data.bind(sheetWorkshopOrderTemplates));
-            // The orders read whole, for the footer's count: the sheet pages its rows from the rail's `rows` source,
+            // The orders read whole, for the footer's count: the sheet reads its rows through the rail's `rows` source,
             // so `orders` is the patch door its Save commits through, never read whole.
             const allOrders  = $.let(Data.bind(sheetWorkshopOrders));
             const views      = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet.workshop.views", []));

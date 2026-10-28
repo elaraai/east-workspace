@@ -4,7 +4,7 @@
  */
 import { type ValueTypeOf } from "./types.js";
 import type { AsyncFunctionIR, FunctionIR } from "./ir.js";
-import { compile_internal, ReturnException, EAST_IR_SYMBOL, EAST_SOURCE_MAP_SYMBOL } from "./compile.js";
+import { compile_internal, EAST_IR_SYMBOL, EAST_SOURCE_MAP_SYMBOL } from "./compile.js";
 import type { PlatformFunction } from "./platform.js";
 import { analyzeIR } from "./analyze.js";
 import { with_source_map, type SourceMap } from "./location.js";
@@ -49,21 +49,12 @@ export class EastIR<Inputs extends any[], Output extends any> {
       ? with_source_map(this.source_map, compile_fn)
       : compile_fn();
 
-    // instantiate the function (with no environment)
+    // instantiate the function (with no environment), which gives its value:
+    // a `return` is a signal its body gives back to it, never thrown
     const instantiated_function = compiled_expr({});
 
     // Return sync wrapper
-    const wrapper = (...inputs: any[]) => {
-      try {
-        return instantiated_function(...inputs)
-      } catch (e: unknown) {
-        if (e instanceof ReturnException) {
-          return e.value;
-        } else {
-          throw e;
-        }
-      }
-    };
+    const wrapper = (...inputs: any[]) => instantiated_function(...inputs);
 
     // Attach IR and source map to wrapper for serialization support
     Object.defineProperty(wrapper, EAST_IR_SYMBOL, {
@@ -125,21 +116,12 @@ export class AsyncEastIR<Inputs extends any[], Output extends any> {
       ? with_source_map(this.source_map, compile_fn)
       : compile_fn();
 
-    // instantiate the function (with no environment)
+    // instantiate the function (with no environment), which gives its value:
+    // a `return` is a signal its body gives back to it, never thrown
     const instantiated_function = compiled_expr({});
 
-    // Return async wrapper
-    const wrapper = async (...inputs: any[]) => {
-      try {
-        return await instantiated_function(...inputs)
-      } catch (e: unknown) {
-        if (e instanceof ReturnException) {
-          return e.value;
-        } else {
-          throw e;
-        }
-      }
-    };
+    // Return async wrapper: a promise, whether or not the body awaits
+    const wrapper = async (...inputs: any[]) => await instantiated_function(...inputs);
 
     // Attach IR and source map to wrapper for serialization support
     Object.defineProperty(wrapper, EAST_IR_SYMBOL, {

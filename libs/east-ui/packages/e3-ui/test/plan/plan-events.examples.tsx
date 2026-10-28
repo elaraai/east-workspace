@@ -627,9 +627,9 @@ export const planPrintDeliveryTemplates = e3.record("plan_print_delivery_templat
 // The rail narrows each record through its own indexes (#1344): the jobs and the shifts over their interval
 // indexes — on their own, and after a job's stock — so a narrowing keeps every event overlapping the window once;
 // the presses by hall, the customers by district, and each templates record by its group.
-export const planPrintJobsByTime = e3.recordIndex("plan_print_jobs_by_time", planPrintJobs, { interval: { from: "start", to: "end" } });
-export const planPrintJobsByStockTime = e3.recordIndex("plan_print_jobs_by_stock_time", planPrintJobs, { on: ["stock"], interval: { from: "start", to: "end" } });
-export const planPrintShiftsByTime = e3.recordIndex("plan_print_shifts_by_time", planPrintShifts, { interval: { from: "start", to: "end" } });
+export const planPrintJobsByTime = e3.recordIndex.interval("plan_print_jobs_by_time", planPrintJobs, { from: "start", to: "end" });
+export const planPrintJobsByStockTime = e3.recordIndex.interval("plan_print_jobs_by_stock_time", planPrintJobs, { on: ["stock"], from: "start", to: "end" });
+export const planPrintShiftsByTime = e3.recordIndex.interval("plan_print_shifts_by_time", planPrintShifts, { from: "start", to: "end" });
 export const planPrintPressesByHall = e3.recordIndex("plan_print_presses_by_hall", planPrintPresses, { on: ["hall"] });
 export const planPrintCustomersByDistrict = e3.recordIndex("plan_print_customers_by_district", planPrintCustomers, { on: ["district"] });
 export const planPrintJobTemplatesByGroup = e3.recordIndex("plan_print_job_templates_by_group", planPrintJobTemplates, { on: ["group"] });

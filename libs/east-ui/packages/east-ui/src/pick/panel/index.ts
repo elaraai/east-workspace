@@ -78,7 +78,7 @@ export function createPickPanel<I extends EastType>(
 ): ExprType<UIComponentType> {
     const handle = options.value as unknown as ExprType<StructType<{ pick: PickBindType }>>;
     // Pin the exact East type so the arm's field unifies — the handle's TS face
-    // is erased through `I` (the `Schematic` `itemHover` / `Plan` resolver idiom).
+    // is erased through `I` (the `Plan` resolver idiom).
     return East.value(variant("PickPanel", {
         pick:  East.value(handle.pick, PickBindType),
         title: options.title,

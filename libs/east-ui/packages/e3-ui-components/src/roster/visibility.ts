@@ -13,13 +13,14 @@ import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { sourcePart, useSourceVisibility, type KeyVisibility } from "../shared/schedule/visibility.js";
 import type { RosterPayload } from "./model.js";
 
-/** A narrowed source's name: what its rows are on the Roster. */
-export type RosterNarrowed = "people" | "activities";
+/** A narrowed source's name: what its rows are on the Roster — its people, its activities, or its week patterns (#1406). */
+export type RosterNarrowed = "people" | "activities" | "patterns";
 
 /** What a failed narrowing of each source says. */
 const WORDS = {
     people: { changed: "Staff results changed; retry the narrowing.", failed: "Could not load staff results" },
     activities: { changed: "Activity results changed; retry the narrowing.", failed: "Could not load activity results" },
+    patterns: { changed: "Pattern results changed; retry the narrowing.", failed: "Could not load pattern results" },
 } as const;
 
 /**
@@ -44,5 +45,5 @@ export function rosterPart(value: RosterPayload, source: RosterNarrowed): ValueT
  */
 export function useRosterVisibility(value: RosterPayload, source: RosterNarrowed): KeyVisibility {
     return useSourceVisibility(value.slice.type === "some" ? value.slice.value : undefined, source, value.narrowed[source],
-        source === "people" ? value.people : value.activities, WORDS[source]);
+        source === "people" ? value.people : source === "activities" ? value.activities : value.patterns, WORDS[source]);
 }

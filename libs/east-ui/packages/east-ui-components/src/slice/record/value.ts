@@ -58,6 +58,11 @@ export function recordValueLabel(field: Field, text: string, words: Formatters):
 export function recordChoiceLabel(field: Field, choice: Choice | undefined, words: Formatters): string {
     if (choice === undefined) return field.label;
     const show = (text: string) => recordValueLabel(field, text, words);
-    const detail = choice.type === "values" ? choice.value.map(show).join(", ") : choice.type === "prefix" ? `${choice.value}…` : `${show(choice.value.from)} – ${show(choice.value.to)}`;
+    // A window is a read's, never a rail's choice (#1385); were one shown, it reads as its corners.
+    const corner = (x: number, y: number) => `${words.number(x)}, ${words.number(y)}`;
+    const detail = choice.type === "values" ? choice.value.map(show).join(", ")
+        : choice.type === "prefix" ? `${choice.value}…`
+            : choice.type === "window" ? `${corner(choice.value.minX, choice.value.minY)} – ${corner(choice.value.maxX, choice.value.maxY)}`
+                : `${show(choice.value.from)} – ${show(choice.value.to)}`;
     return `${field.label}${field.set ? " includes" : ":"} ${detail}`;
 }

@@ -257,7 +257,7 @@ export function locateDrop(row: SheetDropRow, ctx: SheetDropContext): At | undef
  *
  * @param item - The item
  * @returns Its drop row; `undefined` for what no drop rests on (a band of
- *   unloaded rows, a lens gap, a sub row, a proposal)
+ *   unloaded rows, a sub row, a proposal)
  */
 export function dropRowOf(item: SheetBodyItem): SheetDropRow | undefined {
     switch (item.kind) {

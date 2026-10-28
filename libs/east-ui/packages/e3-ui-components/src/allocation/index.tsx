@@ -6,51 +6,73 @@
 /**
  * The Allocation's renderer (`Allocation Spec.md`, #1372, `Builder Interfaces
  * Spec.md` §6, §7, §9): the board in its BuilderFrame — one toolbar, the
- * banners, the panes, the footer's legend and the loading cover — over the
+ * banners, the panes, the footer's legend and its loading line (#1398), and
+ * the cold load's cover at the board's own row pitch, the footer live under
+ * it — over the
  * app's own records: its bins and its days, a session each of one history,
  * read a day at a time and assembled into the day the Timeline, the Table, the
  * cards, the Library and the Inspector draw, drafts in place; Publish saving
  * the day, then writing its status. The bins' source of the slice holds the
  * day, which the board's own navigation writes. Below 480px of main, the
  * Timeline and the Table are cards with explicit actions, and nothing takes a
- * drag (#1333).
+ * drag (#1333). After its cold load nothing covers the board (#1398, CL5): a
+ * day not read yet draws its lanes, slots and resources at once and a
+ * placeholder where its bins and figures go, and one whose read failed says so
+ * once, in its first row in view, with Retry (CL11). With an optimiser bound,
+ * the Elara eye (#1409): one run over the day in view, its result landed on
+ * the day's bins as one step of the history, and what it left on them marked
+ * until Apply.
  *
  * @packageDocumentation
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SortedMap, none, variant } from "@elaraai/east";
+import { SortedMap, StringType, equalFor, none, variant } from "@elaraai/east";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { AllocationComponent } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, editingMessages, historyShortcut, implementUIComponent, typedInto, useContainerBelow, useFormatters,
-    usePersistedState, useTrackedEvaluation, type HistoryAction,
+    BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useFormatters,
+    useLanding, useLandingStyles, usePersistedState, useSliceReactivity, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { formatDatePattern } from "@elaraai/east-ui-components/internal";
-import { StatusDisplay } from "../components/StatusDisplay.js";
+import { LoadingReveal, formatDatePattern } from "@elaraai/east-ui-components/internal";
+import { useOptimise } from "../shared/func/use-optimise.js";
+import { useOptimiseParts } from "../shared/func/optimise-parts.js";
+import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
+import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { publishPeriod } from "../shared/schedule/records.js";
+import type { RowAnchor } from "../shared/schedule/row-anchor.js";
 import { useSourceShown } from "../shared/schedule/source-tab.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { allocationCommands, publishChange, remainderOf } from "./actions.js";
+import { BinFocusContext, type BinFocus } from "./bin-focus.js";
 import { AllocationCards } from "./cards.js";
-import { AllocationDataReader, initialAllocationData, type AllocationData } from "./data.js";
+import { AllocationDataReader, binChoicesOf, initialAllocationData, type AllocationData } from "./data.js";
 import { bookOnto, placeAsk, useAllocationDrag, type DropScene, type LibraryGrip, type Refusal, type Target, type Verdict } from "./drag.js";
 import { PERIODS, useAllocationEditing, type AllocationEditing } from "./editing.js";
+import { useAllocationFind, type FoundBin } from "./find.js";
 import { useAllocationFit } from "./fit.js";
 import { AllocationFooter } from "./footer.js";
+import { useHiddenBins, type BinShown } from "./hidden.js";
 import { useAllocationInspector } from "./inspector.js";
 import { binCode } from "./inspector-model.js";
 import { useAllocationLibrary, type Pick, type ResourceFind } from "./library.js";
+import { allocationMessages, type AllocationWords } from "./messages.js";
 import {
-    DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationWords, compareDate, compareFloat, compareString, configError, dayKey,
+    DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationWords, compareDate, compareFloat, compareString, configError, dayKey, dayStart,
     editableStatus, focusOf, placeDrafted, placeStored, started, statusText, type AllocationStyles, type AllocationValue, type Day, type DraftedBin,
     type Issue, type PlacedPeriod, type Selection, type StoredBin,
 } from "./model.js";
-import { narrowingPart, useNarrowed } from "./narrowed.js";
-import { NounsContext, a } from "./nouns.js";
+import { narrowingPart, narrowingText, useNarrowed } from "./narrowed.js";
+import { NounsContext, a, other } from "./nouns.js";
+import {
+    allocationOptimiseRequest, allocationOptimiseTypes, landAllocationOptimise, lockAllocationCommands,
+    type AllocationOptimiseRequest, type AllocationOptimiseResult, type AllocationOptimised,
+} from "./optimise.js";
 import { AllocationTable, RESERVE_PROBE } from "./table.js";
+import { rowHiding } from "./table-rows.js";
 import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./timeline.js";
+import { ROW_H } from "./timeline-layout.js";
 import { pickerDays, useAllocationToolbar } from "./toolbar.js";
 import { useAllocationWindow, type AllocationWindow } from "./window.js";
 export type { AllocationValue } from "./model.js";
@@ -58,9 +80,20 @@ export type { AllocationValue } from "./model.js";
 /** Props of the record-backed Allocation extension. */
 export interface EastChakraAllocationProps { value: AllocationValue; storageKey: string }
 const NO_DATES: readonly Date[] = [];
+/** The board's word for its bins in the footer's line: `Filtering bins…` (the coordinator's call, 23 Oct 2026, #1398). */
+const BINS = "bins";
 const NO_STORED: ReadonlyMap<string, StoredBin> = new Map();
 const NO_BIN_DRAFTS: ReadonlyMap<string, DraftedBin | undefined> = new Map();
 const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
+const NO_ISSUES: Issue[] = [];
+const keyEqual = equalFor(StringType);
+/** The Table's view has rested nowhere yet. */
+const NO_ANCHOR: { table?: RowAnchor | undefined } = {};
+/**
+ * The frame's root takes the focus a click on a part of it holding nothing focusable gives — a pane's empty foot, the
+ * toolbar's gaps — so the keyboard is in the Allocation, never the page's body, as the Calendar's is: not a tab stop.
+ */
+const CLICK_FOCUS: Readonly<Record<string, string>> = { tabIndex: "-1" };
 
 /** What the frame takes from the board around it: the payload, its key, the day, and the editing. */
 interface FrameProps {
@@ -95,10 +128,18 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const picker = useMemo(() => pickerDays(pickerWeeks), [pickerWeeks]);
     const [data, setData] = useState<AllocationData>(() => initialAllocationData(day));
     const current = data.ready && compareDate(data.day, day) === 0;
+    // The bins' own source of the slice: its narrowing, apart from the day the board writes into it, is what a read of
+    // the day it holds is filtered by (#1398).
+    const binsPart = sourcePart(value.slice.type === "some" ? value.slice.value : undefined, value.bin.kind.key);
+    useSliceReactivity(binsPart?.key);
+    const binChoices = binChoicesOf(binsPart);
     // The day assembled from the records' rows (§9): the bins its window read, every day's drafts in place, and its own row.
     const stored = current ? data.bins : NO_STORED;
     const heldBins = useMemo(() => placeStored(domain, stored, day), [domain, stored, day]);
-    const planBins = useMemo(() => placeDrafted(domain, heldBins, editing?.bins ?? NO_BIN_DRAFTS, day), [domain, heldBins, editing?.bins, day]);
+    // A day not read yet draws none of its bins, its drafts included: they wait in their session, and draw beside its
+    // stored bins once those land — never a day of drafts alone (#1398, CL13).
+    const planBins = useMemo(() => current ? placeDrafted(domain, heldBins, editing?.bins ?? NO_BIN_DRAFTS, day) : heldBins,
+        [current, domain, heldBins, editing?.bins, day]);
     const dayId = dayKey(day);
     const periodDrafts = editing?.periods ?? NO_PERIOD_DRAFTS;
     const heldPeriod = useMemo(() => periodOf(value, current ? data.period : undefined), [value, current, data.period]);
@@ -160,17 +201,65 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     useEffect(() => { setLink(undefined); setFollow(before => before.nonce === 0 ? before : { nonce: before.nonce + 1, soft: false }); }, [window.view.layout]);
     const recipe = useSlotRecipe({ key: "allocationBuilder" });
     const styles = useMemo(() => recipe({}) as unknown as AllocationStyles, [recipe]);
-    const format = useFormatters(), words = useMemo(() => ({ ...format, m: editingMessages }), [format]);
+    // The board's words: its message table — the editing session's, and its own — in the app's locale.
+    const format = useFormatters(), words = useMemo((): AllocationWords => ({ ...format, m: allocationMessages }), [format]);
+    // The day, as the footer's line, the eye and the banner name it (#1398, CL3; #1409).
+    const dayWords = format.weekdayDate(day);
+    // What each source the rail narrows shows, as the layout shown draws a bin (#1398): the Table — on a phone its cards too —
+    // hides a bin by its lane, its arrival and every one of its resources; the Timeline's lanes by its lane and its arrival;
+    // a phone's Timeline, a card per resource, by its resources.
+    const table = window.view.layout === "table";
+    const shownKeys = useMemo((): BinShown => ({
+        lanes: table || !narrow ? lanesShown.keys : none,
+        resources: table || narrow ? resourcesShown.keys : none,
+        arrivals: table || !narrow ? arrivalsShown.keys : none,
+    }), [table, narrow, lanesShown.keys, resourcesShown.keys, arrivalsShown.keys]);
+    const hiddenBins = useHiddenBins(value, shownKeys);
+    // Search Records (#1398): a bin found by its key steps the board to its day, where — once the day is read, after the
+    // step's own clearing above, and once the narrowing draws it — it is selected, and the board follows it into view, at
+    // its time; a pick gives it the keyboard there, once the box has let it go: the element that stands for it in the
+    // layout shown takes the focus (`bin-focus.ts`). A bin the rail's narrowing hides is drawn by clearing just the
+    // choices that hide it, each source's (the shared hidden pick).
+    const [binFocus, setBinFocus] = useState<string>();
+    const hiddenPick = useHiddenPick<string>({
+        onError: setError, uncleared: "The filters hiding the bin could not be cleared",
+        landing: {
+            drawn: (key) => {
+                const bin = current ? plan.bins.get(key) : undefined;
+                if (bin === undefined || narrowingLoading) return false;
+                const hides = rowHiding(bin.lane, { arrival: bin.arrival.type === "some" ? bin.arrival.value : undefined, parts: bin.parts.keys() },
+                    shownKeys.lanes, shownKeys.resources, shownKeys.arrivals);
+                return !hides.lanes && !hides.resources && !hides.arrivals;
+            },
+            selects: (key) => inspect({ type: "bin", id: key }),
+            focus: setBinFocus,
+        },
+    });
+    const finder = useAllocationFind({ value, domain, part: binsPart, words, hidden: hiddenBins, onPick: (bin: FoundBin) => {
+        hiddenPick.pick(hiddenBins.of(bin), bin.key, () => { window.setView({ ...window.view, date: dayStart(bin.at).getTime() }); });
+    } });
+    const search = useMemo(() => (finder === undefined ? undefined : hiddenPick.search(finder)), [finder, hiddenPick]);
+    // The bin given the keyboard waits for its element only while it is the one selected (`useBinFocusTarget`), and until
+    // the viewer does something else (the root's captures below).
+    useEffect(() => {
+        if (binFocus !== undefined && !(selection?.type === "bin" && keyEqual(selection.id, binFocus))) setBinFocus(undefined);
+    }, [selection, binFocus]);
+    const binFocused = useMemo<BinFocus>(() => ({ id: binFocus, done: () => setBinFocus(undefined) }), [binFocus]);
+    const dropBinFocus = binFocus === undefined ? undefined : () => setBinFocus(undefined);
+    // Where the Table's view rests (#1398): saved under the board's key, so the Table comes back to it as it mounts.
+    const { state: anchor, setState: setAnchor } = usePersistedState<{ table?: RowAnchor | undefined }>(`${key}.anchor`, NO_ANCHOR);
+    const onTableAnchor = useCallback((at: RowAnchor) => setAnchor(was => ({ ...was, table: at })), [setAnchor]);
     const context = useMemo(() => allocationContext(value), [value]);
     const loads = useMemo(() => domain.loads(day, plan, context), [domain, day, plan, context]);
     const builtIn = useMemo(() => domain.check(day, plan, context), [domain, day, plan, context]);
     const slots = useMemo(() => domain.slots(day, plan, context), [domain, day, plan, context]);
     const focus = focusOf(selection, plan);
-    // The app's check, after the built-in ones wherever issues show; a check that fails leaves them shown.
-    const readCheck = useCallback((): Issue[] => value.check.type === "some"
-        ? value.check.value(domain.encodeCheckContext({ day, plan, context, loads })) : [], [value.check, domain, day, plan, context, loads]);
+    // The app's check, after the built-in ones wherever issues show; a check that fails leaves them shown. A day not read
+    // yet has no issue: what its bins break is not known until they land (#1398, CL13).
+    const readCheck = useCallback((): Issue[] => current && value.check.type === "some"
+        ? value.check.value(domain.encodeCheckContext({ day, plan, context, loads })) : NO_ISSUES, [current, value.check, domain, day, plan, context, loads]);
     const custom = useTrackedEvaluation(readCheck);
-    const issues = useMemo(() => [...builtIn, ...(custom.result.ok ? custom.result.value : [])], [builtIn, custom.result]);
+    const issues = useMemo(() => current ? [...builtIn, ...(custom.result.ok ? custom.result.value : [])] : NO_ISSUES, [current, builtIn, custom.result]);
     // Publish (B7): Save, then once every record reads back as saved, the day's status — over its row as last saved.
     const [publishing, setPublishing] = useState(false);
     const publishingNow = useRef(false);
@@ -182,8 +271,56 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         void publishPeriod(editing.history, () => latest.current.change(), changes => editing.schedule.record(changes, "typed", "Publish day"))
             .finally(() => { publishingNow.current = false; setPublishing(false); });
     }, [editing]);
+    // A narrowing read while the day it filters stands in — the bins' own, the lanes', the resources' or the arrivals' —
+    // keeps the day's bins in their cells, stale (#1398, CL5): their words in the third ink, the cells' rules dashed. While a
+    // narrowing is read or failed, what main shows is retained (CL8): readable, focusable and selectable, aria-disabled,
+    // its controls in place and every gesture refused until it lands.
+    const stale = current && (data.filtering || narrowingLoading);
+    const retained = stale || narrowingLoading || narrowingFailed;
     // Commands update what is selected without changing the panes or their tabs.
-    const commands = allocationCommands({ value, domain, day, plan, held, period, heldPeriod, read: stored, editing, ready: current && !publishing }, select, publish);
+    const unlocked = allocationCommands({ value, domain, day, plan, held, period, heldPeriod, read: stored, editing, ready: current && !publishing, retained }, select, publish);
+    // The app's optimiser (#1409, #1420): one run over the day in view, its result landed on the day's bins as one edit,
+    // and what it left on them until Apply — the landing and the highlight over the whole frame.
+    const landing = useLanding(root);
+    const landingStyles = useLandingStyles();
+    const optimiseTypes = useMemo(() => allocationOptimiseTypes(domain.rowType), [domain]);
+    const [optimised, setOptimised] = useState<AllocationOptimised | undefined>(undefined);
+    const landAfter = useRef<(run: number) => void>(() => undefined);
+    const latestRun = useRef({ plan, context, editing, optimised });
+    latestRun.current = { plan, context, editing, optimised };
+    const run = useOptimise<AllocationOptimiseRequest, AllocationOptimiseResult>({
+        name: value.optimise.type === "some" ? value.optimise.value.name : null,
+        requestType: optimiseTypes.request, resultType: optimiseTypes.result, scope: dayId, storageKey: key,
+        onLanded: (result, request, n) => {
+            const now = latestRun.current;
+            if (now.editing === undefined) return undefined;
+            const runText = format.number(n);
+            const landed = landAllocationOptimise({ value, domain, editing: now.editing, request, result, label: optimiseMessages.step({ run: runText }), runText,
+                plan: now.plan, context: now.context, before: now.optimised });
+            if (landed === undefined) return undefined;
+            // A run that changed nothing leaves what earlier runs left (R10).
+            if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
+            return landed.counts;
+        },
+    });
+    // While a run is out (R2) the day takes no gesture: every command refused, the drags off, the history locked.
+    const locked = run.running;
+    const commands = locked ? lockAllocationCommands(unlocked) : unlocked;
+    // The eye is listed only where the day can be optimised (ruled 25 Oct 2026): never read only, never over a published
+    // day; while the day's reads are in flight it waits, disabled, in its place.
+    const optimiseParts = useOptimiseParts<AllocationOptimiseRequest>({
+        run, landing, period: dayWords,
+        readOnly: value.settings.readOnly || editing === undefined || (current && (!editableStatus(heldPeriod.status) || !editableStatus(period.status))), busy: !unlocked.available,
+        request: n => allocationOptimiseRequest(day, latestRun.current.plan, value.arrivals, latestRun.current.context, n), landKey: plan,
+    });
+    landAfter.current = optimiseParts.landAfter;
+    // What a run left on the bins goes with the drafts (R17): once nothing is pending — Save, Discard — nothing is
+    // marked. An Undo leaves nothing pending too, but its Redo brings the run's step back (R9): what the run left is
+    // kept while that step is the next to redo.
+    const pendingSteps = editing?.history.pending ?? 0;
+    useEffect(() => {
+        if (pendingSteps === 0 && editing?.history.redoOrigin !== "optimise") setOptimised(undefined);
+    }, [pendingSteps, editing?.schedule.version, editing]);
     // The app's fit (§12): every verdict a drag or a pick shows is its answer.
     const fit = useAllocationFit(value, domain, day, plan, context);
     const { ask: askFit } = fit;
@@ -280,6 +417,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         value, context, day, plan, held, loads, lines, styles, layout: window.view.layout, narrow, drag, commands, selection, pick,
         tab: libraryTab.tab, onTab: tab => setLibraryTab({ tab }), onVerdict: runVerdict,
         shown: { arrivals: arrivalsSource, resources: resourcesSource }, find: libraryFind, onClearFind: () => setFind(undefined),
+        arrivalsFlash: landing.lit && optimised?.arrivalsChanged === true,
         // A9: an arrival's card picks it, again unpicks it; a selected free slot or reservation stays selected. A pick's fits are Details' (A34).
         onArrival: grip => {
             const same = pick !== undefined && pick.kind === grip.kind && (grip.kind === "arrival" ? pick.kind === "arrival" && pick.arrival === grip.arrival : pick.kind === "removed" && pick.bin === grip.bin);
@@ -305,7 +443,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         value, domain, context, day, plan, held, loads, lines, slots, issues, layout: window.view.layout, selection, inspect, drag, fit, commands,
         without, reserving, shown: { lanes: lanesShown.keys, resources: resourcesShown.keys, arrivals: arrivalsShown.keys },
         refusal, dismissRefusal: () => setRefusal(undefined), chooser, setChooser, book: bookPicked, firstFree,
-        tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key, onFind: findable ? onFind : undefined, finding,
+        tab: inspectorTab.tab, onTab: tab => setInspectorTab({ tab }), storageKey: key, onFind: findable ? onFind : undefined, finding, m: words.m,
     });
     // Nothing above the board comes or goes during a drag (A22): a failed fit's banner waits for the drop.
     const [fitError, setFitError] = useState<string>();
@@ -319,13 +457,59 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // The issues chip opens Inspector › Issues (A64).
     const onIssues = () => { setInspectorTab({ tab: "issues" }); revealPane("Inspector"); };
     const history = editing?.history;
-    const onAction = useCallback((action: HistoryAction) => { const active = document.activeElement; if (active instanceof HTMLElement) active.blur(); history?.act(action); }, [history]);
+    const { acted } = optimiseParts;
+    const onAction = useCallback((action: HistoryAction) => {
+        if (locked) return;
+        const active = document.activeElement; if (active instanceof HTMLElement) active.blur();
+        // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16).
+        acted(action, history?.redoOrigin);
+        history?.act(action);
+    }, [history, locked, acted]);
+    // The keyboard stays on the board as the bin it was on goes, as the Calendar's does: Delete takes away the bin the focus
+    // is on — its card, its Table row or its narrow card — and the board takes the focus, never the page's body, where the
+    // history's keys, the Undo that brings the bin back, go unheard.
+    const keepOnBoard = (bin: string) => {
+        const board = main.current;
+        const active = board?.ownerDocument.activeElement;
+        if (board === null || !(active instanceof HTMLElement) || !board.contains(active)) return;
+        const card = active.closest("[data-allocation-card]")?.getAttribute("data-allocation-card");
+        const row = active.closest("[data-allocation-row], [data-allocation-row-card]");
+        const rowKey = row?.getAttribute("data-allocation-row") ?? row?.getAttribute("data-allocation-row-card");
+        if ((card !== null && card !== undefined && keyEqual(card, bin)) || (rowKey !== null && rowKey !== undefined && keyEqual(rowKey, `bin:${bin}`))) {
+            board.focus({ preventScroll: true });
+        }
+    };
+    // What the footer's loading line says (#1398, CL3): the day being read; a new narrowing — the bins' own, the lanes',
+    // the resources' or the arrivals' — which is the board waiting for which of its bins show, so `Filtering bins…`
+    // whichever it is, the coordinator's word for them (23 Oct 2026); or why one could not be read, by its source, with
+    // Retry — the day's asking again each record the day reads.
+    const retryDay = useCallback(() => retryPeriod([
+        { entries: value.bin.kind.entries, part: binsPart },
+        ...(value.periods.type === "some" ? [{ entries: value.periods.value.entries }] : [])]), [value, binsPart]);
+    const line = useMemo(() => {
+        const state = periodLoading({ loading: data.loading && !data.filtering, error: data.error, retry: retryDay }, [
+            { noun: BINS, ready: true, loading: data.filtering, error: undefined, retry: retryDay },
+            { noun: other(nouns.lane), ...lanesShown }, { noun: other(nouns.resource), ...resourcesShown }, { noun: other(nouns.arrival), ...arrivalsShown },
+        ]);
+        return periodLoadingLine(state?.kind === "filtering" ? { kind: "filtering", noun: BINS } : state, dayWords);
+    }, [data.loading, data.filtering, data.error, retryDay, nouns, lanesShown, resourcesShown, arrivalsShown, dayWords]);
+    // What the views draw of the day (#1398): the day as read; a day not read yet, its lanes, slots and resources at once
+    // and its placeholders, unseen until the frame's one reveal clock says so (CL5, CL2, CL4: `LoadingReveal` below, which
+    // the footer's line and each placeholder read where they show, so its flip renders them and never this frame); or one
+    // whose read failed, its geometry and the failure said once in its first row in view (CL11) — never "Allocation
+    // unavailable" over the board.
+    const read = useMemo(() => periodRead({ current, error: data.error, name: dayWords, retry: retryDay }), [current, data.error, dayWords, retryDay]);
     const toolbar = useAllocationToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onAction, onPickerWeeks: setPickerWeeks,
-        status: value.periods.type === "some" ? statusText(heldPeriod) : undefined, publishing, picker: data.picker,
+        status: value.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,
+        optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
         focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: resourcesShown.keys.type === "some" && !resourcesShown.keys.value.has(focus) },
-        onClearFocus: () => { setSelection(undefined); setLink(undefined); setChooser(undefined); }, nouns });
+        onClearFocus: () => { setSelection(undefined); setLink(undefined); setChooser(undefined); }, nouns, search });
     const readOnly = value.settings.readOnly || (current && !editableStatus(heldPeriod.status));
     const notStarted = current && plan.bins.size === 0 && (value.periods.type === "none" || !started(period));
+    // A started day with no bins, once read (#1398, CL13): said once, in the Timeline's first row in view — with how to
+    // book one where the day takes edits — never before its read lands, and never as the narrowing's empty state.
+    const empty = current && plan.bins.size === 0 && !notStarted
+        ? { message: `No bins on ${dayWords}`, hint: commands.canEdit() ? `Drag ${a(nouns.arrival)} onto ${a(nouns.lane)} hour` : undefined } : undefined;
     /** A session's issue's place: a bin by its arrival and its slot, a day's row by its key. */
     const where = (kind: string) => (issue: { entry: string }) => {
         if (kind === PERIODS) return issue.entry;
@@ -333,24 +517,40 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         return bin === undefined ? issue.entry : `${binCode(context, bin)} · ${value.lanes.find(l => l.key === bin.lane)?.label ?? bin.lane} ${formatDatePattern("HH:mm", bin.at)}`;
     };
     const sessionName = (kind: string) => kind === PERIODS ? "Days" : value.bin.kind.name;
-    const loading = (!current && data.error === undefined) || narrowing.some(n => !n.ready && n.loading);
-    return <NounsContext.Provider value={nouns}><Box ref={root} css={styles.root} data-allocation-frame="" data-allocation-readonly={readOnly ? "" : undefined}>
-        <AllocationDataReader value={value} day={day} pickerDays={picker} onData={setData} />
-        <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={loading} toolbar={toolbar}
+    // Cold load (#1398, CL5): no day read yet, nor a narrowing's first membership — the frame's skeleton covers it, at the
+    // board's own row pitch. After it nothing covers: a day step, a narrowing or a new revision leave the frame live.
+    const cold = (!data.landed && data.error === undefined) || narrowing.some(n => !n.ready && n.loading);
+    // After cold load a read in flight — the day, a narrowing — leaves the frame live, main busy.
+    const busy = data.loading || narrowingLoading;
+    // The board's narrowing, and whether its rows are in (#1398): across a new one the Table keeps the line at the top of
+    // its view where the narrowing holds it — by its key, and the px into it — and else starts at its top, as the Sheet
+    // keeps its own.
+    const narrowingQuery = narrowingText(value, binChoices);
+    const narrowingSettled = !data.filtering && !narrowingLoading && !narrowingFailed;
+    const tableNarrowing = useMemo(() => ({ query: narrowingQuery, settled: narrowingSettled }), [narrowingQuery, narrowingSettled]);
+    return <NounsContext.Provider value={nouns}><BinFocusContext.Provider value={binFocused}><Box ref={root} css={[styles.root, landingStyles.main]} data-allocation-frame=""
+        data-allocation-readonly={readOnly ? "" : undefined} onPointerDownCapture={dropBinFocus} onKeyDownCapture={dropBinFocus} {...landing.attributes}>
+        <AllocationDataReader value={value} day={day} pickerDays={picker} choices={binChoices} onData={setData} />
+        <LoadingReveal waiting={line?.kind === "loading"}>
+        <BuilderFrame storageKey={`${key}.frame`} label={value.settings.title} loading={cold} loadingPitch={ROW_H} busy={busy} liveFooter toolbar={toolbar}
             start={start} end={end} onKeyDown={event => {
-            // The keys, never while typing (A6).
+            // The keys, never while typing (A6); each it acts on goes no further than the board (#1398).
             if (event.defaultPrevented || typedInto(event.target)) return;
             const action = historyShortcut(event);
-            if (action !== undefined && history !== undefined && !value.settings.readOnly && (commands.canEdit() || history.pending > 0)) { event.preventDefault(); onAction(action); }
-            else if (event.key === "[" || event.key === "]") { event.preventDefault(); window.step(event.key === "[" ? -1 : 1); }
-            // Esc closes the inspector's Chooser, else clears the pick, else the selection (A6).
-            else if (event.key === "Escape" && chooser !== undefined) setChooser(undefined);
-            else if (event.key === "Escape" && pick !== undefined) setPick(undefined);
-            else if (event.key === "Escape") { setSelection(undefined); setLink(undefined); setNotice(undefined); setError(undefined); setRefusal(undefined); }
+            if (action !== undefined && history !== undefined && !value.settings.readOnly && !locked && (commands.canEdit() || history.pending > 0)) { takeKey(event); onAction(action); }
+            else if (event.key === "[" || event.key === "]") { takeKey(event); window.step(event.key === "[" ? -1 : 1); }
+            // Esc closes the inspector's Chooser, else clears the pick, else the selection (A6) — none to let go of, it goes on.
+            else if (event.key === "Escape" && chooser !== undefined) { takeKey(event); setChooser(undefined); }
+            else if (event.key === "Escape" && pick !== undefined) { takeKey(event); setPick(undefined); }
+            else if (event.key === "Escape" && (selection !== undefined || link !== undefined || notice !== undefined || error !== undefined || refusal !== undefined)) {
+                takeKey(event);
+                setSelection(undefined); setLink(undefined); setNotice(undefined); setError(undefined); setRefusal(undefined);
+            }
             // Delete unlinks the selected link, else removes the selected bin (A6, A68).
-            else if ((event.key === "Delete" || event.key === "Backspace") && link !== undefined && commands.canEdit()) { event.preventDefault(); commands.unlink(link.bin, link.resource); }
-            else if ((event.key === "Delete" || event.key === "Backspace") && selection?.type === "bin" && commands.canEdit()) { event.preventDefault(); commands.remove(selection.id); }
-        }} banners={<>
+            else if ((event.key === "Delete" || event.key === "Backspace") && link !== undefined && commands.canEdit()) { takeKey(event); commands.unlink(link.bin, link.resource); }
+            else if ((event.key === "Delete" || event.key === "Backspace") && selection?.type === "bin" && commands.canEdit()) { takeKey(event); keepOnBoard(selection.id); commands.remove(selection.id); }
+        }} rootProps={CLICK_FOCUS} banners={<>
+            {optimiseParts.banner}
             {editing?.schedule.sessions.map(part => <SessionBanners key={part.key} session={part.session} words={words} name={sessionName(part.kind)} where={where(part.kind)}
                 onAction={action => editing.history.actOn(part.key, action)} />)}
             {current && heldPeriod.status.type === "published" && <BannerView status="info" title="Published day" description="Read-only view of the published plan." />}
@@ -365,33 +565,38 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
             {/* A fit that failed (F3): its message, and Retry; a drop meanwhile is refused with `fits unavailable`. */}
             {fitError !== undefined && <BannerView status="error" title="Fits couldn't be checked" description={fitError} actions={<Button size="xs" variant="outline" onClick={fit.retry}>Retry</Button>} />}
             {rangeError !== undefined && <BannerView status="error" title="Day unavailable" description={rangeError} />}
-            {(error ?? data.error) !== undefined && <Box css={styles.error} role="alert">{error ?? data.error}</Box>}
-        </>} footer={<AllocationFooter styles={styles} layout={window.view.layout} narrow={narrow} />}>
-            <Box ref={main} css={styles.main} data-allocation-main="" data-allocation-layout={window.view.layout} data-allocation-day={dayEpoch}
-                aria-busy={(!current && data.error === undefined) || narrowingLoading} inert={narrowingLoading || narrowingFailed ? true : undefined}
+            {/* A gesture's error; a read's is said once, in the board and on the footer's line (#1398, CL11). */}
+            {error !== undefined && <Box css={styles.error} role="alert">{error}</Box>}
+        </>} footer={<AllocationFooter styles={styles} layout={window.view.layout} line={line} optimise={{ line: optimiseParts.line, legend: optimiseParts.legend }} />}>
+            {/* The board: the keyboard's surface and its anchor, never a tab stop, as the Calendar's is — a click on a part of
+                it that holds nothing focusable puts the keyboard here, where `[` and `]` step the day, and a bin Delete takes
+                away leaves it here. */}
+            <Box ref={main} css={styles.main} data-allocation-main="" tabIndex={-1} data-allocation-layout={window.view.layout} data-allocation-day={dayEpoch}
+                aria-disabled={retained && read.state !== "failed" ? true : undefined} data-allocation-stale={stale ? "" : undefined}
                 data-allocation-narrow={narrow ? "" : undefined}>
-                {!current && data.error !== undefined ? <StatusDisplay variant="error" title="Allocation unavailable" message={data.error} />
-                    // Below 480px of main, cards with explicit actions, each one of the board's commands (A78); resizing keeps the layout, the
-                    // selection and the drafts, which are the frame's.
-                    : narrow ? <AllocationCards value={value} context={context} styles={styles} day={day} plan={plan} held={held}
+                {/* Below 480px of main, cards with explicit actions, each one of the board's commands (A78); resizing keeps the layout, the
+                    selection and the drafts, which are the frame's. */}
+                {narrow ? <AllocationCards value={value} context={context} styles={styles} day={day} plan={plan} held={held}
                         sameBin={domain.sameBin} loads={loads} lines={lines} slots={slots} layout={window.view.layout} surface={drag.surface}
                         selection={selection} select={inspect} follow={follow} editable={commands.canEdit()} commands={commands} fit={fit}
                         without={without} reserving={reserving} visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys}
-                        visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters}
+                        visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters} read={read} optimised={optimised} lit={landing.lit}
                         bookOnto={(arrival, resource) => { setRefusal(undefined); bookOnto(scene, { kind: "arrival", arrival }, resource); }} />
                     : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={day} plan={plan}
                         held={held} sameBin={domain.sameBin} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
-                        visibleArrivals={arrivalsShown.keys}
+                        visibleArrivals={arrivalsShown.keys} read={read} empty={empty} optimised={optimised} lit={landing.lit}
                         clearFilters={clearFilters} selection={selection} focus={focus} highlight={highlight} picked={pickGrip !== undefined} book={bookPicked}
                         editable={commands.canEdit()} select={inspect} choose={id => { inspect({ type: "bin", id }); setChooser(id); revealPane("Inspector"); }} follow={follow}
                         link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} />
                     : <AllocationTable value={value} domain={domain} context={context} styles={styles} format={format} day={day} plan={plan} held={held}
                         sameBin={domain.sameBin} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={inspect} follow={follow}
-                        drag={drag} commands={commands} fit={fit} without={without} reserving={reserving} highlight={highlight} book={bookPicked}
-                        visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters} />}
+                        drag={drag} commands={commands} fit={fit} without={without} reserving={reserving} highlight={highlight} book={bookPicked} read={read}
+                        visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters}
+                        anchor={anchor.table} onAnchor={onTableAnchor} narrowing={tableNarrowing} optimised={optimised} lit={landing.lit} />}
             </Box>
         </BuilderFrame>
-    </Box></NounsContext.Provider>;
+        </LoadingReveal>
+    </Box></BinFocusContext.Provider></NounsContext.Provider>;
 }
 
 /** The board over the app's records: its key, its day — written into the bins' source — and its editing, around the frame. */

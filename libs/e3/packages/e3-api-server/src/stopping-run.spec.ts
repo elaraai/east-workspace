@@ -5,7 +5,8 @@
 
 /**
  * A run that stops after its cancel answers (#1286): its poll answers it
- * `stopping` while its store says a cancel was requested, and a start or a
+ * `stopping` while its store says a cancel was requested, or once it has ended
+ * while it still holds the dataflow lock it took as it started, and a start or a
  * workspace's removal the workspace's lock refuses while a stopping run holds
  * it is answered `workspace_locked` with a `Retry-After` — one asked to stop
  * that has not, or one that has ended and still holds the dataflow lock it took
@@ -31,7 +32,7 @@ const REPO = 'test-repo';
 const WS = 'main';
 
 /** A run's state, of no tasks, in workspace `main`, which ended at `completedAt` if given. */
-function runState(id: string, status: 'running' | 'cancelled', completedAt?: Date): DataflowExecutionState {
+function runState(id: string, status: 'running' | 'completed' | 'cancelled', completedAt?: Date): DataflowExecutionState {
   return {
     release: E3_RELEASE, id, repo: REPO, workspace: WS, startedAt: new Date(Date.now() - 60_000), force: dataflowForce(false), filter: none,
     graph: none, graphHash: none, tasks: new Map(), executed: 0n, cached: 0n, failed: 0n, skipped: 0n, status,
@@ -112,6 +113,37 @@ describe('a run that is stopping (#1286)', () => {
     assert.equal(await poll(), 'stopping');
     await inner.updateStatus(REPO, WS, 'run-1', 'cancelled');
     assert.equal(await poll(), 'aborted');
+  });
+
+  it('is polled as stopping once it has ended until it lets its workspace go, and as ended after', async () => {
+    const storage = new InMemoryStorage();
+    const store = new InMemoryStateStore();
+    const app = new Hono();
+    app.route('/api/repos/:repo/workspaces/:ws/dataflow', createExecutionRoutes(storage, () => REPO, {
+      getRunner: () => new MockTaskRunner(),
+      getOrchestrator: () => new LocalOrchestrator(store),
+      getStateStore: () => store,
+    }));
+    const poll = async () => {
+      const answer = decodeBeast2For(ResponseType(DataflowExecutionStateType))(
+        new Uint8Array(await (await app.request(`/api/repos/r/workspaces/${WS}/dataflow/execution?limit=0`)).arrayBuffer()));
+      if (answer.type !== 'success') assert.fail(`the poll was refused: ${answer.value.type}`);
+      return { status: answer.value.status.type, ended: answer.value.summary.type === 'some' };
+    };
+
+    // A run that has recorded its end, and still holds the dataflow lock it
+    // took as it started: a gc asked of now would be refused.
+    const lock = await holdDataflowLock(storage);
+    await store.create(runState('run-1', 'completed', new Date(Date.now() + 1_000)));
+    assert.deepEqual(await poll(), { status: 'stopping', ended: true });
+    await lock.release();
+    assert.deepEqual(await poll(), { status: 'completed', ended: true });
+
+    // A dataflow lock taken after a run ended is another's: the run has let go.
+    await store.create(runState('run-2', 'cancelled', new Date(Date.now() - 1_000)));
+    const later = await holdDataflowLock(storage);
+    assert.deepEqual(await poll(), { status: 'aborted', ended: true });
+    await later.release();
   });
 
   it('refuses a start with a Retry-After while it holds the workspace, and with none while a run that runs does', async () => {

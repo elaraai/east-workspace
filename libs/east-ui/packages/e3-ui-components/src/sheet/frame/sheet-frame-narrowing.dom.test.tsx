@@ -5,14 +5,15 @@
  * @vitest-environment jsdom
  *
  * The Sheet's narrowing (#1345): one rail over its `Slice.bindRecords`, each
- * source filtering every place its records appear — the `rows` source the grid,
- * which pages what it narrows to; each templates list's source the Rows tab's
- * cards of that list; an author's tab the source it names — each tab counting
- * what it shows and saying so when its sources empty it, with their Clear
- * filters; a saved view holding every source's narrowing and restoring it; a
- * draft the narrowing hides kept and saved by its original key; the folds a
- * view keeps (#857), over a record's rows; and the lens switched off until
- * #1349. Over the workshop's records on e3 itself (`harness.test-utils.tsx`,
+ * source narrowing every place its records appear — the `rows` source the grid,
+ * which draws its narrowing over the record's orders as the lens (#1349); each
+ * templates list's source the Rows tab's cards of that list; an author's tab
+ * the source it names — each tab counting what it shows and saying so when its
+ * sources empty it, with their Clear filters; a saved view holding every
+ * source's narrowing and restoring it; a draft the narrowing hides kept and
+ * saved by its original key; the folds a view keeps (#857), over a record's
+ * rows; and a sheet that opens on a view opening at the top of its narrowing,
+ * over the stress sheet's two thousand jobs (#1349). Over the workshop's records on e3 itself (`harness.test-utils.tsx`,
  * #1376), the sheet in a Reactive root as a ui task draws it, the rail written
  * as its chips write it. That no function holds the whole slice is e3-ui's one
  * guard over every builder's examples (#1356). A filter change builds nothing
@@ -27,9 +28,11 @@ import { Reactive, RecordSlicesChromeType, Slice, State, UIComponentType, record
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { act, programOf, settle, sheetHarness, slot, tabs } from "./harness.test-utils.js";
+import { frameScrolls } from "../frame.test-utils.js";
 import { countBuilds } from "../../shared/builds.test-utils.js";
 
-const h = sheetHarness();
+/** A frame tall enough to draw every order of the workshop, its lines open, at once. */
+const h = sheetHarness({ frame: 2000 });
 
 /** The rail's key: the sheet's and the test's writes share it. */
 const KEY = "sheet_narrowing_dom";
@@ -61,8 +64,8 @@ const sources = () => ({
  * The workshop's orders under one rail, the two templates lists following its
  * sources and an author's tab of the operation templates following one — in
  * a Reactive root, as a ui task draws it. A narrowing written to the rail is
- * read where the rows are read: the grid pages what its `rows` source narrows
- * to now, and nothing builds the sheet again (#1354).
+ * read where the rows are read: the grid draws its `rows` source's narrowing as
+ * it stands over the orders, and nothing builds the sheet again (#1354).
  */
 const sheet = (opts: { views?: readonly View[]; activeView?: string } = {}) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
@@ -123,19 +126,39 @@ async function openTab(container: HTMLElement, name: string) {
 /** A view tab of the toolbar's, by its id. */
 const viewTab = (container: HTMLElement, id: string) => container.querySelector<HTMLElement>(`[data-slot="tab"][data-tab="${id}"]`)!;
 
-test("a record-bound Sheet narrowed by its `rows` source shows no lens controls and lists only the rows it narrows to (#1345, #1349)", async () => {
+test("a record-bound Sheet draws its `rows` source's narrowing over the orders as the lens, a filtered spreadsheet: the matching orders alone, one after another at their numbers, their lines marked, nothing between them, and the count line the matches (#1345, #1349)", async () => {
     const { container } = await h.mount(sheet());
     const part = railParts();
+    const main = () => slot(container, "main")!;
+    const root = () => main().querySelector<HTMLElement>("[data-sheet]")!;
+    const number = (id: string) => band(container, id)!.querySelector('[data-slot="gutterNumber"]')!.textContent;
     await waitFor(() => expect(bands(container)[0]).toBe("WO-2201"));
+    // Nothing narrows the orders: no lens, and no count line.
+    expect(root().hasAttribute("data-lens")).toBe(false);
+    expect(container.querySelector('[data-slot="toolbarCount"]')).toBeNull();
     await act(async () => { part("rows").choose("status", [print("ON HOLD")]); });
     await waitFor(() => expect(bands(container)).toEqual(["WO-2204"]));
-    // No lens: no context switch, no count line, no band standing for the rows the narrowing leaves out.
-    expect(slot(container, "main")!.querySelector("[data-sheet]")!.hasAttribute("data-lens")).toBe(false);
-    expect(container.querySelector('[data-slot="contextSwitch"], [data-slot="contextOption"], [data-slot="toolbarCount"]')).toBeNull();
-    expect(container.querySelector('[data-slot="band"]')).toBeNull();
-    // Its lines are the matching order's alone, numbered as its own.
-    const lines = [...slot(container, "main")!.querySelectorAll<HTMLElement>('[data-slot="row"][data-group-id]')];
+    expect(root().hasAttribute("data-lens")).toBe(true);
+    expect(container.querySelector('[data-slot="toolbarCount"]')!.textContent).toBe("1 match");
+    // The match keeps its number, the fourth order's; nothing stands for the orders the narrowing leaves out.
+    expect(number("WO-2204")).toBe("4");
+    expect(main().querySelectorAll('[data-slot="band"]')).toHaveLength(0);
+    // Its lines are the matching order's alone, each marked a match.
+    const lines = [...main().querySelectorAll<HTMLElement>('[data-slot="row"][data-group-id]')];
     expect(new Set(lines.map((line) => line.dataset["groupId"]))).toEqual(new Set(["WO-2204"]));
+    expect(lines.every((line) => line.querySelector('[data-slot="gutterNumber"]')!.hasAttribute("data-hit"))).toBe(true);
+    // The toolbar offers no control over the lens: no rows shown beside the matches.
+    expect(container.querySelector('[role="radiogroup"]')).toBeNull();
+    // Two statuses: their orders one after another, each at its own number.
+    await act(async () => { part("rows").choose("status", [print("ON HOLD"), print("PLANNED")]); });
+    await waitFor(() => expect(bands(container)).toEqual(["WO-2202", "WO-2203", "WO-2204", "WO-2205", "WO-2206"]));
+    expect(["WO-2202", "WO-2203", "WO-2204", "WO-2205", "WO-2206"].map(number)).toEqual(["2", "3", "4", "5", "6"]);
+    expect(container.querySelector('[data-slot="toolbarCount"]')!.textContent).toBe("5 matches");
+    expect(main().querySelectorAll('[data-slot="band"]')).toHaveLength(0);
+    // Cleared: every order, no lens.
+    await act(async () => { part("rows").clearAll(); });
+    await waitFor(() => expect(bands(container)).toEqual(["WO-2201", "WO-2202", "WO-2203", "WO-2204", "WO-2205", "WO-2206"]));
+    expect(root().hasAttribute("data-lens")).toBe(false);
 });
 
 test("each source filters only its own places: the templates' sources the Rows tab's cards of their lists and the tab that names one, the `rows` source the grid (#1345)", async () => {
@@ -245,7 +268,7 @@ test("a draft the narrowing hides is kept, and saved by its original key (#1345)
 
 test("folds left on a view come back when the sheet opens on it again (#857)", async () => {
     const planned: View = {
-        id: "planned", name: "PLANNED", context: 0n, reveals: [], folds: new Map(),
+        id: "planned", name: "PLANNED", folds: new Map(),
         narrowing: new SortedMap([["rows", { where: new Map([["status", variant("values", [print("PLANNED")])]]), preset: none, resolution: none }]], compareFor(StringType)),
     };
     let ui = await h.mount(sheet({ views: [planned], activeView: "planned" }));
@@ -260,6 +283,30 @@ test("folds left on a view come back when the sheet opens on it again (#857)", a
     ui = await h.mount(sheet({ views: [planned], activeView: "planned" }));
     await waitFor(() => expect(view()).toBe("planned"));
     await waitFor(() => expect(band(ui.container, "WO-2202")?.hasAttribute("data-folded")).toBe(true));
+});
+
+test("a sheet that opens on a saved view opens at the top of its narrowing, never at the end of the band the lens draws there before it has read the rows (#1349)", async () => {
+    const restore = frameScrolls();
+    try {
+        // The stress sheet opens on its SPRAYING view. Its first rows are the record's first Spraying jobs, one after
+        // another in the record's order: its keys'.
+        const jobs = await h.read(ex.sheetStressJobs);
+        const keys = [...jobs.keys()].sort(compareFor(StringType));
+        const top = keys.filter((key) => stringEqual(jobs.get(key)!.activity, "Spraying")).slice(0, 3);
+        expect(top).toHaveLength(3);
+        const { container } = await h.mount(ex.sheetStress, { storageKey: "sheet-stress-open" });
+        const main = () => slot(container, "main")!;
+        const ids = () => [...main().querySelectorAll<HTMLElement>('[data-slot="row"][data-row-id]')].map((row) => row.dataset["rowId"]);
+        await waitFor(() => expect(main().querySelector("[data-sheet]")!.getAttribute("data-view")).toBe("spraying"));
+        await waitFor(() => expect(ids().slice(0, top.length)).toEqual(top));
+        await settle();
+        // At the top: the lens's first layout, a band where its rows were still to be read, far taller than the frame,
+        // never scrolled to its end.
+        expect(main().querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!.scrollTop).toBe(0);
+        expect(ids().slice(0, top.length)).toEqual(top);
+    } finally {
+        restore();
+    }
 });
 
 test("a choice on the rail builds the sheet no more: the grid's rows and the Rows tab's cards follow it over the payload it mounted with (#1354)", async () => {
@@ -283,21 +330,28 @@ test("a choice on the rail builds the sheet no more: the grid's rows and the Row
     }
 });
 
-test("a choice keeps the rows on screen, the grid busy, until the new narrowing's first window lands; then its rows (#1354)", async () => {
+test("a choice keeps the rows on screen, the grid busy and the footer saying so, until the lens has read the narrowing's rows near the view; then its rows (#1354, #1349, #1398)", async () => {
     const { container } = await h.mount(sheet());
     const part = railParts();
     await waitFor(() => expect(bands(container)[0]).toBe("WO-2201"));
-    const card = () => slot(container, "main")!.querySelector<HTMLElement>("[data-sheet-card]")!;
+    const main = () => slot(container, "main")!;
+    const line = () => slot(container, "footer")!.querySelector<HTMLElement>("[data-footer-line]")!;
     const shown = bands(container);
-    // Every window of the orders held on its way to e3 from now, until let land.
-    const windows = h.e3.hold((request) => request.kind === "page" && request.dataset === ORDERS);
+    // Every read of which orders a narrowing holds, held on its way to e3 from now until let land.
+    const windows = h.e3.hold((request) => request.kind === "within" && request.dataset === ORDERS);
     await act(async () => { part("rows").choose("status", [print("ON HOLD")]); });
     await settle();
-    // The narrowing's rows are on the wire: the last rows stand in, and the grid says it is busy.
+    // The lens's read of which orders near the view the narrowing holds is on the wire: the last rows stand in,
+    // and the frame's main, which they are in, says it is busy — the frame live, nothing covering it.
     expect(windows.held).toBeGreaterThan(0);
     expect(bands(container)).toEqual(shown);
-    expect(card().getAttribute("aria-busy")).toBe("true");
+    expect(main().getAttribute("aria-busy")).toBe("true");
+    expect(container.querySelector('[data-builder-frame][aria-busy="true"]')).toBeNull();
+    // Once the wait passes its reveal, the footer's loading line says what is read, in what the rail counts the rows in (CL3).
+    await waitFor(() => expect(line().querySelector("[data-line-text]")?.textContent).toBe("Filtering orders…"));
     await act(async () => { windows.release(); });
     await waitFor(() => expect(bands(container)).toEqual(["WO-2204"]));
-    expect(card().hasAttribute("aria-busy")).toBe(false);
+    await waitFor(() => expect(main().getAttribute("aria-busy")).toBe("false"));
+    // The line goes once its hold is over: nothing is in flight.
+    await waitFor(() => expect(line().hasAttribute("data-idle")).toBe(true));
 });

@@ -48,6 +48,13 @@ duties can drive a Calendar and the Roster at the same time.
 | **Writes** (`events`, `Schedule.events`) | unchanged | unchanged | the app's duties (was `weeks`, a `Roster.Types.Weeks` record) | the app's bins (was `days`, an `Allocation.Types.Days(V)` record) |
 | **Reads** (`resources`, `Schedule.resources`) | unchanged | unchanged | people and agencies, and accessors over the app's rows for shifts, groups, positions, activities and proposals | lanes and resources, and `arrivals` |
 | **Publishes** (`periods`, `Schedule.periods`) | none; can take `periods` later unchanged | none; as the Calendar | the app's weeks | the app's days; leave it out for no Publish |
+| **Optimises** (`optimise`, `Func.bind` of the app's `e3.function`, #1409; the `Optimise Spec.md`) | the window and the backlog: `Calendar.Types.OptimiseRequest(E, S)` → `OptimiseResult(E)` | the window and the backlog: `Plan.Types.OptimiseRequest(E, S)` → `OptimiseResult(E)` | the week: `Roster.Types.OptimiseRequest(R)` → `OptimiseResult(R)` | the day: `Allocation.Types.OptimiseRequest(R)` → `OptimiseResult(R)` |
+
+The optimiser's answer is one edit of the session (#1409): the builder diffs
+it against the request by key and records the diff as one step of its
+history — Undo in one, Save with everything else — and marks what the run
+left until Apply. The Sheet takes `optimise` the same way, over
+`Sheet.Types.OptimiseRequest(R)` → `OptimiseResult(R)`.
 
 ## 2. What is removed
 
@@ -286,6 +293,7 @@ interface RosterProps {
     rules?: { rest?: number; lead?: boolean; trainer?: boolean; skill?: boolean };
     check?: SubtypeExprOrValue<FunctionType<[CheckContext(R)], ArrayType<Issue>>>;
     fit?: BoundFunc<[FitRequest(R)], FitResult>;
+    optimise?: BoundFunc<[OptimiseRequest(R)], OptimiseResult(R)>;   // the Elara eye (#1409): one run over the week in view, its answer one step
     slice?: RecordSlicesChromeOptions;                 // sources: the duty kind's slot, `targets`, `people`, `activities`
     library?: readonly RosterLibraryTab[];
     inspector?: boolean;
@@ -521,7 +529,7 @@ export const Suggestion = StructType({ person: StringType, day: DateTimeType, te
 
 export const duties = e3.record("warehouse_duties", DictType(StringType, Duty), dutySeed);
 export const dutiesPatch = e3.mutation.patch(duties);
-export const dutiesByTime = e3.recordIndex("warehouse_duties_by_time", duties, { interval: { from: "start", to: "end" } });
+export const dutiesByTime = e3.recordIndex.interval("warehouse_duties_by_time", duties, { from: "start", to: "end" });
 export const rotaWeeks = e3.record("warehouse_rota_weeks", DictType(DateTimeType, RotaWeek), new Map());
 export const rotaWeeksPatch = e3.mutation.patch(rotaWeeks);
 export const cover = e3.record("warehouse_cover", DictType(StringType, Cover), coverSeed);
@@ -645,6 +653,7 @@ interface AllocationProps {
     arrivals: AllocationArrivals;                     // Allocation.arrivals(rows, …)
     periods?: SchedulePeriods;                        // Publish; without it, none
     fit: BoundFunc<[FitRequest(R)], FitResult>;
+    optimise?: BoundFunc<[OptimiseRequest(R)], OptimiseResult(R)>;   // the Elara eye (#1409): one run over the day in view, its answer one step
     check?: SubtypeExprOrValue<FunctionType<[CheckContext(R)], ArrayType<Issue>>>;
     columns?: readonly { key: string; label: string; text: (row) => String; tone?: (row) => Option<StatusToken>; table?: boolean }[];
     slice?: RecordSlicesChromeOptions;                // sources: the bin kind's slot, the lanes' and resources' slots, `arrivals`
@@ -764,7 +773,7 @@ export const KilnBin = StructType({
 export const YardDay = StructType({ state: VariantType({ draft: NullType, issued: StructType({ at: DateTimeType }) }) });
 export const kilnBins = e3.record("kiln_bins", DictType(StringType, KilnBin), binSeed);
 export const kilnBinsPatch = e3.mutation.patch(kilnBins);
-export const kilnBinsByTime = e3.recordIndex("kiln_bins_by_time", kilnBins, { interval: { from: "at", to: "at" } });
+export const kilnBinsByTime = e3.recordIndex.interval("kiln_bins_by_time", kilnBins, { from: "at", to: "at" });
 export const yardDays = e3.record("yard_days", DictType(DateTimeType, YardDay), daySeed);
 export const yardDaysPatch = e3.mutation.patch(yardDays);
 ```

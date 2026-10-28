@@ -11,6 +11,17 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
 - `src/containers/` — JS runtime containers (sorted set / dict, variants).
 - `src/expr/` — fluent expression builder.
 - `src/serialization/` — JSON, Beast2, CSV, East text format.
+- `src/compile/` — the reference compiler, IR to JavaScript closures
+  (`ir.ts`, a module per node family, the builtins in `builtins/`). Control
+  flow is compiled as values (`flow.ts`): a `return`, `continue` or `break`
+  gives a signal where a value would be, and the statements around it give
+  it back to the loop or function it is for, never throwing it. One walk of
+  the IR as each compile starts says which nodes a signal can leave, so code
+  with none runs without a check. Only under a node that computes a value
+  from its children's — a call, a builtin or platform call, a constructor, a
+  field read — is a signal thrown, and the nearest statement gives it back
+  (`src/compile.control_flow.spec.ts`; the cross-runtime cases are the Block
+  suite's). `make control-bench` times it, by hand, never in CI.
 - `src/codegen/` — the IR → TypeScript printer (`East.toSource`; `printer.ts` —
   given `libraries`, a platform call prints as the library exports its
   declaration handle (`Compression.Tar.create`), else as a declaration named

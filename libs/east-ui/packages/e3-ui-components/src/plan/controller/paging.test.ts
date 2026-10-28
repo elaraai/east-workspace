@@ -21,7 +21,7 @@
  */
 
 import { describe, test, expect, vi } from "vitest";
-import { some, none, variant } from "@elaraai/east";
+import { some, none, variant, type option } from "@elaraai/east";
 import {
     GROUP_H, ROW_H, indexRows, restUi, rowHeight, skeletonHeight, visibleRows, windowSkeleton,
     type PlanRowValue, type PlanWireBlock, type PlanWireRow, type WindowSkeleton,
@@ -32,14 +32,17 @@ import { rowId, rowKey, testKeyOf } from "../plan.test-utils.js";
 
 const ROW_PX = 32;
 
-/** One paged block's rows (#823) — a data series' share of a window. */
-function paged(rows: PlanWireRow[], parent?: string): PlanWireBlock {
-    return { fixed: false, parent: parent !== undefined ? some(rowId(parent)) : none, rows } as unknown as PlanWireBlock;
+/** One paged block's rows (#823) — a data series' share of a window, each entry making `charts` chart rows where it
+ *  says so (#1398). */
+function paged(rows: PlanWireRow[], parent?: string, charts?: bigint): PlanWireBlock {
+    return {
+        fixed: false, parent: parent !== undefined ? some(rowId(parent)) : none, charts: charts !== undefined ? some(charts) : none, rows,
+    } as unknown as PlanWireBlock;
 }
 
 /** A fixed block — rows no entry produces, the same in every window. */
 function fixed(rows: PlanWireRow[]): PlanWireBlock {
-    return { fixed: true, parent: none, rows } as unknown as PlanWireBlock;
+    return { fixed: true, parent: none, charts: none, rows } as unknown as PlanWireBlock;
 }
 
 /** A skeleton carrying what these tests measure by — a row count. The model's
@@ -102,6 +105,10 @@ function drive(src: PlanPagedSourceValue, heights: Pick<PagingDriverOptions, "sk
         report: (at: PlanViewport, scrolling = false) => d.reportViewport(at, scrolling),
     };
 }
+
+/** A Retry reads again a microtask on, once the source's refresh has rearmed what failed (#1398): what a test
+ *  awaits before it looks. */
+const afterRearm = () => new Promise<void>((resolve) => { queueMicrotask(resolve); });
 
 const residentText = (s: PlanPagingSnapshot) => (s.resident ? `${s.resident.from}-${s.resident.to}` : "-");
 const bandText = (b: { from: number; to: number } | undefined) => (b ? `${b.from}-${b.to}` : "-");
@@ -524,7 +531,7 @@ describe("paging driver — a window loading beside the run never moves it (#876
         expect(bandText(head(snap()))).toBe("0-599");
     });
 
-    test("a row report anchors the run where its row is, after a band report anchored it further down", () => {
+    test("a row report anchors the run where its row is, after a band report anchored it further down", async () => {
         const failing = new Set([1]);
         const inFlight = new Set<number>();
         const { value } = onTheWire(50, inFlight, 25, failing);
@@ -546,6 +553,7 @@ describe("paging driver — a window loading beside the run never moves it (#876
             failing.delete(1);
             inFlight.add(1);
             d.retry(1);
+            await afterRearm();
             expect(snap().loading).toBe(true);
             expect(residentText(snap())).toBe("0-200");
             expect(bandText(head(snap()))).toBe("-");
@@ -642,7 +650,7 @@ describe("paging driver — a failed window (#811)", () => {
         }
     });
 
-    test("the failed window is not re-asked on its own; Retry asks it again and lands its rows", () => {
+    test("the failed window is not re-asked on its own; Retry asks it again and lands its rows", async () => {
         const { value, asked, state } = flaky(50);
         const err = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
@@ -656,9 +664,54 @@ describe("paging driver — a failed window (#811)", () => {
 
             state.failing = false;
             d.retry(1);
+            await afterRearm();
             expect(rowKeys(snap())).toContain("w0001r000");
             expect(snap().failures).toEqual([]);
             expect(asked.filter((w) => w === 1).length).toBe(askedBefore + 1);
+        } finally {
+            err.mockRestore();
+        }
+    });
+
+    test("Retry has the source rearm what failed before it reads again (#1398): a source that still holds the failure — the gap a read alone waits — gives the rows once rearmed", async () => {
+        // A source whose failed window keeps failing from what it holds until it is refreshed, as the paging runtime's
+        // does inside its retry gap; its refresh rearms it as the runtime's does, a microtask on.
+        const asked: number[] = [];
+        const refreshed: string[] = [];
+        let held = true;
+        const value = {
+            id: "rearmed-driver",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                asked.push(w);
+                if (w === 1 && held) throw new Error("fetch failed: 503");
+                const pad = String(w).padStart(4, "0");
+                return some([paged([wire(`w${pad}r000`), wire(`w${pad}r001`)])]);
+            },
+            total: () => some(BigInt(50 * PLAN_PAGE_SIZE)),
+            seek: none,
+            revision: () => none,
+            refresh: (target: option<string>) => {
+                refreshed.push(target.type);
+                queueMicrotask(() => { held = false; });
+                return null;
+            },
+        } as unknown as PlanPagedSourceValue;
+        const err = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const { d, snap, notified } = drive(value);
+            expect(snap().failures.map((f) => f.w)).toEqual([1]);
+            const before = notified();
+            const askedBefore = asked.filter((w) => w === 1).length;
+            // The footer's Retry names no window: every failure, and the source's own reads.
+            d.retry();
+            expect(refreshed).toEqual(["none"]);
+            await afterRearm();
+            expect(snap().failures).toEqual([]);
+            expect(rowKeys(snap())).toContain("w0001r000");
+            // Asked again once, after the rearm, in one notification.
+            expect(asked.filter((w) => w === 1)).toHaveLength(askedBefore + 1);
+            expect(notified()).toBe(before + 1);
         } finally {
             err.mockRestore();
         }
@@ -971,6 +1024,59 @@ describe("paging driver — a new narrowing is a new result (#1354)", () => {
         expect(asked).toEqual(before);
         expect(notified()).toBe(n);
     });
+
+    test("the snapshot names the narrowing its rows belong to — the stand-in the last one's, until the new one's rows land (#1344)", () => {
+        const { value, state } = narrowed(50);
+        const { d, snap } = drive(value);
+        expect(snap().narrowing).toBe("A");
+        // A choice: the view A drew stands in, and says it is A's.
+        state.narrowing = "B";
+        d.refresh();
+        expect(snap().replacing).toBe(true);
+        expect(narrowingsShown(snap())).toEqual(new Set(["A"]));
+        expect(snap().narrowing).toBe("A");
+        // B lands: its rows, and its name.
+        state.open.add("B");
+        d.refresh();
+        expect(snap().replacing).toBe(false);
+        expect(narrowingsShown(snap())).toEqual(new Set(["B"]));
+        expect(snap().narrowing).toBe("B");
+        // A source that names no narrowing names none.
+        expect(drive(source(5).value).snap().narrowing).toBeUndefined();
+    });
+
+    test("a window read ahead landing before the new narrowing's first leaves the last view standing, whole, until the first lands — where the new view opens (#1344)", () => {
+        // Each narrowing's windows land one by one, as the test lets them.
+        const state = { narrowing: "A", landed: new Set(["A:0", "A:1", "A:2"]) };
+        const value = {
+            id: "narrowed-out-of-order",
+            page: (offset: bigint) => {
+                const w = Number(offset) / PLAN_PAGE_SIZE;
+                if (!state.landed.has(`${state.narrowing}:${w}`)) return none;
+                const pad = String(w).padStart(4, "0");
+                return some([paged([wire(`w${pad}r000`, { narrowing: state.narrowing })])]);
+            },
+            total: () => some(BigInt(50 * PLAN_PAGE_SIZE)),
+            seek: none,
+            revision: () => some("R1"),
+            refresh: () => null,
+            query: () => state.narrowing,
+        } as unknown as PlanPagedSourceValue;
+        const { d, snap } = drive(value);
+        const before = snap();
+        // A choice, its second window landing first.
+        state.narrowing = "B";
+        state.landed.add("B:1");
+        d.refresh();
+        expect(snap().replacing).toBe(true);
+        expect(snap().rows).toBe(before.rows);
+        // Its first lands: its rows, from the top.
+        state.landed.add("B:0");
+        d.refresh();
+        expect(snap().replacing).toBe(false);
+        expect(narrowingsShown(snap())).toEqual(new Set(["B"]));
+        expect(rowKeys(snap())[0]).toBe("w0000r000");
+    });
 });
 
 describe("paging driver — blocks page apart (#823)", () => {
@@ -1060,6 +1166,19 @@ describe("paging driver — blocks page apart (#823)", () => {
         // at the rate window 0 drew (2 rows × 32px over 200 elements, floored
         // at 1px per element) — the header is in none of them.
         expect(tail(snap(), 1)!.px).toBe(47 * 200);
+    });
+
+    test("each paged block says what each entry makes of chart rows, as its shape says it; a fixed block says nothing (#1398)", () => {
+        const value = {
+            id: "charted",
+            page: () => some([fixed([wire("hdr")]), paged([wire("a")], undefined, 2n), paged([wire("b")])]),
+            total: () => some(BigInt(PLAN_PAGE_SIZE)),
+            seek: none,
+            revision: () => none,
+            refresh: () => null,
+        } as unknown as PlanPagedSourceValue;
+        const { snap } = drive(value);
+        expect(snap().blocks.map((b) => b.charts)).toEqual([undefined, 2, undefined]);
     });
 
     test("an unvisited window is estimated at the REST rate, a visited one at what it draws now", () => {

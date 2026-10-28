@@ -14,12 +14,20 @@
  * another resource (`split.tsx`, #1362), and Find a fit.
  * The bin's own fields — those no role maps — are the bin kind's: its form
  * over its `fields` (`FieldForm`), or its own `inspector` over the row, in
- * place of the quantity and the rows (#1372). Every edit is one of the
+ * place of the quantity and the rows (#1372). A bin's key is printed first
+ * among its facts, and a reservation's in a section of its own: what Search
+ * Records finds them by (#1398). Every edit is one of the
  * board's commands, a draft of the bins' session until Save; every fit is the
  * app's answer; every figure and word is e3-ui's or `inspector-model.ts`'s. The parts are the shared inspector's — its head,
  * its sections, its counts — with FieldForm, the Chooser, the anchored
  * popover, the banner, the segments, the stepper and the meter; the
  * `allocationInspector` recipe owns every style.
+ *
+ * Details keeps the keyboard (#1398): a control that goes with the view it was
+ * pressed in — Back to Arrivals, Unlink, Revert, Remove, a Book or a Reserve, a
+ * bin of a resource's day, `Open resource →`, a fit's Link or Move, the
+ * refusal's dismissal — leaves the focus on the heading of the view drawn in
+ * its place (`../shared/focus-home.ts`), never on the page's body.
  *
  * @packageDocumentation
  */
@@ -38,6 +46,7 @@ import {
     type FieldFormWords,
 } from "@elaraai/east-ui-components";
 import { Chooser, formatDatePattern } from "@elaraai/east-ui-components/internal";
+import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { linkedQuantity, remainderOf, splitOf, type AllocationCommands } from "./actions.js";
@@ -49,6 +58,7 @@ import {
     narrowingNote, rankedFits, reservationStatus, reserveOptions, resourceStatus, stepHelp, summaryHints, summaryLine, summaryStats, verdictLine, wasLine,
     type BookOption, type InspectorBanner, type InspectorStatus, type InspectorWords, type ResourceAt,
 } from "./inspector-model.js";
+import type { AllocationMessages } from "./messages.js";
 import {
     allocationWords, compareFloat, partsOf, type AllocationDomain, type AllocationValue, type Bin, type Context, type Day, type Issue, type Load,
     type ResourceLine, type Selection, type Slot,
@@ -61,8 +71,15 @@ import { countedIssues } from "./toolbar.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
-/** The Bin section's fields (A57): its lane and its time, each drawn by the board in the shared field, and its quantity. */
-const BIN_FIELDS = StructType({ lane: StringType, at: DateTimeType, quantity: FloatType });
+/**
+ * The Bin section's fields (A57): its key, printed — what Search Records finds it by (#1398) — its lane and its time, each
+ * drawn by the board in the shared field, and its quantity.
+ */
+const BIN_FIELDS = StructType({ key: StringType, lane: StringType, at: DateTimeType, quantity: FloatType });
+/** A reservation's own field: its key, printed (#1398). */
+const RESERVATION_FIELDS = StructType({ key: StringType });
+/** A printed field takes no edit. */
+const NO_EDIT = () => {};
 /** A part's field (A71): its quantity, an Option so its Clear unlinks it. */
 const PART = OptionType(FloatType);
 /** A bin's parts as a struct: a field per part, named by its resource's key, as the bin's parts are keyed — the key the shared field shows. */
@@ -113,6 +130,8 @@ export interface InspectorArgs {
     onFind?: ((bin: string) => void) | undefined;
     /** Whether a bin's find is asked and its answer for the drafts as they are is on its way: its button reads `Finding…`. */
     finding?: ((bin: string) => boolean) | undefined;
+    /** The board's message table: what a bin's Details call its key. */
+    m: AllocationMessages;
 }
 
 /** What every part reads. */
@@ -153,10 +172,16 @@ export function useAllocationInspector(args: InspectorArgs): BuilderFrameDock | 
         ...(count > 0 ? { badge: count, mark: { icon: "triangle-exclamation", label: plural(count, "issue"), tone: "warning" as const } } : {}),
         tab: dragging || args.tab !== "issues" ? "details" : "issues", onTabChange: args.onTab,
         tabs: [
-            { key: "details", label: "Details", body: <Box css={styles.root} data-allocation-inspector="details"><Details {...part} /></Box> },
+            { key: "details", label: "Details", body: <DetailsTab {...part} /> },
             { key: "issues", label: "Issues", count, body: <Box css={styles.root} data-allocation-inspector="issues"><IssuesTab {...part} /></Box> },
         ],
     };
+}
+
+/** The Details tab, in a region that keeps the keyboard as a control goes with its view, on the heading of the view drawn in its place. */
+function DetailsTab(part: Part) {
+    const home = useFocusHome();
+    return <Box ref={home.ref} css={part.styles.root} onFocus={home.onFocus} onBlur={home.onBlur} data-allocation-inspector="details"><Details {...part} /></Box>;
 }
 
 /** Details (A55): the refusal's note, the drop list during a drag or a pick, else what is selected, else the summary. */
@@ -222,7 +247,7 @@ function DropList({ subject, dragging, ...part }: Part & { subject: Grip; draggi
     });
     const fits = head.fits ? rankedFits(drag.answer, drag.ranks, context) : [];
     return <>
-        <Box css={styles.head} data-allocation-drop-head="">
+        <Box css={styles.head} data-allocation-drop-head="" {...FOCUS_HOME_PROPS}>
             <Box css={styles.eyebrow}>{head.eyebrow}</Box>
             <Box css={styles.name}>{head.title}</Box>
             {head.meta !== "" && <Box css={styles.when}>{head.meta}</Box>}
@@ -277,7 +302,7 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
     const find = args.onFind !== undefined && compareFloat(remainderOf(bin), 0) > 0 ? args.onFind : undefined;
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: committed === undefined ? "New bin" : `Bin ${id}`, icon: "box" }} title={`${code} · ${words.quantity(bin.quantity)}`}
-            when={arrival?.meta.type === "some" ? arrival.meta.value : undefined} status={statusOf(status)} pending={status.pending}>
+            when={arrival?.meta.type === "some" ? arrival.meta.value : undefined} status={statusOf(status)} pending={status.pending} home>
             {(editable || find !== undefined) && <Box css={styles.headActions} data-allocation-bin-actions="">
                 {editable && bin.parts.size > 0 && <Button size="xs" variant="outline" onClick={() => commands.unlink(id)}><FontAwesomeIcon icon={faLinkSlash} />Unlink</Button>}
                 {editable && committed !== undefined && draft && <Button size="xs" variant="outline" onClick={() => commands.revert(id)}><FontAwesomeIcon icon={faRotateLeft} />Revert</Button>}
@@ -310,9 +335,12 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
 }
 
 /**
- * The Bin section (A57): its lane — the shared segments, a change its lane's
- * slot in the same hour — its time — the shared stepper, a slot at a time —
- * and its quantity, each a field of the shared form; then the row's own
+ * The Bin section (A57): its key, printed — what Search Records finds it by
+ * (#1398) — its lane — the shared segments, a change its lane's slot in the
+ * same hour — its time — the shared stepper, a slot at a time — and its
+ * quantity, each a field of the shared form; on a day that takes no edit its
+ * lane, by its name, and its time are printed as the form prints every field,
+ * with no segments or stepper (the hand retest); then the row's own
  * fields, the bin kind's form over its `fields`, and the app's columns as
  * rows — or, with the bin kind's own `inspector`, that form over the row in
  * place of the quantity, the fields and the rows.
@@ -338,17 +366,25 @@ function BinSection({ id, bin, committed, ...part }: Part & { id: string; bin: B
     const parts = partsOf(bin);
     const whole = parts.length === 1 && compareFloat(parts[0]!.quantity, bin.quantity) === 0;
     const min = whole ? 0 : parts.reduce((n, p) => n + p.quantity, 0);
-    const help = stepHelp(own, bin.lane, value.every, day, words);
+    // The stepper's help says how it steps: a day that takes no edit has no stepper, and says nothing of it.
+    const help = editable ? stepHelp(own, bin.lane, value.every, day, words) : undefined;
     const quantityLabel = nouns.quantity;
+    const keyLabel = args.m.binKey();
     const specs = useMemo(() => Fields.specs(BIN_FIELDS, {
-        lane: Fields.text({ label: nouns.lane.one }),
-        at: Fields.readonly({ label: "Bin time", help }),
+        key: Fields.readonly({ label: keyLabel }),
+        lane: Fields.reference({ label: nouns.lane.one, of: "lanes" }),
+        at: Fields.readonly({ label: "Bin time", ...(help === undefined ? {} : { help }) }),
         quantity: Fields.number({ label: quantityLabel, min, step: 1, ...(context.unit === "" ? {} : { unit: context.unit }) }),
-    }, form !== undefined ? ["quantity"] : []), [nouns.lane.one, help, quantityLabel, min, context.unit, form]);
+    }, form !== undefined ? ["quantity"] : []), [keyLabel, nouns.lane.one, help, quantityLabel, min, context.unit, form]);
+    // Every lane by its name: what a lane the form prints says.
+    const laneNames = useMemo(() => ({ lanes: value.lanes.map(l => ({ key: l.key, label: l.label })) }), [value.lanes]);
     const stepper = useSlotRecipe({ key: "stepper" })({ tone: "neutral", size: "md" }) as unknown as Styles;
     const hourly = value.every.type === "hours" && compareFloat(value.every.value, 1) === 0;
     const earlier = hourly ? "One hour earlier" : "One slot earlier", later = hourly ? "One hour later" : "One slot later";
     const renderControl = useCallback((spec: FieldSpecValue): ReactNode | undefined => {
+        // A day that takes no edit — a published one — prints its lane and its time as the rest of the form is printed: no
+        // segments or stepper, whose controls, though off, looked editable (the hand retest).
+        if (!editable) return undefined;
         if (spec.path[0] === "lane") {
             return <Seg fullWidth label={nouns.lane.one} scope="allocation" name="inspector-lane" items={lanes.map(l => ({ key: l.key, label: l.label, disabled: !editable }))}
                 active={bin.lane} onPick={lane => { if (lane !== bin.lane) toSlot(lane, Math.max(0, index)); }} />;
@@ -366,12 +402,12 @@ function BinSection({ id, bin, committed, ...part }: Part & { id: string; bin: B
     }, [nouns.lane.one, lanes, editable, bin.lane, bin.at, toSlot, index, own.length, stepper, earlier, later]);
     const { setQuantity } = commands;
     const onChange = useCallback((path: readonly string[], next: unknown) => { if (path[0] === "quantity") setQuantity(id, next as number); }, [setQuantity, id]);
-    const shownValue = useMemo(() => ({ lane: bin.lane, at: bin.at, quantity: bin.quantity }), [bin.lane, bin.at, bin.quantity]);
+    const shownValue = useMemo(() => ({ key: id, lane: bin.lane, at: bin.at, quantity: bin.quantity }), [id, bin.lane, bin.at, bin.quantity]);
     // What the drafts began from: the bin as the day holds it, or nothing for a new one, every field of which is a draft.
-    const baseline = useMemo(() => committed === undefined ? {} : { lane: committed.lane, at: committed.at, quantity: committed.quantity }, [committed]);
+    const baseline = useMemo(() => committed === undefined ? {} : { key: id, lane: committed.lane, at: committed.at, quantity: committed.quantity }, [committed, id]);
     return <Box css={styles.fields} data-allocation-bin-section="">
         <Box css={styles.sectionHead}>Bin</Box>
-        <FieldForm specs={specs} value={shownValue} baseline={baseline} onChange={onChange} readOnly={!editable} renderControl={renderControl} />
+        <FieldForm specs={specs} value={shownValue} baseline={baseline} options={laneNames} onChange={onChange} readOnly={!editable} renderControl={renderControl} />
         {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} /> : <>
             <RowFields {...part} id={id} bin={bin} committed={committed} />
             <ValueRows {...part} bin={bin} />
@@ -595,7 +631,7 @@ function SlotDetails({ lane, at, ...part }: Part & { lane: string; at: Date }) {
     const run = (option: BookOption) => option.grip.kind === "arrival" ? commands.book(option.grip.arrival, lane, where, undefined) : commands.restore(option.grip.bin, lane, where, undefined);
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: "Slot", icon: "clock" }} title={`${words.lane(lane)} · ${timeText(at)}`}
-            when={`${dayLong(day)} · no ${one(nouns.arrival)} · no ${one(nouns.resource)}`} status={{ label: "Free", tone: { type: "neutral" }, ring: false }} />
+            when={`${dayLong(day)} · no ${one(nouns.arrival)} · no ${one(nouns.resource)}`} status={{ label: "Free", tone: { type: "neutral" }, ring: false }} home />
         <Box css={styles.section} data-allocation-book="">
             <Box css={styles.sectionHead}>Book {a(nouns.arrival)}</Box>
             {books.length === 0 ? <Box css={styles.absent}>no {other(nouns.arrival)} to book</Box>
@@ -653,10 +689,19 @@ function ReservationDetails({ id, bin, ...part }: Part & { id: string; bin: Bin 
     };
     const run = (o: BookOption) => o.grip.kind === "arrival" ? commands.fillWith(id, o.grip.arrival) : commands.restoreInto(o.grip.bin, id);
     const draft = committed !== undefined && !domain.sameBin(committed, bin);
+    // Its key, printed, as a bin's is among its facts: what Search Records finds it by (#1398) — a new one's a draft, as its every field is.
+    const keyLabel = args.m.binKey();
+    const keySpecs = useMemo(() => Fields.specs(RESERVATION_FIELDS, { key: Fields.readonly({ label: keyLabel }) }), [keyLabel]);
+    const keyValue = useMemo(() => ({ key: id }), [id]);
+    const keyBaseline = useMemo(() => committed === undefined ? {} : { key: id }, [committed, id]);
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: committed === undefined ? "New reservation" : "Reserved slot", icon: "bookmark" }}
             title={`${words.lane(bin.lane)} · ${timeText(bin.at)}`} when={name === undefined ? `Reserved · no ${one(nouns.arrival)} yet` : `Reserved on ${name} · no ${one(nouns.arrival)} yet`}
-            status={statusOf(status)} pending={status.pending} />
+            status={statusOf(status)} pending={status.pending} home />
+        <Box css={styles.fields} data-allocation-reservation="">
+            <Box css={styles.sectionHead}>{args.m.reservation()}</Box>
+            <FieldForm specs={keySpecs} value={keyValue} baseline={keyBaseline} onChange={NO_EDIT} readOnly />
+        </Box>
         <Box css={styles.section} data-allocation-assigned="">
             <Box css={styles.sectionRow}>
                 <Box css={styles.sectionHead}>Assigned to</Box>
@@ -702,7 +747,7 @@ function ResourceDetails({ resource, ...part }: Part & { resource: string }) {
         : args.layout === "table" ? `Choose it with the ${one(nouns.resource)} chevron on a row, or drag it from the Library onto a row.`
             : `Drag a bin’s connector or ${a(nouns.arrival)} onto this row to load it.`;
     return <>
-        <ScheduleInspectorHead styles={styles} kind={{ name: nouns.resource.one, icon: "cube" }} title={at.row.label} when={groupLine(at.row, words)} status={statusOf(status)} />
+        <ScheduleInspectorHead styles={styles} kind={{ name: nouns.resource.one, icon: "cube" }} title={at.row.label} when={groupLine(at.row, words)} status={statusOf(status)} home />
         <Banners styles={styles} banners={banners} />
         <Box css={styles.section} data-allocation-fill-section="">
             <Box css={styles.sectionRow}>
@@ -733,7 +778,7 @@ function Summary({ args, styles, words }: Part) {
     ]);
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: `Plan · ${dayLong(args.day)}`, icon: "calendar-day" }} title={value.settings.title}
-            when={summaryLine(value.lanes.length, value.resources.length, nouns)} />
+            when={summaryLine(value.lanes.length, value.resources.length, nouns)} home />
         <Box css={styles.stats} data-allocation-stats="">{stats.map(stat => <Box key={stat.label} css={styles.stat} data-allocation-stat={stat.label}>
             <Box css={styles.statLabel}>{stat.label}</Box>
             <Box css={styles.statValue} data-tone={stat.tone}>{stat.value}</Box>

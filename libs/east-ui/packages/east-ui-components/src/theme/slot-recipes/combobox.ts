@@ -19,6 +19,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fieldChrome, fieldFocusRing, fieldInRingedControl, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { IN_TOOLBAR_ROW, TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
 import { coarseHitArea } from "../../style/hit-area.js";
 
 export const comboboxSlotRecipe = defineSlotRecipe({
@@ -27,13 +28,28 @@ export const comboboxSlotRecipe = defineSlotRecipe({
         "root", "label", "control", "input", "trigger",
         "clearTrigger", "positioner", "content", "list", "item", "itemText",
         "itemIndicator", "itemGroup", "itemGroupLabel", "empty", "indicatorGroup",
-        "search", "searchStatus", "searchAction",
+        "search", "searchStatus", "searchAction", "searchSlot",
     ],
     base: {
+        /* Where a toolbar's key search box stands — in the row, or in the popover its icon opens — in a container of its
+         * own that outlives every fold (`collections/key-search/toolbar-item.tsx`): neither draws a box of its own, so
+         * the row lays the box out as its item and the popover as its body's child. */
+        searchSlot: {
+            "&[data-key-search='box']": { display: "contents" },
+            "& > [data-key-search-box]": { display: "contents" },
+        },
         search: {
             width: "min(var(--key-search-width), 40rem)",
             maxWidth: "100%",
             minWidth: "0",
+            /* In a toolbar's row, as tall as every control there, its input filling it: the history's buttons'
+             * height and the design system's toolbar search pill's (`toolbar-row.ts`, ruled 23 Oct 2026).
+             * Elsewhere — the popover a folded row opens, a dataset's preview — the design system's 32px search
+             * field. On a touch screen the control's 44px field (#1221) stands. */
+            [IN_TOOLBAR_ROW]: {
+                "& [data-scope='combobox'][data-part='control']": { height: TOOLBAR_CONTROL_HEIGHT, _coarse: { height: "auto" } },
+                "& [data-scope='combobox'][data-part='input']": { paddingBlock: "0", _coarse: { paddingBlock: "7px" } },
+            },
         },
         searchStatus: {
             textStyle: "body.sm",

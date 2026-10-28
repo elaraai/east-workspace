@@ -11,7 +11,10 @@
  * cancel's answer, and it lets the workspace go just after its state says it
  * has ended. A start, a deploy or a workspace's removal the workspace's lock
  * refuses meanwhile is answered `workspace_locked` with a `Retry-After`, so its
- * client asks again once the run has let go, rather than failing.
+ * client asks again once the run has let go, rather than failing. A poll of
+ * the run answers it `stopping` until then, whether it was asked to stop or
+ * ended on its own, so a run polled as ended has let its workspace go, and a
+ * gc, a deploy or a run asked of next takes it.
  *
  * Whether a stopping run holds the workspace is asked before the request as
  * well as after a refusal. A run lets the workspace go before its dataflow
@@ -22,7 +25,7 @@
  */
 
 import { DateTimeType, lessFor, type EastType } from '@elaraai/east';
-import type { ExecutionStateStore, StorageBackend } from '@elaraai/e3-core/portable';
+import type { ExecutionStateStore, ExecutionStateSummary, StorageBackend } from '@elaraai/e3-core/portable';
 import type { WorkspaceLockError } from '@elaraai/e3-core/portable';
 import { sendError } from './beast2.js';
 import { errorToVariant } from './errors.js';
@@ -35,9 +38,37 @@ export const STOPPING_RUN_RETRY_AFTER_S = 1;
 const before = lessFor(DateTimeType);
 
 /**
+ * Whether a run that has ended still holds its workspace: its state says it
+ * has ended, and the dataflow lock it took as it started, which it lets go
+ * after every other, is still held.
+ *
+ * @remarks
+ * A run records its end before it lets its locks go, so a run that crashes
+ * between the two is never left reading as running; the moment between is
+ * this. A lock taken after the run ended is another's — a new run's, or a
+ * gc's — and a lock whose holder has died is not held.
+ *
+ * @param storage - Storage backend, whose lock service holds the run's lock
+ * @param repo - Repository identifier
+ * @param workspace - The workspace
+ * @param run - The workspace's latest run, as its store summarises it
+ * @returns Whether the run has ended and still holds the workspace
+ */
+export async function endedRunHolds(
+  storage: StorageBackend,
+  repo: string,
+  workspace: string,
+  run: ExecutionStateSummary,
+): Promise<boolean> {
+  if (run.status === 'running' || run.completedAt.type !== 'some') return false;
+  const lock = await storage.locks.getState(repo, `${workspace}#dataflow`);
+  return lock !== null && !before(run.completedAt.value, lock.acquiredAt);
+}
+
+/**
  * Whether a run that is stopping holds a workspace: one asked to stop that has
  * not yet stopped, or one that has ended and still holds the dataflow lock it
- * took as it started, which it lets go after every other.
+ * took as it started ({@link endedRunHolds}).
  *
  * @param storage - Storage backend, whose lock service holds the run's lock
  * @param stateStore - The store the repository's runs keep their state in
@@ -54,10 +85,7 @@ export async function heldByStoppingRun(
   const run = await stateStore.readLatestSummary(repo, workspace);
   if (run === null) return false;
   if (run.status === 'running') return run.cancelRequested;
-  if (run.completedAt.type !== 'some') return false;
-  // Taken after the run ended, the lock is another's: a new run's, or a gc's.
-  const lock = await storage.locks.getState(repo, `${workspace}#dataflow`);
-  return lock !== null && !before(run.completedAt.value, lock.acquiredAt);
+  return endedRunHolds(storage, repo, workspace, run);
 }
 
 /**

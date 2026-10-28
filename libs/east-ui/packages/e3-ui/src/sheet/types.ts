@@ -882,23 +882,19 @@ export type SheetGroupType = typeof SheetGroupType;
  *
  * @remarks
  * A source the view does not hold opens with nothing chosen, as a preset
- * clears a source it does not name. The context and the reveals are the lens's
- * (B§8), which draws a narrowing over the rows; it is switched off until e3 can
- * place a record narrowing's rows (#1349), and a view keeps them for it.
+ * clears a source it does not name. The `rows` source's narrowing is drawn
+ * over the record's rows as the lens (B§8, #1349): a filtered spreadsheet,
+ * showing only the rows the narrowing keeps, each at its row number.
  *
  * @property id - Stable identity
  * @property name - The tab name
  * @property narrowing - Each source's narrowing, by the source's name (`rows`, `rowTemplates`)
- * @property context - The lens's band width (`0` · `1` · `3`)
- * @property reveals - Revealed row positions
  * @property folds - A grouped sheet's fold overrides (#740): group id → folded; a group not listed opens as its `folded` accessor says
  */
 export const SheetRecordViewType = StructType({
     id:        StringType,
     name:      StringType,
     narrowing: DictType(StringType, RecordSliceStateType),
-    context:   IntegerType,
-    reveals:   ArrayType(IntegerType),
     folds:     DictType(StringType, BooleanType),
 });
 /** Type alias for {@link SheetRecordViewType}. */
@@ -1008,7 +1004,7 @@ export type SheetStyleType = typeof SheetStyleType;
  * live onUpdate adapter writes once per application. `selection` present
  * makes the selection controlled (§3.14).
  *
- * @property rows - The row source: inline wire rows, or a paged source of them — with a `rows` source, the rows it narrows to
+ * @property rows - The row source: inline wire rows, or a paged source of them — with a `rows` source, its record's own rows, every one in the record's order, which the renderer draws the source's narrowing over as the lens (#1349): only the rows it keeps, each at its row number
  * @property columns - The declared columns, in order
  * @property registers - Register name → register
  * @property driver - The driver column and its members

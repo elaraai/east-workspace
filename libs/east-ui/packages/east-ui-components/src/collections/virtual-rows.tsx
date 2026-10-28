@@ -51,7 +51,10 @@
  * memo, its local state), its DOM element and its measured height wherever it
  * moves. Measured rows carry `data-slot="virtualRow"` so a host recipe can
  * style the wrappers (a transform transition), and are sized to whole device
- * pixels ({@link devicePixels}) so every row sits on the pixel grid.
+ * pixels ({@link devicePixels}) so every row sits on the pixel grid. A row a
+ * hidden ancestor takes out of the layout — a closed tab's panel, a collapsed
+ * pane — keeps the size it last had ({@link sizeWhileHidden}): shown again,
+ * the rows and the scroll are where they were (#1389).
  *
  * TanStack memoizes its measurements on the row count and a few layout options
  * — never on the heights it was given (see `sizeVersion`). A fixed-height
@@ -68,14 +71,23 @@
  * view, else one covering the view — and a render that finds the anchor
  * moved, with nothing scrolled since, moves the virtualizer's offset by the
  * same amount (the rows drawn are the ones that will show) and the scroll
- * position follows before paint. A scroll not yet reported — a programmatic
+ * position follows before paint. A collection that draws rows not read as one
+ * item, a run however many (`runs`, the Calendar's paged places, #1424),
+ * anchors on the row inside a run at the view's top — by the key that row
+ * takes once read — and finds it again wherever it then is: its own line, or
+ * a run that holds it, so a window landing in the run keeps that row where it
+ * was. A scroll not yet reported — a programmatic
  * one — wins. The anchor is kept in the rows' own coordinates, net of the
  * scroll margin: the pinned header being measured, or growing, is no row
  * moving, and moves nothing (#944). An offset past where the view can go —
  * rows moved from below the view to above it leave the content no taller —
  * stops at the scroll's end, and the rows are drawn again there before paint
  * (#1213). Rows in flow (the unbounded frame below scale) are the browser's
- * to anchor.
+ * to anchor; rows the frame anchors are never the browser's too
+ * (`overflow-anchor: none` on its scroll element, or at scale on its root):
+ * the browser anchors on the focused element first, and a window landing that
+ * moves it — a run not read that a click focused, its rows replacing it —
+ * moved the view by itself (#1398).
  *
  * A keyed frame's scroll request (`scrollToIndex`) brings in its ROW, never
  * whichever row holds its index a frame later (#885). TanStack reconciles a
@@ -85,7 +97,16 @@
  * follows the row itself, by key: after every commit until the row has mounted
  * where its alignment puts it, a row that has moved — measured at a height its
  * estimate missed, rows above it changed — is scrolled to again. The view
- * moving while the row does not, the viewer's scroll, ends it.
+ * moving while the row does not, the viewer's scroll, ends it. Every scroll
+ * the frame asks of its virtualizer — a request, its follow, an anchor brought
+ * back — is reported to it at once, read back live through its own offset
+ * callback as the scroll's event would report it (#1398): what it measures
+ * before that event arrives moves the view from where it is, never back to
+ * where it was, nor does a correction it held back at the scroll's end; and
+ * the range it reports says where it is. A request and an anchor brought back
+ * are served in the commit that asks for them, before paint (#1398, CL10):
+ * the rows they bring into view are drawn before the page paints, never a
+ * frame of the old offset with no rows where the view went.
  *
  * Only a bounded frame pins its header. An unbounded frame's header sits in
  * flow above its rows and scrolls with the page: a collection that scrolls
@@ -96,16 +117,37 @@
  * through `onViewport`. A bounded frame can also pin a strip under its header
  * (`sticky`), drawn from the row at the top of the view and over the rows,
  * taking no height of its own (#823).
+ *
+ * A row taller than the view — a paged collection's unloaded run — draws only
+ * the part of itself the view shows, and follows the view itself: the frame
+ * draws again only as its mounted range moves, so it hands its rows what
+ * scrolls them and how much of the view a pinned header covers
+ * (`useRowsScroll`, `rows-scroll.ts`, #1398). A row the frame positions is
+ * told where (`useRowTop`), and reads its part in view from the scroll offset
+ * as it renders, so a commit that moves it draws it there in that commit.
+ *
+ * A paged reader fetches on intent (#1398, CL6): the range report says the
+ * scroll is at rest once it has held still {@link INTENT_DWELL_MS} or slowed
+ * below a viewport per {@link INTENT_SLOW_MS}, so a fling past an unloaded run
+ * asks for the window it slows over before the gesture ends.
+ *
+ * A scroll draws again only the rows it brings into view (#1398, CL9): a row
+ * is drawn again only when its index or `renderRow` moves, so a collection
+ * that keeps `renderRow` the same function while its data holds pays for a
+ * scroll only in the rows coming into view. Which row shows at the top of the
+ * view is read by the row that needs it (`useRowsTop`), never handed to every
+ * row.
  */
 
 import {
-    Fragment, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState,
+    memo, useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState,
     type HTMLAttributes, type MutableRefObject, type ReactNode, type RefObject,
 } from "react";
 import { Box } from "@chakra-ui/react";
-import { debounce, useVirtualizer, useWindowVirtualizer, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
+import { debounce, observeElementOffset, useVirtualizer, useWindowVirtualizer, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
 import { parseCssSize } from "../style/parse-size.js";
 import { virtualScrollbarCss } from "../style/scrollbar.js";
+import { RowTopContext, RowsScrollContext, createRowsScroll } from "./rows-scroll.js";
 
 /**
  * How many rows an unbounded frame holds before it virtualizes against its
@@ -114,6 +156,155 @@ import { virtualScrollbarCss } from "../style/scrollbar.js";
  * content-sized examples and captures keep their full render.
  */
 export const VIRTUALIZE_UNBOUNDED_AT = 400;
+
+/**
+ * Fetch on intent (#1398, CL6): a paged reader gates its demand on the scroll
+ * being at rest (`onRangeChange`'s `isScrolling`), and the frame says it rests
+ * sooner than its virtualizer does — once the view has held still this long, a
+ * scrollbar drag's pause among them, or once the scroll has slowed below a
+ * viewport's height per {@link INTENT_SLOW_MS} — so a fling past an unloaded
+ * run asks for the window it slows over before the gesture ends.
+ */
+export const INTENT_DWELL_MS = 100;
+
+/** The span a scroll's speed is read over, and in which it counts as slowing below a viewport's travel (CL6). */
+export const INTENT_SLOW_MS = 200;
+
+/**
+ * A scroll's speed, from its offsets in time (#1398, CL6): whether it has
+ * slowed below a viewport's height per {@link INTENT_SLOW_MS}, read over the
+ * last {@link INTENT_SLOW_MS} of it. Its speed is how far it travelled there,
+ * every step of it, never where it ended: a view sent far and straight back —
+ * a jump to a sought row, then a scroll back to the top — is on its way, not
+ * slow. A gesture's first offset says nothing of its speed: it is not slow
+ * until a second is in.
+ *
+ * @internal Exported for its test.
+ */
+export class ScrollIntent {
+    private readonly samples: { t: number; y: number }[] = [];
+
+    /**
+     * Take the scroll's offset at a moment.
+     *
+     * @param t - The moment, ms
+     * @param y - The offset, px
+     * @param viewport - The viewport's height, px
+     * @returns Whether the scroll is slow: it travelled less than a viewport over the last {@link INTENT_SLOW_MS}, at its rate
+     */
+    sample(t: number, y: number, viewport: number): boolean {
+        this.samples.push({ t, y });
+        while (this.samples.length > 2 && t - this.samples[0]!.t > INTENT_SLOW_MS) this.samples.shift();
+        if (this.samples.length < 2) return false;
+        let travelled = 0;
+        for (let i = 1; i < this.samples.length; i++) travelled += Math.abs(this.samples[i]!.y - this.samples[i - 1]!.y);
+        return (travelled / Math.max(1, t - this.samples[0]!.t)) * INTENT_SLOW_MS < viewport;
+    }
+
+    /** The scroll came to rest: the next gesture is read afresh. */
+    reset(): void {
+        this.samples.length = 0;
+    }
+}
+
+/**
+ * A frame's scroll intent (#1398, CL6): read in its offset observer, before
+ * the virtualizer takes the offset, so the render a scroll makes already says
+ * whether it is at rest as a paged reader reads it — mutable, read as the
+ * virtualizer's own `isScrolling` is.
+ *
+ * @internal
+ */
+interface ScrollIntentFollow {
+    /** Whether the scroll is at rest as a reader reads it: held still {@link INTENT_DWELL_MS}, or slowed. */
+    settled: boolean;
+    /** What a read asks for — the range reported again, though it has not moved: a dwell, a slowed scroll travelling half a viewport. */
+    onRead: () => void;
+    /**
+     * An offset observer's callback, the scroll's intent read first.
+     *
+     * @param cb - The virtualizer's callback
+     * @param viewport - The viewport's height now
+     * @returns The callback to hand the observer
+     */
+    wrap(cb: (offset: number, isScrolling: boolean) => void, viewport: () => number): (offset: number, isScrolling: boolean) => void;
+    /** Drops a dwell still to come. */
+    dispose(): void;
+}
+
+/** A frame's scroll intent, at rest (CL6). */
+function createScrollIntentFollow(): ScrollIntentFollow {
+    const speed = new ScrollIntent();
+    let dwell: ReturnType<typeof setTimeout> | undefined;
+    let readAt: number | undefined;
+    const follow: ScrollIntentFollow = {
+        settled: true,
+        onRead: () => {},
+        wrap: (cb, viewport) => (offset, isScrolling) => {
+            if (isScrolling) {
+                const slow = speed.sample(performance.now(), offset, viewport());
+                if (dwell !== undefined) clearTimeout(dwell);
+                // Held still: at rest, read where it stopped.
+                dwell = setTimeout(() => {
+                    dwell = undefined;
+                    speed.reset();
+                    readAt = undefined;
+                    follow.settled = true;
+                    follow.onRead();
+                }, INTENT_DWELL_MS);
+                if (!slow) {
+                    readAt = undefined;
+                    follow.settled = false;
+                } else {
+                    // Slowing: read where the view is — and again each half viewport it travels on.
+                    follow.settled = true;
+                    if (readAt === undefined || Math.abs(offset - readAt) >= viewport() / 2) {
+                        readAt = offset;
+                        follow.onRead();
+                    }
+                }
+            }
+            cb(offset, isScrolling);
+        },
+        dispose: () => {
+            if (dwell !== undefined) clearTimeout(dwell);
+            dwell = undefined;
+        },
+    };
+    return follow;
+}
+
+/**
+ * A row's content, drawn again only when its index or its renderer moves
+ * (#1398, CL9): a scroll that keeps a mounted row mounted draws nothing of it
+ * again, whatever the frame draws around it.
+ */
+const RowContent = memo(function RowContent({ index, render }: { index: number; render: (index: number) => ReactNode }) {
+    return <>{render(index)}</>;
+});
+
+/**
+ * Where rows a collection draws as one item while they are not read — a run however many (the Calendar's paged
+ * places, #1424) — stand: a view resting in a run rests on the row there, by the key that row takes once read, and
+ * that row is found again in whatever item then holds it. Both read the run's own pitch.
+ */
+export interface RowRuns {
+    /**
+     * The row `offset` px into item `index`, where that item is a run: the key the row takes once read, and the px into it.
+     *
+     * @param index - The item, by its place among the frame's
+     * @param offset - The px into it
+     * @returns The row; `undefined` where the item is no run
+     */
+    readonly rowAt: (index: number, offset: number) => { readonly key: string; readonly offset: number } | undefined;
+    /**
+     * Where a row a run holds stands now: the run's index, and the px into it.
+     *
+     * @param at - The row, by its key, and the px into it
+     * @returns Its place; `undefined` for a row no run holds
+     */
+    readonly find: (at: { readonly key: string; readonly offset: number }) => { readonly index: number; readonly offset: number } | undefined;
+}
 
 /** What moves a frame's rows on screen (#856) — see `onViewport`. */
 export interface RowsViewport {
@@ -209,6 +400,12 @@ interface VirtualRowsBaseProps {
      */
     anchorable?: ((index: number) => boolean) | undefined;
     /**
+     * Where the rows a collection draws as runs stand ({@link RowRuns}): an anchorable run covering the view's top anchors
+     * the frame on the row inside it there, found again in whatever item then holds it — its own line once its window
+     * lands, or a run — so the rows landing around it never move it. Omitted, a run anchors as any item does.
+     */
+    runs?: RowRuns | undefined;
+    /**
      * Whether to measure mounted rows (default true). Pass `false` when rows
      * are FIXED-HEIGHT (the given sizes are exact): rows then sit at exact
      * multiples of the fixed height. Fixed-height collections must opt out —
@@ -218,7 +415,14 @@ interface VirtualRowsBaseProps {
      * vertically clipped row text (#533).
      */
     measureRows?: boolean | undefined;
-    /** Renders body row `index` — a full-width, self-contained row element. */
+    /**
+     * Renders body row `index` — a full-width, self-contained row element. A
+     * row is drawn again only when its index or this function moves (#1398,
+     * CL9): keep it the same function while what the rows show holds, so a
+     * scroll draws only the rows it brings into view. A row that says
+     * something once, in the first row in view, reads which row that is itself
+     * (`useRowsTop`).
+     */
     renderRow: (index: number) => ReactNode;
     /** Rows above/below the viewport to keep mounted (default 4). */
     overscan?: number | undefined;
@@ -264,9 +468,14 @@ interface VirtualRowsBaseProps {
      * collection needs to shape its demand around the viewport (#577).
      *
      * The range INCLUDES the overscan rows, which is what a prefetching reader
-     * wants: they are the rows about to be revealed. `isScrolling` is the
-     * virtualizer's own flag; a reader should gate fetching and eviction on it
-     * being false, so neither happens mid-gesture.
+     * wants: they are the rows about to be revealed. `isScrolling` says whether
+     * the scroll is still under way as a reader reads it: false once it shows
+     * intent (#1398, CL6) — held still {@link INTENT_DWELL_MS}, a scrollbar
+     * drag's pause among them, or slowed below a viewport per
+     * {@link INTENT_SLOW_MS}, when it is reported again each half viewport it
+     * travels on — whatever the virtualizer's own flag still says. A reader
+     * gates fetching and eviction on it being false, so neither happens while
+     * the view flies past.
      *
      * `center` names the item under the viewport's vertical CENTER and how
      * many pixels into it that center sits — resolved from the LIVE scroll
@@ -278,6 +487,14 @@ interface VirtualRowsBaseProps {
      * mounted item contains the center (an empty body, or a viewport whose
      * center is above the rows).
      *
+     * `shown` names the items the view shows — the mounted ones whose box
+     * meets it, under a pinned header — resolved from the live scroll offset at
+     * report time, as `center` is. A reader of what is on screen reads it,
+     * never the range: beside one huge item the view rests in, the overscan is
+     * the rows mounted at the item's edge, which the view does not show — at
+     * an unloaded run's edge, the last rows read, however far from the view
+     * (#1039). `undefined` when no mounted item meets the view.
+     *
      * Fires in every mode. Bounded, the range is the frame's own; unbounded,
      * the frame watches its nearest scrolling ancestor for it — at scale
      * mounting only that range, below scale mounting every row and reporting
@@ -287,6 +504,7 @@ interface VirtualRowsBaseProps {
         range: { startIndex: number; endIndex: number },
         isScrolling: boolean,
         center?: { index: number; withinPx: number },
+        shown?: { startIndex: number; endIndex: number },
     ) => void) | undefined;
     /**
      * Bump to force a re-measure. TanStack memoizes its measurements on
@@ -332,6 +550,12 @@ interface VirtualRowsBaseProps {
     /** Extra props / styles for the outer element (root recipe styles, width). */
     rootCss?: Record<string, unknown> | undefined;
     /**
+     * Attributes for the outer element — a bounded frame's scroll element —
+     * a collection names it by, as its tests and its own code find it (the
+     * Calendar's timeline, #1398). Omitted, the frame's DOM is unchanged.
+     */
+    rootProps?: HTMLAttributes<HTMLDivElement> | undefined;
+    /**
      * Virtualize an UNBOUNDED frame once it holds at least this many rows
      * (#812): the frame still grows to its content, but only the rows its
      * nearest scrolling ancestor — the window, when none scrolls — shows are
@@ -371,6 +595,9 @@ type Rows = Virtualizer<HTMLElement, Element> | Virtualizer<Window, Element>;
 
 /** The scroll behaviour TanStack hands a `scrollToFn`. */
 type ScrollBehaviorOption = "auto" | "smooth" | "instant";
+
+/** How an offset observer tells the virtualizer where its scroll is, and whether it is under way. */
+type OffsetReport = (offset: number, isScrolling: boolean) => void;
 
 function isWindow(target: HTMLElement | Window): target is Window {
     return (target as Window).window === target;
@@ -500,8 +727,34 @@ export function devicePixels(px: number): number {
     return Math.round(px * dpr) / dpr;
 }
 
-/** A mounted row's height, on the device-pixel grid ({@link devicePixels}). */
-const measureRect = (el: Element): number => devicePixels(el.getBoundingClientRect().height);
+/**
+ * The size a mounted row keeps while a hidden ancestor takes it out of the
+ * layout — a closed tab's panel, a collapsed pane — where the page measures it
+ * at nothing: the size it last had, else its estimate. Measured there at
+ * nothing, every row would start at the top; shown again, each would grow from
+ * nothing at the scroll's offset, which TanStack (virtual-core 3.17) takes for
+ * a row wholly above the view, moving the scroll by its height — a list with
+ * no padding above its rows run to its end. Whether the row is out of the
+ * layout is the page's `checkVisibility`, where it has one.
+ *
+ * @param el - The row's element
+ * @param instance - The virtualizer measuring it
+ * @returns The size it keeps; `undefined` while it is in the layout, to be measured
+ * @internal
+ */
+export function sizeWhileHidden<S extends Element | Window>(el: Element, instance: Virtualizer<S, Element>): number | undefined {
+    if (typeof el.checkVisibility !== "function" || el.checkVisibility()) return undefined;
+    const index = instance.indexFromElement(el);
+    return instance.measurementsCache[index]?.size ?? instance.options.estimateSize(index);
+}
+
+/**
+ * A mounted row's height, on the device-pixel grid ({@link devicePixels}) —
+ * or, out of the layout, the size it keeps ({@link sizeWhileHidden}).
+ */
+function measureRect<S extends Element | Window>(el: Element, _entry: ResizeObserverEntry | undefined, instance: Virtualizer<S, Element>): number {
+    return sizeWhileHidden(el, instance) ?? devicePixels(el.getBoundingClientRect().height);
+}
 
 /** An item's identity to the virtualizer — its key. */
 type ItemKey = VirtualItem["key"];
@@ -520,7 +773,9 @@ interface ScrollAnchor {
 
 /**
  * The item a frame keeps in place (#878): the first anchorable item that starts
- * inside the view, else an anchorable one covering the view's top.
+ * inside the view, else an anchorable one covering the view's top — or, that
+ * one a run of rows not read, the row inside it at the view's top, by the key
+ * it takes once read (#1424).
  *
  * @param virtualizer - The frame's virtualizer
  * @param offset - Its scroll offset
@@ -528,10 +783,12 @@ interface ScrollAnchor {
  * @param height - The view's height
  * @param anchorable - Which items may anchor
  * @param margin - The scroll margin the item starts carry — the pinned header's height
+ * @param runs - Where the rows the collection draws as runs stand, where it draws any
  * @returns The anchor, or null when no item in view may anchor
  */
 function anchorOf(
     virtualizer: Rows, offset: number, top: number, height: number, anchorable: (index: number) => boolean, margin: number,
+    runs: RowRuns | undefined,
 ): ScrollAnchor | null {
     const at = virtualizer.getVirtualItemForOffset(top);
     if (at === undefined) return null;
@@ -541,7 +798,11 @@ function anchorOf(
         if (item === undefined || item.start >= top + height) break;
         if (anchorable(i)) return { key: item.key, start: item.start - margin, offset, index: i };
     }
-    return at.start < top && anchorable(at.index) ? { key: at.key, start: at.start - margin, offset, index: at.index } : null;
+    if (!(at.start < top && anchorable(at.index))) return null;
+    // A run covering the view's top: its row there, at that row's own start.
+    const row = runs?.rowAt(at.index, top - at.start);
+    return row === undefined ? { key: at.key, start: at.start - margin, offset, index: at.index }
+        : { key: row.key, start: top - row.offset - margin, offset, index: at.index };
 }
 
 /**
@@ -565,18 +826,23 @@ function indexOfKey(count: number, keyOf: (index: number) => ItemKey, key: ItemK
 }
 
 /**
- * Where the item with `key` starts now (see {@link indexOfKey}).
+ * Where the item with `key` starts now (see {@link indexOfKey}) — or, a row a
+ * run holds and no item is (#1424), where it starts inside that run.
  *
  * @param virtualizer - The frame's virtualizer, its measurements current
  * @param count - The rows
  * @param keyOf - A row's key
  * @param key - The anchor's key
  * @param hint - The anchor's index when it was taken
+ * @param runs - Where the rows the collection draws as runs stand, where it draws any
  * @returns Its start, or undefined when it has left the frame
  */
-function startOfKey(virtualizer: Rows, count: number, keyOf: (index: number) => ItemKey, key: ItemKey, hint: number): number | undefined {
+function startOfKey(virtualizer: Rows, count: number, keyOf: (index: number) => ItemKey, key: ItemKey, hint: number, runs: RowRuns | undefined): number | undefined {
     const index = indexOfKey(count, keyOf, key, hint);
-    return index === undefined ? undefined : virtualizer.measurementsCache[index]?.start;
+    if (index !== undefined) return virtualizer.measurementsCache[index]?.start;
+    const within = typeof key === "string" ? runs?.find({ key, offset: 0 }) : undefined;
+    const run = within === undefined ? undefined : virtualizer.measurementsCache[within.index]?.start;
+    return run === undefined || within === undefined ? undefined : run + within.offset;
 }
 
 /** A keyed frame's scroll request (#885): the row it brings in, where to look
@@ -618,8 +884,8 @@ export function setVirtualRowsMeasureProbe(fn: (() => void) | undefined): void {
  */
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
-        header, sticky, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, renderRow, measureRows = true,
-        overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, fillParent, scrollElRef,
+        header, sticky, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, runs, renderRow, measureRows = true,
+        overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, rootProps, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
         virtualizeUnboundedAt, onAnchorChange, restoreAnchor, rowsProps, rowsRef, onViewport,
     } = props;
@@ -705,6 +971,17 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     }, []);
     // Set by the unbounded offset observer while it is subscribed.
     const resample = useRef<(() => void) | null>(null);
+    // The virtualizer's own offset callback, as its observer is handed it, while it is subscribed: how the frame tells
+    // it where a scroll the frame asked for went, as the scroll's event would (#1398, `takeLiveOffset`).
+    const offsetReport = useRef<OffsetReport | null>(null);
+    const reporting = (cb: OffsetReport, unsubscribe: (() => void) | undefined): (() => void) | undefined => {
+        if (unsubscribe === undefined) return undefined;
+        offsetReport.current = cb;
+        return () => {
+            unsubscribe();
+            if (offsetReport.current === cb) offsetReport.current = null;
+        };
+    };
     // The scroll anchor taken at the last commit, and an anchored offset this
     // render moved to that the commit has yet to write (#878).
     const anchorRef = useRef<ScrollAnchor | null>(null);
@@ -721,6 +998,8 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         ? (i: number) => sizes[i] ?? 0
         : estimateSize ?? (() => 0);
     const keyed = getItemKey !== undefined ? { getItemKey } : {};
+    // The scroll's intent (CL6), read in the offset observers before the virtualizer takes each offset.
+    const [intent] = useState(createScrollIntentFollow);
     const elementRows = useVirtualizer<HTMLElement, Element>({
         count,
         getScrollElement: () => (bounded ? scrollRef.current : ancestorEl ?? null),
@@ -732,8 +1011,12 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         scrollPaddingStart: bounded ? itemsOffset : 0,
         enabled: bounded || ancestorEl !== undefined,
         measureElement: measureRect,
-        ...(bounded ? {} : {
-            observeElementOffset: observeOffsetWithin<HTMLElement>(itemsRef, resample),
+        ...(bounded ? {
+            observeElementOffset: (instance: Virtualizer<HTMLElement, Element>, cb: OffsetReport) =>
+                reporting(cb, observeElementOffset(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0))),
+        } : {
+            observeElementOffset: (instance: Virtualizer<HTMLElement, Element>, cb: OffsetReport) =>
+                reporting(cb, observeOffsetWithin<HTMLElement>(itemsRef, resample)(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0))),
             scrollToFn: scrollWithin<HTMLElement>(itemsRef),
             initialOffset: () => offsetNow(ancestor, itemsRef),
         }),
@@ -745,7 +1028,8 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         overscan,
         enabled: onWindow,
         measureElement: measureRect,
-        observeElementOffset: observeOffsetWithin<Window>(itemsRef, resample),
+        observeElementOffset: (instance: Virtualizer<Window, Element>, cb: OffsetReport) =>
+            reporting(cb, observeOffsetWithin<Window>(itemsRef, resample)(instance, intent.wrap(cb, () => instance.scrollRect?.height ?? 0))),
         scrollToFn: scrollWithin<Window>(itemsRef),
         initialOffset: () => offsetNow(ancestor, itemsRef),
     });
@@ -754,10 +1038,61 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // The scroll offset now, in the virtualizer's terms — ahead of a scroll
     // event still to come.
     const liveOffset = (): number | undefined => (bounded ? scrollRef.current?.scrollTop : offsetNow(ancestor, itemsRef));
+    // A scroll the frame asks of its virtualizer — a scroll request, its follow,
+    // an anchor brought back — is the virtualizer's at once (#1398): the offset
+    // the view went to, read back live and handed to the virtualizer as the
+    // scroll's event hands it, before that event arrives. What it kept for the
+    // offset it last saw goes with it, and what it measures meanwhile moves the
+    // view from where it is — an item above the view measured at a height its
+    // estimate missed, as a row on a fractional device pixel ratio always is —
+    // and a range reported meanwhile says where it is. Left to the event, the
+    // virtualizer's adjustment for such an item scrolled the view back to the
+    // offset it last saw; a correction it held back at the scroll's end, rows
+    // there measured taller than their estimate, scrolled the view back there
+    // once the content grew; and a range reported from there took a paged
+    // reader's demand back with it.
+    const takeLiveOffset = (): void => {
+        const live = liveOffset();
+        if (live === undefined || !virtualized) return;
+        const report = offsetReport.current;
+        if (report !== null) report(live, virtualizer.isScrolling);
+        else virtualizer.scrollOffset = live;
+    };
     // The scroll margin the item starts carry: bounded, the pinned header's
     // height, which the rows sit below; at scale they are measured from the
     // rows' own top.
     const margin = bounded ? itemsOffset : 0;
+
+    // What scrolls the rows, for a row taller than the view — an unloaded run —
+    // to draw the part of it the view shows (#1398, CL2; `rows-scroll.ts`): the
+    // frame never draws again while the view moves inside one row, so the row
+    // follows the view itself. Placed after every commit — the scroll element
+    // under its pinned header, or the ancestor the frame watches; nothing while
+    // every row is in flow — and cleared as the frame goes.
+    const [rowsScroll] = useState(createRowsScroll);
+    useLayoutEffect(() => {
+        // The view's edges in the rows' own coordinates, as the virtualizer reads them — its offset, its view less the
+        // pinned header — for a row the frame positions to read its part in view as it renders.
+        const edges = virtualized ? () => {
+            const top = virtualizer.scrollOffset ?? 0;
+            return { top, bottom: top + (virtualizer.scrollRect?.height ?? 0) - margin };
+        } : undefined;
+        // The row at the top of the view, just under a pinned header (item starts carry the header's height as the scroll
+        // margin, so the view's top in their terms is the offset plus it) — read by the row that says something once there.
+        const topIndex = virtualized ? () => virtualizer.getVirtualItemForOffset((virtualizer.scrollOffset ?? 0) + margin)?.index : undefined;
+        rowsScroll.place(bounded ? scrollRef.current : watching ? ancestor ?? null : null, bounded ? itemsOffset : 0, edges, topIndex);
+    });
+    useLayoutEffect(() => () => rowsScroll.place(null, 0), [rowsScroll]);
+
+    // Fetch on intent (#1398, CL6; `INTENT_DWELL_MS`): the scroll's intent is read in the offset observer, before
+    // the virtualizer takes the offset (`intent.wrap`, above), so the render a scroll makes already says whether it
+    // is at rest as a paged reader reads it; a dwell, and a slowed scroll travelling half a viewport, ask for a read
+    // again, the range unmoved. Only a frame whose range is asked for is read again.
+    const [read, setRead] = useState(0);
+    useLayoutEffect(() => {
+        intent.onRead = onRangeChange !== undefined ? () => setRead((n) => n + 1) : () => {};
+    });
+    useEffect(() => () => intent.dispose(), [intent]);
 
     // Scroll anchoring (#878): when the anchor taken at the last commit has
     // moved — rows above it changed height or count — and the frame has not
@@ -772,7 +1107,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         const offset = virtualizer.scrollOffset;
         if (anchor !== null && offset !== null && offset === anchor.offset) {
             virtualizer.getTotalSize();  // this render's measurements
-            const start = startOfKey(virtualizer, count, getItemKey, anchor.key, anchor.index);
+            const start = startOfKey(virtualizer, count, getItemKey, anchor.key, anchor.index, runs);
             // Where the anchor starts among the rows now, as it was taken: a
             // header measured or grown since moves every start, and no row.
             const moved = start === undefined ? 0 : start - margin - anchor.start;
@@ -819,46 +1154,8 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         }
         const offset = virtualizer.scrollOffset ?? 0;
         anchorRef.current = anchorable === undefined ? null
-            : anchorOf(virtualizer, offset, offset + margin, virtualizer.scrollRect?.height ?? 0, anchorable, margin);
+            : anchorOf(virtualizer, offset, offset + margin, virtualizer.scrollRect?.height ?? 0, anchorable, margin, runs);
     });
-
-    // Bring a requested row into view. Keyed on the index (and the explicit
-    // re-request nonce) alone, so a row set that grows underneath a standing
-    // target (paged windows landing) does not re-scroll on every frame — and
-    // on the virtualizer going live, so a target that arrived before an
-    // unbounded frame found its ancestor is still honoured. A keyed frame
-    // scrolls to the offset the request's alignment gives the row, which
-    // TanStack's reconcile then holds where its `scrollToIndex` would follow
-    // the index, and follows the row by its key itself (#885, below).
-    //
-    // A keyed request is its ROW's, served once: the same row at another
-    // index — rows landed or folded above it — under the same nonce is the
-    // request already served. Serving it again took the view back from a
-    // reader who had scrolled on (a standing key search pulled the page back
-    // to its match each time a window landed above it); a new nonce asks
-    // again.
-    useEffect(() => {
-        if (scrollToIndex === undefined || !virtualized) return;
-        if (getItemKey === undefined) {
-            virtualizer.scrollToIndex(scrollToIndex, { align: scrollAlign });
-            return;
-        }
-        if (count === 0) return;
-        const index = Math.max(0, Math.min(scrollToIndex, count - 1));
-        const key = getItemKey(index);
-        const served = servedRef.current;
-        if (served !== null && served.key === key && served.nonce === scrollNonce
-            && served.scroller === virtualizer.scrollElement) return;
-        const target = virtualizer.getOffsetForIndex(index, scrollAlign);
-        if (target === undefined) return;
-        servedRef.current = { key, nonce: scrollNonce, scroller: virtualizer.scrollElement };
-        requestRef.current = {
-            key: getItemKey(index), index, align: target[1], offset: target[0],
-            scroller: virtualizer.scrollElement, at: performance.now(),
-        };
-        virtualizer.scrollToOffset(target[0]);
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- the target index, the nonce and going live are the trigger
-    }, [scrollToIndex, scrollNonce, virtualized]);
 
     // Where a bounded frame's scroll rests, reported when a scroll SETTLES
     // (#813) — the row showing just under the header (the item starts carry
@@ -878,16 +1175,6 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         if (item !== undefined) onAnchorChange({ index: item.index, offset: Math.max(0, top - item.start) });
         // eslint-disable-next-line react-hooks/exhaustive-deps -- a scroll settling is the trigger
     }, [virtualizer.isScrolling]);
-
-    // Bring an anchor back: its row's start, less the header the rows sit
-    // under, plus how far into the row the scroll had rested.
-    useEffect(() => {
-        if (restoreAnchor === undefined || !bounded) return;
-        const item = virtualizer.measurementsCache[restoreAnchor.index];
-        if (item === undefined) return;
-        virtualizer.scrollToOffset(item.start - itemsOffset + restoreAnchor.offset, { align: "start" });
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- the anchor is the trigger
-    }, [restoreAnchor]);
 
     // Heights changed without the count changing — bust TanStack's measurement
     // memo, which does not watch `estimateSize` (see `sizeVersion`).
@@ -951,8 +1238,74 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
         } else {
             request.offset = offset;
             virtualizer.scrollToOffset(offset);
+            takeLiveOffset();
         }
     });
+
+    // Bring a requested row into view. Keyed on the index (and the explicit
+    // re-request nonce) alone, so a row set that grows underneath a standing
+    // target (paged windows landing) does not re-scroll on every frame — and
+    // on the virtualizer going live, so a target that arrived before an
+    // unbounded frame found its ancestor is still honoured. A keyed frame
+    // scrolls to the offset the request's alignment gives the row, which
+    // TanStack's reconcile then holds where its `scrollToIndex` would follow
+    // the index, and follows the row by its key itself (#885, above).
+    //
+    // A keyed request is its ROW's, served once: the same row at another
+    // index — rows landed or folded above it — under the same nonce is the
+    // request already served. Serving it again took the view back from a
+    // reader who had scrolled on (a standing key search pulled the page back
+    // to its match each time a window landed above it); a new nonce asks
+    // again.
+    //
+    // Served before paint (#1398, CL10): the commit that asks for a row draws
+    // it in view, the rows there drawn in a render of their own before the
+    // page paints — the virtualizer told where the view went in a layout
+    // effect, whose renders are the commit's own. Served after paint, the view
+    // a builder landed on — a far window's rows, the keyboard's move there —
+    // painted a frame at the old offset first, its rows not yet drawn where
+    // the view went. Declared after the follow: in the commit that asks for
+    // it the row is in the virtualizer's range at once, but mounted — and
+    // measured — only in the render the scroll asks for, so the follow takes
+    // the request up from that render's commit on, never settling it on a row
+    // not yet drawn whose height its estimate missed.
+    useLayoutEffect(() => {
+        if (scrollToIndex === undefined || !virtualized) return;
+        if (getItemKey === undefined) {
+            virtualizer.scrollToIndex(scrollToIndex, { align: scrollAlign });
+            takeLiveOffset();
+            return;
+        }
+        if (count === 0) return;
+        const index = Math.max(0, Math.min(scrollToIndex, count - 1));
+        const key = getItemKey(index);
+        const served = servedRef.current;
+        if (served !== null && served.key === key && served.nonce === scrollNonce
+            && served.scroller === virtualizer.scrollElement) return;
+        const target = virtualizer.getOffsetForIndex(index, scrollAlign);
+        if (target === undefined) return;
+        servedRef.current = { key, nonce: scrollNonce, scroller: virtualizer.scrollElement };
+        requestRef.current = {
+            key: getItemKey(index), index, align: target[1], offset: target[0],
+            scroller: virtualizer.scrollElement, at: performance.now(),
+        };
+        virtualizer.scrollToOffset(target[0]);
+        takeLiveOffset();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the target index, the nonce and going live are the trigger
+    }, [scrollToIndex, scrollNonce, virtualized]);
+
+    // Bring an anchor back: its row's start, less the header the rows sit
+    // under, plus how far into the row the scroll had rested — before paint,
+    // as a scroll request is (#1398), so the rows it brings back are the ones
+    // the page first paints.
+    useLayoutEffect(() => {
+        if (restoreAnchor === undefined || !bounded) return;
+        const item = virtualizer.measurementsCache[restoreAnchor.index];
+        if (item === undefined) return;
+        virtualizer.scrollToOffset(item.start - itemsOffset + restoreAnchor.offset, { align: "start" });
+        takeLiveOffset();
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the anchor is the trigger
+    }, [restoreAnchor]);
 
     // The header is watched: whatever changes its height moves the rows below
     // it — bounded, the scroll margin follows; unbounded, the offset re-samples.
@@ -969,7 +1322,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
 
     // Every row, in flow — an unbounded frame below scale mounts them all.
     const everyRow = () => Array.from({ length: count }, (_unused, i) => (
-        <Fragment key={getItemKey !== undefined ? getItemKey(i) : i}>{renderRow(i)}</Fragment>
+        <RowContent key={getItemKey !== undefined ? getItemKey(i) : i} index={i} render={renderRow} />
     ));
 
     // Unbounded below scale with nothing to watch: preserve the exact
@@ -977,16 +1330,18 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // output is unchanged.
     if (!bounded && !watching) {
         return (
-            <Box ref={rootRef} css={rootCss}>
-                {header}
-                {overlay === undefined && rowsProps === undefined && rowsRef === undefined ? everyRow() : (
-                    // The overlay's box: the rows, and nothing else.
-                    <Box ref={setRows} position={overlay !== undefined ? "relative" : undefined} {...rowsProps}>
-                        {everyRow()}{overlay}
-                    </Box>
-                )}
-                {footer}
-            </Box>
+            <RowsScrollContext.Provider value={rowsScroll}>
+                <Box {...rootProps} ref={rootRef} css={rootCss}>
+                    {header}
+                    {overlay === undefined && rowsProps === undefined && rowsRef === undefined ? everyRow() : (
+                        // The overlay's box: the rows, and nothing else.
+                        <Box ref={setRows} position={overlay !== undefined ? "relative" : undefined} {...rowsProps}>
+                            {everyRow()}{overlay}
+                        </Box>
+                    )}
+                    {footer}
+                </Box>
+            </RowsScrollContext.Provider>
         );
     }
 
@@ -1022,7 +1377,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                         width="100%"
                         style={{ transform: `translateY(${item.start - margin}px)` }}
                     >
-                        {renderRow(item.index)}
+                        <RowTopContext.Provider value={item.start - margin}><RowContent index={item.index} render={renderRow} /></RowTopContext.Provider>
                     </Box>
                 ))
             ) : items.length > 0 && (
@@ -1042,7 +1397,7 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                 >
                     {items.map((item) => (
                         <Box key={item.key} data-index={item.index}>
-                            {renderRow(item.index)}
+                            <RowTopContext.Provider value={item.start - margin}><RowContent index={item.index} render={renderRow} /></RowTopContext.Provider>
                         </Box>
                     ))}
                     {overlay !== undefined && overlay !== null && (
@@ -1064,7 +1419,11 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             virtualizer={virtualizer}
             startIndex={items[0]?.index ?? 0}
             endIndex={items[items.length - 1]?.index ?? 0}
-            isScrolling={virtualizer.isScrolling}
+            // At rest as soon as the scroll shows intent (CL6), whatever the virtualizer still says — read as the
+            // virtualizer's own flag is, off what the scroll's observer has set.
+            isScrolling={virtualizer.isScrolling && !intent.settled}
+            read={read}
+            margin={margin}
             onRangeChange={onRangeChange}
         />
     );
@@ -1074,31 +1433,35 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
     // renders and the virtualizer only watches which of them are on screen.
     if (!bounded) {
         return (
-            <Box ref={rootRef} css={rootCss} data-virtual-rows={atScale ? "ancestor" : "watched"}>
-                {header !== undefined && <Box ref={setHeaderEl}>{header}</Box>}
-                {atScale ? virtualWindow() : (
-                    <Box ref={setRows} position={overlay !== undefined ? "relative" : undefined}
-                        data-virtual-extent={total} {...rowsProps}>
-                        {everyRow()}
-                        {overlay}
-                    </Box>
-                )}
-                {footer}
-                {reporter}
-            </Box>
+            <RowsScrollContext.Provider value={rowsScroll}>
+                {/* At scale the frame anchors its rows itself (#878): none of them is the ancestor's to anchor on — the
+                    focused one least of all, which a landing moves (#1398). */}
+                <Box {...rootProps} ref={rootRef} css={anchoring ? { ...rootCss, overflowAnchor: "none" } : rootCss}
+                    data-virtual-rows={atScale ? "ancestor" : "watched"}>
+                    {header !== undefined && <Box ref={setHeaderEl}>{header}</Box>}
+                    {atScale ? virtualWindow() : (
+                        <Box ref={setRows} position={overlay !== undefined ? "relative" : undefined}
+                            data-virtual-extent={total} {...rowsProps}>
+                            {everyRow()}
+                            {overlay}
+                        </Box>
+                    )}
+                    {footer}
+                    {reporter}
+                </Box>
+            </RowsScrollContext.Provider>
         );
     }
 
-    // The row at the top of the view, just under the header — what the sticky
-    // strip is drawn from (item starts carry the header's height as the scroll
-    // margin, so the view's top in their terms is the offset plus it).
-    const topItem = sticky !== undefined && virtualized
-        ? virtualizer.getVirtualItemForOffset((virtualizer.scrollOffset ?? 0) + itemsOffset)
-        : undefined;
-    const stickyNode = sticky !== undefined && topItem !== undefined ? sticky(topItem.index) : null;
+    // The row at the top of the view, just under the header (item starts carry the header's height as the scroll
+    // margin) — what the sticky strip is drawn from.
+    const top = sticky !== undefined ? virtualizer.getVirtualItemForOffset((virtualizer.scrollOffset ?? 0) + margin)?.index : undefined;
+    const stickyNode = sticky !== undefined && top !== undefined ? sticky(top) : null;
 
     return (
+        <RowsScrollContext.Provider value={rowsScroll}>
         <Box
+            {...rootProps}
             ref={(el: HTMLDivElement | null) => {
                 scrollRef.current = el;
                 if (scrollElRef !== undefined) scrollElRef.current = el;
@@ -1112,6 +1475,10 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
                 ...rootCss,
                 display: "block",
                 overflowY: "auto",
+                // A frame that anchors its own scroll (#878) is the only one to: the browser's scroll anchoring, left on,
+                // anchors on the focused element first — a row, or a run not read that a click focused — and a window
+                // landing that moves it moves the view by itself (#1398).
+                ...(anchoring ? { overflowAnchor: "none" } : {}),
                 minHeight: "0",
                 ...(fillParent === true ? { flex: "1 1 auto" } : {}),
                 ...virtualScrollbarCss,
@@ -1142,20 +1509,28 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             {footer}
             {reporter}
         </Box>
+        </RowsScrollContext.Provider>
     );
 }
 
 /** Reports the mounted range in an effect, so the callback fires AFTER commit
- *  and a reader that responds by setting state cannot re-enter the render. */
-function RangeReporter({ virtualizer, startIndex, endIndex, isScrolling, onRangeChange }: {
+ *  and a reader that responds by setting state cannot re-enter the render —
+ *  again whenever the scroll's intent asks it to be read (CL6), though the
+ *  range has not moved. */
+function RangeReporter({ virtualizer, startIndex, endIndex, isScrolling, read, margin, onRangeChange }: {
     virtualizer: Rows;
     startIndex: number;
     endIndex: number;
     isScrolling: boolean;
+    /** Bumped each time the scroll's intent asks for a read. */
+    read: number;
+    /** The scroll margin the item starts carry: a bounded frame's pinned header's height, which covers the view's top. */
+    margin: number;
     onRangeChange: (
         range: { startIndex: number; endIndex: number },
         isScrolling: boolean,
         center?: { index: number; withinPx: number },
+        shown?: { startIndex: number; endIndex: number },
     ) => void;
 }): null {
     useEffect(() => {
@@ -1166,13 +1541,22 @@ function RangeReporter({ virtualizer, startIndex, endIndex, isScrolling, onRange
         // stale by the scroll-end report — the one an idle-gated reader acts
         // on (#612). The center is on screen by definition, so its item is
         // always among the mounted ones.
-        const centerPx = (virtualizer.scrollOffset ?? 0) + (virtualizer.scrollRect?.height ?? 0) / 2;
-        const item = virtualizer.getVirtualItems().find((it: VirtualItem) => centerPx >= it.start && centerPx < it.end);
+        const offset = virtualizer.scrollOffset ?? 0;
+        const height = virtualizer.scrollRect?.height ?? 0;
+        const centerPx = offset + height / 2;
+        const items = virtualizer.getVirtualItems();
+        const item = items.find((it: VirtualItem) => centerPx >= it.start && centerPx < it.end);
+        // The items the view shows, read as the center is: those meeting it from under the pinned header to its foot
+        // — every one of them mounted, as the overscan beside them may not be shown (#1039).
+        const showing = items.filter((it: VirtualItem) => it.end > offset + margin && it.start < offset + height);
+        const first = showing[0];
+        const last = showing[showing.length - 1];
         onRangeChange(
             { startIndex, endIndex },
             isScrolling,
             item !== undefined ? { index: item.index, withinPx: centerPx - item.start } : undefined,
+            first !== undefined && last !== undefined ? { startIndex: first.index, endIndex: last.index } : undefined,
         );
-    }, [startIndex, endIndex, isScrolling, onRangeChange, virtualizer]);
+    }, [startIndex, endIndex, isScrolling, read, margin, onRangeChange, virtualizer]);
     return null;
 }

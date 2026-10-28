@@ -9,11 +9,12 @@
  * its row, and next steps to the following match — the value built by
  * `<Sheet>`'s factory and COMPILED, and the Sheet rendered in its frame
  * (#1216). (The lens and the view tabs over a local Slice that this suite held
- * went with the local Slice, #1345; #1349 restores the lens over records.)
+ * went with the local Slice, #1345; the lens over records, #1349, and its key
+ * search are `sheet-lens.dom.test.tsx`'s.)
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
-import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { ArrayType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, type ValueTypeOf } from "@elaraai/east";
@@ -125,7 +126,7 @@ describe("the paged arm's key search (§3.13)", () => {
         // The frame shows what it can of the rows that land, and scrolls to the ring (#856).
         restoreScroll = frameScrolls();
         const { container } = mount(buildKeyed());
-        await waitFor(() => expect(container.querySelector('[data-slot="footerTransport"]')!.textContent).toBe("600 loaded of 1,000"), { timeout: 15_000 });
+        await waitFor(() => expect(cellOf(container, "J10000", "activity")).toBeTruthy(), { timeout: 15_000 });
         const search = container.querySelector('[data-part="dataset-key-search"]')!;
         expect(search).toBeTruthy();
         const input = search.querySelector("input") as HTMLInputElement;
@@ -146,5 +147,32 @@ describe("the paged arm's key search (§3.13)", () => {
         fireEvent.click(search.querySelector('[aria-label="Next match"]')!);
         await waitFor(() => expect(cellOf(container, "J10231", "activity")?.hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });
         expect(search.textContent).toMatch(/2 of 10/);
+    });
+
+    test("a pick takes the keyboard into the grid — its focus on the ring's cell, once the row lands — and a step leaves it on the step (#1398)", async () => {
+        restoreScroll = frameScrolls();
+        const { container } = mount(buildKeyed());
+        await waitFor(() => expect(cellOf(container, "J10000", "activity")).toBeTruthy(), { timeout: 15_000 });
+        const search = container.querySelector('[data-part="dataset-key-search"]')!;
+        const input = search.querySelector("input") as HTMLInputElement;
+        const grid = container.querySelector<HTMLElement>("[data-sheet-card]")!;
+        // A far key, its window not read: the pick waits for its row, and the keyboard with it.
+        for (const key of "J1063") {
+            const typed = input.value + key;
+            await userEvent.type(input, key);
+            await waitFor(() => expect(input.value).toBe(typed));
+        }
+        await waitFor(() => expect(search.textContent).toMatch(/10 matches/), { timeout: 5_000 });
+        fireEvent.keyDown(input, { key: "Enter" });
+        await waitFor(() => expect(cellOf(container, "J10630", "activity")?.hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });
+        await waitFor(() => expect(document.activeElement).toBe(grid));
+        expect(grid.getAttribute("aria-activedescendant")).toBe(cellOf(container, "J10630", "activity")!.id);
+        // A step: the ring moves on, and the keyboard stays on the step, to step on.
+        const next = search.querySelector<HTMLElement>('[aria-label="Next match"]')!;
+        await act(async () => { next.focus(); });
+        fireEvent.click(next);
+        await waitFor(() => expect(cellOf(container, "J10631", "activity")?.hasAttribute("data-selected")).toBe(true), { timeout: 5_000 });
+        await act(() => new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
+        expect(document.activeElement).toBe(next);
     });
 });

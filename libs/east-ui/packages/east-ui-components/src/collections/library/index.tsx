@@ -5,7 +5,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import {
-    Avatar as ChakraAvatar, Box, Button, chakra, Menu as ChakraMenu, Portal, useRecipe, useSlotRecipe, type SystemStyleObject,
+    Avatar as ChakraAvatar, Box, Button, chakra, Menu as ChakraMenu, Portal, Skeleton, useRecipe, useSlotRecipe, type SystemStyleObject,
 } from "@chakra-ui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -19,6 +19,8 @@ import { Library, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
 import { useDragSourceItem, useDropSink, type DragHandle } from "../../dnd/drag-layer";
+import { inRetained } from "../../dnd/retained.js";
+import { takeKey } from "../../editing/shortcuts.js";
 import { HOST_RANK, useSliceToolbarItems } from "../../slice/rail/index.js";
 import { railAffordanceKinds } from "../../slice/rail-kinds.js";
 import { radioGroupKey } from "../../primitives/radio-group.js";
@@ -26,6 +28,7 @@ import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { useSliceReactivity } from "../../slice/use-slice-reactivity";
 import { parseCssSize } from "../../style/parse-size.js";
 import { virtualScrollbarCss } from "../../style/scrollbar.js";
+import { sizeWhileHidden } from "../virtual-rows.js";
 import { useFormatters } from "../../format/index.js";
 import { EastChakraComponent } from "../../component";
 import { EmptyStateView } from "../../feedback/empty-state/index.js";
@@ -83,6 +86,31 @@ export interface EastChakraLibraryProps {
      * The Library still lists what its host feeds it.
      */
     narrowing?: LibraryNarrowing | undefined;
+    /**
+     * Whether cards it is to list are still being read (#1398, CL13) — a
+     * builder's Backlog while the period stepped to is read: it draws its
+     * pending rows, the paged Library's card-sized skeletons, after the cards
+     * it holds, and says no empty state, until they land. It stays mounted
+     * meanwhile — its toolbar, its cards and its search box, which keeps its
+     * text and the focus.
+     */
+    pending?: boolean | undefined;
+}
+
+/** How many pending rows a Library draws while its cards are read: as many as the paged Library draws before its count is known. */
+const PENDING_ROWS = 8;
+
+/**
+ * A Library's pending rows (#1398, CL13): where the cards being read go, at
+ * the paged Library's card size, in its recipe. `aria-hidden`: the pane the
+ * Library is in says it is busy.
+ */
+function LibraryPendingRows({ styles }: { styles: SlotStyles }) {
+    return (
+        <Box aria-hidden="true" data-library-pending="">
+            {Array.from({ length: PENDING_ROWS }, (_, i) => <Box key={i} css={styles.pagedRow}><Skeleton css={styles.pagedSkeleton} /></Box>)}
+        </Box>
+    );
 }
 
 /** What a Library says while its host's narrowing leaves it no item, and how that narrowing clears. */
@@ -119,6 +147,8 @@ export interface LibraryCardExtras {
     figure?: string | undefined;
     /** A line under its meta — when it is due, what it holds today — in a tone when it warns. */
     note?: { text: string; tone?: "warning" | "danger" | undefined } | undefined;
+    /** A strip under its lines, drawn by the host — a week pattern's seven marks (the Roster's, #1406) — in the host's own recipe. */
+    strip?: ReactNode;
     /** How it is drawn besides its states: `dashed`, taken off the target and kept to put back; `sunken`, already on it. */
     look?: "dashed" | "sunken" | undefined;
     /** An × at its end that takes it back: its words, and what it does. */
@@ -288,7 +318,9 @@ interface LibraryCardProps {
  * A draggable card's handle with its ⏎ taken by the host (#1187) — a plain
  * Enter, while the card is not itself being carried: during a keyboard drag
  * ⏎ drops it, as on any draggable. Every other key is the handle's, Space's
- * pickup among them.
+ * pickup among them. A card in retained content (#1398, CL8: its tab's source
+ * read again) places nothing on ⏎, as it is picked up by no key. The ⏎ it
+ * takes goes no further than the card (`takeKey`, #1398).
  *
  * @param drag - The card's drag handle, `undefined` when it cannot be dragged
  * @param key - The card's key
@@ -302,8 +334,8 @@ function useEnterHandle(drag: DragHandle | undefined, key: string, onCardEnter: 
         onKeyDown: (event: React.KeyboardEvent) => {
             const plain = event.key === "Enter" && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
             if (plain && !(event.currentTarget as HTMLElement).hasAttribute("data-dragging")) {
-                event.preventDefault();
-                onCardEnter(key);
+                takeKey(event);
+                if (!inRetained(event.currentTarget)) onCardEnter(key);
                 return;
             }
             drag.onKeyDown?.(event);
@@ -321,7 +353,7 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
     const draggable = item.draggable && !filtered;
     const visibleDims = dimOrder.filter(k => activeDims.includes(k) && item.dims.get(k) !== undefined);
     const tall = visibleDims.length > 0;
-    const figure = extras?.figure, note = extras?.note, remove = extras?.remove;
+    const figure = extras?.figure, note = extras?.note, remove = extras?.remove, strip = extras?.strip;
     // A figure rides the name's line, as a tall card's status does.
     const headed = figure !== undefined || (tall && status !== undefined);
 
@@ -335,7 +367,7 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
     const handle = useEnterHandle(drag, item.key, onCardEnter);
     // A click reports the card; a drag never clicks (the sensor swallows the
     // click it ends with). A card that cannot be dragged is a button, so the
-    // keyboard clicks it too.
+    // keyboard clicks it too, the key going no further.
     const click = onCardClick === undefined ? {} : {
         onClick: () => onCardClick(item.key),
         ...(drag === undefined ? {
@@ -343,7 +375,7 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
             tabIndex: 0,
             onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
+                takeKey(event);
                 onCardClick(item.key);
             },
         } : {}),
@@ -387,6 +419,7 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
                 {sublabel && <Box as="span" css={styles.cardSublabel}>{sublabel}</Box>}
                 {note !== undefined && <Box as="span" css={styles.cardNote} data-library-note="" {...(note.tone !== undefined ? { "data-tone": note.tone } : {})}>{note.text}</Box>}
                 <LibraryDims item={item} keys={visibleDims} styles={styles} />
+                {strip}
             </Box>
             {((!tall && status) || glyph) && (
                 <Box css={styles.trailing}>
@@ -410,11 +443,11 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
                 </Box>
             )}
             {remove !== undefined && (
-                // Its own target: it picks no drag up, and its click is not the card's.
+                // Its own target: it picks no drag up, and its click is not the card's. In retained content it takes nothing back.
                 <chakra.button type="button" css={styles.cardRemove} aria-label={remove.label} title={remove.label} data-library-remove=""
                     onPointerDown={(event: ReactPointerEvent) => event.stopPropagation()}
                     onKeyDown={(event: React.KeyboardEvent) => event.stopPropagation()}
-                    onClick={(event: React.MouseEvent) => { event.stopPropagation(); remove.onRemove(); }}>
+                    onClick={(event: React.MouseEvent) => { event.stopPropagation(); if (!inRetained(event.currentTarget)) remove.onRemove(); }}>
                     <FontAwesomeIcon icon={faXmark} />
                 </chakra.button>
             )}
@@ -466,7 +499,7 @@ function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, s
             tabIndex: 0,
             onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
+                takeKey(event);
                 onCardClick(item.key);
             },
         } : {}),
@@ -882,7 +915,7 @@ interface LibraryCoreProps extends EastChakraLibraryProps {
     rail?: { slice: SliceBindValue; kinds: readonly string[] } | undefined;
 }
 
-function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, extras, groupMark, narrowing }: LibraryCoreProps) {
+function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter, facetFilter, search, noMatch, extras, groupMark, narrowing, pending = false }: LibraryCoreProps) {
     const styles = useSlotRecipe({ key: "library" })() as SlotStyles;
     // Counts, in the app's locale (#850).
     const words = useFormatters();
@@ -986,8 +1019,9 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
     );
     // Nothing to show: its host's narrowing left none of what it narrows, in the host's words — above any item the narrowing does not
     // touch; no item at all, in the host's words; or a search or a filter that hides every card, in its words or the Library's.
+    // While cards it is to list are read, nothing is said: its pending rows stand where they go (CL13).
     const narrowedOut = narrowing !== undefined && (value.items.length === 0 || narrowing.emptied === true) ? narrowing : undefined;
-    const nothing: LibraryEmpty | undefined = narrowedOut !== undefined ? narrowedOut.empty : value.items.length === 0 ? empty
+    const nothing: LibraryEmpty | undefined = pending ? undefined : narrowedOut !== undefined ? narrowedOut.empty : value.items.length === 0 ? empty
         : hiddenCount < value.items.length ? undefined
             : noMatch ?? { title: "No matches", description: lowerQuery !== "" ? `Nothing matches "${query.trim()}".` : "No item holds every value the filter checks." };
     const clearNarrowing = narrowedOut?.onClear;
@@ -996,8 +1030,9 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
     const hint = getSomeorUndefined(value.hint);
     const addLabel = getSomeorUndefined(value.addLabel);
     const onAddFn = useMemo(() => getSomeorUndefined(value.onAdd), [value.onAdd]);
-    const handleAdd = useCallback(() => {
-        if (onAddFn) queueMicrotask(() => onAddFn());
+    // Its add, which in retained content (#1398, CL8) adds nothing.
+    const handleAdd = useCallback((event: React.MouseEvent) => {
+        if (onAddFn && !inRetained(event.currentTarget)) queueMicrotask(() => onAddFn());
     }, [onAddFn]);
 
     // ── Scroll region + virtualization ──────────────────────────────────────
@@ -1059,8 +1094,10 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
         paddingEnd: VIRTUAL_PAD_END,
         overscan: 4,
         // measureElement corrects the estimate — card rows vary with the
-        // toggled dimensions; group heads differ from card rows.
-        measureElement: (el) => el?.getBoundingClientRect().height,
+        // toggled dimensions; group heads differ from card rows. A row a
+        // closed tab or a collapsed pane hides keeps its size: measured there
+        // at nothing, it would move the rows and the scroll as it shows again.
+        measureElement: (el, _entry, instance) => sizeWhileHidden(el, instance) ?? el.getBoundingClientRect().height,
     });
 
     // Persist the top visible ENTRY INDEX, debounced; never a pixel scrollTop
@@ -1097,9 +1134,11 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
 
     // The search box at a width the toolbar folds it to — one element in
     // every form, so the field keeps its focus and its text as the row folds.
+    // While cards are read, how many it will hold is not known: it counts none.
     const searchBox = (size: LibrarySearchSize) => (
         <LibrarySearchBox size={size} inputRef={searchRef} query={query} onQuery={setQuery}
-            placeholder={search ?? `Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`}
+            placeholder={search ?? (pending ? `Search ${noun?.plural ?? "items"}…`
+                : `Search ${words.number(value.items.length)} ${value.items.length === 1 ? (noun?.singular ?? "item") : (noun?.plural ?? "items")}…`)}
             label={search ?? "Search library"} />
     );
     const checkedFilters = filterOptions.reduce((n, o) => n + (activeFilters[o.key]?.length ?? 0), 0);
@@ -1291,6 +1330,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
             >
                 {nothing !== undefined && <LibraryEmptyState said={nothing} onClear={clearNarrowing} />}
                 {bodyContent}
+                {pending && <LibraryPendingRows styles={styles} />}
             </Box>
             {(hiddenCount > 0 || (!gallery && addLabel !== undefined)) && (
                 <Box css={styles.footer}>
@@ -1364,4 +1404,5 @@ export const EastChakraLibrary = memo(function EastChakraLibrary(props: EastChak
     && prev.search === next.search && prev.noMatch?.title === next.noMatch?.title && prev.noMatch?.description === next.noMatch?.description
     && prev.extras === next.extras && prev.groupMark === next.groupMark
     && prev.narrowing?.empty.title === next.narrowing?.empty.title && prev.narrowing?.empty.description === next.narrowing?.empty.description
-    && prev.narrowing?.onClear === next.narrowing?.onClear && prev.narrowing?.emptied === next.narrowing?.emptied);
+    && prev.narrowing?.onClear === next.narrowing?.onClear && prev.narrowing?.emptied === next.narrowing?.emptied
+    && prev.pending === next.pending);

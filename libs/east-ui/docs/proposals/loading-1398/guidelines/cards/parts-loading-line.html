@@ -1,0 +1,57 @@
+<!-- @dsCard group="Parts · Loading" name="Loading · footer line" viewport="700x1440" subtitle="The one compact loading line in its own slot at the trailing end of the shared footer rail · idle, a range, a period, filtering, failed with Retry, narrow · the legend never moves · reveal and hold timing" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css"><link rel="stylesheet" href="loading-parts.css">
+<style>
+.stub{height:24px;background:var(--paper)}
+.tcols{grid-template-columns:minmax(0,1fr) 200px 200px}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">The Sheet's rail · its hints at the start, the line at the end</div>
+<div class="it2"><div class="bf"><div class="stub"></div><div id="s0"></div></div><div class="cap"><span class="f"><b>idle</b>: nothing in flight, the slot is empty and takes no width</span></div></div>
+<div class="it2"><div class="bf"><div class="stub"></div><div id="s1"></div></div><div class="cap"><span class="f"><b>loading a range</b>: the window in flight, in the record's noun</span> · <span class="f">the hints keep their place and end at a whole hint, then "…"; they never reflow</span></div></div>
+<div class="it2"><div class="bf"><div class="stub"></div><div id="s2"></div></div><div class="cap"><span class="f"><b>filtering</b>: a narrowing in flight; the retained rows above it are stale</span></div></div>
+<div class="it2"><div class="bf"><div class="stub"></div><div id="s3"></div></div><div class="cap"><span class="f"><b>failed</b>: any read that failed (a run, a period, an area, or the source's count or revision)</span> · <span class="f">a failed run, period or area also says it once in place (CL11)</span> · <span class="f">the dot --neg and static, the reason --neg-text, Retry the footer's link, as its "clear all"</span></div></div>
+</div>
+<div class="sec">
+<div class="k">The Roster's rail · the legend at the start</div>
+<div class="it2"><div class="bf"><div class="stub"></div><div id="r0"></div></div><div class="cap"><span class="f"><b>idle</b></span></div></div>
+<div class="it2"><div class="bf"><div class="stub"></div><div id="r1"></div></div><div class="cap"><span class="f"><b>loading a period</b>: a week not prefetched; its range as the axis writes it</span> · <span class="f">the legend's items keep their x</span></div></div>
+</div>
+<div class="sec">
+<div class="k">The Plan's rail · counts that wait for their read</div>
+<div class="it2"><div class="bf"><div class="stub"></div><div id="p1"></div></div><div class="cap"><span class="f"><b>loading a range</b>: "…" for the counts PlanKindsReader hasn't returned; never 0 or "Backlog clear"</span> · <span class="f">"N loaded of M" is gone: the toolbar's "2,778 of 50,000 rows" is the only count</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Narrow · one line at 360</div>
+<div class="duo">
+<div class="it2"><div class="bf narrow" style="width:100%"><div class="stub"></div><div id="n1"></div></div><div class="cap"><span class="f"><b>narrow</b>: under 480 the line shortens to "Loading…"</span></div></div>
+<div class="it2"><div class="bf narrow" style="width:100%"><div class="stub"></div><div id="n2"></div></div><div class="cap"><span class="f"><b>narrow · failed</b>: "Couldn't read · Retry"</span></div></div>
+</div>
+</div>
+<div class="sec">
+<div class="k">Timing · the reveal delay and the hold</div>
+<div class="bf" id="tm"></div>
+<div class="cap"><span class="f">geometry draws at once; the line and the fill share one clock: shown once a wait passes 150 ms, then held at least 300 ms</span> · <span class="f">role status, polite: one announcement per load, not per page</span> · <span class="f">a newer read replaces the text in place; the slot never empties between two reads</span></div>
+</div>
+</div>
+<div class="pl">&lt;Loading&gt; · state cold|unread|stale|failed|empty · density comfortable|compact|condensed · content text|number|date|boolean|chip|link|enum|label|aggregate|card · line idle|range|period|filtering|failed|narrow</div>
+<div class="ann"><b>BuilderFrame busy · builderFooter loadingLine (no east-ui slot)</b> · <span class="f">the Footer band: 36, pad 0 20, --paper-2, hairline --rule above</span> · <span class="f">the legend (or the Plan's counts) at the start, always whole, never moved; hints at the start, ending at a whole hint, then "…"; the line in its own slot at the end, margin-left auto, at most 64% of the rail, taking only the space left</span> · <span class="f">one line, never wraps, never cuts a word: its full text if it fits whole; else its short form ("Loading…", "Filtering…", "Couldn't read · Retry") if that fits whole; else the dot alone, its full text kept for screen readers; a failure's floor is the dot and Retry, "● Retry"</span> · <span class="f">under 480, where the legend itself can't fit: the legend ends at a whole item, then "…", and the line shows its short form</span> · <span class="f">8 dot --brand with the live pulse, gap 8, then mono 10.5 --ink-3 tabular, the range or period 600 --ink</span> · <span class="f">copy: Loading {noun}… (cold) · Loading {noun} {from–to} · Loading {period} · Loading items in view · Loading details for {n} items · Loading counts · Filtering {noun}… · Couldn't read {noun} {from–to} · Couldn't read {period} · Couldn't read items in view · Retry</span> · <span class="f">failed: dot --neg, static; reason --neg-text; Retry --brand-d 500</span> · <span class="f">shown after 150 ms, held 300 ms, gone when nothing is in flight</span> · <span class="f">role status, one announcement per load</span> · <span class="f">no "N loaded of M", "not loaded", "scroll to load" or "elements"</span></div>
+<script src="loading-parts.js"></script>
+<script>
+(()=>{const {N,leg,line,foot,$}=L;
+const hints='<span class="hn"><span class="kbd">⏎</span>edit</span><span>·</span><span class="hn"><span class="kbd">esc</span>cancel</span><span>·</span><span>click a row number to select it</span><span>·</span><span class="hn"><span class="kbd">⌘</span><span class="kbd">C</span>/<span class="kbd">⌘</span><span class="kbd">V</span></span><span>round-trips with Excel</span>';
+$('s0',foot(hints));
+$('s1',foot(hints,line('load','Loading work orders <b>8,301–8,500</b>')));
+$('s2',foot(hints,line('load','Filtering work orders…')));
+$('s3',foot(hints,line('err','Couldn\'t read work orders <b>8,301–8,500</b>')));
+const rl=leg([['Permanent','sw'],['Agency staff','sw s2'],['Requested','sw dh'],['Open','sw dw'],['Hours needed','sw tk']]);
+$('r0',foot(rl));
+$('r1',foot(rl,line('load','Loading <b>12–18 Mar</b>')));
+$('p1',foot('<span><b>0</b> pending</span><span>·</span><span><b>…</b> events</span><span>·</span><span><b>…</b> in backlog</span>',line('load','Loading work orders <b>8,301–8,500</b>')));
+$('n1',foot(rl,line('load','Loading…')));
+$('n2',foot(rl,line('err','Couldn\'t read')));
+const rows=[['100 ms','never shown','never shown'],['220 ms','150 → 450 ms','150 → 450 ms'],['2 s','150 ms → 2 s','150 ms → 2 s'],['cold load','the skeleton, from 0','the skeleton, from 0']];
+$('tm',`<div class="tr th tcols"><span>The read takes</span><span>Loading line</span><span>Placeholder fill</span></div>`+rows.map(r=>`<div class="tr tcols"><span class="n">${r[0]}</span><span class="n">${r[1]}</span><span class="n">${r[2]}</span></div>`).join(''));
+})();
+</script>
+</body></html>

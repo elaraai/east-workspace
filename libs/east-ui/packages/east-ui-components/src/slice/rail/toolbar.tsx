@@ -4,12 +4,13 @@
  */
 
 /** Shared Slice rail presentation: local and record adapters use one ladder. */
-import { Fragment, useState, type ReactNode } from "react";
-import { Accordion, Box, chakra, useRecipe, useSlotRecipe } from "@chakra-ui/react";
+import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Accordion, Box, chakra, useRecipe } from "@chakra-ui/react";
+import { useSlotStyles, type SlotStyles } from "../../theme/slot-styles.js";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faFilter, faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import type { IconProp } from "@fortawesome/fontawesome-svg-core";
-import type { ToolbarItem } from "../../toolbar/index.js";
+import { FLOOR_RANK, type ToolbarItem } from "../../toolbar/index.js";
 import { SliceDensityContext } from "../density.js";
 import { SliceEditPopover } from "../edit/index.js";
 import { SliceClearButton } from "../choice.js";
@@ -46,6 +47,10 @@ export interface SliceRailGroup {
 export interface SliceRailModel {
     /** The version that invalidates measured forms. */
     version: unknown;
+    /**
+     * What the editor's head counts as narrowing (`2 active`): the rail's own choices, those it lists and its Clear all
+     * clears — never a narrowing it does not list, such as a source's date window a host's navigation writes.
+     */
     activeCount: number;
     /** Only the local predicate builder has separately folding clause chips. */
     filterChips?: number;
@@ -64,7 +69,7 @@ export interface SliceRailModel {
  * control, so the keys move between the fields as they would without it.
  */
 function RailSections({ model, kinds }: { model: SliceRailModel; kinds: readonly string[] }) {
-    const styles = useSlotRecipe({ key: "sliceFrame" })();
+    const styles = useSlotStyles("sliceFrame");
     const chip = useRecipe({ key: "chip" });
     const [expanded, setExpanded] = useState<string[]>([]);
     return <Accordion.Root css={styles.railAccordion} collapsible value={expanded}
@@ -115,8 +120,10 @@ const COLLAPSE_RANK: Record<string, number> = {
 };
 
 /** The rail's own fold ranks around {@link COLLAPSE_RANK}: the filter's
- *  clause chips fold first; the merged terminal chip and the icon last. */
-const RAIL_RANK = { chips: 0, terminal: 6, icon: 7 } as const;
+ *  clause chips fold first; the merged terminal chip and the icon last; and,
+ *  below the toolbar's ladder, the icon without its caret — the first rung of
+ *  the row's floor (`FLOOR_RANK`, hand retest, 27 Oct 2026). */
+const RAIL_RANK = { chips: 0, terminal: 6, icon: 7, bare: FLOOR_RANK } as const;
 
 /** One cluster of the rail — one item of the shared toolbar. */
 export interface SliceRailClusterSpec {
@@ -132,23 +139,32 @@ export interface SliceRailClusterSpec {
  * One form of a cluster: how many families have folded (in fold order), how
  * many of the filter's clause chips have folded into `+M more`, and how the
  * folded families show — as their summary chips, merged into the terminal
- * chip, or as the icon alone.
+ * chip, as the icon alone, or, at the row's floor, as the icon without the
+ * trigger's caret.
  */
 interface RailForm {
     folded: number;
     chips: number;
-    show: "chips" | "terminal" | "icon";
+    show: "chips" | "terminal" | "icon" | "bare";
 }
 
 /**
  * Build one shared-toolbar item per Slice cluster. The adapters own data and
  * control actions; this hook owns folding, held anchors and editor density.
+ *
+ * The items are made again only when what they are drawn from moves (#1398,
+ * CL9): the model, the clusters' affordances, and the editor held open. A
+ * host that keeps its model the same object while its slices and its words
+ * hold — the record adapters do — hands its builder's toolbar the same items
+ * at every render, so a builder drawn again at each window landing draws its
+ * rail again only when a choice moves.
+ *
  * @param model - Display callbacks; undefined means no controls.
  * @param clusters - Affordances in each host cluster.
  * @returns Items for the host's one Toolbar.
  */
 export function useSliceRailItems(model: SliceRailModel | undefined, clusters: ReadonlyArray<SliceRailClusterSpec>): ToolbarItem[] {
-    const styles = useSlotRecipe({ key: "sliceFrame" })();
+    const styles = useSlotStyles("sliceFrame");
     const chip = useRecipe({ key: "chip" });
     const btn = useRecipe({ key: "button" });
     // Every slice change can move what the rail shows — the chips, their words.
@@ -158,6 +174,22 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
     // of the cluster flat, in `editor` density, complete however far the
     // cluster has folded.
     const [open, setOpen] = useState<{ key: string; chips: number } | null>(null);
+    // The clusters as what they hold: a host's new array of the same clusters makes nothing again.
+    const shape = clusters.map((cluster) => `${cluster.key}\u0001${cluster.side ?? ""}\u0001${cluster.kinds.join("\u0002")}`).join("\u0000");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the clusters are read by `shape`, what they hold
+    return useMemo(() => railItems(model, clusters, open, setOpen, styles, chip, btn), [model, shape, open, styles, chip, btn]);
+}
+
+/** The rail's items, made from its model — what {@link useSliceRailItems} keeps while they hold. */
+function railItems(
+    model: SliceRailModel | undefined,
+    clusters: ReadonlyArray<SliceRailClusterSpec>,
+    open: { key: string; chips: number } | null,
+    setOpen: (open: { key: string; chips: number } | null) => void,
+    styles: SlotStyles,
+    chip: ReturnType<typeof useRecipe>,
+    btn: ReturnType<typeof useRecipe>,
+): ToolbarItem[] {
     if (model === undefined) return [];
     const { version, activeCount } = model;
 
@@ -194,6 +226,10 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
             forms.push({ folded: kinds.length, chips: chipCount, show: "icon" });
             ranks.push(RAIL_RANK.icon);
         }
+        // The row's floor: every cluster's trigger as its icon alone, without its caret — taken only where the toolbar's
+        // whole ladder leaves the row too wide, so the history and Save stay in it (hand retest, 27 Oct 2026).
+        forms.push({ folded: kinds.length, chips: chipCount, show: "bare" });
+        ranks.push(RAIL_RANK.bare);
 
         // Keep labels and ordering independent of selections: changing a
         // filter must not resize its trigger or move the open popover.
@@ -203,7 +239,8 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
 
         // What the folded families show: their summary chips in fold order;
         // at the terminal form a stable Filters label; past it the icon
-        // alone. The accessible name and editor retain the selected values.
+        // alone — at the row's floor without the caret too. The accessible
+        // name and editor retain the selected values.
         const trigger = (form: RailForm): ReactNode => {
             if (form.show === "chips") {
                 return foldOrder.slice(0, form.folded).map((o) => {
@@ -215,7 +252,7 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
             const labels = descriptors.map((d) => d.text);
             const anyActive = descriptors.some((d) => d.active);
             const icon = faFilter;
-            if (form.show === "icon") {
+            if (form.show === "icon" || form.show === "bare") {
                 return (
                     <Box key="icon" as="span" css={chip({ tone: anyActive ? "brand" : "neutral", numeric: true })}
                         title={labels.length > 0 ? labels.join(" · ") : "Slice"} data-rail-rung="icon">
@@ -243,7 +280,7 @@ export function useSliceRailItems(model: SliceRailModel | undefined, clusters: R
                     <chakra.button type="button" css={styles.railTrigger} data-slot="railTrigger"
                         aria-label={`Filters: ${folded(form).map((d) => d.text).join(" · ")}`}>
                         {trigger(form)}
-                        <FontAwesomeIcon icon={faChevronDown} data-rail-caret="" />
+                        {form.show !== "bare" && <FontAwesomeIcon icon={faChevronDown} data-rail-caret="" />}
                     </chakra.button>
                 }
             >

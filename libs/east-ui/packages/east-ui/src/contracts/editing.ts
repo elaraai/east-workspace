@@ -107,13 +107,14 @@ export const EditingBatchReadinessType = VariantType({
  * @property resize - An element's extent changed (#879 — a Plan run's start or end)
  * @property drop - Something dropped onto the collection from elsewhere (#879)
  * @property verdict - A review verdict (#879). No collection makes one since the Plan's review went (#1260); the case stays so a journal of earlier events still reads
+ * @property optimise - A run of the app's optimiser landed as one step (#1409): the result of one call, diffed by key into the changes it made
  * @property undo - Undo
  * @property redo - Redo
  * @property discard - Drafts discarded
  */
 export const EditingOriginType = VariantType({
     typed: NullType, pasted: NullType, fill: NullType, row: NullType, pattern: NullType,
-    insert: NullType, move: NullType, remove: NullType, resize: NullType, drop: NullType, verdict: NullType,
+    insert: NullType, move: NullType, remove: NullType, resize: NullType, drop: NullType, verdict: NullType, optimise: NullType,
     undo: NullType, redo: NullType, discard: NullType,
 });
 

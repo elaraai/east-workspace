@@ -4,11 +4,12 @@
  * @vitest-environment jsdom
  */
 import { describe, expect, test } from "vitest";
-import { within } from "@testing-library/react";
+import { fireEvent, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
-import { assignment, card, history, narrow, open, press, rosterHarness, slot, START, weekDuties, width, type Choice } from "./harness.test-utils.js";
+import { act, assignment, card, history, narrow, open, press, rosterHarness, settle, slot, START, weekDuties, width, type Choice } from "./harness.test-utils.js";
 const h = rosterHarness();
 /** The duties' commits, newest first, by the mutation that made each. */
 const commits = async () => (await h.history(ex.rosterDuties)).commits.map(c => c.mutation);
@@ -25,10 +26,13 @@ describe("Roster in the shared record-backed frame", () => {
         expect(slot(container, "main").textContent).toContain("Inbound");
         expect(slot(container, "main").textContent).toContain("Early");
         expect(weekDuties(await h.read(ex.rosterDuties), START).size).toBe(316);
-        // The legend's five coverage marks: no overtime, which is the app's pay's to say.
+        // The legend's five coverage marks: no overtime, which is the app's pay's to say. Beside them the footer holds only the
+        // "…" a cut legend ends with and the one shared loading line (#1398), which says nothing once the week has landed.
         expect(container.querySelectorAll("[data-roster-legend]")).toHaveLength(5);
         const footer = container.querySelector("[data-roster-footer]")!;
-        expect([...footer.children].every(item => item.hasAttribute("data-roster-legend"))).toBe(true);
+        expect([...footer.children].every(item => item.hasAttribute("data-roster-legend") || item.hasAttribute("data-footer-more")
+            || item.hasAttribute("data-footer-line"))).toBe(true);
+        expect(footer.querySelector("[data-footer-line]")!.hasAttribute("data-idle")).toBe(true);
         // The week's cost is the warehouse's own pay, in its currency.
         expect(stat(container, "Cost")).toMatch(/^A\$[\d,]+\.\d\d$/);
         await press(within(slot(container, "main")).getByRole("button", { name: "N. Ochre" }));
@@ -76,18 +80,30 @@ describe("Roster in the shared record-backed frame", () => {
         expect(container.querySelectorAll("[data-roster-legend]")).toHaveLength(5);
         expect(weekDuties(await h.read(ex.rosterDuties), START).size).toBe(316);
     });
-    test("People hides the fixed period and returning to Shifts restores its chosen period", async () => {
+    test("People offers Week · Month in the Period segment and each layout keeps its own period: Shifts → People → Shifts restores the Shifts period, and People comes back to its month (#1406, P1)", async () => {
         const { container } = await h.mount(ex.rosterWarehouse);
         const toolbar = within(slot(container, "toolbar"));
+        const periods = () => within(toolbar.getByRole("radiogroup", { name: "Period" })).getAllByRole("radio").map(r => r.textContent);
+        expect(periods()).toEqual(["Day", "Week"]);
         for (const name of ["Day", "Week"]) {
             await press(toolbar.getByRole("radio", { name }));
             await press(toolbar.getByRole("radio", { name: "People" }));
-            expect(toolbar.queryByRole("radiogroup", { name: "Period" })).toBeNull();
+            expect(periods()).toEqual(["Week", "Month"]);
             expect(container.querySelector('[data-roster-grid="people"]')).not.toBeNull();
             await press(toolbar.getByRole("radio", { name: "Shifts" }));
             expect(toolbar.getByRole("radio", { name }).getAttribute("aria-checked")).toBe("true");
             expect(container.querySelectorAll("[data-roster-slot]")).toHaveLength(name === "Day" ? 9 : 63);
         }
+        // People's month is People's alone: chosen there, kept across a visit to Shifts, whose Week stands.
+        await press(toolbar.getByRole("radio", { name: "People" }));
+        await press(toolbar.getByRole("radio", { name: "Month" }));
+        expect(container.querySelector('[data-roster-grid="people-month"]')).not.toBeNull();
+        await press(toolbar.getByRole("radio", { name: "Shifts" }));
+        expect(toolbar.getByRole("radio", { name: "Week" }).getAttribute("aria-checked")).toBe("true");
+        expect(container.querySelectorAll("[data-roster-slot]")).toHaveLength(63);
+        await press(toolbar.getByRole("radio", { name: "People" }));
+        expect(toolbar.getByRole("radio", { name: "Month" }).getAttribute("aria-checked")).toBe("true");
+        expect(container.querySelector('[data-roster-grid="people-month"]')).not.toBeNull();
     });
     test("published weeks retain navigation and inspection with no editing or drag sources", async () => {
         const { container } = await h.mount(ex.rosterPublished);
@@ -95,5 +111,73 @@ describe("Roster in the shared record-backed frame", () => {
         expect(container.querySelector("[data-roster-grip], [data-roster-chip-action]")).toBeNull();
         expect(within(slot(container, "toolbar")).queryByRole("button", { name: editingMessages.apply() })).toBeNull();
         expect(slot(container, "main").textContent).toContain("D. Bracken");
+    });
+});
+
+describe("the board takes the keyboard (as the Calendar's does, retest C4)", () => {
+    test("a click on an empty part of the board puts the keyboard in the Roster: `]` and `[` step its week from there", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        const user = userEvent.setup();
+        const week = () => slot(container, "toolbar").querySelector("[data-time-navigation]")?.getAttribute("data-time-anchor");
+        const before = week();
+        // The Shifts grid's head over its groups: a part of the board that takes no gesture.
+        await user.click(slot(container, "main").querySelector<HTMLElement>('[data-roster-grid="shifts"]')!); await settle();
+        expect(container.querySelector("[data-roster-frame]")!.contains(document.activeElement)).toBe(true);
+        await user.keyboard("]"); await settle();
+        expect(week()).not.toBe(before);
+        // `[[` is the `[` key in user-event's keys, whose `[` opens a key's name.
+        await user.keyboard("[["); await settle();
+        expect(week()).toBe(before);
+    });
+    test("Delete on the proposal the keyboard is on rejects it, the keyboard staying on the board, so Ctrl+Z there brings it back", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        const proposal = () => slot(container, "main").querySelector('[data-roster-proposal="s317"]');
+        const name = () => within(slot(container, "main")).getByRole("button", { name: "N. Ochre" });
+        await press(name());
+        await act(async () => { name().focus(); });
+        expect(document.activeElement).toBe(name());
+        await act(async () => { fireEvent.keyDown(name(), { key: "Delete" }); }); await settle();
+        expect(proposal()).toBeNull();
+        // On the board, never the page's body: the keys go on to the Roster.
+        expect(document.activeElement).toBe(slot(container, "main").querySelector("[data-roster-main]"));
+        await act(async () => { fireEvent.keyDown(document.activeElement!, { key: "z", ctrlKey: true }); }); await settle();
+        expect(proposal()).not.toBeNull();
+    });
+    test("Delete on a saved duty the keyboard is on leaves its tombstone, and the keyboard on it", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await press(assignment(container, "s37"));
+        await act(async () => { assignment(container, "s37").focus(); });
+        await act(async () => { fireEvent.keyDown(assignment(container, "s37"), { key: "Delete" }); }); await settle();
+        expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
+        expect(document.activeElement).toBe(assignment(container, "s37"));
+    });
+});
+
+describe("the inspector keeps the keyboard as a control goes with its view (#1398)", () => {
+    /** A Details control the focus is put on, then pressed: what holds the focus after. */
+    async function pressFocused(control: HTMLElement): Promise<Element> {
+        control.focus();
+        expect(document.activeElement).toBe(control);
+        await press(control);
+        return document.activeElement ?? document.body;
+    }
+    /** An inspector heading's title and its status, as the focus finds it: whether it is its view's home, and what it names. */
+    const heading = (el: Element) => [el.hasAttribute("data-focus-home"), el.querySelector("[data-inspector-title]")?.textContent ?? null,
+        el.querySelector("[data-inspector-status]")?.textContent ?? null];
+    test("Remove on a duty in Details turns its actions to Restore: the focus lands on the duty's heading, never on the page's body", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await press(assignment(container, "s37"));
+        const focused = await pressFocused(within(slot(container, "end")).getByRole("button", { name: "Remove" }));
+        expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
+        expect(focused).not.toBe(document.body);
+        expect(heading(focused)).toEqual([true, "C. Clover", "Removed · unsaved"]);
+    });
+    test("Accept proposal takes the proposal's view away: the focus lands on the heading of the duty it rosters, never on the page's body", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await press(within(slot(container, "main")).getByRole("button", { name: "N. Ochre" }));
+        const focused = await pressFocused(within(slot(container, "end")).getByRole("button", { name: "Accept proposal" }));
+        expect(within(slot(container, "end")).queryByRole("button", { name: "Accept proposal" })).toBeNull();
+        expect(focused).not.toBe(document.body);
+        expect(heading(focused)).toEqual([true, "N. Ochre", "Added · unsaved"]);
     });
 });

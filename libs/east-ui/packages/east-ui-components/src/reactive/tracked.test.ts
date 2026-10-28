@@ -5,7 +5,8 @@
  * The framework-free tracked read (#815): it subscribes to exactly what its
  * last run read, follows a dependency set that grows (#580), disarms every
  * tracker whatever the closure does, goes quiet once released, and listens
- * again on the next run.
+ * again on the next run — and a key a run read that moved before it subscribed
+ * invalidates the run, though the move told no one.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -13,14 +14,15 @@ import { registerReactiveTracker, type ReactiveTracker } from "./tracker.js";
 import { createTrackedRead } from "./tracked.js";
 import { readResource } from "./read-scope.js";
 
-/** A tracker with explicit channels: `read(key)` records, `fire(key)` notifies. */
+/** A tracker with explicit channels: `read(key)` records, `fire(key)` notifies, `move(key)` moves a key's version and notifies. */
 function channelTracker(id: string) {
     const subs = new Map<string, Set<() => void>>();
-    let recording: string[] | null = null;
+    const versions = new Map<string, number>();
+    let recording: Map<string, number> | null = null;
     const tracker: ReactiveTracker = {
         id,
-        enableTracking() { recording = []; },
-        disableTracking() { const r = recording ?? []; recording = null; return r; },
+        enableTracking() { recording = new Map(); },
+        disableTracking() { const r = recording ?? new Map<string, number>(); recording = null; return r; },
         getStore: () => ({
             subscribe(key, cb) {
                 const set = subs.get(key) ?? new Set<() => void>();
@@ -28,13 +30,17 @@ function channelTracker(id: string) {
                 subs.set(key, set);
                 return () => { set.delete(cb); };
             },
-            getKeyVersion: () => 0,
+            getKeyVersion: (key) => versions.get(key) ?? 0,
         }),
     };
+    const fire = (key: string) => { for (const cb of [...(subs.get(key) ?? [])]) cb(); };
     return {
         tracker,
-        read(key: string) { recording?.push(key); },
-        fire(key: string) { for (const cb of [...(subs.get(key) ?? [])]) cb(); },
+        /** A read of a key, recorded with its version as first read. */
+        read(key: string) { if (recording !== null && !recording.has(key)) recording.set(key, versions.get(key) ?? 0); },
+        fire,
+        /** Moves a key's version and tells its readers, as a write of it does. */
+        move(key: string) { versions.set(key, (versions.get(key) ?? 0) + 1); fire(key); },
         get recording() { return recording; },
         subscribed: () => [...subs.entries()].filter(([, s]) => s.size > 0).map(([k]) => k).sort(),
     };
@@ -116,6 +122,24 @@ describe("createTrackedRead", () => {
         ch.fire("w0");
         registered("after-release");
         expect(invalidated).toBe(0);
+    });
+
+    test("a key a run read for the first time that moved before the run was done invalidates it — the move told no one, nothing subscribing to the key yet", async () => {
+        const ch = registered("t6");
+        let invalidated = 0;
+        const tr = createTrackedRead(() => { invalidated += 1; });
+        cleanups.push(() => tr.release());
+        // The run reads `a`, then writes it, as a closure that writes what it has read does.
+        tr.run(() => { ch.read("a"); ch.move("a"); });
+        expect(ch.subscribed()).toEqual(["a"]);
+        await Promise.resolve();
+        expect(invalidated).toBe(1);
+        // Run again, it reads what `a` holds now, which holds: nothing invalidates it.
+        tr.run(() => ch.read("a"));
+        await Promise.resolve();
+        expect(invalidated).toBe(1);
+        ch.move("a");
+        expect(invalidated).toBe(2);
     });
 
     test("a run after a release subscribes afresh — a canvas remounted by StrictMode keeps listening", () => {

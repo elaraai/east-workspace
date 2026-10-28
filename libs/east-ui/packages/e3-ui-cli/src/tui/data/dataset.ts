@@ -42,7 +42,7 @@
  * @packageDocumentation
  */
 
-import { decodeBeast2For, fromEastTypeValue, toEastTypeValue, variant, type EastType, type EastTypeValue } from '@elaraai/east';
+import { NullType, decodeBeast2For, fromEastTypeValue, toEastTypeValue, variant, type EastType, type EastTypeValue } from '@elaraai/east';
 import type { DatasetPageWindow } from '@elaraai/e3-api-client';
 import { indexWindowType } from '@elaraai/e3-types';
 import { ValueTree } from '@elaraai/east-ui';
@@ -158,18 +158,20 @@ export function pageRows(type: EastTypeValue, decoded: unknown, offset: number):
 
 /**
  * The window type an index's page decodes by, over a record of type
- * `Dict<K, V>`: `Array<{ik, key, value, row}>`.
+ * `Dict<K, V>`: `Array<{ik, key, value, row}>` — a summary's `key` Null, as
+ * its entries stand for every row of their key (#1039).
  *
  * @param recordType - The record's type
  * @param keyType - The index key's type
- * @param valueType - The index's projection type
+ * @param valueType - The index's projection type, or a summary's totals
+ * @param summary - Whether the index is a summary
  * @returns The window type, or null when the record is not a Dict
  */
-export function indexWindowTypeOf(recordType: EastTypeValue, keyType: EastTypeValue, valueType: EastTypeValue): EastTypeValue | null {
+export function indexWindowTypeOf(recordType: EastTypeValue, keyType: EastTypeValue, valueType: EastTypeValue, summary = false): EastTypeValue | null {
     if (recordType.type !== 'Dict') return null;
     const { key, value } = recordType.value as { key: EastTypeValue; value: EastTypeValue };
     const east = (tv: EastTypeValue): EastType => fromEastTypeValue(tv as never) as unknown as EastType;
-    return toEastTypeValue(indexWindowType(east(key), east(keyType), east(valueType), east(value)));
+    return toEastTypeValue(indexWindowType(summary ? NullType : east(key), east(keyType), east(valueType), east(value)));
 }
 
 /** What the loader needs. */
@@ -479,13 +481,14 @@ export function createDatasetLoader(deps: DatasetLoaderDeps): DatasetLoader {
                 const name = source.path.replace(/^\.records\./, '');
                 const signature = store.getState().data.records[ws]?.[name]?.signature ?? await api.recordDescribe(ws, name);
                 const declared = signature.indexes.find(i => i.name === source.index);
-                const window = declared === undefined ? null : indexWindowTypeOf(status.type, declared.keyType, declared.valueType);
+                const window = declared === undefined ? null : indexWindowTypeOf(status.type, declared.keyType, declared.valueType, declared.summary);
                 if (declared === undefined || window === null) {
                     store.dispatch({ type: 'data/dataset', ws, path, data: { status, hash, type, size, mode: { kind: 'error', message: `${name} has no index ${source.index}` }, forced: false } });
                     return;
                 }
                 type = window;
-                index = { name: source.index, keyType: declared.keyType, join: declared.valueType.type === 'Null' };
+                // A summary's entries name no row, so its reads never join.
+                index = { name: source.index, keyType: declared.keyType, join: !declared.summary && declared.valueType.type === 'Null' };
             }
             const before = current(ws, path);
             if (!force && before !== undefined && before.status !== null && before.hash === hash && before.mode.kind !== 'error') {

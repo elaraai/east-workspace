@@ -429,7 +429,7 @@ console.log(`  decode: ${(decElapsed / DECODE_ITERS).toFixed(1)} ms/call`);
 // Profile IR decode + execute (if IR blob was written)
 if (irValue) {
   const { analyzeIR } = await import("../../src/analyze.js");
-  const { compile_internal, ReturnException } = await import("../../src/compile.js");
+  const { compile_internal } = await import("../../src/compile.js");
   const irBlob = new Uint8Array(fs.readFileSync("/tmp/ui_fn.beast2"));
   const irDecoder = v2Decode(IRType);
 
@@ -438,7 +438,7 @@ if (irValue) {
   const warmupAnalyzed = analyzeIR(warmupIR, []);
   const warmupCompiled = compile_internal(warmupAnalyzed, {}, {}, new Set(), [], true, new Set());
   const warmupFn = warmupCompiled({});
-  try { warmupFn(); } catch (e) { if (!(e instanceof ReturnException)) throw e; }
+  warmupFn();
 
   const EXEC_ITERS = 3;
   // Note: analyzeIR is NOT needed for decoded IR — it was already valid when encoded.
@@ -451,7 +451,7 @@ if (irValue) {
     const compiled = compile_internal(ir as any, {}, {}, new Set(), [], true, new Set());
     const fn = compiled({});
     const t2 = performance.now();
-    try { fn(); } catch (e) { if (!(e instanceof ReturnException)) throw e; }
+    fn();
     const t3 = performance.now();
     decTotal += t1 - t0;
     compileTotal += t2 - t1;
@@ -486,7 +486,7 @@ if (irValue) {
   console.log(`  Profiling IR execute (${EXEC_ITERS * 3} iterations)...`);
   await cpuProfile("ir_execute", () => {
     for (let i = 0; i < EXEC_ITERS * 3; i++) {
-      try { fnForExec(); } catch (e) { if (!(e instanceof ReturnException)) throw e; }
+      fnForExec();
     }
   });
   console.log(`  wrote ir_execute.cpuprofile`);

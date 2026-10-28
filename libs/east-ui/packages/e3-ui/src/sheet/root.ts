@@ -602,6 +602,8 @@ export interface SheetBuild {
     metas: readonly SheetColumnMeta[];
     /** The registers' names — the declared ones, and the driver's under its column: what a `reference` hint in the inspector may name (#1188). */
     registers: readonly string[];
+    /** A keyed source's key type — a record's own, a keyed paged source's String — whose rows' ids are its keys' text; `undefined` for an Array source, whose rows are keyed by their id field (#1409). */
+    keyType: EastType | undefined;
 }
 
 /**
@@ -884,7 +886,7 @@ function buildSheet(
         ...(ordered !== undefined && opts.onApply !== undefined ? { onApply: undefined, applyKeyed: opts.onApply } : {}),
         ...(internal.applyKeyed !== undefined ? { applyKeyed: internal.applyKeyed } : {}),
         ...(internal.sourceId !== undefined ? { sourceId: internal.sourceId } : {}),
-    }, driver?.column);
+    }, rowOf as unknown as ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>, driver?.column);
     // The group declaration on the wire (#740).
     const groupValue = groupBridge !== undefined && groupDecl !== undefined && cellMetas !== undefined
         ? East.value(some({
@@ -942,5 +944,5 @@ function buildSheet(
         style,
         ordered: ordered !== undefined,
     }, SheetRootType);
-    return { root, bridge, metas, registers: Object.keys(registers) };
+    return { root, bridge, metas, registers: Object.keys(registers), keyType };
 }

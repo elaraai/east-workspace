@@ -20,7 +20,8 @@
  * flushed, again until both hold at once. jsdom lays nothing out, so the
  * harness measures what the builders' virtualizers and frames read: main and
  * a Library's viewport, their rows, and the widths a resize sets
- * ({@link width}).
+ * ({@link width}) — and, for a test that asks, a toolbar row too narrow for
+ * what it holds, at its floor ({@link toolbarAtFloor}).
  *
  * @packageDocumentation
  */
@@ -43,6 +44,7 @@ import {
     EXAMPLES_PIECE_MIN, patchRecord, readDataset, recordHistory, runDataflow, settleE3, startTestE3, workspaceRequests, writeDataset,
     type E3Dataset, type E3Record, type E3Request, type TestE3,
 } from "./e3-web.test-utils.js";
+import { setPagedLandingFrame } from "./platform/paged-runtime.js";
 import { QueryPlanOptionsProvider } from "./query/hooks.js";
 import { act, isolateRuns } from "./test-runs.test-utils.js";
 
@@ -51,6 +53,16 @@ export { act };
 // e3's repositories are in memory, so the edits staged against it are kept in
 // memory too, as the showcase keeps them; IndexedDB would outlive the test's e3.
 initializeStagedStore(new StagedStore(new MemoryStagedAdapter()));
+
+// jsdom draws no frame a test waits on: the windows a paged read lands are
+// applied to their readers as the turn they land in ends, as a page applies
+// them at its next frame (#1398, CL9), so an `act` sees what it read land
+// before it returns, whatever the test's clock.
+setPagedLandingFrame((apply) => {
+    let asked = true;
+    queueMicrotask(() => { if (asked) apply(); });
+    return () => { asked = false; };
+});
 
 /** How often what a mounted example reads is polled while it shows: as often as the showcase and a UI task's preview poll theirs. */
 const EXAMPLE_POLL_MS = 1000;
@@ -266,7 +278,8 @@ const heardStatus = (workspace: string): Promise<void> => refreshMounted(workspa
  * with the package of the given example modules deployed
  * (`startTestE3`); before each, the test gets a fresh copy of the deployed
  * workspace, a store of its own and the measuring stubs; after each, its
- * holds and faults stop, what it mounted unmounts and its requests settle.
+ * holds and faults stop, what it mounted unmounts, every spy lets go of what
+ * it recorded and its requests settle.
  *
  * @param modules - Each e3-ui example module the file mounts, by its key under e3-ui's `test/` (`calendar/calendar-records`), as the file imports it
  * @param options - The builder's main area, and whether to measure it
@@ -319,6 +332,13 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
         state.e3?.reset();
         cleanup();
         localStorage.clear();
+        // What every spy recorded goes with the test, as its stub does: vitest
+        // keeps each spy a file makes until the file ends, and restoring one
+        // keeps its calls, each with the element it was called on — which
+        // reaches the whole page the test drew, and what React drew it from.
+        // The measures above, new each test, held every page the file had
+        // drawn: the Calendar's records file passed 4 GiB.
+        vi.clearAllMocks();
         vi.restoreAllMocks();
         observers.clear();
         await state.e3?.idle();
@@ -483,6 +503,26 @@ export async function settle(): Promise<void> {
 export async function width(value: number): Promise<void> {
     await act(async () => { mainWidth = value; for (const observe of [...observers]) observe(); });
     await settle();
+}
+
+/**
+ * Lays every toolbar row out narrower than what it holds, as a phone's 294px frame lays its row out, tells the toolbars
+ * as a resize does, and settles: each row 200px wide and each of its items 60px in whatever form it shows, so every step
+ * of a row's ladder applies, the row is still too wide, and the rungs of its floor follow (east-ui-components'
+ * `FLOOR_RANK`) — the rail's caret, then the Elara eye into its builder's View (ruled 27 Oct 2026, "Into the View
+ * menu"). What else the harness measures it measures as before, and the layout goes with the test, as every measure does.
+ *
+ * @throws {Error} When the harness measures nothing (`measure: false`): this lays out over its measures
+ */
+export async function toolbarAtFloor(): Promise<void> {
+    const rect = vi.mocked(Element.prototype.getBoundingClientRect);
+    const measured = rect.getMockImplementation();
+    if (measured === undefined) throw new Error("toolbarAtFloor lays a toolbar out over the harness's measures: the harness measures nothing");
+    rect.mockImplementation(function (this: Element) {
+        const px = this.hasAttribute("data-toolbar") ? 200 : this.hasAttribute("data-toolbar-item") ? 60 : undefined;
+        return px === undefined ? measured.call(this) : { x: 0, y: 0, top: 0, left: 0, right: px, bottom: 28, width: px, height: 28, toJSON() {} };
+    });
+    await width(mainWidth);
 }
 
 /**

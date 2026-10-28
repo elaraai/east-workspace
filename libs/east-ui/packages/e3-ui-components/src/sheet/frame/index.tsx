@@ -41,7 +41,12 @@
  *   own rows, the strip docked under it;
  * - **the footer** — the sheet's, and over a record its last save, from the
  *   record's commits, which the inspector also says with who made it; over
- *   the slice's `rows` source, the rows a Save took out of the narrowing.
+ *   the slice's `rows` source, the rows a Save took out of the narrowing; and
+ *   over a paged source the shared loading line, saying what is read (#1398).
+ *
+ * A paged source's cold load is the frame's skeleton, its rows at the sheet's
+ * pitch and its footer live; after it, a read in flight — a window, a
+ * narrowing's rows — covers nothing, and main, the grid, is busy (#1398, CL5).
  *
  * ⌘Z undoes and ⇧⌘Z or ⌘Y redoes from anywhere in the frame — a pane, the
  * toolbar — as the history item does (#1185, SB26): the grid answers its own,
@@ -62,14 +67,17 @@ import { Box, Button } from "@chakra-ui/react";
 import { StringType, equalFor, equivalentFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { SheetComponent, SheetPayloadType, sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, typedInto, usePersistedState, useTrackedEvaluation,
+    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, usePersistedState, useTrackedEvaluation,
     type EditIssue,
 } from "@elaraai/east-ui-components";
+import { LoadingReveal } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
 import { sourcePart, type KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import type { SheetDropCard, SheetDropHost, SheetDropTemplate } from "../drop.js";
 import { SheetFooter } from "../Footer.js";
-import { SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetHistory, useSheetToolbarItems, useSheetToolbarRef, type SheetHost } from "../index.js";
+import {
+    SheetGrid, SheetProvider, SheetRoot, useSheetFooter, useSheetHistory, useSheetLoading, useSheetOptimise, useSheetToolbarItems, useSheetToolbarRef, type SheetHost,
+} from "../index.js";
 import { todayUtc } from "../parse/date.js";
 import { issueText, useSheetWords, type SheetWords } from "../words.js";
 import { useSheetInspector, type SheetLastCommit } from "./inspector.js";
@@ -185,8 +193,10 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // What the rail counts each source the library follows in (#1345).
     const words = useSheetWords();
     const nouns = useMemo(() => followedNouns(value, words), [value, words]);
-    // What the frame hands the parts: the columns the viewer hid, the drops the sheet takes, and the sources' nouns.
-    const host = useMemo((): SheetHost => ({ hidden, drop, nouns }), [hidden, drop, nouns]);
+    // The app's optimiser (#1409): its binding, which the Elara eye calls by name.
+    const optimise = value.optimise.type === "some" ? value.optimise.value.name : undefined;
+    // What the frame hands the parts: the columns the viewer hid, the drops the sheet takes, the sources' nouns, and the optimiser.
+    const host = useMemo((): SheetHost => ({ hidden, drop, nouns, optimise: optimise === undefined ? undefined : { name: optimise } }), [hidden, drop, nouns, optimise]);
     return (
         <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
             <SheetFrame value={value} keys={keys} hidden={hidden} onToggleColumn={onToggleColumn} nouns={nouns} />
@@ -234,7 +244,9 @@ function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: Sheet
     const items = useSheetToolbarItems();
     const toolbarRef = useSheetToolbarRef();
     const footer = useSheetFooter();
+    const loading = useSheetLoading();
     const { session, onAction } = useSheetHistory();
+    const optimise = useSheetOptimise();
     const lastCommit = useLastCommit(value.history, words);
     const saved = lastCommit === undefined ? undefined : m.savedAt({ when: lastCommit.when });
     const library = useSheetLibrary({ value, keys, hidden, onToggleColumn, words, followed });
@@ -245,12 +257,13 @@ function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: Sheet
     const where = useCallback((issue: EditIssue) => (issue.entry === "" || issue.row.type === "none" ? issue.entry
         : m.rowRef({ line: true, number: words.number(Number(issue.row.value) + 1), title: issue.entry, noun: m.groupNoun() })), [m, words]);
     const readIssue = useCallback((message: string) => issueText(message, words), [words]);
-    // The history keys from anywhere in the frame (SB26): the grid's own it has answered already.
+    // The history keys from anywhere in the frame (SB26): the grid's own it has answered already. Taken, they go no
+    // further than the Sheet (#1398).
     const onKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
         if (event.defaultPrevented || typedInto(event.target)) return;
         const action = historyShortcut(event);
         if (action === undefined) return;
-        event.preventDefault();
+        takeKey(event);
         onAction(action);
     }, [onAction]);
     const missing = getSomeorUndefined(value.missing);
@@ -259,6 +272,7 @@ function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: Sheet
     const failed = [...followed.values()].filter((source) => source.error !== undefined);
     const banners = (
         <>
+            {optimise.banner}
             <SessionBanners session={session} words={words} onAction={onAction} where={where} issueText={readIssue} />
             {failed.map((source) => (
                 <Box key={source.name} data-sheet-banner="source">
@@ -273,21 +287,38 @@ function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: Sheet
             )}
         </>
     );
+    // The sheet's one reveal clock (#1398, CL4): the footer's line and the runs' placeholders show once a read the view
+    // waits for has passed the delay, and are held once shown — a flip renders them, never the frame.
+    const waiting = footer.loading !== undefined && footer.loading.kind !== "failed";
+    // The run's landing (#1409) is measured and drawn over the whole frame — the cells and the counts alike — on the
+    // frame's own root: the sheet has no root of its own around its frame, and a wrapper there would be the box a host
+    // sizes and measures the sheet through.
     return (
-        <BuilderFrame
-            storageKey={keys.frame}
-            toolbar={toolbar}
-            toolbarRef={toolbarRef}
-            banners={banners}
-            start={library}
-            end={inspector}
-            footer={<SheetFooter {...footer} saved={saved} recordSlice={rowsPart} />}
-            onKeyDown={onKeyDown}
-        >
-            <SheetRoot>
-                <SheetGrid />
-            </SheetRoot>
-        </BuilderFrame>
+        <LoadingReveal waiting={waiting}>
+            <BuilderFrame
+                ref={optimise.landing.ref}
+                rootCss={optimise.landing.css}
+                rootProps={optimise.landing.attributes}
+                storageKey={keys.frame}
+                toolbar={toolbar}
+                toolbarRef={toolbarRef}
+                banners={banners}
+                start={library}
+                end={inspector}
+                footer={<SheetFooter {...footer} saved={saved} recordSlice={rowsPart} />}
+                // A paged source's cold load is the frame's skeleton at the rows' pitch, its footer live and saying what
+                // is read; after it, a read the view waits for leaves everything live and the grid busy (#1398).
+                loading={loading.cold}
+                busy={loading.busy}
+                loadingPitch={loading.pitch}
+                liveFooter
+                onKeyDown={onKeyDown}
+            >
+                <SheetRoot>
+                    <SheetGrid />
+                </SheetRoot>
+            </BuilderFrame>
+        </LoadingReveal>
     );
 }
 

@@ -6,6 +6,7 @@
 /** Calendar against the real in-page e3: responsive geometry, explicit phone edits and desktop drag. */
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { frameAt, toolbarFaults } from "./builder-frame";
+import { leaveBuilder } from "./builder-page";
 import { settled } from "./settle";
 const FILE = "e3/calendar/calendar";
 async function open(page: Page, name = "calendarOperations", theme: "light" | "dark" = "light") {
@@ -110,8 +111,7 @@ for (const theme of ["light", "dark"] as const) {
         await frame.getByRole("button", { name: "Save", exact: true }).click();
         await expect(card).not.toHaveAttribute("data-drafted", "");
         // A route remount retains the record commit in the in-page e3, independently of the old DOM.
-        await page.evaluate(() => { location.hash = "#e3/plan/plan/planTargetState"; });
-        await expect(page.locator("[data-plan-frame]").first()).toBeVisible();
+        await leaveBuilder(page);
         await page.evaluate(file => { location.hash = `#${file}/calendarMobile`; }, FILE);
         await entry.scrollIntoViewIfNeeded();
         await settled(page);
@@ -195,8 +195,7 @@ for (const theme of ["light", "dark"] as const) {
         await expect(job).toHaveAttribute('aria-label', /6:15|06:15/);
         await frame.getByRole('button', { name: 'Save', exact: true }).click();
         await expect(created).not.toHaveAttribute('data-drafted', ''); await expect(job).not.toHaveAttribute('data-drafted', '');
-        await page.evaluate(() => { location.hash = '#e3/plan/plan/planTargetState'; });
-        await expect(page.locator('[data-plan-frame]').first()).toBeVisible();
+        await leaveBuilder(page);
         await page.evaluate(file => { location.hash = `#${file}/calendarOperations`; }, FILE);
         await entry.scrollIntoViewIfNeeded();
         await settled(page);
@@ -229,13 +228,19 @@ for (const theme of ["light", "dark"] as const) {
         });
         const calendarFooter = await railStyle(frame.locator('[data-calendar-footer]'));
         await expect(frame.locator('[data-calendar-footer] > [data-calendar-legend]')).toHaveCount(3);
-        await expect(frame.locator('[data-calendar-footer] > :not([data-calendar-legend])')).toHaveCount(0);
+        // Beside the legend only the "…" a cut legend ends with, and the one loading line, saying nothing at rest (#1398).
+        await expect(frame.locator('[data-calendar-footer] > :not([data-calendar-legend]):not([data-footer-more]):not([data-footer-line])')).toHaveCount(0);
+        await expect(frame.locator('[data-calendar-footer] > [data-footer-line]')).toHaveAttribute('data-idle', '');
         expect(calendarFooter.height).toBe(28);
         expect(calendarFooter.background).not.toBe('rgba(0, 0, 0, 0)');
         await size(page, entry, 390);
+        // The rail never wraps (CL3): one 28px line at 390px, nothing past its edge, no legend item cut inside a word.
         const footer = frame.locator('[data-calendar-footer]');
-        await expect(footer).toHaveAttribute('data-builder-narrow', '');
+        expect(await footer.evaluate(el => ({ wrap: getComputedStyle(el).flexWrap, height: el.getBoundingClientRect().height }))).toEqual({ wrap: 'nowrap', height: 28 });
         expect(await footer.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+        expect(await footer.evaluate(el => [...el.querySelectorAll<HTMLElement>(':scope > [data-calendar-legend]:not([data-footer-cut])')]
+            .filter(item => item.scrollWidth > item.clientWidth + 1 || item.getBoundingClientRect().right > el.getBoundingClientRect().right + 0.5)
+            .map(item => item.textContent))).toEqual([]);
         await page.evaluate(() => { location.hash = '#e3/plan/plan-events/planPrintWorks'; });
         const planEntry = page.locator('[data-index]', { has: page.locator('a[href="#e3/plan/plan-events/planPrintWorks"]') });
         await planEntry.scrollIntoViewIfNeeded();
@@ -256,8 +261,7 @@ for (const theme of ["light", "dark"] as const) {
         await customer.fill('Windowed customer'); await customer.press('Enter');
         await frame.getByRole('button', { name: 'Save', exact: true }).click();
         await expect(frame.locator('[data-calendar-event][data-drafted]')).toHaveCount(0);
-        await page.evaluate(() => { location.hash = '#e3/plan/plan/planTargetState'; });
-        await expect(page.locator('[data-plan-frame]').first()).toBeVisible();
+        await leaveBuilder(page);
         await page.evaluate(file => { location.hash = `#${file}/calendarWindowed`; }, FILE);
         await entry.scrollIntoViewIfNeeded();
         await settled(page);
@@ -406,13 +410,9 @@ for (const theme of ["light", "dark"] as const) {
         });
         const expectedStyle = await groupStyle(first);
         expect(expectedStyle.height).toBe(38);
-        const rows = await first.evaluate(el => {
-            const keys: string[] = [];
-            for (let row = el.nextElementSibling; row && !row.hasAttribute('data-calendar-group'); row = row.nextElementSibling) {
-                const key = row.getAttribute('data-calendar-resource-row'); if (key !== null) keys.push(key);
-            }
-            return keys;
-        });
+        // The group's rows, each naming its group (the timeline's rows are virtualised, #1398: no row is its band's sibling).
+        const rows = await frame.locator('[data-calendar-resource-row]').evaluateAll((nodes, group) => nodes
+            .filter(node => node.getAttribute('data-calendar-row-group') === group).map(node => node.getAttribute('data-calendar-resource-row')!), key);
         expect(rows.length).toBeGreaterThan(0);
         await first.click(); await expect(first).toHaveAttribute('aria-expanded', 'false');
         for (const key of rows) expect(await frame.locator("[data-calendar-resource-row]").evaluateAll((nodes, key) => nodes.some(node => node.getAttribute("data-calendar-resource-row") === key), key)).toBe(false);
@@ -448,6 +448,46 @@ for (const theme of ["light", "dark"] as const) {
         await entry.scrollIntoViewIfNeeded(); await settled(page);
         const restored = frame.locator('[data-calendar-group]').filter({ has: page.getByText(key, { exact: true }) });
         await expect(restored).toHaveAttribute('aria-expanded', 'false');
+    });
+}
+
+for (const theme of ["light", "dark"] as const) {
+    test(`the Timeline's ruler sticks only the captions about where its view starts: the period it starts in keeps its caption beside the resource column, every other caption stands where its column starts — at every period, wherever it scrolls (#1398, CL9) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
+        const frame = entry.locator('[data-calendar-frame]').first();
+        await viewChoice(page, frame, 'Timeline');
+        const timeline = frame.locator('[data-calendar-timeline]');
+        for (const period of ['Day', 'Week', 'Month']) {
+            await viewChoice(page, frame, period);
+            for (const by of [0, 127, 2000, -700]) {
+                await timeline.evaluate((el, px) => { el.scrollLeft += px; }, by); await settled(page);
+                // A sticky caption is a layer of the compositor's own: a band holds three at most — the caption of the period
+                // the view starts in and its neighbours — and that one stands where a sticky caption stands, 4px past the
+                // resource column, or as far along its column as the column's end lets it.
+                const faults = await timeline.evaluate((el) => {
+                    const edge = el.querySelector('[data-calendar-header-caption]')!.getBoundingClientRect().right;
+                    return [...el.querySelectorAll<HTMLElement>('[data-calendar-ruler]')].flatMap((band) => {
+                        const name = band.getAttribute('data-calendar-ruler');
+                        const labels = [...band.querySelectorAll<HTMLElement>('[data-calendar-ruler-label]')];
+                        const sticky = labels.filter((label) => getComputedStyle(label).position === 'sticky');
+                        const out: string[] = sticky.length > 3 ? [`${name}: ${sticky.length} of its ${labels.length} captions sticky`] : [];
+                        const at = labels.find((label) => {
+                            const column = label.parentElement!.getBoundingClientRect();
+                            return column.left < edge && column.right > edge;
+                        });
+                        if (at === undefined) return out;
+                        const column = at.parentElement!.getBoundingClientRect(), box = at.getBoundingClientRect();
+                        if (!sticky.includes(at)) out.push(`${name}: the caption the view starts in, ${at.textContent}, is not sticky`);
+                        else if (box.left < edge + 4 - 0.5 && Math.abs(box.right - (column.right - 4)) > 0.5) {
+                            out.push(`${name}: ${at.textContent} stands at ${Math.round(box.left - edge)}px from the resource column`);
+                        }
+                        return out;
+                    });
+                });
+                expect(faults, `${period}, scrolled ${by}px`).toEqual([]);
+            }
+        }
     });
 }
 
@@ -563,5 +603,46 @@ for (const theme of ["light", "dark"] as const) {
         });
         await page.keyboard.press("Escape"); await page.mouse.up(); await settled(page);
         expect(dragged).toBe("under");
+    });
+}
+
+for (const theme of ["light", "dark"] as const) {
+    test(`the time grid keeps its place across a step — the hour at its top where the viewer left it, never back to the morning — and Today brings the now line into view (#1398, CL8) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 2160, height: 1080 });
+        const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
+        const frame = entry.locator("[data-calendar-frame]").first();
+        // A frame short enough for any hour of the day to be scrolled out of view.
+        await frame.locator("xpath=..").evaluate((el) => { (el as HTMLElement).style.height = "520px"; }); await settled(page);
+        const grid = frame.locator("[data-calendar-time-grid]");
+        for (const period of ["Day", "Week"] as const) {
+            await viewChoice(page, frame, period);
+            // An hour of the viewer's own, well past where the grid first opens.
+            const at = await grid.evaluate((el) => { el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) * 0.8); return el.scrollTop; });
+            await settled(page);
+            for (const step of ["Next", "Previous"] as const) {
+                await frame.getByRole("button", { name: `${step} ${period.toLowerCase()}`, exact: true }).click();
+                await settled(page);
+                const top = await grid.evaluate((el) => el.scrollTop);
+                expect(Math.abs(top - at), `${period}, ${step.toLowerCase()} ${period.toLowerCase()}: at ${top}, left at ${at}`).toBeLessThanOrEqual(1);
+            }
+        }
+        // Today: the now line brought into view below the head, wherever the grid was — scrolled from it first.
+        const now = () => grid.evaluate((el) => {
+            const line = el.querySelector("[data-calendar-now]");
+            if (line === null) return "no now line";
+            const view = el.getBoundingClientRect(), head = el.querySelector("[data-calendar-header]")!.getBoundingClientRect(), l = line.getBoundingClientRect();
+            return l.top >= head.bottom && l.bottom <= view.bottom ? "in view" : "out of view";
+        });
+        await grid.evaluate((el) => {
+            const line = el.querySelector("[data-calendar-now]");
+            const at = line === null ? 0 : line.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+            el.scrollTop = at > el.scrollHeight / 2 ? 0 : el.scrollHeight;
+        });
+        await settled(page);
+        expect(await now()).toBe("out of view");
+        await frame.locator("[data-time-navigation=calendar] [data-time-trigger]").click();
+        await page.getByRole("dialog").getByRole("button", { name: "Today", exact: true }).click();
+        await settled(page);
+        expect(await now()).toBe("in view");
     });
 }

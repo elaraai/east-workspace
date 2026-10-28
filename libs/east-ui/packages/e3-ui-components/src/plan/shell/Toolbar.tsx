@@ -21,7 +21,10 @@
  * The window is the sources' one range: every source holding it is out of the
  * rail on a time axis, its range the date navigator's — the leading source's
  * range editor its Range panel; on a number axis the leading source's range
- * stays a chip, and the others follow it.
+ * stays a chip, and the others follow it. The canvas's rows' sources hold no
+ * window (#1344): a date field there stays a chip of the rail, and a slice
+ * with no source holding the window keeps the navigator, which steps the
+ * canvas's own.
  *
  * They fold on one ladder (#952): the rail first, its summary folding after
  * every step of it — then the Plan's own items (the user's decision,
@@ -37,7 +40,7 @@
  * and no more). Nothing wraps or goes to a second row.
  */
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { Box, Button, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faAnglesDown, faAnglesUp, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
@@ -66,6 +69,9 @@ const PLAN_RANK = {
     time: HOST_RANK,
     controls: HOST_RANK + 6,
 } as const;
+
+/** No items: a Plan with no window draws none. */
+const NO_ITEMS: ReadonlyArray<ToolbarItem | false | undefined> = [];
 
 
 /** Props of {@link OverlapsChip}. */
@@ -100,7 +106,9 @@ function OverlapsChip({ n, short, onSelect }: OverlapsChipProps) {
  * The Plan's toolbar items, in §7.1's order and on its fold ladder (see the
  * module docs) — for its frame's one toolbar. Read inside the canvas's
  * contexts (`PlanCanvasParts.provide`): the segments dispatch to the canvas's
- * controller.
+ * controller. Each item is made again only as what it shows moves, and the
+ * list with them (#1398, CL9): the frame is drawn again as each window lands,
+ * and a toolbar handed the same items draws and measures nothing again.
  *
  * @param chrome - What the canvas's chrome is drawn from; `undefined` with no window
  * @param overlaps - The overlaps among the window's events (#1198): the chip shows while there is a pair; `undefined` for a Plan without event kinds
@@ -125,8 +133,8 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
         [resolutions, words]);
     // The window is the date navigator's on a time axis (#1344): every source's range leaves the rail, and the
     // leading source's range editor is the navigator's Range panel. On a number axis the leading source's range
-    // stays a chip, and the others follow it.
-    const timeNavigation = chrome?.scale.kind === "time" && (windowParts?.length ?? 0) > 0
+    // stays a chip, and the others follow it. With no source holding the window, the navigator steps the canvas's own.
+    const timeNavigation = chrome?.scale.kind === "time"
         && (affordances?.includes("range") === true || affordances?.includes("fields") === true);
     const excludeFields = useMemo(() => (windowParts ?? []).flatMap(({ source, part }, i) =>
         (i > 0 || timeNavigation) && part.config.range.type === "some" ? [`${source}.${part.config.range.value}`] : []),
@@ -140,80 +148,102 @@ export function usePlanToolbarItems(chrome: PlanChrome | undefined, overlaps?: P
     // The key search over a seekable source: its box, or its icon on a row short of room.
     const seek = useKeySearchToolbarItem(search, { rank: PLAN_RANK.seek, label: words.m.keySearch() });
 
-    if (chrome === undefined) return [];
-    const { styles, diagnostics, history, selectEvents } = chrome;
-    const resolution = chrome.scale.resolution ?? "";
-    // The first pair, earliest first — what the chip's click selects (PB52).
+    // What the Plan's own items are drawn from: the chrome's facts each reads, never the chrome, which is new each render.
+    const drawn = chrome !== undefined;
+    const scale = chrome?.scale;
+    const lead = chrome?.lead;
+    const moveWindow = chrome?.moveWindow;
+    const styles = chrome?.styles;
+    const diagnostics = chrome?.diagnostics;
+    const history = chrome?.history;
+    const selectEvents = chrome?.selectEvents;
+    const optimiseItem = chrome?.optimise?.toolbarItem;
+    const resolution = scale?.resolution ?? "";
+    // The resolution is the slice's: without one the segment would offer a control that does nothing.
+    const showResolution = slices !== undefined && resolutionItems.length > 0;
+    const pickResolution = useCallback((r: string) => dispatch({ t: "resolution.set", resolution: r }), [dispatch]);
+    // The overlapping pairs, which the toolbar's chip counts (#1198), and the first, earliest first — what its click
+    // selects (PB52), by its events' keys.
+    const pairs = overlaps?.pairs.length ?? 0;
     const first = overlaps?.pairs[0];
-    const selectFirst = () => {
-        if (first !== undefined) selectEvents([scheduleEventKey(first.first), scheduleEventKey(first.second)]);
-    };
-    const foldToggle = (compact = false) => <Button size="xs" variant="ghost" data-plan-fold-all=""
+    const firstKey = first === undefined ? undefined : scheduleEventKey(first.first);
+    const secondKey = first === undefined ? undefined : scheduleEventKey(first.second);
+    const selectFirst = useCallback(() => {
+        if (firstKey !== undefined && secondKey !== undefined) selectEvents?.([firstKey, secondKey]);
+    }, [firstKey, secondKey, selectEvents]);
+    const foldToggle = useCallback((compact = false) => <Button size="xs" variant="ghost" data-plan-fold-all=""
         aria-label={folded ? words.m.expandAll() : words.m.collapseAll()} title={folded ? words.m.expandAll() : words.m.collapseAll()}
         onClick={() => controller.setGroupsCollapsed(!folded)}>
         <FontAwesomeIcon icon={folded ? faAnglesDown : faAnglesUp} />
         {!compact && (folded ? words.m.expandAll() : words.m.collapseAll())}
-    </Button>;
-    // The resolution is the slice's: without one the segment would offer a control that does nothing.
-    const showResolution = slices !== undefined && resolutionItems.length > 0;
-    const pickResolution = (r: string) => dispatch({ t: "resolution.set", resolution: r });
-    // The overlapping pairs, which the toolbar's chip counts (#1198).
-    const pairs = overlaps?.pairs.length ?? 0;
-    const compactControls = <>
-        {folded !== undefined && foldToggle()}
-        {showResolution && <Seg label={words.m.resolutionLabel()} name="compact-resolution" items={resolutionItems}
-            active={resolution} onPick={pickResolution} fullWidth />}
-        {pairs > 0 && <OverlapsChip n={pairs} short={false} onSelect={selectFirst} />}
-    </>;
-    return [
-        ...rail,
-        seek,
-        folded !== undefined && {
-            key: "groups", rank: [PLAN_RANK.grain, PLAN_RANK.controls],
-            bundle: [undefined, "plan.controls"],
-            forms: [foldToggle(), foldToggle(true), ...(timeNavigation ? [null] : [])],
-        },
-        timeNavigation && {
+    </Button>, [folded, words, controller]);
+    const groupsItem = useMemo((): ToolbarItem | undefined => (drawn && folded !== undefined ? {
+        key: "groups", rank: [PLAN_RANK.grain, PLAN_RANK.controls],
+        bundle: [undefined, "plan.controls"],
+        forms: [foldToggle(), foldToggle(true), ...(timeNavigation ? [null] : [])],
+    } : undefined), [drawn, folded, foldToggle, timeNavigation]);
+    const timeItem = useMemo((): ToolbarItem | undefined => {
+        if (!timeNavigation || scale === undefined || windowParts === undefined || moveWindow === undefined) return undefined;
+        const window = { scale, windowParts, lead, moveWindow };
+        const compactControls = <>
+            {folded !== undefined && foldToggle()}
+            {showResolution && <Seg label={words.m.resolutionLabel()} name="compact-resolution" items={resolutionItems}
+                active={resolution} onPick={pickResolution} fullWidth />}
+            {pairs > 0 && <OverlapsChip n={pairs} short={false} onSelect={selectFirst} />}
+        </>;
+        return {
             key: "time-navigation", rank: [PLAN_RANK.time, PLAN_RANK.controls],
             bundle: [undefined, "plan.controls"],
-            forms: [<PlanTimeNavigator chrome={chrome} />, <PlanTimeNavigator chrome={chrome} compact />,
-                <PlanTimeNavigator chrome={chrome} compact controls={compactControls} />],
-        },
-        // The segment writes the slice's resolution (`slice.setResolution`) —
-        // without a slice the effect runner drops it, so mounting it would
-        // offer a control that does nothing. The unbound-canvas fallback story
-        // is #572's (resolution persist fallback); until then, no slice ⇒ no
-        // segment.
-        showResolution && {
-            key: "resolution",
-            rank: [PLAN_RANK.resolution, PLAN_RANK.controls],
-            bundle: [undefined, "plan.controls"],
-            forms: [
-                <Seg label={words.m.resolutionLabel()} name="resolution" items={resolutionItems} active={resolution}
-                    onPick={pickResolution} />,
-                <SegMenu label={words.m.resolutionLabel()} name="resolution" items={resolutionItems} active={resolution}
-                    onPick={pickResolution} />,
-                ...(timeNavigation ? [null] : []),
-            ],
-        },
-        hasDiagnostics(diagnostics) && { key: "diagnostics", forms: [<PlanDiagnosticChips diagnostics={diagnostics} styles={styles} />] },
-        // The row's end — the rail's summary rides with the rail, above — the overlaps, the history.
-        // The pairs of events that overlap in the window (#1198, PB52): shown
-        // while there is one — short of room, its glyph and its count; on a
-        // time axis with nothing left to fold, in the date navigator's View with
-        // the fold toggle and the resolution, one move (#1344).
-        pairs > 0 && {
-            key: "overlaps",
-            side: "end",
-            rank: timeNavigation ? [PLAN_RANK.overlapsShort, PLAN_RANK.controls] : PLAN_RANK.overlapsShort,
-            ...(timeNavigation ? { bundle: [undefined, "plan.controls"] } : {}),
-            forms: [
-                <OverlapsChip n={pairs} short={false} onSelect={selectFirst} />,
-                <OverlapsChip n={pairs} short onSelect={selectFirst} />,
-                ...(timeNavigation ? [null] : []),
-            ],
-        },
-        // The banners say the session's error, so the toolbar keeps one row.
-        history !== undefined && historyToolbarItem({ ...history, showError: false }),
-    ];
+            forms: [<PlanTimeNavigator {...window} />, <PlanTimeNavigator {...window} compact />,
+                <PlanTimeNavigator {...window} compact controls={compactControls} />],
+        };
+    }, [timeNavigation, scale, windowParts, lead, moveWindow, folded, foldToggle, showResolution, words, resolutionItems, resolution,
+        pickResolution, pairs, selectFirst]);
+    // The segment writes the slice's resolution (`slice.setResolution`) — without a slice the effect runner drops it, so
+    // mounting it would offer a control that does nothing. The unbound-canvas fallback story is #572's (resolution
+    // persist fallback); until then, no slice ⇒ no segment.
+    const resolutionItem = useMemo((): ToolbarItem | undefined => (drawn && showResolution ? {
+        key: "resolution",
+        rank: [PLAN_RANK.resolution, PLAN_RANK.controls],
+        bundle: [undefined, "plan.controls"],
+        forms: [
+            <Seg label={words.m.resolutionLabel()} name="resolution" items={resolutionItems} active={resolution}
+                onPick={pickResolution} />,
+            <SegMenu label={words.m.resolutionLabel()} name="resolution" items={resolutionItems} active={resolution}
+                onPick={pickResolution} />,
+            ...(timeNavigation ? [null] : []),
+        ],
+    } : undefined), [drawn, showResolution, words, resolutionItems, resolution, pickResolution, timeNavigation]);
+    const diagnosticsItem = useMemo((): ToolbarItem | undefined => (diagnostics !== undefined && styles !== undefined && hasDiagnostics(diagnostics)
+        ? { key: "diagnostics", forms: [<PlanDiagnosticChips diagnostics={diagnostics} styles={styles} />] }
+        : undefined), [diagnostics, styles]);
+    // The row's end — the rail's summary rides with the rail, above — the overlaps, the history. The pairs of events
+    // that overlap in the window (#1198, PB52): shown while there is one — short of room, its glyph and its count; on a
+    // time axis with nothing left to fold, in the date navigator's View with the fold toggle and the resolution, one
+    // move (#1344).
+    const overlapsItem = useMemo((): ToolbarItem | undefined => (drawn && pairs > 0 ? {
+        key: "overlaps",
+        side: "end",
+        rank: timeNavigation ? [PLAN_RANK.overlapsShort, PLAN_RANK.controls] : PLAN_RANK.overlapsShort,
+        ...(timeNavigation ? { bundle: [undefined, "plan.controls"] } : {}),
+        forms: [
+            <OverlapsChip n={pairs} short={false} onSelect={selectFirst} />,
+            <OverlapsChip n={pairs} short onSelect={selectFirst} />,
+            ...(timeNavigation ? [null] : []),
+        ],
+    } : undefined), [drawn, pairs, selectFirst, timeNavigation]);
+    // The banners say the session's error, so the toolbar keeps one row.
+    const historyItem = useMemo(() => (history === undefined ? undefined : historyToolbarItem({ ...history, showError: false })), [history]);
+    return useMemo(() => (drawn ? [
+        ...rail,
+        seek,
+        groupsItem,
+        timeItem,
+        resolutionItem,
+        diagnosticsItem,
+        overlapsItem,
+        // The Elara eye (#1409): the app's optimiser's item, immediately before the history item.
+        optimiseItem,
+        historyItem,
+    ] : NO_ITEMS), [drawn, rail, seek, groupsItem, timeItem, resolutionItem, diagnosticsItem, overlapsItem, optimiseItem, historyItem]);
 }

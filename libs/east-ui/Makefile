@@ -12,7 +12,7 @@ EAST_UI_EXAMPLE_KEYS := $(shell find packages/east-ui/test \( -name '*.examples.
                               | sed -e 's|^packages/east-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
 ## Per-EXAMPLE keys — `<pathKey>--<exportName>` for every `export const` in an
-## examples file, so `make east-ui-examples-html-collections/schematic--schematicNets`
+## examples file, so `make east-ui-examples-html-collections/map--mapRegions`
 ## snapshots ONE example full-bleed (tab-completes like the per-file targets).
 EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null); do \
                               key=$$(echo $$f | sed -e 's|^packages/east-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||'); \
@@ -158,7 +158,7 @@ $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%): east-ui-examples-html-%:
 	pnpm --filter @elaraai/east-ui-components exec tsx scripts/snapshot.ts --file=$*
 
 ## Snapshot a SINGLE example (full-bleed) from an examples file. Usage:
-##   make east-ui-examples-html-collections/schematic--schematicNets
+##   make east-ui-examples-html-collections/map--mapRegions
 ## `<pathKey>--<exportName>` maps to `snapshot.ts --file=<pathKey>:<exportName>`;
 ## the list is re-derived each invocation, so new `export const` examples
 ## tab-complete without Makefile edits.

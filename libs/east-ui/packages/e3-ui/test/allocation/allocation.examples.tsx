@@ -19,13 +19,13 @@ import {
 export const kilnBins = e3.record("kiln_bins", DictType(StringType, KilnBin), yardBinRows);
 export const kilnBinsPatch = e3.mutation.patch(kilnBins);
 /** The bins by their time: what the board's slice reads a day of them through, its navigation writing the range. */
-export const kilnBinsByTime = e3.recordIndex("kiln_bins_by_time", kilnBins, { interval: { from: "at", to: "at" } });
+export const kilnBinsByTime = e3.recordIndex.interval("kiln_bins_by_time", kilnBins, { from: "at", to: "at" });
 /** The days of the yard's plan, what the board publishes: Tue 4 May issued, Tue 11 and Wed 12 drafts. */
 export const yardDays = e3.record("yard_days", DictType(DateTimeType, YardDay), yardDayRows);
 export const yardDaysPatch = e3.mutation.patch(yardDays);
 /** The same bins, locked for the day: their door, a checked one, refuses every change, naming why — what a Save over it is answered. */
 export const kilnLockedBins = e3.record("kiln_locked_bins", DictType(StringType, KilnBin), yardBinRows);
-export const kilnLockedBinsByTime = e3.recordIndex("kiln_locked_bins_by_time", kilnLockedBins, { interval: { from: "at", to: "at" } });
+export const kilnLockedBinsByTime = e3.recordIndex.interval("kiln_locked_bins_by_time", kilnLockedBins, { from: "at", to: "at" });
 export const kilnLockedBinsPatch = e3.mutation.reduce("patch", kilnLockedBins,
     East.function([DictType(StringType, KilnBin), PatchType(DictType(StringType, KilnBin))], DictType(StringType, KilnBin), ($, bins, _patch) => {
         $.error("the yard's bins are locked for the day");
@@ -41,7 +41,7 @@ export const yardLockedDaysPatch = e3.mutation.reduce("patch", yardLockedDays,
 /** Two years of the yard's bins, for the board read a day at a time through its slice. */
 export const kilnBinHistory = e3.record("kiln_bin_history", DictType(StringType, KilnBin), yardBinHistoryRows);
 export const kilnBinHistoryPatch = e3.mutation.patch(kilnBinHistory);
-export const kilnBinHistoryByTime = e3.recordIndex("kiln_bin_history_by_time", kilnBinHistory, { interval: { from: "at", to: "at" } });
+export const kilnBinHistoryByTime = e3.recordIndex.interval("kiln_bin_history_by_time", kilnBinHistory, { from: "at", to: "at" });
 /** The days of those two years, read by key. */
 export const yardDayHistory = e3.record("yard_day_history", DictType(DateTimeType, YardDay), yardDayHistoryRows);
 export const yardDayHistoryPatch = e3.mutation.patch(yardDayHistory);

@@ -263,7 +263,7 @@ describe("Schedule.events — `title` is optional (B3)", () => {
         });
         const { platform } = await h.platform(program);
         const kind: Kind = East.compile(program, platform)();
-        const items = kind.items(at("2027-03-08T00:00:00Z"), at("2027-03-09T00:00:00Z"), new SortedMap([], byString));
+        const items = kind.items(at("2027-03-08T00:00:00Z"), at("2027-03-09T00:00:00Z"), new SortedMap([], byString), none);
         if (items.type !== "some") assert.fail("expected the items");
         assert.deepEqual(items.value.map((i) => [i.key, i.title]), [["p1", ""]]);
     });
@@ -374,10 +374,11 @@ describe("reads bounded to the period, the record never read whole (B14)", () =>
         const read = (from: string, to: string) => h.ready(() => kind.rows(at(from), at(to)));
         const rows = await read("2027-03-07T00:00:00Z", "2027-03-14T00:00:00Z");
         assert.deepEqual([...rows.keys()], ["d1", "d2"], "d3 is filed under a later day");
-        // The week's first midnight sought, and one page from the start of the page it is in: the entry past the week ends the read.
+        // The week's days sought, from its first midnight to its end, and one page from the start of the page they start in:
+        // the entry past the week ends the read.
         const byDay = sx.scheduleDutiesByDay.name;
         assert.deepEqual(h.requests().filter(finds("schedule_duties", byDay)).map((request) => [request.query.getAll("from"), request.query.getAll("to")]),
-            [[[printAt(at("2027-03-07T00:00:00Z"))], []]]);
+            [[[printAt(at("2027-03-07T00:00:00Z"))], [printAt(at("2027-03-14T00:00:00Z"))]]]);
         assert.deepEqual(h.requests().filter(pages("schedule_duties", byDay)).map((request) => [request.query.get("offset"), request.query.get("limit")]), [["0", "256"]]);
         assert.equal(h.requests("read", "records.schedule_duties").length, 0, "the record is never read whole");
         // Its session is over the record's revision, with no snapshot of the record.

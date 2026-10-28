@@ -43,7 +43,7 @@ describe("the record's entries", () => {
     const JobsHandle = RecordBindHandleType(JobsType, { patch: [PatchType(JobsType)] });
     const COLUMNS = { task: Sheet.column.text(JobType, { header: "Task" }), qty: Sheet.column.quantity(JobType, { header: "Qty" }) };
     // A view over two sources (#1345): the rows by a prefix of their task, the templates by their group.
-    const SPRAY = { id: "spray", name: "SPRAY", context: 0n, reveals: [], folds: new Map<string, boolean>(), narrowing: new SortedMap([
+    const SPRAY = { id: "spray", name: "SPRAY", folds: new Map<string, boolean>(), narrowing: new SortedMap([
         ["rows", { where: new Map([["task", variant("prefix", "spray")]]), preset: none, resolution: none }],
         ["templates", { where: new Map([["group", variant("values", ["\"Finishing\""])]]), preset: none, resolution: none }],
     ], keys) };

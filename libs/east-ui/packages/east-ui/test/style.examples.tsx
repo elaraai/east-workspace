@@ -3,8 +3,8 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/east-ui */
-import { East, example } from "@elaraai/east";
-import { UIComponentType } from "@elaraai/east-ui";
+import { ArrayType, East, example, variant } from "@elaraai/east";
+import { ColorTokenType, Style, UIComponentType } from "@elaraai/east-ui";
 import { Box, HStack, Text, VStack } from "@elaraai/east-ui";
 
 // -----------------------------------------------------------------------------
@@ -124,6 +124,22 @@ export const motionDurationSwatches = example({
         );
     }),
     inputs: [],
+});
+
+export const colorTokenSwatches = example({
+    keywords: ["Style", "ColorToken", "ColorTokenType", "ColorShadeType", "hue", "shade", "colour", "color", "palette", "fill", "swatch", "Roster.shifts"],
+    description: "A typed colour token per shift — a theme hue at a shade, the value a component's colour accessor returns (a Roster shift's `color`); the renderer resolves it as the theme's {colors.<hue>.<shade>}",
+    fn: East.function([], ArrayType(ColorTokenType), ($) => {
+        // The warehouse's three shifts, each its own hue: early a teal, late an orange, night a purple.
+        const swatches = $.const([
+            Style.ColorToken("teal", "500"),
+            Style.ColorToken("orange", "300"),
+            Style.ColorToken("purple", "700"),
+        ], ArrayType(ColorTokenType));
+        return swatches;
+    }),
+    inputs: [],
+    returns: [variant("teal", variant("500", null)), variant("orange", variant("300", null)), variant("purple", variant("700", null))],
 });
 
 export const statusPalette = example({

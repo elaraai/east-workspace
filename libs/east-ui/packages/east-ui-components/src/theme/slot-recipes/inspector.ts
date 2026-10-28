@@ -9,10 +9,13 @@
  * Flowchart's (`flowchartInspector`) lay out alike: the
  * body's sections, padded 16px and ruled off one from the next, as Studio's
  * inspector's are; the head of what is selected, its eyebrow, its name and
- * its marks; a draft's chip; a section's head; the fields; the gestures; the
- * summary of several; the counts and the hints of nothing selected; and an
- * empty state. Each recipe spreads them under its own slots, beside its own
- * parts.
+ * its marks — the view's home, where the keyboard lands as the control it was
+ * on goes with the view (#1398), its ring the inset focus ring; a draft's
+ * chip; a section's head; the fields; the gestures; the summary of several;
+ * the counts and the hints of nothing selected; an empty state; a view, or an
+ * empty state, ringed as its own home where it has no head; and the
+ * region around a view that keeps the keyboard, no box of its own. Each
+ * recipe spreads them under its own slots, beside its own parts.
  *
  * Only the layout is the inspector's own: its words take the theme's text
  * styles, its controls are the shared `button` and `iconButton`, and its form
@@ -41,21 +44,27 @@ export const INSPECTOR_SECTION = {
 
 /** The slots the shared parts style. */
 export const inspectorSlots = [
-    "root", "head", "eyebrow", "name", "marks", "chip", "sectionHead", "fields", "actions", "bulk", "summary",
+    "root", "home", "head", "eyebrow", "name", "marks", "chip", "sectionHead", "fields", "actions", "bulk", "summary",
     "stats", "stat", "statValue", "statLabel", "hints", "hint", "empty", "emptyTitle", "emptyHint",
 ] as const;
 
 /** Their base styles. */
 export const inspectorBase = {
+    /* A view — the view's home where it has no head (the Plan's Nothing selected, #1398), focused by script and ringed
+     * inside its box. */
     root: {
         flex: 1,
         minHeight: 0,
         display: "flex",
         flexDirection: "column",
         background: "bg.surface",
+        _focusVisible: { outline: "none", boxShadow: "{shadows.focusInset}" },
     },
-    /* What is selected: its name, and its marks. */
-    head: { ...INSPECTOR_SECTION, gap: "5px" },
+    /* The region around a view that keeps the keyboard as the control it is on goes: no box of its own, its view laid out
+     * as though it were not there. */
+    home: { display: "contents" },
+    /* What is selected: its name, and its marks — the view's home, focused by script, ringed inside its rules. */
+    head: { ...INSPECTOR_SECTION, gap: "5px", _focusVisible: { outline: "none", boxShadow: "{shadows.focusInset}" } },
     eyebrow: { textStyle: "caption.eyebrow" },
     name: { textStyle: "title.card.md", color: "fg", overflowWrap: "anywhere" },
     marks: {
@@ -112,6 +121,8 @@ export const inspectorBase = {
         paddingLeft: "calc({spacing.4} + 14px)",
     },
     hint: { textStyle: "body.sm", color: "fg.muted", textWrap: "pretty" },
+    /* An empty state — the view's home where it has no head (the Calendar's Nothing selected, #1398), focused by script and
+     * ringed inside its box. */
     empty: {
         flex: 1,
         display: "flex",
@@ -121,6 +132,7 @@ export const inspectorBase = {
         gap: "{spacing.2}",
         padding: "{spacing.6}",
         textAlign: "center",
+        _focusVisible: { outline: "none", boxShadow: "{shadows.focusInset}" },
     },
     emptyTitle: { textStyle: "caption.eyebrow" },
     emptyHint: { textStyle: "body.sm", maxWidth: "220px", color: "fg.muted", textWrap: "pretty" },

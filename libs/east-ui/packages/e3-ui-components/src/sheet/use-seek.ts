@@ -15,6 +15,17 @@
  * element, so the k-th match is the row at `range.row + k` — the control's
  * prev / next step exactly.
  *
+ * The box lists the match run's rows wherever they are (#1398, CL10): each
+ * read through the source by its position, a far match's as well as one on
+ * screen, never only the rows the sheet has drawn — and, under a narrowing of
+ * the record's rows, each the narrowing hides marked so, and once e3 has said
+ * which of the `rows` source's choices hide it (`hidden.ts`, asked for the
+ * rows listed, the box listing them again as the answer lands), named: `·
+ * hidden by Status: Ready — picking it clears that filter`. The sheet shows
+ * only the rows the narrowing keeps, so a pick of a row it hides clears those
+ * filters — every choice of the source, while e3 has not said which — and
+ * goes to the row once the narrowing they leave draws it (the hidden pick).
+ *
  * The bridge from the tracked `seek` read (`none` while searching, re-fires
  * when it lands) to the control's promise is the Plan's: the query goes into
  * state, the read runs inside {@link useTrackedEvaluation}, and the pending
@@ -24,14 +35,21 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StringType, toEastTypeValue, type EastTypeValue } from "@elaraai/east";
+import { StringType, toEastTypeValue, type EastTypeValue, type option } from "@elaraai/east";
 import { type DatasetKeyMatchRange, type DatasetKeyQuery, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { pagedSnapshot, pagedSnapshotEqual, pagedSnapshotKey } from "./paged-snapshot.js";
-import { toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { awaitTracked, toSeekQuery } from "@elaraai/east-ui-components/internal";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
 /** A sheet's keys are Strings — the search input parses against that. */
 const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
+
+/** A row the box lists: its place in the source, its line, and what the box shows once it is picked — its key. */
+export interface SheetListed {
+    readonly row: number;
+    readonly label: string;
+    readonly text: string;
+}
 
 /** What the toolbar's key search drives — the shared item's source (`useKeySearchToolbarItem`, #1221). */
 export interface SheetSearch {
@@ -40,12 +58,14 @@ export interface SheetSearch {
     keyType: EastTypeValue;
     /** Locate a query — resolves when the tracked search lands. */
     find: (query: DatasetKeyQuery) => Promise<DatasetKeyMatchRange>;
-    /** Label the popup from the resident head of the match run (the row ids). */
-    listRange: (row: number, limit: number) => Promise<string[]>;
-    /** Jump to the match at source position `row`. */
+    /** Label the popup's rows of the match run, each read through the source by its position — its row's id, and whether a narrowing hides it, and by which filters. */
+    listRange: (row: number, limit: number) => Promise<SheetListed[]>;
+    /** Jump to the match at source position `row` — a row the narrowing hides, by clearing the filters that hide it. */
     jump: (row: number) => void;
     /** Drop the query and its jump target. */
     clear: () => void;
+    /** Moves as e3 says which filters hide the rows listed: the box lists them again. */
+    relist?: number | undefined;
 }
 
 export interface SheetSeekState {
@@ -58,28 +78,52 @@ export interface SheetSeekState {
 }
 
 /**
+ * Which of the source's rows `[from, from + count)` a narrowing of them holds — a tracked read, `none` while pending:
+ * the `rows` source's narrowing drawn over its record's rows as the lens (#1349).
+ */
+export type SheetSeekHeld = (from: number, count: number) => option<readonly boolean[]>;
+
+/**
+ * A narrowing of the source's rows that hides some of them: what the box asks
+ * of a listed row, what it says of one it hides, and what a pick of one does
+ * (the hidden pick).
+ */
+export interface SheetSeekNarrowing {
+    /** Which of a run of the rows it holds. */
+    held: SheetSeekHeld;
+    /** A listed row it hides, as the box lists it, by its key: the filters that hide it once e3 has said, else that filters do. */
+    hiddenLine: (key: string) => string;
+    /** Asks e3 which filters hide the listed rows it hides, by the listing's first row, each row's key and whether it holds each. */
+    askHidden: (from: number, keys: readonly string[], held: readonly boolean[]) => void;
+    /** A pick of a listed row it hides, by its position and its key: those filters cleared, and the row gone to. */
+    reveal: (row: number, key: string) => void;
+    /** Moves as e3's answers land: the box lists its rows again. */
+    version: number;
+}
+
+/**
  * Wire a paged source's `seek` to the sheet.
  *
  * @param source - The decoded `paged` arm (undefined ⇒ inline sheet)
- * @param rows - The resident rows, in stream order
- * @param positions - Each resident row's source position — a failed window leaves a hole (#853)
  * @param jumpToElement - Ask the driver to rebase residency on a position
  * @param clearJump - Drop the driver's pending jump pin
+ * @param narrowing - A narrowing of the source's rows that hides some of them, and what the box does about those; else `undefined`
  * @returns The search mount and the landing target
  */
 export function useSheetSeek(
     source: SheetPagedSourceValue | undefined,
-    rows: readonly SheetRowValue[],
-    positions: readonly number[],
     jumpToElement: (element: number) => void,
     clearJump: () => void,
+    narrowing: SheetSeekNarrowing | undefined,
 ): SheetSeekState {
     const [query, setQuery] = useState<unknown>(null);
     const [target, setTarget] = useState<number | undefined>(undefined);
     // What `listRange` reads — refs: the control awaits `onFind` and then calls
     // the `onListRange` it captured before the state committed (#614).
-    const residentRef = useRef({ rows, positions });
-    useLayoutEffect(() => { residentRef.current = { rows, positions }; });
+    const latest = useRef({ source, narrowing });
+    useLayoutEffect(() => { latest.current = { source, narrowing }; });
+    // The rows listed that the narrowing hides, by their positions: a pick of one clears the filters hiding it.
+    const hiddenAt = useRef(new Map<number, string>());
     const pending = useRef<{ resolve: (r: DatasetKeyMatchRange) => void; reject: (e: unknown) => void } | null>(null);
 
     const seekFn = useMemo(() => {
@@ -121,20 +165,35 @@ export function useSheetSeek(
         setQuery(toSeekQuery(q));
     }), []);
 
-    const listRange = useCallback(async (row: number, limit: number): Promise<string[]> => {
-        // The head of the match run, by POSITION: the resident rows at
-        // `row` onward, as far as they have landed (a far match lists nothing
-        // until its window arrives; the count still shows) — and stopping at
-        // a failed window's hole (#853).
-        const { rows: resident, positions } = residentRef.current;
-        const out: string[] = [];
-        let i = positions.indexOf(row);
-        if (i < 0) return out;
-        for (let p = row; p < row + limit && i < resident.length && positions[i] === p; p++, i++) out.push(resident[i]!.id);
-        return out;
+    const listRange = useCallback(async (row: number, limit: number): Promise<SheetListed[]> => {
+        // The head of the match run, by POSITION: its rows read through the source — on screen, far off, or hidden by
+        // the narrowing, whose window the sheet has not drawn (#1398, CL10) — each its row's id.
+        const { source: from, narrowing } = latest.current;
+        // The snapshot it lists at: a new one keeps nothing this listing learns.
+        const listing = hiddenAt.current;
+        if (from === undefined || limit <= 0) return [];
+        const rows = await awaitTracked(() => from.page(BigInt(row), BigInt(limit))) as readonly SheetRowValue[];
+        const shown = narrowing === undefined || rows.length === 0 ? undefined : await awaitTracked(() => narrowing.held(row, rows.length));
+        // Those the narrowing hides: e3 is asked which of its filters hide each — the box listing them again as it says
+        // (`relist`) — and a pick of one clears them (the hidden pick).
+        if (shown !== undefined && narrowing !== undefined && Object.is(hiddenAt.current, listing)) {
+            rows.forEach((r, i) => { if (shown[i]) listing.delete(row + i); else listing.set(row + i, r.id); });
+            narrowing.askHidden(row, rows.map((r) => r.id), shown);
+        }
+        // A pick shows the row's key in the box: what its query is typed against.
+        return rows.map((r, i) => ({ row: row + i, label: shown !== undefined && !shown[i] && narrowing !== undefined ? narrowing.hiddenLine(r.id) : r.id, text: r.id }));
     }, []);
 
     const jump = useCallback((row: number) => {
+        // A row the narrowing hides, as the box listed it: the filters hiding it cleared, and the row gone to there — never
+        // a jump under the narrowing that hides it (the hidden pick).
+        const key = hiddenAt.current.get(row);
+        const reveal = latest.current.narrowing?.reveal;
+        if (key !== undefined && reveal !== undefined) {
+            setTarget(undefined);
+            reveal(row, key);
+            return;
+        }
         jumpToElement(row);
         setTarget(row);
     }, [jumpToElement]);
@@ -155,6 +214,8 @@ export function useSheetSeek(
     useLayoutEffect(() => {
         if (pagedSnapshotEqual(previousSnapshot.current, snapshot)) return;
         previousSnapshot.current = snapshot;
+        // The rows the old snapshot's narrowing hid are no one's now.
+        hiddenAt.current = new Map();
         clear();
     }, [snapshot, clear]);
     const clearJumpRef = useRef(clearJump);
@@ -165,9 +226,10 @@ export function useSheetSeek(
         clearJumpRef.current();
     }, []);
 
+    const relist = narrowing?.version;
     const search = useMemo<SheetSearch | undefined>(
-        () => (seekFn === undefined ? undefined : { resetKey, keyType: KEY_TYPE, find, listRange, jump, clear }),
-        [resetKey, seekFn, find, listRange, jump, clear],
+        () => (seekFn === undefined ? undefined : { resetKey, keyType: KEY_TYPE, find, listRange, jump, clear, relist }),
+        [resetKey, seekFn, find, listRange, jump, clear, relist],
     );
 
     return { search, target: snapshotChanged ? undefined : target, clearTarget };

@@ -13,9 +13,11 @@
  * under them: a line is a `real` item whose row is a pseudo wire row over
  * the line's cells (so every cell helper reads it as a row) tagged with its
  * group ({@link LineGroup}). An open line's SUB ROWS (#844) hang under it
- * as `subRow` items, outside the row space. Under a lens the groups and
- * their lines narrow the way flat rows do: hits keep their numbers, context
- * shows either side, the rest collapse into gaps.
+ * as `subRow` items, outside the row space. Under the lens (#1349) the body is
+ * what it lays out over the record ({@link buildLensBody}): the rows the
+ * narrowing keeps, one after another, each keeping its number, and a band
+ * over each stretch of them not read yet — on a grouped sheet its groups, the
+ * records, narrowing as flat rows do, a match's lines marked.
  *
  * Pure: no React, no DOM. The interaction state lives in `sheet-state.ts`;
  * the data lives in the component (local rows over the decoded value).
@@ -30,7 +32,6 @@ import type {
     SheetCellValue, SheetColumnValue, SheetContextValue, SheetCustomKindValue, SheetGroupValue, SheetLineValue, SheetLinkValue, SheetMemberValue,
     SheetNounValue, SheetRegisterMemberValue, SheetRootValue, SheetRowValue, SheetSubRowValue,
 } from "./values.js";
-import type { LensGap } from "./lens.js";
 import type { SheetWords } from "./words.js";
 import { blankRowId } from "./sheet-types.js";
 import { DATE_DISPLAY_PATTERN, isWhenLevel, type WhenLevel } from "./parse/date.js";
@@ -232,22 +233,6 @@ export function blankLineId(groupId: string): string {
 
 /** The wire key a line that the source does not hold yet carries — never a source index. */
 export const NEW_LINE_KEY = "+";
-
-// The lens on a grouped sheet works on LINES. Reveals are integer positions,
-// so a line gets one of its own, above every group position and consecutive
-// within its group: `LINE_BASE + group × LINE_SPAN + line`. A gap's controls
-// enumerate the range between two of them.
-
-/** The first line position — above every group position. */
-export const LINE_BASE = 1_000_000;
-/** The line positions one group spans. */
-export const LINE_SPAN = 1_000;
-/** A line's position in the reveal space. */
-export const linePosition = (groupPosition: number, lineIndex: number): number => LINE_BASE + groupPosition * LINE_SPAN + lineIndex;
-/** Whether a position names a line (else a group or a flat row). */
-export const isLinePosition = (p: number): boolean => p >= LINE_BASE;
-/** A line position's 1-based line number within its group. */
-export const lineNumberOf = (p: number): number => ((p - LINE_BASE) % LINE_SPAN) + 1;
 
 /** How a line item knows its group: the group's wire row, the line's wire key, its index among the group's wire lines, its 1-based number. */
 export interface LineGroup {
@@ -542,13 +527,19 @@ export function subRowText(s: SheetSubRowValue): string {
 
 // ── The body ──────────────────────────────────────────────────────────────
 
-/** One unloaded run of a paged source, above or below the resident rows. */
+/**
+ * One unloaded run of a paged source, above or below the resident rows — or,
+ * under the lens (#1349), a stretch of the record it is still reading or
+ * placing, where the narrowing's rows in it will be drawn.
+ */
 export interface SheetBand {
-    at: "head" | "tail";
+    at: "head" | "tail" | "reading";
     /** First source element covered (inclusive). */
     from: number;
     /** Last source element covered (inclusive). */
     to: number;
+    /** How many of the sheet's elements it stands for, where that is not every one it covers: under the lens, the narrowing's rows in the stretch. */
+    elements?: number | undefined;
     /** The band's pixel height (the ledger's geometry). */
     px: number;
 }
@@ -560,6 +551,8 @@ export interface SheetWindowFailure {
     /** Its first and last source element (inclusive). */
     from: number;
     to: number;
+    /** How many of the sheet's elements it stands for, where that is not every one it covers: under the lens, the narrowing's rows in the segment. */
+    elements?: number | undefined;
     /** Its height — the ledger's slot for it, so the rows that replace it take the same space. */
     px: number;
     /** Why its read failed. */
@@ -638,22 +631,39 @@ export function segmentOf(segments: readonly RowSegment[], i: number): RowSegmen
     return segments.find((s) => i >= s.start && i < s.end) ?? segments[segments.length - 1]!;
 }
 
-/** The lens over one run of rows (B§8): which are hits, which show, and the hidden runs between them. */
-export interface LensSlice {
-    hits: readonly boolean[];
-    visible: readonly boolean[];
-    gaps: readonly LensGap[];
-    /** A grouped sheet: each group's per-line hits. */
-    lineHits?: readonly (readonly boolean[])[] | undefined;
-    /** A grouped sheet: each group's per-line visibility (hits, their context, reveals; every line under a matched title). */
-    lineVisible?: readonly (readonly boolean[])[] | undefined;
-    /** A grouped sheet: each group's hidden runs between its visible lines, keyed and positioned in the line space. */
-    lineGaps?: readonly (readonly LensGap[])[] | undefined;
-    /** A grouped sheet: per group, per line, which of its sub rows the search answers through — a line hit only through them shows them. */
-    lineSubRowHits?: readonly (readonly (readonly boolean[])[])[] | undefined;
+/**
+ * Where the rows the lens draws sit (#1349): each row's position in the
+ * record — a row the planner added following the row before it — and the
+ * contiguous runs of positions an author's context sees around a row, as
+ * {@link layoutRun} gives them for a paged run.
+ *
+ * @param rows - The rows drawn, in order, the local layer applied
+ * @param sourcePosition - A row's position in the record, by id — `undefined` for a row the record does not hold
+ * @returns Each row's position, no failed windows (the lens draws a failed read as a band of its own), and the runs
+ */
+export function layoutLensRun(
+    rows: readonly SheetRowValue[],
+    sourcePosition: (id: string) => number | undefined,
+): { positions: number[]; failures: PlacedFailure[]; segments: RowSegment[] } {
+    const positions: number[] = [];
+    let last = -1;
+    for (const row of rows) {
+        const p = sourcePosition(row.id) ?? last + 1;
+        positions.push(p);
+        last = p;
+    }
+    const segments: RowSegment[] = [];
+    let start = 0;
+    for (let i = 1; i <= rows.length; i++) {
+        if (i < rows.length && positions[i] === positions[i - 1]! + 1) continue;
+        segments.push({ start, end: i, position: positions[start]! });
+        start = i;
+    }
+    if (segments.length === 0) segments.push({ start: 0, end: 0, position: 0 });
+    return { positions, failures: [], segments };
 }
 
-/** One body item — a real row (a line, when tagged with its group), a line's sub row, a blank padding row (a group's blank line, when tagged), a group's band, a paged band, a lens gap, or a proposal. */
+/** One body item — a real row (a line, when tagged with its group), a line's sub row, a blank padding row (a group's blank line, when tagged), a group's band, a paged band, or a proposal. */
 export type SheetBodyItem =
     | {
         kind: "real";
@@ -670,8 +680,6 @@ export type SheetBodyItem =
         /** A LOOSE row's index among the resident loose rows (#846) — a grouped sheet's row that belongs to no group. */
         loose?: number | undefined;
     }
-    /** A run of rows the lens hides (B§8) — 22 px, a dashed rule, the `n hidden` pill with its controls. */
-    | { kind: "gap"; gap: LensGap }
     | {
         kind: "blank";
         /** The sheet position the blank would take (0-based); a group's blank line: the group's position. */
@@ -698,8 +706,6 @@ export type SheetBodyItem =
         /** Its index under the line, and how many the line has. */
         index: number;
         count: number;
-        /** A lens hit through this sub row's own text. */
-        hit: boolean;
     }
     /** A group's band (#740): the title, the eyebrow, the band cells, the fold. */
     | {
@@ -748,9 +754,7 @@ export interface SheetBodyInput {
     total: number | undefined;
     head: SheetBand | undefined;
     tail: SheetBand | undefined;
-    /** The lens over resident rows (a grouped sheet: over the groups, with per-line hits). */
-    lens?: LensSlice | undefined;
-    /** Whether each group is folded, and whether a line's sub rows were opened or closed by hand (`undefined` = never touched: closed, unless the lens hit the line through them). */
+    /** Whether each group is folded, and whether a line's sub rows were opened or closed by hand (`undefined` = never touched: closed). */
     grouped?: { foldedOf: (row: SheetRowValue) => boolean; subRowsOpen?: ((lineId: string) => boolean | undefined) | undefined } | undefined;
 }
 
@@ -761,34 +765,21 @@ function failuresAt(input: SheetBodyInput, i: number, out: SheetBodyItem[]): voi
 
 /**
  * The body items, in order: head band · real rows (a failed window's band
- * where its rows would be, #853) · tail band · blanks. Under a lens the real
- * rows the narrowing hides collapse into gaps and the blank tail is not
- * shown — a lens narrows the sheet, it never invites the next row (B§8). A
- * grouped sheet builds bands with their lines ({@link buildGroupedBody}).
+ * where its rows would be, #853) · tail band · blanks. A grouped sheet builds
+ * bands with their lines ({@link buildGroupedBody}). Under the lens the body
+ * is the lens's ({@link buildLensBody}).
  */
 export function buildBody(input: SheetBodyInput): SheetBodyItem[] {
     if (input.grouped !== undefined) return buildGroupedBody(input, input.grouped);
     const out: SheetBodyItem[] = [];
     if (input.head !== undefined) out.push({ kind: "band", band: input.head });
-    const lens = input.lens;
-    let inGap = false;
     input.rows.forEach((row, i) => {
         failuresAt(input, i, out);
-        const position = input.positions?.[i] ?? input.rowsOffset + i;
-        if (lens !== undefined && !lens.visible[i]) {
-            if (!inGap) {
-                const gap = lens.gaps.find((g) => g.from === position);
-                if (gap !== undefined) out.push({ kind: "gap", gap });
-                inGap = true;
-            }
-            return;
-        }
-        inGap = false;
-        out.push({ kind: "real", position, residentIndex: i, row, hit: lens !== undefined && lens.hits[i] === true });
+        out.push({ kind: "real", position: input.positions?.[i] ?? input.rowsOffset + i, residentIndex: i, row, hit: false });
     });
     failuresAt(input, input.rows.length, out);
     if (input.tail !== undefined) out.push({ kind: "band", band: input.tail });
-    if (input.exhausted && lens === undefined) {
+    if (input.exhausted) {
         const last = input.total ?? input.rowsOffset + input.rows.length;
         for (let i = 0; i < input.blanks; i++) {
             out.push({ kind: "blank", position: last + i, blankIndex: i });
@@ -800,34 +791,17 @@ export function buildBody(input: SheetBodyInput): SheetBodyItem[] {
 /**
  * A grouped sheet's body (#740): for each resident group its band, then —
  * unless folded — its lines, each open line's sub rows, and one blank line;
- * a LOOSE row between the groups (#846) is a plain row of its own. Under a
- * lens the groups and loose rows the narrowing hides collapse into gaps (as
- * flat rows do); inside a shown group the lens works on its LINES: a hit
- * keeps its number, its context and anything revealed show, and the rest
- * collapse into gaps with the controls a flat sheet has. The blank line is
- * not shown under a lens (a lens never invites the next row).
+ * a LOOSE row between the groups (#846) is a plain row of its own.
  */
 function buildGroupedBody(input: SheetBodyInput, grouped: NonNullable<SheetBodyInput["grouped"]>): SheetBodyItem[] {
     const out: SheetBodyItem[] = [];
     if (input.head !== undefined) out.push({ kind: "band", band: input.head });
-    const lens = input.lens;
-    let inGap = false;
-    // Each loose row's index among the resident loose rows, the hidden ones counted.
+    // Each loose row's index among the resident loose rows.
     let looseAt = 0;
     input.rows.forEach((row, i) => {
         failuresAt(input, i, out);
-        const position = input.positions?.[i] ?? input.rowsOffset + i;
         const loose = isLooseRow(row) ? looseAt++ : undefined;
-        if (lens !== undefined && !lens.visible[i]) {
-            if (!inGap) {
-                const gap = lens.gaps.find((g) => g.from === position);
-                if (gap !== undefined) out.push({ kind: "gap", gap });
-                inGap = true;
-            }
-            return;
-        }
-        inGap = false;
-        groupItems(row, i, position, lens, grouped, input.blanks, out, loose);
+        groupItems(row, i, input.positions?.[i] ?? input.rowsOffset + i, false, grouped, input.blanks, out, loose);
     });
     failuresAt(input, input.rows.length, out);
     if (input.tail !== undefined) out.push({ kind: "band", band: input.tail });
@@ -836,56 +810,84 @@ function buildGroupedBody(input: SheetBodyInput, grouped: NonNullable<SheetBodyI
 
 /**
  * One shown group's items: its band, then — unless folded — its lines, each
- * open line's sub rows, and its blank line (not under a lens); a loose row
- * (#846) is one plain row. The body and the paged driver's window heights
- * both come from here (#855).
+ * open line's sub rows, and its blank line (`blanks` > 0); a loose row (#846)
+ * is one plain row. A group the lens's narrowing holds (`hit`) draws its
+ * lines as matches, as a loose row the narrowing holds is one. The body, the
+ * lens's body and the paged driver's window heights all come from here (#855).
  */
 function groupItems(
     row: SheetRowValue,
     i: number,
     position: number,
-    lens: LensSlice | undefined,
+    hit: boolean,
     grouped: NonNullable<SheetBodyInput["grouped"]>,
     blanks: number,
     out: SheetBodyItem[],
     loose?: number,
 ): void {
     if (isLooseRow(row)) {
-        out.push({ kind: "real", position, residentIndex: i, row, hit: lens !== undefined && lens.hits[i] === true, loose: loose ?? 0 });
+        out.push({ kind: "real", position, residentIndex: i, row, hit, loose: loose ?? 0 });
         return;
     }
     const folded = grouped.foldedOf(row);
     out.push({ kind: "group", position, residentIndex: i, row, folded, count: row.lines.length });
     if (folded) return;
-    const lineHits = lens?.lineHits?.[i];
-    const lineVisible = lens?.lineVisible?.[i];
-    const lineGaps = lens?.lineGaps?.[i];
-    let lineGap = false;
     row.lines.forEach((line, j) => {
-        if (lineVisible !== undefined && !lineVisible[j]) {
-            if (!lineGap) {
-                const p = linePosition(position, j);
-                const gap = lineGaps?.find((g) => g.from === p);
-                if (gap !== undefined) out.push({ kind: "gap", gap });
-                lineGap = true;
-            }
-            return;
-        }
-        lineGap = false;
         const lg: LineGroup = { row, key: line.key, index: j, number: j + 1 };
-        out.push({ kind: "real", position, residentIndex: i, row: lineRowOf(row, line), hit: lineHits?.[j] === true, group: lg });
-        // An open line's sub rows hang under it: opened by hand, or by the lens when the line hit only through them.
+        out.push({ kind: "real", position, residentIndex: i, row: lineRowOf(row, line), hit, group: lg });
+        // An open line's sub rows hang under it, opened by hand.
         const subRows = line.subRows;
         if (subRows.length === 0) return;
         const id = lineId(row.id, line.key);
-        const subRowHits = lens?.lineSubRowHits?.[i]?.[j];
-        const open = grouped.subRowsOpen?.(id) ?? subRowHits?.some(Boolean) === true;
-        if (!open) return;
-        subRows.forEach((subRow, k) => out.push({ kind: "subRow", position, group: lg, lineId: id, subRow, index: k, count: subRows.length, hit: subRowHits?.[k] === true }));
+        if (grouped.subRowsOpen?.(id) !== true) return;
+        subRows.forEach((subRow, k) => out.push({ kind: "subRow", position, group: lg, lineId: id, subRow, index: k, count: subRows.length }));
     });
-    if (blanks > 0 && lens === undefined) {
+    if (blanks > 0) {
         out.push({ kind: "blank", position, blankIndex: 0, group: { row, key: "", index: row.lines.length, number: row.lines.length + 1 } });
     }
+}
+
+/** One item of the lens's layout, the local layer applied to its rows (#1349): what {@link buildLensBody} draws. */
+export type LensBodyInput =
+    /** A row drawn — one the narrowing holds, or one the planner added — at its position in the record. */
+    | { kind: "row"; position: number; row: SheetRowValue; hit: boolean }
+    /** A stretch still being read or placed. */
+    | { kind: "band"; band: SheetBand }
+    /** A segment whose read failed, or whose rows disagree with where e3 placed the narrowing's. */
+    | { kind: "failed"; failure: SheetWindowFailure };
+
+/**
+ * The body under the lens (#1349): what it laid out over the record, in its
+ * order — each row drawn and its bands. A grouped sheet's rows are its groups,
+ * the records the narrowing holds: each shown group draws its band and, unless
+ * folded, its lines and their open sub rows — a match's lines marked — and no
+ * blank line, for a lens never invites the next row.
+ *
+ * @param items - The layout, the local layer applied to its rows
+ * @param grouped - A grouped sheet's folds and open sub rows (`undefined` on a flat sheet)
+ * @returns The body items
+ */
+export function buildLensBody(items: readonly LensBodyInput[], grouped: SheetBodyInput["grouped"]): SheetBodyItem[] {
+    const out: SheetBodyItem[] = [];
+    // Each row's index among the rows drawn — the wire context's `rowIndex` — and each loose row's among the loose rows.
+    let resident = 0;
+    let looseAt = 0;
+    for (const item of items) {
+        switch (item.kind) {
+            case "band": out.push({ kind: "band", band: item.band }); break;
+            case "failed": out.push({ kind: "failed", failure: item.failure }); break;
+            case "row": {
+                const i = resident++;
+                if (grouped === undefined) {
+                    out.push({ kind: "real", position: item.position, residentIndex: i, row: item.row, hit: item.hit });
+                    break;
+                }
+                groupItems(item.row, i, item.position, item.hit, grouped, 0, out, isLooseRow(item.row) ? looseAt++ : undefined);
+                break;
+            }
+        }
+    }
+    return out;
 }
 
 /** The heights a sheet draws its items at (#855): a row's, a group band's and a sub row's least height. */
@@ -905,7 +907,6 @@ export interface SheetGeometry {
  */
 export function itemPx(item: SheetBodyItem, g: SheetGeometry): number {
     switch (item.kind) {
-        case "gap": return BAND_MIN_PX;
         case "group": return g.bandPx;
         case "subRow": return g.subRowPx;
         case "failed": return Math.max(BAND_MIN_PX, item.failure.px);
@@ -916,11 +917,10 @@ export function itemPx(item: SheetBodyItem, g: SheetGeometry): number {
 
 /**
  * What one source row draws, in px (#855): the least height of the items the
- * body builds for it, with no lens. A flat row — or a loose row between the
- * groups (#846) — is one row; a group is its band and, unless folded, its
- * lines, their open sub rows and its blank line when the sheet draws one. The
- * paged driver sizes a window by it, so an unloaded band is as tall as its
- * rows will be.
+ * body builds for it. A flat row — or a loose row between the groups (#846) —
+ * is one row; a group is its band and, unless folded, its lines, their open
+ * sub rows and its blank line when the sheet draws one. The paged driver sizes
+ * a window by it, so an unloaded band is as tall as its rows will be.
  *
  * @param row - A source row
  * @param g - The sheet's geometry
@@ -931,7 +931,7 @@ export function itemPx(item: SheetBodyItem, g: SheetGeometry): number {
 export function drawnPx(row: SheetRowValue, g: SheetGeometry, grouped: SheetBodyInput["grouped"], blanks: number): number {
     if (grouped === undefined) return g.rowPx;
     const items: SheetBodyItem[] = [];
-    groupItems(row, 0, 0, undefined, grouped, blanks, items);
+    groupItems(row, 0, 0, false, grouped, blanks, items);
     let px = 0;
     for (const it of items) px += itemPx(it, g);
     return px;
@@ -967,7 +967,7 @@ export function withProposals(
     return out.concat(body.slice(at + 1));
 }
 
-/** Whether a body item occupies the ROW space (paged bands, gaps, sub rows and proposals do not; group summaries do). */
+/** Whether a body item occupies the ROW space (paged bands, sub rows and proposals do not; group summaries do). */
 export function isRowSpace(item: SheetBodyItem): boolean {
     return item.kind === "real" || item.kind === "blank" || item.kind === "group";
 }

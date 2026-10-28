@@ -4,8 +4,9 @@
  */
 import type { AnalyzedIR } from "../analyze.js";
 import { builtin_evaluators } from "./builtins/index.js";
-import { compile_internal } from "./ir.js";
-import { BreakException, callDepthErrorAt, ContinueException, EAST_CAPTURES_SYMBOL, EAST_IR_SYMBOL, EAST_SOURCE_MAP_SYMBOL, getContextValue, lazyReadErrorAt, ReturnException, type RuntimeContext } from "./runtime.js";
+import { compile_ir } from "./ir.js";
+import { asStatement, asValue, functionExit } from "./flow.js";
+import { callDepthErrorAt, EAST_CAPTURES_SYMBOL, EAST_IR_SYMBOL, EAST_SOURCE_MAP_SYMBOL, getContextValue, lazyReadErrorAt, type RuntimeContext } from "./runtime.js";
 import { variant } from "../containers/variant.js";
 import { EastError } from "../error.js";
 import type { AsyncFunctionIR, BuiltinIR, CallAsyncIR, CallIR, FunctionIR, IR, PlatformIR } from "../ir.js";
@@ -13,7 +14,20 @@ import type { Location, SourceMap } from "../location.js";
 import type { PlatformFunction } from "../platform.js";
 import type { EastTypeValue } from "../type_of_type.js";
 
-/** Compiles the function definitions, calls, and builtin and platform calls. */
+/** An argument, or the function called, compiled: a signal it gives is thrown. */
+function argument(child: AnalyzedIR, ctx: Record<string, EastTypeValue>, platform: Record<string, (...args: any[]) => any>, asyncPlatformFns: Set<string>, platformDef: PlatformFunction[], compilingNodes: Set<IR>): (ctx: RuntimeContext) => any {
+  return asValue(child, compile_ir(child, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes));
+}
+
+/**
+ * Compiles the function definitions, calls, and builtin and platform calls.
+ *
+ * A function gives its value, never a control signal: what its body gives
+ * for a `return` is the function's value (`functionExit`), so a call, East's
+ * or a builtin's or a platform's, gets the value alone. A call, a builtin or
+ * a platform function computes a value from its arguments, so a control
+ * statement an argument leaves is thrown (`asValue`, `flow.ts`).
+ */
 export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | CallIR | CallAsyncIR | BuiltinIR | PlatformIR>, ctx: Record<string, EastTypeValue>, platform: Record<string, (...args: any[]) => any>, asyncPlatformFns: Set<string>, platformDef: PlatformFunction[], compilingNodes: Set<IR>, source_map: SourceMap | null): (ctx: RuntimeContext) => any {
   if (ir.type === "Function") {
     // Compile-time type context for body compilation
@@ -25,7 +39,9 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
       typeCtx[parameter.value.name] = parameter.value.type;
     }
 
-    const compiled_body = compile_internal(ir.value.body, typeCtx, platform, asyncPlatformFns, platformDef, true, compilingNodes);
+    const compiled_body = asStatement(ir.value.body, compile_ir(ir.value.body, typeCtx, platform, asyncPlatformFns, platformDef, true, compilingNodes));
+    // A `return`'s signal the body gives is the function's value; undefined when the body can give none.
+    const exit = functionExit(ir.value.body, ir.value.loc_id);
 
     const capture_names = ir.value.captures.map(v => v.value.name);
     const parameter_names = ir.value.parameters.map(v => v.value.name);
@@ -40,11 +56,17 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
         captureCtx[name] = getContextValue(ctx, name);
       }
 
-      const fn = (...args: any) => {
-        const fnCtx: RuntimeContext = { ...captureCtx };
-        parameter_names.forEach((name, i) => fnCtx[name] = variant("value", args[i]));
-        return compiled_body(fnCtx);
-      };
+      const fn = exit === undefined
+        ? (...args: any) => {
+            const fnCtx: RuntimeContext = { ...captureCtx };
+            parameter_names.forEach((name, i) => fnCtx[name] = variant("value", args[i]));
+            return compiled_body(fnCtx);
+          }
+        : (...args: any) => {
+            const fnCtx: RuntimeContext = { ...captureCtx };
+            parameter_names.forEach((name, i) => fnCtx[name] = variant("value", args[i]));
+            return exit(compiled_body(fnCtx));
+          };
 
       // Attach IR to function for serialization support
       Object.defineProperty(fn, EAST_IR_SYMBOL, {
@@ -84,7 +106,10 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
       typeCtx[parameter.value.name] = parameter.value.type;
     }
 
-    const compiled_body = compile_internal(ir.value.body, typeCtx, platform, asyncPlatformFns, platformDef, true, compilingNodes);
+    const compiled_body = asStatement(ir.value.body, compile_ir(ir.value.body, typeCtx, platform, asyncPlatformFns, platformDef, true, compilingNodes));
+    // A `return`'s signal the body gives is the function's value; undefined when the body can give none.
+    const exit = functionExit(ir.value.body, ir.value.loc_id);
+    const body_awaits = ir.value.body.value.isAsync;
 
     const capture_names = ir.value.captures.map(v => v.value.name);
     const parameter_names = ir.value.parameters.map(v => v.value.name);
@@ -99,11 +124,23 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
         captureCtx[name] = getContextValue(ctx, name);
       }
 
-      const fn = (...args: any) => {
-        const fnCtx: RuntimeContext = { ...captureCtx };
-        parameter_names.forEach((name, i) => fnCtx[name] = variant("value", args[i]));
-        return compiled_body(fnCtx); // Promise can pass through in tail position
-      };
+      const fn = exit === undefined
+        ? (...args: any) => {
+            const fnCtx: RuntimeContext = { ...captureCtx };
+            parameter_names.forEach((name, i) => fnCtx[name] = variant("value", args[i]));
+            return compiled_body(fnCtx); // Promise can pass through in tail position
+          }
+        : body_awaits
+          ? async (...args: any) => {
+              const fnCtx: RuntimeContext = { ...captureCtx };
+              parameter_names.forEach((name, i) => fnCtx[name] = variant("value", args[i]));
+              return exit(await compiled_body(fnCtx));
+            }
+          : (...args: any) => {
+              const fnCtx: RuntimeContext = { ...captureCtx };
+              parameter_names.forEach((name, i) => fnCtx[name] = variant("value", args[i]));
+              return exit(compiled_body(fnCtx));
+            };
 
       // Attach IR to function for serialization support
       Object.defineProperty(fn, EAST_IR_SYMBOL, {
@@ -134,10 +171,12 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
       return fn;
     }
   } else if (ir.type === "Call") {
-    const compiled_f = compile_internal(ir.value.function, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes);
-    const compiled_args = ir.value.arguments.map(argument => compile_internal(argument, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes));
+    const compiled_f = argument(ir.value.function, ctx, platform, asyncPlatformFns, platformDef, compilingNodes);
+    const compiled_args = ir.value.arguments.map(a => argument(a, ctx, platform, asyncPlatformFns, platformDef, compilingNodes));
     const loc_id = ir.value.loc_id;
 
+    // A call nested too deeply is an East error at the call; the function
+    // gives its value, so nothing else is caught here.
     if (ir.value.isAsync) {
       // need to await the arguments
       return async (ctx: RuntimeContext) => {
@@ -148,18 +187,7 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
           }
           return compiled_f(ctx)(...args);
         } catch (e: unknown) {
-          if (e instanceof ReturnException) {
-            return e.value;
-          } else if (e instanceof EastError) {
-            // TODO: push loc_id to EastError once SourceMap resolution is wired up
-            throw(e);
-          } else if (e instanceof ContinueException) {
-            throw new Error(`continue failed to find label ${e.label} at loc_id ${loc_id}`)
-          } else if (e instanceof BreakException) {
-            throw new Error(`break failed to find label ${e.label} at loc_id ${loc_id}`)
-          } else {
-            throw callDepthErrorAt(e, loc_id, source_map);
-          }
+          throw callDepthErrorAt(e, loc_id, source_map);
         }
       };
     } else {
@@ -167,24 +195,13 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
         try {
           return compiled_f(ctx)(...compiled_args.map(arg => arg(ctx)));
         } catch (e: unknown) {
-          if (e instanceof ReturnException) {
-            return e.value;
-          } else if (e instanceof EastError) {
-            // TODO: push loc_id to EastError once SourceMap resolution is wired up
-            throw(e);
-          } else if (e instanceof ContinueException) {
-            throw new Error(`continue failed to find label ${e.label} at loc_id ${loc_id}`)
-          } else if (e instanceof BreakException) {
-            throw new Error(`break failed to find label ${e.label} at loc_id ${loc_id}`)
-          } else {
-            throw callDepthErrorAt(e, loc_id, source_map);
-          }
+          throw callDepthErrorAt(e, loc_id, source_map);
         }
       }
     }
   } else if (ir.type === "CallAsync") {
-    const compiled_f = compile_internal(ir.value.function, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes);
-    const compiled_args = ir.value.arguments.map(argument => compile_internal(argument, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes));
+    const compiled_f = argument(ir.value.function, ctx, platform, asyncPlatformFns, platformDef, compilingNodes);
+    const compiled_args = ir.value.arguments.map(a => argument(a, ctx, platform, asyncPlatformFns, platformDef, compilingNodes));
     const loc_id = ir.value.loc_id;
 
     return async (ctx: RuntimeContext) => {
@@ -195,18 +212,7 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
         }
         return await compiled_f(ctx)(...args);
       } catch (e: unknown) {
-        if (e instanceof ReturnException) {
-          return e.value;
-        } else if (e instanceof EastError) {
-          // TODO: push loc_id to EastError once SourceMap resolution is wired up
-          throw(e);
-        } else if (e instanceof ContinueException) {
-          throw new Error(`continue failed to find label ${e.label} at loc_id ${loc_id}`)
-        } else if (e instanceof BreakException) {
-          throw new Error(`break failed to find label ${e.label} at loc_id ${loc_id}`)
-        } else {
-          throw callDepthErrorAt(e, loc_id, source_map);
-        }
+        throw callDepthErrorAt(e, loc_id, source_map);
       }
     };
   } else if (ir.type === "Builtin") {
@@ -216,7 +222,7 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
         argsAsync = true;
       }
 
-      return compile_internal(a, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes)
+      return argument(a, ctx, platform, asyncPlatformFns, platformDef, compilingNodes);
     });
 
     // Special optimization for regex builtins with literal pattern/flags
@@ -421,7 +427,7 @@ export function compile_functions(ir: AnalyzedIR<FunctionIR | AsyncFunctionIR | 
         argsAsync = true;
       }
 
-      return compile_internal(a, ctx, platform, asyncPlatformFns, platformDef, false, compilingNodes)
+      return argument(a, ctx, platform, asyncPlatformFns, platformDef, compilingNodes);
     });
 
     // Look up platform function definition to check if generic

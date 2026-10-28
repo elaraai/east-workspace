@@ -32,6 +32,7 @@ import { usePlanScale, type PlanElementRefValue } from "../context.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
 import { usePlanElementDrafted } from "./element-draft.js";
+import { usePlanElementOp } from "./element-optimise.js";
 import { markName } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
@@ -79,6 +80,9 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
     const overlap = usePlanElementOverlap(mark.key);
     // An event its drafts changed wears the brand tint's ring (#1196).
     const drafted = usePlanElementDrafted(mark.key);
+    // What a run of the optimiser did to its event (#1409, R17), while it is still the run's draft.
+    const op = usePlanElementOp(mark.key);
+    const optimised = drafted ? op : undefined;
     // Every glyph is the same button to a reader (#819) — and, where it
     // moves, the same draggable (#825).
     const common = {
@@ -91,6 +95,9 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
         "data-selected": select.selected ? "" : undefined,
         "data-overlap": overlap ? "" : undefined,
         "data-draft": drafted ? "" : undefined,
+        "data-op": optimised?.op,
+        "data-fill": optimised !== undefined ? "own" : undefined,
+        title: optimised?.provenance,
         "aria-pressed": select.selectable ? select.selected : undefined,
     } as const;
     // ── R4 (#591) ──

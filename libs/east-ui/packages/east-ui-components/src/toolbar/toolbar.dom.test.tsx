@@ -11,11 +11,13 @@
  * can move the row's width the way the browser reports it.
  */
 
+import { useEffect, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
-import { Toolbar, type ToolbarItem } from "./index.js";
+import { FLOOR_RANK, Toolbar, type ToolbarItem } from "./index.js";
 
 afterEach(cleanup);
 
@@ -230,6 +232,179 @@ describe("the toolbar's one ladder", () => {
         expect(shown(container)).toEqual(["zoom-chip", "history"]);
         resize(300);
         expect(shown(container)).toEqual(["zoom-chip", "history"]);
+    });
+
+    /**
+     * A search whose box folds into a View popover with the zoom, as the
+     * Schematic's Find does (#1395): held while its query stands — folding
+     * last, as the key search does — it holds the View; the steps join the
+     * bundle as something is selected.
+     */
+    const searchItems = (held: boolean, steps: boolean): ToolbarItem[] => [
+        { key: "zoom", forms: [form("zoom", 100), null], rank: 50, bundle: "view" },
+        { key: "seek", forms: [form("seek-box", 160), form("seek-view", 45)], rank: 50, bundle: "view", foldsLast: held },
+        ...(steps ? [{ key: "steps", forms: [form("steps", 72), null], rank: 50, bundle: "view" }] : []),
+        { key: "history", side: "end", forms: [form("history", 136)] },
+    ];
+    const rerenderWith = (rerender: (ui: ReactElement) => void, list: ToolbarItem[]) =>
+        rerender(<ChakraProvider value={system}><Toolbar items={list} /></ChakraProvider>);
+
+    test("an item that joins a held bundle takes it as it stands: beside the folded View its search holds, the steps join folded and the row still fits; beside the box held unfolded, they show (#1395)", () => {
+        // 45 + 136 + 10 = 191 fits 200: the View applies, the zoom inside it.
+        const narrow = mount(searchItems(false, false), 200);
+        expect(shown(narrow.container)).toEqual(["seek-view", "history"]);
+        // A query typed holds the View; something selected, the steps join it — folded, the history still in the row.
+        rerenderWith(narrow.rerender, searchItems(true, false));
+        rerenderWith(narrow.rerender, searchItems(true, true));
+        expect(shown(narrow.container)).toEqual(["seek-view", "history"]);
+        expect(narrow.container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-state")).toBe("zoom=1/2;seek=1/2;steps=1/2;history=0/1");
+        cleanup();
+        // With room, the box is held unfolded: the View does not apply, and the steps show beside it.
+        const wide = mount(searchItems(false, false), 620);
+        expect(shown(wide.container)).toEqual(["zoom", "seek-box", "history"]);
+        rerenderWith(wide.rerender, searchItems(true, false));
+        rerenderWith(wide.rerender, searchItems(true, true));
+        expect(shown(wide.container)).toEqual(["zoom", "seek-box", "steps", "history"]);
+    });
+
+    /**
+     * The Schematic's row (#1404): the tools drop their words, then fold into a chip, both their own steps, and last go
+     * into the View with the zoom and the steps, one bundle the box folds into too.
+     */
+    const schematicItems = (held: boolean, steps: boolean): ToolbarItem[] => [
+        { key: "tools", forms: [form("tools", 180), form("tools-icons", 120), form("tools-chip", 60), null], rank: [10, 30, 50], bundle: [undefined, undefined, "view"] },
+        { key: "zoom", forms: [form("zoom", 100), null], rank: 50, bundle: "view" },
+        { key: "seek", forms: [form("seek-box", 160), form("seek-view", 45)], rank: 50, bundle: "view", foldsLast: held },
+        ...(steps ? [{ key: "steps", forms: [form("steps", 70), null], rank: 50, bundle: "view" }] : []),
+        { key: "history", side: "end", forms: [form("history", 170), form("history-buttons", 130)] },
+    ];
+
+    test("the box its query holds keeps the View off, and the row folds what is left around it: the tools to their icons, then their chip, the history last (#1404)", () => {
+        // 180 + 100 + 160 + 170 + 30 = 640 fits.
+        const { container, rerender } = mount(schematicItems(false, false), 640);
+        expect(shown(container)).toEqual(["tools", "zoom", "seek-box", "history"]);
+        // A query typed holds the box; something selected, the steps join beside it — the View held off, the tools fold
+        // to their icons (120 + 100 + 160 + 70 + 170 + 40 = 660), to their chip (600), then the history (560).
+        rerenderWith(rerender, schematicItems(true, false));
+        rerenderWith(rerender, schematicItems(true, true));
+        expect(shown(container)).toEqual(["tools-chip", "zoom", "seek-box", "steps", "history"]);
+        resize(570);
+        expect(shown(container)).toEqual(["tools-chip", "zoom", "seek-box", "steps", "history-buttons"]);
+        expect(container.querySelector("[data-toolbar]")!.getAttribute("data-toolbar-state")).toBe("tools=2/4;zoom=0/2;seek=0/2;steps=0/2;history=1/2");
+        // Room again: the tools unfold beside the held box, as far as the row allows — never into the View it holds off.
+        resize(700);
+        expect(shown(container)).toEqual(["tools-icons", "zoom", "seek-box", "steps", "history"]);
+        resize(760);
+        expect(shown(container)).toEqual(["tools", "zoom", "seek-box", "steps", "history"]);
+        // The query cleared, the box folds with the rest again: the View takes the tools, the zoom, the box and the steps.
+        rerenderWith(rerender, schematicItems(false, true));
+        resize(300);
+        expect(shown(container)).toEqual(["seek-view", "history"]);
+    });
+
+    /**
+     * The Schematic's row as its key search folds (ruled 26 Oct 2026, "Find folds"): the box folds to its icon, then into
+     * the View with the tools, the zoom and the steps — folding last while its query stands.
+     */
+    const findItems = (held: boolean, steps: boolean): ToolbarItem[] => [
+        { key: "tools", forms: [form("tools", 180), form("tools-icons", 120), form("tools-chip", 60), null], rank: [10, 30, 50], bundle: [undefined, undefined, "view"] },
+        { key: "zoom", forms: [form("zoom", 100), null], rank: 50, bundle: "view" },
+        { key: "seek", forms: [form("seek-box", 200), form("seek-icon", 40), form("seek-view", 45)], rank: [20, 50], bundle: [undefined, "view"], foldsLast: held },
+        ...(steps ? [{ key: "steps", forms: [form("steps", 70), null], rank: 50, bundle: "view" }] : []),
+        { key: "history", side: "end", forms: [form("history", 170), form("history-buttons", 130)] },
+    ];
+
+    test("an item that folds last keeps its form while anything else in the row can fold; once nothing else can, it folds on — its bundle still off, the rest unfolding as the row allows — and back no more while so marked; the history always in the row (ruled 26 Oct 2026, \"Find folds\")", () => {
+        // 180 + 100 + 200 + 170 + 30 = 680: every item at its widest.
+        const { container, rerender } = mount(findItems(false, false), 760);
+        expect(shown(container)).toEqual(["tools", "zoom", "seek-box", "history"]);
+        // A query holds the box; a pick selects, and the steps join beside it: 180 + 100 + 200 + 70 + 170 + 40 = 760.
+        rerenderWith(rerender, findItems(true, false));
+        rerenderWith(rerender, findItems(true, true));
+        expect(shown(container)).toEqual(["tools", "zoom", "seek-box", "steps", "history"]);
+        // Everything else folds first: the tools to their chip, the history to its buttons — 60 + 100 + 200 + 70 + 130 + 40 = 600.
+        resize(600);
+        expect(shown(container)).toEqual(["tools-chip", "zoom", "seek-box", "steps", "history-buttons"]);
+        // A pixel less, and nothing else can fold: the box folds to its icon, the View it holds off still off, and the
+        // row folds no further than it must around it — 120 + 100 + 40 + 70 + 170 + 40 = 540.
+        resize(599);
+        expect(shown(container)).toEqual(["tools-icons", "zoom", "seek-icon", "steps", "history"]);
+        // Held, it unfolds no more, whatever the room.
+        resize(760);
+        expect(shown(container)).toEqual(["tools", "zoom", "seek-icon", "steps", "history"]);
+        // Narrower than its icon and every other step allow: into the View, with the tools, the zoom and the steps.
+        resize(300);
+        expect(shown(container)).toEqual(["seek-view", "history"]);
+        // The query cleared, it folds with the rest again: with room, the box.
+        rerenderWith(rerender, findItems(false, true));
+        resize(760);
+        expect(shown(container)).toEqual(["tools", "zoom", "seek-box", "steps", "history"]);
+    });
+
+    /**
+     * A phone's row (hand retest, 27 Oct 2026): the rail, its icon, and at the row's floor its icon without the caret; the
+     * key search, its box folding to its icon; a View, its trigger alone in the row, which at the floor lists the Elara
+     * eye's entry, in one bundle with the eye's step out of the row (ruled 27 Oct 2026, "Into the View menu"); the eye;
+     * the history, folding last of the ladder, to its buttons.
+     */
+    const phoneItems = (query: boolean): ToolbarItem[] => [
+        { key: "rail", forms: [form("rail-live", 300), form("rail-icon", 50), form("rail-bare", 34)], rank: [7, FLOOR_RANK] },
+        { key: "seek", forms: [form("seek-box", 160), form("seek-icon", 45)], rank: 20, foldsLast: query },
+        { key: "view", forms: [form("view", 30), form("view-eye", 30)], rank: FLOOR_RANK + 1, bundle: "eye" },
+        { key: "eye", side: "end", forms: [form("eye", 32), null], rank: FLOOR_RANK + 1, bundle: "eye" },
+        { key: "history", side: "end", forms: [form("history", 220), form("history-buttons", 136)], rank: 100 },
+    ];
+    const attr = (container: HTMLElement, name: string) => container.querySelector("[data-toolbar]")!.getAttribute(name);
+
+    test("below the whole ladder the row takes its floor, the fewest rungs that fit — the rail's caret, then the eye into its View, one bundle — so the history and Save stay in it; listed apart from the ladder", () => {
+        // The ladder's end: 50 + 45 + 30 + 32 + 136 + 40 = 333.
+        const { container } = mount(phoneItems(false), 333);
+        expect(shown(container)).toEqual(["rail-icon", "seek-icon", "view", "eye", "history-buttons"]);
+        expect([attr(container, "data-toolbar-ladder"), attr(container, "data-toolbar-floor")]).toEqual(["rail>1 seek>1 history>1", "rail>2 view>1 eye>1"]);
+        // A pixel less: the rail drops its caret (34 + 45 + 30 + 32 + 136 + 40 = 317), the eye still beside the history.
+        resize(332);
+        expect(shown(container)).toEqual(["rail-bare", "seek-icon", "view", "eye", "history-buttons"]);
+        // Narrower than that: the eye goes into the View, which lists it, in one step (34 + 45 + 30 + 136 + 30 = 275); the
+        // history stays.
+        resize(316);
+        expect(shown(container)).toEqual(["rail-bare", "seek-icon", "view-eye", "history-buttons"]);
+        // Room for the ladder again: the floor lifts, the eye back in the row and the View its trigger alone.
+        resize(333);
+        expect(shown(container)).toEqual(["rail-icon", "seek-icon", "view", "eye", "history-buttons"]);
+        resize(800);
+        expect(shown(container)).toEqual(["rail-live", "seek-box", "view", "eye", "history"]);
+    });
+
+    test("an item that folds last folds on before any rung of the floor: the floor lies below the whole ladder (ruled 26 Oct 2026, \"Find folds\"; hand retest, 27 Oct 2026)", () => {
+        // A query holds the box. The rail's icon and the history's buttons beside it: 50 + 160 + 30 + 32 + 136 + 40 = 448.
+        const { container } = mount(phoneItems(true), 460);
+        expect(shown(container)).toEqual(["rail-icon", "seek-box", "view", "eye", "history-buttons"]);
+        // Too wide by a little: dropping the rail's caret alone would fit (34 + 160 + 30 + 32 + 136 + 40 = 432), but the box
+        // folds first, the floor untouched — and the history has room for its whole form again (50 + 45 + 30 + 32 + 220 + 40 = 417).
+        resize(440);
+        expect(shown(container)).toEqual(["rail-icon", "seek-icon", "view", "eye", "history"]);
+    });
+
+    test("what an item keeps is drawn once whatever form it takes, in no place of the row, and outlives every fold", () => {
+        const stage = document.createElement("div");
+        let mounts = 0;
+        function Kept() {
+            useEffect(() => { mounts += 1; }, []);
+            return <span data-kept="">kept</span>;
+        }
+        const list: ToolbarItem[] = [
+            { key: "box", forms: [form("box", 300), form("icon", 40)], rank: 1, keep: createPortal(<Kept />, stage) },
+            { key: "history", side: "end", forms: [form("history", 100)] },
+        ];
+        const { container } = mount(list, 620);
+        expect(shown(container)).toEqual(["box", "history"]);
+        resize(200);
+        expect(shown(container)).toEqual(["icon", "history"]);
+        resize(620);
+        expect(shown(container)).toEqual(["box", "history"]);
+        expect(mounts).toBe(1);
+        expect(stage.querySelectorAll("[data-kept]").length).toBe(1);
+        expect(container.querySelector("[data-kept]")).toBeNull();
     });
 
     test("an empty form hides the item, and takes no gap", () => {

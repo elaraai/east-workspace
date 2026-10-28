@@ -68,12 +68,11 @@ export type SheetSuggestValue = ValueTypeOf<typeof Sheet.Types.Suggest>;
 export type SheetProviderValue = ValueTypeOf<typeof Sheet.Types.Provider>;
 /** One row proposer on the wire. */
 export type SheetProposerValue = ValueTypeOf<typeof Sheet.Types.Proposer>;
-/** The decoded windowed arm — `paged`, or `pinned` with its revision and refresh — the source at the sheet's own row collection. */
+/** The decoded windowed arm — `paged`, `pinned` with its revision and refresh, or a `rows` source's record (#1349) — the source at the sheet's own row collection. */
 export type SheetPagedSourceValue = WindowedSourceValue<SheetRootValue["rows"]>;
 /**
  * One saved view (B§8, #1345) — every source's narrowing of the sheet's
- * `Slice.bindRecords`, by the source's name, with the lens's context and
- * reveals and a grouped sheet's folds.
+ * `Slice.bindRecords`, by the source's name, with a grouped sheet's folds.
  */
 export type SheetSavedView = ValueTypeOf<typeof Sheet.Types.RecordView>;
 /** Every source's narrowing, by the source's name: what a view saves, and what the rail holds now. */

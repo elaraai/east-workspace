@@ -13,7 +13,8 @@
  * as East prints it, and that key; on a paged kind's resource, that resource's
  * row by its id (#1199). And a paged kind's windows, and a paged `data`'s,
  * name the snapshot of their data apart from the revision new rows composed
- * into them move (#1199).
+ * into them move (#1199) — a kind its source narrows, the narrowing with it
+ * (#1344).
  */
 
 import { describe, test, expect, vi } from "vitest";
@@ -87,7 +88,7 @@ const marks = rowId("a1", "presses.marks");
 /** The event kinds' rows: a job's bar and a check's tile on Press A1, a shift's chip on Crew 1, a stop's mark on Press A1. */
 const BLOCKS: PlanWireBlock[] = [
     {
-        fixed: true, parent: none, rows: [
+        fixed: true, parent: none, charts: none, rows: [
             row(bars, variant("span", {
                 runs: [{ key: elementKey("job", "J-1"), start: at("2026-10-05"), end: at("2026-10-06"), label: "Job", quantity: none, state: confirmed, status: none, moved: none, icon: none }],
                 decisions: [], ports: [], rollup: none,
@@ -104,11 +105,11 @@ const BLOCKS: PlanWireBlock[] = [
         ],
     },
     {
-        fixed: true, parent: none, rows: [
+        fixed: true, parent: none, charts: none, rows: [
             row(chips, variant("cards", { chips: [{ key: elementKey("shift", "SH-1"), from: at("2026-10-05"), to: at("2026-10-06"), label: "Early", state: confirmed, icon: none }] })),
         ],
     },
-    { fixed: true, parent: none, rows: [] },
+    { fixed: true, parent: none, charts: none, rows: [] },
 ] as unknown as PlanWireBlock[];
 
 describe("a link's event ends (#1192)", () => {
@@ -163,8 +164,8 @@ describe("the event kinds' rows over the range the canvas draws (#1192)", () => 
     const scale = planScale({ kind: "time", window: { min: utcAt("2026-10-05T00:00:00"), max: utcAt("2026-11-02T00:00:00") }, resolution: "day" }) as PlanScale;
     /** A resource kind's block of a bar row per key, and the Unassigned rows'. */
     const blocksOf = (...keys: string[]): PlanWireBlock[] => [
-        { fixed: true, parent: none, rows: keys.map((k) => row(rowId(k, "presses.span"), variant("span", { runs: [], decisions: [], ports: [], rollup: none }))) },
-        { fixed: true, parent: none, rows: [] },
+        { fixed: true, parent: none, charts: none, rows: keys.map((k) => row(rowId(k, "presses.span"), variant("span", { runs: [], decisions: [], ports: [], rollup: none }))) },
+        { fixed: true, parent: none, charts: none, rows: [] },
     ] as unknown as PlanWireBlock[];
 
     test("read over the window and the periods laid out beyond it; until one answers, empty fixed blocks stand in; equal rows hold, and a read in flight or failed keeps the last", () => {
@@ -197,22 +198,27 @@ describe("the event kinds' rows over the range the canvas draws (#1192)", () => 
         answer = () => none;
         rerender({ events: seam() });
         expect(result.current.blocks).toBe(first);
-        // Failed: they stand still, and the canvas says why.
+        // Failed: they stand still, and the canvas says why — no kind given here, so none named whose own events failed.
         const errors = vi.spyOn(console, "error").mockImplementation(() => {});
         try {
             answer = () => { throw new Error("a press with no load"); };
             rerender({ events: seam() });
             expect(result.current.blocks).toBe(first);
             expect(result.current.version).toBe(1);
-            expect(result.current.error).toBe("a press with no load");
+            const failure = result.current.error;
+            expect(failure).toEqual({ reason: "a press with no load", kinds: [] });
+            // Failing the same way again, it is the same failure: nothing new for the canvas to draw.
+            rerender({ events: seam() });
+            expect(result.current.error).toBe(failure);
         } finally {
             errors.mockRestore();
         }
-        // New rows move, and the failure is gone.
+        // New rows move, and the failure is gone; no kind is read by its cells, so nothing is shaded (#1039).
         const next = blocksOf("a2");
         answer = () => some(next);
         rerender({ events: seam() });
-        expect(result.current).toEqual({ blocks: next, version: 2, error: undefined });
+        expect(result.current.blocks).toBe(next);
+        expect([result.current.version, result.current.error, result.current.cells, result.current.shading.size]).toEqual([2, undefined, undefined, 0]);
     });
 });
 
@@ -220,19 +226,24 @@ describe("the snapshot of a paged source's data, apart from the revision its win
     /** A root whose own rows are `rows`. */
     const rootOf = (rows: unknown) => ({ rows, links: [] }) as unknown as PlanRootValue;
     /** The event kinds' rows, at a version: no blocks, no events placed. */
-    const leadAt = (version: number): PlanEventLead => ({ blocks: [], placed: placedOn([]), version, error: undefined });
+    const leadAt = (version: number): PlanEventLead => ({
+        blocks: [], placed: placedOn([]), shading: new SortedMap([], compareString), cells: undefined, version, error: undefined,
+    });
     /** The canvas's source the hook hands it. */
     const sourceOf = (root: PlanRootValue) => (root.rows as unknown as { value: PlanPagedSourceValue }).value;
 
     test("a paged kind's windows: new events placed on its resources move their revision alone; the resources' own revision is the snapshot", () => {
         const resources = { revision: "R1" };
         const pages = {
-            kind: "presses", id: "presses-window", placed: () => some(placedOn([])), rows: () => some([]), total: () => some(0n), seek: none,
-            revision: () => some(resources.revision), refresh: () => null,
+            kind: "presses", id: "presses-window", placed: () => some(placedOn([])), rows: () => some([]), keys: () => some([]), total: () => some(0n), seek: none,
+            revision: () => some(resources.revision), refresh: () => null, query: none,
         } as unknown as PlanEventPagedValue;
         const root = rootOf(variant("inline", []));
         const { result, rerender } = renderHook(({ lead }) => usePlanEventRoot(root, root, lead, pages), { initialProps: { lead: leadAt(1) } });
         const source = () => sourceOf(result.current.data);
+        // No source narrows the kind: its windows are pinned to the resources' snapshot, and name no narrowing.
+        expect(result.current.data.rows.type).toBe("pinned");
+        expect(source().query).toBeUndefined();
         expect(source().snapshot?.()).toEqual(some("R1"));
         const before = source().revision?.();
         rerender({ lead: leadAt(2) });
@@ -242,6 +253,33 @@ describe("the snapshot of a paged source's data, apart from the revision its win
         // The resources themselves moving is a new snapshot.
         resources.revision = "R2";
         expect(source().snapshot?.()).toEqual(some("R2"));
+    });
+
+    test("a paged kind its source narrows (#1344): a live source naming the narrowing its windows belong to, the snapshot the resources' revision and the narrowing together", () => {
+        const resources = { revision: "R1", narrowing: "hall: Hall 2" };
+        const pages = {
+            kind: "presses", id: "presses-narrowed", placed: () => some(placedOn([])), rows: () => some([]), keys: () => some([]), total: () => some(0n), seek: none,
+            revision: () => some(resources.revision), refresh: () => null, query: some(() => resources.narrowing),
+        } as unknown as PlanEventPagedValue;
+        const root = rootOf(variant("inline", []));
+        const { result, rerender } = renderHook(({ lead }) => usePlanEventRoot(root, root, lead, pages), { initialProps: { lead: leadAt(1) } });
+        const source = () => sourceOf(result.current.data);
+        expect(result.current.data.rows.type).toBe("live");
+        expect(source().query?.()).toBe("hall: Hall 2");
+        const first = source().snapshot?.();
+        expect(first?.type).toBe("some");
+        expect(first).not.toEqual(some("R1"));
+        // New events placed over the same narrowing: the windows are read again, over the same snapshot.
+        rerender({ lead: leadAt(2) });
+        expect(source().snapshot?.()).toEqual(first);
+        // A choice on the rail: the same source, the same record's revision — another narrowing, another snapshot.
+        resources.narrowing = "hall: Hall 3";
+        expect(source().query?.()).toBe("hall: Hall 3");
+        const chosen = source().snapshot?.();
+        expect(chosen).not.toEqual(first);
+        // A commit under it: another snapshot again.
+        resources.revision = "R2";
+        expect(source().snapshot?.()).not.toEqual(chosen);
     });
 
     test("a paged `data` beside the event kinds: its own revision is the snapshot, which the event kinds' rows riding its windows leave", () => {

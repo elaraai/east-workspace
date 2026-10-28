@@ -4,10 +4,11 @@
  */
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Box, Button, chakra, useSlotRecipe } from "@chakra-ui/react";
+import { Box, Button, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faCaretDown, faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { SliceEditPopover, useFormatters } from "@elaraai/east-ui-components";
+import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { Seg } from "../schedule/segments.js";
 import { DAY, dayStart, weekStart } from "../schedule/window.js";
 import { isoWeekUTC, shiftCalendar, type TimeResolution } from "./scale.js";
@@ -45,14 +46,31 @@ export interface TimeNavigatorProps {
     controls?: ReactNode;
     /** The host's existing Slice editor; no second range state lives here. */
     rangeEditor?: ReactNode;
+    /** Told when Today is pressed, after its date is chosen: a host that shows the time of day brings the now line into view (#1398). */
+    onToday?: (() => void) | undefined;
+}
+
+/**
+ * Test-only probe — lets "a navigator drawn again draws with the styles made once for the theme" be asserted as the
+ * styles each render draws with (#1398, CL9). `undefined` outside tests.
+ */
+let navigatorStylesProbe: ((styles: object) => void) | undefined;
+/**
+ * Install (or clear) the navigator styles probe. Test use only.
+ *
+ * @param fn - Called with the styles a navigator draws with, each time it renders; `undefined` clears it
+ */
+export function setNavigatorStylesProbe(fn: ((styles: object) => void) | undefined): void {
+    navigatorStylesProbe = fn;
 }
 
 /** One date/range trigger between arrows, with the same Today action in every popup. */
-export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor }: TimeNavigatorProps) {
+export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, compact = false, rangeLabel, label = "Choose date", scope, initialPanel, onWeeks, weekMarker, dayMarker, legend, controls, rangeEditor, onToday }: TimeNavigatorProps) {
     const format = useFormatters();
     const now = useNow(givenNow);
-    const recipe = useSlotRecipe({ key: "timeNavigator" });
-    const styles = recipe({});
+    // Its styles made once for the theme (#1398, CL9): a timeline's navigator draws again with each day its view crosses.
+    const styles = useSlotStyles("timeNavigator");
+    navigatorStylesProbe?.(styles);
     const [open, setOpen] = useState(false);
     const [month, setMonth] = useState(() => monthStart(date));
     const [panel, setPanel] = useState<Panel>(firstPanel(period, initialPanel));
@@ -92,12 +110,14 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
     const shortLabel = period === "hour" || period === "day" ? format.monthDay(current) : period === "week" ? `W${format.number(isoWeekUTC(new Date(start.getTime() + 3 * DAY)))}` : period === "year" ? format.year(current) : `${format.month(current)} ${format.year(current)}`;
     const browse = (step: number) => setMonth(shiftCalendar(new Date(month), panel === "year" || panel === "month" ? "year" : "month", step * (panel === "year" ? 12 : 1)).getTime());
     const heading = panel === "year" ? `${format.year(new Date(Date.UTC(yearBase, 0, 1)))}–${format.year(new Date(Date.UTC(yearBase + 11, 0, 1)))}` : panel === "month" ? format.year(new Date(month)) : format.monthYear(new Date(month));
+    // In the toolbar's row, the trigger and the arrows beside it stand as tall as every control there (`sm`, 28px, ruled
+    // 23 Oct 2026); the popover's own buttons keep its density.
     const picker = <SliceEditPopover open={open} onOpenChange={changeOpen} label={label}
-        trigger={<Button size="xs" variant="ghost" css={styles.trigger} aria-label={label} title={fullLabel} data-time-trigger="">
+        trigger={<Button size="sm" variant="ghost" css={styles.trigger} aria-label={label} title={fullLabel} data-time-trigger="">
             {compact && controls !== undefined ? <FontAwesomeIcon icon={faCalendarWeek} /> : <><Box as="span" css={styles.label} data-time-label="">{compact ? shortLabel : fullLabel}</Box><FontAwesomeIcon icon={faCaretDown} /></>}
         </Button>}
         footLeft={<Box css={styles.footer}>{arrows}</Box>}
-        footActions={<Button size="xs" variant="solid" onClick={() => choose(today)}>Today</Button>}>
+        footActions={<Button size="xs" variant="solid" onClick={() => { choose(today); onToday?.(); }}>Today</Button>}>
         <Box css={styles.body} data-time-picker={scope} data-time-panel={panel}>
             {panel !== "range" && <Box css={styles.header}>
                 <Button size="xs" variant="ghost" aria-label={`Previous ${panel === "year" ? "12 years" : panel === "month" ? "year" : "month"}`} onClick={() => browse(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>
@@ -135,8 +155,8 @@ export function TimeNavigator({ date, period, sunday, onChange, now: givenNow, c
         </Box>
     </SliceEditPopover>;
     return <Box css={styles.root} data-time-navigation={scope} data-time-period={period} data-time-anchor={date}>
-        {!compact && <Button size="xs" variant="ghost" aria-label={`Previous ${period}`} onClick={() => move(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>}
+        {!compact && <Button size="sm" variant="ghost" aria-label={`Previous ${period}`} onClick={() => move(-1)}><FontAwesomeIcon icon={faChevronLeft} /></Button>}
         {picker}
-        {!compact && <Button size="xs" variant="ghost" aria-label={`Next ${period}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>}
+        {!compact && <Button size="sm" variant="ghost" aria-label={`Next ${period}`} onClick={() => move(1)}><FontAwesomeIcon icon={faChevronRight} /></Button>}
     </Box>;
 }

@@ -7,24 +7,22 @@
  * The toolbar's one row under width pressure (Sheet Spec §6.3, #952): its
  * items on the shared toolbar, as the Sheet's frame lays them out (#1216),
  * fold on one ladder — the tabs fold into the `+n` menu one at a time,
- * then the count goes, the context label, the `+ TAB` label and the
- * whole-sheet count, the tab names cap, and last the context switch goes
- * and the strip closes up; after those a paged source's key search folds to
- * its icon and the strip into one chip, the open view's (#1221), then the
- * chip into the key search's popover (#1345), and last the history item to
- * its buttons. jsdom lays nothing out, so each form's width is stubbed from
- * what it shows: a tab 80px (50 once the names cap), `+n` 30, `+ TAB` 50 (20
- * once its label goes), the strip's one chip 60, the strip folded away 0, the
- * context switch 150 with its label and 100 without, the count 100, the key
- * search's box 200 and its icon 44, the history item 150 and its buttons
- * 100; the gap between items is 10px.
+ * then the count goes, the `+ TAB` label and the whole-sheet count, the tab
+ * names cap, and the strip closes up; after those a paged source's key
+ * search folds to its icon and the strip into one chip, the open view's
+ * (#1221), then the chip into the key search's popover (#1345), and last the
+ * history item to its buttons. jsdom lays nothing out, so each form's width
+ * is stubbed from what it shows: a tab 80px (50 once the names cap, 40 once
+ * the strip closes up and its counts go), `+n` 30, `+ TAB` 50 (20 once its
+ * label goes), the strip's one chip 60, the strip folded away 0, the count
+ * 100, the key search's box 200 and its icon 44, the history item 150 and
+ * its buttons 100; the gap between items is 10px.
  *
  * The views folded into the key search's popover (#1345): every view a
  * choice over the search box, `+ TAB` and the open view's close, each doing
  * what its tab or button does, and the box still seeking.
  *
- * And both by the keyboard alone (#860): the tabs a WAI-ARIA tablist, the
- * context switch a radio group.
+ * And the tabs by the keyboard alone (#860): a WAI-ARIA tablist.
  */
 
 import { describe, test, expect, afterEach, beforeAll, afterAll, vi } from "vitest";
@@ -36,7 +34,6 @@ import { Editing } from "@elaraai/east-ui/internal";
 import { system, formatters, EditSession, historyToolbarItem, editingMessages, Toolbar, type ToolbarItem } from "@elaraai/east-ui-components";
 import { SheetTabs, type SheetTabView } from "./Tabs.js";
 import { useSheetToolbarItemsFor, type SheetToolbarProps, type SheetToolbarTabs } from "./Toolbar.js";
-import type { LensContext } from "./sheet-types.js";
 import type { SheetSearch } from "./use-seek.js";
 
 /** The toolbar's items on the shared toolbar's one row — as the Sheet's frame lays them out. */
@@ -65,10 +62,9 @@ function widthOf(el: Element): number {
             const tabs = el.querySelectorAll('[data-slot="tab"]').length;
             const more = el.querySelector('[data-slot="tabMore"]') !== null ? 30 : 0;
             const add = squeezed !== null && squeezed !== undefined ? 20 : 50;
-            const tab = squeezed === "capped" || squeezed === "closed" ? 50 : 80;
+            const tab = squeezed === "closed" ? 40 : squeezed === "capped" ? 50 : 80;
             return tabs * tab + more + add;
         }
-        case "context": return el.querySelector('[data-slot="contextSwitch"] > span[aria-hidden="true"]') !== null ? 150 : 100;
         case "count": return 100;
         case "seek": return el.querySelector('[data-key-search="icon"]') !== null ? 44 : 200;
         case "history": return el.querySelector('[data-history-form="buttons"]') !== null ? 100 : 150;
@@ -151,7 +147,7 @@ function tabsOf(styles: Record<string, Record<string, unknown>>, views: SheetTab
     };
 }
 
-/** A toolbar over the strip, with a count and a context switch to give up. */
+/** A toolbar over the strip, with a count to give up. */
 function Harness({ count, active }: { count: string; active: string | null }) {
     const recipe = useSlotRecipe({ key: "sheet" });
     const styles = recipe({}) as unknown as Record<string, Record<string, unknown>>;
@@ -160,7 +156,6 @@ function Harness({ count, active }: { count: string; active: string | null }) {
             styles={styles}
             count={count}
             partial={false}
-            context={{ value: 0, onChange: noop }}
             tabs={tabsOf(styles, VIEWS, active)}
         />
     );
@@ -179,49 +174,45 @@ function read(container: HTMLElement) {
         folded: strip.getAttribute("data-folded"),
         strip: strip.getAttribute("data-strip"),
         count: container.querySelector('[data-slot="toolbarCount"]')?.textContent ?? null,
-        context: container.querySelector('[data-slot="contextSwitch"]') === null ? null
-            : container.querySelector('[data-slot="contextSwitch"]')!.textContent!.includes("context") ? "labelled" : "bare",
     };
 }
 
 describe("the toolbar's ladder", () => {
     test("a row that fits folds nothing and keeps everything", () => {
-        // Every tab (370) + the context switch (150) + the count (100) + 2 gaps = 640.
-        const { container } = mount("12 matches", "router", 640);
-        expect(read(container)).toEqual({ tabs: ["all", "spray", "router", "late"], folded: null, strip: null, count: "12 matches", context: "labelled" });
+        // Every tab (370) + the count (100) + a gap = 480.
+        const { container } = mount("12 matches", "router", 480);
+        expect(read(container)).toEqual({ tabs: ["all", "spray", "router", "late"], folded: null, strip: null, count: "12 matches" });
     });
 
     test("the tabs fold first, one at a time, the active tab kept", () => {
-        expect(read(mount("12 matches", "router", 590).container)).toMatchObject({ tabs: ["all", "spray", "router"], folded: "1", count: "12 matches" });
+        expect(read(mount("12 matches", "router", 470).container)).toMatchObject({ tabs: ["all", "spray", "router"], folded: "1", count: "12 matches" });
         cleanup();
-        expect(read(mount("12 matches", "router", 510).container)).toMatchObject({ tabs: ["all", "router"], folded: "2", count: "12 matches" });
+        expect(read(mount("12 matches", "router", 400).container)).toMatchObject({ tabs: ["all", "router"], folded: "2", count: "12 matches" });
     });
 
-    test("past the strip's floor the count goes, then the context label, then the strip closes up rung by rung", () => {
-        expect(read(mount("12 matches", "router", 400).container)).toEqual({ tabs: ["all", "router"], folded: "2", strip: null, count: null, context: "labelled" });
+    test("past the strip's floor the count goes, then the strip closes up rung by rung", () => {
+        expect(read(mount("12 matches", "router", 300).container)).toEqual({ tabs: ["all", "router"], folded: "2", strip: null, count: null });
         cleanup();
-        expect(read(mount("12 matches", "router", 350).container)).toMatchObject({ strip: null, count: null, context: "bare" });
+        expect(read(mount("12 matches", "router", 230).container)).toMatchObject({ strip: "compact", count: null });
         cleanup();
-        expect(read(mount("12 matches", "router", 320).container)).toMatchObject({ strip: "compact", context: "bare" });
-        cleanup();
-        expect(read(mount("12 matches", "router", 260).container)).toMatchObject({ strip: "capped", context: "bare" });
+        expect(read(mount("12 matches", "router", 200).container)).toMatchObject({ strip: "capped", count: null });
     });
 
-    test("last, the context switch goes and the strip closes up", () => {
-        const { container } = mount("12 matches", "router", 150);
-        expect(read(container)).toEqual({ tabs: ["all", "router"], folded: "2", strip: "closed", count: null, context: null });
+    test("last, the strip closes up, its counts with it", () => {
+        const { container } = mount("12 matches", "router", 140);
+        expect(read(container)).toEqual({ tabs: ["all", "router"], folded: "2", strip: "closed", count: null });
         expect(container.querySelector('[data-slot="tabMore"]')!.textContent).toBe("+2");
     });
 
     test("the count going gives its room back — the configuration follows the row it is in", () => {
-        const { container, rerender } = mount("12 matches", "router", 400);
-        expect(read(container)).toMatchObject({ folded: "2", count: null, context: "labelled" });
-        // Without the count, 400 holds the folded strip and the labelled switch; at 530, everything.
+        const { container, rerender } = mount("12 matches", "router", 300);
+        expect(read(container)).toMatchObject({ folded: "2", count: null });
+        // Without the count, 300 holds the folded strip; at 370, every tab.
         rerender(<ChakraProvider value={system}><Harness count="" active="router" /></ChakraProvider>);
-        expect(read(container)).toMatchObject({ folded: "2", count: null, context: "labelled" });
-        row.px = 530;
+        expect(read(container)).toMatchObject({ folded: "2", count: null });
+        row.px = 370;
         rerender(<ChakraProvider value={system}><Harness count="" active="router" /></ChakraProvider>);
-        expect(read(container)).toMatchObject({ tabs: ["all", "spray", "router", "late"], folded: null, context: "labelled" });
+        expect(read(container)).toMatchObject({ tabs: ["all", "spray", "router", "late"], folded: null });
     });
 
     test("a paged source's key search folds to its icon after the sheet's own steps, before the history item's (#1221)", () => {
@@ -229,7 +220,7 @@ describe("the toolbar's ladder", () => {
         function WithSearch() {
             const styles = useSlotRecipe({ key: "sheet" })({}) as unknown as Record<string, Record<string, unknown>>;
             return <SheetToolbar styles={styles} count="12 matches" partial={false}
-                context={{ value: 0, onChange: noop }} tabs={tabsOf(styles, VIEWS, "router")} search={SEARCH} history={history} />;
+                tabs={tabsOf(styles, VIEWS, "router")} search={SEARCH} history={history} />;
         }
         const at = (px: number) => {
             cleanup();
@@ -244,18 +235,18 @@ describe("the toolbar's ladder", () => {
                 end: container.querySelector('[data-toolbar-item="seek"]')?.hasAttribute("data-toolbar-end") ?? null,
             };
         };
-        // Its step comes after the strip closes up and the context switch goes; the strip's one chip after it; the chip and
-        // the search's popover together, one move (#1345); and the history item's last.
+        // Its step comes after the strip closes up; the strip's one chip after it; the chip and the search's popover
+        // together, one move (#1345); and the history item's last.
         expect(at(2000)).toEqual({
-            ladder: "tabs>1 tabs>2 count>1 context>1 tabs>3 tabs>4 tabs>5 context>2 seek>1 tabs>6 tabs>7 seek>2 history>1",
+            ladder: "tabs>1 tabs>2 count>1 tabs>3 tabs>4 tabs>5 seek>1 tabs>6 tabs>7 seek>2 history>1",
             strip: null, seek: "0", history: "0", end: true,
         });
-        // The closed strip (150), the box (200) and the history item (150): the box holds while it fits.
-        expect(at(520)).toMatchObject({ strip: "closed", seek: "0", history: "0" });
+        // The closed strip (130), the box (200) and the history item (150): the box holds while it fits.
+        expect(at(500)).toMatchObject({ strip: "closed", seek: "0", history: "0" });
         // A pixel short of that, the icon (44), the history item whole.
-        expect(at(519)).toMatchObject({ strip: "closed", seek: "1", history: "0" });
-        // Shorter still (150 + 44 + 150 + 20 = 364), the strip folds into its chip (60), the history item whole.
-        expect(at(363)).toMatchObject({ strip: "menu", seek: "1", history: "0" });
+        expect(at(499)).toMatchObject({ strip: "closed", seek: "1", history: "0" });
+        // Shorter still (130 + 44 + 150 + 20 = 344), the strip folds into its chip (60), the history item whole.
+        expect(at(343)).toMatchObject({ strip: "menu", seek: "1", history: "0" });
         // Past that (60 + 44 + 150 + 20 = 274), the chip folds into the search's popover: the icon (44) beside the history item whole.
         expect(at(273)).toMatchObject({ strip: "folded", seek: "2", history: "0" });
         // And past that (44 + 150 + 10 = 204), the history item folds to its buttons, last.
@@ -396,7 +387,7 @@ describe("the strip folded into the key search's popover (#1345)", () => {
     });
 });
 
-/** A host that keeps what the tabs and the context switch change, as the sheet's machine does, and counts `+ TAB`. */
+/** A host that keeps what the tabs change, as the sheet's machine does, and counts `+ TAB`. */
 function KeyboardHost({ created }: { created: () => void }) {
     const recipe = useSlotRecipe({ key: "sheet" });
     const styles = recipe({}) as unknown as Record<string, Record<string, unknown>>;
@@ -404,13 +395,11 @@ function KeyboardHost({ created }: { created: () => void }) {
     const [active, setActive] = useState<string | null>("spray");
     const [renaming, setRenaming] = useState<string | null>(null);
     const [renameVal, setRenameVal] = useState("");
-    const [context, setContext] = useState<LensContext>(0);
     return (
         <SheetToolbar
             styles={styles}
             count=""
             partial={false}
-            context={{ value: context, onChange: setContext }}
             tabs={tabsOf(styles, views, active, {
                 renaming,
                 renameVal,
@@ -513,29 +502,5 @@ describe("by the keyboard alone (#860)", () => {
         const item = container.querySelector('[data-toolbar-item="history"]')!;
         expect(item.hasAttribute("data-toolbar-end")).toBe(true);
         expect(item.querySelector('[data-slot="history"]')).not.toBeNull();
-    });
-
-    test("the context switch is a radio group with one tab stop: ←/→ and Home/End move and pick, and a key's press picks", () => {
-        const { container, press } = mountHost();
-        const group = container.querySelector('[role="radiogroup"]')!;
-        const radio = (n: number) => group.querySelector(`[data-context="${n}"]`) as HTMLElement;
-        const checked = () => [0, 1, 3].filter((n) => radio(n).getAttribute("aria-checked") === "true");
-        expect(checked()).toEqual([0]);
-        expect([0, 1, 3].map((n) => radio(n).tabIndex)).toEqual([0, -1, -1]);
-        radio(0).focus();
-        press("ArrowRight");
-        expect(checked()).toEqual([1]);
-        expect(document.activeElement).toBe(radio(1));
-        expect([0, 1, 3].map((n) => radio(n).tabIndex)).toEqual([-1, 0, -1]);
-        press("End");
-        expect(checked()).toEqual([3]);
-        press("ArrowRight");
-        expect(checked()).toEqual([0]);
-        press("ArrowLeft");
-        expect(checked()).toEqual([3]);
-        press("Home");
-        expect(checked()).toEqual([0]);
-        fireEvent.click(radio(3), { detail: 0 });
-        expect(checked()).toEqual([3]);
     });
 });

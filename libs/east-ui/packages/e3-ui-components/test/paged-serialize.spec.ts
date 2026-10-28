@@ -74,6 +74,12 @@ function localApi(elements: { id: string; v: number }[]): PagedApi {
         async findKey() {
             return { found: false, row: 0, count: 0, hash: REVISION };
         },
+        // A handle's serialization reads no batch.
+        async findKeys() { throw new Error("A serialized handle's reads ask no batch of this api"); },
+        async getRows() { throw new Error("A serialized handle's reads ask no batch of this api"); },
+        async getRuns() { throw new Error("A serialized handle's reads ask no batch of this api"); },
+        async place() { throw new Error("A serialized handle's reads ask no batch of this api"); },
+        async within() { throw new Error("A serialized handle's reads ask no batch of this api"); },
         async getRevision() {
             return REVISION;
         },

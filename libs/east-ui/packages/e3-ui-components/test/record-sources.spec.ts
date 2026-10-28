@@ -101,8 +101,10 @@ test("a choice in one source leaves the other's stored state and counts exactly 
         ["K-601", "K-602", "K-501", "K-502", "K-503", "K-504"], "in the group index's order: Bulk before Large, each group's kilns by key");
     const reads = h.requests().filter(ofYard);
     assert.ok(reads.length > 0);
-    assert.ok(reads.every(request => request.kind === "page" || request.kind === "find" || request.kind === "dataset-status"),
-        "every read goes through a record's paging, beside the lookups of its revision");
+    // A window across the group index's two runs is one read of both (#1351).
+    assert.ok(reads.some(request => request.kind === "runs"));
+    assert.ok(reads.every(request => ["page", "find", "runs", "dataset-status"].includes(request.kind)),
+        "every read goes through a record's paging — its pages, its searches and its runs — beside the lookups of its revision");
     assert.equal(wholeReads(), 0);
     here.runtime.clear();
 });

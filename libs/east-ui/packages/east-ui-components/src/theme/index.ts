@@ -148,6 +148,7 @@ import { studioInspectorSlotRecipe } from "./slot-recipes/studioInspector.js";
 import { sheetInspectorSlotRecipe } from "./slot-recipes/sheetInspector.js";
 import { planInspectorSlotRecipe } from "./slot-recipes/planInspector.js";
 import { flowchartInspectorSlotRecipe } from "./slot-recipes/flowchartInspector.js";
+import { schematicInspectorSlotRecipe } from "./slot-recipes/schematicInspector.js";
 import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
 import { studioPublishSlotRecipe } from "./slot-recipes/studioPublish.js";
 import { queryBuilderSlotRecipe } from "./slot-recipes/queryBuilder.js";
@@ -158,10 +159,13 @@ import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
 import { fieldFormSlotRecipe } from "./slot-recipes/fieldForm.js";
 import { toolbarSlotRecipe } from "./slot-recipes/toolbar.js";
 import { builderFrameSlotRecipe } from "./slot-recipes/builderFrame.js";
+import { builderFooterLineSlotRecipe } from "./slot-recipes/builder-footer.js";
+import { loadingSlotRecipe } from "./slot-recipes/loading.js";
 import { queryAutocompleteSlotRecipe } from "./slot-recipes/queryAutocomplete.js";
 import { logViewerSlotRecipe } from "./slot-recipes/logViewer.js";
 import { nativeSelectSlotRecipe } from "./slot-recipes/nativeSelect.js";
 import { alertSlotRecipe } from "./slot-recipes/alert.js";
+import { optimiseSlotRecipe } from "./slot-recipes/optimise.js";
 
 const config = defineConfig({
     globalCss,
@@ -291,6 +295,7 @@ const config = defineConfig({
             sheetInspector:  sheetInspectorSlotRecipe,
             planInspector:   planInspectorSlotRecipe,
             flowchartInspector: flowchartInspectorSlotRecipe,
+            schematicInspector: schematicInspectorSlotRecipe,
             studioLibrary: studioLibrarySlotRecipe,
             studioPublish:   studioPublishSlotRecipe,
             queryBuilder:    queryBuilderSlotRecipe,
@@ -301,10 +306,13 @@ const config = defineConfig({
             fieldForm:       fieldFormSlotRecipe,
             toolbar:         toolbarSlotRecipe,
             builderFrame:    builderFrameSlotRecipe,
+            builderFooterLine: builderFooterLineSlotRecipe,
+            loading:         loadingSlotRecipe,
             queryAutocomplete: queryAutocompleteSlotRecipe,
             logViewer:       logViewerSlotRecipe,
             nativeSelect:    nativeSelectSlotRecipe,
             alert:           alertSlotRecipe,
+            optimise:        optimiseSlotRecipe,
         },
     },
 });

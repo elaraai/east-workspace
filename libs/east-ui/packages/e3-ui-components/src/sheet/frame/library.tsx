@@ -42,12 +42,13 @@
  */
 
 import { useCallback, useMemo, useState } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { Box } from "@chakra-ui/react";
 import { StringType, StructType, decodeBeast2For, equalFor, none, printFor, some, variant } from "@elaraai/east";
 import { Sheet, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
     EastChakraLibrary, getSomeorUndefined, type BuilderFrameDock, type LibraryItemValue, type LibraryValue,
 } from "@elaraai/east-ui-components";
+import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { sourceTab, sourcesTab, type SourceShown, type SourceTab } from "../../shared/schedule/source-tab.js";
 import { useSheetDropEnter } from "../index.js";
 import type { SheetLibraryTabWord } from "../messages.js";
@@ -221,8 +222,9 @@ export function tabLibrary(keys: SheetKeys, tab: SheetAuthorTabValue): string {
 export function useSheetLibrary({ value, keys, hidden, onToggleColumn, words, followed }: SheetLibraryProps): BuilderFrameDock | undefined {
     const { m } = words;
     const sheet = value.sheet;
-    // A tab over a source's body: it fills the tab, busy and taking no gesture while its source resolves.
-    const styles = useSlotRecipe({ key: "sheet" })() as Record<string, Record<string, unknown>>;
+    // A tab over a source's body: it fills the tab, busy and taking no gesture while its source resolves. The sheet's
+    // recipe made once for the theme (#1398, CL9): the library is drawn again with the sheet, a landing at a time.
+    const styles = useSlotStyles("sheet");
     const columns = useMemo(() => indexColumns(sheet.columns), [sheet.columns]);
     const keyed = sheet.editing.keyType.type === "some";
     const titleColumn = m.titleColumn();

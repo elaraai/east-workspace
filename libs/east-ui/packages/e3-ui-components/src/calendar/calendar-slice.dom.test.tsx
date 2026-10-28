@@ -13,10 +13,11 @@
  * Templates tab, and the source an app's tab names narrows that tab — each
  * tab counting what it shows and saying so, with Clear filters, when the rail
  * leaves it none. A hidden draft still saves to its original key. A window read
- * through interval indexes lands some fifty-five key searches a kind, each
- * re-rendering the window's reader alone, never the frame. A filter change
- * builds nothing again: the Calendar's body runs no more, and no payload is
- * decoded (#1354).
+ * through interval indexes asks a kind's some fifty-five key searches in one
+ * request (#1351), each kind's landing re-rendering the window's reader alone,
+ * never the frame; the weeks either side, read ahead once it has landed, land
+ * without rendering the frame (#1398). A filter change builds nothing again: the Calendar's body
+ * runs no more, and no payload is decoded (#1354).
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -25,6 +26,7 @@ import { DateTimeType, OptionType, StringType, printFor, some, variant } from "@
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import { act, calendarHarness, card, event, narrow, narrowing, programOf, searched, settle, slot, width, type Where } from "./harness.test-utils.js";
+import type { E3Request } from "../e3-web.test-utils.js";
 import { countBuilds } from "../shared/builds.test-utils.js";
 import { setCalendarFrameRenderProbe } from "./index.js";
 
@@ -114,6 +116,39 @@ describe("each source narrows every place its records appear (#1343)", () => {
         await width(390);
         expect(card(container, "job", "job1")).not.toBeNull();
         expect(card(container, "job", "job2")).toBeNull();
+    });
+
+    test("an event kind's narrowing read while the week stands in keeps its events, retained — stale, aria-disabled, never inert: focusable and selectable, Delete refused, no drag — until it lands (#1398, CL5, CL8)", async () => {
+        const { container, store } = await open(ex.calendarOperations);
+        const main = () => slot(container, "main").querySelector<HTMLElement>("[data-calendar-main]")!;
+        expect(main().hasAttribute("data-calendar-stale")).toBe(false);
+        const start = narrowing(store, EX, "job").get("start")!;
+        // The jobs' reads held on their way to e3: the kind's new narrowing is in flight.
+        const held = h.e3.hold(request => request.dataset === JOBS);
+        await narrow(store, EX, "job", new Map([["status", variant("values", [status(variant("active", null))])], ["start", start]]));
+        expect([main().hasAttribute("data-calendar-stale"), main().getAttribute("aria-disabled"), main().hasAttribute("inert")]).toEqual([true, "true", false]);
+        // The week stands in, whole: its jobs as they were, never a cover.
+        expect([event(container, "job", "job1") !== null, event(container, "job", "job2") !== null]).toEqual([true, true]);
+        expect(container.querySelector("[data-builder-loading]")).toBeNull();
+        // Readable, focusable and selectable; Delete deletes nothing, and a drag picks nothing up.
+        const job1 = event(container, "job", "job1")!;
+        job1.focus();
+        expect(document.activeElement).toBe(job1);
+        await press(job1);
+        expect(event(container, "job", "job1")!.getAttribute("aria-pressed")).toBe("true");
+        await act(async () => { fireEvent.keyDown(event(container, "job", "job1")!, { key: "Delete" }); });
+        await settle();
+        expect(event(container, "job", "job1")).not.toBeNull();
+        await act(async () => { fireEvent.pointerDown(event(container, "job", "job1")!, { pointerId: 1, pointerType: "mouse", clientX: 0, clientY: 0 });
+            fireEvent.pointerMove(document, { pointerId: 1, pointerType: "mouse", clientX: 20, clientY: 20 }); });
+        expect(event(container, "job", "job1")!.hasAttribute("data-dragging")).toBe(false);
+        await act(async () => { fireEvent.pointerUp(document, { pointerId: 1, pointerType: "mouse", clientX: 20, clientY: 20 }); });
+        await act(async () => { held.release(); });
+        await settle();
+        await waitFor(() => expect(event(container, "job", "job2")).toBeNull());
+        expect([main().hasAttribute("data-calendar-stale"), main().hasAttribute("aria-disabled"), main().hasAttribute("inert")]).toEqual([false, false, false]);
+        // The selection is kept through it.
+        expect(event(container, "job", "job1")!.getAttribute("aria-pressed")).toBe("true");
     });
 
     test("a resource kind's source narrows its columns and rows, never an event; a placement's Chooser offers the rows it shows and the event's own", async () => {
@@ -222,43 +257,98 @@ describe("the windowed Calendar's own navigation picks its days (#1343)", () => 
 });
 
 describe("a window read through interval indexes re-renders its reader, never the frame (#1343)", () => {
-    /** Every key search through an event kind's interval index, held on its way to e3 until it is let land, in the order asked. */
+    /**
+     * Each batch of key searches through an event kind's interval index —
+     * what a window's searches are asked in — held on its way to e3 until it
+     * is let land, in the order asked. A single search, such as a selected
+     * event's membership or the Backlog tab's count of a kind's backlog
+     * (#1424), goes on; every one is counted.
+     */
     function holdIntervalSearches() {
         const intervals = new Set<string>([ex.calendarJobsByTime.name, ex.calendarServicesByTime.name, ex.calendarShiftsByTime.name]);
-        const held = h.e3.hold(request => request.kind === "find" && intervals.has(request.query.get("index") ?? ""));
-        /** Lets every held search but the last land, one at a time, then the rest. */
+        const searching = (request: E3Request) => request.kind === "find" && request.method === "POST" && intervals.has(request.query.get("index") ?? "");
+        const held = h.e3.hold(request => searching(request) && request.searches.length > 1);
+        /** Lets every held request but the last land, one at a time, then the rest. */
         return {
             get held() { return held.held; },
+            /** How many searches each request asked, in the order asked. */
+            asked: () => h.requests().filter(searching).map(request => request.searches.length),
+            /** Lets every request held now land, one at a time, the first asked first — not the ones their landing asks. */
+            async landHeld() { for (let n = held.held; n > 0; n--) { await act(async () => { held.releaseOne(); }); } await settle(); },
             async landAllButOne() { while (held.held > 1) { await act(async () => { held.releaseOne(); }); } await settle(); },
             async landAll() { while (held.held > 0) { await act(async () => { held.releaseOne(); }); await settle(); } },
         };
     }
 
-    test("each of a window's key searches lands without rendering the frame, which renders once they all have — on the first window and on the next with an event selected", async () => {
+    test("a kind's window asks its key searches in one request (#1351), each kind's landing without rendering the frame, which renders once they all have; the weeks either side are read ahead once it has (#1398, CL7), and a step to one shows it at once; a step on to a week not read yet, with an event selected, renders nothing until its searches have all landed", async () => {
         const searches = holdIntervalSearches();
         let renders = 0;
         setCalendarFrameRenderProbe(() => { renders += 1; });
         try {
             const { container } = await open(ex.calendarOperations);
-            // One start range and the carry-in ranges at each span, for each event kind's window.
-            expect(searches.held).toBeGreaterThan(3 * 50);
+            // One request for each event kind's window: its start range and its carry-in ranges at each span.
+            expect(searches.held).toBe(3);
+            expect(searches.asked()).toHaveLength(3);
+            expect(searches.asked().every(count => count > 50)).toBe(true);
             renders = 0;
             await searches.landAllButOne();
             expect(renders).toBe(0);
             await searches.landAll();
             expect(renders).toBeGreaterThan(0);
             expect(event(container, "job", "job1")).not.toBeNull();
-            // With an event selected, the next window's searches render nothing until they have all landed either.
+            // The week whole, the weeks either side are read ahead — each kind's window, a batch each — and the Backlog tab
+            // counts the jobs' backlog through their source, never with a window (#1424): a batch of its one search, the
+            // same whatever the week, never asked again.
+            const after = searches.asked().slice(3);
+            expect(after).toHaveLength(7);
+            expect(after.filter(count => count > 50)).toHaveLength(6);
+            expect(after.filter(count => count === 1)).toHaveLength(1);
+            // With an event selected, a step to the next week, read ahead, shows it at once: nothing is asked for it, nothing is busy.
             await press(event(container, "job", "job1"));
+            const before = searches.asked().length;
             await press(toolbar(container).getByRole("button", { name: "Next week" }));
-            expect(searches.held).toBeGreaterThan(3 * 50);
+            expect(event(container, "job", "job1")).toBeNull();
+            expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
+            // What it asks is the week after it, read ahead in turn: each kind's window.
+            expect(searches.asked().slice(before)).toHaveLength(3);
+            expect(searches.asked().slice(before).every(count => count > 50)).toBe(true);
+            // A step on to that week, its searches still on their way: the frame renders nothing until they have all landed.
+            await press(toolbar(container).getByRole("button", { name: "Next week" }));
+            expect(searches.held).toBe(3);
+            expect(slot(container, "main").getAttribute("aria-busy")).toBe("true");
             renders = 0;
             await searches.landAllButOne();
             expect(renders).toBe(0);
             await searches.landAll();
-            // The next week holds none of the operations' events, and its read has landed.
+            expect(renders).toBeGreaterThan(0);
+            // That week holds none of the operations' events, and its read has landed.
             expect(event(container, "job", "job1")).toBeNull();
-            expect(container.querySelector("[data-calendar-main]")!.getAttribute("aria-busy")).toBe("false");
+            expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
+        } finally {
+            setCalendarFrameRenderProbe(undefined);
+        }
+    });
+
+    test("the weeks either side, read ahead once the week has landed, land without rendering the frame: what it shows has not moved (#1398, CL7)", async () => {
+        const searches = holdIntervalSearches();
+        let renders = 0;
+        setCalendarFrameRenderProbe(() => { renders += 1; });
+        try {
+            const { container } = await open(ex.calendarOperations);
+            // The week: each kind's window, let land as it is asked — the jobs' backlog read with none of them (#1424).
+            expect(searches.held).toBe(3);
+            await searches.landHeld();
+            expect(event(container, "job", "job1")).not.toBeNull();
+            expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
+            // Landed, the week reads the weeks either side ahead: each kind's window for each, on its way.
+            expect(searches.held).toBe(6);
+            renders = 0;
+            await searches.landHeld();
+            expect(searches.held).toBe(0);
+            // Their pages landed in a read of their own: the frame rendered nothing for them, and shows the week as it was.
+            expect(renders).toBe(0);
+            expect(event(container, "job", "job1")).not.toBeNull();
+            expect(slot(container, "main").getAttribute("aria-busy")).toBe("false");
         } finally {
             setCalendarFrameRenderProbe(undefined);
         }

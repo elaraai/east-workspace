@@ -16,7 +16,7 @@
  * CLI flags:
  *   --file=<pathKey>                restrict to one file (e.g. `--file=buttons/button`)
  *   --file=<pathKey>:<exampleName>  snapshot ONE example from that file, full-bleed
- *                                   (e.g. `--file=collections/schematic:schematicNets`);
+ *                                   (e.g. `--file=collections/map:mapRegions`);
  *                                   `--example=<name>` alongside `--file=` is equivalent.
  *
  * Output: per-file `dist-examples/<Category>__<pathKey>.{html,png}`, or

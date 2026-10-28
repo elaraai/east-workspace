@@ -53,6 +53,29 @@
  * first; one never seen is sought by its element's key, when the source can
  * seek. A request that cannot be served is dropped.
  *
+ * # A new result keeps the row at the top (#1344, #1354)
+ *
+ * A new narrowing of the paged rows — the `rows` source's, or a paged
+ * resource kind's source's — is a new result: the view the last one drew
+ * stands in until its first window lands (the paging driver's `replacing`).
+ * Once it has, a bounded frame puts the row at the top of its view back where
+ * it was, by its key and the px into it, where the new rows draw it, and else
+ * starts at the top — as the Sheet does over a narrowed source's own rows —
+ * never seeking the row at the window it was in, which another narrowing's
+ * positions do not hold. Where the view rests until the row is placed is the
+ * last result's place: the driver is told of it only where nothing scrolls the
+ * view, so no window of the new result is read for it.
+ *
+ * # A place over rows not read is kept by its element (#1398)
+ *
+ * A view that rests over rows not read — a run, or a window whose read failed
+ * — is saved by the source element under its top and the px into that
+ * element's window (the paging driver's `unreadPlace`), never by the run's key,
+ * which names only its side: the run a remount draws on that side stands for
+ * other rows. A remount opens that window where it is (`openAt`), as it opens
+ * the window of a row it has not read, and puts the view back as many px into
+ * the window once it is in — its rows, or its failure's band.
+ *
  * @packageDocumentation
  */
 
@@ -72,15 +95,15 @@ import { type ResidencyOptions, windowedSourceOf } from "@elaraai/east-ui-compon
 import { PLAN_PAGE_SIZE, type PlanViewport } from "../use-plan-paging.js";
 import type { PlanSearch } from "../use-seek.js";
 import {
-    NOT_PERSISTED, sameAnchor, sameKey, sameList, sameToggle,
-    type PlanAnchor, type PlanPersisted,
+    NOT_PERSISTED, sameAnchor, sameKey, sameList, sameOwnWindow, sameToggle,
+    type PlanAnchor, type PlanOwnWindow, type PlanPersisted,
 } from "../persisted.js";
 import { createPagingDriver, type PlanPagingSnapshot, type PlanRowPlace } from "./paging.js";
 import { CANVAS_KEY_TYPE, createSeekDriver, firstAtOrAfter, type PlanSeekSnapshot } from "./seek.js";
 import { currentScale, runPlanEffects } from "./effects.js";
 import { planPart, planSlices, ROWS_SOURCE } from "../root/sources.js";
 import type { PlanWindowHold } from "../root/window.js";
-import { announcementOf, landedText } from "../a11y.js";
+import { announcementOf } from "../a11y.js";
 import { PLAN_WORDS, type PlanWords } from "../words.js";
 
 /** A resolved overlay body (a resolver's some-value). */
@@ -114,11 +137,19 @@ export interface PlanOverlays {
 
 /** Where the persisted scroll anchor is in its restore (#813). */
 export interface PlanAnchorState {
-    /** The anchor the last session left, if any. */
+    /** The anchor the last session left, if any — or, while it is `keeping`, the row at the top of the view. */
     saved: PlanAnchor | null;
     /** `pending` until the body can place it, `seeking` while a paged canvas
      *  loads its window, `settled` once restored (or found gone). */
     phase: "pending" | "seeking" | "settled";
+    /**
+     * Whether it is the row at the top of the view a new result of the paged
+     * rows keeps (#1344, #1354) — a new narrowing's, once its rows land: put
+     * back by its key and the px into it where they draw it, and else the view
+     * starts at the top; never sought at the window it was in, which another
+     * narrowing's positions do not hold.
+     */
+    keeping: boolean;
     /** Where the frame scrolls to restore it — set once, when it settles. */
     restore: { index: number; offset: number } | undefined;
 }
@@ -208,7 +239,8 @@ export interface PlanControllerOptions {
      *  canvas's state does nothing. */
     subscribeUi?: ((listener: () => void) => () => void) | undefined;
     /** The canvas's window hold (#1344): the window last shown while no source of its slice holds one — what a
-     *  pan or the now rung moves, as the reader sees it. */
+     *  pan or the now rung moves, as the reader sees it, and what the controller keeps under the canvas's
+     *  storage key as each gesture moves it (#813). */
     windowHold?: PlanWindowHold | undefined;
 }
 
@@ -255,12 +287,22 @@ export interface PlanController {
     refreshSource(): void;
     /** Where the viewport is — the paged source's demand (#577). */
     reportViewport(at: PlanViewport, scrolling: boolean): void;
+    /**
+     * Home or End past a run not read (#1398, CL10): the source's first or last window read where it is — pinned as a
+     * key search's jump is, so the view's reports leave it be — and the view the key left standing in, retained, until
+     * it lands (the paging snapshot's `standing`); the keyboard's intent lands on its row. The focus moving to any item
+     * but `from` meanwhile puts that view back and reads nothing for the jump. A source that has not counted itself has
+     * no last window to ask for.
+     */
+    jumpToEdge(edge: "first" | "last", from: string): void;
     /** The canvas committed a render of `paging` (the paging driver's
      *  `committed`). Call it after every commit: a jump hands the viewport back
      *  only once the canvas has shown — and scrolled to — its target (#812). */
     committed(paging: PlanPagingSnapshot): void;
-    /** Ask a failed window again (#811). */
-    retry(w: number): void;
+    /** Ask a failed window again (#811) — or, with none named, every failed
+     *  window and the source's own failed reads, at once (#1398: the footer
+     *  line's Retry). */
+    retry(w?: number): void;
     /** Where a paged row the body does not hold sits — its block's band, and
      *  how far down it (#823: a link into an evicted window). */
     placeOf(key: RowKey): PlanRowPlace | undefined;
@@ -316,6 +358,8 @@ function groupKeysOf(rows: readonly PlanRowValue[]): readonly RowKey[] {
 const refEqual = equalFor(Plan.Types.ElementRef);
 /** Whether two record Slices narrow one record: its editing identity. */
 const sameSource = equalFor(StringType);
+/** Whether two narrowings, as a live source prints them, are the same one (#1354). */
+const sameNarrowing = equalFor(StringType);
 const uiStateEqual = equalFor(Plan.Types.UiState);
 /** A String key's `.east` literal — how an exact key search names it. */
 const printString = printFor(StringType);
@@ -380,6 +424,20 @@ export function elementRowsOf(p: PlanPagingSnapshot): readonly PlanRowValue[] {
 }
 
 /**
+ * The window the paging driver opens for a saved place's window `w` (#1398):
+ * `w` itself, or — `w` past the end of a source that has shrunk since the
+ * place was saved — the source's last window, as `openAt` reads it.
+ *
+ * @param p - The paging snapshot
+ * @param w - The window a saved place names
+ * @returns The window opened for it
+ */
+function openedWindow(p: PlanPagingSnapshot, w: number): number {
+    const windows = p.total !== undefined ? Math.ceil(p.total / PLAN_PAGE_SIZE) : 0;
+    return windows > 0 ? Math.min(w, windows - 1) : w;
+}
+
+/**
  * The UI state as a reconcile against `model` would leave it — what the canvas
  * renders its first frame of a new value with, before `setValue` commits the
  * same transition.
@@ -422,8 +480,17 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     let anchor: PlanAnchorState = {
         saved: restored.anchor,
         phase: restored.anchor === null ? "settled" : "pending",
+        keeping: false,
         restore: undefined,
     };
+    // Whether the view the last result drew stands in for a new one (#1344, #1354) — and, while the row at the top of
+    // the view is put back once the new one's rows land, where the view last said it rests: the last result's place,
+    // which the new rows do not hold, given the driver only where nothing scrolls the view.
+    let replacing = false;
+    let heldReport: { at: PlanViewport; scrolling: boolean } | undefined;
+    // The narrowing the rows the canvas last drew belong to (#1344, #1354): another's rows landing are a new result's,
+    // whether the last view stood in for them or not — a view that showed only rows not read yet had nothing to stand in.
+    let narrowingDrawn: string | undefined;
     let scroll: PlanScrollTarget = { owner: "search", skippedSeq: 0, searchSeq: 0, targetKey: undefined, nav: undefined };
     // A key search waiting to be served (#574): the key it sought and the
     // source element its answer (or its jump) named. Served once, when the
@@ -434,6 +501,9 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
     let searchJump = 0;
     let nav = NO_NAV;
     let navSeq = 0;
+    // The item a far key set out from while the view it left stands in (#1398, CL10): the focus moving anywhere else
+    // puts that view back.
+    let edgeFrom: string | undefined;
     let announce: PlanAnnouncement | null = null;
     let words: PlanWords = PLAN_WORDS;
     // The snapshot of the paged source's data the canvas last showed (#821, #1199).
@@ -480,13 +550,24 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         policy: options.policy,
         onChange: () => batch(() => {
             const landed = paging.getSnapshot();
+            // A new result's rows have landed — a new narrowing's (#1344, #1354), or a new source's of the same record:
+            // the row at the top of the view keeps its place where they draw it, and else the view starts at the top —
+            // in this notification, so the canvas places it as it first draws them. A session's anchor still being
+            // restored goes on. A new narrowing's rows are a new result's whether or not the last view stood in for
+            // them: one that showed only rows not read yet stood in for nothing, and kept its offset into the new rows.
+            const rowsIn = !landed.replacing && landed.rows.length > 0;
+            const anew = rowsIn && narrowingDrawn !== undefined && landed.narrowing !== undefined && !sameNarrowing(landed.narrowing, narrowingDrawn);
+            if (((replacing && !landed.replacing) || anew) && anchor.phase === "settled") {
+                anchor = { saved: persisted.anchor, phase: "pending", keeping: true, restore: anchor.restore };
+            }
+            if (rowsIn) narrowingDrawn = landed.narrowing;
+            replacing = landed.replacing;
             // Rows that arrive WITHOUT a data change carry their own declared
             // collapse: seed each declared key ONCE, the first time its row
             // appears — in the same notification as the rows themselves.
             store = planStoreReducer(store, { t: "seed", declaredCollapsed: declaredCollapsedOf(landed.rows) }).store;
-            // What landed, for the live region (#819) — in the same
-            // notification too, so a landing is still one commit.
-            say(landedText(snapshot.paging.resident, landed.resident, landed.total, words));
+            // A window landing says nothing in the canvas's live region: what the source reads is the footer's
+            // loading line's to say, once a load (#1398, CL12).
             // The source's data moved off the snapshot a search was answered
             // in: its match positions index rows that may have moved (#821), so
             // the query standing is asked again there (#1199). A new revision
@@ -607,6 +688,14 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         if (text !== undefined) announce = { text, seq: (announce?.seq ?? 0) + 1 };
     }
 
+    /** The focus is on `key` now (#1398, CL10): an item but the one a far key set out from puts the view that key left
+     *  back, while it stands in — the viewer moved on among its rows, and nothing is read for the jump. */
+    function focusMoved(key: string): void {
+        if (edgeFrom === undefined || key === edgeFrom) return;
+        edgeFrom = undefined;
+        if (paging.standing()) paging.clearJump();
+    }
+
     /** Run `fn` as one action: whatever it changes notifies once, at the end. */
     function batch<T>(fn: () => T): T {
         depth += 1;
@@ -639,6 +728,20 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         const charts = [...store.ui.chartsExpanded];
         if (sameList(persisted.collapse, collapse, sameToggle) && sameList(persisted.charts, charts, sameKey)) return;
         persisted = { ...persisted, collapse, charts };
+        options.persist?.(persisted);
+    }
+
+    /** Keep the canvas's own window under its storage key as a gesture moves it (#813, #1344): what a remount opens
+     *  on. The hold moves only while no source of the slice holds the window — a source's window is its own state —
+     *  and nothing is written that storage already holds. Bound or not: the window is the reader's place, as the
+     *  scroll anchor is, never a toggle the host holds. */
+    function persistWindow(): void {
+        const shown = options.windowHold?.last;
+        const kind = value?.axis.type;
+        if (shown === undefined || (kind !== "time" && kind !== "number")) return;
+        const next: PlanOwnWindow = { kind, min: shown[0], max: shown[1] };
+        if (sameOwnWindow(persisted.window, next)) return;
+        persisted = { ...persisted, window: next };
         options.persist?.(persisted);
     }
 
@@ -1023,6 +1126,7 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         },
         focusItem(key, align) {
             batch(() => {
+                focusMoved(key);
                 navSeq += 1;
                 nav = { active: key, request: { key, seq: navSeq } };
                 if (align !== undefined) scroll = { ...scroll, owner: "nav", nav: { key, align, seq: navSeq } };
@@ -1030,7 +1134,10 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
         },
         itemFocused(key) {
             if (nav.active === key) return;
-            batch(() => { nav = { ...nav, active: key }; });
+            batch(() => {
+                focusMoved(key);
+                nav = { ...nav, active: key };
+            });
         },
         focusDone(seq) {
             if (nav.request === null || nav.request.seq !== seq) return;
@@ -1087,7 +1194,22 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             batch(() => paging.refresh());
         },
         reportViewport(at, scrolling) {
+            // The new result's top row still to be put back (#1344): where the view rests is the last result's place,
+            // held until the canvas places the row — honoured then only where nothing scrolls the view.
+            if (anchor.keeping && anchor.phase !== "settled") {
+                heldReport = { at, scrolling };
+                return;
+            }
             batch(() => paging.reportViewport(at, scrolling));
+        },
+        jumpToEdge(edge, from) {
+            batch(() => {
+                const total = paging.getSnapshot().total;
+                const element = edge === "first" ? 0 : total === undefined ? undefined : Math.max(0, total - 1);
+                if (element === undefined) return;
+                edgeFrom = from;
+                paging.standTo(element);
+            });
         },
         committed(rendered) {
             batch(() => {
@@ -1108,29 +1230,91 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             if (anchor.phase === "settled") return;
             batch(() => {
                 const saved = anchor.saved;
+                if (anchor.keeping) {
+                    // A new result's rows (#1344, #1354): the row at the top of the view put back by its key and the px
+                    // into it where they draw it, and else the view at the top — a bounded frame's, which scrolls
+                    // itself; an unbounded canvas's place is its page's, and the narrow list keeps none.
+                    const held = heldReport;
+                    if (bounded && saved !== null) {
+                        if (items.length === 0) return;
+                        // Only a row is kept: a run of rows not read is keyed by its side alone, and the new result's run
+                        // on that side stands for other rows — a view that rested over one starts at the top.
+                        const at = items.findIndex((it) => it.kind === "row" && bodyItemKey(it) === saved.key);
+                        // The frame's scroll to the row reports where it lands.
+                        heldReport = undefined;
+                        anchor = { saved, phase: "settled", keeping: false, restore: at >= 0 ? { index: at, offset: saved.offset } : { index: 0, offset: 0 } };
+                        return;
+                    }
+                    // Nothing scrolls the view: where it rested while it was being placed is its place again.
+                    heldReport = undefined;
+                    anchor = { ...anchor, phase: "settled", keeping: false };
+                    if (held !== undefined) paging.reportViewport(held.at, held.scrolling);
+                    return;
+                }
                 // Only a bounded frame scrolls itself: an unbounded canvas's
                 // place is its page's, and the narrow list keeps none.
                 if (saved === null || !bounded) {
                     anchor = { ...anchor, phase: "settled" };
                     return;
                 }
-                if (items.length === 0) return;
+                if (items.length === 0) {
+                    // Nothing drawn yet: what the place is put back against is still to land — unless nothing ever will,
+                    // the rows inline and none of them, or the paged source counted empty under its narrowing (#1398).
+                    // Then there is nothing to seek, and the place settles where the view is.
+                    const snap = paging.getSnapshot();
+                    const empty = value !== undefined && (value.rows.type === "inline" || (snap.total === 0 && !snap.replacing));
+                    if (empty) anchor = { ...anchor, phase: "settled" };
+                    return;
+                }
+                if (saved.element !== undefined && value !== undefined && value.rows.type !== "inline") {
+                    // The view rested over rows not read (#1398): its element's window opened where it is — a rebase,
+                    // not a walk — and the view put back as many px into that window once it is in, as its rows or as
+                    // its failure's band. Never the saved key: the run on that side stands for other rows now.
+                    const block = saved.block ?? undefined;
+                    if (anchor.phase === "pending") {
+                        anchor = { ...anchor, phase: "seeking" };
+                        paging.openAt(saved.element, block);
+                        return;
+                    }
+                    const snap = paging.getSnapshot();
+                    // An element past the end — saved against a longer source — is in the last window, as `openAt` reads it.
+                    const savedW = Math.floor(saved.element / PLAN_PAGE_SIZE);
+                    const w = openedWindow(snap, savedW);
+                    const ours = (b: number) => block === undefined || b === block;
+                    const first = items.findIndex((it) => {
+                        if (it.kind === "failed") return it.failure.w === w && ours(it.failure.block);
+                        if (it.kind !== "row") return false;
+                        const o = snap.origin.get(it.row.row.key);
+                        return o !== undefined && o.w === w && ours(o.block);
+                    });
+                    // On its way still; once the jump has settled without an item of the window — its rows all folded
+                    // away — the clamped index, as for a row gone.
+                    if (first < 0 && paging.jumping()) return;
+                    anchor = {
+                        ...anchor,
+                        phase: "settled",
+                        restore: first >= 0
+                            ? { index: first, offset: w === savedW ? saved.offset : 0 }
+                            : { index: Math.min(saved.index, items.length - 1), offset: 0 },
+                    };
+                    return;
+                }
                 const at = items.findIndex((it) => bodyItemKey(it) === saved.key);
                 if (at < 0 && value !== undefined && value.rows.type !== "inline" && saved.window !== null) {
                     // A paged canvas may simply not have loaded the row yet:
                     // open its block at the window it came from before calling
                     // it gone — a rebase, not a walk.
-                    const w = saved.window;
                     const block = saved.block ?? undefined;
                     if (anchor.phase === "pending") {
                         anchor = { ...anchor, phase: "seeking" };
-                        paging.openAt(w * PLAN_PAGE_SIZE, block);
+                        paging.openAt(saved.window * PLAN_PAGE_SIZE, block);
                         return;
                     }
-                    const snap = paging.getSnapshot();
-                    const settled = snap.failures.some((f) => f.w === w)
-                        || [...snap.origin.values()].some((o) => o.w === w && (block === undefined || o.block === block));
-                    if (!settled) return;
+                    // On its way still. Once the jump has settled — the window opened for it in and drawn: its last, past
+                    // the end of a source that has shrunk since (#1398), its rows or its failure's band — a row it did not
+                    // bring settles the place on the clamped index, as for a row gone: whatever drew none of it, a source
+                    // with no row left or blocks laid out anew, as the element path settles.
+                    if (paging.jumping()) return;
                 }
                 anchor = {
                     ...anchor,
@@ -1147,14 +1331,29 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             if (anchor.phase !== "settled") return;
             const item = items[at.index];
             if (item === undefined) return;
+            // Over rows not read — a run, or a failed window's band (#1398) — the element under the view's top, and the
+            // px into its window: a run's key names only its side, which stands for other rows by the time a remount
+            // draws it, and a failed band's names a window that may read by then. The band as these items drew it: the
+            // view's own report at the same rest may have moved the driver's run on already.
+            const band = item.kind === "band" ? item.band : item.kind === "failed" ? item.failure : undefined;
+            const unread = band === undefined ? undefined : paging.unreadPlace(band, at.offset);
             const origin = item.kind === "row" ? paging.getSnapshot().origin.get(item.row.row.key) : undefined;
-            const next: PlanAnchor = {
-                key: bodyItemKey(item),
-                offset: at.offset,
-                index: at.index,
-                window: origin?.w ?? null,
-                block: origin?.block ?? null,
-            };
+            const next: PlanAnchor = band !== undefined && unread !== undefined
+                ? {
+                    key: bodyItemKey(item),
+                    offset: unread.px,
+                    index: at.index,
+                    window: Math.floor(unread.element / PLAN_PAGE_SIZE),
+                    block: band.block,
+                    element: unread.element,
+                }
+                : {
+                    key: bodyItemKey(item),
+                    offset: at.offset,
+                    index: at.index,
+                    window: origin?.w ?? null,
+                    block: origin?.block ?? null,
+                };
             if (sameAnchor(persisted.anchor, next)) return;
             persisted = { ...persisted, anchor: next };
             options.persist?.(persisted);
@@ -1170,10 +1369,13 @@ export function createPlanController(options: PlanControllerOptions): PlanContro
             // A bound state is written from outside while the canvas listens
             // (#824) — and may have been while it did not.
             const stopUi = options.subscribeUi?.(() => batch(() => syncBound()));
+            // Each move of the canvas's own window — a key, the brush, the date navigator — kept as it lands (#813).
+            const stopWindow = options.windowHold?.subscribe(persistWindow);
             batch(() => syncBound());
             return () => {
                 connected = false;
                 stopUi?.();
+                stopWindow?.();
                 paging.disconnect();
                 seek.disconnect();
             };

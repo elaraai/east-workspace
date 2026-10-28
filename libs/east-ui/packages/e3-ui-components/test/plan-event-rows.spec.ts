@@ -21,14 +21,14 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, SortedMap, SortedSet, StringType, StructType,
+    ArrayType, BlobType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, SortedMap, SortedSet, StringType, StructType,
     compareFor, encodeBeast2For, equalFor, none, printFor, some, variant,
     type BlockBuilder, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { EditingDraftFieldType } from "@elaraai/east-ui/internal";
 import {
-    Data, Plan, PlanEventBlocksType, PlanEventDraftsType, PlanEventItemType, PlanEventKindType, PlanEventShownType, PlanPayloadType, Record, Schedule,
-    ScheduleDraftsType, createEventBlocks,
+    Data, Plan, PlanEventBlocksType, PlanEventDraftsType, PlanEventItemType, PlanEventKindType, PlanEventReadsType, PlanEventShadingType,
+    PlanEventShownType, PlanPayloadType, Record, Schedule, ScheduleDraftsType, createEventBlocks,
 } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { e3Spec } from "./fixtures/e3.js";
@@ -75,6 +75,9 @@ const byString = compareFor(StringType);
 const NO_DRAFTS: Drafts = new SortedMap([], byString);
 /** The rail narrows no resource kind: each draws every resource. */
 const ALL_SHOWN: Shown = new SortedMap([], byString);
+/** No kind read by its cells, and no shading (#1039): every kind read over the window, every row drawing its events. */
+const NO_READS: ValueTypeOf<typeof PlanEventReadsType> = new SortedMap([], byString);
+const NO_SHADING: ValueTypeOf<typeof PlanEventShadingType> = new SortedMap([], byString);
 const printId = printFor(Plan.Types.RowId);
 const printRef = printFor(Schedule.Types.EventRef);
 const sameIds = equalFor(ArrayType(Plan.Types.RowId));
@@ -92,7 +95,7 @@ const elementKey = (kind: string, key: string) => printRef({ kind, key });
 /** The blocks over `[from, to)`, every kind's drafts in place, what the viewer hides left out, of a resource kind the rail narrows the resources it shows. */
 function blocksOf(payload: Payload, from: Date, to: Date, drafts: Drafts = NO_DRAFTS, hidden: readonly string[] = [], shown: Shown = ALL_SHOWN): Blocks {
     if (payload.blocks.type !== "some") assert.fail("expected the event kinds' blocks");
-    const read = payload.blocks.value(from, to, drafts, [...hidden], shown);
+    const read = payload.blocks.value(from, to, drafts, [...hidden], shown, NO_READS, NO_SHADING);
     if (read.type !== "some") assert.fail("expected every kind's events read");
     return read.value;
 }
@@ -191,7 +194,7 @@ const pressRows = (...series: readonly string[]): RowId[] => PRESSES.flatMap(([h
 ]);
 
 /** A Plan of one kind whose read is in flight: its blocks seam, compiled over e3. */
-async function inFlightBlocks(): Promise<(from: Date, to: Date, drafts: Drafts, hidden: string[], shown: Shown) => ValueTypeOf<typeof PlanEventBlocksType.output>> {
+async function inFlightBlocks(): Promise<ValueTypeOf<typeof PlanEventBlocksType>> {
     const program = East.function([], PlanEventBlocksType, ($) => {
         const presses = $.let(Record.bind(ex.planPrintPresses, []));
         const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
@@ -200,7 +203,7 @@ async function inFlightBlocks(): Promise<(from: Date, to: Date, drafts: Drafts, 
         const kindBuilt = $.let(events.job.buildPlan("job"));
         const read = kindBuilt as unknown as globalThis.Record<string, ExprType<typeof PlanEventKindType>>;
         const inFlight = $.const(East.function(
-            [DateTimeType, DateTimeType, ScheduleDraftsType], OptionType(ArrayType(PlanEventItemType)), () => none));
+            [DateTimeType, DateTimeType, ScheduleDraftsType, OptionType(BlobType)], OptionType(ArrayType(PlanEventItemType)), () => none));
         const kind = $.let(Object.fromEntries(Object.keys(PlanEventKindType.fields).map((f) =>
             [f, f === "planItems" ? inFlight : read[f]!])) as never, PlanEventKindType);
         const kinds = $.let([kind], ArrayType(PlanEventKindType));
@@ -556,7 +559,7 @@ describe("drafts in place (PB17)", () => {
     });
 
     test("while a kind's read is in flight, the rows are to come", async () => {
-        assert.equal((await inFlightBlocks())(FIRST, WEEK2, NO_DRAFTS, [], ALL_SHOWN).type, "none");
+        assert.equal((await inFlightBlocks())(FIRST, WEEK2, NO_DRAFTS, [], ALL_SHOWN, NO_READS, NO_SHADING).type, "none");
     });
 });
 
@@ -613,7 +616,7 @@ describe("what the viewer hides (PB29, #1195)", () => {
     });
 
     test("a hidden kind is not read, so a read in flight holds the rows back no longer", async () => {
-        const rows = (await inFlightBlocks())(FIRST, WEEK2, NO_DRAFTS, ["events.job"], ALL_SHOWN);
+        const rows = (await inFlightBlocks())(FIRST, WEEK2, NO_DRAFTS, ["events.job"], ALL_SHOWN, NO_READS, NO_SHADING);
         if (rows.type !== "some") assert.fail("expected the rows, the kind unread");
         assert.ok(sameIds(rows.value[0]!.rows.map((r) => r.id), ["a1", "a2", "a3", "b1", "b2", "b3"].map((k) => entry("presses.span", k))));
         assert.deepEqual(rowsOf(rows.value).flatMap(keysOn), []);

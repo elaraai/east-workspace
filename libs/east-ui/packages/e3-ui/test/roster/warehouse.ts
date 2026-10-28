@@ -6,15 +6,17 @@
  * The warehouse, transcribed from docs/proposals/Roster Spec.html into records
  * of its own (#1368, `Builder Interfaces Spec.md` §5.7): its duties, the weeks
  * of its rota, its cover targets and suggestions, its pay rates, its staff and
- * agencies, and its shift times, teams, positions and activities. Every name
- * and figure is generated. Beside them, the Roster's reading of the two seeded
- * weeks (`Roster.Types.Week(WarehouseDuty)`), which the Roster's own reading
- * of the duties is held to on e3 (e3-ui-components' `test/roster-payload.spec.ts`).
+ * agencies, its shift times, teams, positions and activities, and its week
+ * patterns (#1406). Every name and figure is generated. Beside them, the
+ * Roster's reading of the two seeded weeks (`Roster.Types.Week(WarehouseDuty)`),
+ * which the Roster's own reading of the duties is held to on e3
+ * (e3-ui-components' `test/roster-payload.spec.ts`).
  */
 import {
-    BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType,
+    ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType,
     VariantType, compareFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
+import { ColorTokenType } from "@elaraai/east-ui";
 import { Roster, Schedule } from "@elaraai/e3-ui";
 
 /** One of the warehouse's staff. */
@@ -45,8 +47,10 @@ export const WarehouseCover = StructType({ day: DateTimeType, team: StringType, 
 export const WarehouseSuggestion = StructType({ person: StringType, day: DateTimeType, team: StringType, shift: StringType, why: StringType });
 /** An agency the warehouse asks for staff. */
 export const WarehouseAgency = StructType({ name: StringType });
-/** A shift: its name, its code, when it starts and its hours, and where it shows. */
-export const WarehouseShift = StructType({ label: StringType, code: StringType, start: Schedule.Types.Clock, hours: FloatType, order: IntegerType });
+/** A shift: its name, its code, when it starts and its hours, where it shows, and its colour — a typed colour token, the warehouse's choice (#1406). */
+export const WarehouseShift = StructType({ label: StringType, code: StringType, start: Schedule.Types.Clock, hours: FloatType, order: IntegerType, colour: OptionType(ColorTokenType) });
+/** A week pattern (#1406): its name, its seven days from the week's first day — a shift's key, or none for a day off — and where it shows. */
+export const WarehousePattern = StructType({ label: StringType, days: ArrayType(OptionType(StringType)), order: IntegerType });
 /** A team, and where it shows. */
 export const WarehouseTeam = StructType({ label: StringType, order: IntegerType });
 /** A position: its name, its badge, whether it leads, and where it shows. */
@@ -63,11 +67,32 @@ export const warehouseNextStart = new Date("2028-03-12T00:00:00Z");
 /** When the week before was issued. */
 export const warehouseIssuedAt = new Date("2028-03-04T12:00:00Z");
 const stringOrder = compareFor(StringType);
-/** The shifts: early, late and night, eight hours each. */
+/** The shifts: early, late and night, eight hours each, each its own hue — a light teal, a light orange and a deep purple. */
 export const warehouseShifts: SortedMap<string, ValueTypeOf<typeof WarehouseShift>> = new SortedMap<string, ValueTypeOf<typeof WarehouseShift>>([
-    ["early", { label: "Early", code: "E", start: { hour: 6n, minute: 0n }, hours: 8, order: 1n }],
-    ["late", { label: "Late", code: "L", start: { hour: 14n, minute: 0n }, hours: 8, order: 2n }],
-    ["night", { label: "Night", code: "N", start: { hour: 22n, minute: 0n }, hours: 8, order: 3n }],
+    ["early", { label: "Early", code: "E", start: { hour: 6n, minute: 0n }, hours: 8, order: 1n, colour: some(variant("teal", variant("300", null))) }],
+    ["late", { label: "Late", code: "L", start: { hour: 14n, minute: 0n }, hours: 8, order: 2n, colour: some(variant("orange", variant("300", null))) }],
+    ["night", { label: "Night", code: "N", start: { hour: 22n, minute: 0n }, hours: 8, order: 3n, colour: some(variant("purple", variant("700", null))) }],
+], stringOrder);
+/** A seeded pattern: its name, its seven days from Sunday as letters — `E` early, `L` late, `N` night, `.` off — and where it shows. */
+function patternOf(label: string, days: string, order: number): ValueTypeOf<typeof WarehousePattern> {
+    const shifts: Readonly<Record<string, string>> = { E: "early", L: "late", N: "night" };
+    return { label, days: [...days].map((letter) => letter === "." ? none : some(shifts[letter]!)), order: BigInt(order) };
+}
+/** The thirteen week patterns of the mock (#1406), from the week's first day, Sunday. */
+export const warehousePatterns: SortedMap<string, ValueTypeOf<typeof WarehousePattern>> = new SortedMap<string, ValueTypeOf<typeof WarehousePattern>>([
+    ["e5s", patternOf("Early · Sun–Thu", "EEEEE..", 1)],
+    ["e5m", patternOf("Early · Mon–Fri", ".EEEEE.", 2)],
+    ["l5s", patternOf("Late · Sun–Thu", "LLLLL..", 3)],
+    ["l5m", patternOf("Late · Mon–Fri", ".LLLLL.", 4)],
+    ["n4s", patternOf("Night · Sun–Wed", "NNNN...", 5)],
+    ["n4w", patternOf("Night · Wed–Sat", "...NNNN", 6)],
+    ["fwd", patternOf("Forward rotation", "EELLN..", 7)],
+    ["e2l", patternOf("Early to late", ".EEELL.", 8)],
+    ["wke", patternOf("Weekend earlies", "E....EE", 9)],
+    ["wkn", patternOf("Weekend nights", "N....NN", 10)],
+    ["pte", patternOf("Part time · earlies", ".E.E.E.", 11)],
+    ["ptl", patternOf("Part time · lates", "..L.L.L", 12)],
+    ["off", patternOf("Off", ".......", 13)],
 ], stringOrder);
 /** The teams, each a group of the roster. */
 export const warehouseTeams: SortedMap<string, ValueTypeOf<typeof WarehouseTeam>> = new SortedMap<string, ValueTypeOf<typeof WarehouseTeam>>([

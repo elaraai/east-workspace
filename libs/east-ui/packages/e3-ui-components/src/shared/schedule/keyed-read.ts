@@ -53,9 +53,8 @@ export function readKeyedEntry<P, V>(window: KeyedWindow<P>, key: string, entryO
  *
  * @remarks
  * One search finds the span's rows and one page reads them, however many
- * entries the span holds: a month of days read a day at a time would take a
- * window a day, more than the paging runtime keeps, so each window landing
- * would evict another the read still needs, and the read would never finish.
+ * entries the span holds: a month of days read a day at a time would ask a
+ * key search and a one-row page a day.
  *
  * @typeParam P - A page as the window serves it
  * @typeParam V - What the page's entries give

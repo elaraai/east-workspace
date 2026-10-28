@@ -19,6 +19,10 @@
  * The words are the canvas's (#820): every phrase comes from its message
  * table, and every number and date is in its locale.
  *
+ * What a paged source reads is the footer's loading line's to say, a polite
+ * live region of its own that speaks once a load (#1398, CL12): the canvas's
+ * live region says no window's landing.
+ *
  * @packageDocumentation
  */
 
@@ -374,55 +378,4 @@ export function announcementOf(
             // the event alone cannot know whether the write took.
             return undefined;
     }
-}
-
-/** The span of source elements a paged canvas holds (`PlanPagingSnapshot.resident`). */
-export interface PlanResidentSpan {
-    /** First resident element (0-based). */
-    from: number;
-    /** Last resident element (EXCLUSIVE). */
-    to: number;
-}
-
-/**
- * What a window landing adds, as the live region says it — the elements that
- * became resident, 1-based like the transport line. Eviction (the run
- * shrinking) and an unmoved run say nothing.
- *
- * @param before - The resident span before
- * @param after - The resident span now
- * @param total - The source's element count, once known
- * @param w - The canvas's words
- * @returns `Loaded elements 201–400 of 5,000`, or `undefined` when nothing landed
- */
-export function landedText(
-    before: PlanResidentSpan | undefined,
-    after: PlanResidentSpan | undefined,
-    total: number | undefined,
-    w: PlanWords,
-): string | undefined {
-    if (after === undefined || after.to <= after.from) return undefined;
-    let from: number;
-    let to: number;
-    if (before === undefined || after.from >= before.to || after.to <= before.from) {
-        // A first landing, or a rebase onto a disjoint run.
-        from = after.from;
-        to = after.to;
-    } else if (after.from < before.from && after.to > before.to) {
-        from = after.from;
-        to = after.to;
-    } else if (after.from < before.from) {
-        from = after.from;
-        to = before.from;
-    } else if (after.to > before.to) {
-        from = before.to;
-        to = after.to;
-    } else {
-        return undefined;
-    }
-    return w.m.announceLanded({
-        from: w.number(from + 1),
-        to: w.number(to),
-        total: total !== undefined ? w.number(total) : undefined,
-    });
 }

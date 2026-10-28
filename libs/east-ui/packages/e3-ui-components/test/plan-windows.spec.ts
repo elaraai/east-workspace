@@ -22,13 +22,25 @@
  * - one event by its key (`planEvent`): first among the rows the windows hold
  *   over the canvas's range and the backlog's, with no read of its own, then
  *   through the record's own entries — its key sought, then a one-row page —
- *   a draft read as drafted with no read at all; and the kind's editing over
+ *   a draft read as drafted with no read at all; every event's row over the
+ *   range and the backlog's at once (`planRows`, #1409), from the windows
+ *   alone, none by its key; and the kind's editing over
  *   the record's revision: no snapshot, an entry read by its key, the
  *   record's revision and its largest key;
- * - a resource kind over a paged read of its resources: the payload's `paged`
- *   — the kind's place in the event kinds' blocks, the events placed on its
- *   resources, a window of them as one paged block, its key search and its
- *   size — its rows never read whole, and one resource read by its key;
+ * - a resource kind over a paged read of its resources, as the windows example
+ *   declares it, its jobs read through their source of the slice (#1039): the
+ *   payload's `paged` — the kind's place in the event kinds' blocks, the events
+ *   placed on its resources, a window of them as one paged block, its key
+ *   search and its size — its rows never read whole, and one resource read by
+ *   its key; and what a window's block says each resource makes of chart rows
+ *   (#1398): its chart measures the viewer shows, and none while one's `match`
+ *   decides by resource;
+ * - a kind's window counted first, and read only within the 10,000 events a
+ *   Plan draws (#1039): a kind read whole counted in memory, one read through
+ *   its source through its interval index — the count its read asks first —
+ *   and one read through its day index by the days its events run on, the
+ *   search its read asks first, an upper bound: past the cap answering none,
+ *   no page of it read;
  * - a window that reads no rows, refused as it is read.
  *
  * The windows' refusals at build and the example's manifest are e3-ui's
@@ -38,16 +50,18 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BlobType, DateTimeType, East, Expr, OptionType, SortedMap, StringType,
+    ArrayType, BlobType, DateTimeType, DictType, East, Expr, IntegerType, OptionType, SortedMap, StringType,
     compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
     type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui";
 import { Editing } from "@elaraai/east-ui/internal";
+import { StateRuntime, UIStore, createRecordSliceImplementation } from "@elaraai/east-ui-components/platform";
 import { datasetGetStatus } from "@elaraai/e3-api-client";
 import type { TreePath } from "@elaraai/e3-types";
-import { Data, Plan, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
+import { Data, Plan, PlanEventReadsType, PlanEventShadingType, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
-import { PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PrintJob, PrintPress } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { E3Request } from "../src/e3-web.test-utils.js";
 import { datasetPathToString } from "../src/platform/dataset-store.js";
 import { e3Spec } from "./fixtures/e3.js";
@@ -105,6 +119,18 @@ function windowedJobs($: BlockBuilder<EastType>) {
     });
 }
 
+/** The jobs' kind as the windows example declares it beside its rail (#1039): narrowed through its source of the slice, one job read by its key. */
+function railJobs($: BlockBuilder<EastType>) {
+    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const entries = $.let(Data.bindPaged(ex.planWindowJobs));
+    return Schedule.events(jobs, {
+        name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+        resource: { field: "press", of: "presses" }, state: "state",
+        backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+        entries,
+    });
+}
+
 /** The same jobs read whole: the kind declared the same way, with no window. */
 function wholeJobs($: BlockBuilder<EastType>) {
     const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
@@ -133,6 +159,9 @@ const printDateTime = printFor(DateTimeType);
 const printKey = printFor(StringType);
 const draftsOf = (entries: [string, Uint8Array][]) => new SortedMap(entries, compareString);
 const NO_DRAFTS = draftsOf([]);
+/** No kind read by its cells, and no shading (#1039): every kind read over the window, every row drawing its events. */
+const NO_READS: ValueTypeOf<typeof PlanEventReadsType> = new SortedMap([], compareString);
+const NO_SHADING: ValueTypeOf<typeof PlanEventShadingType> = new SortedMap([], compareString);
 /** The window a backlog read is beside: a kind no builder's slice narrows reads its backlog whole, whatever the window (#1343). */
 const BESIDE = [at("2026-10-07T00:00:00Z"), at("2026-10-10T00:00:00Z")] as const;
 const jobDraft = encodeBeast2For(Editing.Types.DraftField(PrintJob));
@@ -145,7 +174,7 @@ const heldJobs = () => h.read(ex.planWindowJobs);
 
 /** A kind's events over `[from, to)`, once e3 has answered what they wait on. */
 const itemsIn = (kind: EventKind, from: string, to: string, drafts = NO_DRAFTS): Promise<PlanItem[]> =>
-    h.ready(() => kind.planItems(at(from), at(to), drafts));
+    h.ready(() => kind.planItems(at(from), at(to), drafts, none));
 
 /** The keys of a kind's events over `[from, to)`. */
 const keysIn = async (kind: EventKind, from: string, to: string, drafts = NO_DRAFTS): Promise<string[]> =>
@@ -163,9 +192,9 @@ describe("an event kind read by its day index (PB54)", () => {
         const jobs = await kindOf(windowedJobs);
         // Wednesday 7 October to Saturday 10 October: the three-day run, the timetables and the gift boxes.
         assert.deepEqual(await keysIn(jobs, "2026-10-07T00:00:00Z", "2026-10-10T00:00:00Z"), ["W-0004", "W-0009", "W-0011"]);
-        // The first day's midnight sought, from its `.east` text, and an open end.
+        // The first day's midnight sought, from its `.east` text, to the window's end: the days' entries, and where they start.
         assert.deepEqual(sought(JOBS, BY_DAY).map((request) => [request.query.getAll("from"), request.query.getAll("to")]),
-            [[[printDateTime(at("2026-10-07T00:00:00Z"))], []]]);
+            [[[printDateTime(at("2026-10-07T00:00:00Z"))], [printDateTime(at("2026-10-10T00:00:00Z"))]]]);
         // One page, from the start of the page the first day's first entry is in, to the next page's start.
         assert.deepEqual(pagesOf(JOBS, BY_DAY), [["0", "256"]]);
         assert.equal(wholeReads(JOBS), 0, "no seam read the record whole");
@@ -241,7 +270,7 @@ describe("an event kind read by its day index (PB54)", () => {
 
     test("answers `none` while the search or a page is in flight, and the rows once each lands", async () => {
         const jobs = await kindOf(windowedJobs);
-        const read = () => jobs.planItems(at("2026-10-07T00:00:00Z"), at("2026-10-10T00:00:00Z"), NO_DRAFTS);
+        const read = () => jobs.planItems(at("2026-10-07T00:00:00Z"), at("2026-10-10T00:00:00Z"), NO_DRAFTS, none);
         const search = h.e3.hold(finds(JOBS, BY_DAY));
         assert.equal((await h.inFlight(read, search)).type, "none", "its search in flight");
         assert.deepEqual(pagesOf(JOBS, BY_DAY), [], "no page is read before the search lands");
@@ -267,7 +296,7 @@ describe("an event kind read by its day index (PB54)", () => {
 
     test("reads the backlog through its index: every page from its start, `none` while one is in flight, the drafts in place", async () => {
         const jobs = await kindOf(windowedJobs);
-        const read = (drafts = NO_DRAFTS) => () => jobs.planUnscheduled(...BESIDE, drafts);
+        const read = (drafts = NO_DRAFTS) => () => jobs.planUnscheduled(...BESIDE, drafts, none);
         const first = h.e3.hold(pageAt(JOBS, 0, UNSCHEDULED));
         assert.equal((await h.inFlight(read(), first)).type, "none", "its first page in flight");
         first.release();
@@ -295,7 +324,7 @@ describe("one event by its key, never the record whole (#1199)", () => {
         const jobs = await kindOf(windowedJobs);
         // The canvas reads its range first.
         await keysIn(jobs, "2026-10-07T00:00:00Z", "2026-10-10T00:00:00Z");
-        const read = await h.ready(() => jobs.planEvent("W-0009", NO_DRAFTS, FROM, TO));
+        const read = await h.ready(() => jobs.planEvent("W-0009", NO_DRAFTS, FROM, TO, none));
         assert.equal(read.item.title, "Timetables");
         assert.ok(jobEqual(decodeJob(read.row), (await heldJobs()).get("W-0009")!));
         // The search the canvas read its range with alone — the runtime answers it again from what it holds — and nothing by key.
@@ -307,15 +336,15 @@ describe("one event by its key, never the record whole (#1199)", () => {
     test("a backlog event is found in the backlog's window, with no read by its key", async () => {
         const jobs = await kindOf(windowedJobs);
         // The canvas reads its backlog first, as its Backlog tab lists it: an event neither window holds yet is read by its key.
-        await h.ready(() => jobs.planUnscheduled(FROM, TO, NO_DRAFTS));
-        const read = await h.ready(() => jobs.planEvent("W-0018", NO_DRAFTS, FROM, TO));
+        await h.ready(() => jobs.planUnscheduled(FROM, TO, NO_DRAFTS, none));
+        const read = await h.ready(() => jobs.planEvent("W-0018", NO_DRAFTS, FROM, TO, none));
         assert.equal(read.item.title, "Winter brochure");
         assert.deepEqual([sought(JOBS).length, pagesOf(JOBS).length], [0, 0]);
     });
 
     test("an event the windows don't hold is read by its key: sought in the record's own entries, then a one-row page; none while either is in flight", async () => {
         const jobs = await kindOf(windowedJobs);
-        const read = (key: string) => () => jobs.planEvent(key, NO_DRAFTS, FROM, TO);
+        const read = (key: string) => () => jobs.planEvent(key, NO_DRAFTS, FROM, TO, none);
         // The ticket books run on 22 October: not in the days of the range, nor in the backlog.
         const search = h.e3.hold(finds(JOBS));
         assert.equal((await h.inFlight(read("W-0014"), search)).type, "none", "its search in flight");
@@ -338,14 +367,33 @@ describe("one event by its key, never the record whole (#1199)", () => {
         assert.deepEqual(pagesOf(JOBS), [["13", "1"]], "no page for it");
     });
 
+    test("every event's row over the range and the backlog's, read at once — by key, the drafts in place — from the days' window and the backlog's alone, none by its key: where a run's request finds each event's row (#1409, R24)", async () => {
+        const jobs = await kindOf(windowedJobs);
+        const Rows = DictType(StringType, PrintJob);
+        const rowsOf = async (drafts = NO_DRAFTS) => decodeBeast2For(Rows)(await h.ready(() => jobs.planRows(FROM, TO, drafts)));
+        const held = await heldJobs();
+        const rows = await rowsOf();
+        // The jobs filed under the range's days and the backlog's, each as e3 holds it.
+        assert.deepEqual([...rows.keys()], ["W-0004", "W-0009", "W-0011", "W-0017", "W-0018", "W-0019", "W-0020"]);
+        assert.deepEqual([...rows].filter(([key, job]) => !jobEqual(job, held.get(key)!)).map(([key]) => key), []);
+        // Through the day index and the backlog index alone: no search of the record's own entries, no one-row page,
+        // never the record whole.
+        assert.deepEqual([sought(JOBS).length, pagesOf(JOBS).length, wholeReads(JOBS)], [0, 0, 0]);
+        // The drafts in place: one moved into the range there, one deleted gone.
+        const into = { ...held.get("W-0014")!, start: some(at("2026-10-08T06:00:00Z")), end: some(at("2026-10-08T08:00:00Z")) };
+        const drafted = await rowsOf(draftsOf([["W-0014", jobDraft(variant("value", into))], ["W-0011", jobDraft(variant("missing", null))]]));
+        assert.deepEqual([...drafted.keys()], ["W-0004", "W-0009", "W-0014", "W-0017", "W-0018", "W-0019", "W-0020"]);
+        assert.ok(jobEqual(drafted.get("W-0014")!, into));
+    });
+
     test("a drafted event reads as drafted, and a deleted one as none, with no read at all", async () => {
         const jobs = await kindOf(windowedJobs);
         const moved = { ...(await heldJobs()).get("W-0014")!, title: "Ticket books, reprint" };
         const drafts = draftsOf([["W-0014", jobDraft(variant("value", moved))], ["W-0009", jobDraft(variant("missing", null))]]);
-        const read = jobs.planEvent("W-0014", drafts, FROM, TO);
+        const read = jobs.planEvent("W-0014", drafts, FROM, TO, none);
         if (read.type !== "some") assert.fail("expected the drafted job");
         assert.equal(read.value.item.title, "Ticket books, reprint");
-        assert.equal(jobs.planEvent("W-0009", drafts, FROM, TO).type, "none");
+        assert.equal(jobs.planEvent("W-0009", drafts, FROM, TO, none).type, "none");
         await h.settle();
         assert.deepEqual(h.requests().filter((request) => request.dataset === JOBS && (request.kind === "find" || request.kind === "page")), [],
             "no search and no page of the record");
@@ -380,20 +428,59 @@ describe("one event by its key, never the record whole (#1199)", () => {
 describe("a resource kind paged on the canvas (PB55)", () => {
     const AXIS_WINDOW = { min: at("2026-10-05T00:00:00Z"), max: at("2026-10-19T00:00:00Z") };
 
-    /** The windows example's Plan without its rail, built in East over e3. */
+    /**
+     * The windows example's Plan, built in East over e3: its jobs on the paged presses read through their source of
+     * the slice — its interval index, its series index and its summary (#1039) — here over the window, with no reader's
+     * cells, as a reader leaves them while they are within the cap.
+     */
     const program = East.function([], PlanPayloadType, ($) => {
         const presses = $.let(Data.bindPaged(ex.planWindowPresses));
+        const slice = $.let(Slice.bindRecords("spec.windows.paged", {
+            job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }), range: "start" },
+        }));
         return Plan.Payload({
             axis: Plan.axis({ window: AXIS_WINDOW, resolution: "day" }),
+            slice: { slice: slice as never },
             resources: {
                 presses: Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
             },
-            events: { job: windowedJobs($ as never) },
+            events: { job: railJobs($ as never) },
         });
     });
-    async function payloadOf(): Promise<Payload> {
-        const { platform } = await h.platform(program);
-        return East.compile(program, platform)() as Payload;
+    /**
+     * The same Plan, each press with measures under it (#1398): a chart of its speed, which every press makes; a heat
+     * of its load, which is no chart; and a chart only of the fast presses, whose `match` decides by press.
+     */
+    const measured = East.function([], PlanPayloadType, ($) => {
+        const presses = $.let(Data.bindPaged(ex.planWindowPresses));
+        const slice = $.let(Slice.bindRecords("spec.windows.measured", {
+            job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }), range: "start" },
+        }));
+        return Plan.Payload({
+            axis: Plan.axis({ window: AXIS_WINDOW, resolution: "day" }),
+            slice: { slice: slice as never },
+            resources: {
+                presses: Schedule.resources(presses, {
+                    name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall),
+                    measures: [
+                        Plan.series.chart(PrintPress, { key: "speed", title: "Speed", label: () => "Speed", layers: () => [] }),
+                        Plan.series.heat(PrintPress, { key: "load", title: "Load", label: () => "Load", cells: () => Plan.heatCells([]) }),
+                        Plan.series.chart(PrintPress, {
+                            key: "fast", title: "Fast", label: () => "Fast", match: (p) => p.sheets_per_hour.greater(12_000.0), layers: () => [],
+                        }),
+                    ],
+                }),
+            },
+            events: { job: railJobs($ as never) },
+        });
+    });
+    /** A payload, built as a UI task's preview builds it, its slice made on the record Slice's platform over e3's pages. */
+    async function payloadOf(of: typeof program = program): Promise<Payload> {
+        const { platform } = await h.platform(of);
+        StateRuntime.initializeStore(new UIStore());
+        const implementations = [...platform];
+        implementations.push(...createRecordSliceImplementation(() => implementations));
+        return East.compile(of, implementations)() as Payload;
     }
     const pagedOf = (payload: Payload) => payload.paged.type === "some" ? payload.paged.value : assert.fail("expected the paged rows");
 
@@ -405,15 +492,15 @@ describe("a resource kind paged on the canvas (PB55)", () => {
         assert.ok(sameKey(await h.ready(() => paged.revision()), await hashOf(ex.planWindowPresses.output.path)), "the revision e3 holds the presses at");
         // Its size is learned from the first window it reads, as the canvas reads one as it shows.
         assert.equal(paged.total().type, "none", "no window read, no size");
-        const placed = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), []));
-        await h.ready(() => paged.rows(0n, 200n, placed, []));
+        const placed = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), [], NO_READS));
+        await h.ready(() => paged.rows(0n, 200n, placed, NO_SHADING, []));
         assert.equal(await h.ready(() => paged.total()), 2_000n);
         // The kind on the wire lists no resources: they come a window at a time.
         assert.deepEqual(payload.resources.map((k) => [k.key, k.rows.length]), [["presses", 0]]);
         // The event kinds' blocks: the presses' place, an empty paged block, then the Unassigned rows'.
         if (payload.blocks.type !== "some") assert.fail("expected the blocks seam");
         const blocksOf = payload.blocks.value;
-        const blocks = await h.ready(() => blocksOf(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), [], new SortedMap([], compareString)));
+        const blocks = await h.ready(() => blocksOf(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), [], new SortedMap([], compareString), NO_READS, NO_SHADING));
         assert.deepEqual(blocks.map((b) => [b.fixed, b.rows.length]), [[false, 0], [true, 0]]);
         // A key search seeks a press among the presses, by its key.
         if (paged.seek.type !== "some") assert.fail("expected the key search");
@@ -426,12 +513,12 @@ describe("a resource kind paged on the canvas (PB55)", () => {
 
     test("places the events on the kind's resources by the resource's key, and draws a window of the presses with the events on it", async () => {
         const paged = pagedOf(await payloadOf());
-        const placed = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), []));
+        const placed = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), [], NO_READS));
         const bars = placed.get("span")!;
         assert.deepEqual([...bars.keys()], ["P-1001", "P-1002", "P-1003", "P-1004", "P-1010", "P-1150", "P-1200", "P-1201", "P-1250", "P-1333", "P-1401", "P-1460"]);
         assert.deepEqual(bars.get("P-1001")!.map((p) => p.item.key), ["W-0001", "W-0002"]);
         // The second window of 200 presses: its rows, with the events placed on them.
-        const rows = await h.ready(() => paged.rows(200n, 200n, placed, []));
+        const rows = await h.ready(() => paged.rows(200n, 200n, placed, NO_SHADING, []));
         assert.equal(rows.length, 1);
         const [block] = rows;
         assert.equal(block!.fixed, false);
@@ -444,21 +531,46 @@ describe("a resource kind paged on the canvas (PB55)", () => {
         assert.deepEqual(pagesOf(PRESSES), [["200", "200"]]);
         assert.equal(wholeReads(PRESSES), 0);
         // A window running past the last press holds what is left; a window in flight answers `none`.
-        assert.equal((await h.ready(() => paged.rows(1_900n, 200n, placed, [])))[0]!.rows.length, 100);
+        assert.equal((await h.ready(() => paged.rows(1_900n, 200n, placed, NO_SHADING, [])))[0]!.rows.length, 100);
         const page = h.e3.hold(pageAt(PRESSES, 0));
-        assert.equal((await h.inFlight(() => paged.rows(0n, 200n, placed, []), page)).type, "none");
+        assert.equal((await h.inFlight(() => paged.rows(0n, 200n, placed, NO_SHADING, []), page)).type, "none");
         page.release();
     });
 
     test("a hidden paged kind keeps its place, empty in every window", async () => {
         const paged = pagedOf(await payloadOf());
-        const placed = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), ["resources.presses"]));
-        const rows = await h.ready(() => paged.rows(0n, 200n, placed, ["resources.presses"]));
+        const placed = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), ["resources.presses"], NO_READS));
+        const rows = await h.ready(() => paged.rows(0n, 200n, placed, NO_SHADING, ["resources.presses"]));
         assert.deepEqual(rows.map((b) => [b.fixed, b.rows.length]), [[false, 0]]);
         assert.deepEqual(pagesOf(PRESSES), [], "a hidden kind's resources are not read");
         // A hidden event kind places nothing.
-        const unplaced = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), ["events.job"]));
+        const unplaced = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), ["events.job"], NO_READS));
         assert.deepEqual([...unplaced.get("span")!.keys()], []);
+    });
+
+    test("a window of the presses says how many chart rows each press makes, where each makes as many: as many as the chart measures the viewer shows, none while one's `match` decides by press (#1398)", async () => {
+        const paged = pagedOf(await payloadOf(measured));
+        const placed = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), [], NO_READS));
+        const factsEqual = equalFor(ArrayType(OptionType(IntegerType)));
+        /** The window's blocks as the viewer hides `hidden`: what each says its presses make, and the chart rows it holds. */
+        const read = async (hidden: string[]) => {
+            const blocks = await h.ready(() => paged.rows(0n, 200n, placed, NO_SHADING, hidden));
+            return { facts: blocks.map((b) => b.charts), charts: blocks.map((b) => b.rows.filter((row) => row.kind.type === "chart").length) };
+        };
+        // The fast presses' chart is drawn for 60 of the window's 200: a press makes one chart row, or two.
+        const shown = await read([]);
+        assert.ok(factsEqual(shown.facts, [none]), "no number of them while a chart's `match` decides");
+        assert.deepEqual(shown.charts, [260]);
+        // Hidden in the Series tab, it is no press's: each makes its speed's.
+        const speed = await read(["measures.fast"]);
+        assert.ok(factsEqual(speed.facts, [some(1n)]));
+        assert.deepEqual(speed.charts, [200]);
+        // A heat is no chart: with the speed hidden too, each makes none.
+        const bare = await read(["measures.fast", "measures.speed"]);
+        assert.ok(factsEqual(bare.facts, [some(0n)]));
+        assert.deepEqual(bare.charts, [0]);
+        // A hidden kind's place stands empty: its presses make none.
+        assert.ok(factsEqual((await read(["resources.presses"])).facts, [some(0n)]));
     });
 
     test("names a resource by its key: its window's key search, then a one-row page — never the kind whole", async () => {
@@ -481,6 +593,117 @@ describe("a resource kind paged on the canvas (PB55)", () => {
 });
 
 // ============================================================================
+// A kind's window counted first, and read only within the cap (#1039)
+// ============================================================================
+
+describe("a kind's window counted first, and read only within the cap (#1039)", () => {
+    const MONDAY = at("2026-10-05T00:00:00Z");
+    /** The fortnight from Monday 5 October: the proofs and the thirteen jobs of the example's. */
+    const FORTNIGHT = ["2026-10-05T00:00:00Z", "2026-10-19T00:00:00Z"] as const;
+    /** The week after the proofs, Monday 12 to Monday 19 October, and its seven jobs. */
+    const AFTER = ["2026-10-12T00:00:00Z", "2026-10-19T00:00:00Z"] as const;
+    const AFTER_JOBS = ["W-0005", "W-0006", "W-0007", "W-0008", "W-0010", "W-0012", "W-0013"];
+    const INTERVAL = ex.planWindowJobsByTime.name;
+    const countEqual = equalFor(OptionType(IntegerType));
+
+    /** Another session's 10,001 proofs on the Monday, a minute each, thirty presses in turn: past the cap, with the fortnight's jobs. */
+    async function bookProofs() {
+        const jobs = new SortedMap<string, Job>([...await heldJobs()], compareString);
+        const proof = jobs.get("W-0001")!;
+        for (let i = 0; i < 10_001; i++) {
+            const start = new Date(MONDAY.getTime() + Math.floor(i / 30) * 60_000);
+            jobs.set(`X-${`${i}`.padStart(5, "0")}`, {
+                ...proof, title: `Proof ${i}`, press: some(`P-${1001 + (i % 30)}`), start: some(start), end: some(new Date(start.getTime() + 60_000)),
+            });
+        }
+        await h.patch(ex.planWindowJobs, jobs);
+    }
+
+    /** A kind's count, the kind's `count` — every kind's: how many of its stored events overlap a range, before one is read. */
+    const counted = (kind: EventKind, [from, to]: readonly [string, string]) => kind.count(at(from), at(to));
+
+    /** The jobs on the presses read whole, narrowed through the rail's `job` source over their interval index alone. */
+    const narrowed = East.function([], PlanPayloadType, ($) => {
+        const presses = $.let(Data.bind(ex.planWindowPresses));
+        const slice = $.let(Slice.bindRecords("spec.windows.counted", {
+            job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime] }), range: "start" },
+        }));
+        return Plan.Payload({
+            axis: Plan.axis({ window: { min: at(FORTNIGHT[0]), max: at(FORTNIGHT[1]) }, resolution: "day" }),
+            slice: { slice: slice as never },
+            resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+            events: { job: railJobs($ as never) },
+        });
+    });
+    /** The narrowed jobs' kind, built as a UI task's preview builds it, the slice made on the record Slice's platform over e3's pages. */
+    async function narrowedJobs(): Promise<EventKind> {
+        const { platform } = await h.platform(narrowed);
+        StateRuntime.initializeStore(new UIStore());
+        const implementations = [...platform];
+        implementations.push(...createRecordSliceImplementation(() => implementations));
+        return (East.compile(narrowed, implementations)() as Payload).events[0]!;
+    }
+
+    test("a kind read whole is counted in memory: its window answers its events within the cap, and none past it", async () => {
+        const within = await kindOf(wholeJobs);
+        assert.equal(within.countExact, true, "its count is its events'");
+        assert.ok(countEqual(counted(within, FORTNIGHT), some(13n)));
+        assert.equal((await itemsIn(within, ...FORTNIGHT)).length, 13);
+        await bookProofs();
+        const past = await kindOf(wholeJobs);
+        assert.ok(countEqual(counted(past, FORTNIGHT), some(10_014n)), "the proofs and the thirteen jobs");
+        assert.equal(past.planItems(at(FORTNIGHT[0]), at(FORTNIGHT[1]), NO_DRAFTS, none).type, "none", "past the cap, none of its events");
+        // The week after the proofs is within it.
+        assert.ok(countEqual(counted(past, AFTER), some(7n)));
+        assert.deepEqual(await keysIn(past, ...AFTER), AFTER_JOBS);
+    });
+
+    test("a kind read through its source is counted through its interval index, and past the cap no page of its window is read; within it, its events are", async () => {
+        await bookProofs();
+        const jobs = await narrowedJobs();
+        assert.equal(jobs.countExact, true, "its count is its events'");
+        assert.equal(await h.ready(() => counted(jobs, FORTNIGHT)), 10_014n);
+        const fortnight = () => jobs.planItems(at(FORTNIGHT[0]), at(FORTNIGHT[1]), NO_DRAFTS, none);
+        assert.equal(fortnight().type, "none");
+        // Nothing in flight, and still none: the window counted past the cap, and never read.
+        await h.settle();
+        assert.equal(fortnight().type, "none", "past the cap, none of its events");
+        assert.deepEqual(pagesOf(JOBS, INTERVAL), [], "no page of the window is read");
+        assert.equal(wholeReads(JOBS), 0);
+        // The week after the proofs: within the cap, counted, then read.
+        assert.equal(await h.ready(() => counted(jobs, AFTER)), 7n);
+        assert.deepEqual(await keysIn(jobs, ...AFTER), AFTER_JOBS);
+        assert.ok(pagesOf(JOBS, INTERVAL).length > 0, "within the cap, its pages are read");
+    });
+
+    test("a kind read through its day index is counted through it — the days its events run on, the search its read asks first, an upper bound — and past the cap no page of the day index is read; within it, its days are", async () => {
+        const days = await kindOf(windowedJobs);
+        assert.equal(days.countExact, false, "its count is the days its events run on, no number of them");
+        // The fortnight's thirteen jobs are filed under seventeen days: the three-day run three times, the night catalogue and
+        // the magazine run twice each.
+        assert.equal(await h.ready(() => counted(days, FORTNIGHT)), 17n);
+        await bookProofs();
+        const past = await kindOf(windowedJobs);
+        const finds = sought(JOBS, BY_DAY).length;
+        const pages = pagesOf(JOBS, BY_DAY).length;
+        // The proofs, each on the Monday alone: 10,018 entries, past the cap.
+        assert.equal(await h.ready(() => counted(past, FORTNIGHT)), 10_018n);
+        const fortnight = () => past.planItems(at(FORTNIGHT[0]), at(FORTNIGHT[1]), NO_DRAFTS, none);
+        assert.equal(fortnight().type, "none");
+        // Nothing in flight, and still none: the days counted past the cap, and never read.
+        await h.settle();
+        assert.equal(fortnight().type, "none", "past the cap, none of its events");
+        assert.equal(sought(JOBS, BY_DAY).length - finds, 1, "the count and the window's read ask one search");
+        assert.deepEqual(pagesOf(JOBS, BY_DAY).slice(pages), [], "no page of the day index is read past the cap");
+        assert.equal(wholeReads(JOBS), 0);
+        // The week after the proofs: its seven jobs on eight days, within the cap — counted, then its days read.
+        assert.equal(await h.ready(() => counted(past, AFTER)), 8n);
+        assert.deepEqual(await keysIn(past, ...AFTER), AFTER_JOBS);
+        assert.ok(pagesOf(JOBS, BY_DAY).length > pages, "within the cap, its days are read");
+    });
+});
+
+// ============================================================================
 // A window that reads no rows (#1199)
 // ============================================================================
 
@@ -496,7 +719,7 @@ describe("a window that reads no rows", () => {
                 backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)) }, window: days, backlogWindow: backlog, entries: all,
             });
         });
-        await assert.rejects(h.ready(() => jobs.planItems(at("2026-10-07T00:00:00Z"), at("2026-10-10T00:00:00Z"), NO_DRAFTS)),
+        await assert.rejects(h.ready(() => jobs.planItems(at("2026-10-07T00:00:00Z"), at("2026-10-10T00:00:00Z"), NO_DRAFTS, none)),
             /Schedule\.events: "Print job": `window` reads each event's row from the record through a day index keyed by Schedule\.days — Data\.bindPaged\(record, \{ index, join: true \}\) — and this one reads the index alone: give it `join: true`/);
     });
 });

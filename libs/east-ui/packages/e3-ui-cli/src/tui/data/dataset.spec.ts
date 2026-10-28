@@ -10,7 +10,8 @@
  * a server that cuts pages short, the byte cache, a content-hash change,
  * the not-indexed and too-large states, `⏎ load whole value`, key search
  * on both paths, a failed page's retry hold and the hash-mismatch refetch,
- * and a record's index as a source of its own, all over the in-memory API.
+ * and a record's index — and its summary — as a source of its own, all over
+ * the in-memory API.
  */
 
 import { test, describe } from 'node:test';
@@ -18,6 +19,7 @@ import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { FloatType, IntegerType, NullType, StringType, StructType, toEastTypeValue, variant } from '@elaraai/east';
 import { ApiError } from '@elaraai/e3-api-client';
+import { RecordSummaryTotalsType } from '@elaraai/e3-types';
 import { dictOf, fakeRepo, wideDictOf, type FakeApi } from '../api.fake.js';
 import { recordSource } from '../model/tree.js';
 import { initialState, type DatasetData } from '../state/actions.js';
@@ -378,5 +380,34 @@ describe('dataset loader', () => {
         const parts: Uint8Array[] = [];
         for await (const chunk of await loader.bytes('main', BY_STORE)) parts.push(chunk);
         assert.deepEqual(new Uint8Array(Buffer.concat(parts)), api.stored('main', '.records.ledger')!.bytes);
+    });
+
+    test('a summary index is a source of its own: an entry a key, standing for its rows with their totals, never joined (#1039)', async () => {
+        const { api, store, loader } = setup();
+        api.geometry = true;
+        const { type, value } = dictOf(300);
+        api.record('main', {
+            name: 'ledger',
+            type,
+            value,
+            indexes: [{
+                name: 'by_store_totals', keyType: StringType, valueType: RecordSummaryTotalsType, summary: true,
+                entries: (_key, row) => [{ ik: (row as { store: string }).store, value: { count: 1n, ms: (row as { units: bigint }).units } }],
+            }],
+        });
+        const TOTALS = recordSource('ledger', 'by_store_totals');
+        await loader.tick('main', TOTALS);
+        await quiet(store, 'main', TOTALS);
+        const d = store.getState().data.dataset['main']![TOTALS]!;
+        assert.deepEqual(d.index, { name: 'by_store_totals', keyType: toEastTypeValue(StringType), join: false });
+        // Its window's `key` is Null: decoded by the record's key type, it would not decode at all.
+        assert.equal(paged(d).totalRows, 3, 'an entry a store, standing for its hundred rows');
+        const calls = api.calls.filter(c => c.startsWith('datasetGetPage main.records.ledger '));
+        assert.ok(calls.length > 0 && calls.every(c => c.endsWith(' #by_store_totals')), 'every window reads the summary alone, never joined');
+        const bakery = paged(d).pages.get(0)![0]!;
+        assert.equal(bakery.label, 'Bakery', 'labelled by its index key');
+        const shown = bakery.node.type === 'struct' ? bakery.node.value.fields.find(f => f.name === 'value')?.node : undefined;
+        assert.deepEqual(shown?.type === 'struct' ? shown.value.fields.map((f: { name: string }) => f.name) : [], ['count', 'ms'], 'its totals');
+        assert.deepEqual(await loader.findKey('main', TOTALS, { prefix: 'Deli' }), { found: true, row: 1, count: 1 });
     });
 });

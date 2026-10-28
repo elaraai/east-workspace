@@ -54,6 +54,17 @@ export interface ScheduleLibraryTabConfig<K extends EastType, R extends EastType
     source?: string;
 }
 
+/** How an author's tab's refusals name what its cards land on, by builder. */
+export interface ScheduleTabWords {
+    /** One kind its cards land on, as a refusal names it (`event kind`). */
+    readonly kind: string;
+    /** The patch a drop is built with (`Schedule.patch`). */
+    readonly patch: string;
+}
+
+/** The words of a Schedule builder's tab: its cards land on event kinds, their drops built with `Schedule.patch`. */
+const SCHEDULE_WORDS: ScheduleTabWords = { kind: "event kind", patch: "Schedule.patch" };
+
 /** An author's declared tab, before its accessors are reified. */
 export interface ScheduleTabDeclaration {
     /** Identifies an author-defined tab. */
@@ -65,16 +76,17 @@ export interface ScheduleTabDeclaration {
 }
 
 /**
- * Resolves author cards and checks the patch type against the event kinds.
+ * Resolves author cards and checks the patch type against the kinds its cards land on.
  * @param tab - The declared tab
- * @param events - Event kinds by slot
+ * @param events - The kinds a card may land on, by slot: a Schedule builder's event kinds, a Schematic's kinds
  * @param owner - The builder's name for diagnostics
  * @param sources - The builder's Slice sources, which the tab's `source` must be one of
+ * @param words - How the refusals name those kinds and the patch a drop is built with; a Schedule builder's by default
  * @returns The closed author tab
  * @throws {Error} When rows are not keyed, a drop matches zero or several kinds, or the tab names a source the slice lacks
  */
-export function buildScheduleTab(tab: ScheduleTabDeclaration, events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[], owner: string,
-    sources: readonly string[]): ExprType<typeof ScheduleAuthorTabType> {
+export function buildScheduleTab(tab: ScheduleTabDeclaration, events: readonly (readonly [string, Pick<ScheduleEventKind<EastType, EastType>, "rowType">])[],
+    owner: string, sources: readonly string[], words: ScheduleTabWords = SCHEDULE_WORDS): ExprType<typeof ScheduleAuthorTabType> {
     const cfg = tab.config;
     const named = tabSource(owner, cfg.name, cfg.source, sources);
     const where = owner + ': the "' + cfg.name + '" tab';
@@ -97,11 +109,11 @@ export function buildScheduleTab(tab: ScheduleTabDeclaration, events: readonly (
             && isTypeEqual(patchType, SchedulePatchTypeFor(kind.rowType as StructType)));
         if (takers.length === 0) {
             const kinds = events.map(([slot]) => slot).join(", ");
-            throw new Error(`${where}'s \`drop\` returns a patch over no event kind's row type — build it with Schedule.patch(RowType, { … }) ` +
-                `over the row type of the kind its cards land on (${kinds === "" ? "this " + owner + " has no event kinds" : kinds})`);
+            throw new Error(`${where}'s \`drop\` returns a patch over no ${words.kind}'s row type — build it with ${words.patch}(RowType, { … }) ` +
+                `over the row type of the kind its cards land on (${kinds === "" ? "this " + owner + " has no " + words.kind + "s" : kinds})`);
         }
         if (takers.length > 1) {
-            throw new Error(`${where}'s \`drop\` returns a patch over a row type ${takers.length} event kinds share ` +
+            throw new Error(`${where}'s \`drop\` returns a patch over a row type ${takers.length} ${words.kind}s share ` +
                 `(${takers.map(([slot]) => slot).join(", ")}) — a card lands on one kind, so give each kind a row type of its own`);
         }
         lands = takers[0]![0];

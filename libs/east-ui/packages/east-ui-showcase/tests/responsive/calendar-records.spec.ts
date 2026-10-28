@@ -49,8 +49,8 @@ for (const theme of ["light", "dark"] as const) {
         const nav = frame.locator("[data-time-navigation=calendar]");
         await nav.locator("[data-time-trigger]").click();
         await page.getByRole("dialog").getByRole("button", { name: "Next day", exact: true }).click();
-        // The old window remains painted and inert while e3 reads the new
-        // index range. Read its rows only after aria-busy has cleared.
+        // The old window remains painted and retained (#1398, CL8: aria-disabled)
+        // while e3 reads the new index range. Read its rows only after aria-busy has cleared.
         await settled(page);
         await expect(events).toHaveCount(2);
         await expect(events.filter({ hasText: "Annual maintenance reservation" })).toHaveCount(1);
@@ -61,6 +61,33 @@ for (const theme of ["light", "dark"] as const) {
         await page.keyboard.press("Escape");
         if (!mobile) await containedRecordEditor(page, frame, "status");
         expect(errors).toEqual([]);
+    });
+}
+
+for (const theme of ["light", "dark"] as const) {
+    test(`a String field the rail searches stands in its editor at its box's height — no empty block under it — and its values are listed under the box (${theme}) @desktop`, async ({ page }) => {
+        const route = "e3/calendar/calendar-records/calendarRecordIndexes";
+        await page.goto(`/?theme=${theme}#${route}`);
+        const entry = page.locator("[data-index]", { has: page.locator(`a[href="#${route}"]`) });
+        await entry.scrollIntoViewIfNeeded();
+        const frame = entry.locator("[data-calendar-frame]").first();
+        await expect(frame).toBeVisible({ timeout: 30_000 });
+        await settled(page);
+        // Filters › Machine: the jobs' machine, searched by its keys' start.
+        const editor = await recordField(page, frame, "machine", "job");
+        const heights = () => editor.evaluate(el => {
+            const root = el.querySelector<HTMLElement>('[data-scope="combobox"][data-part="root"]')!;
+            const control = root.querySelector<HTMLElement>('[data-part="control"]')!;
+            return { box: Math.round(root.getBoundingClientRect().height), control: Math.round(control.getBoundingClientRect().height) };
+        });
+        // The box is as tall as its control, closed and open: what the editor lays out under it starts at its foot.
+        const closed = await heights();
+        expect(closed.box, JSON.stringify(closed)).toBe(closed.control);
+        await editor.getByRole("combobox").click();
+        await expect(page.getByRole("option", { name: /^press-a/ })).toBeVisible();
+        await expect(page.getByRole("option", { name: /^press-b/ })).toBeVisible();
+        expect(await heights()).toEqual(closed);
+        await page.keyboard.press("Escape");
     });
 }
 

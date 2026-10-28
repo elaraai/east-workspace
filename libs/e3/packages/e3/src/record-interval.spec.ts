@@ -4,10 +4,10 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DateTimeType, DictType, East, OptionType, SetType, StringType, StructType,
+import { DateTimeType, DictType, East, IntegerType, OptionType, SetType, StringType, StructType,
   decodeBeast2For, encodeBeast2For, none, some, type FunctionExpr } from '@elaraai/east';
 import { record } from './record.js';
-import { recordIndex } from './record-index.js';
+import { recordIndex, type IndexKeyOf, type IndexOn } from './record-index.js';
 import { IntervalEntryType, intervalEntries } from './record-interval.js';
 
 const entriesOf = East.compile(intervalEntries, []);
@@ -46,7 +46,7 @@ test('interval index preserves half-open overlap with at most three entries', ()
 test('interval indexes retain declared fields, optional backlog and Set-member prefixes through real East IR', () => {
   const Row = StructType({ resources: SetType(StringType), start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
   const records = record('interval_events', DictType(StringType, Row), new Map());
-  const index = recordIndex('by_resource_time', records, { on: ['resources'], interval: { from: 'start', to: 'end' } });
+  const index = recordIndex.interval('by_resource_time', records, { on: ['resources'], from: 'start', to: 'end' });
   assert.deepEqual(index.on, ['resources', 'start']);
   assert.deepEqual(index.interval, { from: 'start', to: 'end' });
   assert.equal(index.multi, true);
@@ -70,12 +70,28 @@ test('interval indexes retain declared fields, optional backlog and Set-member p
   }
   const backlog = fn('backlog', decode(encode({ resources: new Set(['A']), start: none, end: none })));
   assert.deepEqual([...backlog], [{ resources: 'A', __interval: 0n, start: none }]);
-  const simple = recordIndex('by_time', records, { interval: { from: 'start', to: 'end' } });
+  const simple = recordIndex.interval('by_time', records, { from: 'start', to: 'end' });
   assert.deepEqual(simple.on, ['start']);
   const simpleFn = East.compile(simple.keyFn as FunctionExpr<any, any>, []);
   assert.equal(simpleFn('instant', { resources: new Set(), start: some(start), end: none }).size, 1);
-  assert.throws(() => recordIndex('bad_interval', records, {
+  assert.throws(() => recordIndex.interval('bad_interval', records, {
     // @ts-expect-error Only DateTime fields are interval endpoints.
-    interval: { from: 'resources', to: 'end' },
-  }), /DateTime/);
+    from: 'resources', to: 'end',
+  }), /from names 'resources', of type .+: from is a DateTime or an Option<DateTime> field/);
+  assert.throws(() => recordIndex.interval('bad_end', records, {
+    // @ts-expect-error Only DateTime fields are interval endpoints.
+    from: 'start', to: 'missing',
+  }), /to names unknown row field 'missing'/);
+  assert.throws(() => recordIndex.interval('valued', records, {
+    from: 'start', to: 'end',
+    // @ts-expect-error An interval index carries no projection.
+    value: East.function([StringType, Row], StringType, ($, k, _v) => k),
+  }), /takes on, from, to, not value/);
+  // The declared types, as the constructor's spec types them.
+  type Spec = { on: ['resources']; from: 'start'; to: 'end' };
+  const on: IndexOn<Spec> = ['resources', 'start'];
+  const key: IndexKeyOf<Spec, typeof records.type> = StructType({ resources: StringType, __interval: IntegerType, start: OptionType(DateTimeType) });
+  assert.ok(on.length === 2 && key.type === 'Struct');
+  const declared: StructType<{ resources: typeof StringType; __interval: typeof IntegerType; start: OptionType<typeof DateTimeType> }> = index.keyType;
+  assert.equal(declared.type, 'Struct');
 });

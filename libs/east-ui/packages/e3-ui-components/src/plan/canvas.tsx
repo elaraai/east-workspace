@@ -41,6 +41,10 @@
  * counts. The window is the sources' shared `range` (`root/window.ts`): every
  * source holding one holds it with the others — the axis seeds a canvas with
  * none — and the brush, the time navigator and the keys write each of them.
+ * The canvas's rows never follow the dates: the `rows` source and a resource
+ * kind's hold no window, so the dates on screen never decide which rows are
+ * listed, and a slice with no source holding the window leaves the canvas its
+ * own, which the same gestures move.
  *
  * The axis is one of three kinds (#631) — `time`, `number`, `ordinal` — and
  * every window read / write speaks the slice arm that kind maps to
@@ -49,8 +53,9 @@
  * does not is a diagnostic ROW, never a misplacement.
  *
  * A failure stays where it happened (#811): a row that cannot be placed
- * renders in place as its diagnostic, a window whose read failed renders as
- * an error band with a Retry, and a part that throws while rendering (a row's
+ * renders in place as its diagnostic, a window whose read failed is a run of
+ * its rows' placeholders that says so once, with Retry (#1398, CL11), and a
+ * part that throws while rendering (a row's
  * plot, an overlay body, the expand render, the links layer) shows its own
  * one-line fallback. The frame's toolbar counts what it can — skipped rows, a
  * source or search failure, a truncated axis. Nothing a row or a source does
@@ -79,18 +84,19 @@ import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Plan, ScheduleEventRefType, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
-    getSomeorUndefined, useContainerBelow, useDataStable, usePersistedState, historyShortcut,
+    getSomeorUndefined, optimiseMessages, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState,
+    historyShortcut, takeKey,
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
-    parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore,
+    parseCssSize, DensityProvider, VirtualRows, VIRTUALIZE_UNBOUNDED_AT, getStore, recordSliceNoun, usePickHandOff,
 } from "@elaraai/east-ui-components/internal";
 import {
     PlanScaleContext, PlanDispatchContext, PlanCursorContext, PlanResolversContext, PlanGeometryContext,
     type PlanResolvers,
 } from "./context.js";
 import { planGeometry, planGeometryStyle } from "./geometry.js";
-import { WindowBand, WindowFailureBand } from "./rows/WindowBand.js";
+import { PlanRunRow } from "./rows/RunRow.js";
 import { PlanPartBoundary } from "./rows/PartBoundary.js";
 import { axisNow, axisResolutions, ordinalIndexOf } from "./axis.js";
 import type { PlanEvent } from "./plan-state.js";
@@ -98,8 +104,9 @@ import type { PlanPart } from "./messages.js";
 import {
     bodyItemKey, canvasRowsOf, derivePlan, indexRows, linkedRowKeys, pinnedRows, pxOf, rowHeight, rowItemKey, rowKeyOf,
     rowKeyWords, visibleRows,
-    type PlanRootValue, type PlanRowIndex, type PlanRowValue, type VisibleRow,
+    type PlanBand, type PlanBodyItem, type PlanRootValue, type PlanRowIndex, type PlanRowValue, type VisibleRow,
 } from "./model.js";
+import { PLAN_PAGE_SIZE, bandElements } from "./use-plan-paging.js";
 import type { RowKey } from "./plan-state.js";
 import { entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
 import { usePlanEventEditing } from "./edit/events.js";
@@ -110,6 +117,7 @@ import { LinksOverlay } from "./shell/LinksOverlay.js";
 import { linkedElement, ribbonBody, type LinkedElement, type RibbonBeyond } from "./shell/ribbon-layout.js";
 import type { PlanDiagnostics } from "./shell/Diagnostics.js";
 import type { PlanTransport } from "./shell/transport.js";
+import { retryPeriod, type PagedLoading } from "../shared/loading.js";
 import {
     createPlanController, declaredCollapsedOf, declaredGrainOf, denseOf, elementRowsOf,
     type PlanReconcileModel, type PlanSnapshot,
@@ -117,12 +125,14 @@ import {
 import { PlanControllerContext, useControllerSelector } from "./controller/react.js";
 import { NOT_PERSISTED, persistedOf, type PlanPersisted } from "./persisted.js";
 import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root/view.js";
-import { createPlanWindowHold, usePlanWindow } from "./root/window.js";
-import { planEventParts, planNouns, planPart, ROWS_SOURCE } from "./root/sources.js";
+import { createPlanWindowHold, restoredWindow, statedWindow, usePlanWindow } from "./root/window.js";
+import { writePlanWindow } from "./controller/effects.js";
+import { planEventParts, planNouns, planPart, planRowSources, ROWS_SOURCE } from "./root/sources.js";
 import {
     ALL_SHOWN, PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot,
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
+import { cellKinds, createCellSpanStore, shownCellSpan } from "./root/cells.js";
 import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
@@ -133,10 +143,10 @@ import { PlanHeader } from "./root/Header.js";
 import { usePlanCursorController } from "./root/cursor.js";
 import { usePlanDropTarget } from "./root/drop.js";
 import { PLAN_ELEMENT_SELECTOR, PlanOverlays, createOverlayAnchors, refOfElement, usePlanOverlayHandlers } from "./root/overlays.js";
-import { PlanGridContext, createRowPositions, type PlanGridContextValue } from "./root/grid.js";
+import { PlanGridContext, createRowPositions, gridPlaces, type PlanGridContextValue } from "./root/grid.js";
 import {
     PLAN_WALK_SELECTOR, gridItemOf, planNavItems, planNavKey, plotElements, resolveNavIntent, rowWidgets,
-    type PlanNavEdges, type PlanNavIntent, type PlanNavMove,
+    type PlanNavEdges, type PlanNavIntent, type PlanNavItem, type PlanNavMove, type PlanWaitKey,
 } from "./root/keyboard.js";
 import { PlanAnnouncer } from "./root/announce.js";
 import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
@@ -147,7 +157,14 @@ import { originOf, unmoved, usePlanCarry, type PlanMoveRequest } from "./edit/us
 import { PlanCarryAnnouncer } from "./edit/announce.js";
 import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from "./rows/element-select.js";
 import { PlanDraftedContext } from "./rows/element-draft.js";
+import { PlanOptimisedContext, type PlanOptimisedMarks } from "./rows/element-optimise.js";
 import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
+import { useOptimise } from "../shared/func/use-optimise.js";
+import { useOptimiseParts } from "../shared/func/optimise-parts.js";
+import {
+    PlanOptimiseReader, landPlanOptimise, planOptimiseRequest, planOptimiseTypes,
+    type PlanOptimiseReadiness, type PlanOptimiseRequest, type PlanOptimiseResult, type PlanOptimiseWindow, type PlanOptimised,
+} from "./optimise.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -182,13 +199,31 @@ const NO_RESOURCES: readonly PlanResourceKindValue[] = [];
 const NO_TABS: readonly PlanLibraryTabValue[] = [];
 /** No event kind has an event on the canvas. */
 const NO_KINDS_DRAWN: ReadonlySet<string> = new Set();
+/** The view waits for nothing: no run on its way, no row whose cells have not landed. */
+const NOTHING_AWAITED: { readonly run: boolean; readonly cells: boolean } = { run: false, cells: false };
+/** No row in view yet. */
+const NO_ROWS_IN_VIEW: readonly PlanRowValue[] = [];
+/** No run of the optimiser has left anything on the canvas. */
+const NO_OPTIMISED_MARKS: PlanOptimisedMarks = { ops: new Map(), ghosts: new Map(), lit: false };
 
 /** Default gutter width (px, desktop — the §8 sheet). */
 const GUTTER_W = 168;
 
+/**
+ * Whether the canvas draws an item now: its element mounted in the body.
+ *
+ * @param body - The canvas body
+ * @param key - The item's key
+ * @returns Whether its element is mounted
+ */
+function drawsItem(body: HTMLElement | null, key: string): boolean {
+    return body !== null && Array.from(body.querySelectorAll("[data-plan-item]")).some((el) => el.getAttribute("data-plan-item") === key);
+}
+
 /** The canvas-wide keys (§11) — esc runs the one-rung ladder, `n` / `[` / `]`
  *  move the window, `g` cycles the grain. They work from anywhere in the
- *  canvas; the grid's own keys (`root/keyboard.ts`) come first. */
+ *  canvas; the grid's own keys (`root/keyboard.ts`) come first. Every key the
+ *  canvas acts on goes no further than the Plan (`takeKey`, #1398). */
 const KEYS: Readonly<Record<string, PlanEvent>> = {
     Escape: { t: "key", key: "esc" },
     n: { t: "key", key: "n" },
@@ -249,6 +284,8 @@ export interface PlanCanvasArgs {
      * rows it shows, busy, and takes no gesture until the narrowing lands.
      */
     busy?: boolean | undefined;
+    /** The app's optimiser (#1409): its binding, which the Elara eye calls by name; none, no eye. */
+    optimise?: { readonly name: string } | undefined;
 }
 
 /** No panel tab whose cards land on the rows. */
@@ -265,7 +302,7 @@ const NO_PANEL: readonly string[] = [];
  */
 export function usePlanCanvas({
     value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS, applyMode = "batch",
-    resources = NO_RESOURCES, tabs = NO_TABS, canDrop, shown: shownResources = ALL_SHOWN, busy = false,
+    resources = NO_RESOURCES, tabs = NO_TABS, canDrop, shown: shownResources = ALL_SHOWN, busy = false, optimise,
 }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
@@ -277,22 +314,25 @@ export function usePlanCanvas({
 
     // ── What survives a remount (#813) ────────────────────────────────────
     // Under the canvas's `storageKey`: the user's collapse toggles, the charts
-    // they expanded, and where a bounded frame's scroll rests. Never the
+    // they expanded, where a bounded frame's scroll rests, and the canvas's own
+    // window while no source of its slice holds one (#1344). Never the
     // selection — a transient act, and restoring it would re-fire `onSelect`.
     // Nor the resolution: only a bound slice can change it (the segment has
     // nowhere to write without one — #615), and the slice keeps its own. The
     // controller restores from it once and writes through the latest setter.
     const { state: stored, setState: setStored } = usePersistedState<PlanPersisted>(storageKey, NOT_PERSISTED);
+    const [restored] = useState(() => persistedOf(stored));
     const persistTo = useRef(setStored);
     useLayoutEffect(() => { persistTo.current = setStored; });
-    // The window last shown while no source of the slice holds one (#1344): the render's and the effects'.
-    const [windowHold] = useState(createPlanWindowHold);
+    // The window last shown while no source of the slice holds one (#1344): the render's and the effects'. It opens on
+    // the canvas's own window the last session kept while the axis allows it, so the first paint draws it there.
+    const [windowHold] = useState(() => createPlanWindowHold(restoredWindow(restored.window, hostValue, planRowSources(resources))));
 
     // ── The controller — once per mount (#815) ────────────────────────────
     const [controller] = useState(() => createPlanController({
         grain: declaredGrainOf(hostValue),
         collapsed: hostValue.rows.type === "inline" ? declaredCollapsedOf(canvasRowsOf(hostValue.rows.value)) : [],
-        restored: persistedOf(stored),
+        restored,
         persist: (next) => persistTo.current(next),
         // A bound interaction state (#824) — the host's from the first frame,
         // and written from outside through the state store.
@@ -309,8 +349,12 @@ export function usePlanCanvas({
     // The slice and the scale every row positions against — read from the
     // host's root, which the drafted and composed roots below share them
     // with (#1344): the sources holding the window, the `rows` source, and
-    // each event kind narrowed through its own.
-    const { chrome: slices, windowParts, lead: windowLead, affordances, scale, error: windowError } = usePlanWindow(hostValue, hostData, words, windowHold);
+    // each event kind narrowed through its own. The canvas's rows' sources —
+    // the `rows` source and each resource kind's — never hold the window.
+    const rowSources = useMemo(() => planRowSources(resources), [resources]);
+    const { chrome: slices, windowParts, lead: windowLead, affordances, scale, error: windowError } = usePlanWindow(hostValue, hostData, words, windowHold, rowSources);
+    // A date the time navigator picks moves the window as the brush and the keys do: the sources', else the canvas's own.
+    const moveWindow = useCallback((min: number, max: number) => writePlanWindow(windowParts, min, max, windowHold), [windowParts, windowHold]);
     const rowsPart = useMemo(() => planPart(slices, ROWS_SOURCE), [slices]);
     const eventParts = useMemo(() => planEventParts(slices, kinds), [slices, kinds]);
     // Each event kind's Save notice counts what leaves its own source's narrowing.
@@ -350,9 +394,52 @@ export function usePlanCanvas({
         () => (editing.enabled ? [{ key: editing.historyKey, session: editing.session }] : NO_JOINED),
         [editing.enabled, editing.historyKey, editing.session]);
     const eventRange = useMemo(() => eventReadRange(scale), [scale]);
-    const eventEditing = usePlanEventEditing({ kinds, applyMode, storageKey, joined, range: eventRange, recordSlices: eventSlices });
+    // The event kinds' rows as last read (#1192): read by a component of their own below, which hands them over as they move.
+    const standIn = useMemo(() => initialEventLead(events), [events]);
+    const [readLead, setLead] = useState<PlanEventLead | undefined>(undefined);
+    const lead = readLead ?? standIn;
+    // A kind read by its cells (#1039) finds a gesture's event in the rows its cells hold.
+    const eventEditing = usePlanEventEditing({
+        kinds, applyMode, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: lead.cells?.held,
+    });
     const history = eventEditing.history;
     historyRef.current = history;
+
+    // ── The app's optimiser (#1409, #1419) ────────────────────────────────
+    // One run over the plan window in view, its result landed on the event kinds' events as one step of the history,
+    // and what the runs left on them until Apply: each element's operation, and the ghosts of where events stood.
+    // While the call is out the canvas holds its lock: no drag, no drop, no carry, no history action.
+    const landingRoot = useRef<HTMLDivElement | null>(null);
+    const landing = useLanding(landingRoot);
+    const landingStyles = useLandingStyles();
+    const format = useFormatters();
+    const optimiseTypes = useMemo(() => planOptimiseTypes(kinds, resources), [kinds, resources]);
+    const [optimised, setOptimised] = useState<PlanOptimised | undefined>(undefined);
+    const planWindow = useMemo((): PlanOptimiseWindow | undefined => {
+        if (scale === undefined || scale.window.min.type !== "time" || scale.window.max.type !== "time") return undefined;
+        return { from: scale.window.min.value, to: scale.window.max.value };
+    }, [scale]);
+    const latestOptimise = useRef({ lead, optimised, eventEditing, kinds, resources, format });
+    latestOptimise.current = { lead, optimised, eventEditing, kinds, resources, format };
+    const landAfter = useRef<(run: number) => void>(() => undefined);
+    const run = useOptimise<PlanOptimiseRequest, PlanOptimiseResult>({
+        name: optimise?.name ?? null, requestType: optimiseTypes.request, resultType: optimiseTypes.result,
+        scope: planWindow === undefined ? "" : `${planWindow.from.getTime()}:${planWindow.to.getTime()}`, storageKey,
+        onLanded: (result, request, n) => {
+            const now = latestOptimise.current;
+            const runText = words.number(n);
+            const landed = landPlanOptimise({
+                kinds: now.kinds, resources: now.resources, editing: now.eventEditing, request, result, label: optimiseMessages.step({ run: runText }), runText,
+                blocks: now.lead.blocks, format: now.format, before: now.optimised,
+            });
+            if (landed === undefined) return undefined;
+            // A run that changed nothing leaves what earlier runs left (R10).
+            if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
+            return landed.counts;
+        },
+    });
+    // The lock (R2): while a call is out, nothing is dragged, dropped, carried or undone.
+    const locked = run.running;
 
     // ── The event kinds' rows (#1192) ─────────────────────────────────────
     // Read over the range the scale draws, what the viewer hides left out
@@ -360,9 +447,8 @@ export function usePlanCanvas({
     // rail narrows the resources it shows (#1344): they lead every other row
     // as fixed blocks. Read by a component of their own (`PlanEventsReader`,
     // in `provide`), which hands them over only when they move.
-    const standIn = useMemo(() => initialEventLead(events), [events]);
-    const [readLead, setLead] = useState<PlanEventLead | undefined>(undefined);
-    const lead = readLead ?? standIn;
+    // The paged kind's rows in view, as the body reports them at rest (#1039): what the reader of its kinds' cells reads.
+    const [cellSpans] = useState(createCellSpanStore);
     // The event kinds' rows ahead of the drafted root's own, and its links'
     // event ends named where the events draw — over a paged resource kind's
     // windows when a kind pages (#1199).
@@ -456,25 +542,156 @@ export function usePlanCanvas({
     // ── Chrome: transport, search ─────────────────────────────────────────
     // The series library (#590) is the library pane's Series tab (#1195): the
     // Plan feeds ITSELF the picked series, and the frame has no Series button.
-    // What the chrome tells the truth with (#567 D9). Counted in ELEMENTS —
-    // the number `total()` reports — never canvas rows, since a series can
-    // emit any number of rows per element; the count is the block the
-    // viewport is in (#823: each block pages on its own). `partial` says some
+    // What the chrome tells the truth with (#567 D9). `partial` says some
     // block does not hold every element: counts across the canvas cover the
     // loaded windows, and so does a top-level section's member count and
     // strip. Every other parent derives from one entry's subtree, which a
     // window holds whole, so its numbers are exact (`spansWindows`, #822).
+    // The footer's loading line (#1398, CL3) says, in ELEMENTS, which of the
+    // source's are read — the span nearest the viewport — that a new
+    // narrowing's rows are, or which read failed; never how many have landed.
+    const failures = paging.failures;
+    const pagingError = paging.sourceError;
+    // Its Retry asks every failed window and the source's own failed reads again, at once — never after the
+    // runtime's retry gap, which a read alone waits out.
+    const retryFailed = useCallback(() => controller.retry(), [controller]);
+    // Whether the view waits for a read (#1398): a window it shows in flight — never one read ahead of it, which nothing on
+    // screen waits for — or the window under it not asked yet, from the moment the view shows its rows not read, so the
+    // reveal clock runs from the view's arrival. The driver settles it with the rest, from the windows the frame's range
+    // shows, so a landing says it in the commit that draws it; the narrow layout, which reports no range, any in flight.
+    const waits = paged && paging.viewLoading;
+    // The event kinds read by their cells over a paged kind (#1039): while their cells are read, the rows the canvas holds
+    // whose cells have not landed wait for them, as a window's rows do (#1398, CL2) — the line says so, in their events'
+    // noun, and main is busy.
+    const cellsRead = lead.cells;
+    const cellsReading = cellsRead?.drawn !== undefined && cellsRead.reading;
+    const cellsNoun = useMemo(() => {
+        const slot = cellKinds(eventParts)[0];
+        const kind = slot === undefined ? undefined : kinds.find((k) => stringEqual(k.key, slot));
+        return kind === undefined ? undefined : words.m.saveNoticeNoun({ kind: kind.name.toLocaleLowerCase(words.locale), n: 2 });
+    }, [eventParts, kinds, words]);
+    // A paged kind's resource whose cells have not landed, or are read again (#1398, CL2): its rows are unread, and draw
+    // the region wash under what they hold — never an empty row.
+    const drawnResources = cellsRead?.drawn;
+    const pagedSlot = events?.paged?.kind;
+    const unread = useMemo(() => (drawnResources === undefined || pagedSlot === undefined ? undefined : (row: PlanRowValue): boolean => {
+        if (row.id.type !== "entry" || row.id.value.path.length !== 1) return false;
+        const resource = row.id.value.path[0]!;
+        return row.id.value.series.startsWith(`${pagedSlot}.`) && !drawnResources.has(resource);
+    }), [drawnResources, pagedSlot]);
+    // The canvas body: the ribbons' positioning parent, the keyboard surface,
+    // and what the narrow layout measures (§10, #570 — below the adaptive
+    // contract's compact width the Plan is a review tool, cards and tabs; the
+    // signal is the CONTAINER the body renders in, never the viewport).
+    const focusBodyRef = useRef<HTMLDivElement | null>(null);
+    const narrow = useContainerBelow(focusBodyRef, PLAN_NARROW_BELOW);
+    // What the view shows at rest that is not read yet, as its last report at rest said it (#1398, CL3): a run whose
+    // windows are on their way, or rows whose cells have not landed — what it still waits for once a window has landed and
+    // before the cells its rows are drawn from are asked, which they are only once the view has said which rows it shows.
+    // The line and the busy follow it, so a window and its rows' cells read one after the other are one wait on the
+    // builder's reveal clock, never two each too short to say. A Plan with no cells to read waits on its windows alone,
+    // as its driver says them.
+    const [viewAwaits, setViewAwaits] = useState(NOTHING_AWAITED);
+    // What it is now, so a report that moves nothing sets nothing: a state set again as it was can still draw once more.
+    const awaited = useRef(NOTHING_AWAITED);
+    const awaitInView = useCallback((run: boolean, cells: boolean) => {
+        const was = awaited.current;
+        if (was.run === run && was.cells === cells) return;
+        awaited.current = { run, cells };
+        setViewAwaits(awaited.current);
+    }, []);
+    const rowsInView = useRef<readonly PlanRowValue[]>(NO_ROWS_IN_VIEW);
+    useEffect(() => {
+        // Cells landing draw the rows in view: what they were waited for.
+        awaitInView(awaited.current.run, unread !== undefined && rowsInView.current.some(unread));
+    }, [unread, awaitInView]);
+    // The canvas's view's alone: the narrow list reports no range, and waits on what it reads as the driver and the cells'
+    // reader say it (`waits`, `cellsReading`). What the canvas's view waited for at its last report goes as the Plan
+    // narrows — kept, nothing would ever report it over again, and the line would say a read none is making — and the
+    // canvas, drawn again, reports afresh what its view shows.
+    useEffect(() => {
+        if (!narrow) return;
+        rowsInView.current = NO_ROWS_IN_VIEW;
+        awaitInView(false, false);
+    }, [narrow, awaitInView]);
+    const awaits = !narrow && (viewAwaits.run || viewAwaits.cells);
+    // What the rail counts each source in (#1344): an event kind's events, `print job events`.
+    const nouns = useMemo(() => planNouns(kinds, resources, tabs, words.locale), [kinds, resources, tabs, words.locale]);
+    // A failed read of the event kinds' rows (#1398, CL3) is said on the same line, after the rows' own failures, paged
+    // or not: in the noun the rail counts each kind in whose own events it could not read — else, none of theirs failing,
+    // the rows' — with Retry, which asks those kinds' records again at once (`retryPeriod`: a record read a window at a
+    // time refreshed, which rearms what failed, else the kind's source of the slice asked again) — every kind's, where
+    // none of theirs failed. Said there alone, never in the toolbar's chip too: a read's failure is said once.
+    const eventsFailure = lead.error;
+    const eventsNoun = useMemo(
+        () => (eventsFailure === undefined ? undefined : words.m.eventsFailedNoun({ kinds: eventsFailure.kinds.map((slot) => nouns[slot] ?? slot) })),
+        [eventsFailure, nouns, words]);
+    const retryEvents = useCallback(() => {
+        const failed = eventsFailure?.kinds ?? [];
+        const asked = failed.length === 0 ? kinds : kinds.filter((kind) => failed.some((slot) => stringEqual(slot, kind.key)));
+        retryPeriod(asked.map((kind) => ({ entries: kind.entries, part: eventParts.find((p) => stringEqual(p.kind.key, kind.key))?.part })));
+    }, [eventsFailure, kinds, eventParts]);
     const transport = useMemo<PlanTransport | undefined>(() => {
-        if (!paged) return undefined;
-        return {
-            loaded: paging.resident?.elements ?? 0,
-            from: paging.resident?.from ?? 0,
-            to: paging.resident?.to ?? 0,
-            total: paging.total,
-            loading: paging.loading,
-            partial: !paging.complete,
-        };
-    }, [paged, paging.resident, paging.total, paging.loading, paging.complete]);
+        // A canvas that reads neither a paged source nor event kinds has nothing to say on the line.
+        if (!paged && events === undefined) return undefined;
+        const failed = failures[0];
+        const rowsFailed = failed !== undefined || pagingError !== undefined;
+        const loading: PagedLoading | undefined = failed !== undefined ? { kind: "failed", from: failed.from, to: failed.to, reason: failed.error }
+            : pagingError !== undefined ? { kind: "failed", from: undefined, to: undefined, reason: pagingError }
+                : eventsFailure !== undefined ? { kind: "failed", from: undefined, to: undefined, reason: eventsFailure.reason }
+                    : paging.replacing ? { kind: "filtering" }
+                        : waits ? { kind: "loading", from: paging.reading?.from, to: paging.reading?.to }
+                            : cellsReading || awaits ? { kind: "loading", from: undefined, to: undefined }
+                                : undefined;
+        // The event kinds' read that failed, in its own noun, its Retry its own.
+        const eventsFailed = !rowsFailed && eventsFailure !== undefined;
+        // The events' noun while their cells are what the view waits for; the rows' while a run is.
+        const cellsWaited = cellsReading || (!viewAwaits.run && viewAwaits.cells);
+        const noun = eventsFailed ? eventsNoun : loading?.kind === "loading" && !waits && cellsWaited ? cellsNoun : undefined;
+        return { partial: paged && !paging.complete, loading, retry: eventsFailed ? retryEvents : retryFailed, ...(noun === undefined ? {} : { noun }) };
+    }, [paged, events, failures, pagingError, eventsFailure, eventsNoun, retryEvents, paging.replacing, waits, paging.reading, paging.complete, retryFailed,
+        cellsReading, awaits, viewAwaits, cellsNoun]);
+    const partial = transport?.partial;
+    // Cold load (#1398, CL5): nothing of a paged source landed yet, and no failure to say — the frame's skeleton
+    // covers the Plan. After it, a read the view waits for — a window, a resource kind's narrowing — leaves it live
+    // and busy.
+    const cold = paged ? paging.rows.length === 0 && paging.total === undefined && failures.length === 0 && pagingError === undefined : undefined;
+    const frameBusy = cold !== true && (busy || waits || cellsReading || awaits);
+    // What stands in while a narrowing is read is retained (#1398, CL8): a resource kind's narrowing resolving, the
+    // view the last narrowing of the paged rows drew while the new one's first window is read (#1344, #1354), or the
+    // view Home or End left while the window it goes to is read (CL10).
+    const retained = busy || paging.replacing || paging.standing;
+    // The eye and its parts (#1409): the window's label is the period. The eye is listed only where the window can be
+    // optimised (ruled 25 Oct 2026) — event kinds on a time axis; it waits, disabled, while the kinds' rows are read.
+    const periodName = planWindow === undefined ? "" : format.range(planWindow.from, new Date(planWindow.to.getTime() - 1));
+    // What a run's request reads (R24, #1039): every kind's events in the window, its backlog and each event's row — the
+    // kind's rows over the range the canvas reads, read once a kind and found there by key, which the eye waits for, so no
+    // row is read by its key and the eye asks e3 for windows alone, whatever the number of events, and the click's work
+    // grows with the events plus the rows. The eye waits while one is on its way, and stays disabled
+    // for a window no request carries whole — a kind past the cap over it, or read by its cells — never sending a run the
+    // events it was not shown. Read only while an optimiser is bound, in a component of its own (`PlanOptimiseReader`, in
+    // `provide`), which hands the canvas whether the request can be made only as that moves: the read lands in as many
+    // settles as the searches it touches, and each would otherwise render the whole canvas (#1343).
+    const [optimiseReady, setOptimiseReady] = useState<PlanOptimiseReadiness>("reading");
+    const requestHeld = optimise === undefined || planWindow === undefined || optimiseReady === "ready";
+    const optimiseParts = useOptimiseParts<PlanOptimiseRequest>({
+        run, landing, period: periodName,
+        readOnly: kinds.length === 0 || planWindow === undefined,
+        busy: readLead === undefined || lead.error !== undefined || frameBusy || !requestHeld,
+        request: (n) => planOptimiseRequest(latestOptimise.current.kinds, latestOptimise.current.resources, latestOptimise.current.eventEditing, planWindow!, eventRange!, n),
+        landKey: lead,
+    });
+    landAfter.current = optimiseParts.landAfter;
+    const { acted } = optimiseParts;
+    // What the runs left on the events goes with the drafts (R17): once nothing is pending — Save, Discard — nothing
+    // is marked. An Undo leaves nothing pending too, but its Redo brings the run's step back (R9): what the runs left
+    // is kept while that step is the next to redo.
+    const historyVersion = eventEditing.version;
+    useEffect(() => {
+        if (history.pending === 0 && history.redoOrigin !== "optimise") setOptimised(undefined);
+    }, [history, historyVersion]);
+    const optimisedMarks = useMemo((): PlanOptimisedMarks => (optimised === undefined ? NO_OPTIMISED_MARKS
+        : { ops: optimised.ops, ghosts: optimised.ghosts, lit: landing.lit }), [optimised, landing.lit]);
     // Key search is a capability of the SOURCE (`search` becomes seek — #567
     // D9): a jump rebases residency on the matched ELEMENT, and the canvas
     // positions on the first row that element placed, since a row's id starts
@@ -487,9 +704,13 @@ export function usePlanCanvas({
     // The `rows` source's own Search Records stays primary-key navigation: the rail narrows, never the key search.
     const seekable = rowsPart === undefined && data.rows.type !== "inline" && data.rows.value.seek.type === "some";
     const sourceId = data.rows.type !== "inline" ? data.rows.value.id : "";
+    // A pick in it hands the keyboard to the canvas (#1398): the row it brings in takes the focus — the grid's one stop,
+    // its ring — once the box has let the keyboard go (below); a step leaves it in the box.
+    const handOff = usePickHandOff();
+    const picking = useMemo(() => handOff.search(controller.search), [handOff, controller]);
     const search = useMemo<PlanSearch | undefined>(
-        () => (seekable ? { ...controller.search, resetKey: sourceId, requery: seek.again } : undefined),
-        [seekable, controller, sourceId, seek.again]);
+        () => (seekable ? { ...picking, resetKey: sourceId, requery: seek.again } : undefined),
+        [seekable, picking, sourceId, seek.again]);
 
     // ── Row focus and the visible rows ────────────────────────────────────
     const { linkFamily, focusVisibleKeys, focusCtx } = usePlanFocus(view.focus, data.links);
@@ -509,12 +730,6 @@ export function usePlanCanvas({
     const hasRootGroup = useMemo(() => index.roots.some((r) => r.kind.type === "group"), [index]);
 
     // ── The frame ─────────────────────────────────────────────────────────
-    // The canvas body: the ribbons' positioning parent, the keyboard surface,
-    // and what the narrow layout measures (§10, #570 — below the adaptive
-    // contract's compact width the Plan is a review tool, cards and tabs; the
-    // signal is the CONTAINER the body renders in, never the viewport).
-    const focusBodyRef = useRef<HTMLDivElement | null>(null);
-    const narrow = useContainerBelow(focusBodyRef, PLAN_NARROW_BELOW);
     // The virtualizer's scroll viewport and the sticky chrome inside it —
     // what the R2 clamp measures, watched rather than measured once (#812).
     const scrollElRef = useRef<HTMLDivElement | null>(null);
@@ -526,15 +741,33 @@ export function usePlanCanvas({
     // control), dropping browser focus to <body> and killing the esc rung —
     // re-anchor keyboard focus on the focused ROW (#819: it holds the tab
     // stop from then on), or on the canvas surface in the narrow layout,
-    // which has no grid. Focus that stayed in the canvas is left where it is.
+    // which has no grid. Focus that stayed in the canvas is left where it
+    // is; on the canvas's surface it is a dropped focus kept there until a
+    // row takes it (#1398, below), and the focused row takes it here.
     useEffect(() => {
         if (view.focus === null) return;
         const bodyEl = focusBodyRef.current;
         const at = document.activeElement;
-        if (bodyEl === null || (at !== null && at !== document.body && bodyEl.contains(at))) return;
+        if (bodyEl === null || (at !== null && at !== document.body && at !== bodyEl && bodyEl.contains(at))) return;
         if (narrow) bodyEl.focus();
         else controller.focusItem(rowItemKey(view.focus.key));
     }, [view.focus, narrow, controller]);
+    // A search served — its row resolved, the canvas brought to it: a pick's row takes the keyboard (#1398), while the
+    // canvas draws it as the keyboard is handed over — never a row the viewer has scrolled away from, whose request the
+    // grid would serve by scrolling back. Each search once: a later render never hands it a row an earlier search found.
+    const searchSeq = scroll.searchSeq;
+    const searchTarget = scroll.targetKey;
+    const servedSearch = useRef(searchSeq);
+    useEffect(() => {
+        if (servedSearch.current === searchSeq) return;
+        servedSearch.current = searchSeq;
+        if (searchTarget === undefined || narrow) {
+            handOff.drop();
+            return;
+        }
+        const key = rowItemKey(searchTarget);
+        handOff.land(() => { if (drawsItem(focusBodyRef.current, key)) controller.focusItem(key); });
+    }, [searchSeq, searchTarget, narrow, handOff, controller]);
     // The hover cursor: direct DOM writes, zero renders (#609).
     const cursorChipRef = useRef<HTMLDivElement | null>(null);
     const cursor = usePlanCursorController(focusBodyRef, cursorChipRef, scale);
@@ -605,6 +838,8 @@ export function usePlanCanvas({
         },
     });
     const onDrag = useCallback((event: DragEventValue, meta?: DragMeta): boolean => {
+        // Nothing lands while a run of the optimiser is out (R2).
+        if (locked) return false;
         if (event.type === "add") {
             // A card on an event kind's row is the event kinds'; on `data`'s, its session's.
             const row = indexRef.current?.byKey.get(event.value.into.row);
@@ -624,12 +859,28 @@ export function usePlanCanvas({
             label: grab.movable.label, element: grab.movable, units: proposal.units, fine: proposal.fine,
         };
         return eventDrag !== undefined && eventDrag.isEvent(grab.movable) ? eventDrag.moveElement(request) : draftMove(request);
-    }, [draftDrop, draftMove, editStore, eventDrag]);
-    const rowDrop = usePlanDropTarget(value, data.sources, panel ?? NO_PANEL, onDrag, editing.available, eventDrag);
+    }, [draftDrop, draftMove, editStore, eventDrag, locked]);
+    // No drop target, no grip and no event drag while a run's call is out (R2).
+    const rowDrop = usePlanDropTarget(value, data.sources, panel ?? NO_PANEL, onDrag, editing.available && !locked, locked ? undefined : eventDrag);
 
     // ── The body ──────────────────────────────────────────────────────────
     const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded);
     const target = usePlanScrollTarget(body.items, index, derived, scroll);
+    // The rows' pitch where a run stands for rows not read yet (#1398, CL2): the height most resident rows draw at —
+    // a two-line row's 42, a span row's 32 — else the default row's.
+    const runPitch = useMemo(() => {
+        const seen = new Map<number, number>();
+        let pitch = geometry.row;
+        let most = 0;
+        body.items.forEach((item, i) => {
+            const h = body.heights[i];
+            if (item.kind !== "row" || h === undefined) return;
+            const n = (seen.get(h) ?? 0) + 1;
+            seen.set(h, n);
+            if (n > most) { most = n; pitch = h; }
+        });
+        return pitch;
+    }, [body.items, body.heights, geometry.row]);
     // ── The links layer (R1, #818) ────────────────────────────────────────
     // Its ribbons are laid out from THIS body — the heights the frame lays the
     // rows out at — and drawn in the rows' own coordinates, so they follow a
@@ -652,7 +903,55 @@ export function usePlanCanvas({
     // What a bounded frame's view is read from — its scroll element and the
     // sticky chrome above its rows.
     const frameRefs = useMemo(() => ({ scrollElRef, headerRef }), [scrollElRef, headerRef]);
-    const reportRange = usePlanRangeReport(body.items, controller);
+    // ── The focus across a landing (#1398, CL10) ──────────────────────────
+    // Fetch, then move: a keyboard move past the rows read waits on the item it set out from, never on the run — its
+    // intent, served once the rows land (`navIntent`, below). A run holding the focus — a click into it — owes it to the
+    // first of its rows the view shows once they land, and a key pressed on it waits for them (`owedFocus`'s `waits`).
+    // Every key that moves through the rows pressed while a move waits — on the run, or on the row the move set out
+    // from — waits with it, in the order pressed, and goes on once the rows are in: none is lost (#1398, CL10).
+    // A focused item a landing takes off the canvas leaves the focus on the canvas's surface, never the page's body: an
+    // intent waiting takes it on from there, a run owed it does as above, and a row taken off owes it to the first row
+    // the view shows. What the view shows takes what is owed as it is reported at rest (`takeOwed`). A key that moves
+    // through the rows, pressed on the surface while it holds what is owed, waits as one pressed on the run does — a
+    // run the click focused can leave the frame before its rows come, when windows the page still holds land at once
+    // beside it as the view comes to rest (`surfaceKey`).
+    const navIntent = useRef<{ holder: string; intent: PlanNavIntent; then: readonly PlanWaitKey[] } | null>(null);
+    const owedFocus = useRef<{ band: PlanBand | undefined; waits: readonly PlanWaitKey[] } | null>(null);
+    const takeOwed = useRef<(shown: readonly PlanBodyItem[]) => void>(() => undefined);
+    // The paged kind's rows in view, once the scroll rests (#1039): the reader of its kinds' cells reads the blocks around them
+    // — under the narrowing their windows are (#1344), so a choice's reads none for the last one's rows standing in. They are
+    // the rows the view shows, never the overscan mounted beside them, and a view showing a run not read yet and no row read
+    // leaves the span standing (`shownCellSpan`).
+    const pagingOrigin = paging.origin;
+    const pagingNarrowing = paging.narrowing;
+    const reportRange = usePlanRangeReport(body.items, controller, pagingOrigin);
+    const onRangeChange = useCallback((
+        range: { startIndex: number; endIndex: number }, isScrolling: boolean, center?: { index: number; withinPx: number },
+        shown?: { startIndex: number; endIndex: number },
+    ) => {
+        reportRange(range, isScrolling, center);
+        if (isScrolling) return;
+        const inView: { key: string; path: readonly string[] }[] = [];
+        const rows: PlanRowValue[] = [];
+        let notRead = false;
+        let run = false;
+        for (let i = shown?.startIndex ?? 0; shown !== undefined && i <= shown.endIndex; i++) {
+            const item = body.items[i];
+            if (item?.kind === "row") rows.push(item.row.row);
+            if (item?.kind === "row" && item.row.row.id.type === "entry") inView.push({ key: item.row.row.key, path: item.row.row.id.value.path });
+            else if (item?.kind === "band" || item?.kind === "failed") notRead = true;
+            // A run whose windows are on their way: the view waits for them.
+            if (item?.kind === "band" && item.band.loading !== undefined) run = true;
+        }
+        cellSpans.set(shownCellSpan(inView, notRead, cellSpans.get(), pagingOrigin, pagingNarrowing));
+        // What the view waits for now, as it rests (#1398, CL3): a run on its way, or rows whose cells have not landed. A
+        // run is held here only where its rows' cells are read after it; elsewhere the driver's own `viewLoading` says it,
+        // in the commit that lands it, so a window landing stays one commit.
+        rowsInView.current = rows;
+        awaitInView(unread !== undefined && run, unread !== undefined && rows.some(unread));
+        // What the view shows takes a focus a landing owes it.
+        takeOwed.current(shown === undefined ? [] : body.items.slice(shown.startIndex, shown.endIndex + 1));
+    }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans, unread, awaitInView]);
     // Scroll anchoring (#878): the row at the top of the view keeps its place
     // when rows above it change height or count — a window landing above at a
     // height its estimate missed. An unloaded band never anchors: rows landing
@@ -694,10 +993,11 @@ export function usePlanCanvas({
     // from the OLD position cannot rebase the run back (#812).
     useEffect(() => { controller.committed(paging); });
     // The scroll anchor (#813): placed against the body once it can be — a
-    // paged canvas may first jump to the window its row came from.
+    // paged canvas may first jump to the window its row came from — or, the
+    // source counted empty, settled with nothing to place (#1398).
     useEffect(() => {
         if (anchor.phase !== "settled") controller.placeAnchor(body.items, frameFills && !narrow);
-    }, [controller, anchor.phase, body.items, frameFills, narrow]);
+    }, [controller, anchor.phase, body.items, frameFills, narrow, paging.total, paging.replacing]);
     const onAnchorChange = useCallback(
         (at: { index: number; offset: number }) => controller.anchorChanged(at, body.items),
         [controller, body.items]);
@@ -710,17 +1010,36 @@ export function usePlanCanvas({
         const more = paging.blocks.filter((b) => b.tail !== undefined);
         return {
             tail: more[more.length - 1]?.tail,
+            // What the list's `N more rows` counts past its rows read: the source's, never what has loaded (#1398).
+            beyond: paging.total === undefined || paging.replacing ? undefined : more.reduce((n, b) => n + bandElements(b.tail!), 0),
             onViewport: (key: string) => controller.reportViewport({ kind: "row", key }, false),
             onLoadMore: () => {
                 for (const b of more) controller.reportViewport({ kind: "band", block: b.index, at: "tail" }, false);
             },
         };
-    }, [paged, paging.blocks, controller]);
-    // What the toolbar reports (#811) — everything the canvas carried on past,
-    // the event kinds' rows that could not be read among it (#1192). The
-    // narrow list has no scroll target, so there the rows chip states the
-    // count without offering to seek.
-    const sourceError = paging.sourceError ?? lead.error;
+    }, [paged, paging.blocks, paging.total, paging.replacing, controller]);
+    // What the narrow list's Measures tab counts over a paged source (#1398, ruled 27 Oct 2026, "Exact where it can be"):
+    // the source's count times the chart rows each of its entries makes across the paged blocks, beside the chart rows
+    // of the blocks no entry makes — where every entry makes as many (`PlanPagedBlock.charts`); not counted where some
+    // block's entries make no fixed number of them; nothing yet while the source has not counted itself, or a new
+    // narrowing's rows are read. Never what has loaded.
+    const pagedMeasures = useMemo((): number | "notCounted" | undefined => {
+        if (!paged || paging.replacing || paging.total === undefined) return undefined;
+        let each = 0;
+        for (const block of paging.blocks) {
+            if (block.fixed) continue;
+            if (block.charts === undefined) return "notCounted";
+            each += block.charts;
+        }
+        const fixed = rows.filter((row) => paging.blocks[row.block]?.fixed === true && row.kind.type === "chart").length;
+        return paging.total * each + fixed;
+    }, [paged, paging.replacing, paging.total, paging.blocks, rows]);
+    // What the toolbar reports (#811) — everything the canvas carried on past.
+    // The event kinds' rows that could not be read are said on the footer's
+    // line, with Retry, and only there (#1398): a read's failure is said once,
+    // never as a "… unavailable" status. The narrow list has no scroll target,
+    // so there the rows chip states the count without offering to seek.
+    const sourceError = paging.sourceError;
     const diagnostics = useMemo<PlanDiagnostics>(() => ({
         skipped: derived.diagnostics.size,
         onSeekSkipped: target.firstSkipped !== undefined && !narrow ? controller.seekSkipped : undefined,
@@ -748,7 +1067,10 @@ export function usePlanCanvas({
     // Events selected from the frame (#1198) — the overlaps chip's pair, the
     // inspector's banner, a duplicate the inspector made (#1194): on the row
     // given, else the row that draws the first, which the controller brings
-    // into view; none when no row on the canvas draws it.
+    // into view; none when no row on the canvas draws it. The rows are this
+    // render's, read as the frame selects: the same function as windows land,
+    // so the frame's toolbar items it reaches are made again only as what
+    // they show moves (#1398, CL9).
     const selectEvents = useCallback((keys: readonly string[], row?: RowKey) => {
         const first = keys[0];
         if (first === undefined) {
@@ -759,8 +1081,8 @@ export function usePlanCanvas({
             if (selectedRow !== null) controller.focusItem(rowItemKey(selectedRow));
             return;
         }
-        controller.selectEvents(keys, row ?? index.rows.find((r) => holdsElement(r, first))?.key ?? null);
-    }, [index, controller]);
+        controller.selectEvents(keys, row ?? indexRef.current?.rows.find((r) => holdsElement(r, first))?.key ?? null);
+    }, [controller]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
     const marks = editing.marks;
@@ -769,15 +1091,17 @@ export function usePlanCanvas({
     const rowCtx = useMemo<PlanRowContext>(() => ({
         styles, gridTemplate, dense, storageKey, index, derived,
         dispatch: controller.dispatch, chartsExpanded, focusCtx, heightCtx, linkFamily, linkedKeys,
-        canExpand, expandBody, expandGutterBody, partial: transport?.partial, rowDrop, marks, groupEnds,
+        canExpand, expandBody, expandGutterBody, partial, rowDrop, marks, groupEnds, unread,
     }), [styles, gridTemplate, dense, storageKey, index, derived, controller, chartsExpanded,
-        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, transport, rowDrop, marks,
-        groupEnds]);
+        focusCtx, heightCtx, linkFamily, linkedKeys, canExpand, expandBody, expandGutterBody, partial, rowDrop, marks,
+        groupEnds, unread]);
 
     // The resolution segment is a TIME-axis affordance; the now instant rides
     // whichever arm the axis declares.
     const resolutions = useMemo(() => axisResolutions(data.axis), [data.axis]);
     const now = useMemo(() => axisNow(data.axis), [data.axis]);
+    // What the brush spans beside the window shown while no source holds the window (#1344).
+    const stated = useMemo(() => statedWindow(data.axis), [data.axis]);
     // The history (#880, #1194): the frame's history item (#988) over the
     // Plan's one history — `data`'s session and each event kind's — and each
     // session's banners. An issue of `data`'s takes the reader to its entry's
@@ -787,6 +1111,9 @@ export function usePlanCanvas({
     const rowOfIssue = useCallback(
         (issue: EditIssue) => sourceRows.find((r) => entryOf(r.id) === issue.entry), [sourceRows]);
     const where = useCallback((issue: EditIssue) => rowOfIssue(issue)?.gutter.label ?? issue.entry, [rowOfIssue]);
+    // The rows an issue's click looks for its entry among: this render's, read as it is clicked.
+    const rowOfIssueNow = useRef(rowOfIssue);
+    rowOfIssueNow.current = rowOfIssue;
     const kindSessions = eventEditing.sessions;
     const onIssue = useCallback((issue: EditIssue) => {
         const source = history.sourceOf(issue);
@@ -795,12 +1122,24 @@ export function usePlanCanvas({
             if (issue.entry !== "") selectEvents([printEventRef({ kind: kind.kind, key: issue.entry })]);
             return;
         }
-        const row = rowOfIssue(issue);
+        const row = rowOfIssueNow.current(issue);
         if (row !== undefined) controller.focusItem(rowItemKey(row.key), "auto");
-    }, [history, kindSessions, selectEvents, rowOfIssue, controller]);
-    const onHistory = useCallback((action: HistoryAction) => history.act(action), [history]);
+    }, [history, kindSessions, selectEvents, controller]);
+    // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16) — and no
+    // history action runs while a run's call is out (R2).
+    const onHistory = useCallback((action: HistoryAction) => {
+        if (locked) return;
+        acted(action, history.redoOrigin);
+        history.act(action);
+    }, [history, locked, acted]);
     const edits = editing.enabled || kinds.length > 0;
-    const historyProps = edits ? { session: history, words, editing: false, onAction: onHistory, onIssue } : undefined;
+    // The history item's props, made again only as the history moves — its version moves with every change of it or
+    // of its sessions — or as its words and actions do, never as a window lands: the frame's toolbar is handed the
+    // same history item, and draws and measures nothing again for it (#1398, CL9).
+    const historyProps = useMemo(
+        () => (edits ? { session: history, words, editing: false, onAction: onHistory, onIssue, locked } : undefined),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the history is mutable: its version says it moved
+        [edits, history, historyVersion, words, onHistory, onIssue, locked]);
     // Each session's banners: `data`'s naming no source, each kind's naming its kind, its issues by its events' titles —
     // each event read as a gesture reads it, where the canvas reads its rows, else by its key (#1199).
     const readEvent = eventEditing.read;
@@ -829,20 +1168,32 @@ export function usePlanCanvas({
     }, [editing.enabled, editing.historyKey, editing.session, where, kindSessions, kinds, readEvent, history]);
 
     // ── The treegrid (#819) ───────────────────────────────────────────────
-    // Every item's place in the grid — the pinned rows first — published to
-    // the rows, which write it onto themselves: a collapse or a landing at
-    // the head renumbers every row below it without rendering one
-    // (`root/grid.ts`).
+    // Every item's place in the grid — the pinned rows first, a run not read
+    // taking a place for each of its rows (#1398, CL12) — published to the
+    // rows, which write it onto themselves: a collapse or a landing at the
+    // head renumbers every row below it without rendering one
+    // (`root/grid.ts`). The count is the total once a paged source has
+    // counted itself.
     const gridRef = useRef<HTMLElement | null>(null);
     const [positions] = useState(createRowPositions);
-    const gridCtx = useMemo<PlanGridContextValue>(() => ({ positions, gridRef }), [positions]);
-    const positionMap = useMemo(() => {
-        const m = new Map<string, number>();
-        pinned.forEach((v, i) => m.set(rowItemKey(v.row.key), i + 1));
-        body.items.forEach((it, i) => m.set(bodyItemKey(it), pinned.length + i + 1));
-        return m;
-    }, [pinned, body.items]);
-    useLayoutEffect(() => { positions.set(positionMap); }, [positions, positionMap]);
+    // A row leaving the grid with the focus in it hands it over as it goes, its element still on the page (`leave`,
+    // `root/grid.ts`, #1398, CL10): the canvas's surface keeps it — never the page's body, not for a moment — and a row a
+    // landing took off owes it to the first row the view shows, as a dropped focus does (`keepFocus`, below). The grid's
+    // items are this render's (`navItemsNow`), the commit that takes the row off having drawn them.
+    const navItemsNow = useRef<readonly PlanNavItem[]>([]);
+    const leave = useCallback((key: string) => {
+        const bodyEl = focusBodyRef.current;
+        if (bodyEl === null || !bodyEl.isConnected) return;
+        bodyEl.focus({ preventScroll: true });
+        if (owedFocus.current !== null || navIntent.current !== null) return;
+        if (!navItemsNow.current.some((it) => it.key === key)) owedFocus.current = { band: undefined, waits: [] };
+    }, []);
+    const gridCtx = useMemo<PlanGridContextValue>(() => ({ positions, gridRef, leave }), [positions, leave]);
+    const counted = !paged || paging.total !== undefined;
+    const places = useMemo(
+        () => gridPlaces(pinned.map((v) => rowItemKey(v.row.key)), body.items, counted),
+        [pinned, body.items, counted]);
+    useLayoutEffect(() => { positions.set(places.places); }, [positions, places]);
     const uid = useId();
     const pinnedId = `${uid}-pinned`;
     // The grid's items as the keyboard walks them.
@@ -852,6 +1203,7 @@ export function usePlanCanvas({
     const navItems = useMemo(() => planNavItems({
         pinned, pinnedHeights, items: body.items, heights: body.heights, index, chartsExpanded, focusCtx,
     }), [pinned, pinnedHeights, body.items, body.heights, index, chartsExpanded, focusCtx]);
+    navItemsNow.current = navItems;
     // What the grid knows of its source's ends — a pending band move waits
     // while a window is in flight, and Home / End until the first block's
     // first element / the last block's last element is resident (#823).
@@ -866,12 +1218,32 @@ export function usePlanCanvas({
                 && paging.total !== undefined && last.resident.to >= paging.total),
         };
     }, [paged, paging.loading, paging.blocks, paging.total]);
-    // A keyboard move onto a band waits — on the band, which stands for its
-    // windows while they load (#876), or on the item it set out from when the
-    // demand took the band away — for the rows, then goes on to the row it was
-    // headed for (`resolveNavIntent`).
-    const navIntent = useRef<{ holder: string; intent: PlanNavIntent } | null>(null);
+    // A keyboard move past the rows read waits on the item it set out from — never on the run (#1398, CL10) — for the
+    // rows, then goes on to the row it was headed for (`resolveNavIntent`); rows landed short of a page on ask for the
+    // window past them, and the page waits for it. A new result (#1344, #1354) takes a move set out among the rows it
+    // replaces with them — a step's or a page's, Home's or End's — and a focus owed to them: left, they would land in its
+    // rows as they draw. It goes as the last result's rows stand in for the new one, and at the latest as the new one's
+    // rows are drawn — the narrowing or the source the rows belong to moved on — for its first window can land before
+    // the stand-in is ever drawn. So does a far key's standing view that ends without its window — a new count.
+    const pagingReplacing = paging.replacing;
+    const pagingStanding = paging.standing;
+    const stoodIn = useRef(false);
+    const resultDrawn = useRef<{ source: string; narrowing: string | undefined } | undefined>(undefined);
+    // The keys pressed while a move waited go on from where it lands (`goOn`, below): this render's.
+    const goOnRef = useRef<(from: string, keys: readonly PlanWaitKey[]) => void>(() => undefined);
     useEffect(() => {
+        const standingEnded = stoodIn.current && !pagingStanding;
+        stoodIn.current = pagingStanding;
+        // The result the rows drawn belong to: their source, and the narrowing a live source names — the first it names
+        // is no new one.
+        const was = resultDrawn.current;
+        resultDrawn.current = { source: sourceId, narrowing: pagingNarrowing };
+        const anew = was !== undefined && (!stringEqual(was.source, sourceId)
+            || (was.narrowing !== undefined && (pagingNarrowing === undefined || !stringEqual(was.narrowing, pagingNarrowing))));
+        if (pagingReplacing || anew) {
+            navIntent.current = null;
+            owedFocus.current = null;
+        }
         const pending = navIntent.current;
         if (pending !== null) {
             // Moved on meanwhile: the move is theirs now.
@@ -881,9 +1253,15 @@ export function usePlanCanvas({
                 const r = resolveNavIntent(navItems, pending.intent, navEdges);
                 if (r.t !== "pending") {
                     navIntent.current = null;
-                    if (r.t === "resolved") controller.focusItem(r.key, "auto");
+                    if (r.t === "resolved") {
+                        controller.focusItem(r.key, "auto");
+                        // The keys pressed while it waited go on from there, in turn.
+                        goOnRef.current(r.key, pending.then);
+                    }
                     return;
                 }
+                if (standingEnded && (pending.intent.t === "first" || pending.intent.t === "last")) navIntent.current = null;
+                else if (r.ask !== undefined) controller.reportViewport(r.ask, false);
             }
         }
         const snap = controller.getSnapshot();
@@ -897,7 +1275,168 @@ export function usePlanCanvas({
             controller.focusDone(req.seq);
             if (!narrow) gridRef.current?.focus();
         }
-    }, [navItems, navEdges, controller, narrow]);
+    }, [navItems, navEdges, controller, narrow, pagingReplacing, pagingStanding, pagingNarrowing, sourceId]);
+
+    // ── The grid's keys (#819, `root/keyboard.ts`) ────────────────────────
+    // How far a page moves: the frame's viewport less its pinned header, or
+    // the window's on an unbounded canvas.
+    const pageHeight = (): number => {
+        const el = scrollElRef.current;
+        if (frameFills && el !== null) return Math.max(0, el.clientHeight - (headerRef.current?.offsetHeight ?? 0));
+        return typeof window !== "undefined" ? window.innerHeight : 0;
+    };
+    const runMove = (move: PlanNavMove, from: string) => {
+        switch (move.t) {
+            case "focus":
+                controller.focusItem(move.key, move.align);
+                break;
+            case "fetch":
+                // Fetch, then move (#1398, CL10): the window beside the run asked for now — whatever the scroll reports
+                // after — the focus waiting on the item it set out from, and the view where it is, until the intent finds
+                // the row it was headed for.
+                owedFocus.current = null;
+                navIntent.current = { holder: from, intent: move.intent, then: [] };
+                controller.reportViewport(move.demand, false);
+                break;
+            case "edge":
+                // Home / End past a run: the source's first or last window read where it is — the rows shown standing
+                // in where they are, retained, the focus on the item it set out from — then the focus lands on its first
+                // or last row as that window's rows replace them. The focus moving on meanwhile puts the rows back.
+                owedFocus.current = null;
+                navIntent.current = { holder: from, intent: { t: move.edge, from }, then: [] };
+                controller.jumpToEdge(move.edge, from);
+                break;
+            case "wait": {
+                // A key on a run holding the focus waits for the run's rows in view, after any pressed before it, and goes
+                // on from the first of them.
+                const run = body.items.find((it) => it.kind === "band" && bodyItemKey(it) === from);
+                if (run?.kind === "band") owedFocus.current = { band: owedFocus.current?.band ?? run.band, waits: [...(owedFocus.current?.waits ?? []), move.key] };
+                break;
+            }
+            case "event":
+                controller.dispatch(move.event);
+                // Focus stays on (or lands on) its item: the event may have
+                // re-rendered it as another element — a rail becoming a row.
+                controller.focusItem(move.focus);
+                break;
+            case "none":
+                break;
+        }
+    };
+    /**
+     * The keys pressed while a move waited, each in turn from the item it landed on (#1398, CL10): over rows read each
+     * moves as it would have, and the first that goes past them fetches — the rest waiting on it as it waits, on the item
+     * the keys had reached. The focus ends where they leave it.
+     */
+    const goOn = (from: string, keys: readonly PlanWaitKey[]): void => {
+        let at = from;
+        for (let i = 0; i < keys.length; i++) {
+            const move = planNavKey(navItems, at, keys[i]!, pageHeight());
+            if (move?.t === "focus") {
+                at = move.key;
+                continue;
+            }
+            if (move?.t !== "fetch") continue;
+            if (at !== from) controller.focusItem(at, "auto");
+            owedFocus.current = null;
+            navIntent.current = { holder: at, intent: move.intent, then: keys.slice(i + 1) };
+            controller.reportViewport(move.demand, false);
+            return;
+        }
+        if (at !== from) controller.focusItem(at, "auto");
+    };
+    goOnRef.current = goOn;
+    // What the view shows takes a focus a landing owes it (`owedFocus`), reported at rest — never while a keyboard move
+    // waits, whose intent takes the focus on. A run owed it keeps it while its rows in view are on their way; once they
+    // land — or the view leaves it — the first of them in view takes it, else the first row in view, and the keys pressed
+    // on the run go on from there in turn. A focus the viewer moved on meanwhile is owed nothing.
+    useLayoutEffect(() => {
+        takeOwed.current = (shown) => {
+            const owed = owedFocus.current;
+            const bodyEl = focusBodyRef.current;
+            if (owed === null || bodyEl === null || narrow || navIntent.current !== null) return;
+            const at = document.activeElement;
+            const runKey = owed.band === undefined ? undefined : bodyItemKey({ kind: "band", band: owed.band });
+            const holding = at === bodyEl
+                || (runKey !== undefined && at instanceof HTMLElement && bodyEl.contains(at) && at.getAttribute("data-plan-item") === runKey);
+            if (!holding) {
+                owedFocus.current = null;
+                return;
+            }
+            const band = owed.band;
+            if (band !== undefined) {
+                const same = (it: PlanBodyItem) => it.kind === "band" && it.band.block === band.block && it.band.at === band.at;
+                const now = body.items.find(same);
+                if (now?.kind === "band" && now.band.from === band.from && now.band.to === band.to && shown.some(same)) return;
+            }
+            const rows = shown.filter((it) => it.kind === "row");
+            // The run's own rows: rows of its block, from a window its elements covered.
+            const ofRun = band === undefined ? [] : rows.filter((it) => {
+                const o = it.kind === "row" ? paging.origin.get(it.row.row.key) : undefined;
+                return o !== undefined && o.block === band.block && o.w * PLAN_PAGE_SIZE <= band.to && (o.w + 1) * PLAN_PAGE_SIZE - 1 >= band.from;
+            });
+            const candidates = ofRun.length > 0 ? ofRun : rows;
+            // Nothing read in view yet: still owed.
+            if (candidates.length === 0) return;
+            const elementOf = (key: string) => Array.from(bodyEl.querySelectorAll<HTMLElement>("[data-plan-item]")).find((e) => e.getAttribute("data-plan-item") === key);
+            // The first of them the view shows whole, below the pinned header — the first in view a scroll left part-hidden
+            // is no row to put the ring on — else the first.
+            const viewTop = Math.max(scrollElRef.current?.getBoundingClientRect().top ?? 0, headerRef.current?.getBoundingClientRect().bottom ?? 0, 0);
+            const target = candidates.find((it) => (elementOf(bodyItemKey(it))?.getBoundingClientRect().top ?? -Infinity) >= viewTop - 1) ?? candidates[0]!;
+            owedFocus.current = null;
+            const key = bodyItemKey(target);
+            const el = elementOf(key);
+            if (el !== undefined) el.focus({ preventScroll: true });
+            else controller.focusItem(key);
+            // The keys pressed on the run go on from its row in turn: the first a page's from there, or a step's the
+            // hand-off itself.
+            const [first, ...after] = owed.waits;
+            goOn(key, first === "PageDown" || first === "PageUp" ? owed.waits : after);
+        };
+    });
+    // A focused item a render takes off the canvas — a run its rows replace, a row a run evicts — would drop the focus to
+    // the page's body: once the render is done, the canvas's surface keeps it (no ring: it is the keyboard's surface, not
+    // a stop), and a row a landing took off owes it to the first row the view shows. A focus the viewer moved elsewhere
+    // — another element, or nowhere, its element still on the page — is theirs. Whether the focus is in the canvas is
+    // what the canvas last heard (`focusIn`): a page that says a removed element lost it says so as it goes, before the
+    // render is done; one that says nothing leaves the render to find the focus gone.
+    const focusIn = useRef(false);
+    const keepFocus = useRef<(dropped: string | undefined) => void>(() => undefined);
+    useLayoutEffect(() => {
+        const keep = (dropped: string | undefined) => {
+            const bodyEl = focusBodyRef.current;
+            const at = document.activeElement;
+            if (bodyEl === null || !bodyEl.isConnected || (at !== null && at !== document.body)) return;
+            bodyEl.focus({ preventScroll: true });
+            if (owedFocus.current !== null || navIntent.current !== null) return;
+            if (dropped !== undefined && !navItems.some((it) => it.key === dropped)) owedFocus.current = { band: undefined, waits: [] };
+        };
+        keepFocus.current = keep;
+        const at = document.activeElement;
+        if (focusIn.current && (at === null || at === document.body)) keep(controller.getSnapshot().nav.active ?? undefined);
+    });
+    const hasBody = scale !== undefined;
+    useEffect(() => {
+        const bodyEl = focusBodyRef.current;
+        if (bodyEl === null) return undefined;
+        const lost = () => document.activeElement === null || document.activeElement === document.body;
+        const onOut = (event: globalThis.FocusEvent): void => {
+            const from = event.target;
+            const next = event.relatedTarget;
+            if (next instanceof Node && bodyEl.contains(next)) return;
+            if (next !== null) {
+                focusIn.current = false;
+                return;
+            }
+            const dropped = from instanceof HTMLElement && from !== bodyEl ? gridItemOf(from, bodyEl)?.getAttribute("data-plan-item") ?? undefined : undefined;
+            queueMicrotask(() => {
+                if (from instanceof HTMLElement && from !== bodyEl && !from.isConnected) keepFocus.current(dropped);
+                else if (lost()) focusIn.current = false;
+            });
+        };
+        bodyEl.addEventListener("focusout", onOut);
+        return () => bodyEl.removeEventListener("focusout", onOut);
+    }, [hasBody]);
 
     // ── Moves (#825) ──────────────────────────────────────────────────────
     // What the rows and elements move with: the store, the drag surface — none
@@ -987,8 +1526,18 @@ export function usePlanCanvas({
     // frame draws — main, and the toolbar's items, the banners and the
     // footer — so each speaks as the canvas does.
     const densityTag = style !== undefined ? getSomeorUndefined(style.density)?.type : undefined;
+    // The reader takes the root's own links, their event ends as the author named them: the canvas's are named where
+    // the events draw, which is what the reader's cells decide (#1039).
     const eventsReader = events !== undefined
-        ? <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts} shown={shownResources} onLead={setLead} />
+        ? (
+            <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts} shown={shownResources}
+                kinds={kinds} resources={resources} parts={eventParts} links={editing.data.links} spans={cellSpans} onLead={setLead} />
+        )
+        : null;
+    // Whether a run's request can carry the window whole (R24): read by a component of its own, beside the event kinds'
+    // rows, while an optimiser is bound — over the range the canvas reads them, where each event's row is held.
+    const optimiseReader = optimise !== undefined && planWindow !== undefined && eventRange !== undefined
+        ? <PlanOptimiseReader kinds={kinds} editing={eventEditing} window={planWindow} range={eventRange} cells={cellsRead} onReady={setOptimiseReady} />
         : null;
     const provide = (children: ReactNode): ReactNode => {
         const provided = (
@@ -1001,11 +1550,13 @@ export function usePlanCanvas({
             <PlanResolversContext.Provider value={resolvers}>
             <PlanSelectableContext.Provider value={selectable}>
             <PlanDraftedContext.Provider value={drafted}>
+            <PlanOptimisedContext.Provider value={optimisedMarks}>
             <PlanGridContext.Provider value={gridCtx}>
             <PlanEditContext.Provider value={editCtx}>
                 {children}
             </PlanEditContext.Provider>
             </PlanGridContext.Provider>
+            </PlanOptimisedContext.Provider>
             </PlanDraftedContext.Provider>
             </PlanSelectableContext.Provider>
             </PlanResolversContext.Provider>
@@ -1019,12 +1570,15 @@ export function usePlanCanvas({
         return (
             <>
                 {eventsReader}
+                {optimiseReader}
                 {densityTag !== undefined ? <DensityProvider value={densityTag}>{provided}</DensityProvider> : provided}
             </>
         );
     };
-    // What the rail counts each source in (#1344).
-    const nouns = useMemo(() => planNouns(kinds, resources, tabs, words.locale), [kinds, resources, tabs, words.locale]);
+    // What the loading line and a failed run name the rows by: what the rail counts them in (#1398) — a paged resource
+    // kind's source's where the canvas pages one (its rows are that source's), else the `rows` source's.
+    const rowsSource = slices?.slice.parts.find((part) => stringEqual(part.source, pagedSlot ?? ROWS_SOURCE));
+    const rowsNoun = rowsSource !== undefined ? recordSliceNoun(rowsSource, nouns, words.locale) : words.m.saveNoticeNoun({ kind: undefined, n: 2 });
     const bound = declaredBound ? { height, maxHeight } : undefined;
 
     // A source that cannot be READ no longer replaces the canvas (#811): its
@@ -1048,7 +1602,7 @@ export function usePlanCanvas({
 
     const header = (
         <PlanHeader styles={styles} gridTemplate={gridTemplate} headerRef={headerRef}
-            windowParts={windowParts} affordances={affordances} now={now}
+            windowParts={windowParts} stated={stated} affordances={affordances} now={now}
             // The ruler's gutter caption is the active grain's name (the §1 mock).
             rulerCaption={words.m.grainName({ grain })} cursorChipRef={cursorChipRef}
             pinned={pinned.map((v) => (
@@ -1066,44 +1620,6 @@ export function usePlanCanvas({
                 : undefined} />
     );
 
-    // ── The grid's keys (#819, `root/keyboard.ts`) ────────────────────────
-    // How far a page moves: the frame's viewport less its pinned header, or
-    // the window's on an unbounded canvas.
-    const pageHeight = (): number => {
-        const el = scrollElRef.current;
-        if (frameFills && el !== null) return Math.max(0, el.clientHeight - (headerRef.current?.offsetHeight ?? 0));
-        return typeof window !== "undefined" ? window.innerHeight : 0;
-    };
-    const runMove = (move: PlanNavMove, from: string) => {
-        switch (move.t) {
-            case "focus":
-                controller.focusItem(move.key, move.align);
-                break;
-            case "band": {
-                // The window beside the run, asked for now — whatever the
-                // scroll reports after. While its windows load the band stands
-                // for them (#876); a demand whose windows landed at once may
-                // have filled it, and focus then stays where it is until the
-                // intent finds the row it was headed for.
-                controller.reportViewport(move.demand, false);
-                const p = controller.getSnapshot().paging;
-                const demand = move.demand;
-                const block = demand.kind === "band" ? p.blocks.find((b) => b.index === demand.block) : undefined;
-                const stays = demand.kind === "band" && (demand.at === "head" ? block?.head : block?.tail) !== undefined;
-                navIntent.current = { holder: stays ? move.key : from, intent: move.intent };
-                if (stays) controller.focusItem(move.key, move.align);
-                break;
-            }
-            case "event":
-                controller.dispatch(move.event);
-                // Focus stays on (or lands on) its item: the event may have
-                // re-rendered it as another element — a rail becoming a row.
-                controller.focusItem(move.focus);
-                break;
-            case "none":
-                break;
-        }
-    };
     // An element's activation from the keyboard does what its click does:
     // the popover, the selection, the author's element callback.
     const activateElement = (el: HTMLElement, additive: boolean) => {
@@ -1121,11 +1637,25 @@ export function usePlanCanvas({
         }
         controller.elementClick(ref);
     };
+    /**
+     * A key that moves through the rows, pressed on the item a step or a page waits on (#1398, CL10) — `true` when it
+     * took it: it waits with the move, after the keys pressed before it, and goes on once the move has landed. None is
+     * lost.
+     */
+    const waitsWith = (e: KeyboardEvent<HTMLDivElement>, itemKey: string): boolean => {
+        const waiting = navIntent.current;
+        if (waiting === null || waiting.holder !== itemKey || (waiting.intent.t !== "step" && waiting.intent.t !== "page")) return false;
+        if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "PageDown" && e.key !== "PageUp") return false;
+        e.preventDefault();
+        navIntent.current = { ...waiting, then: [...waiting.then, e.key] };
+        return true;
+    };
     /** A key in the grid — `true` when it was the grid's. */
     const gridKeys = (e: KeyboardEvent<HTMLDivElement>, bodyEl: HTMLElement): boolean => {
         const item = gridItemOf(e.target, bodyEl);
         if (item === null || e.altKey || e.ctrlKey || e.metaKey) return false;
         const itemKey = item.getAttribute("data-plan-item") ?? "";
+        if (waitsWith(e, itemKey)) return true;
         if (e.target === item) {
             // The row itself: Tab walks into its widgets; the rest is the map.
             if (e.key === "Tab") {
@@ -1189,9 +1719,10 @@ export function usePlanCanvas({
                 // A button's own key activates it; an element is the canvas's to.
                 if (!isElement) return false;
                 e.preventDefault();
-                // Space picks up an element that moves (#825); Enter keeps
-                // doing what its click does — Shift adding an event to the selection.
-                if (e.key === " " && carry.start(widget)) return true;
+                // Space picks up an element that moves (#825) — never while the rows are retained (#1398, CL8), nor
+                // while a run of the optimiser is out (R2); Enter keeps doing what its click does — Shift adding an
+                // event to the selection.
+                if (e.key === " " && !retained && !locked && carry.start(widget)) return true;
                 activateElement(widget, e.shiftKey);
                 return true;
             default:
@@ -1199,6 +1730,50 @@ export function usePlanCanvas({
         }
     };
 
+    /**
+     * A key on the canvas's surface while it holds a focus a landing owes (`owedFocus`, #1398, CL10) — a run the focus
+     * was on taken off before its rows came, or a row a landing took off — `true` when it took it: one that moves through
+     * the rows (↑ ↓ PgUp PgDn) waits as one pressed on the run does, for the row the focus is owed to, and goes on from it.
+     */
+    const surfaceKey = (e: KeyboardEvent<HTMLDivElement>, bodyEl: HTMLElement): boolean => {
+        const owed = owedFocus.current;
+        if (e.target !== bodyEl || owed === null || narrow || e.altKey || e.ctrlKey || e.metaKey) return false;
+        const wait: PlanWaitKey | undefined = e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "PageDown" || e.key === "PageUp"
+            ? e.key : undefined;
+        if (wait === undefined) return false;
+        e.preventDefault();
+        owedFocus.current = { band: owed.band, waits: [...owed.waits, wait] };
+        return true;
+    };
+
+    /** A key the canvas acts on, in the order its rungs take one — `true` when it took it. */
+    const canvasKey = (e: KeyboardEvent<HTMLDivElement>, bodyEl: HTMLElement, t: HTMLElement): boolean => {
+        // An element carried by the keyboard takes the keys while it lasts (#825).
+        if (editStore.carry !== null && carry.keys(e)) return true;
+        // The history keys every collection shares (#988): the Plan's one history's (#1194) — none while a run of the
+        // optimiser is out (R2), and a run's highlight ends or replays with the action (`onHistory`).
+        const historyKey = edits ? historyShortcut(e) : undefined;
+        if (historyKey !== undefined) {
+            e.preventDefault();
+            onHistory(historyKey);
+            return true;
+        }
+        // An open popover is the ladder's top rung.
+        if (e.key === "Escape" && overlayHandlers.onKeyDown(e)) return true;
+        if (surfaceKey(e, bodyEl)) return true;
+        if (gridKeys(e, bodyEl)) return true;
+        // Enter on an element outside the grid — a narrow card's.
+        if (overlayHandlers.onKeyDown(e)) return true;
+        const ev = KEYS[e.key];
+        if (ev === undefined) return false;
+        e.preventDefault();
+        controller.dispatch(ev);
+        // A key pressed on a row keeps focus on it: the ladder may re-render
+        // it as another element (a rail returning to a row).
+        const item = gridItemOf(t, bodyEl);
+        if (item !== null && item === t) controller.focusItem(item.getAttribute("data-plan-item") ?? "");
+        return true;
+    };
     const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
         const bodyEl = focusBodyRef.current;
         const t = e.target as HTMLElement;
@@ -1210,28 +1785,9 @@ export function usePlanCanvas({
         // Escape (its layer listens on the document, ahead of the canvas), a
         // widget in an expand render, a nested canvas's own ladder.
         if (e.defaultPrevented) return;
-        // An element carried by the keyboard takes the keys while it lasts (#825).
-        if (editStore.carry !== null && carry.keys(e)) return;
-        // The history keys every collection shares (#988): the Plan's one history's (#1194).
-        const historyKey = edits ? historyShortcut(e) : undefined;
-        if (historyKey !== undefined) {
-            e.preventDefault();
-            history.act(historyKey);
-            return;
-        }
-        // An open popover is the ladder's top rung.
-        if (e.key === "Escape" && overlayHandlers.onKeyDown(e)) return;
-        if (gridKeys(e, bodyEl)) return;
-        // Enter on an element outside the grid — a narrow card's.
-        if (overlayHandlers.onKeyDown(e)) return;
-        const ev = KEYS[e.key];
-        if (ev === undefined) return;
-        e.preventDefault();
-        controller.dispatch(ev);
-        // A key pressed on a row keeps focus on it: the ladder may re-render
-        // it as another element (a rail returning to a row).
-        const item = gridItemOf(t, bodyEl);
-        if (item !== null && item === t) controller.focusItem(item.getAttribute("data-plan-item") ?? "");
+        // A key the canvas acts on goes no further than the Plan (#1398): the page's own `[`, `]` or Esc never hears
+        // what pans, steps or climbs the ladder here.
+        if (canvasKey(e, bodyEl, t)) takeKey(e);
     };
 
     // Focus landing on the grid itself (it is the tab stop while no mounted
@@ -1246,6 +1802,17 @@ export function usePlanCanvas({
             : selected !== undefined && keys.has(selected) ? selected
                 : navItems[0]?.key;
         if (target !== undefined) controller.focusItem(target, "auto");
+    };
+
+    // Where the focus is in the canvas now (#1398): a run taking it — a click into it — is owed its rows as they land; any
+    // other item it lands in owes nothing. The canvas's own surface, holding it while something is owed, changes nothing.
+    const onBodyFocus = (e: FocusEvent<HTMLDivElement>) => {
+        focusIn.current = true;
+        const bodyEl = focusBodyRef.current;
+        if (bodyEl === null || e.target === bodyEl) return;
+        const key = gridItemOf(e.target, bodyEl)?.getAttribute("data-plan-item");
+        const run = key === null || key === undefined ? undefined : body.items.find((it) => it.kind === "band" && bodyItemKey(it) === key);
+        owedFocus.current = run?.kind === "band" ? { band: run.band, waits: [] } : null;
     };
 
     // A carry whose reader left the canvas ends where it began (#825).
@@ -1264,6 +1831,7 @@ export function usePlanCanvas({
             tabIndex={-1}
             css={styles.body}
             data-plan-body
+            onFocus={onBodyFocus}
             onBlur={onBodyBlur}
             // The bound lives HERE, not on the frame — the attribute is
             // the contract (jsdom resolves no Chakra classes).
@@ -1272,11 +1840,14 @@ export function usePlanCanvas({
             data-plan-narrow={narrow ? "" : undefined}
             // The source is not exhausted: the counts across this body
             // cover the loaded windows (`PlanTransport.partial`).
-            data-plan-partial={transport?.partial === true ? "" : undefined}
-            // A resource kind's narrowing resolving (#1344): the rows it
-            // showed stay, busy, and take no gesture until it lands.
-            aria-busy={busy ? true : undefined}
-            inert={busy ? true : undefined}
+            data-plan-partial={partial === true ? "" : undefined}
+            // A narrowing resolving (#1344) — a resource kind's, or the
+            // paged rows' own — or Home or End's window read: the rows it
+            // showed stay, retained (#1398, CL8, CL10) — readable,
+            // focusable and selectable, aria-disabled, taking no drag, no
+            // drop and no carry until it lands — busy, as the frame's main
+            // says.
+            aria-disabled={retained ? true : undefined}
             // Bounded, the canvas fills the frame's main and scrolls its
             // own rows. Grown with its rows, it keeps its own height —
             // never shrunk to main's — so a host that bounds the frame is
@@ -1291,9 +1862,15 @@ export function usePlanCanvas({
                     styles={styles} index={index} derived={derived} view={view}
                     dense={dense} storageKey={storageKey}
                     expandBody={expandBody} expandGutterBody={expandGutterBody}
-                    canExpand={canExpand} partial={transport?.partial} fill={frameFills}
+                    canExpand={canExpand} partial={partial} fill={frameFills}
+                    // The Rows tab counts what a paged source does once it has counted itself — the rail's count — and
+                    // waits while a new narrowing's rows are read, the last one's standing in (#1398, CL13).
+                    pagedCount={paged && !paging.replacing ? paging.total : undefined}
+                    // The Measures tab counts the chart rows the source makes — exact where each entry makes as many, not
+                    // counted where that varies — never what has loaded (#1398).
+                    pagedMeasures={pagedMeasures}
                     failures={paging.failures} onRetry={controller.retry}
-                    paging={narrowPaging} marks={marks}
+                    paging={narrowPaging} marks={marks} noun={rowsNoun}
                 />
             ) : (
                 <VirtualRows
@@ -1313,19 +1890,20 @@ export function usePlanCanvas({
                     scrollAlign={target.align}
                     // The rows' container IS the treegrid (#819): every
                     // body item is a row of it, the pinned rows join by
-                    // `aria-owns`, and its count is exact — an unloaded
-                    // run is one row, the band that stands for it.
+                    // `aria-owns`, and its count is the total (#1398,
+                    // CL12) — a run not read is one row of it that counts
+                    // as the rows it stands for.
                     rowsRef={gridRef}
                     rowsProps={{
                         role: "treegrid",
                         "aria-label": words.m.gridLabel(),
-                        "aria-rowcount": pinned.length + body.items.length,
+                        "aria-rowcount": places.count,
                         ...(pinned.length > 0 ? { "aria-owns": pinnedId } : {}),
                         // The tab stop while no mounted row holds it.
                         tabIndex: 0,
                         onFocus: onGridFocus,
                     }}
-                    onRangeChange={paged ? reportRange : undefined}
+                    onRangeChange={paged ? onRangeChange : undefined}
                     // Unbounded, a large canvas mounts only what its
                     // scrolling ancestor shows (#812) — the same threshold
                     // whatever the source. A smaller paged canvas mounts
@@ -1367,10 +1945,11 @@ export function usePlanCanvas({
                             case "gap":
                                 return <PlanGapBand gap={item.gap} h={body.heights[i] ?? 0} styles={styles}
                                     gridTemplate={gridTemplate} dispatch={controller.dispatch} />;
+                            // A run of rows not drawn yet (#1398, CL2): an unloaded run, or a failed window.
                             case "band":
-                                return <WindowBand band={item.band} styles={styles} />;
                             case "failed":
-                                return <WindowFailureBand failure={item.failure} styles={styles} onRetry={controller.retry} />;
+                                return <PlanRunRow band={item.kind === "band" ? item.band : undefined} failure={item.kind === "failed" ? item.failure : undefined}
+                                    styles={styles} gridTemplate={gridTemplate} pitch={runPitch} noun={rowsNoun} onRetry={controller.retry} />;
                             case "row":
                                 return renderPlanRow(item.row, rowCtx);
                         }
@@ -1398,14 +1977,24 @@ export function usePlanCanvas({
         bound,
         main,
         chrome: {
-            words, styles, storageKey, scale, slices, windowParts, lead: windowLead, rowsPart, eventParts, nouns, windowError, affordances, resolutions,
+            words, styles, storageKey, scale, slices, windowParts, lead: windowLead, moveWindow, rowsPart, eventParts, nouns, rowsNoun, windowError,
+            affordances, resolutions,
             // The grain folds the canvas's root groups (#632); below 480px the
             // narrow layout's Groups · Rows tabs own them, so nothing is left
             // for the segment to do there.
             grain: hasRootGroup && !narrow ? grain : undefined,
             transport, search, diagnostics,
+            cold, busy: frameBusy, pitch: geometry.row,
             history: historyProps, sessions, where,
             events: kinds.length > 0 ? eventEditing : undefined,
+            // No command writes while a run is out (R2), nor while what the canvas shows stands in, retained (CL8).
+            writable: !locked && !retained,
+            optimise: kinds.length > 0 ? {
+                toolbarItem: optimiseParts.toolbarItem, banner: optimiseParts.banner, line: optimiseParts.line, legend: optimiseParts.legend,
+                flash: landing.lit && optimised !== undefined, backlogFlash: landing.lit && optimised?.backlogChanged === true,
+                landing: { ref: landingRoot, attributes: landing.attributes, css: landingStyles.main },
+            } : undefined,
+            cells: lead.cells,
             footer: data.footer,
             id: getSomeorUndefined(data.id),
             narrow,

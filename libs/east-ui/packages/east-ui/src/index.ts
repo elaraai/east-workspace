@@ -37,6 +37,9 @@ export type { UIElement } from "./runtime/runtime.js";
 // Style System
 export { Style } from "./style.js";
 export { DensityType, type DensityLiteral, StatusTokenType, type StatusTokenLiteral } from "./style/interaction.js";
+// The typed colour an app gives for a data fill (#1406): a theme hue at a
+// shade, `Style.ColorToken("teal", "500")` — a shift's colour, a series'.
+export { ColorTokenType, ColorShadeType, type ColorHueLiteral, type ColorShadeLiteral } from "./style/color.js";
 export { StatusValueType, type StatusValueLiteral } from "./feedback/status/types.js";
 
 // Drag & drop grammar contract — hosts type `onDrag` handlers against these
@@ -168,7 +171,7 @@ export type { IconPayload } from "./buttons/button/types.js";
 export { Card } from "./runtime/container/index.js";
 
 // Collections
-export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Schematic, Map, Blend } from "./runtime/collections/index.js";
+export { DataList, Deck, ValueTree, Matrix, Pagination, Table, TreeView, Library, Map, Blend } from "./runtime/collections/index.js";
 
 // Charts
 export { Chart, Sparkline } from "./runtime/charts/index.js";

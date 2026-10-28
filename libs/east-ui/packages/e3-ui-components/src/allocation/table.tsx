@@ -14,7 +14,11 @@
  * drags onto a free row's arrival cell (A47). A split or partly allocated bin lists its parts as resource chips
  * with their quantities across the Resource and Load columns, each its own
  * chevron and ×, and `+ resource` for its remainder (A71, #1332). Every
- * figure and word is e3-ui's; every size the `allocationBuilder` recipe's.
+ * figure and word is e3-ui's; every size the `allocationBuilder` recipe's. A
+ * day not read yet draws its column heads and its bands at once, each band's
+ * count a placeholder and one placeholder row in it (#1398, CL2); a day whose
+ * read failed says so once, in the first of those rows in view, with Retry
+ * (CL11).
  *
  * @packageDocumentation
  */
@@ -27,16 +31,22 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { variant, type SortedMap, type option } from "@elaraai/east";
 import { SliceEditPopover, useDragEventChip, useDropCell, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
-import { Chooser, VirtualRows, formatDatePattern, type ChooserSection } from "@elaraai/east-ui-components/internal";
+import {
+    Chooser, LoadingFailedLine, PlaceholderShape, VirtualRows, formatDatePattern, useRowsTop, type ChooserSection, type PlaceholderKind,
+} from "@elaraai/east-ui-components/internal";
+import type { PeriodRead } from "../shared/loading.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
+import { useRowAnchor, type RowAnchor, type RowNarrowing } from "../shared/schedule/row-anchor.js";
 import { linkedQuantity, remainderOf, type AllocationCommands } from "./actions.js";
+import { useBinFocusTarget } from "./bin-focus.js";
 import { arrivalChoices, resourceChoices, type ChoiceWords } from "./choices.js";
 import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
 import { bandLine, narrowBands, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
 import { NarrowedEmpty } from "./narrowed.js";
 import { a, one, useNouns } from "./nouns.js";
+import type { AllocationBinOp, AllocationOptimised } from "./optimise.js";
 import type { TimelineFollow } from "./timeline.js";
 import {
     allocationWords, compareFloat, partsOf, type AllocationDomain, type AllocationStyles, type AllocationValue, type Bin, type Context, type Day, type FitAsk,
@@ -82,6 +92,25 @@ export interface TableProps {
     highlight: string | undefined;
     /** Books the picked arrival where a click lands, as its drop would (A11). */
     book: (target: Target) => void;
+    /**
+     * What it draws of the day's read (#1398): the day as read; a day not read yet — the day without its bins handed in
+     * as `plan`, its bands real, a placeholder row in each once the reveal says so; or one whose read failed — the failure
+     * said once, in the first of those rows in view.
+     */
+    read: PeriodRead;
+    /** Where the Table's view last rested (#1398): its top line, by key, which it comes back to as it mounts. */
+    anchor?: RowAnchor | undefined;
+    /** Told where the Table's view rests as its scroll settles. */
+    onAnchor?: ((at: RowAnchor) => void) | undefined;
+    /**
+     * The board's narrowing, as text, and whether its rows are in (#1398): across a new one the Table keeps the line at the
+     * top of its view where the narrowing holds it — by its key, and the px into it — and else starts at its top.
+     */
+    narrowing?: RowNarrowing | undefined;
+    /** What the runs of the app's optimiser left on the day's bins (#1409): each bin's operation, drawn on its row's chip, and its provenance on hover. */
+    optimised?: AllocationOptimised | undefined;
+    /** Whether a run's highlight is on (#1409): a band's count flashes where the run changed its rows. */
+    lit?: boolean | undefined;
 }
 
 /**
@@ -95,8 +124,48 @@ export interface Open { row: string; side: "arrival" | "resource"; part?: string
 /** A Chooser's identity in its row, as a row's memo compares it: `arrival`, `resource`, `resource:K-203`, `resource:+`. */
 export const openKey = (side: Open["side"], part: Open["part"]) => part === undefined ? side : `${side}:${part ?? "+"}`;
 
-/** One flattened line of the virtualised Table: a band's head, or a row. */
-type Line = { kind: "band"; band: TableBand } | { kind: "row"; band: TableBand; row: TableRow };
+/** One flattened line of the virtualised Table: a band's head, a row, or a band's placeholder row while the day is not read (#1398). */
+type Line = { kind: "band"; band: TableBand } | { kind: "row"; band: TableBand; row: TableRow } | { kind: "unread"; band: TableBand };
+
+/** What a placeholder row draws in each of the Table's columns, in their order (#1398): Time, Lane, Arrival, Quantity, the app's, Resource, Load, Status. */
+function unreadColumns(shown: number): PlaceholderKind[] {
+    return ["date", "label", "chip", "number", ...Array.from({ length: shown }, (): PlaceholderKind => "text"), "chip", "aggregate", "enum"];
+}
+
+/**
+ * The line a failed day says so in (#1398, CL11): the first placeholder row at or below the row at the top of the view,
+ * else the last one above it.
+ *
+ * @param lines - The Table's lines
+ * @param top - The line at the top of the view; `undefined` before the lines are placed
+ * @returns The line's index; `undefined` with no placeholder row
+ */
+function firstUnreadInView(lines: readonly Line[], top: number | undefined): number | undefined {
+    const from = Math.max(0, top ?? 0);
+    for (let i = from; i < lines.length; i++) if (lines[i]!.kind === "unread") return i;
+    for (let i = Math.min(from, lines.length) - 1; i >= 0; i--) if (lines[i]!.kind === "unread") return i;
+    return undefined;
+}
+
+/**
+ * A band's placeholder row of a day not read, or whose read failed (#1398, CL2, CL11): a placeholder in each column — or,
+ * the first of them in view of a failed day, the failure said across the row. It reads which line is at the top of the
+ * view itself, drawn again only as it becomes or stops being the one that says it (CL9).
+ */
+function UnreadRow({ styles, band, index, lines, read, shown }: {
+    styles: AllocationStyles; band: TableBand; index: number; lines: readonly Line[]; read: PeriodRead; shown: number;
+}) {
+    const says = useRowsTop(top => read.state === "failed" && index === firstUnreadInView(lines, top));
+    const failure = says && read.state === "failed" ? read : undefined;
+    return <Box css={styles.tableRow} data-allocation-unread-row={band.key} data-columns={shown === 0 ? "none" : undefined}
+        aria-hidden={failure === undefined ? true : undefined}>
+        {failure !== undefined
+            ? <Box css={styles.tableReadLine} data-allocation-read-line="failed"><LoadingFailedLine message={failure.message} retry={{ onRetry: failure.retry }} /></Box>
+            : unreadColumns(shown).map((kind, i) => <Box key={i} as="span" css={styles.tableUnreadCell} data-align={kind === "number" ? "end" : undefined}>
+                {read.state === "pending" && <PlaceholderShape kind={kind} index={index + i} />}
+            </Box>)}
+    </Box>;
+}
 
 /**
  * The Table (see the module docs).
@@ -115,10 +184,25 @@ export function AllocationTable(props: TableProps) {
         [slots, plan, day, value.table.bands, visibleLanes, visibleResources, visibleArrivals]);
     const rows = useMemo(() => bands.flatMap(band => band.rows), [bands]);
     const { collapsed, toggle } = useGroupCollapse(`${drag.surface}.table`);
+    // A day not read yet, or whose read failed (#1398): its bands, known from its slots, and one placeholder row in each
+    // that holds a slot — how many rows it has waits on its bins.
+    const { read } = props;
+    const unread = read.state !== "held";
+    // Not read yet, a placeholder where each figure goes, unseen until the frame's reveal says so, which each reads itself (CL4).
+    const pending = read.state === "pending";
     const lines = useMemo((): Line[] => bands.flatMap(band => [{ kind: "band" as const, band },
-        ...(collapsed.includes(band.key) ? [] : band.rows.map(row => ({ kind: "row" as const, band, row })))]), [bands, collapsed]);
+        ...(collapsed.includes(band.key) ? [] : unread ? band.rows.length === 0 ? [] : [{ kind: "unread" as const, band }]
+            : band.rows.map(row => ({ kind: "row" as const, band, row })))]), [bands, collapsed, unread]);
     const sizes = useMemo(() => lines.map(l => l.kind === "band" ? BAND_H : ROW_H), [lines]);
-    const getItemKey = useCallback((index: number) => { const l = lines[index]!; return l.kind === "band" ? `band:${l.band.key}` : l.row.key; }, [lines]);
+    const getItemKey = useCallback((index: number) => {
+        const l = lines[index]!;
+        return l.kind === "band" ? `band:${l.band.key}` : l.kind === "unread" ? `unread:${l.band.key}` : l.row.key;
+    }, [lines]);
+    // Where the Table's view rests (#1398): its top line by key and the px into it, saved as a scroll settles and brought
+    // back once its lines are laid out — the line it left, wherever the lines above it moved — and kept across a new
+    // narrowing where the narrowing holds it, else the Table starts at its top.
+    const keyed = useMemo(() => lines.map((_, i) => ({ key: getItemKey(i) })), [lines, getItemKey]);
+    const { restore, onAnchorChange } = useRowAnchor(keyed, props.anchor, props.onAnchor, true, props.narrowing);
     // The app's columns shown in the Table, each bin's text and tone over its row, through its callbacks (§6).
     const shown = useMemo(() => value.columns.filter(c => c.table), [value.columns]);
     const readColumns = useCallback(() => {
@@ -175,18 +259,27 @@ export function AllocationTable(props: TableProps) {
         <Box as="span" data-align="end" title={nouns.quantity}>{nouns.quantity}</Box>
         {shown.map(c => <span key={c.key} title={c.label}>{c.label}</span>)}<span title={nouns.resource.one}>{nouns.resource.one}</span><span>Load</span><span>Status</span>
     </Box>;
-    return <Box css={styles.table} style={vars} data-allocation-table="" data-allocation-drag={drag.grip?.kind}>
-        {lines.length === 0 ? <>{head}<NarrowedEmpty styles={styles} clear={props.clearFilters} /></> : <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="900px" scrollElRef={pane}
+    // The narrowing's empty state only under a narrowing (#1398, CL13).
+    const narrowed = visibleLanes.type === "some" || visibleResources.type === "some" || visibleArrivals.type === "some";
+    return <Box css={styles.table} style={vars} data-allocation-table="" data-allocation-drag={drag.grip?.kind} data-allocation-unread={unread ? read.state : undefined}>
+        {/* Its rows as wide as the recipe's least width for its tracks: no cell past a row's edge. */}
+        {lines.length === 0 ? <>{head}{narrowed && <NarrowedEmpty styles={styles} clear={props.clearFilters} />}</> : <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="var(--allocation-table-least)" scrollElRef={pane}
             headerZIndex={4} header={head} count={lines.length} getItemKey={getItemKey} sizes={sizes} measureRows={false}
+            onAnchorChange={onAnchorChange} restoreAnchor={restore}
             renderRow={index => {
                 const line = lines[index]!;
                 if (line.kind === "band") {
                     const folded = collapsed.includes(line.band.key);
+                    // A day not read yet: its band's count a placeholder, its line said once its rows land.
                     return <GroupHeading scope="allocation" group={{ key: line.band.key, label: line.band.label }} styles={styles} collapsed={folded} toggle={toggle}>
-                        <Box as="span" css={styles.bandCount} data-allocation-band-count="">{line.band.rows.length}</Box>
-                        <Box as="span" css={styles.groupMeta}>{bandLine(line.band, words.quantity(Math.round(line.band.quantity), unit), folded)}</Box>
+                        {unread ? pending && <PlaceholderShape kind="count" index={index} /> : <>
+                            <Box as="span" css={styles.bandCount} data-allocation-band-count=""
+                                data-opn={props.lit === true && line.band.rows.some(r => r.bin !== undefined && props.optimised?.ops.has(r.bin) === true) ? "" : undefined}>{line.band.rows.length}</Box>
+                            <Box as="span" css={styles.groupMeta}>{bandLine(line.band, words.quantity(Math.round(line.band.quantity), unit), folded)}</Box>
+                        </>}
                     </GroupHeading>;
                 }
+                if (line.kind === "unread") return <UnreadRow styles={styles} band={line.band} index={index} lines={lines} read={read} shown={shown.length} />;
                 return <Row props={props} row={line.row} columns={cells?.get(line.row.bin ?? "")} shown={shown.length} lines={resourceLines}
                     open={open?.row === line.row.key ? openKey(open.side, open.part) : undefined} setOpen={setOpen} words={choiceWords} />;
             }} />}
@@ -261,7 +354,9 @@ function Row(args: RowProps) {
         pickedCode === undefined ? undefined : `click to book ${pickedCode} here`);
     const resourceSay = resourceVerdict === undefined || resourceVerdict.caption === "already on it" ? undefined
         : sayOf(resourceVerdict, row.kind === "free" ? "drop to reserve" : "drop to link", undefined);
-    return <RowBody {...args} bin={bin} code={code} chip={chip} arrivalDrop={arrivalDrop} resourceDrop={resourceDrop}
+    // What a run of the optimiser did to the row's bin (#1409, R7, R17), while it is still the run's draft.
+    const op = row.bin === undefined ? undefined : props.optimised?.ops.get(row.bin);
+    return <RowBody {...args} bin={bin} code={code} chip={chip} arrivalDrop={arrivalDrop} resourceDrop={resourceDrop} op={op}
         arrivalState={arrivalSay?.state} arrivalWords={arrivalSay?.drop} arrivalReason={arrivalSay?.reason} arrivalPick={arrivalSay?.pick}
         resourceState={resourceSay?.state} resourceWords={resourceSay?.drop} resourceReason={resourceSay?.reason} />;
 }
@@ -274,10 +369,12 @@ function libraryCode(props: TableProps, grip: Extract<Grip, { kind: "arrival" | 
 }
 
 /** A row's body: its cells, from the drafts, the loads and the app's columns. */
-const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open, setOpen, words, bin, code, chip, arrivalDrop, resourceDrop,
+const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open, setOpen, words, bin, code, chip, arrivalDrop, resourceDrop, op: marked,
     arrivalState, arrivalWords, arrivalReason, arrivalPick, resourceState, resourceWords, resourceReason }: RowProps & {
     bin: Bin | undefined; code: string | undefined; chip: ReturnType<typeof useDragEventChip>;
     arrivalDrop: (el: HTMLElement | null) => void; resourceDrop: (el: HTMLElement | null) => void;
+    /** What a run of the optimiser did to the row's bin (#1409): its mark on the row's chip, and its provenance on hover. */
+    op: AllocationBinOp | undefined;
     /** What the arrival and the resource cells say during a drag or a pick, as primitives, so pointer motion repaints nothing (A35). */
     arrivalState: Say["state"] | undefined; arrivalWords: string | undefined; arrivalReason: string | undefined; arrivalPick: string | undefined;
     resourceState: Say["state"] | undefined; resourceWords: string | undefined; resourceReason: string | undefined;
@@ -292,7 +389,9 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     const load = resource === undefined ? undefined : props.loads.get(resource.key);
     const committed = row.bin === undefined ? undefined : held?.bins.get(row.bin);
     const draft = bin !== undefined && (committed === undefined || !props.sameBin(committed, bin));
-    const marked = selects(props.selection, row, plan, props.highlight);
+    // A run's mark holds while the bin is still the run's draft (R17): an Undo that takes the run back leaves none.
+    const op = draft ? marked : undefined;
+    const selectedAs = selects(props.selection, row, plan, props.highlight);
     const arrivalSay: Say | undefined = arrivalState === undefined ? undefined : { state: arrivalState, drop: arrivalWords ?? "", reason: arrivalReason, pick: arrivalPick };
     const resourceSay: Say | undefined = resourceState === undefined ? undefined : { state: resourceState, drop: resourceWords ?? "", reason: resourceReason, pick: undefined };
     const time = formatDatePattern("HH:mm", row.at);
@@ -305,6 +404,8 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     const check = parts.some(part => { const l = lines.get(part.key); return l !== undefined && (l.over || l.overlap); });
     const status = rowStatus(row.kind, parts.length > 0, check, draft);
     const select = () => props.select(row.bin !== undefined ? { type: "bin", id: row.bin } : { type: "slot", lane: row.lane, at: row.slotAt.getTime() });
+    // A bin's row takes the keyboard a pick in Search Records gives its bin (#1398): focusable for that, no tab stop of its own.
+    const given = useBinFocusTarget<HTMLDivElement>(row.bin);
     const loadText = resource !== undefined && load !== undefined ? board.load(load.fill, resource, unit) : undefined;
     const into = line?.overlap === true && line.next.type === "some" && load?.hold.type === "some"
         ? (load.hold.value.to.getTime() - line.next.value.start.getTime()) / 86_400_000 : undefined;
@@ -353,14 +454,15 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
     </>;
     const remainderTrigger = (isOpen: boolean) => <chakra.button type="button" css={styles.tablePlaceholder} data-allocation-placeholder="remainder" data-open={isOpen ? "" : undefined}
         title={remainderWords} aria-label={remainderWords} aria-haspopup="listbox" onPointerDown={event => event.stopPropagation()}>{remainderInside}</chakra.button>;
-    return <Box css={styles.tableRow} role="row" data-allocation-row={row.key} data-kind={row.kind} data-columns={shown === 0 ? "none" : undefined}
-        data-selected={marked !== undefined ? "" : undefined} data-draft={draft ? "" : undefined} onClick={select}>
+    return <Box ref={given} css={styles.tableRow} role="row" tabIndex={row.bin !== undefined ? -1 : undefined} data-allocation-row={row.key} data-kind={row.kind}
+        data-columns={shown === 0 ? "none" : undefined} data-selected={selectedAs !== undefined ? "" : undefined} data-draft={draft ? "" : undefined} onClick={select}>
         <Box as="span" css={styles.tableTime} data-holds={bin !== undefined ? "" : undefined}>{time}</Box>
         <Box as="span" css={styles.tableLane}>{lane}</Box>
         {row.kind === "bin" && bin !== undefined ? <>
             <Box css={styles.tableCell} data-allocation-cell-side="arrival">
                 <Box {...chip} css={styles.tableChip} data-scope="allocation" data-allocation-chip="arrival" data-draft={draft ? "" : undefined} data-draggable={chip !== undefined ? "" : undefined}
-                    title={`${code}${meta?.type === "some" ? ` · ${meta.value}` : ""} · ${board.quantity(bin.quantity, unit)} · drag onto an empty row to move it`}
+                    data-op={op?.op} data-fill={op === undefined ? undefined : "own"}
+                    title={`${op === undefined ? "" : `${op.provenance} · `}${code}${meta?.type === "some" ? ` · ${meta.value}` : ""} · ${board.quantity(bin.quantity, unit)} · drag onto an empty row to move it`}
                     onPointerDown={event => { if (row.bin !== undefined) drag.arm({ kind: "body", bin: row.bin }); chip?.onPointerDown?.(event); }}>
                     {chip !== undefined && <Box as="span" css={styles.tableChipIcon} data-icon-role="grip"><FontAwesomeIcon icon={faGripVertical} /></Box>}
                     <Box as="span" css={styles.tableChipCode}>{code}</Box>
@@ -390,7 +492,9 @@ const RowBody = memo(function RowBody({ props, row, columns, shown, lines, open,
         </Box> : resource !== undefined && row.bin !== undefined ? <>
             <Box ref={resourceDrop} css={styles.tableCell} data-allocation-cell-side="resource">
                 <Box css={styles.tableChip} data-allocation-chip="resource" data-draft={draft ? "" : undefined} data-verdict={resourceSay?.state}
-                    title={resourceSay?.state === "refused" && resourceSay.reason !== undefined ? resourceSay.reason : `${resource.label}${resource.meta.type === "some" ? ` · ${resource.meta.value}` : ""}`}>
+                    data-op={row.kind === "reserved" ? op?.op : undefined} data-fill={row.kind === "reserved" && op !== undefined ? "own" : undefined}
+                    title={resourceSay?.state === "refused" && resourceSay.reason !== undefined ? resourceSay.reason
+                        : `${row.kind === "reserved" && op !== undefined ? `${op.provenance} · ` : ""}${resource.label}${resource.meta.type === "some" ? ` · ${resource.meta.value}` : ""}`}>
                     <Box as="span" css={styles.tableChipIcon}><FontAwesomeIcon icon={faLink} /></Box>
                     <Box as="span" css={styles.tableChipCode}>{resource.label}</Box>
                     {chooser("resource", chevron(resourceLabel))}

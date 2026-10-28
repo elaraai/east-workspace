@@ -14,12 +14,14 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
-import { useEffect } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
 import type { Virtualizer } from "@tanstack/react-virtual";
-import { VirtualRows, devicePixels, observeOffsetWithin, type RowsViewport } from "./virtual-rows.js";
+import { useRowsTop } from "./rows-scroll.js";
+import { VirtualRows, devicePixels, observeOffsetWithin, type RowRuns, type RowsViewport } from "./virtual-rows.js";
 
 const ROW_H = 32;
 /** What zoomed measurement reports for a nominally 32px row. */
@@ -229,6 +231,71 @@ describe("VirtualRows — the paged collection's two signals (#577)", () => {
             index: Math.floor(at / ROW_H),
             withinPx: at % ROW_H,
         });
+    });
+
+    test("a row reads which row shows at the top of the view itself — where a collection says a failure once (#1398, CL11); a frame in flow that watches nothing has none", () => {
+        const tops = new Map<number, number | undefined>();
+        function Row({ index }: { index: number }) {
+            tops.set(index, useRowsTop());
+            return <div>row {index}</div>;
+        }
+        const renderRow = (i: number) => <Row index={i} />;
+        const frame = (height: string | undefined, count: number) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height={height} maxHeight={undefined} count={count} estimateSize={() => ROW_H} measureRows={false} overscan={6}
+                    renderRow={renderRow} />
+            </ChakraProvider>
+        );
+        const { container, unmount } = render(frame("200px", 500));
+        const read = () => [...new Set([...container.querySelectorAll<HTMLElement>("[data-index]")].map((el) => tops.get(Number(el.dataset["index"]))))];
+        // At rest the top row is the first, and every row mounted that asks reads so.
+        expect(read()).toEqual([0]);
+        // Scrolled ten rows and 5px down: the eleventh row shows at the top, and every row mounted — the overscan's above
+        // it among them — reads so, the rows it had mounted before as well as those it brought in.
+        const scrollEl = container.firstElementChild as HTMLElement;
+        act(() => {
+            scrollEl.scrollTop = 10 * ROW_H + 5;
+            fireEvent.scroll(scrollEl);
+        });
+        expect(read()).toEqual([10]);
+        unmount();
+        // Unbounded below scale, with no range asked for: every row in flow, and no view to place a row in.
+        tops.clear();
+        const inFlow = render(frame(undefined, 3));
+        expect(inFlow.container.querySelectorAll("[data-index]")).toHaveLength(0);
+        expect([...tops.values()]).toEqual([undefined, undefined, undefined]);
+    });
+
+    test("a scroll draws again only the rows it brings into view: a row mounted before it is drawn again only when its index or the renderer moves (#1398, CL9)", () => {
+        const draws = new Map<number, number>();
+        function Row({ index }: { index: number }) {
+            draws.set(index, (draws.get(index) ?? 0) + 1);
+            return <div>row {index}</div>;
+        }
+        const frame = (renderRow: (i: number) => ReactNode) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={500} estimateSize={() => ROW_H} measureRows={false} overscan={2}
+                    renderRow={renderRow} />
+            </ChakraProvider>
+        );
+        const renderRow = (i: number) => <Row index={i} />;
+        const { container, rerender } = render(frame(renderRow));
+        const mounted = () => [...container.querySelectorAll<HTMLElement>("[data-index]")].map((el) => Number(el.dataset["index"]));
+        const atRest = mounted();
+        expect(atRest.map((i) => draws.get(i))).toEqual(atRest.map(() => 1));
+        // Three rows down: every row still mounted is as it was drawn; only the rows the scroll brought in are drawn.
+        const scrollEl = container.firstElementChild as HTMLElement;
+        act(() => {
+            scrollEl.scrollTop = 3 * ROW_H;
+            fireEvent.scroll(scrollEl);
+        });
+        const kept = mounted().filter((i) => atRest.includes(i));
+        expect(kept.length).toBeGreaterThan(0);
+        expect(kept.map((i) => draws.get(i))).toEqual(kept.map(() => 1));
+        expect(mounted().filter((i) => !atRest.includes(i)).map((i) => draws.get(i))).toEqual(mounted().filter((i) => !atRest.includes(i)).map(() => 1));
+        // A new renderer — what the rows show moved — draws every mounted row again.
+        rerender(frame((i) => <Row index={i} />));
+        expect(mounted().map((i) => draws.get(i))).toEqual(mounted().map(() => 2));
     });
 
     test("sizeVersion busts TanStack's measurement memo when heights move at a constant count", () => {
@@ -524,6 +591,107 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         expect(el2.scrollTop).toBe(20 * ROW_H);
     });
 
+    test("a request's scroll is the frame's offset at once: a window landing where the view was, before the scroll's event arrives, never takes the view back there — its rows measured off their estimate, as every row is on a fractional device pixel ratio — and the rows are drawn where the view went (#1398)", () => {
+        const dpr = window.devicePixelRatio;
+        // At 1.37 a row measured at 31.594px rounds to 43 device pixels, 31.39 CSS px: never its estimate's 32.
+        Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 1.37 });
+        try {
+            const { container, rerender } = render(frame(ROWS));
+            const scrollEl = scrollTo(container, 50 * ROW_H);
+            Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 100 * ROW_H });
+            // Home: a request for the first row — the view goes there, its scroll's event still to come…
+            rerender(frame(ROWS, { scrollToIndex: 0 }));
+            expect(scrollEl.scrollTop).toBe(0);
+            // …and before it arrives a window lands where the view was: rows 40 to 59 are others now, mounted and
+            // measured for the first time. The view stays on the first row, and the first row is drawn there.
+            const landed = ROWS.map((key, i) => (i >= 40 && i < 60 ? `w${i}` : key));
+            rerender(frame(landed, { scrollToIndex: 0 }));
+            expect(scrollEl.scrollTop).toBe(0);
+            expect(inView(container, "r0")).toBe(0);
+            expect(container.querySelector('[data-key="w50"]')).toBeNull();
+        } finally {
+            Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: dpr });
+        }
+    });
+
+    test("a request's scroll is the frame's offset at once: a correction the virtualizer held back at the scroll's end — rows above the view measured taller than their estimate, as every row is at 110% — is never applied after the view has gone (#1398)", async () => {
+        const dpr = window.devicePixelRatio;
+        const measured = Element.prototype.getBoundingClientRect;
+        // At 110% a row measured at 32.3px rounds to 36 device pixels, 32.73 CSS px: taller than its estimate's 32.
+        Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 1.1 });
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const rect = measured.call(this);
+            return this.hasAttribute("data-index") ? { ...rect, height: 32.3, bottom: 32.3 } : rect;
+        };
+        try {
+            const { container, rerender } = render(frame(ROWS));
+            const scrollEl = container.firstElementChild as HTMLElement;
+            // The scroll goes as far as the rows the frame has drawn reach: what the browser lays out.
+            const extent = () => Number(container.querySelector("[data-virtual-extent]")!.getAttribute("data-virtual-extent"));
+            Object.defineProperty(scrollEl, "clientHeight", { configurable: true, get: () => 200 });
+            Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => extent() });
+            scrollTo(container, extent() - 200);
+            // At rest there (TanStack clears its scrolling flag 150ms after the last scroll event): rows are measured as
+            // they mount.
+            await act(async () => { await new Promise((r) => setTimeout(r, 250)); });
+            // End to Home, as a window lands at the end: its rows measure taller than their estimate, and the corrections
+            // for those above the view would take it past where it can go, so the virtualizer holds them back — and the
+            // request scrolls to the first row, its scroll's event still to come…
+            const landed = ROWS.map((key, i) => (i >= 80 ? `w${i}` : key));
+            rerender(frame(landed, { scrollToIndex: 0 }));
+            expect(scrollEl.scrollTop).toBe(0);
+            // …and a commit before it arrives, the end's rows laid out: the view stays at the top.
+            rerender(frame(landed, { scrollToIndex: 0 }));
+            expect(scrollEl.scrollTop).toBe(0);
+            expect(inView(container, "r0")).toBe(0);
+        } finally {
+            Element.prototype.getBoundingClientRect = measured;
+            Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: dpr });
+        }
+    });
+
+    test("a request and an anchor brought back are served in the commit that asks for them: the rows where the view went are drawn when that commit's work is done — what the page paints next — never in a render queued after it (#1398, CL10)", () => {
+        type Asked = { scrollToIndex?: number; restoreAnchor?: { index: number; offset: number } };
+        let ask: ((asked: Asked) => void) | undefined;
+        function Asking() {
+            const [asked, setAsked] = useState<Asked>({});
+            ask = setAsked;
+            return (
+                <ChakraProvider value={system}>
+                    <VirtualRows height="200px" maxHeight={undefined} count={ROWS.length} estimateSize={() => ROW_H} overscan={2}
+                        getItemKey={(i) => ROWS[i]!} anchorable={() => true} scrollToIndex={asked.scrollToIndex} restoreAnchor={asked.restoreAnchor}
+                        renderRow={(i) => <div data-key={ROWS[i]}>{ROWS[i]}</div>} />
+                </ChakraProvider>
+            );
+        }
+        const { container } = render(<Asking />);
+        const scrollEl = container.firstElementChild as HTMLElement;
+        Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 100 * ROW_H });
+        /**
+         * Asks in a commit of its own — a discrete update's, as a builder's landing is — and reads where the view is and
+         * which rows are drawn once that commit's work is done, before anything it queued runs.
+         */
+        const served = (asked: Asked) => {
+            let top = 0;
+            let drawn: string[] = [];
+            act(() => {
+                flushSync(() => ask!(asked));
+                top = scrollEl.scrollTop;
+                drawn = [...container.querySelectorAll<HTMLElement>("[data-key]")].map((el) => el.dataset["key"]!);
+            });
+            return { top, drawn };
+        };
+        // A request for row 80: the view goes there, the row centred in it — and is drawn there.
+        const request = served({ scrollToIndex: 80 });
+        expect(request.top).toBe(80 * ROW_H - (200 - ROW_H) / 2);
+        expect(request.drawn).toContain("r80");
+        // An anchor brought back, 6px into row 20: the view goes there — and row 20 is drawn there, row 80 gone.
+        const anchor = served({ restoreAnchor: { index: 20, offset: 6 } });
+        expect(anchor.top).toBe(20 * ROW_H + 6);
+        expect(anchor.drawn).toContain("r20");
+        expect(anchor.drawn).not.toContain("r80");
+    });
+
     test("an anchored offset past the scroll's end stops there, and the rows are drawn where the view rests (#1213)", () => {
         const { container, rerender } = render(frame(ROWS));
         const scrollEl = container.firstElementChild as HTMLElement;
@@ -618,6 +786,45 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         const el2 = scrollTo(c2, 50 * ROW_H);
         rerender2(frame([...keysOf("n", 10), ...ROWS], { anchorable: null }));
         expect(el2.scrollTop).toBe(50 * ROW_H);
+    });
+
+    test("a window landing in a run of rows not read leaves the row at the view's top where it is — the frame anchors on the row inside the run, by the key it takes once read, and finds it on its own line or in the run that then holds it (#1424)", () => {
+        // A run stands for rows r<from> to r<to>, one item at their pitch; a row read is its own line, twice as tall.
+        type Line = { readonly key: string; readonly px: number; readonly from?: number; readonly to?: number };
+        const run = (from: number, to: number): Line => ({ key: `run:${from}-${to}`, px: (to - from + 1) * ROW_H, from, to });
+        const read = (from: number, to: number): Line[] => Array.from({ length: to - from + 1 }, (_u, i) => ({ key: `r${from + i}`, px: 2 * ROW_H }));
+        const runsOf = (lines: readonly Line[]): RowRuns => ({
+            rowAt: (index, offset) => {
+                const line = lines[index];
+                if (line?.from === undefined || line.to === undefined) return undefined;
+                const k = Math.min(line.to - line.from, Math.max(0, Math.floor(offset / ROW_H)));
+                return { key: `r${line.from + k}`, offset: offset - k * ROW_H };
+            },
+            find: (at) => {
+                const n = Number(at.key.slice(1));
+                const index = lines.findIndex((line) => line.from !== undefined && line.to !== undefined && line.from <= n && n <= line.to);
+                const line = lines[index];
+                return line?.from === undefined ? undefined : { index, offset: (n - line.from) * ROW_H + at.offset };
+            },
+        });
+        const runs = (lines: readonly Line[]) => (
+            <ChakraProvider value={system}>
+                <VirtualRows height="200px" maxHeight={undefined} count={lines.length} sizes={lines.map((line) => line.px)} measureRows={false} overscan={2}
+                    getItemKey={(i) => lines[i]!.key} anchorable={() => true} runs={runsOf(lines)}
+                    renderRow={(i) => <div data-key={lines[i]!.key}>{lines[i]!.key}</div>} />
+            </ChakraProvider>
+        );
+        // The view rests 5px into r60, in a run of all hundred rows. The window above it lands, its rows twice the run's
+        // pitch: r60 is in the run that is left, which starts lower by as much — and the view with it.
+        const { container, rerender } = render(runs([run(0, 99)]));
+        const scrollEl = scrollTo(container, 60 * ROW_H + 5);
+        rerender(runs([...read(0, 49), run(50, 99)]));
+        expect(scrollEl.scrollTop).toBe(50 * 2 * ROW_H + 10 * ROW_H + 5);
+        // The window that holds it lands: r60 is a line of its own, ten of its window's rows above it — the view on it.
+        const { container: c2, rerender: rerender2 } = render(runs([run(0, 99)]));
+        const el2 = scrollTo(c2, 60 * ROW_H + 5);
+        rerender2(runs([run(0, 49), ...read(50, 69), run(70, 99)]));
+        expect(el2.scrollTop).toBe(50 * ROW_H + 10 * 2 * ROW_H + 5);
     });
 
     describe("a scroll request follows its row, not its index (#885)", () => {
@@ -716,16 +923,17 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         });
 
         test("a request is followed for five seconds at most, TanStack's own cap", () => {
-            const { container, rerender } = render(frame(ROWS));
+            // A frame that does not anchor: only the request's follow could move the view.
+            const { container, rerender } = render(frame(ROWS, { anchorable: null }));
             const scrollEl = container.firstElementChild as HTMLElement;
             Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 120 * ROW_H });
-            rerender(frame(ROWS, { scrollToIndex: 80 }));
+            rerender(frame(ROWS, { anchorable: null, scrollToIndex: 80 }));
             const requested = scrollEl.scrollTop;
-            // Six seconds on, with its scroll still unreported, rows land above row 80: the request has lapsed.
+            // Six seconds on, with its scroll's event still to come, rows land above row 80: the request has lapsed.
             const start = performance.now();
             const clock = vi.spyOn(performance, "now").mockReturnValue(start + 6_000);
             try {
-                rerender(frame([...keysOf("n", 10), ...ROWS], { scrollToIndex: 80 }));
+                rerender(frame([...keysOf("n", 10), ...ROWS], { anchorable: null, scrollToIndex: 80 }));
             } finally {
                 clock.mockRestore();
             }
@@ -742,6 +950,76 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
             rerender(paged([...keysOf("n", 10), ...ROWS.slice(1)], 90, 1));
             expect(scrollEl.scrollTop).toBe(requested);
         });
+    });
+});
+
+describe("VirtualRows — a row out of the layout keeps its size (#1389)", () => {
+    // jsdom lays nothing out and has no `checkVisibility`: here a row is out of the layout while an ancestor is
+    // `hidden`, and measured there at nothing, as a browser measures it; each ResizeObserver hears its rows' boxes
+    // change when the test says the page laid them out again; and the frame's writes land on scrollTop, as a browser's do.
+    const proto = HTMLElement.prototype as unknown as { scrollTo?: (options: ScrollToOptions) => void };
+    const realScrollTo = proto.scrollTo;
+    const realRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    const observers: { cb: ResizeObserverCallback; targets: Set<Element>; self: ResizeObserver }[] = [];
+    beforeEach(() => {
+        observers.length = 0;
+        proto.scrollTo = function (this: HTMLElement, options: ScrollToOptions) {
+            if (options.top !== undefined) this.scrollTop = options.top;
+        };
+        Element.prototype.checkVisibility = function (this: Element) { return this.closest("[hidden]") === null; };
+        Element.prototype.getBoundingClientRect = function (this: Element) {
+            const height = this.closest("[hidden]") !== null ? 0 : this.hasAttribute("data-index") ? 44 : 200;
+            return { x: 0, y: 0, top: 0, left: 0, right: 240, width: 240, height, bottom: height, toJSON: () => ({}) } as DOMRect;
+        };
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+            private readonly entry: { cb: ResizeObserverCallback; targets: Set<Element>; self: ResizeObserver };
+            constructor(cb: ResizeObserverCallback) {
+                this.entry = { cb, targets: new Set(), self: this as unknown as ResizeObserver };
+                observers.push(this.entry);
+            }
+            observe(target: Element) { this.entry.targets.add(target); }
+            unobserve(target: Element) { this.entry.targets.delete(target); }
+            disconnect() { this.entry.targets.clear(); }
+        };
+    });
+    afterEach(() => {
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realRO;
+        delete (Element.prototype as { checkVisibility?: unknown }).checkVisibility;
+        if (realScrollTo === undefined) delete proto.scrollTo;
+        else proto.scrollTo = realScrollTo;
+    });
+    /** The page lays the rows out again: each observer of a row hears its box. */
+    const laidOut = () => act(() => {
+        for (const { cb, targets, self } of observers) {
+            const rows = [...targets].filter((target) => target.isConnected && target.hasAttribute("data-index"));
+            if (rows.length > 0) cb(rows.map((target) => ({ target }) as unknown as ResizeObserverEntry), self);
+        }
+    });
+
+    test("hidden by its tab, a row keeps its size; shown again, the rows and the scroll are where they were — not run to the list's end", () => {
+        // A list with nothing above its first row, as the Schematic's Index is: no padding, no header.
+        const frame = (hidden: boolean) => (
+            <ChakraProvider value={system}>
+                <div {...(hidden ? { hidden: true } : {})}>
+                    <VirtualRows height="200px" maxHeight={undefined} count={20} estimateSize={() => 36} overscan={2}
+                        getItemKey={(i) => `r${i}`} renderRow={(i) => <div>r{i}</div>} />
+                </div>
+            </ChakraProvider>
+        );
+        const { container, rerender } = render(frame(false));
+        laidOut();
+        const scrollEl = container.querySelector<HTMLElement>("[data-virtual-rows]")!;
+        const offsets = () => [...container.querySelectorAll<HTMLElement>("[data-slot=virtualRow]")].slice(0, 3)
+            .map((el) => Number(/translateY\((-?[\d.]+)px\)/.exec(el.style.transform)![1]));
+        expect(offsets()).toEqual([0, 44, 88]);
+        // Its tab closed: the rows are out of the layout, the page measuring them at nothing.
+        rerender(frame(true));
+        laidOut();
+        // Open again: each row grows back from the size it kept — never from nothing at the scroll's offset.
+        rerender(frame(false));
+        laidOut();
+        expect(scrollEl.scrollTop).toBe(0);
+        expect(offsets()).toEqual([0, 44, 88]);
     });
 });
 

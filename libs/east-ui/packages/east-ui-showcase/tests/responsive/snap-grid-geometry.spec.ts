@@ -326,6 +326,9 @@ test.describe("SnapGrid editing canvas (#990)", () => {
             const c = caret.getBoundingClientRect(), line = s.getBoundingClientRect();
             return { first: s.firstElementChild === caret, centred: Math.abs((c.top + c.bottom) / 2 - (line.top + line.bottom) / 2) <= 1 };
         }))).toEqual([{ first: true, centred: true }]);
+        // The zone takes the target's fill through its transition, which moves on only at a frame: read before the next,
+        // as a CI run's was, the fill was still the one at rest. Read once the transition has run.
+        await box.evaluate((el) => Promise.all(el.getAnimations().map((animation) => animation.finished.then(() => undefined, () => undefined))));
         expect(await box.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(rest);
         await page.mouse.up();
         await expect.poll(() => editor.evaluate((root) =>

@@ -15,7 +15,9 @@
  * before), and Del on the selection — a state, several states, a transition, a
  * decision, or a lane while it holds no state (#1250) — never in a field
  * being typed into — each undone, redone and discarded by the history
- * item and by ⌘Z, ⇧⌘Z and ⌘Y from anywhere in the frame but a field; two of
+ * item and by ⌘Z, ⇧⌘Z and ⌘Y from anywhere in the frame but a field, each key
+ * the Flowchart acts on going no further than it and an Escape typed elsewhere
+ * on the page acting on nothing of it (#1398); two of
  * one key holding Save off, the history item counting the issue; the footer
  * counting the changes waiting on Save; Save's outcomes — a conflict and a
  * refusal keeping every draft under its banner, a write with no answer
@@ -507,6 +509,69 @@ describe("a lane holding states, the history item and its keys", () => {
         await press(DISCARD);
         expect([laneHeads(container), stateKeys(container), pending(container)])
             .toEqual([["INDUCT", "SORT", "HOLD"], ["IND", "CH*", "SRD"], ` · ${m.footerPending({ n: 0, count: "0" })}`]);
+    });
+});
+
+// ============================================================================
+// Every key the Flowchart acts on goes no further than it (#1398)
+// ============================================================================
+
+describe("the keys the Flowchart acts on go no further than it (#1398)", () => {
+    /** Each key that reaches the window — the last thing a key reaches, where the page around a builder hears it — while `run` presses keys. */
+    async function heard(run: () => Promise<void>): Promise<string[]> {
+        const keys: string[] = [];
+        const listen = (event: KeyboardEvent) => { keys.push(event.key); };
+        window.addEventListener("keydown", listen);
+        try {
+            await run();
+        } finally {
+            window.removeEventListener("keydown", listen);
+        }
+        return keys;
+    }
+    /** Presses a key on an element, letting the renders settle. */
+    const pressOn = (el: Element, key: string, held: { metaKey?: boolean } = {}) => gesture(() => { fireEvent.keyDown(el, { key, ...held }); });
+    const selected = (c: HTMLElement, key: string) => node(c, key).hasAttribute("data-selected");
+
+    test("Escape and Del in the canvas, ⌘Z, and a state's editor's ⏎ and Escape each act and go no further; an Escape with nothing to put back goes on", async () => {
+        const { source } = captured(() => FLOWS);
+        const { container } = await mount(payload(source));
+        await gesture(() => { fireEvent.click(node(container, "IND")); });
+        expect(selected(container, "IND")).toBe(true);
+        expect(await heard(() => pressOn(canvasBox(container), "Escape")), "Escape in the canvas").toEqual([]);
+        expect(selected(container, "IND")).toBe(false);
+        expect(await heard(() => selectAndPress(container, node(container, "CH*"), "Delete")), "Del in the canvas").toEqual([]);
+        expect(stateKeys(container)).toEqual(["IND", "SRD"]);
+        expect(await heard(() => pressOn(canvasBox(container), "z", { metaKey: true })), "⌘Z in the canvas").toEqual([]);
+        expect(stateKeys(container)).toEqual(["IND", "CH*", "SRD"]);
+        for (const key of ["Escape", "Enter"]) {
+            await gesture(() => { fireEvent.doubleClick(node(container, "SRD")); });
+            const code = container.querySelector("[data-flowchart-stateeditor] input")!;
+            expect(await heard(() => pressOn(code, key)), `${key} in a state's editor`).toEqual([]);
+            expect(container.querySelector("[data-flowchart-stateeditor]"), key).toBeNull();
+        }
+        // Nothing selected, dimmed or drawn: Escape does nothing, and goes on as it came.
+        expect(await heard(() => pressOn(canvasBox(container), "Escape")), "Escape with nothing to put back").toEqual(["Escape"]);
+    });
+
+    test("an Escape typed elsewhere on the page never acts on the canvas; one from the page itself, nothing focused, does only while the pointer is over the canvas", async () => {
+        const { source } = captured(() => FLOWS);
+        const { container } = await mount(payload(source));
+        await gesture(() => { fireEvent.click(node(container, "IND")); });
+        // A control of the page's own, outside the frame.
+        const elsewhere = document.createElement("button");
+        document.body.appendChild(elsewhere);
+        try {
+            await pressOn(elsewhere, "Escape");
+            expect(selected(container, "IND"), "an Escape on a control of the page").toBe(true);
+            await pressOn(document.body, "Escape");
+            expect(selected(container, "IND"), "an Escape from the page, the pointer elsewhere").toBe(true);
+            await gesture(() => { fireEvent.pointerEnter(container.querySelector("[data-flowchart-body]")!); });
+            await pressOn(document.body, "Escape");
+            expect(selected(container, "IND"), "an Escape from the page, the pointer over the canvas").toBe(false);
+        } finally {
+            elsewhere.remove();
+        }
     });
 });
 

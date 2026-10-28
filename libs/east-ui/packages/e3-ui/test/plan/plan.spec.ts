@@ -1538,6 +1538,65 @@ describeEast("Plan", (test) => {
         $(Assert.equal(viaValue, blocks));
     });
 
+    test("a block says how many chart rows each of its entries makes where every entry makes as many — none where that varies, and for a fixed block (#1398)", $ => {
+        const Part = StructType({ v: FloatType });
+        const Row = StructType({ v: FloatType, on: BooleanType, parts: DictType(StringType, Part) });
+        const data = $.const(new Map([
+            ["a", { v: 1.0, on: true, parts: new Map([["p1", { v: 1.0 }], ["p2", { v: 2.0 }]]) }],
+            ["b", { v: 2.0, on: false, parts: new Map() }],
+        ]), DictType(StringType, Row));
+        const series = [
+            // A chart series: one an entry.
+            Plan.series.chart(Row, { key: "one", title: "One", label: (_r, k) => k, layers: () => [] }),
+            // Its `match` decides by entry whether it makes one.
+            Plan.series.chart(Row, { key: "some", title: "Some", match: (r) => r.on, label: (_r, k) => k, layers: () => [] }),
+            // A `match` over no chart: none either way.
+            Plan.series.heat(Row, {
+                key: "heat", title: "Heat", match: (r) => r.on, label: (_r, k) => k,
+                cells: (r) => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]),
+            }),
+            // A views entry: a row a member, so one a chart member.
+            Plan.series.views(Row, { key: "views", title: "Views" }, [
+                Plan.series.chart(Row, { key: "view-a", title: "A", label: (_r, k) => k, layers: () => [] }),
+                Plan.series.heat(Row, { key: "view-heat", title: "Heat", label: (_r, k) => k, cells: (r) => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]) }),
+                Plan.series.chart(Row, { key: "view-b", title: "B", label: (_r, k) => k, layers: () => [] }),
+            ]),
+            // Children whose rows hold a chart: as many as the entry's parts, which the data decides.
+            Plan.series.span(Row, {
+                key: "parts", title: "Parts", label: (_r, k) => k, runs: () => [],
+                children: Plan.children((r) => r.parts, [Plan.series.chart(Part, { key: "part-chart", title: "Part", label: (_p, k) => k, layers: () => [] })]),
+            }),
+            // Children whose rows hold none: none.
+            Plan.series.span(Row, {
+                key: "plain", title: "Plain", label: (_r, k) => k, runs: () => [],
+                children: Plan.children((r) => r.parts, [Plan.series.heat(Part, {
+                    key: "part-heat", title: "Part heat", label: (_p, k) => k,
+                    cells: (p) => Plan.heatCells([{ at: Plan.at.time(W27), value: some(p.v), label: none }]),
+                })]),
+            }),
+            // A section's header is no entry's; its member says its own.
+            Plan.series.section(Row, { key: "sec", title: "Section" }, [
+                Plan.series.chart(Row, { key: "sec-chart", title: "In section", label: (_r, k) => k, layers: () => [] }),
+            ]),
+            // Hand-built rows are no entry's.
+            Plan.series.rows(Row, { key: "chrome", title: "Chrome" }, [Plan.events({ key: "ms", label: "MS" })]),
+        ];
+        const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
+        const blocks = $.let(Plan.Root({ axis, data, series }).rows.unwrap("inline"));
+        $(Assert.equal(blocks.map((_$, b) => b.charts), [some(1n), none, some(0n), some(2n), none, some(0n), none, some(1n), none]));
+        // It is what each entry makes: the two entries draw two of the chart series' rows, and four of the views'.
+        $(Assert.equal(blocks.get(0n).rows.filter((_$, r) => r.kind.hasTag("chart")).size(), 2n));
+        $(Assert.equal(blocks.get(3n).rows.filter((_$, r) => r.kind.hasTag("chart")).size(), 4n));
+        // A paged source's window says the same of its entries.
+        const source = $.let(LOADS_SOURCE, Paged.Types.Source(Loads));
+        const loads = [
+            Plan.series.chart(LoadRow, { key: "load-chart", title: "Load", label: (_r, k) => k, layers: () => [] }),
+            Plan.series.heat(LoadRow, { key: "load-heat", title: "Load heat", label: (_r, k) => k, cells: (r) => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]) }),
+        ];
+        const w0 = $.let(Plan.Root({ axis, data: source, series: loads }).rows.unwrap("paged").page(0n, 2n).unwrap("some"));
+        $(Assert.equal(w0.map((_$, b) => b.charts), [some(1n), some(0n)]));
+    });
+
     test("two series over one source both keep every row — their ids differ by series", $ => {
         // The collision a keyed union used to resolve silently (last wins) is
         // gone: a row's id is its series and its path.

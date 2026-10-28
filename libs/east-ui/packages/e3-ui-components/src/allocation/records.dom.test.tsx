@@ -125,7 +125,8 @@ describe("one history over the Allocation's records (#1372)", () => {
         expect(c.querySelector("[data-allocation-readonly]")).not.toBeNull();
         expect(status(c)).toBe("Published");
         expect(toolbar(c).queryByRole("button", { name: editingMessages.apply() })).toBeNull();
-        expect(toolbar(c).queryByRole("button", { name: "Publish" })).toBeNull();
+        // Publish in its slot, off (#1398, CL1).
+        expect(toolbar(c).getByRole("button", { name: "Publish" }).hasAttribute("disabled")).toBe(true);
         // The Timeline: no connector, nothing the Library drags; a bin's Details edit nothing.
         expect(c.querySelector("[data-allocation-card]")).not.toBeNull();
         expect(c.querySelector("[data-allocation-connector]")).toBeNull();

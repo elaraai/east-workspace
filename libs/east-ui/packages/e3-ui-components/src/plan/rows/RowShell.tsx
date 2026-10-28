@@ -32,7 +32,7 @@ import { spanWords } from "../edit/movable.js";
 import { usePlanEdit, type PlanProposal } from "../edit/store.js";
 import { holdsKey } from "../edit/use-carry.js";
 import type { PlanEventDrop } from "../edit/event-drag.js";
-import { resolveColor } from "@elaraai/east-ui-components/internal";
+import { LoadingWash, resolveColor } from "@elaraai/east-ui-components/internal";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import { rowItemKey, type PlanRowValue } from "../model.js";
 import { statusText } from "../a11y.js";
@@ -170,6 +170,9 @@ export interface RowShellProps {
     /** The row is the last visible member of an open group — it carries the
      *  group's closing rule (#949). */
     groupEnd?: boolean | undefined;
+    /** Its events are unread (#1398, CL2): the region wash lies under what its plot holds, on the canvas's reveal clock,
+     *  and the plot is busy — never an empty row while its cells are on their way. */
+    unread?: boolean | undefined;
     children: ReactNode;
 }
 
@@ -178,7 +181,7 @@ export function RowShell({
     row, styles, gridTemplate, height, depth, selected,
     caret, onCaretClick, emphasis, gutterOverlay, noGrid,
     controls, focusTag, axisMode, ctx, drop, draft, children,
-    expandBody, expandGutter, bandHeight, grid, expandedState, groupEnd,
+    expandBody, expandGutter, bandHeight, grid, expandedState, groupEnd, unread,
 }: RowShellProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -587,6 +590,9 @@ export function RowShell({
                 // The keyboard carry's destination (#825), staged as a drag's is.
                 data-drop-active={carry !== null && !carry.refused ? "" : undefined}
                 data-drop-invalid={carry !== null && carry.refused ? "" : undefined}
+                // Its events still to land (#1398, CL2): busy, washed under what it holds.
+                aria-busy={unread === true ? true : undefined}
+                data-plan-unread={unread === true ? "" : undefined}
                 onPointerMove={(e) => {
                     // While a drag is in flight the landing band IS the readout
                     // (the layer positions it), so the hairline would only add a
@@ -610,6 +616,8 @@ export function RowShell({
                     if (bucket !== undefined) dispatch({ t: "row.select", key: row.key, at: bucket.start });
                 }}
             >
+                {/* Under everything the plot draws after it — the rules, the marks, the now line (#1398, CL2). */}
+                {unread === true && <LoadingWash />}
                 {noGrid !== true && <GridSeparators styles={styles} />}
                 {drop !== undefined && (
                     <Box ref={previewRef} css={styles.dropPreview} data-plan-drop-preview>

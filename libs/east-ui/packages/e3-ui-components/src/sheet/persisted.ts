@@ -4,8 +4,7 @@
  *
  * What a sheet persists under its `storageKey` (#857) — what the viewer
  * arranged: the folds, and where a bounded frame's scroll rests. Never the
- * ring, nor the lens's context and reveals (they follow the narrowing, which
- * the slice owns). The Plan's rule (#813).
+ * ring, nor the narrowing (the slice owns it). The Plan's rule (#813).
  *
  * @packageDocumentation
  */

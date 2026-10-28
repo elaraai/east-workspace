@@ -184,10 +184,6 @@ export {
     type LibraryNarrowing,
     type LibraryGroupMark,
     type EastChakraLibraryProps,
-    EastChakraSchematic,
-    type SchematicValue,
-    type SchematicItemValue,
-    type EastChakraSchematicProps,
     EastChakraMap,
     type MapValue,
     type MapAreaValue,
@@ -207,6 +203,7 @@ export {
     type DatasetKeySearchProps,
     type DatasetKeyMatchRange,
     type DatasetKeyQuery,
+    type KeySearchJump,
     type ParsedKeyInput,
 } from "./collections/index.js";
 
@@ -347,6 +344,7 @@ export {
     EastChakraBanner,
     BannerView,
     type BannerValue,
+    type BannerTone,
     type EastChakraBannerProps,
     type BannerViewProps,
 } from "./feedback/index.js";
@@ -572,10 +570,12 @@ export { SlicePredicateBuilder, type SlicePredicateBuilderProps, type SliceField
 export { SliceEditPopover, type SliceEditPopoverProps, type SliceEditPopoverAnchor } from "./slice/edit";
 export { formatPredicate, predicateParts, type PredicateValue } from "./slice/predicate-format";
 export { EastChakraPickPanel, type PickPanelValue } from "./pick/panel/index.js";
-// The one toolbar row every component lays its chrome in (#952), and a
-// gallery's Grid · List switch — for sibling renderer packages (e3-ui-components)
-// whose screens keep one toolbar over several galleries.
-export { Toolbar, DEFAULT_RANK, type ToolbarItem, type ToolbarProps } from "./toolbar/index.js";
+// The one toolbar row every component lays its chrome in (#952), the first rank
+// of the floor below its ladder (a rung an item gives only where the whole
+// ladder leaves the row too wide), and a gallery's Grid · List switch — for
+// sibling renderer packages (e3-ui-components) whose screens keep one toolbar
+// over several galleries.
+export { Toolbar, DEFAULT_RANK, FLOOR_RANK, type ToolbarItem, type ToolbarProps } from "./toolbar/index.js";
 // A toolbar's folded chip (#1229): one chip whose menu holds what a row short
 // of room folds into it — the SnapGrid editor's View, Studio's and the query
 // builder's ⋯ — and the first rank a SnapGrid editor's host's own items fold at.
@@ -592,7 +592,8 @@ export {
 // edit through it themselves, as the query builder does (#935): the session and
 // its React hook, a draft lifted from an entry, the history item for their one
 // toolbar and its keys, heard anywhere in a builder's frame but a field typed
-// into (#1185), the banners a builder shows its error in instead (#1184), and
+// into (#1185) — a key the builder acts on taken there, going no further
+// (`takeKey`, #1398) — the banners a builder shows its error in instead (#1184), and
 // the session's words — its error, too, in the surface's (#936). A builder
 // whose entries live in several sources keeps a session per source and one
 // history over them (#1194): the Plan's event kinds, the Calendar's.
@@ -606,6 +607,7 @@ export {
     historyToolbarItem,
     historyShortcut,
     typedInto,
+    takeKey,
     SessionBanners,
     editingMessages,
     sessionErrorText,
@@ -629,4 +631,52 @@ export {
     type Origin,
     type Placement,
     type SessionBannersProps,
+    type TakenKey,
 } from "./editing/index.js";
+// The Optimise run's shared parts (#1409) — for the sibling renderer packages
+// whose builders take the app's optimiser: the Elara eye and its button, the
+// eye's toolbar item before the history item, and its entry in a builder's
+// View where the row's floor folds it (ruled 27 Oct 2026, "Into the View
+// menu"), the banner the result lands with, the legend's `Elara change`, the
+// footer line's words while the call is out, and the words table.
+export {
+    ElaraEye,
+    ELARA_EYE_DOTS,
+    OptimiseButton,
+    OPTIMISE_BLINK_MS,
+    optimiseToolbarItem,
+    OPTIMISE_RANK,
+    OptimiseEntry,
+    OptimiseBanner,
+    OPTIMISE_BANNER_COLLAPSE_MS,
+    OptimiseLegendItem,
+    optimiseRunningLine,
+    optimiseStoppedLine,
+    optimiseSeconds,
+    optimiseMessages,
+    useLanding,
+    useLandingStyles,
+    cascadeDelays,
+    cascadeOrder,
+    cascadeStep,
+    OPTIMISE_CASCADE_MS,
+    OPTIMISE_CASCADE_STEP_MS,
+    OPTIMISE_COLUMN_PX,
+    OPTIMISE_FLARE_MS,
+    OPTIMISE_GLOW_FADE_MS,
+    OPTIMISE_HIGHLIGHT_MS,
+    OPTIMISE_TOTALS_DELAY_MS,
+    type CascadeBox,
+    type Landing,
+    type LandingAttributes,
+    type LandingStyles,
+    type ElaraEyeProps,
+    type ElaraEyeSize,
+    type OptimiseButtonProps,
+    type OptimiseButtonSize,
+    type OptimiseEntryProps,
+    type OptimiseBannerProps,
+    type OptimiseOutcome,
+    type OptimiseLegendItemProps,
+    type OptimiseMessages,
+} from "./optimise/index.js";

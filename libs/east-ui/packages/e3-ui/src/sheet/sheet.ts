@@ -20,14 +20,16 @@
  *   through `onApply`, `onUpdate` and `onPatch`, and with none of them the
  *   sheet is read only;
  * - the `rows` source of its `slice`, a `Slice.bindRecords` over records
- *   (#1345): the rows it narrows to, paged from it, its record's keys their
- *   ids; edits reach the record through `onApply`
+ *   (#1345): its record's rows, every one in the record's order, paged from
+ *   it, its record's keys their ids; edits reach the record through `onApply`
  *   (`Record.onApply(record, { keyed: true })`).
  *
- * Its narrowing is that one `Slice.bindRecords`, one rail on its toolbar:
- * its `rows` source narrows the rows, and each other source the templates
- * list or the library tab that names it. Templates are records, each list
- * its own source (#1340).
+ * Its narrowing is that one `Slice.bindRecords`, one rail on its toolbar.
+ * The `rows` source's narrowing is drawn over the rows as the lens (#1349),
+ * as a filtered spreadsheet: only the rows it keeps, one after another, each
+ * at its row number, placed by e3 from the source's index alone. Each other
+ * source narrows the templates list or the library tab that names it.
+ * Templates are records, each list its own source (#1340).
  *
  * The sheet is an interface. Its payload holds the sheet whole — its grid,
  * its rows, its narrowing's chrome and its session ({@link SheetRootType}) —
@@ -45,6 +47,7 @@ import {
     East,
     Expr,
     FunctionType,
+    IntegerType,
     NullType,
     OptionType,
     StringType,
@@ -57,7 +60,10 @@ import {
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { RowSourceType, UIComponentType, type UIElement } from "@elaraai/east-ui";
-import { EastUI, isRecordSlices, type DataRowType, type FieldHints, type PagedSource, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
+import {
+    EastUI, PinnedSourceType, RecordSliceWhereType, isRecordSlices,
+    type DataRowType, type FieldHints, type PagedSource, type RecordSlicesChromeOptions,
+} from "@elaraai/east-ui/internal";
 import { SheetRootType, type SheetEntryOf, type SheetLinesField, type SheetLineOf } from "./types.js";
 import { createSheetBuild, type SheetBindHandle, type SheetBuild, type SheetEntriesOptions, type SheetGroupedOptions, type SheetOptions, type SheetIndexedOptions, type SheetStringField } from "./root.js";
 import type { SheetColumnSpec, SheetFieldKey } from "./columns.js";
@@ -71,6 +77,9 @@ import { viewsOf } from "./views.js";
 import type { OrderedRowSource } from "../utils/ordered-source.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
+import { FuncBindingType } from "../bind/func.js";
+import type { OptimiseHandle } from "../utils/optimise.js";
+import { sheetOptimiseBinding } from "./optimise.js";
 
 // ============================================================================
 // The sheet's shared keys
@@ -151,6 +160,7 @@ export type SheetHistoryType = typeof SheetHistoryType;
  * @property library - The library pane's tabs, in the order `library` lists them; none, no library pane
  * @property narrowed - Each source of the slice's narrowed keys, paged through its part, by the source's name (#1345): what the Rows tab and an author's tab read to show a source's rows
  * @property inspector - The inspector pane: its forms, and the author's own Details; `none`, no inspector pane
+ * @property optimise - The app's optimiser, by its `e3.function`'s name (#1409): what the Elara eye calls over the rows in view, its result one edit of the session; `none`, no eye
  * @property history - Over a record, its commits: the last save, and who changed it; `none` over `data`
  * @property missing - With `entry`, the entry's key while the record does not hold it: what the frame's banner names
  * @property name - Names the sheet, when a surface holds two
@@ -161,6 +171,7 @@ export const SheetPayloadType = StructType({
     library: ArrayType(SheetLibraryTabType),
     narrowed: DictType(StringType, RowSourceType(ArrayType(StringType))),
     inspector: OptionType(SheetInspectorPaneType),
+    optimise: OptionType(FuncBindingType),
     history: OptionType(SheetHistoryType),
     missing: OptionType(StringType),
     name: OptionType(StringType),
@@ -252,10 +263,12 @@ export interface SheetCommon<L extends StructType, G extends StructType = never>
     /**
      * The narrowing (#1345): `slice={{ slice: Slice.bindRecords(key, { rows, … }) }}`,
      * one rail on the toolbar, with its `affordances` and `persist`. Its
-     * `rows` source narrows the sheet's rows, which the sheet pages from it —
-     * then `record`, `data`, `entry` and `window` give none, and edits reach the
-     * record through `onApply` (`Record.onApply(record, { keyed: true })`). Each
-     * other source narrows the templates list or the library tab that names it.
+     * `rows` source gives the sheet its record's rows, every one in the
+     * record's order, paged from it, its narrowing drawn over them as the lens
+     * (#1349) — then `record`, `data`, `entry` and `window` give none, and
+     * edits reach the record through `onApply` (`Record.onApply(record, {
+     * keyed: true })`). Each other source narrows the templates list or the
+     * library tab that names it.
      * `Slice.bind`, a single `Slice.bindRecord` and a source nothing names are
      * refused.
      */
@@ -283,6 +296,16 @@ export interface SheetCommon<L extends StructType, G extends StructType = never>
      * field has a value. Left out, no inspector pane.
      */
     inspector?: true | SubtypeExprOrValue<FunctionType<[L, FunctionType<[L], NullType>], UIComponentType>>;
+    /**
+     * The app's optimiser (#1409): `Func.bind` of its `e3.function` from `Sheet.Types.OptimiseRequest(R, K?)` — the run number
+     * and the rows in view by key, as the session holds them — to `Sheet.Types.OptimiseResult(R, K?)`, the rows complete. `R`
+     * is the sheet's row type — its rows' struct, a grouped sheet's group type, or its entries `Sheet.Types.Entry(P, "lines")` —
+     * and `K` its source's key type: a record's own; `String`, and left out, for an Array source, whose rows are keyed by their
+     * id field. The Elara eye in the toolbar calls it once per run; the result lands in the session as one edit, which one Undo
+     * reverts and Save commits with everything else. Omitted, no eye. The tag cannot see its source's key type in TypeScript, so
+     * it checks the handle at build, and refuses one over other rows naming both.
+     */
+    optimise?: OptimiseHandle;
     /** Hints for the inspector's form, by the row's field (a grouped sheet's line's) — `Sheet.field.*`: a label, a help line, an editor, read only or hidden; a column's kind is its field's default (SB10). */
     fields?: FieldHints<L["fields"]>;
     /** Hints for a group's own fields in the inspector, on a grouped sheet. */
@@ -313,6 +336,7 @@ type SheetAnyProps = {
     fields?: Readonly<Record<string, unknown>>;
     groupFields?: Readonly<Record<string, unknown>>;
     inspector?: unknown;
+    optimise?: unknown;
     views?: unknown;
     name?: string;
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
@@ -338,11 +362,11 @@ const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  *
  * @param props - The sheet's props, as `<Sheet>` takes them
  * @returns An East expression of {@link SheetPayloadType}
- * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; a `slice` that is not `{ slice: Slice.bindRecords(…) }`, one holding a source nothing names, and the rows of its `rows` source beside `record`, `data`, `entry` or `window`; `affordances` and `persist`, which moved into `slice`; a templates list written in the code or naming no source of the slice, and two naming the same; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
+ * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R, K?)` to `OptimiseResult(R, K?)` over the sheet's rows (#1409); a `slice` that is not `{ slice: Slice.bindRecords(…) }`, one holding a source nothing names, and the rows of its `rows` source beside `record`, `data`, `entry` or `window`; `affordances` and `persist`, which moved into `slice`; a templates list written in the code or naming no source of the slice, and two naming the same; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
  * @internal
  */
 export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<SheetPayloadType> {
-    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, views, name, ...sheet } = props as SheetAnyProps;
+    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, optimise, views, name, ...sheet } = props as SheetAnyProps;
     // The narrowing's props #1345 retired, refused by name for an app that still passes them.
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
         throw new Error("Sheet: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { rows }) }}: the bare handle and data={Slice.rows(slice)} are gone, and the sheet reads its rows from the slice's `rows` source");
@@ -417,11 +441,12 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
     return Expr.block(($) => {
         const bound = sources.bind($);
         const narrowed = East.value(new Map(Object.entries(bound.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
-        const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
+        const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, optimise, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
         if (pagesRows) {
-            // The rows source's data, and its record's identity, which names the session over the rows it pages.
-            const part = bound.parts["rows"] as unknown as { sourceId: ExprType<StringType> };
-            const built = createSheetBuild(bound.data["rows"], columns, { ...sheet, ...viewOptions }, { sourceId: part.sourceId, slice: sources.chrome });
+            // The rows source's record, every row in its own order (#1349) — the renderer draws the source's narrowing
+            // over them as the lens — and its record's identity, which names the session over them.
+            const part = bound.parts["rows"] as unknown as RecordRowsPart;
+            const built = createSheetBuild(recordRowsOf(part), columns, { ...sheet, ...viewOptions }, { sourceId: part.sourceId, slice: sources.chrome });
             return payloadOf(built, {
                 ...parts, id: sheet.id as string | undefined,
                 history: East.value(none, OptionType(SheetHistoryType)),
@@ -456,6 +481,42 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
     });
 }
 
+/** A `rows` source's part of the slice, as the sheet reads its record's own rows through it (#1349). */
+type RecordRowsPart = ExprType<StructType<{
+    sourceId: StringType;
+    total: FunctionType<[], OptionType<IntegerType>>;
+    pageWhere: FunctionType<[typeof RecordSliceWhereType, IntegerType, IntegerType], OptionType<EastType>>;
+    data: StructType<{
+        id: StringType;
+        revision: FunctionType<[], OptionType<StringType>>;
+        refresh: FunctionType<[OptionType<StringType>], NullType>;
+    }>;
+}>>;
+
+/**
+ * The record a `rows` source narrows, every row in the record's own order
+ * (#1349): what the sheet's rows are, the source's narrowing drawn over them
+ * as the lens. Its pages are read through the source's binding with no
+ * narrowing — the windows a narrowing's own reads share — its total is the
+ * record's rows, and its revision the record's state, which a Save confirms
+ * against. It searches no key itself: the renderer seeks the record's own
+ * order through the source's binding.
+ *
+ * @param part - The `rows` source's part of the slice, bound once in the payload's block
+ * @returns A pinned source over the record's own rows, of the source's window type
+ */
+function recordRowsOf(part: RecordRowsPart): ExprType<StructType> {
+    const pageType = (Expr.type(part.pageWhere as unknown as Expr) as FunctionType).output as OptionType<EastType>;
+    const collection = (pageType.cases as Record<string, EastType>)["some"]!;
+    const page = East.function([IntegerType, IntegerType], OptionType(collection), ($, offset, limit) => {
+        const read = $.const(part.pageWhere);
+        return read(East.value(new Map(), RecordSliceWhereType), offset, limit);
+    });
+    return East.value({
+        id: part.data.id, page, total: part.total, seek: none, revision: part.data.revision, refresh: part.data.refresh,
+    } as never, PinnedSourceType(collection)) as unknown as ExprType<StructType>;
+}
+
 /** The payload around a built sheet: its templates, its library, each source's narrowed keys, its inspector pane, its history and its name. */
 function payloadOf(built: SheetBuild, parts: {
     templates: readonly SheetTemplatesList[];
@@ -465,6 +526,7 @@ function payloadOf(built: SheetBuild, parts: {
     fields: SheetAnyProps["fields"];
     groupFields: SheetAnyProps["groupFields"];
     inspector: unknown;
+    optimise: unknown;
     name: string | undefined;
     newRow: unknown;
     newGroup: unknown;
@@ -478,6 +540,8 @@ function payloadOf(built: SheetBuild, parts: {
         library: buildLibrary(parts.library, built.bridge, parts.sources),
         narrowed: parts.narrowed,
         inspector: buildInspectorPane(parts.inspector, built, { fields: parts.fields, groupFields: parts.groupFields, id: parts.id }),
+        // The app's optimiser (#1409), held to the sheet's rows and their key: a record's, or the id field's String.
+        optimise: parts.optimise === undefined ? none : some(sheetOptimiseBinding(parts.optimise, built.bridge.rowType, built.keyType)),
         history: parts.history,
         missing: parts.missing,
         name: parts.name === undefined ? none : some(parts.name),
@@ -658,8 +722,9 @@ export function SheetTag<K extends EastType, R extends StructType, P extends Eas
 ): UIElement;
 /**
  * `<Sheet slice={{ slice }} group={Sheet.group(P, "lines", …)} columns={{ … }} onApply={Record.onApply(record, { keyed: true })} />`
- * — the groups the `rows` source of `slice` narrows to (#1345), paged from it
- * in its index's order, each group's id its record key; `columns` are
+ * — the groups of the record the `rows` source of `slice` narrows (#1345),
+ * paged from it in the record's order, each group's id its record key, the
+ * source's narrowing drawn over them as the lens (#1349); `columns` are
  * declared over their lines.
  */
 export function SheetTag<K extends EastType, P extends StructType, F extends SheetLinesField<P>>(
@@ -671,9 +736,10 @@ export function SheetTag<K extends EastType, P extends StructType, F extends She
 ): UIElement;
 /**
  * `<Sheet slice={{ slice }} columns={{ … }} onApply={Record.onApply(record, { keyed: true })} />`
- * — the rows the `rows` source of `slice` narrows to (#1345), paged from it
- * in its index's order, each row's id its record key: `slice`'s rail narrows
- * them, and Save commits through `onApply` by original primary key.
+ * — the rows of the record the `rows` source of `slice` narrows (#1345), paged
+ * from it in the record's order, each row's id its record key: `slice`'s rail
+ * draws its narrowing over them as the lens (#1349), and Save commits through
+ * `onApply` by original primary key.
  */
 export function SheetTag<K extends EastType, R extends StructType>(
     props: { slice: RecordSlicesChromeOptions; columns: SheetColumnSpec<R> } & SheetCommon<R> & SheetIndexedOptions<K, R>,

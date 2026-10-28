@@ -1,0 +1,82 @@
+<!-- @dsCard group="Components · Collections" name="Plan · loading" viewport="700x3613" subtitle="Rows at the declared 42 px pitch · cold load · the reserved horizon row · a run while scrolling · every row kind at its exact or least height · stale narrowing · failed with Retry · No rows and Backlog clear only after their reads · the narrow cards" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"><link rel="stylesheet" href="slice-parts.css"><link rel="stylesheet" href="loading-parts.css">
+<style>
+.pgr{grid-template-columns:128px minmax(0,1fr)}
+.lh2{display:grid;align-content:center;gap:4px}
+.lh2 .id{font-family:var(--font-mono);font-feature-settings:"tnum" 1;font-size:var(--fs-body);font-weight:600;color:var(--ink)}
+.stl .lh2 .id{color:var(--ink-3)}
+.lrow.stale{border-bottom:1px dashed var(--rule-strong)}
+.bar2{position:absolute;z-index:2;top:11px;height:20px;box-sizing:border-box;display:flex;align-items:center;padding:0 8px;border-radius:var(--r-sm);background:var(--brand-d);font-family:var(--font-mono);font-size:var(--fs-label-sm);font-weight:600;color:var(--paper);white-space:nowrap;overflow:hidden}
+.hz{height:38px}
+.win{position:absolute;z-index:1;top:10px;height:18px;background:var(--brand-tint);opacity:0.7}
+.base{position:absolute;z-index:1;left:0;right:0;top:27px;border-top:1px solid var(--rule-strong)}
+.ntabs{height:40px;box-sizing:border-box;display:flex;align-items:stretch;gap:16px;padding:0 12px;border-bottom:1px solid var(--rule)}
+.ntabs .tab{padding:0}
+.nc{display:grid;gap:8px;padding:12px;background:var(--paper-2)}
+.rel{position:relative}
+</style></head><body>
+<div class="wrap">
+<div class="sec">
+<div class="k">Cold load</div>
+<div class="it2"><div class="bf" id="cold"></div><div class="cap"><span class="f"><b>cold · first open</b>: BuilderFrame's skeleton, in place of today's empty body</span> · <span class="f">rows at the declared pitch, 42 for two-line rows</span> · <span class="f"><b>the horizon row's 38 reserved</b>, a placeholder track until its date span lands (today it arrives late and pushes the rows 38)</span> · <span class="f">ruler, day grid and the now line real: they come from the axis and window</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Unread · scrolling into a run</div>
+<div class="it2"><div class="bf rel" id="run"></div><div class="cap"><span class="f"><b>unread</b> (today: stripes every 32 px over 42 px rows, no gutter or day grid, a caption off-screen)</span> · <span class="f">the run's rows at 42 with the real gutter, day grid and now line</span> · <span class="f">each row's label a 12 bar and its sub line an 8 bar; its plot takes the wash: no bar, card or event shape</span> · <span class="f">"…" for the footer's counts; "1,000 LOADED OF 2,778", "elements" and "scroll to load" are gone</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Row kinds · exact where the data can't change the height, least where it can</div>
+<div class="it2"><div class="bf rel" id="kinds"></div><div class="cap"><span class="f"><b>unread · by kind</b>, top to bottom: group band, its "N rows" a bar, never "~N" · span 32 · cards 32 · events 32, the kind's label real from the payload · heat 32 · chart 88 open · buckets at their least, one lane · table at its least, one row</span> · <span class="f">buckets and table grow below the row in view as they land; folded sections and mixed blocks likewise</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Stale · a narrowing in flight</div>
+<div class="it2"><div class="bf" id="stale"></div><div class="cap"><span class="f"><b>stale</b>: a filter was just added; the rows stay, their rules dashed and heads --ink-3; drag, resize and edit off</span> · <span class="f">the count "…" until it lands · "Filtering work orders…"</span> · <span class="f">a pan, a brush move or a date step is not a narrowing: the window moves, paging doesn't restart</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Failed · Retry in the run</div>
+<div class="it2"><div class="bf" id="failed"></div><div class="cap"><span class="f"><b>failed</b>: the run's first row in view carries the reason and Retry; its other rows keep the label column, day grid and rules, and carry nothing else</span> · <span class="f">the plots go bare: no wash once nothing is being read</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Empty · only once the reads say so</div>
+<div class="it2"><div class="bf" id="empty"></div><div class="cap"><span class="f"><b>empty</b>: the count says 0 and the kinds read has landed</span> · <span class="f">"Backlog clear" and its 0 only now; before, the tab says "…" over placeholder cards</span> · <span class="f">the message sits in the first row's place, with Clear filters</span></div></div>
+</div>
+<div class="sec">
+<div class="k">Narrow · group and row cards, at 360</div>
+<div class="duo">
+<div class="it2"><div class="bf" style="width:100%" id="n1"></div><div class="cap"><span class="f"><b>unread · narrow</b>: cards at their kind's height, title and meta bars</span> · <span class="f">Groups, Rows and Measures counts "…"</span></div></div>
+<div class="it2"><div class="bf" style="width:100%" id="n2"></div><div class="cap"><span class="f"><b>empty · narrow</b>: "No rows" only once the count says 0</span></div></div>
+</div>
+</div>
+</div>
+<div class="pl">&lt;Loading&gt; · state cold|unread|stale|failed|empty · density comfortable|compact|condensed · content text|number|date|boolean|chip|link|enum|label|aggregate|card · line idle|range|period|filtering|failed|narrow</div>
+<div class="ann"><b>&lt;Plan&gt; · UnloadedRun (replaces WindowBand) · LoadingWash · BuilderFrame busy</b> · <span class="f">rows at the declared pitch: two-line 42, span, cards, events, heat and chart 32 (24 dense), chart open 88</span> · <span class="f">buckets and table at their least height, growing below the row in view</span> · <span class="f">extent from slice.count() at the declared pitch, never 32</span> · <span class="f">label column 128, names at 20: label 12 bar, sub line 8 bar; group band label bar, "N rows" 8 bar</span> · <span class="f">plot: the wash under the day grid and the 1px --brand-d now line</span> · <span class="f">horizon row 38 reserved; placeholder track until its span lands</span> · <span class="f">footer: 0 pending · … events · … in backlog, then Loading work orders 1,201–1,400</span> · <span class="f">aria-rowcount the total, 2,778</span> · <span class="f">stale: dashed --rule-strong rules, heads --ink-3</span> · <span class="f">failed: circle-exclamation --neg, Default Retry, said once; the run's other rows bare</span></div>
+<script src="loading-parts.js"></script>
+<script>
+(()=>{const {I,N,W,bar,rect,line,foot,tb,it,seg,nav,sum,flt,hist,held,$}=L;
+const D=48,days=['Th 01','Fr 02','Sa 03','Su 04','Mo 05','Tu 06','We 07','Th 08','Fr 09','Sa 10','Su 11'];
+const TB=c=>tb([it(flt('Filters')),it(nav('Oct 1 – 14, 2026')),it(seg(['Month','Week','Day'],2)),it(sum(c),'end')]);
+const hz=(real)=>`<div class="lrow pgr hz"><div class="lh" style="flex-direction:row;justify-content:flex-start;align-items:center;gap:8px"><span class="hk">Horizon</span>${real?'<span class="mt9">· 88 d</span>':''}</div><div class="pl2">${real?'<i class="base"></i><i class="win" style="left:0;width:96px"></i>':'<span style="position:absolute;left:12px;right:12px;top:10px;display:flex">'+rect(504,18,1).replace('width:504px','width:100%')+'</span>'}</div></div>`;
+const ruler=`<div class="lrow pgr"><div class="lh" style="justify-content:flex-end;padding-bottom:6px"><span class="hk">Resource</span></div><div><div class="tier ctx"><span style="width:${D*4}px">W40 · Sep 28</span><span style="width:${D*7}px;border-right:0">W41 · Oct 05</span></div><div class="tier" style="border-bottom:0">${days.map((d,i)=>`<span style="width:${D}px${i===10?';border-right:0':''}"${i===1?'':''}>${i===1?'<span class="nowc">Fr 02</span>':d}</span>`).join('')}</div></div></div>`;
+const grid=(wash)=>`${wash?'<i class="wl wash" style="inset:0"></i>':''}${N(10,i=>`<i class="vl" style="left:${D*(i+1)}px"></i>`)}<i class="nowl" style="top:0;bottom:0;left:${D+20}px;width:1px"></i>`;
+const prow=(h,head,plot,cls)=>`<div class="lrow pgr${cls?' '+cls:''}" style="height:${h}px"><div class="lh">${head}</div><div class="pl2">${plot}</div></div>`;
+const phh=i=>`<span class="lh2">${bar(W(72,i))}${bar(W(40,i+2),8)}</span>`;
+const F='<span><b>0</b> pending</span><span>·</span><span><b>…</b> events</span><span>·</span><span><b>…</b> in backlog</span>';
+$('cold',tb([it(rect(84,22,1)),it(rect(196,24)),it(rect(150,24)),it(rect(150,12,1),'end')])+hz(0)+ruler+N(6,i=>prow(42,phh(i),grid(1)))+foot(F,line('load','Loading work orders…')));
+const lrow=(id,st,i,cls)=>prow(42,`<span class="lh2"><span class="id">${id}</span><span class="mt9">${st}</span></span>`,grid(0)+(i%2?`<span class="bar2" style="left:${D*4+2}px;width:${D*3-4}px">${id}</span>`:`<span class="bar2" style="left:${D*0+2}px;width:${D*2-4}px">${id}</span>`),cls);
+const ids=['JOB-10810','JOB-10900','JOB-10990','JOB-11080','JOB-11170','JOB-11260','JOB-11350'];
+$('run',TB('<b>2,778</b> of 50,000 rows')+hz(1)+ruler+`<div aria-busy="true">${lrow(ids[0],'Ready',0)}${lrow(ids[1],'Ready',1)}${N(5,i=>prow(42,phh(1201+i),grid(1)))}</div>`+foot(F,line('load','Loading work orders <b>1,201–1,400</b>')));
+const kinds=[[36,`<span style="display:flex;align-items:center;gap:8px"><span class="chev open">${I('angle-right')}</span>${bar(56,8)}</span>`,'',1],[32,bar(72),''],[32,bar(64),''],[32,'<span class="mt9" style="font-size:var(--fs-body);color:var(--ink)">Milestones</span>',''],[32,bar(56),''],[88,bar(72),''],[32,bar(80),''],[32,bar(60),'']];
+$('kinds',ruler+kinds.map((k,i)=>k[3]?`<div class="gband" style="padding-left:20px">${k[1]}</div>`:prow(k[0],k[1],grid(1))).join('')+foot(F,line('load','Loading work orders <b>1–200</b>')));
+$('stale',TB('<b>…</b> of 50,000 rows').replace('class="ch br"','class="ch br"')+hz(1)+ruler+`<div class="stl">${ids.slice(0,5).map((id,i)=>lrow(id,i===2?'Scheduled':'Ready',i,'stale')).join('')}</div>`+foot(F,line('load','Filtering work orders…')));
+const frow=prow(42,'','').replace('<div class="pl2"></div>',`<div class="pl2" style="display:flex;align-items:center;padding:0 12px"><span class="fail">${I('circle-exclamation')}<span class="msg">Couldn\'t read work orders <span class="num">1,201–1,400</span></span><span class="bt md" role="button">Retry</span></span></div>`);
+$('failed',TB('<b>2,778</b> of 50,000 rows')+hz(1)+ruler+lrow(ids[0],'Ready',0)+lrow(ids[1],'Ready',1)+frow+N(3,()=>prow(42,'',grid(0)))+foot('<span><b>0</b> pending</span><span>·</span><span><b>212</b> events</span><span>·</span><span><b>3</b> in backlog</span>',line('err','Couldn\'t read work orders <b>1,201–1,400</b>')));
+const blib=`<div class="lib" style="width:176px"><div class="tabs"><span class="tab on" role="tab" aria-selected="true"><span class="nm">Backlog</span><span class="tc">0</span></span></div><div class="es" style="padding:24px 12px"><span class="gy">☐</span><span class="ttl">Backlog clear</span></div></div>`;
+$('empty',TB('<b>0</b> of 50,000 rows')+hz(1)+`<div class="vw">${blib}<div class="main"><div class="es"><span class="gy">×</span><span class="ttl">No work orders match the filters</span><ul class="ckl"><li><span class="bx">☐</span><span class="lkk" role="button">Clear filters →</span></li></ul></div></div></div>`+foot('<span><b>0</b> pending</span><span>·</span><span><b>0</b> events</span><span>·</span><span><b>0</b> in backlog</span>'));
+const ntabs=(a,b,c)=>`<div class="ntabs"><span class="tab" role="tab"><span class="nm">Groups</span><span class="tc">${a}</span></span><span class="tab on" role="tab" aria-selected="true"><span class="nm">Rows</span><span class="tc">${b}</span></span><span class="tab" role="tab"><span class="nm">Measures</span><span class="tc">${c}</span></span></div>`;
+const nTB=tb([it(nav('Oct 1 – 14')),it(held.stt(),'end')]).replace('class="band"','class="band" style="padding:0 12px"');
+const card=(h,t)=>`<div class="ic" aria-hidden="true" style="min-height:${h}px"><div class="icb"><div class="ihd"><div class="l20">${t||bar(112)}</div><div class="l16">${bar(72,8)}</div></div></div></div>`;
+$('n1',nTB+ntabs('…','…','…')+`<div class="nc">${card(72)}${card(88)}${card(88)}</div>`+foot('',line('load','Loading…')));
+$('n2',nTB.replace(L.held.stt(),'')+ntabs('0','0','4')+`<div class="es"><span class="gy">☐</span><span class="ttl">No rows</span></div>`+foot(''));
+})();
+</script>
+</body></html>

@@ -27,7 +27,7 @@ export function measureRowsAsDrawn(): () => void {
     Element.prototype.getBoundingClientRect = function (this: Element) {
         if (this instanceof HTMLElement && this.dataset["slot"] === "virtualRow") {
             const row = this.querySelector<HTMLElement>('[style*="height"]');
-            const px = row === null ? 0 : parseFloat(row.style.height || row.style.minHeight) || 0;
+            const px = row !== null ? parseFloat(row.style.height || row.style.minHeight) || 0 : 0;
             return { x: 0, y: 0, top: 0, left: 0, right: 0, bottom: px, width: 0, height: px, toJSON: () => ({}) } as DOMRect;
         }
         return saved.call(this);

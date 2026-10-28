@@ -49,6 +49,7 @@ import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import { PLAN_PAGE_SIZE } from "./use-plan-paging.js";
 import { rowSel, testKeyOf } from "./plan.test-utils.js";
+import { emulateWindowScroll } from "./window-scroll.test-utils.js";
 
 /** A unit's row — the `units` series' entry at the unit's key (#822). */
 const unitRow = (key: string) => rowSel(key, "data-plan-row", "units");
@@ -195,45 +196,6 @@ function withRecordedWindows(root: PlanRootValue, pending: (offset: number) => b
     return { root: { ...root, rows: variant("paged", spied) }, asked };
 }
 
-/**
- * What the unbounded canvas reads from the page it scrolls in (#812), for a
- * jsdom that lays nothing out: the canvas sits at the top of a tall document,
- * `window.scrollTo` moves `scrollY` and fires `scroll`, and the rows' top
- * moves with it. Returns the restore.
- */
-function emulateWindowScroll(): () => void {
-    let y = 0;
-    const html = document.documentElement;
-    const saved = {
-        scrollY: Object.getOwnPropertyDescriptor(window, "scrollY"),
-        scrollTo: Object.getOwnPropertyDescriptor(window, "scrollTo"),
-        rect: Element.prototype.getBoundingClientRect,
-    };
-    Object.defineProperty(window, "scrollY", { configurable: true, get: () => y });
-    Object.defineProperty(window, "scrollTo", {
-        configurable: true,
-        writable: true,
-        value: (arg: ScrollToOptions | number) => {
-            y = Math.max(0, typeof arg === "number" ? arg : (arg.top ?? y));
-            window.dispatchEvent(new Event("scroll"));
-        },
-    });
-    // A document tall enough to scroll through the canvas (jsdom reports 0).
-    Object.defineProperty(html, "scrollHeight", { configurable: true, get: () => 100_000_000 });
-    Element.prototype.getBoundingClientRect = function (this: Element) {
-        if (this.hasAttribute("data-virtual-extent")) {
-            return { x: 0, y: -y, top: -y, left: 0, right: 1024, bottom: -y, width: 1024, height: 0, toJSON: () => ({}) } as DOMRect;
-        }
-        return saved.rect.call(this);
-    };
-    return () => {
-        if (saved.scrollY !== undefined) Object.defineProperty(window, "scrollY", saved.scrollY);
-        if (saved.scrollTo !== undefined) Object.defineProperty(window, "scrollTo", saved.scrollTo);
-        delete (html as { scrollHeight?: number }).scrollHeight;
-        Element.prototype.getBoundingClientRect = saved.rect;
-    };
-}
-
 function renderPlan(value: PlanRootValue, key: string) {
     initializeStore(new UIStore());
     return render(
@@ -252,10 +214,9 @@ describe("Plan paged random access (#567/#574/#577)", () => {
         await waitFor(() => {
             expect(container.querySelector(unitRow("u0000"))).toBeTruthy();
         });
-        // The compiled `total` taught the transport the exact element count.
+        // The compiled `total` sized the canvas: every element of the source, at the rows' pitch, landed or not.
         await waitFor(() => {
-            const line = container.querySelector('[data-slot="footerTransport"]');
-            expect(line?.textContent).toMatch(/of 4,000$/);
+            expect(Number(container.querySelector("[data-virtual-extent]")?.getAttribute("data-virtual-extent"))).toBe(ELEMENTS * ROW_PX);
         });
         // It walked a bounded ring, not the whole source.
         expect(Math.max(...asked)).toBeLessThan(5);
@@ -372,6 +333,37 @@ describe("Plan paged random access (#567/#574/#577)", () => {
         }
     });
 
+    test("a pick takes the keyboard to the row it brings in — the grid's focus, once its window lands — and a step leaves it on the step (#1398)", async () => {
+        const restore = emulateWindowScroll();
+        try {
+            const { root } = withRecordedWindows(buildPagedPlan());
+            const { container } = renderPlan(root, "plan-search-keyboard");
+            await waitFor(() => {
+                expect(container.querySelector(unitRow("u0000"))).toBeTruthy();
+            });
+            const search = container.querySelector('[data-part="dataset-key-search"]')!;
+            const input = search.querySelector("input")! as HTMLElement;
+            // A far key's two matches, the first's window not read: the pick waits for its row, and the keyboard with it.
+            await userEvent.type(input, "u300");
+            await waitFor(() => expect(search.textContent).toMatch(/10 matches/), { timeout: 5_000 });
+            fireEvent.keyDown(input, { key: "Enter" });
+            await waitFor(() => {
+                expect(container.querySelector(unitRow(TARGET_KEY))).toBeTruthy();
+                expect(document.activeElement).toBe(container.querySelector(unitRow(TARGET_KEY)));
+            }, { timeout: 10_000 });
+            // A step: the canvas goes on to the next match, and the keyboard stays on the step, to step on.
+            const next = search.querySelector<HTMLElement>('[aria-label="Next match"]')!;
+            await act(async () => { next.focus(); });
+            fireEvent.click(next);
+            await waitFor(() => expect(search.textContent).toMatch(/2 of 10/));
+            await act(() => new Promise<void>((resolve) => { requestAnimationFrame(() => requestAnimationFrame(() => resolve())); }));
+            expect(document.activeElement).toBe(next);
+        } finally {
+            cleanup();
+            restore();
+        }
+    });
+
     test("the bar appears for the SOURCE's sake — and only when there is a reason", async () => {
         // #587's other half. Giving the frame its toolbar for a seek-capable
         // source must not give it one for everything: an inline canvas binds
@@ -461,9 +453,10 @@ describe("the same canvas inline and paged (#822)", () => {
         const expected = drawn(inline.container);
         cleanup();
         const paged = renderPlan(buildOver(n, twoSeries, true), `plan-822-paged-${n}`);
+        // Every element in: the body marks no prefix of its numbers, and every row is drawn.
         await waitFor(() => {
-            expect(paged.container.querySelector('[data-slot="footerTransport"]')?.textContent)
-                .toBe(`${n.toLocaleString("en-US")} loaded of ${n.toLocaleString("en-US")}`);
+            expect(paged.container.querySelector("[data-plan-body][data-plan-partial]")).toBeNull();
+            expect(drawn(paged.container)).toHaveLength(expected.length);
         }, { timeout: 10_000 });
         return [expected, drawn(paged.container)];
     }
@@ -498,8 +491,11 @@ describe("the same canvas inline and paged (#822)", () => {
             cleanup();
             const { root, asked } = withRecordedWindows(buildOver(300, true, true));
             const paged = renderPlan(root, "plan-823-paged");
-            await waitFor(() => expect(paged.container.querySelector('[data-slot="footerTransport"]')?.textContent)
-                .toBe("300 loaded of 300"), { timeout: 10_000 });
+            // Every element in: the body marks no prefix of its numbers, and every row is drawn.
+            await waitFor(() => {
+                expect(paged.container.querySelector("[data-plan-body][data-plan-partial]")).toBeNull();
+                expect(drawn(paged.container)).toHaveLength(expected.length);
+            }, { timeout: 10_000 });
             expect(drawn(paged.container)).toEqual(expected);
             // One read of each window served both blocks.
             expect([...asked].sort((a, b) => a - b)).toEqual([0, 1]);

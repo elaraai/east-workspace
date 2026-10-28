@@ -2,8 +2,9 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
+import { East, variant } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Style } from "@elaraai/east-ui/internal";
+import { COLOR_HUES, COLOR_SHADES, ColorShadeType, ColorTokenType, Style } from "@elaraai/east-ui/internal";
 import * as ex from "./style.examples.js";
 
 // -----------------------------------------------------------------------------
@@ -21,6 +22,7 @@ describeEast("Style", (test) => {
         elevationScale: ex.elevationScale,
         motionDurationSwatches: ex.motionDurationSwatches,
         statusPalette: ex.statusPalette,
+        colorTokenSwatches: ex.colorTokenSwatches,
     });
 
     // =========================================================================
@@ -352,6 +354,41 @@ describeEast("Style", (test) => {
         $(Assert.equal(Style.ColorScheme("danger").hasTag("danger"), true));
         $(Assert.equal(Style.ColorScheme("info").hasTag("info"), true));
         $(Assert.equal(Style.ColorScheme("neutral").hasTag("neutral"), true));
+    });
+
+    // =========================================================================
+    // Color token (#1406) — a theme hue holding its shade
+    // =========================================================================
+
+    test("ColorToken helper round-trip — teal 500 is the teal case holding the 500 shade", $ => {
+        const c = $.let(Style.ColorToken("teal", "500"), Style.Types.ColorToken);
+        $(Assert.equal(c.hasTag("teal"), true));
+        $(Assert.equal(c.hasTag("brand"), false));
+        const shade = $.let(c.unwrap("teal"), Style.Types.ColorShade);
+        $(Assert.equal(shade.hasTag("500"), true));
+        $(Assert.equal(shade.hasTag("50"), false));
+    });
+
+    test("ColorToken — the value is variant(hue, variant(shade, null)), as an app's seed row spells it", $ => {
+        const spelled = $.let(East.value(variant("red", variant("100", null)), ColorTokenType));
+        $(Assert.equal(Style.ColorToken("red", "100"), spelled));
+        $(Assert.equal(Style.ColorToken("red", "100").unwrap("red").getTag(), "100"));
+    });
+
+    test("ColorToken — every hue holds every shade", $ => {
+        for (const hue of COLOR_HUES) {
+            for (const shade of COLOR_SHADES) {
+                $(Assert.equal(Style.ColorToken(hue, shade).getTag(), hue));
+                $(Assert.equal(Style.ColorToken(hue, shade).unwrap(hue).getTag(), shade));
+            }
+        }
+    });
+
+    test("ColorToken — its types are the Style namespace's, and east-ui's public ones", _$ => {
+        const _token: typeof ColorTokenType = Style.Types.ColorToken;
+        const _shade: typeof ColorShadeType = Style.Types.ColorShade;
+        void _token;
+        void _shade;
     });
 
     // =========================================================================

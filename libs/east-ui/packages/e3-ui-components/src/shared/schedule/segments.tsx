@@ -25,6 +25,8 @@ interface SegProps<K extends string> {
     active: string;
     /** Fills the available strip width with equal segments; folded menus keep their intrinsic size. */
     fullWidth?: boolean;
+    /** Each segment that has an icon shows its icon alone, named by its label: a row short of room's narrower strip. */
+    iconsOnly?: boolean;
     /** Picks a segment. */
     onPick: (key: K) => void;
 }
@@ -36,7 +38,7 @@ interface SegProps<K extends string> {
  * on, as the WAI-ARIA radio group pattern has it, and a click, Enter or Space
  * picks the one it is on.
  */
-export function Seg<K extends string>({ label, name, scope = "plan", items, active, fullWidth = false, onPick }: SegProps<K>) {
+export function Seg<K extends string>({ label, name, scope = "plan", items, active, fullWidth = false, iconsOnly = false, onPick }: SegProps<K>) {
     const seg = useSlotRecipe({ key: "seg" });
     const ss = useMemo(() => seg({ fullWidth }) as unknown as Styles, [seg, fullWidth]);
     const stop = items.some((it) => it.key === active && !it.disabled) ? active : items.find(it => !it.disabled)?.key;
@@ -49,15 +51,20 @@ export function Seg<K extends string>({ label, name, scope = "plan", items, acti
     };
     return (
         <Box css={ss.root} data-slot="seg" {...{ [`data-${scope}-seg`]: name }} role="radiogroup" aria-label={label} onKeyDown={onKeyDown}>
-            {items.map((it) => (
-                <chakra.button key={it.key} type="button" css={ss.item} role="radio"
-                    disabled={it.disabled} title={it.hint} aria-checked={it.key === active} tabIndex={it.key === stop ? 0 : -1}
-                    data-state={it.key === active ? "on" : undefined}
-                    onClick={() => onPick(it.key)}>
-                    {it.icon !== undefined && <FontAwesomeIcon icon={it.icon} data-seg-icon="" aria-hidden="true" />}
-                    {it.label}
-                </chakra.button>
-            ))}
+            {items.map((it) => {
+                // Its icon alone, named by its label, on a strip short of room.
+                const bare = iconsOnly && it.icon !== undefined;
+                return (
+                    <chakra.button key={it.key} type="button" css={ss.item} role="radio"
+                        disabled={it.disabled} title={bare ? (it.hint ?? it.label) : it.hint} aria-checked={it.key === active} tabIndex={it.key === stop ? 0 : -1}
+                        data-state={it.key === active ? "on" : undefined}
+                        {...(bare ? { "aria-label": it.label } : {})}
+                        onClick={() => onPick(it.key)}>
+                        {it.icon !== undefined && <FontAwesomeIcon icon={it.icon} aria-hidden="true" {...(bare ? {} : { "data-seg-icon": "" })} />}
+                        {!bare && it.label}
+                    </chakra.button>
+                );
+            })}
         </Box>
     );
 }

@@ -380,6 +380,26 @@ describe("DragLayerProvider", () => {
         expect(getByTestId("card-patel").hasAttribute("data-dragging")).toBe(false);
     });
 
+    test("the Escape that cancels a pointer drag goes no further than the drag (#1398): the page's own listeners never hear it", () => {
+        const heard: string[] = [];
+        const listen = (event: KeyboardEvent) => { heard.push(event.key); };
+        window.addEventListener("keydown", listen);
+        try {
+            const { getByTestId } = render(
+                <DragLayerProvider>
+                    <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL }} />
+                    <Card library="people" itemKey="patel" />
+                    <Cell surface="roster" row="patel" slot="thu" />
+                </DragLayerProvider>,
+            );
+            drag(getByTestId("card-patel"), getByTestId("cell-patel-thu"), { cancel: true });
+            expect(getByTestId("card-patel").hasAttribute("data-dragging")).toBe(false);
+            expect(heard).toEqual([]);
+        } finally {
+            window.removeEventListener("keydown", listen);
+        }
+    });
+
     test("indicators precede the drop: valid cells marked once the drag engages, hover marks active", () => {
         const { getByTestId } = render(
             <DragLayerProvider>
@@ -896,6 +916,39 @@ describe("keyboard drags (#608)", () => {
         }
     });
 
+    test("every key a keyboard drag takes goes no further than the drag (#1398): the page's own listeners hear none of its pick-up, arrows, drop or cancel — and a key it leaves goes on", async () => {
+        const heard: string[] = [];
+        const listen = (event: KeyboardEvent) => { heard.push(event.code); };
+        window.addEventListener("keydown", listen);
+        try {
+            const events: DragEventValue[] = [];
+            const { getByTestId } = render(<Grid events={events} />);
+            lay(getByTestId);
+            const card = getByTestId("card-patel");
+            card.focus();
+            // Picked up with Space, moved, dropped with Space.
+            press("Space");
+            await tick();
+            press("ArrowRight");
+            press("ArrowDown");
+            press("Space");
+            expect(events).toHaveLength(1);
+            // Picked up with Enter, moved, cancelled with Escape.
+            card.focus();
+            press("Enter");
+            await tick();
+            press("ArrowRight");
+            press("Escape");
+            expect(card.hasAttribute("data-dragging")).toBe(false);
+            expect(heard).toEqual([]);
+            // A letter no drag takes goes on as it came.
+            press("KeyA");
+            expect(heard).toEqual(["KeyA"]);
+        } finally {
+            window.removeEventListener("keydown", listen);
+        }
+    });
+
     test("a layer that leaves mid-drag ends the drag — nothing it leaves behind answers the page's next key", async () => {
         const events: DragEventValue[] = [];
         const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -1311,5 +1364,89 @@ describe("returns to a library (#1196)", () => {
         expect(caption()).toBeNull();
         fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
         expect(sole(events).type).toBe("remove");
+    });
+});
+
+describe("retained content takes no drag (#1398, CL8)", () => {
+    stubScrollIntoView();
+
+    /** A region kept on screen while what it shows is read again: aria-disabled, its content readable and focusable. */
+    function Retained({ held, children }: { held: boolean; children: React.ReactNode }) {
+        return <div aria-disabled={held ? true : undefined} aria-busy={held ? true : undefined}>{children}</div>;
+    }
+
+    test("nothing in retained content is picked up — by the pointer or the keyboard — and it stays focusable; once it lands, it drags again", async () => {
+        const events: DragEventValue[] = [];
+        function Page({ held }: { held: boolean }) {
+            return (
+                <DragLayerProvider>
+                    <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                    <Retained held={held}>
+                        <Card library="people" itemKey="patel" />
+                        <Chip surface="roster" row="cho" slot="mon" event="s1" />
+                    </Retained>
+                    <Cell surface="roster" row="kim" slot="tue" />
+                </DragLayerProvider>
+            );
+        }
+        const { getByTestId, rerender } = render(<Page held />);
+        const card = getByTestId("card-patel"), chip = getByTestId("chip-s1"), cell = getByTestId("cell-kim-tue");
+        // Readable and focusable, as the loading design's stale card has it.
+        expect([card.getAttribute("tabindex"), chip.getAttribute("tabindex")]).toEqual(["0", "0"]);
+        drag(card, cell);
+        drag(chip, cell);
+        expect([card.hasAttribute("data-dragging"), chip.hasAttribute("data-dragging"), cell.hasAttribute("data-drop-valid")]).toEqual([false, false, false]);
+        card.focus();
+        press("Space");
+        await tick();
+        expect(card.hasAttribute("data-dragging")).toBe(false);
+        expect(events).toHaveLength(0);
+        // Landed: the same card drags.
+        rerender(<Page held={false} />);
+        drag(getByTestId("card-patel"), cell);
+        expect(sole(events).type).toBe("add");
+    });
+
+    test("no cell or library in retained content is a destination: never marked, a drag over one rests over nothing and a drop there is not delivered; the keyboard steps past it", async () => {
+        const events: DragEventValue[] = [];
+        const { getByTestId } = render(
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <Card library="people" itemKey="patel" />
+                <Chip surface="roster" row="patel" slot="mon" event="s1" />
+                <Retained held>
+                    <Cell surface="roster" row="cho" slot="mon" />
+                    <LibraryFrame id="people" />
+                </Retained>
+                <Cell surface="roster" row="kim" slot="mon" />
+            </DragLayerProvider>,
+        );
+        const held = getByTestId("cell-cho-mon"), live = getByTestId("cell-kim-mon"), library = getByTestId("library-people");
+        engage(getByTestId("card-patel"), held);
+        expect([held.hasAttribute("data-drop-valid"), held.hasAttribute("data-drop-active"), live.hasAttribute("data-drop-valid")]).toEqual([false, false, true]);
+        expect(announced()).not.toContain("cho");
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
+        expect(events).toHaveLength(0);
+        expect(announced()).toBe("patel was not dropped.");
+        // A chip carried back to its library, retained: no return.
+        engage(getByTestId("chip-s1"), library);
+        expect([library.hasAttribute("data-drop-valid"), library.hasAttribute("data-drop-active")]).toEqual([false, false]);
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
+        expect(events).toHaveLength(0);
+        // The keyboard: Right from the card passes the retained cell for the live one beyond it.
+        layOut(new Map([
+            [getByTestId("card-patel"), { left: 0, top: 0, width: 80, height: 30 }],
+            [held, { left: 200, top: 0, width: 100, height: 40 }],
+            [live, { left: 300, top: 0, width: 100, height: 40 }],
+        ]));
+        const card = getByTestId("card-patel");
+        card.focus();
+        press("Space");
+        await tick();
+        press("ArrowRight");
+        expect([held.hasAttribute("data-drop-active"), live.hasAttribute("data-drop-active")]).toEqual([false, true]);
+        press("Space");
+        const e = sole(events);
+        if (e.type === "add") expect(e.value.into.row).toBe("kim");
     });
 });

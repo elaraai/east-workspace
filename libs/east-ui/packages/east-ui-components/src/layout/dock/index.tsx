@@ -89,8 +89,12 @@ export interface DockRailMark {
 export interface DockPaneProps {
     /** Where the pane keeps its open tab, and its collapsed state when persisted. */
     storageKey: string;
-    /** The tabs, each with its body and, after its label, any count of what it holds; with none, `body` is the pane's one body under its label. */
-    tabs?: ReadonlyArray<{ key: string; label: string; count?: string | number | undefined; body: ReactNode }> | undefined;
+    /**
+     * The tabs, each with its body and, after its label, any count of what it holds; with none, `body` is the pane's
+     * one body under its label. A tab's count `flash`es once a run of the app's optimiser lands that changed it
+     * (#1409): the count is marked `data-opn`, which the run's landing flashes after its cascade.
+     */
+    tabs?: ReadonlyArray<{ key: string; label: string; count?: string | number | undefined; flash?: boolean | undefined; body: ReactNode }> | undefined;
     /** The body, when the pane has no tabs. */
     body?: ReactNode;
     /** Whether it collapses at all: `false`, it never collapses — no rail, and no collapse control. `true` by default. */
@@ -458,7 +462,7 @@ export function DockPane(props: DockPaneProps) {
                                     >
                                         <ChakraBox as="span" css={styles.tabLabel}>{tab.label}</ChakraBox>
                                         {/* The space keeps the label and the count apart in the tab's name; the row's gap spaces them on screen. */}
-                                        {tab.count !== undefined && <>{" "}<ChakraBox as="span" css={styles.tabCount} data-tab-count="">{countText(tab.count)}</ChakraBox></>}
+                                        {tab.count !== undefined && <>{" "}<ChakraBox as="span" css={styles.tabCount} data-tab-count="" data-opn={tab.flash === true ? "" : undefined}>{countText(tab.count)}</ChakraBox></>}
                                     </chakra.button>
                                 );
                             })}

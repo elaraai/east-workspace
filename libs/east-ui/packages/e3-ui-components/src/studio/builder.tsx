@@ -361,13 +361,14 @@ export const EastChakraStudioBuilder = memo(function EastChakraStudioBuilder({ v
                 key: "save-template", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE,
                 forms: [<StudioSaveTemplate value={saveTemplate} />, null],
             } satisfies ToolbarItem,
+            // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026).
             {
                 key: "preview", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE,
-                forms: [<ChakraButton variant="outline" data-studio-preview="" onClick={() => setPreviewing(true)}>{m.preview()}</ChakraButton>, null],
+                forms: [<ChakraButton variant="outline" size="sm" data-studio-preview="" onClick={() => setPreviewing(true)}>{m.preview()}</ChakraButton>, null],
             } satisfies ToolbarItem,
             {
                 key: "publish", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE,
-                forms: [<ChakraButton variant="outline" data-studio-open-publish="" onClick={() => setPreviewing(true)}>{m.publish()}</ChakraButton>, null],
+                forms: [<ChakraButton variant="outline" size="sm" data-studio-open-publish="" onClick={() => setPreviewing(true)}>{m.publish()}</ChakraButton>, null],
             } satisfies ToolbarItem,
             { key: "more", side: "end", rank: RANK_MORE, bundle: MORE_BUNDLE, held: naming, forms: [null, more] } satisfies ToolbarItem,
         ],

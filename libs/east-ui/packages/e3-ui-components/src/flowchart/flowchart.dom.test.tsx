@@ -237,27 +237,34 @@ describe("LR · TD and find state (#1245)", () => {
         expect(anchors(container)).toEqual(["middle", "middle"]);
     });
 
-    it("find state finds the open flow's states by key and by label, and a pick selects the state", async () => {
+    it("find state finds the open flow's states by key and by label, and a pick selects the state and shows its key in the box", async () => {
         const { container } = mount(payload(hostFlow(sortFlow())));
-        const box = within(container).getByPlaceholderText("Find state");
+        const box = within(container).getByPlaceholderText<HTMLInputElement>("Find state");
         await userEvent.click(box);
         await waitFor(() => expect(screen.getAllByRole("option").map(o => o.textContent)).toEqual(["CH* · CH* label", "IND · IND label", "SRD · SRD label"]));
         fireEvent.click(screen.getByRole("option", { name: "CH* · CH* label" }));
         await waitFor(() => expect(container.querySelector('[data-flowchart-node="CH*"]')!.hasAttribute("data-selected")).toBe(true));
-        await userEvent.type(box, "lab");
+        // The box shows what the pick found: its state's key, never its line.
+        await waitFor(() => expect(box.value).toBe("CH*"));
+        // Each query is entered as one change. Zag takes a keystroke a microtask after its event, which a script's
+        // keystroke runs once its event is over: React renders it later, and its write of the box's text can land
+        // after the next keystroke, which a script then types onto the text before it ("lab" read "lb").
+        fireEvent.change(box, { target: { value: "lab" } });
         // Every label holds the text: three states, in their keys' order.
         await waitFor(() => expect(within(container).getByText("3 matches")).toBeTruthy());
         expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["CH* · CH* label", "IND · IND label", "SRD · SRD label"]);
-        await userEvent.clear(box);
-        await userEvent.type(box, "sr");
-        await waitFor(() => expect(screen.getByText("SRD · SRD label")).toBeTruthy());
-        fireEvent.click(screen.getByText("SRD · SRD label"));
+        // Each query's own count says its answer landed: the list before it may hold the same line.
+        fireEvent.change(box, { target: { value: "sr" } });
+        await waitFor(() => expect(within(container).getByText("1 match")).toBeTruthy());
+        expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["SRD · SRD label"]);
+        fireEvent.click(screen.getByRole("option", { name: "SRD · SRD label" }));
         await waitFor(() => expect(container.querySelector('[data-flowchart-node="SRD"]')!.hasAttribute("data-selected")).toBe(true));
+        await waitFor(() => expect(box.value).toBe("SRD"));
         // Each pick reveals its state: a second selects the state it lands on.
-        await userEvent.clear(box);
-        await userEvent.type(box, "in");
-        await waitFor(() => expect(screen.getByText("IND · IND label")).toBeTruthy());
-        fireEvent.click(screen.getByText("IND · IND label"));
+        fireEvent.change(box, { target: { value: "in" } });
+        await waitFor(() => expect(within(container).getByText("1 match")).toBeTruthy());
+        expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["IND · IND label"]);
+        fireEvent.click(screen.getByRole("option", { name: "IND · IND label" }));
         await waitFor(() => expect(container.querySelector('[data-flowchart-node="IND"]')!.hasAttribute("data-selected")).toBe(true));
         expect(container.querySelector('[data-flowchart-node="SRD"]')!.hasAttribute("data-selected")).toBe(false);
         fireEvent.change(box, { target: { value: "zzzz" } });

@@ -56,7 +56,7 @@ function weekSeed() {
 export const indexedRosterDuties = e3.record("indexed_roster_duties", DictType(StringType, WarehouseDuty), dutySeed());
 export const indexedRosterDutiesPatch = e3.mutation.patch(indexedRosterDuties);
 /** The year's duties by their times: what the Roster's slice reads a week of them through. */
-export const indexedRosterDutiesByTime = e3.recordIndex("indexed_roster_duties_by_time", indexedRosterDuties, { interval: { from: "start", to: "end" } });
+export const indexedRosterDutiesByTime = e3.recordIndex.interval("indexed_roster_duties_by_time", indexedRosterDuties, { from: "start", to: "end" });
 export const indexedRosterWeeks = e3.record("indexed_roster_weeks", DictType(DateTimeType, WarehouseWeek), weekSeed());
 export const indexedRosterWeeksPatch = e3.mutation.patch(indexedRosterWeeks);
 export const indexedRosterStaff = e3.record("indexed_roster_staff", warehouseStaff.type, staffSeed());
