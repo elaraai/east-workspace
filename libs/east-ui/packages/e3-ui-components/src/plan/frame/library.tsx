@@ -70,7 +70,7 @@
  */
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { Box } from "@chakra-ui/react";
 import { DateTimeType, StringType, compareFor, equalFor, none, printFor, some, type ValueTypeOf } from "@elaraai/east";
 import type { PickBindType } from "@elaraai/east-ui";
 import { ScheduleEventRefType, ScheduleResourceRefType, type planKeys } from "@elaraai/e3-ui/internal";
@@ -78,7 +78,7 @@ import {
     EastChakraLibrary, EastChakraPickPanel, EmptyStateView, getSomeorUndefined,
     type BuilderFrameDock, type LibraryEmpty, type LibraryNarrowing, type LibraryValue,
 } from "@elaraai/east-ui-components";
-import { PlaceholderCard, SliceDensityContext, narrowedCount } from "@elaraai/east-ui-components/internal";
+import { PlaceholderCard, SliceDensityContext, narrowedCount, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { scheduleLibraryCard as card, scheduleLibrary as libraryOf } from "../../shared/schedule/library.js";
 import { DUE_GROUPS, dueGroupOf, durationMinutes, type DueGroup } from "../../shared/schedule/due.js";
 import type { BacklogNarrowing } from "../../shared/schedule/backlog.js";
@@ -331,7 +331,7 @@ export function usePlanLibrary({
     // The kinds' unscheduled events once their first read lands (#1398, CL13): until then the tab knows nothing.
     const backlogRead = read !== undefined;
     const unscheduled = read ?? NO_BACKLOG;
-    const styles = useSlotRecipe({ key: "plan" })() as Record<string, Record<string, unknown>>;
+    const styles = useSlotStyles("plan") as Record<string, Record<string, unknown>>;
     const noun = useCallback((tab: PlanLibraryTabWord) => some({ singular: m.libraryNoun({ tab, n: 1 }), plural: m.libraryNoun({ tab, n: 2 }) }), [m]);
     const empty = useCallback((tab: PlanLibraryTabWord, name: string): LibraryEmpty => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
     const listsBacklog = library.some((tab) => tab.type === "backlog");
