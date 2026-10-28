@@ -27,8 +27,10 @@
  * says of the kinds read by area it checks only in view — and below
  * 480px of main (#1394) its Connect to…, its link kind, and an item with no
  * position, its Place; what Find's line and an issue's line say of a row the
- * rail's filters hide, and why a pick of one could not clear them — the shared
- * hidden pick's words (`shared/schedule/words.ts`' `HiddenWords`); and the
+ * rail's filters hide — the shared hidden pick's words
+ * (`shared/schedule/words.ts`' `HiddenWords`) — and what Find's line says of
+ * one they dim, where a dimmed narrowing draws it as context, and why a pick
+ * of one could not clear them; and the
  * footer's loading line's (#1398, CL3), the shared paged words over a kind's
  * rows — `Loading racks…`, `Filtering racks…`, `Couldn't read racks` — and
  * its own over a kind's window — `Loading racks in view`, `Loading counts`,
@@ -64,7 +66,8 @@ export interface SchematicMembers {
 
 /**
  * The Schematic's message table: its own words, the footer's loading line's over a kind's rows (`PagedLoadingMessages`),
- * and what Find's line and an issue's line say of a row the rail's filters hide (`HiddenWords`).
+ * and what Find's line and an issue's line say of a row the rail's filters hide (`HiddenWords`) — and Find's of one a
+ * dimmed narrowing draws as context (`dimmedByFilters`, `dimmedBy`).
  */
 export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
     /** The frame's accessible name, and what its skeleton is the loading of. */
@@ -109,7 +112,8 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
     findNoMatches: () => string;
     /**
      * What keeps an item Find found off the canvas, at its line's end (#1404): its layer is hidden; it has no position. One
-     * the rail's filters leave out says which of them do (`hiddenByFilters`, `hiddenBy`).
+     * the rail's filters leave out says which of them do: they hide it (`hiddenByFilters`, `hiddenBy`), or, where the
+     * narrowing draws what it leaves out as context, dim it (`dimmedByFilters`, `dimmedBy`).
      */
     findMark: (p: { mark: "layer" | "unplaced" }) => string;
     /** What the footer says of an item a Find's pick landed on that the canvas doesn't show as itself — `A04 is on a hidden layer`. */
@@ -284,6 +288,18 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
      * in the plural.
      */
     inspectorUnchecked: (p: { names: readonly string[] }) => string;
+    /**
+     * What Find's line says of an item the rail's filters leave out where the narrowing draws what it leaves out as
+     * context (`narrowed="dim"`), until e3 has said which choices do — `dimmed by the filters`: `hiddenByFilters`' words
+     * for a narrowing that hides.
+     */
+    dimmedByFilters: HiddenWords["hiddenByFilters"];
+    /**
+     * What it says once e3 has: the choices that dim it, each as the rail words it, and those a pick clears with them —
+     * `dimmed by Owner: Harbour Labs — picking it clears that filter` (`hiddenByText` with `dimmed`): `hiddenBy`'s for a
+     * narrowing that hides.
+     */
+    dimmedBy: HiddenWords["hiddenBy"];
     /**
      * What the footer says where a pick of a row the rail's filters hide — Find's, or Go to issue's on an unsaved change
      * waiting in its session — could not clear the choices hiding it, and the rail gave no words of its own.
@@ -504,6 +520,8 @@ export const schematicMessages: SchematicMessages = {
     inspectorUnchecked: ({ names }) => `${capital(joinedWords(names, "and"))} out of view are checked only as the view reaches them`,
     hiddenByFilters: () => "hidden by the filters",
     hiddenBy: ({ filters, also }) => hiddenByText(filters, also),
+    dimmedByFilters: () => "dimmed by the filters",
+    dimmedBy: ({ filters, also }) => hiddenByText(filters, also, "dimmed"),
     hiddenUncleared: () => "The filters hiding it could not be cleared",
 };
 

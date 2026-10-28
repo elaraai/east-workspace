@@ -96,7 +96,8 @@
  *   hiding what it leaves out or drawing it as context; every list — the
  *   Index, the Backlog, the Choosers, what an item is joined to — and every
  *   count shows what it leaves in, Find names the choices that leave an item
- *   out, and the canvas rings, frames and flies to its matches — `fit` keyed on the
+ *   out — hidden by them, or dimmed by them where it draws as context — and
+ *   the canvas rings, frames and flies to its matches — `fit` keyed on the
  *   narrowing itself, each source's choices, and a kind read by area flown to
  *   by the box its area index finds its narrowing's rows in, never by what its
  *   window draws (§10.3). A drafted row of a kind
@@ -613,7 +614,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
             return false;
         });
     }, [hiddenLayers, drawnItems, words, pick]);
-    const find = useSchematicFind({ kinds: findKinds, words, picks, hiddenLayers, onPick: onFound, onCleared: pickLetGo });
+    // Its lines say the filters dim an item they leave out where the narrowing draws it as context, else hide it.
+    const find = useSchematicFind({ kinds: findKinds, words, picks, hiddenLayers, dim, onPick: onFound, onCleared: pickLetGo });
 
     // ── The toolbar (§6.1) ──────────────────────────────────────────────
     // What the rail counts a source in: a templates list's, its kind's templates; a kind's own, its rows (#1392).

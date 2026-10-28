@@ -7,8 +7,10 @@
  * does not count — the Plan's footer and the Calendar's counts alike, a kind
  * past the cap counted none of, never 0 — and the hidden pick's words for a
  * row the rail's narrowing hides (`hidden.ts`): what a builder's message table
- * gives its line ({@link HiddenWords}) and their English, here, with no DOM to
- * load, so a builder's message table that says them loads with none.
+ * gives its line ({@link HiddenWords}) and their English — hidden by the
+ * choices, or dimmed by them where the narrowing draws the row as context —
+ * here, with no DOM to load, so a builder's message table that says them loads
+ * with none.
  *
  * @packageDocumentation
  */
@@ -71,15 +73,18 @@ export interface HiddenWords {
 /**
  * The English of a row the rail's narrowing hides, by the choices that do —
  * joined as the rail's `Replaces …` joins them — and what a pick of it clears:
- * `hidden by Status: Ready — picking it clears that filter`. A builder's
- * message table says it so in English, and a translation in its own words.
+ * `hidden by Status: Ready — picking it clears that filter`; or, of a row a
+ * narrowing draws as context where it leaves it out (the Schematic's
+ * `narrowed="dim"`), `dimmed by Status: Ready — …`. A builder's message table
+ * says it so in English, and a translation in its own words.
  *
  * @param filters - The choices that hide the row, as the rail words them
  * @param also - The choices a pick clears with them
+ * @param verb - What the choices do to the row: `hidden`, the default, or `dimmed`, where the narrowing draws it as context
  * @returns The words
  */
-export function hiddenByText(filters: readonly string[], also: readonly string[]): string {
+export function hiddenByText(filters: readonly string[], also: readonly string[], verb: "hidden" | "dimmed" = "hidden"): string {
     const one = filters.length === 1;
     const extra = also.length === 0 ? "" : `, and ${also.join("; ")} with ${one ? "it" : "them"}`;
-    return `hidden by ${filters.join("; ")} — picking it clears ${one ? "that filter" : "those filters"}${extra}`;
+    return `${verb} by ${filters.join("; ")} — picking it clears ${one ? "that filter" : "those filters"}${extra}`;
 }

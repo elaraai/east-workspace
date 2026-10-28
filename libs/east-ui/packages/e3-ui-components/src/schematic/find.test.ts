@@ -25,18 +25,12 @@ import { Data } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { askHiding, hiddenOf, useSourceHidden, type RowHidden } from "../shared/schedule/hidden.js";
-import { foundLine, foundMark, runsAt, wholeMatches, type FindKind, type FindRun, type FoundItem, type FoundMark } from "./find.js";
+import { foundLine, foundMark, runsAt, wholeMatches, type FindKind, type FindRun, type FoundItem } from "./find.js";
 import { schematicMessages, type SchematicWords } from "./messages.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { measure: false });
 
 const words: SchematicWords = { ...formatters("en-US"), m: schematicMessages };
-
-/**
- * An item's line in Find's list, under a narrowing that hides what it leaves out (`dim` false) or draws it as context
- * (`narrowed="dim"`).
- */
-const lineUnder: (item: FoundItem, mark: FoundMark, words: SchematicWords, dim: boolean) => string = foundLine;
 
 /** An item found, by its kind's slot and name, its key and its label, where it stands and what keeps it off the canvas. */
 const item = (key: string, label: string, over: Partial<FoundItem> = {}): FoundItem => ({
@@ -119,26 +113,26 @@ describe("foundMark", () => {
 
 describe("foundLine", () => {
     test("an item reads as its key, its label where it is not its key, its kind's name, what keeps it off the canvas and, last, the filters that leave it out", () => {
-        expect(lineUnder(item("A01", "A01"), undefined, words, false)).toBe("A01 · Rack");
-        expect(lineUnder(item("A04", "A04"), "layer", words, false)).toBe("A04 · Rack · on a hidden layer");
-        expect(lineUnder(item("A06", "A06"), "unplaced", words, false)).toBe("A06 · Rack · no position");
+        expect(foundLine(item("A01", "A01"), undefined, words, false)).toBe("A01 · Rack");
+        expect(foundLine(item("A04", "A04"), "layer", words, false)).toBe("A04 · Rack · on a hidden layer");
+        expect(foundLine(item("A06", "A06"), "unplaced", words, false)).toBe("A06 · Rack · no position");
         // Until e3 has said which choices leave it out, the filters do — as every builder's line says.
-        expect(lineUnder(item("A07", "Rack 7", { hidden: unsaid("A07") }), undefined, words, false)).toBe("A07 · Rack 7 · Rack · hidden by the filters");
-        expect(lineUnder(item("A05", "A05", { hidden: unsaid("A05") }), "layer", words, false)).toBe("A05 · Rack · on a hidden layer · hidden by the filters");
+        expect(foundLine(item("A07", "Rack 7", { hidden: unsaid("A07") }), undefined, words, false)).toBe("A07 · Rack 7 · Rack · hidden by the filters");
+        expect(foundLine(item("A05", "A05", { hidden: unsaid("A05") }), "layer", words, false)).toBe("A05 · Rack · on a hidden layer · hidden by the filters");
     });
 
     test("under a narrowing that draws what it leaves out as context, the filters dim an item they leave out, never hide it — until e3 has said which, the filters do", () => {
-        expect(lineUnder(item("A07", "Rack 7", { hidden: unsaid("A07") }), undefined, words, true)).toBe("A07 · Rack 7 · Rack · dimmed by the filters");
-        expect(lineUnder(item("A05", "A05", { hidden: unsaid("A05") }), "layer", words, true)).toBe("A05 · Rack · on a hidden layer · dimmed by the filters");
+        expect(foundLine(item("A07", "Rack 7", { hidden: unsaid("A07") }), undefined, words, true)).toBe("A07 · Rack 7 · Rack · dimmed by the filters");
+        expect(foundLine(item("A05", "A05", { hidden: unsaid("A05") }), "layer", words, true)).toBe("A05 · Rack · on a hidden layer · dimmed by the filters");
         // An item the filters keep reads as it does under a narrowing that hides: nothing dims it.
-        expect(lineUnder(item("A01", "A01"), undefined, words, true)).toBe("A01 · Rack");
-        expect(lineUnder(item("A06", "A06"), "unplaced", words, true)).toBe("A06 · Rack · no position");
+        expect(foundLine(item("A01", "A01"), undefined, words, true)).toBe("A01 · Rack");
+        expect(foundLine(item("A06", "A06"), "unplaced", words, true)).toBe("A06 · Rack · no position");
     });
 
     test("once e3 has said, the line names the choices that leave the item out as the rail words them: hidden by them — or dimmed by them, where the narrowing draws it as context", async () => {
         const a03 = item("A03", "A03", { hidden: await saidOfA03() });
-        expect(lineUnder(a03, undefined, words, false)).toBe("A03 · Rack · hidden by Owner: Harbour Labs — picking it clears that filter");
-        expect(lineUnder(a03, undefined, words, true)).toBe("A03 · Rack · dimmed by Owner: Harbour Labs — picking it clears that filter");
+        expect(foundLine(a03, undefined, words, false)).toBe("A03 · Rack · hidden by Owner: Harbour Labs — picking it clears that filter");
+        expect(foundLine(a03, undefined, words, true)).toBe("A03 · Rack · dimmed by Owner: Harbour Labs — picking it clears that filter");
     });
 });
 
