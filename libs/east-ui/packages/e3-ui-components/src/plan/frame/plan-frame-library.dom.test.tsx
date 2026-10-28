@@ -399,7 +399,7 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
             }] as never)),
             links: [],
             axis: variant("time", { window: some({ min: FIRST, max: LAST }), resolution: variant("week", null), resolutions: [], now: none, format: none }),
-            grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: pick === undefined ? none : some(pick), slice: none, footer: [],
+            grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: pick === undefined ? none : some(pick), slice: none, nested: none, footer: [],
             id: none, sources: [], editing: none, canDrop: none, onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none,
             style: none,
         } as unknown as PlanRootValue;

@@ -480,16 +480,25 @@ function givenHeatCells(given: readonly (readonly PlanParentSubtotal[])[]): Heat
 
 /**
  * A table parent's positions with its subtotals in place (#1438): each
- * position given one draws it, styled as its children's subtotal would be,
- * and carries the leaves its children's do.
+ * position given one draws it, styled as its children's subtotal would be —
+ * or, where nothing beneath it was read, as the parent declares the position
+ * — and carries the leaves its children's do.
  */
-function withGivenPositions(positions: readonly TablePosition[], given: readonly (readonly PlanParentSubtotal[])[] | undefined): TablePosition[] {
+function withGivenPositions(positions: readonly TablePosition[], given: readonly (readonly PlanParentSubtotal[])[] | undefined,
+    declared: readonly TableSeriesValue[]): TablePosition[] {
     if (given === undefined) return [...positions];
-    return positions.map((p, i): TablePosition => {
+    const out: TablePosition[] = [];
+    for (let i = 0; i < Math.max(positions.length, given.length); i++) {
+        const p = positions[i];
         const subtotals = given[i];
-        if (subtotals === undefined) return p;
-        return { series: { ...p.series, cells: subtotals.map((s): TableCellValue => ({ at: s.at, value: some(s.value), text: none, tone: none })) }, leaves: p.leaves };
-    });
+        const style = p?.series ?? declared[i];
+        if (subtotals === undefined || style === undefined) {
+            if (p !== undefined) out.push(p);
+            continue;
+        }
+        out.push({ series: { ...style, cells: subtotals.map((s): TableCellValue => ({ at: s.at, value: some(s.value), text: none, tone: none })) }, leaves: p?.leaves ?? [] });
+    }
+    return out;
 }
 
 /**
@@ -655,7 +664,7 @@ export function derivePlan(
                 const derived = kind.value.aggregate.type === "some" && children.length > 0
                     ? withGivenPositions(deriveTableSeries(
                         children.map(aggregableOf).filter((p) => p.length > 0), kind.value.aggregate.value.type, ordinal, period),
-                    parents?.get(row.key))
+                    parents?.get(row.key), declared)
                     : [];
                 const own = folded.map((s) => ownPosition(s, ordinal, period));
                 if (!declared.some((s) => s.cells.length > 0)) {

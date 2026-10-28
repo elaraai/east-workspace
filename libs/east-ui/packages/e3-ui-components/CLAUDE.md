@@ -1355,6 +1355,41 @@ commits and reads back, the session's drafts retire and e3's entries are the
 previewed ones. Its tests hold every preview to what e3 keeps after the Save
 (`drafts.test.ts`, on e3).
 
+### A Plan's paged rows read a cell at a time (#1438)
+
+A Plan over a record's rows paged beside their nested series index carries a
+seam on its root (`nested`: the index, the binding's id, its tiles, what each
+series reads, and the window function). `plan/root/nested.ts` reads it in a
+component of its own beside the event kinds' reader, and the canvas draws each
+window through the seam with what it read:
+
+- **What it reads.** The canvas's rows in view and 25 either side, in blocks
+  of fifty of its rows. For each row, each collection its series read, one
+  range a level its items are filed at; a parent whose row derives its numbers
+  (a heat or table aggregate, a group's strip) its subtotals, one range at the
+  resolution's level; a span parent rolling up bands its subtree's items, one
+  range a level, which e3's fill puts back in the descendants that hold them.
+  Every part of a run not held is counted in one request and read in one
+  more; each run's tiles are held at the revision, so a pan reads only the
+  tiles it adds. A batch in flight is asked again until it lands, never asked
+  beside a new one.
+- **The cap.** Past 10,000 items of a collection in the cells wanted, its rows
+  shade from their totals at the summary tile where it divides the bucket, or
+  are hatched with the reader's notice.
+- **What it hands on.** The cells, encoded as the binding's fill takes them;
+  the shading; each parent's subtotals by row key, which `derivePlan` draws in
+  place of its children's, unfolded; a version the canvas's paged source names
+  in its revision.
+- **Finding the binding.** The seam names the binding by id; the indexed
+  runtime keeps each binding it built by id (`indexedBindingOf`).
+
+Tests: `plan/frame/plan-nested.dom.test.tsx`, on e3, over e3-ui's
+`plan-nested` examples. jsdom mounts the rows the canvas lays out first, in
+its index's order; page by an index whose order puts the rows compared first,
+and scroll by the canvas's row geometry under `emulateWindowScroll`. A Plan
+pans and zooms only through its Slice, which holds the canvas's own window
+when no source holds one.
+
 ### Shared time navigation
 
 Plan, Calendar and Roster use the internal `TimeNavigator` in

@@ -528,6 +528,18 @@ describe("A parent's subtotals as e3 keeps them, over paged rows (#1438)", () =>
         expect(own.groupStrips.get("g")!.value.cells).toEqual([expect.objectContaining({ at: t(W28), value: some(30) })]);
     });
 
+    test("a folded table parent draws its subtotals though nothing beneath it was read, styled as it declares its position", () => {
+        // Over paged rows a folded parent's children are lean: their cells, and their children's, were never read.
+        const rows = indexRows([
+            trow("top", undefined, table("sum", [])),
+            trow("mid", "top", table("sum", [])),
+            trow("leaf", "mid", table("sum", [])),
+        ]);
+        const derived = derivePlan(rows, undefined, "time", PLAN_WORDS, month, given("top", 42));
+        expect(derived.tableSeries.get("top")!.map((position) => position.cells)).toEqual([[tcell(JUL, 42)]]);
+        expect(derived.tableSeries.get("top")![0]!.fold).toEqual(variant("sum", null));
+    });
+
     test("a parent holding values of its own draws them, given subtotals or not", () => {
         const rows = indexRows([
             trow("q", undefined, table("sum", [tcell(t(W28), 7)])),

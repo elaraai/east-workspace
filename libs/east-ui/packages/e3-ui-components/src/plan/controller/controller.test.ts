@@ -70,7 +70,7 @@ function root(rows: PlanWireRow[], opts: Partial<Record<string, unknown>> = {}):
             resolutions: [variant("week", null), variant("day", null)], now: none, format: none,
         }),
         grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, editing: none, pick: none,
-        slice: none, footer: [], id: none, sources: [], canDrop: none,
+        slice: none, nested: none, footer: [], id: none, sources: [], canDrop: none,
         onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none, style: none,
         ...opts,
     } as unknown as PlanRootValue;

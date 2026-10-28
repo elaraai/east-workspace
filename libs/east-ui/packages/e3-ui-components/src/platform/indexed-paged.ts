@@ -96,6 +96,35 @@ export function recordSliceBatchesOf(binding: object): RecordSliceBatches | unde
 }
 
 /**
+ * A binding an indexed runtime built, as a reader of its nested series index
+ * finds it by its id (#1438): a Plan's root names the binding its rows are
+ * read through by id alone, its type the Plan's own.
+ */
+export interface IndexedBindingRead {
+    /** The handle. */
+    readonly handle: { revision(): option<string> };
+    /** Its batched reads. */
+    readonly batches: RecordSliceBatches;
+    /** The record's key type. */
+    readonly key: EastType;
+    /** The listed nested series index: its name, and its entries' type, `{ ik, value }`; none where the binding lists none. */
+    readonly nested: { readonly index: string; readonly entry: StructType<{ ik: EastType; value: EastType }> } | undefined;
+}
+
+/** The bindings the runtimes here built, by their ids: the latest built under an id, which every one built under it reads alike. */
+const bindingsById = new Map<string, IndexedBindingRead>();
+
+/**
+ * A binding an indexed runtime built, by its id (#1438).
+ *
+ * @param id - The binding's id, as its handle carries it
+ * @returns The binding read; `undefined` for an id no runtime here built
+ */
+export function indexedBindingOf(id: string): IndexedBindingRead | undefined {
+    return bindingsById.get(id);
+}
+
+/**
  * Serializable indexed handles backed by PagedRuntime's existing snapshots,
  * caches, error/retry handling and tracked reads. No second fetch cache lives here.
  */
@@ -448,7 +477,15 @@ export class IndexedPagedRuntime {
                 };
                 this.handles.set(cacheKey, handle);
                 // A record Slice bound over the handle reads its searches and runs in batches (#1351).
-                batchesOfHandles.set(handle, this.batches({ schema, path, metadata, nested, joined }));
+                const batches = this.batches({ schema, path, metadata, nested, joined });
+                batchesOfHandles.set(handle, batches);
+                // And a reader of its nested series index finds it by its id (#1438).
+                const nestedName = nested.type === "some" ? Object.keys(nested.value.index)[0] : undefined;
+                const ik = nestedName === undefined ? undefined : schema.keys[nestedName];
+                bindingsById.set(id, {
+                    handle, batches, key: args[0],
+                    nested: nestedName === undefined || ik === undefined ? undefined : { index: nestedName, entry: StructType({ ik, value: args[6] }) },
+                });
                 return handle;
             };
         }), ...primitives];

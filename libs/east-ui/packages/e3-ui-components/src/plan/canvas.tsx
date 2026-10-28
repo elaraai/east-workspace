@@ -133,6 +133,7 @@ import {
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
 import { cellKinds, createCellSpanStore, shownCellSpan } from "./root/cells.js";
+import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, type PlanNestedLead } from "./root/nested.js";
 import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
@@ -449,10 +450,15 @@ export function usePlanCanvas({
     // in `provide`), which hands them over only when they move.
     // The paged kind's rows in view, as the body reports them at rest (#1039): what the reader of its kinds' cells reads.
     const [cellSpans] = useState(createCellSpanStore);
+    // A paged source's rows beside their nested series index (#1438): their collections read a cell at a time by a
+    // component of its own (`PlanNestedReader`, in `provide`), each window drawn through the root's seam with what it read.
+    const [nestedViews] = useState(createNestedViewStore);
+    const [nestedLead, setNestedLead] = useState<PlanNestedLead | undefined>(undefined);
+    const nested = usePlanNestedRoot(editing.value, editing.data, editing.data.nested.type === "some" ? nestedLead : undefined);
     // The event kinds' rows ahead of the drafted root's own, and its links'
     // event ends named where the events draw — over a paged resource kind's
     // windows when a kind pages (#1199).
-    const shown = usePlanEventRoot(editing.value, editing.data, events !== undefined ? lead : undefined, events?.paged, hidden);
+    const shown = usePlanEventRoot(nested.value, nested.data, events !== undefined ? lead : undefined, events?.paged, hidden);
     const value = shown.value;
     const data = shown.data;
     // Props sync. A new DATA identity reconciles the UI state (#610); the
@@ -470,6 +476,9 @@ export function usePlanCanvas({
     // resources, or the root's own rows each window serves after them.
     const pagedVersion = shown.version;
     useLayoutEffect(() => { if (pagedVersion > 0) controller.refreshSource(); }, [controller, pagedVersion]);
+    // So did what was read of the rows' nested series index (#1438), which every window is drawn with.
+    const nestedVersion = nestedLead?.version ?? 0;
+    useLayoutEffect(() => { if (nestedVersion > 0) controller.refreshSource(); }, [controller, nestedVersion]);
     // The source's channels are listened to while the canvas is mounted.
     useEffect(() => controller.connect(), [controller]);
 
@@ -524,9 +533,11 @@ export function usePlanCanvas({
     // re-derives, a pan does not. A row whose instants ride another arm
     // renders in place as a DIAGNOSTIC row and derives nothing (#811). A
     // derived number prints in the locale (#820).
+    // Over paged rows beside their nested series index, a parent's subtotals are e3's, as the reader read them (#1438).
+    const parentSubtotals = nestedLead?.parents;
     const fresh = useMemo(
-        () => derivePlan(index, ordinalIndex, axisKind, words, period),
-        [index, ordinalIndex, axisKind, words, period]);
+        () => derivePlan(index, ordinalIndex, axisKind, words, period, parentSubtotals),
+        [index, ordinalIndex, axisKind, words, period, parentSubtotals]);
     const derived = useStableDerived(fresh);
     // The R1 link graph — rows an edge touches grow the `links` control.
     const linkedKeys = useMemo(() => linkedRowKeys(data.links), [data.links]);
@@ -944,6 +955,8 @@ export function usePlanCanvas({
             if (item?.kind === "band" && item.band.loading !== undefined) run = true;
         }
         cellSpans.set(shownCellSpan(inView, notRead, cellSpans.get(), pagingOrigin, pagingNarrowing));
+        // And the rows whose nested series the reader reads around them (#1438): a view showing none stays as it was.
+        if (rows.length > 0) nestedViews.set({ first: rows[0]!.key, last: rows[rows.length - 1]!.key });
         // What the view waits for now, as it rests (#1398, CL3): a run on its way, or rows whose cells have not landed. A
         // run is held here only where its rows' cells are read after it; elsewhere the driver's own `viewLoading` says it,
         // in the commit that lands it, so a window landing stays one commit.
@@ -951,7 +964,7 @@ export function usePlanCanvas({
         awaitInView(unread !== undefined && run, unread !== undefined && rows.some(unread));
         // What the view shows takes a focus a landing owes it.
         takeOwed.current(shown === undefined ? [] : body.items.slice(shown.startIndex, shown.endIndex + 1));
-    }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans, unread, awaitInView]);
+    }, [reportRange, body.items, pagingOrigin, pagingNarrowing, cellSpans, nestedViews, unread, awaitInView]);
     // Scroll anchoring (#878): the row at the top of the view keeps its place
     // when rows above it change height or count — a window landing above at a
     // height its estimate missed. An unloaded band never anchors: rows landing
@@ -1534,6 +1547,12 @@ export function usePlanCanvas({
                 kinds={kinds} resources={resources} parts={eventParts} links={editing.data.links} spans={cellSpans} onLead={setLead} />
         )
         : null;
+    // The rows' nested series (#1438), read by a component of its own around the rows laid out.
+    const nestedSeam = data.nested.type === "some" ? data.nested.value : undefined;
+    const laidOut = useMemo(() => visible.map((v) => v.row), [visible]);
+    const nestedReader = nestedSeam !== undefined
+        ? <PlanNestedReader seam={nestedSeam} visible={laidOut} index={index} scale={scale} views={nestedViews} onLead={setNestedLead} />
+        : null;
     // Whether a run's request can carry the window whole (R24): read by a component of its own, beside the event kinds'
     // rows, while an optimiser is bound — over the range the canvas reads them, where each event's row is held.
     const optimiseReader = optimise !== undefined && planWindow !== undefined && eventRange !== undefined
@@ -1570,6 +1589,7 @@ export function usePlanCanvas({
         return (
             <>
                 {eventsReader}
+                {nestedReader}
                 {optimiseReader}
                 {densityTag !== undefined ? <DensityProvider value={densityTag}>{provided}</DensityProvider> : provided}
             </>

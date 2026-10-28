@@ -107,7 +107,7 @@ function canvasOf(n: number, style?: { height?: string; maxHeight?: string }): P
         rows: variant("inline", oneBlock(rows as never)),
         links: [],
         axis: variant("time", { window: some({ min: FIRST, max: LAST }), resolution: variant("week", null), resolutions: [], now: none, format: none }),
-        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: none, slice: none, footer: [],
+        grain: none, popover: none, hover: none, expandRender: none, expandGutter: none, pick: none, slice: none, nested: none, footer: [],
         id: none, sources: [], editing: none, canDrop: none, onSelect: none, onElementClick: none, onGroupToggle: none, onGrainChange: none, ui: none,
         style: style !== undefined
             ? some({

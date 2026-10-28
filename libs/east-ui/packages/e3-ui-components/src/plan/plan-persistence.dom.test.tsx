@@ -117,7 +117,7 @@ function planRoot(body: PlanWireRow[], opts?: { source?: unknown; slice?: unknow
             resolutions: opts?.resolutions ?? [], now: none, format: none,
         }),
         grain: none, popover: none, hover: none, expandRender: none, pick: none,
-        slice: opts?.slice ?? none, footer: [],
+        slice: opts?.slice ?? none, nested: none, footer: [],
         id: none, sources: [], editing: none, canDrop: none,
         onSelect: none, onElementClick: none,
         onGroupToggle: none, onGrainChange: none, ui: none,
