@@ -12,6 +12,9 @@ import type { PlanChrome } from "../root/chrome.js";
 
 const stringEqual = equalFor(StringType);
 
+/** What {@link PlanTimeNavigator} is drawn from: the window's facts of the canvas's chrome, which hold while a window lands. */
+export type PlanTimeNavigatorWindow = Pick<PlanChrome, "scale" | "windowParts" | "lead" | "moveWindow">;
+
 /**
  * Calendar/Roster navigation over the Plan's one window (#1344): a date
  * picked writes the window, keeping its visible bucket count, into every
@@ -20,8 +23,7 @@ const stringEqual = equalFor(StringType);
  * panel edits the leading source's range, which the others follow, and with
  * no source holding the window it has none.
  */
-export function PlanTimeNavigator({ chrome, compact = false, controls }: { chrome: PlanChrome; compact?: boolean; controls?: ReactNode }) {
-    const { scale, windowParts, lead, moveWindow } = chrome;
+export function PlanTimeNavigator({ scale, windowParts, lead, moveWindow, compact = false, controls }: PlanTimeNavigatorWindow & { compact?: boolean; controls?: ReactNode }) {
     useSlicesReactivity(windowParts.map(({ part }) => part.key));
     const words = useFormatters();
     if (scale.window.min.type !== "time" || scale.window.max.type !== "time") return null;

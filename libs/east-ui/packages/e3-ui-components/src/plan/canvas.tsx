@@ -1067,7 +1067,10 @@ export function usePlanCanvas({
     // Events selected from the frame (#1198) — the overlaps chip's pair, the
     // inspector's banner, a duplicate the inspector made (#1194): on the row
     // given, else the row that draws the first, which the controller brings
-    // into view; none when no row on the canvas draws it.
+    // into view; none when no row on the canvas draws it. The rows are this
+    // render's, read as the frame selects: the same function as windows land,
+    // so the frame's toolbar items it reaches are made again only as what
+    // they show moves (#1398, CL9).
     const selectEvents = useCallback((keys: readonly string[], row?: RowKey) => {
         const first = keys[0];
         if (first === undefined) {
@@ -1078,8 +1081,8 @@ export function usePlanCanvas({
             if (selectedRow !== null) controller.focusItem(rowItemKey(selectedRow));
             return;
         }
-        controller.selectEvents(keys, row ?? index.rows.find((r) => holdsElement(r, first))?.key ?? null);
-    }, [index, controller]);
+        controller.selectEvents(keys, row ?? indexRef.current?.rows.find((r) => holdsElement(r, first))?.key ?? null);
+    }, [controller]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).
     const marks = editing.marks;
@@ -1108,6 +1111,9 @@ export function usePlanCanvas({
     const rowOfIssue = useCallback(
         (issue: EditIssue) => sourceRows.find((r) => entryOf(r.id) === issue.entry), [sourceRows]);
     const where = useCallback((issue: EditIssue) => rowOfIssue(issue)?.gutter.label ?? issue.entry, [rowOfIssue]);
+    // The rows an issue's click looks for its entry among: this render's, read as it is clicked.
+    const rowOfIssueNow = useRef(rowOfIssue);
+    rowOfIssueNow.current = rowOfIssue;
     const kindSessions = eventEditing.sessions;
     const onIssue = useCallback((issue: EditIssue) => {
         const source = history.sourceOf(issue);
@@ -1116,9 +1122,9 @@ export function usePlanCanvas({
             if (issue.entry !== "") selectEvents([printEventRef({ kind: kind.kind, key: issue.entry })]);
             return;
         }
-        const row = rowOfIssue(issue);
+        const row = rowOfIssueNow.current(issue);
         if (row !== undefined) controller.focusItem(rowItemKey(row.key), "auto");
-    }, [history, kindSessions, selectEvents, rowOfIssue, controller]);
+    }, [history, kindSessions, selectEvents, controller]);
     // A run's highlight ends with Undo, Apply and Discard; a Redo of its step replays its landing (R9, R16) — and no
     // history action runs while a run's call is out (R2).
     const onHistory = useCallback((action: HistoryAction) => {
@@ -1127,7 +1133,13 @@ export function usePlanCanvas({
         history.act(action);
     }, [history, locked, acted]);
     const edits = editing.enabled || kinds.length > 0;
-    const historyProps = edits ? { session: history, words, editing: false, onAction: onHistory, onIssue, locked } : undefined;
+    // The history item's props, made again only as the history moves — its version moves with every change of it or
+    // of its sessions — or as its words and actions do, never as a window lands: the frame's toolbar is handed the
+    // same history item, and draws and measures nothing again for it (#1398, CL9).
+    const historyProps = useMemo(
+        () => (edits ? { session: history, words, editing: false, onAction: onHistory, onIssue, locked } : undefined),
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the history is mutable: its version says it moved
+        [edits, history, historyVersion, words, onHistory, onIssue, locked]);
     // Each session's banners: `data`'s naming no source, each kind's naming its kind, its issues by its events' titles —
     // each event read as a gesture reads it, where the canvas reads its rows, else by its key (#1199).
     const readEvent = eventEditing.read;
