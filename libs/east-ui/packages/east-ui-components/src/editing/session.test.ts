@@ -12,7 +12,7 @@
 
 import { expect, test } from "vitest";
 import {
-    ArrayType, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant,
+    ArrayType, DictType, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant,
     type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
@@ -475,4 +475,51 @@ test("partial conflict naming restarts on a new revision and preserves every dra
     expect(session.nameConflicts(variant("revision", "r3"), id => id === "J1" ? some(cut) : undefined)).toBe(true);
     expect(session.issues).toEqual([said("J2")]);
     expect(session.pending).toBe(2);
+});
+
+// ── Drafts carried over a source that moved (#1438) ─────────────────────────
+
+const Bench = StructType({ name: StringType, jobs: DictType(StringType, IntegerType) });
+const BenchDraft = Editing.Types.Draft(Bench);
+type BenchValue = ValueTypeOf<typeof Bench>;
+/** A bench whose jobs are each one's hours. */
+const benchOf = (jobs: [string, bigint][]): BenchValue => ({ name: "Bench 1", jobs: new SortedMap(jobs, compareFor(StringType)) });
+const benchVersion = (value: BenchValue): EntryVersion<Bar> => ({ draft: liftDraft(BenchDraft, value), wire: { key: "B1", caption: "" }, place: keyOrder });
+const sameBenchDraft = equalFor(BenchDraft);
+/** A version's draft, as the session holds a bench's: its fields' drafts. */
+const benchDraftOf = (version: EntryVersion<Bar> | undefined) => version?.draft as ValueTypeOf<typeof BenchDraft>;
+/** A keyed session over the benches at revision r1, one job moved off bench B1 and drafted. */
+const movedOff = () => {
+    const session = new EditSession<Bar>({
+        sourceId: "benches", entryType: Bench, draftType: BenchDraft, keyType: StringType, auto: false,
+        apply: () => variant("applied", { revision: some("r3") }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([{ id: "B1", before: benchVersion(benchOf([["j1", 1n], ["j2", 2n]])), after: benchVersion(benchOf([["j2", 2n]])) }], "typed", "Move j1 off");
+    // Another write moves the source on.
+    session.observeBase(variant("revision", "r2"));
+    return session;
+};
+
+test("drafts carried over a source that moved, where each change still applies: another write's change of another job stands beside them (#1438)", () => {
+    const session = movedOff();
+    expect(session.stale).toBe(true);
+    // While the bench is read at the new revision, nothing moves.
+    expect(session.rebase(variant("revision", "r2"), () => undefined)).toBe("waiting");
+    expect(session.stale).toBe(true);
+    // Another write changed j2's hours: the move of j1 still applies.
+    const now = benchOf([["j1", 1n], ["j2", 5n]]);
+    expect(session.rebase(variant("revision", "r2"), () => some(now))).toBe("rebased");
+    expect([session.stale, session.writable, session.pending]).toEqual([false, true, 1]);
+    expect(sameBenchDraft(benchDraftOf(session.originals.get("B1")), benchDraftOf(benchVersion(now)))).toBe(true);
+    expect(sameBenchDraft(benchDraftOf(session.entries.get("B1")), benchDraftOf(benchVersion(benchOf([["j2", 5n]]))))).toBe(true);
+    // The history starts over at the drafts: an undo would take the bench back to its version at the old revision.
+    expect(session.canUndo).toBe(false);
+});
+
+test("drafts whose change no longer applies stay stale: another write changed the job they moved (#1438)", () => {
+    const session = movedOff();
+    expect(session.rebase(variant("revision", "r2"), () => some(benchOf([["j1", 3n], ["j2", 2n]])))).toBe("conflict");
+    expect([session.stale, session.writable]).toEqual([true, false]);
+    expect(sameBenchDraft(benchDraftOf(session.entries.get("B1")), benchDraftOf(benchVersion(benchOf([["j2", 2n]]))))).toBe(true);
 });

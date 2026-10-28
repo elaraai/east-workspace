@@ -38,7 +38,7 @@
  * @packageDocumentation
  */
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
     NullType, decodeBeast2For, encodeBeast2For, equalFor, equivalentFor, none, some, toEastTypeValue, variant,
     type ValueTypeOf,
@@ -198,6 +198,7 @@ const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.pa
 const rowEqual = equalFor(Plan.Types.Row);
 const NO_MARKS: ReadonlyMap<RowKey, PlanDraftMark> = new Map();
 const NO_ROWS: ReadonlySet<RowKey> = new Set();
+const NO_IDS: readonly string[] = [];
 const NO_DRAFTS: ReadonlyMap<string, Uint8Array> = new Map();
 
 /** The entry a row came from — the first segment of its id's path; none for a top-level section's header. */
@@ -452,6 +453,27 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         // The session's readiness moves under its version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editing, codec, drafts, session, version]);
+
+    // ── A source moving under the drafts (#1438) ─────────────────────────
+    // Over rows read whole by key beside their nested series index, another planner's change of what no draft changed
+    // stands beside the drafts: each drafted row is read whole at the source's new revision — every one in one request —
+    // and the drafts are carried over to it where each one's change still applies (`EditSession.rebase`). One that does
+    // not leaves the session stale, as any source moving under drafts does.
+    const staleIds = useMemo(() => (whole !== undefined && session.stale ? [...session.entries.keys()] : NO_IDS),
+        // The session is mutable; its version says when it moved.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [whole, session, version]);
+    const staleRead = useCallback(() => (whole === undefined || staleIds.length === 0 ? undefined : whole.readAll(staleIds)), [whole, staleIds]);
+    const { result: staleRows } = useTrackedEvaluation(staleRead);
+    useEffect(() => {
+        if (staleIds.length === 0 || observed === undefined || codec === undefined || !staleRows.ok) return;
+        const read = staleRows.value;
+        if (read === undefined || read.type !== "some") return;
+        session.rebase(observed.base, (id) => {
+            const row = read.value.get(id);
+            return row === undefined ? undefined : row.type === "some" ? some(codec.decode(row.value)) : none;
+        });
+    }, [staleIds, staleRows, observed, codec, session]);
 
     // ── The gestures ─────────────────────────────────────────────────────
     // Over rows read lean (#1438), a gesture on a row the session does not hold waits for the row read whole — every row

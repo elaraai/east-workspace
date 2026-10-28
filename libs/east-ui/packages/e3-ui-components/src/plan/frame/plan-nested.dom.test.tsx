@@ -637,6 +637,56 @@ describe("a gesture drafts its row whole (#1438)", () => {
         expect(after.get("M-10002")!.jobs.get("J-10001-114")).toEqual(before.get("M-10001")!.jobs.get("J-10001-114"));
     });
 
+    /** Drags J-10001-114 a day along its machine, as the first test does. */
+    async function dragADay(c: HTMLElement) {
+        const plot = c.querySelector(`${rowAt(entry("presses", "M-10001"))} [data-plan-plot]`)!;
+        layOut(new Map([[plot, { left: 200, top: 0, width: 1400, height: 32 }]]));
+        const job = c.querySelector<HTMLElement>(`${rowAt(entry("presses", "M-10001"))} [data-run="J-10001-114"]`)!;
+        const x = 200 + Number(job.getAttribute("data-plan-frac")) * 1400 + 10;
+        const letGo = await carry(job, { x, y: 16 }, { x: x + 100, y: 16 });
+        await letGo();
+        await settle();
+    }
+    /** Another planner moves one of M-10001's jobs a day on, through the patch door. */
+    async function anotherMoves(id: string): Promise<MachineValue["jobs"] extends ReadonlyMap<string, infer J> ? J : never> {
+        const now = await readMachines();
+        const theirs = now.get("M-10001")!.jobs.get(id)!;
+        const moved = { ...theirs, start: new Date(theirs.start.getTime() + 86_400_000), end: new Date(theirs.end.getTime() + 86_400_000) };
+        const jobs = new Map(now.get("M-10001")!.jobs);
+        jobs.set(id, moved);
+        await h.patch(ex.machines, withJobs(now, "M-10001", jobs));
+        await settle();
+        return moved;
+    }
+    const applyButton = (c: HTMLElement) => within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.apply() });
+
+    test("another planner's commit moving another job of the drafted machine stands beside the draft, and both Saves commit", async () => {
+        onTestFinished(emulateWindowScroll());
+        const before = await readMachines();
+        const { container: c } = await h.mount(editingPlan, { drag: true });
+        await settle();
+        await dragADay(c);
+        const theirs = await anotherMoves("J-10001-120");
+        // The draft is carried over to the new revision: no banner, and Save is on.
+        await waitFor(() => expect(applyButton(c).hasAttribute("disabled")).toBe(false));
+        expect(slot(c, "banners")?.textContent ?? "").not.toContain(editingMessages.bannerStale());
+        await save(c);
+        const after = await readMachines();
+        const DAY = 86_400_000;
+        expect(after.get("M-10001")!.jobs.get("J-10001-114")!.start.getTime() - before.get("M-10001")!.jobs.get("J-10001-114")!.start.getTime()).toBe(DAY);
+        expect(after.get("M-10001")!.jobs.get("J-10001-120")).toEqual(theirs);
+    });
+
+    test("another planner's commit moving the drafted job itself leaves the drafts stale: the banner says the source changed, and Save is off", async () => {
+        onTestFinished(emulateWindowScroll());
+        const { container: c } = await h.mount(editingPlan, { drag: true });
+        await settle();
+        await dragADay(c);
+        await anotherMoves("J-10001-114");
+        await waitFor(() => expect(slot(c, "banners")?.textContent ?? "").toContain(editingMessages.bannerStale()));
+        expect(applyButton(c).hasAttribute("disabled")).toBe(true);
+    });
+
     test("a machine's only job moved off it is deleted by key, never its jobs replaced", async () => {
         onTestFinished(emulateWindowScroll());
         const start = await readMachines();

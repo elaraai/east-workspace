@@ -1388,6 +1388,14 @@ window through the seam with what it read:
   gesture is drafted once it lands; meanwhile the row and every row above it
   draw in flight (the unread wash, the plot busy: `usePlanEditing`'s
   `inFlight`).
+- **Another planner's commit.** A source moving under the drafts reads every
+  drafted row whole at the new revision, in one request, and carries the
+  drafts over to it where each one's change still applies
+  (`EditSession.rebase`): another job of the same machine moved stands
+  beside the draft, and both Saves commit. The drafted job itself moved
+  leaves the session stale, the banner saying so and Save off. A draft that
+  emptied a collection is a whole replace to the session's apply, so it
+  stays stale where e3 would take the restated patch.
 - **Link ends.** While a links focus is open, a link of its family whose run a
   row read lean does not hold — outside the cells read — has its row read
   whole by its key, every such row in one request, and drawn whole in its lean

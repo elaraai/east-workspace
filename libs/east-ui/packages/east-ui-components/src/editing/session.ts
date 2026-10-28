@@ -21,7 +21,7 @@ import {
     applyEditing, EditingAppliedTypeFor, EditingApplyResultType, EditingBaseTypeFor, EditingChangeSetTypeFor,
     EditingChangeTypeFor, EditingPlacementType, EditingIssueType, EditingOriginType, EditingPatchEventTypeWith,
 } from "@elaraai/east-ui/internal";
-import { normalizeDraft, type BatchReadiness } from "./draft.js";
+import { liftDraft, normalizeDraft, type BatchReadiness } from "./draft.js";
 import { SESSION_TEXT } from "./messages.js";
 
 // The runtime schemas remain exact. The TS algorithm treats domain payloads
@@ -565,6 +565,54 @@ export class EditSession<W> {
             this.stale = true;
         }
         this.changed();
+    }
+
+    /**
+     * Carries the drafts over to the base the source moved to, where each
+     * drafted entry's change still applies to the entry as the source holds it
+     * there (#1438). A source whose entries are read whole by key — a Plan's
+     * rows beside their nested series index — keeps another write's change of
+     * what no draft changed beside the drafts, and a Save sends only what the
+     * drafts changed. An entry's change that does not apply, because another
+     * write changed what it changed, leaves the session stale, as a source
+     * moving under pending drafts always does. The history starts over at the
+     * drafts: an undo would take an entry back to its version at the old base.
+     *
+     * @param base - The base the source moved to
+     * @param now - Each entry the session holds, as the source holds it at that base: `none` for one it does not hold,
+     *   `undefined` while it is read
+     * @returns `"rebased"`; `"conflict"` while a change does not apply (the session stays stale), or nothing moved
+     *   under the drafts; `"waiting"` while an entry is read
+     */
+    rebase(base: Base, now: (id: string) => option<unknown> | undefined): "rebased" | "conflict" | "waiting" {
+        if (!this.stale || this.locked) return "conflict";
+        const carried = new Map<string, { before: EntryVersion<W>; after: EntryVersion<W> }>();
+        for (const [id, after] of this.current) {
+            const before = this.baseline.get(id) ?? ABSENT;
+            const at = now(id);
+            if (at === undefined) return "waiting";
+            let applied: option<unknown>;
+            try {
+                applied = this.domainApply(at, this.domainDiff(this.optionOf(id, before), this.optionOf(id, after))) as option<unknown>;
+            } catch (error) {
+                if (error instanceof ConflictError) return "conflict";
+                throw error;
+            }
+            const version = (held: option<unknown>, as: EntryVersion<W>): EntryVersion<W> => (held.type === "some"
+                ? { draft: liftDraft(this.binding.draftType, held.value), wire: as.wire, place: as.place }
+                : ABSENT);
+            carried.set(id, { before: version(at, before), after: version(applied, after) });
+        }
+        this.base = this.cloneBase(base);
+        this.baseline.clear(); this.current.clear();
+        for (const [id, { before, after }] of carried) {
+            this.baseline.set(id, before);
+            this.current.set(id, after);
+        }
+        this.history = []; this.cursor = 0; this.stale = false;
+        this.draftsChanged();
+        this.changed();
+        return "rebased";
     }
 
     private clone(version: EntryVersion<W>): EntryVersion<W> {

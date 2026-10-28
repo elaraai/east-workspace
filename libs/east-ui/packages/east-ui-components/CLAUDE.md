@@ -506,6 +506,16 @@ component, nothing in east-ui.
   a gesture, an Undo, a Redo, a Discard or a confirmed Save replaces one; a
   draft not yet complete is none of them. e3-ui-components' record drafts
   (`shared/records/drafts.ts`) preview each one's Save from it.
+- **Drafts carried over a source that moved** (`EditSession.rebase`, #1438).
+  A session never moves its drafts by itself: a source moving under pending
+  drafts makes it stale, Save off. A builder that can read each drafted
+  entry whole at the new base — the Plan over rows read beside their nested
+  series index — hands them to `rebase`, which carries each entry's change
+  over to the entry as it now stands where the change still applies (the
+  session's keyed apply, a `ConflictError` where it does not), so another
+  write's change of what no draft changed stands beside the drafts and Save
+  sends only the drafts' changes. One that does not apply leaves the session
+  stale; a rebase starts the history over at the drafts.
 
 ## Field form
 
