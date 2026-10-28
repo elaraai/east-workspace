@@ -845,7 +845,13 @@ asks e3 for windows alone, where a row read by its key would be a key search
 and a one-row page an event, for rows those windows hold already. A click
 reads it once a kind, decoded as a `SortedMap` by the East key, and finds each
 event's row there, so its work grows with the events plus the rows, never
-their product. A rows' window that fails leaves the eye disabled, asking
+their product. Its result lands the same way: the landing reads each kind it
+changes as its events stood before the run once — the window's and the
+backlog's, the drafts in place, as the request was built from them
+(`windowEvents`) — by the East key in a `SortedMap` (`eventsBefore`), and
+finds there what each changed event was, for its provenance's `Was …` and
+whether the backlog moved: one read a kind, never one a change (#1409). A
+rows' window that fails leaves the eye disabled, asking
 nothing again, and is said on the footer's line in the words of the kinds
 whose own events it could not read — `Couldn't read print job events` — with
 Retry, which asks those kinds' records again at once (`retryPeriod`), never as
