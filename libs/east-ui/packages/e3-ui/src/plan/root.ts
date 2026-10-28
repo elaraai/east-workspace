@@ -88,7 +88,8 @@ import {
 import { orderedPlanSource } from "./ordered-source.js";
 import { PlanRootType } from "./ir.js";
 import { WINDOWLESS_AXES, axisKindOf, axisResolutionsOf } from "./builders.js";
-import { checkPlanNested, nestedPartOf, planNestedIndex, type PlanNestedRead } from "./nested-checks.js";
+import { checkPlanNested, nestedPartOf, planNestedIndex, type PlanNestedIndex, type PlanNestedRead } from "./nested-checks.js";
+import { planNestedRestatement } from "./nested-patch.js";
 import { PlanNestedType, planNestedUses } from "./nested-read.js";
 import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesType, type PlanSeriesInput } from "./series.js";
 
@@ -483,7 +484,7 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
             return extra === undefined ? blocks : blocks.concat(extra);
         },
     ) as unknown as ExprType<PlanRowsType>;
-    const editing = config.editing === undefined ? undefined : buildPlanEditing(resolved, seriesInput, config.editing);
+    const editing = config.editing === undefined ? undefined : buildPlanEditing(resolved, seriesInput, config.editing, planNestedIndex(nested));
     // Paged beside their nested series index (#1438): the seam the reader reads the index's cells through, and the window
     // its rows are drawn from with what it read — the binding's, or the one the Slice's `rows` source narrows.
     const index = planNestedIndex(nested);
@@ -589,7 +590,7 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
  * @returns The editing declaration, on the wire
  * @throws {Error} When the declaration is inconsistent, or a callback has another signature
  */
-function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input: PlanEditingConfig): ExprType<PlanEditingType> {
+function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input: PlanEditingConfig, nested?: PlanNestedIndex): ExprType<PlanEditingType> {
     const sourceType = resolved.collectionType as DictType<EastType, EastType>;
     const entryType = sourceType.value;
     const keyType = sourceType.key;
@@ -784,17 +785,27 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
             writer as unknown as ExprType<FunctionType>)), EditingWireApplyType);
     } else if (authorApply !== undefined) {
         const typedBatch = batchType as unknown as StructType<Record<never, never>>;
+        // Over rows read beside their nested series index (#1438), each change's patch restated by key before the author's
+        // apply: a collection's whole `replace` the operations it stands for, so a commit names only what it changed.
+        const restatement = nested === undefined ? undefined
+            : planNestedRestatement(entryType, keyType, nested) as unknown as ExprType<FunctionType<[typeof typedBatch], typeof typedBatch>> | undefined;
         if ((Expr.type(authorApply as unknown as Expr) as { type: string }).type === "AsyncFunction") {
             const fn = authorApply as unknown as ExprType<AsyncFunctionType<[typeof typedBatch], typeof EditingApplyResultType>>;
             onApply = East.value(variant("async", East.asyncFunction([BlobType], EditingApplyResultType, ($, blob) => {
                 const apply = $.const(fn);
-                return apply(blob.decodeBeast(typedBatch, "v2"));
+                const batch = $.let(blob.decodeBeast(typedBatch, "v2"));
+                if (restatement === undefined) return apply(batch);
+                const restate = $.const(restatement);
+                return apply(restate(batch));
             })), EditingWireApplyType);
         } else {
             const fn = authorApply as unknown as ExprType<FunctionType<[typeof typedBatch], typeof EditingApplyResultType>>;
             onApply = East.value(variant("sync", East.function([BlobType], EditingApplyResultType, ($, blob) => {
                 const apply = $.const(fn);
-                return apply(blob.decodeBeast(typedBatch, "v2"));
+                const batch = $.let(blob.decodeBeast(typedBatch, "v2"));
+                if (restatement === undefined) return apply(batch);
+                const restate = $.const(restatement);
+                return apply(restate(batch));
             })), EditingWireApplyType);
         }
     }

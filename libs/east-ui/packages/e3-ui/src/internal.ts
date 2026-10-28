@@ -324,6 +324,10 @@ export {
 // seam on its root, what each series reads of the index, and the rows'
 // shading past the cap.
 export { PlanNestedShadingType, PlanNestedType, PlanNestedUseType } from './plan/nested-read.js';
+// A Save's patch over rows read beside their nested series index, restated by key (#1438), and the index a binding's
+// nested part declares.
+export { planNestedRestatement } from './plan/nested-patch.js';
+export { nestedPartOf, planNestedIndex } from './plan/nested-checks.js';
 // The Plan's library pane on the wire (#1195): its tabs, an author's tab's
 // cards, the Series tab's lines and what hiding each hides, and the ids a
 // viewer's hidden set holds.
