@@ -18,10 +18,8 @@ import { customTask, partition, streamTask, task } from './task.js';
 import { output } from './output.js';
 import { function_ } from './function.js';
 import { input } from './input.js';
-import { migration } from './migration.js';
 import { mutation } from './mutation.js';
 import { record } from './record.js';
-import { recordIndex } from './record-index.js';
 
 describe('addObject', () => {
   it('returns correct SHA256 hash for empty buffer', () => {
@@ -254,22 +252,29 @@ describe('export_', () => {
     const RowV1 = StructType({ line: StringType });
     const Row = StructType({ line: StringType, qty: IntegerType });
     const Rows = DictType(StringType, Row);
-    const orders = record('orders', Rows, new Map());
-    const approve = mutation.reduce('approve', orders, East.function([Rows, StringType], Rows, (_$, state, _id) => state));
-    const drop = mutation.edit('drop', orders,
-      East.function([Rows, StringType, mutation.editType(Rows)], NullType, ($, _state, id, edit) => {
-        $(edit.delete(id));
-      }));
-    const byQty = recordIndex('by_qty', orders, {
-      key: East.function([StringType, Row], IntegerType, (_$, _id, row) => row.qty),
-      value: East.function([StringType, Row], StringType, (_$, _id, row) => row.line),
+    // The edit body's last parameter, typed by the record.
+    const Edit = mutation.editType(Rows);
+    const orders = record('orders', Rows, {
+      initial: new Map(),
+      indexes: (index) => ({
+        by_qty: index.key(East.function([StringType, Row], IntegerType, (_$, _id, row) => row.qty), {
+          value: East.function([StringType, Row], StringType, (_$, _id, row) => row.line),
+        }),
+      }),
+      mutations: (mutation) => ({
+        approve: mutation.reduce(East.function([Rows, StringType], Rows, (_$, state, _id) => state)),
+        drop: mutation.edit(East.function([Rows, StringType, Edit], NullType, ($, _state, id, edit) => {
+          $(edit.delete(id));
+        })),
+        patch: mutation.patch(),
+      }),
+      migrations: (migration) => [
+        migration.rows('add_qty', East.function([StringType, RowV1], Row, (_$, _id, old) => ({ line: old.line, qty: 0n }))),
+        migration.rekey('rekeyed',
+          East.function([StringType, Row], StructType({ key: StringType, value: Row }), (_$, id, row) => ({ key: id, value: row }))),
+      ],
     });
-    const addQty = migration.rows('add_qty', orders,
-      East.function([StringType, RowV1], Row, (_$, _id, old) => ({ line: old.line, qty: 0n })));
-    const rekeyed = migration.rekey('rekeyed', orders,
-      East.function([StringType, Row], StructType({ key: StringType, value: Row }), (_$, id, row) => ({ key: id, value: row })),
-      { after: addQty });
-    const pkg = package_('programs', '1.0.0', orders, approve, drop, mutation.patch(orders), byQty, rekeyed);
+    const pkg = package_('programs', '1.0.0', orders);
 
     const zipPath1 = path.join(tempDir, 'programs1.zip');
     const zipPath2 = path.join(tempDir, 'programs2.zip');

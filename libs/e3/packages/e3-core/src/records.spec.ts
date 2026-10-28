@@ -16,7 +16,7 @@ import { statSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import { DateTimeType, East, EastTypeValueType, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, isTypeValueEqual, printFor, readBeast2Type, sha256Hex, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type EastTypeValue, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
-import e3, { type MutationBuilder } from '@elaraai/e3';
+import e3, { type MutationBuilder, type PartRunner } from '@elaraai/e3';
 import {
   RecordCommitType, RecordIndexObjectType, RecordStateType, TaskObjectType, decodeCollectionManifest, decodePackageObject, isCollectionManifestType,
 } from '@elaraai/e3-types';
@@ -2092,7 +2092,7 @@ describe('the mutation delta — cross-runtime parity', () => {
   let realRunner: TaskRunner;
 
   /** The runtimes to compare, minus any that is not installed. */
-  const runtimes: Array<{ ws: string; runner: Parameters<typeof e3.mutation.reduce>[3] }> = [
+  const runtimes: Array<{ ws: string; runner: PartRunner }> = [
     { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
     ...(onPath('east-c', ['version']) ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
     ...(onPath('east-py', ['version']) ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),

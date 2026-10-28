@@ -40,7 +40,7 @@ export function sameEastType(a: EastType, b: EastType): boolean {
  * into nested closures, loop bodies and collection-op lambdas.
  *
  * @param subject - The function as the error names it, such as
- *   `e3.mutation.reduce 'place' body`
+ *   `e3.record 'orders': mutation.reduce 'place' body`
  * @param fn - The function
  * @param why - Why the declaration refuses each, which ends its error
  * @throws {Error} When the function is async, or calls a platform function.
@@ -84,8 +84,7 @@ export interface IndexFunction {
   toIR(): unknown;
 }
 
-/** The declaration a refusal names: a builder of the record's, `e3.record 'plans': index.on`, or a separate
- *  constructor, `e3.recordIndex.series`. */
+/** The declaration a refusal names: a builder of the record's, `e3.record 'plans': index.on`. */
 export type IndexConstructor = string;
 
 /**
@@ -185,11 +184,6 @@ export function indexedEntry(constructor: IndexConstructor, name: string, rec: R
       `selector in URLs and on the command line.`,
     );
   }
-  // An assembled record — a package's `records.plans` — carries its indexes
-  // already; a bare one is checked when `e3.package` folds indexes onto it.
-  if (rec.indexes[name] !== undefined) {
-    throw new Error(`${constructor} '${name}' is already declared on record '${rec.name}'`);
-  }
   const recordType: EastType = rec.type;
   if (recordType.type !== 'Dict') {
     throw new Error(
@@ -245,7 +239,7 @@ export function indexFunctions(
       throw new Error(
         `${constructor} '${name}' declared with 'keys' must return a Set of index ` +
         `keys — one entry per element — but returns ${printType(keySig.output)}. ` +
-        `For one entry per row use ${constructor.startsWith('e3.recordIndex') ? "'key'" : 'index.key'}.`,
+        `For one entry per row use index.key.`,
       );
     }
     indexKeyType = returned.key;

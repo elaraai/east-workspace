@@ -41,7 +41,7 @@ import {
 import { checkLeading, checkTimeField, fieldReader, leadingValues, type Leading, type OptionField, type RowType } from './record-keys.js';
 import { TileFilingType, TileShareType, checkTile, placedFilings, placedShares, type RecordTile } from './record-tiles.js';
 
-/** What a series or a summary index's declaration names (`e3.recordIndex.series`, `e3.recordIndex.summary`). */
+/** What a series or a summary index's declaration names (`index.series`, `index.summary`). */
 export interface TimeTileSpec {
   /** The exact leading fields, before the key. */
   readonly on?: readonly string[];
@@ -104,7 +104,7 @@ function checkTimeTile(constructor: IndexConstructor, name: string, valueType: E
 }
 
 /**
- * A series index's definition (`e3.recordIndex.series`): its key function,
+ * A series index's definition (`index.series`): its key function,
  * `(K, V) → Set<IK>`, an entry per place a row's event is filed
  * (`eventFilings`: once, or once a year past a year), `{ on: { …on }, key,
  * level, tile }` — one per combination of its leading values, a Set among them
@@ -199,7 +199,7 @@ const addTotals = East.function([StringType, RecordSummaryTotalsType, RecordSumm
 });
 
 /**
- * A summary index's definition (`e3.recordIndex.summary`): its key function, a
+ * A summary index's definition (`index.summary`): its key function, a
  * row's contributions, `(K, V) → Dict<IK, Totals>` — under each tile its event
  * touches, `{ on: { …on }, key, tile }`, once per combination of its leading
  * values, the count 1 and the milliseconds of the tile it covers — and its

@@ -4,7 +4,8 @@
 > indexes, the mutation delta, steps for records; §7.3 corrected; §12–§17
 > renumbered from §9–§14) · 2026-09-23 (§8.7 rule 3: the byte bound decided,
 > then shipped as the size-aware rule `/2`) · 2026-09-25 (§10, §11, §13 and
-> §16: records run on the task engine)
+> §16: records run on the task engine) · 2026-10-28 (§9.3: a record is
+> declared whole, its indexes, mutations and migrations in its declaration)
 > Audience: e3 maintainers. Companion to [`e3-records.md`](./e3-records.md)
 > (the records spec) and [`e3-records-storage.md`](./e3-records-storage.md)
 > (the storage decision record). Resolves the §13 open question *"Redeploy
@@ -1349,6 +1350,17 @@ the lazy opener, the emit sink and the k-way merge. Nothing is added to
 beast2.
 
 ### 9.3 Authoring surface
+
+> **Amended (2026-10-28).** A record is declared whole: `e3.record(name, type,
+> { initial?, indexes, mutations, migrations })`, each part built in the
+> declaration by the builder its key is handed — `indexes: (index) => ({
+> by_status: index.key(fn, { value }), by_resource: index.keys(fn), … })` —
+> and read back by its name (`plans.indexes.by_status`). `e3.package` takes the
+> record whole; no part is a package item, and `e3.recordIndex` is gone. The
+> rules below — one of `key` or `keys`, an optional `value`, a Dict record, the
+> guards, the reserved `primary` — hold for the builder's forms; `index.on([…])`
+> names row fields in place of a function. The code below is the surface as
+> first proposed.
 
 ```ts
 // packages/e3/src/record-index.ts (new)

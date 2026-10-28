@@ -4,7 +4,8 @@
  */
 
 /**
- * `e3.recordIndex` — the declaration and the program built from it.
+ * A record's plain indexes — `index.on`, `index.key` and `index.keys`: the
+ * declaration, and the program built from it.
  *
  * Every guard here is a definition-time error: an index that is wrong is worse
  * than no index, because the view it serves is quietly wrong rather than
@@ -25,11 +26,11 @@ import {
 } from '@elaraai/east';
 import { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
 import { record } from './record.js';
-import { recordIndex } from './record-index.js';
+import type { IndexBuilder, IndexDraft } from './record-builders.js';
 import { functionAt } from './record-guards.js';
 import { buildMutationProgram, indexBuildProgram } from './record-programs.js';
-import { mutation } from './mutation.js';
 import { package_ } from './package.js';
+import type { RecordIndexDef } from './types.js';
 
 const RowType = StructType({ status: StringType, due: IntegerType, title: StringType, tags: SetType(StringType), start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
 const StatusKeyType = StructType({ status: StringType, due: IntegerType });
@@ -42,11 +43,12 @@ const titleOf = East.function([StringType, RowType], StringType, ($, _k, v) => v
 /** The `by_tag` declaration: many keys per row. */
 const tagKeys = East.function([StringType, RowType], SetType(StringType), ($, _k, v) => v.tags);
 
-const plans = (): ReturnType<typeof record<'plans', typeof PlansType>> =>
-  record('plans', PlansType, new Map());
+/** The plans record declaring the indexes given, each built by `e3.record` under its key and typed as declared. */
+const declared = <I extends Readonly<Record<string, IndexDraft>>>(indexes: (index: IndexBuilder<typeof PlansType>) => I) =>
+  record('plans', PlansType, { initial: new Map(), indexes });
 
 /** The `[entry, projection]` pairs a build program emits for `rows`. */
-function emitted(recordType: typeof PlansType, def: ReturnType<typeof recordIndex>, rows: Map<string, unknown>): [unknown, unknown][] {
+function emitted(recordType: typeof PlansType, def: RecordIndexDef, rows: Map<string, unknown>): [unknown, unknown][] {
   const out: [unknown, unknown][] = [];
   const run = indexBuildProgram(recordType, def).compile([]) as (
     slice: unknown, emit: (entry: unknown, value: unknown) => null) => unknown;
@@ -63,14 +65,14 @@ const rows = new SortedMap<string, ValueTypeOf<typeof RowType>>([
   ['p3', { status: 'late', due: 2n, title: 'Three', tags: new Set(), start: none, end: none }],
 ], compareFor(StringType));
 
-describe('recordIndex — the declaration', () => {
+describe('index.on, index.key and index.keys — the declaration', () => {
   // The typed bindings below are half of each test: they compile only when the
   // declaration carries the exact key and projection types, which are what
   // type a window read through the index — and so every component rendering
   // one. An erased EastType is assignable to none of them.
 
   it('reads the index key and the projection off the declared functions', () => {
-    const index = recordIndex('by_status', plans(), { key: statusKey, value: titleOf });
+    const index = declared((index) => ({ by_status: index.key(statusKey, { value: titleOf }) })).indexes.by_status;
     const keyType: typeof StatusKeyType = index.keyType;
     const valueType: typeof StringType = index.valueType;
     assert.equal(index.kind, 'recordIndex');
@@ -81,7 +83,7 @@ describe('recordIndex — the declaration', () => {
   });
 
   it('unwraps the element type of a multi-valued index, and carries no value by default', () => {
-    const index = recordIndex('by_tag', plans(), { keys: tagKeys });
+    const index = declared((index) => ({ by_tag: index.keys(tagKeys) })).indexes.by_tag;
     const keyType: typeof StringType = index.keyType;
     const valueType: typeof NullType = index.valueType;
     assert.equal(index.multi, true);
@@ -90,113 +92,88 @@ describe('recordIndex — the declaration', () => {
   });
 
   it('types field indexes and keeps their declared field order', () => {
-    const one = recordIndex('by_status', plans(), { on: ['status'] });
+    const rec = declared((index) => ({
+      by_status: index.on(['status']),
+      by_status_due: index.on(['status', 'due'], { value: titleOf }),
+      by_due_status: index.on(['due', 'status']),
+      computed: index.key(statusKey, { value: titleOf }),
+    }));
+    const one = rec.indexes.by_status;
     const oneType: typeof StringType = one.keyType;
     const fields: readonly ['status'] = one.on;
     assert.equal(printType(oneType), printType(StringType));
     assert.deepEqual(fields, ['status']);
-    const pair = recordIndex('by_status_due', plans(), { on: ['status', 'due'], value: titleOf });
+    const pair = rec.indexes.by_status_due;
     const pairType: typeof StatusKeyType = pair.keyType;
     const projection: typeof StringType = pair.valueType;
     assert.equal(printType(pairType), printType(StatusKeyType));
     assert.equal(printType(projection), printType(StringType));
-    assert.deepEqual(emitted(PlansType, pair, rows), emitted(PlansType, recordIndex('computed', plans(), { key: statusKey, value: titleOf }), rows));
-    const reversed = recordIndex('by_due_status', plans(), { on: ['due', 'status'] });
-    assert.deepEqual(Object.keys(reversed.keyType.fields), ['due', 'status']);
-    assert.equal(recordIndex('computed', plans(), { key: statusKey }).on, undefined);
+    assert.deepEqual(emitted(PlansType, pair, rows), emitted(PlansType, rec.indexes.computed, rows));
+    assert.deepEqual(Object.keys(rec.indexes.by_due_status.keyType.fields), ['due', 'status']);
+    assert.equal(rec.indexes.computed.on, undefined);
   });
 
   it('fans a Set field out, alone and inside a compound key, and omits empty sets', () => {
-    const one = recordIndex('by_tag', plans(), { on: ['tags'] });
+    const rec = declared((index) => ({
+      by_tag: index.on(['tags']),
+      computed: index.keys(tagKeys),
+      by_status_tag: index.on(['status', 'tags']),
+    }));
+    const one = rec.indexes.by_tag;
     const keyType: typeof StringType = one.keyType;
     assert.equal(printType(keyType), printType(StringType));
     assert.equal(one.multi, true);
-    assert.deepEqual(emitted(PlansType, one, rows), emitted(PlansType, recordIndex('computed', plans(), { keys: tagKeys }), rows));
-    const pair = recordIndex('by_status_tag', plans(), { on: ['status', 'tags'] });
-    assert.deepEqual(emitted(PlansType, pair, rows), [
+    assert.deepEqual(emitted(PlansType, one, rows), emitted(PlansType, rec.indexes.computed, rows));
+    assert.deepEqual(emitted(PlansType, rec.indexes.by_status_tag, rows), [
       [{ ik: { status: 'late', tags: 'a' }, k: 'p1' }, null],
       [{ ik: { status: 'late', tags: 'b' }, k: 'p1' }, null],
       [{ ik: { status: 'ok', tags: 'b' }, k: 'p2' }, null],
     ]);
   });
 
-  it('is collected onto its record by the package', () => {
-    const rec = plans();
-    const pkg = package_('planning', '1.0.0', rec,
-      recordIndex('by_status', rec, { key: statusKey }),
-      recordIndex('by_tag', rec, { keys: tagKeys }));
-    assert.deepEqual(Object.keys(pkg.records.plans!.indexes).sort(), ['by_status', 'by_tag']);
+  it('a package carries the record with its indexes', () => {
+    const rec = declared((index) => ({ by_status: index.key(statusKey), by_tag: index.keys(tagKeys) }));
+    assert.deepEqual(Object.keys(package_('planning', '1.0.0', rec).records.plans!.indexes).sort(), ['by_status', 'by_tag']);
   });
 
   describe('refuses, at definition time', () => {
     it('the reserved name, a non-identifier name, and an empty one', () => {
-      assert.throws(() => recordIndex('primary', plans(), { key: statusKey }), /cannot be named 'primary'/);
-      assert.throws(() => recordIndex('by status', plans(), { key: statusKey }), /must be an identifier/);
-      assert.throws(() => recordIndex('', plans(), { key: statusKey }), /non-empty name/);
+      assert.throws(() => declared((index) => ({ primary: index.key(statusKey) })), /cannot be named 'primary'/);
+      assert.throws(() => declared((index) => ({ 'by status': index.key(statusKey) })), /must be an identifier/);
+      assert.throws(() => declared((index) => ({ '': index.key(statusKey) })), /non-empty name/);
     });
 
-    it('a name declared twice on the record', () => {
-      const rec = plans();
-      const first = recordIndex('by_status', rec, { key: statusKey });
-      const second = recordIndex('by_status', rec, { key: statusKey, value: titleOf });
-      // A record keeps one index per name. With two it would keep whichever
-      // came last, and a page through `by_status` would read the other one.
-      assert.throws(() => package_('planning', '1.0.0', rec, first, second),
-        /record 'plans' declares two indexes named 'by_status'/);
-      // One declaration passed twice is one index.
-      assert.deepEqual(Object.keys(package_('planning', '1.0.0', rec, first, first).records.plans!.indexes), ['by_status']);
-      // An assembled record carries its indexes, so the name is refused at once.
-      const assembled = package_('planning', '1.0.0', rec, first).records.plans!;
-      assert.throws(() => recordIndex('by_status', assembled, { key: statusKey }), /already declared/);
-    });
-
-    it('an interval, naming the constructor that declares one', () => {
-      // @ts-expect-error — an interval index has a constructor of its own
-      assert.throws(() => recordIndex('by_time', plans(), { interval: { from: 'start', to: 'end' } }),
-        /takes on, key, keys, value, not interval — an interval index has a constructor of its own: e3\.recordIndex\.interval\('by_time', record, \{ on\?, from, to \}\)/);
-    });
-
-    it('both or neither of key and keys', () => {
-      assert.throws(() => recordIndex('both', plans(), { key: statusKey, keys: tagKeys }), /exactly one of 'key'/);
-      assert.throws(() => recordIndex('neither', plans(), {}), /exactly one of 'key'/);
-    });
-
-    it('invalid field declarations and a field declaration beside a computed key', () => {
-      assert.throws(() => recordIndex('empty', plans(), { on: [] }), /at least one field/);
-      assert.throws(() => recordIndex('repeat', plans(), { on: ['status', 'status'] }), /must not repeat/);
-      assert.throws(() => recordIndex('both', plans(), { on: ['status'], key: statusKey }), /exactly one/);
-      // @ts-expect-error — on names the record row's own fields
-      assert.throws(() => recordIndex('unknown', plans(), { on: ['missing'] }), /unknown row field 'missing'/);
-      const scalar = record('scalar', DictType(StringType, IntegerType), new Map());
-      // @ts-expect-error — scalar rows have no field to index
-      assert.throws(() => recordIndex('scalar', scalar, { on: ['status'] }), /Struct rows/);
+    it('invalid field declarations', () => {
+      assert.throws(() => declared((index) => ({ empty: index.on([]) })), /at least one field/);
+      assert.throws(() => declared((index) => ({ repeat: index.on(['status', 'status']) })), /must not repeat/);
+      assert.throws(() => declared((index) => ({
+        // @ts-expect-error — on names the record row's own fields
+        unknown: index.on(['missing']),
+      })), /unknown row field 'missing'/);
+      assert.throws(() => record('scalar', DictType(StringType, IntegerType), {
+        // @ts-expect-error — scalar rows have no field to index
+        indexes: (index) => ({ scalar: index.on(['status']) }),
+      }), /Struct rows/);
     });
 
     it('a keys function that does not return a Set', () => {
-      assert.throws(
-        () => recordIndex('flat', plans(), { keys: statusKey }),
-        /must return a Set of index keys/,
-      );
+      assert.throws(() => declared((index) => ({ flat: index.keys(statusKey) })), /must return a Set of index keys/);
     });
 
     it('a function whose parameters are not the record\'s entry', () => {
       assert.throws(
-        () => recordIndex('wrong', plans(), { key: East.function([IntegerType], StringType, ($, _x) => 'only one parameter') }),
+        () => declared((index) => ({ wrong: index.key(East.function([IntegerType], StringType, ($, _x) => 'only one parameter')) })),
         /must take the record's entry/,
       );
       assert.throws(
-        () => recordIndex('wrong_value', plans(), {
-          key: statusKey,
-          value: East.function([StringType], StringType, ($, k) => k),
-        }),
+        () => declared((index) => ({ wrong_value: index.key(statusKey, { value: East.function([StringType], StringType, ($, k) => k) }) })),
         /'value' projection must take the record's entry/,
       );
     });
 
     it('a record that is not a Dict — there is no entry to index', () => {
-      const flags = record('flags', SetType(StringType), new Set<string>());
       assert.throws(
-        () => recordIndex('on_set', flags as never, { key: statusKey }),
+        () => record('flags', SetType(StringType), { initial: new Set<string>(), indexes: (index) => ({ on_set: index.key(statusKey) }) }),
         /indexes a Dict record/,
       );
     });
@@ -206,34 +183,33 @@ describe('recordIndex — the declaration', () => {
         // Only a dynamic or cast caller reaches this — the typed surface
         // refuses an async function — but a wrong index is a quietly wrong
         // view, so the guard is a runtime one too.
-        () => recordIndex('async', plans(), {
-          key: East.asyncFunction([StringType, RowType], StringType, ($, k, _v) => k) as never,
-        }),
+        () => declared((index) => ({ async: index.key(East.asyncFunction([StringType, RowType], StringType, ($, k, _v) => k) as never) })),
         /must be a synchronous East function/,
       );
       // A synchronous platform call is an ordinary function IR, so only the
       // walk over the body finds it — in the key function and the projection
       // alike.
       assert.throws(
-        () => recordIndex('clock', plans(), {
-          key: East.function([StringType, RowType], IntegerType, ($, _k, v) => v.due.add(East.platform('time_now', [], IntegerType)())),
-        }),
+        () => declared((index) => ({
+          clock: index.key(East.function([StringType, RowType], IntegerType, ($, _k, v) => v.due.add(East.platform('time_now', [], IntegerType)()))),
+        })),
         /'key' function must not call platform functions \(found 'time_now'\)/,
       );
       assert.throws(
-        () => recordIndex('clock_value', plans(), {
-          key: statusKey,
-          value: East.function([StringType, RowType], IntegerType, ($, _k, _v) => East.platform('time_now', [], IntegerType)()),
-        }),
+        () => declared((index) => ({
+          clock_value: index.key(statusKey, {
+            value: East.function([StringType, RowType], IntegerType, ($, _k, _v) => East.platform('time_now', [], IntegerType)()),
+          }),
+        })),
         /'value' projection must not call platform functions \(found 'time_now'\)/,
       );
     });
   });
 });
 
-describe('recordIndex — the build program', () => {
+describe('a plain index — the build program', () => {
   it('emits each row\'s entry as it reads the row, index key first', () => {
-    const out = emitted(PlansType, recordIndex('by_status', plans(), { key: statusKey, value: titleOf }), rows);
+    const out = emitted(PlansType, declared((index) => ({ by_status: index.key(statusKey, { value: titleOf }) })).indexes.by_status, rows);
     assert.deepEqual(out, [
       [{ ik: { status: 'late', due: 3n }, k: 'p1' }, 'One'],
       [{ ik: { status: 'ok', due: 1n }, k: 'p2' }, 'Two'],
@@ -242,7 +218,7 @@ describe('recordIndex — the build program', () => {
   });
 
   it('emits one entry per element of a multi-valued key, and none for an empty set', () => {
-    const out = emitted(PlansType, recordIndex('by_tag', plans(), { keys: tagKeys }), rows);
+    const out = emitted(PlansType, declared((index) => ({ by_tag: index.keys(tagKeys) })).indexes.by_tag, rows);
     assert.deepEqual(out, [
       [{ ik: 'a', k: 'p1' }, null],
       [{ ik: 'b', k: 'p1' }, null],
@@ -251,31 +227,31 @@ describe('recordIndex — the build program', () => {
   });
 
   it('carries Null where an index declares no projection', () => {
-    const out = emitted(PlansType, recordIndex('by_status', plans(), { key: statusKey }), rows);
+    const out = emitted(PlansType, declared((index) => ({ by_status: index.key(statusKey) })).indexes.by_status, rows);
     assert.deepEqual(out.map(([, value]) => value), [null, null, null]);
   });
 
   it('emits nothing for an empty record', () => {
-    assert.deepEqual(
-      emitted(PlansType, recordIndex('by_status', plans(), { key: statusKey }), new Map()),
-      [],
-    );
+    assert.deepEqual(emitted(PlansType, declared((index) => ({ by_status: index.key(statusKey) })).indexes.by_status, new Map()), []);
   });
 });
 
 
-describe('recordIndex — fields through mutation and rebuild', () => {
+describe("a record's indexes — fields through mutation and rebuild", () => {
   it('maintains the same collections that a rebuild emits after insert, update and delete', () => {
-    const rec = plans();
-    const indexes = [
-      recordIndex('by_status_due', rec, { on: ['status', 'due'], value: titleOf }),
-      recordIndex('by_tag', rec, { on: ['tags'] }),
-      recordIndex.interval('by_time', rec, { from: 'start', to: 'end' }),
-      recordIndex.interval('by_status_time', rec, { on: ['status'], from: 'start', to: 'end' }),
-      recordIndex.interval('by_tag_time', rec, { on: ['tags'], from: 'start', to: 'end' }),
-    ];
-    const patch = mutation.patch(rec);
-    const assembled = package_('field_indexes', '1.0.0', rec, patch, ...indexes).records.plans!;
+    const rec = record('plans', PlansType, {
+      initial: new Map(),
+      indexes: (index) => ({
+        by_status_due: index.on(['status', 'due'], { value: titleOf }),
+        by_tag: index.on(['tags']),
+        by_time: index.interval({ from: 'start', to: 'end' }),
+        by_status_time: index.interval({ on: ['status'], from: 'start', to: 'end' }),
+        by_tag_time: index.interval({ on: ['tags'], from: 'start', to: 'end' }),
+      }),
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    });
+    const indexes: RecordIndexDef[] = Object.values(rec.indexes);
+    const assembled = package_('field_indexes', '1.0.0', rec).records.plans!;
     assert.deepEqual(assembled.indexes.by_status_due!.on, ['status', 'due']);
     const after = new SortedMap<string, ValueTypeOf<typeof RowType>>([
       ['p1', { status: 'ok', due: 4n, title: 'Updated', tags: new Set(['b', 'c']), start: none, end: none }],
@@ -284,7 +260,7 @@ describe('recordIndex — fields through mutation and rebuild', () => {
     ], compareFor(StringType));
     const diff = East.compile(East.function([PlansType, PlansType], PatchType(PlansType), (_$, before, after) => East.diff(before, after)), []);
     const changes: Array<{ index: string; key: unknown; op: unknown }> = [];
-    const run = buildMutationProgram(assembled, patch).compile([]);
+    const run = buildMutationProgram(assembled, rec.mutations.patch).compile([]);
     run(rows, diff(rows, after), (key: { type: string; value: unknown }, op: { value: unknown }) => {
       changes.push({ index: key.type, key: key.value, op: op.value });
       return null;
@@ -301,7 +277,7 @@ describe('recordIndex — fields through mutation and rebuild', () => {
   });
 });
 
-describe('recordIndex — a generated key reserves no field name (#1432)', () => {
+describe('a generated index key reserves no field name (#1432)', () => {
   /** Fields named like e3's own parts, every one a row field the indexes are led by. */
   const NAMES = ['on', 'node', 'at', 'area', 'tile', 'key', 'level', '__interval', '__area', '__tile'] as const;
   const LeadingType = StructType(Object.fromEntries(NAMES.map((name) => [name, StringType])) as Record<(typeof NAMES)[number], typeof StringType>);
@@ -312,31 +288,36 @@ describe('recordIndex — a generated key reserves no field name (#1432)', () =>
   const week = new Date('2026-10-05T00:00:00Z');
 
   it('each kind is led by them, under its key\'s on, its own parts beside them holding what they held before', () => {
-    const rec = record('named', DictType(StringType, Named), new Map());
     const on = [...NAMES];
+    const rec = record('named', DictType(StringType, Named), {
+      initial: new Map(),
+      indexes: (index) => ({
+        // An interval index: the instant filed once, at the tree's root, by its start.
+        named_by_time: index.interval({ on, from: 'start', to: 'end' }),
+        // An area index: the cell's code an index led by nothing files the same row under.
+        named_by_area: index.area({ on, x: 'x', y: 'y', cell: 1 }),
+        by_area: index.area({ x: 'x', y: 'y', cell: 1 }),
+        // A series index, and a summary's totals: the press, then the week the instant falls in — the series' at its level (#1433).
+        named_by_week: index.series({ on, key: 'press', from: 'start', to: 'end', tile: 'week' }),
+        named_by_week_totals: index.summary({ on, key: 'press', from: 'start', to: 'end', tile: 'week' }),
+      }),
+    });
+    const { named_by_week_totals: summary, named_by_week: series, by_area: unled, named_by_area: area, named_by_time: interval } = rec.indexes;
     const row = decodeBeast2For(Named)(encodeBeast2For(Named)({ ...leading, press: 'P-1001', start, end: start, x: 1.5, y: 2.5 }));
-    // An interval index: the instant filed once, at the tree's root, by its start.
-    const interval = recordIndex.interval('named_by_time', rec, { on, from: 'start', to: 'end' });
     assert.equal(printType(interval.keyType), printType(StructType({ on: LeadingType, node: IntegerType, at: DateTimeType })));
     const intervalKeys = East.compile(functionAt(interval.keyFn, [StringType, Named], SetType(interval.keyType)), []);
     assert.ok(equalFor(SetType(interval.keyType))(intervalKeys('r', row),
       new SortedSet([{ on: leading, node: 0n, at: start }], compareFor(interval.keyType))), 'the interval');
 
-    // An area index: the cell's code an index led by nothing files the same row under.
-    const area = recordIndex.area('named_by_area', rec, { on, x: 'x', y: 'y', cell: 1 });
-    const unled = recordIndex.area('by_area', rec, { x: 'x', y: 'y', cell: 1 });
     assert.equal(printType(area.keyType), printType(StructType({ on: LeadingType, area: IntegerType })));
     const code = East.compile(functionAt(unled.keyFn, [StringType, Named], unled.keyType), [])('r', row).area;
     const areaKey = East.compile(functionAt(area.keyFn, [StringType, Named], area.keyType), []);
     assert.ok(equalFor(area.keyType)(areaKey('r', row), { on: leading, area: code }), 'the area');
 
-    // A series index, and a summary's totals: the press, then the week the instant falls in — the series' at its level (#1433).
-    const series = recordIndex.series('named_by_week', rec, { on, key: 'press', from: 'start', to: 'end', tile: 'week' });
     assert.equal(printType(series.keyType), printType(StructType({ on: LeadingType, key: StringType, level: RecordLevelType, tile: DateTimeType })));
     const seriesKeys = East.compile(functionAt(series.keyFn, [StringType, Named], SetType(series.keyType)), []);
     assert.ok(equalFor(SetType(series.keyType))(seriesKeys('r', row),
       new SortedSet([{ on: leading, key: 'P-1001', level: variant('week', null), tile: week }], compareFor(series.keyType))), 'the series');
-    const summary = recordIndex.summary('named_by_week_totals', rec, { on, key: 'press', from: 'start', to: 'end', tile: 'week' });
     assert.equal(printType(summary.keyType), printType(StructType({ on: LeadingType, key: StringType, tile: DateTimeType })));
     const totalsType = DictType(summary.keyType, RecordSummaryTotalsType);
     const contributions = East.compile(functionAt(summary.keyFn, [StringType, Named], totalsType), []);

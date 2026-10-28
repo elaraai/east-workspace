@@ -4,7 +4,7 @@
  */
 
 /**
- * The nested form of `e3.recordIndex.series` (#1434): what TypeScript checks
+ * The nested series index, `index.nested` (#1434): what TypeScript checks
  * of a declaration from the record's type alone; the refusals, in their
  * words; a row's entries — its items filed by #1433's levels, its totals, its
  * items rolled up under every ancestor, and every parent's subtotals, checked
@@ -24,16 +24,25 @@ import {
 } from '@elaraai/east';
 import { NestedEntryKeyType, NestedEntryType, RecordNestedDeclType } from '@elaraai/e3-types';
 import { record } from './record.js';
-import { recordIndex } from './record-index.js';
+import type { NestedSeriesIndexSpec } from './record-index.js';
+import type { IndexBuilder } from './record-builders.js';
+import { items, recursive, rows, values } from './record-nested.js';
 import { buildMutationProgram, builtIndex, indexBuildProgram } from './record-programs.js';
 import { functionAt } from './record-guards.js';
-import { mutation } from './mutation.js';
 import { package_ } from './package.js';
 import { NestedPatchedType } from './record-nested-programs.js';
 import { patchTypeOf } from './record-patches.js';
 import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
-const series = recordIndex.series;
+/**
+ * The nested series index a record like `rec` — its name and type — declares under `name`, as `e3.record` builds it;
+ * and the builders of the collections it files, `index.nested`'s.
+ */
+const series = Object.assign(
+  <T extends EastType, const S extends NestedSeriesIndexSpec<T>>(name: string, rec: RecordDef<T>, spec: S): RecordIndexDef =>
+    record(rec.name, rec.type, { indexes: (index) => ({ [name]: index.nested(spec) }) }).indexes[name]!,
+  { items, values, rows, recursive },
+);
 
 // ── The rows ─────────────────────────────────────────────────────────────────
 
@@ -50,42 +59,61 @@ const Machine = StructType({
   load: DictType(DateTimeType, FloatType), output: DictType(DateTimeType, IntegerType),
 });
 const Machines = DictType(StringType, Machine);
-const machines = () => record('machines', Machines, new Map());
-const machinesInTime = (rec: ReturnType<typeof machines>) => series('machines_in_time', rec, {
+/** The machines' nested series index: every collection a machine nests, filed from a week up and totalled a month at a time. */
+const machinesNested = (index: IndexBuilder<typeof Machines>) => index.nested({
   collections: {
-    jobs: series.items({ from: 'start', to: 'end' }),
-    stops: series.items({ from: 'start', to: 'end' }),
-    alarms: series.items({ at: 'at' }),
-    load: series.values(),
-    output: series.values(),
+    jobs: index.nested.items({ from: 'start', to: 'end' }),
+    stops: index.nested.items({ from: 'start', to: 'end' }),
+    alarms: index.nested.items({ at: 'at' }),
+    load: index.nested.values(),
+    output: index.nested.values(),
   },
   tile: 'week',
   summary: 'month',
 });
+/** The machines, declaring their nested series index and their patch. */
+const machines = () => record('machines', Machines, {
+  initial: new Map(),
+  indexes: (index) => ({ machines_in_time: machinesNested(index) }),
+  mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+const machinesInTime = (rec: ReturnType<typeof machines>) => rec.indexes.machines_in_time;
 
 /** A hall's members, each with its own load; the hall's strip is their mean. */
 const Member = StructType({ name: StringType, load: DictType(DateTimeType, FloatType) });
 const Hall = StructType({ name: StringType, site: StringType, members: DictType(StringType, Member) });
 const Halls = DictType(StringType, Hall);
-const halls = () => record('halls', Halls, new Map());
-const hallsInTime = (rec: ReturnType<typeof halls>) => series('halls_in_time', rec, {
-  collections: { members: series.rows({ load: series.values({ rollup: 'mean' }) }) },
-  tile: 'day',
-  summary: 'month',
+const halls = () => record('halls', Halls, {
+  initial: new Map(),
+  indexes: (index) => ({
+    halls_in_time: index.nested({
+      collections: { members: index.nested.rows({ load: index.nested.values({ rollup: 'mean' }) }) },
+      tile: 'day',
+      summary: 'month',
+    }),
+  }),
+  mutations: (mutation) => ({ patch: mutation.patch() }),
 });
+const hallsInTime = (rec: ReturnType<typeof halls>) => rec.indexes.halls_in_time;
 
 /** An assembly's parts, each holding its jobs and more parts, to any depth; a part's bands are its subtree's jobs. */
 const Part = RecursiveType((self) => StructType({ name: StringType, jobs: DictType(StringType, Job), parts: DictType(StringType, self) }));
 const Assembly = StructType({ name: StringType, parts: DictType(StringType, Part) });
 const Assemblies = DictType(StringType, Assembly);
-const assemblies = () => record('assemblies', Assemblies, new Map());
-const assembliesInTime = (rec: ReturnType<typeof assemblies>) => series('assemblies_in_time', rec, {
-  collections: {
-    parts: series.rows({ jobs: series.items({ from: 'start', to: 'end' }, { rollup: true }), parts: series.recursive() }),
-  },
-  tile: 'week',
-  summary: 'month',
+const assemblies = () => record('assemblies', Assemblies, {
+  initial: new Map(),
+  indexes: (index) => ({
+    assemblies_in_time: index.nested({
+      collections: {
+        parts: index.nested.rows({ jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }), parts: index.nested.recursive() }),
+      },
+      tile: 'week',
+      summary: 'month',
+    }),
+  }),
+  mutations: (mutation) => ({ patch: mutation.patch() }),
 });
+const assembliesInTime = (rec: ReturnType<typeof assemblies>) => rec.indexes.assemblies_in_time;
 
 /** A ledger's measures, each with more beneath, to any depth. */
 const Measure = RecursiveType((self) => StructType({
@@ -93,17 +121,23 @@ const Measure = RecursiveType((self) => StructType({
 }));
 const Ledger = StructType({ name: StringType, site: StringType, measures: DictType(StringType, Measure) });
 const Ledgers = DictType(StringType, Ledger);
-const ledgers = () => record('ledgers', Ledgers, new Map());
-const ledgersInTime = (rec: ReturnType<typeof ledgers>) => series('ledgers_in_time', rec, {
-  collections: {
-    measures: series.rows({
-      readings: series.values({ rollup: ['sum', 'mean', 'count'] }),
-      stock: series.values({ rollup: { fold: 'last', aggregate: 'sum' } }),
-      children: series.recursive(),
+const ledgers = () => record('ledgers', Ledgers, {
+  initial: new Map(),
+  indexes: (index) => ({
+    ledgers_in_time: index.nested({
+      collections: {
+        measures: index.nested.rows({
+          readings: index.nested.values({ rollup: ['sum', 'mean', 'count'] }),
+          stock: index.nested.values({ rollup: { fold: 'last', aggregate: 'sum' } }),
+          children: index.nested.recursive(),
+        }),
+      },
+      tile: 'day',
     }),
-  },
-  tile: 'day',
+  }),
+  mutations: (mutation) => ({ patch: mutation.patch() }),
 });
+const ledgersInTime = (rec: ReturnType<typeof ledgers>) => rec.indexes.ledgers_in_time;
 
 // ── Reading and checking East values ─────────────────────────────────────────
 
@@ -171,7 +205,7 @@ function state<T extends EastType>(type: T, rows: Readonly<Record<string, string
 
 // ── The declaration ──────────────────────────────────────────────────────────
 
-describe('e3.recordIndex.series, nested — its declaration', () => {
+describe('index.nested — its declaration', () => {
   it('types its entries from the record and the declaration, and carries the declaration, its tile and its summary', () => {
     const def = machinesInTime(machines());
     assert.ok(isTypeEqual(def.keyType, NestedEntryKeyType(StringType)), `its key is ${printType(def.keyType)}`);
@@ -198,16 +232,16 @@ describe('e3.recordIndex.series, nested — its declaration', () => {
     const rec = machines();
     // @ts-expect-error — the jobs have no field 'begin'
     const misnamed = () => series('t', rec, { collections: { jobs: series.items({ from: 'begin', to: 'end' }) }, tile: 'week' });
-    assert.throws(misnamed, /^Error: e3.recordIndex.series 't' collections.jobs times from 'begin', which is no field of the jobs$/);
+    assert.throws(misnamed, /^Error: e3\.record 'machines': index\.nested 't' collections.jobs times from 'begin', which is no field of the jobs$/);
     // @ts-expect-error — the alarms are keyed by an id: values() fits no such field
     const alarmsAsValues = () => series('t', rec, { collections: { alarms: series.values() }, tile: 'week' });
-    assert.throws(alarmsAsValues, /^Error: e3.recordIndex.series 't' collections.alarms is values\(\), and 'alarms' is keyed by \.String — values are keyed by their instant: declare it with items\(\{ from, to \}\) or items\(\{ at \}\)$/);
+    assert.throws(alarmsAsValues, /^Error: e3\.record 'machines': index\.nested 't' collections.alarms is values\(\), and 'alarms' is keyed by \.String — values are keyed by their instant: declare it with items\(\{ from, to \}\) or items\(\{ at \}\)$/);
     // @ts-expect-error — the load is keyed by its instant: items(…) fits no such field
     const loadAsItems = () => series('t', rec, { collections: { load: series.items({ at: 'at' }) }, tile: 'week' });
-    assert.throws(loadAsItems, /^Error: e3.recordIndex.series 't' collections.load is items\(…\), and 'load' is keyed by \.DateTime — a collection keyed by its instant holds values: declare it with values\(\)$/);
+    assert.throws(loadAsItems, /^Error: e3\.record 'machines': index\.nested 't' collections.load is items\(…\), and 'load' is keyed by \.DateTime — a collection keyed by its instant holds values: declare it with values\(\)$/);
     // @ts-expect-error — a machine holds no more machines
     const jobsAsRecursive = () => series('t', rec, { collections: { jobs: series.recursive() }, tile: 'week' });
-    assert.throws(jobsAsRecursive, /^Error: e3.recordIndex.series 't' collections.jobs is recursive\(\), and holds .+, not .+ — a recursive field holds more rows like the one listing it$/);
+    assert.throws(jobsAsRecursive, /^Error: e3\.record 'machines': index\.nested 't' collections.jobs is recursive\(\), and holds .+, not .+ — a recursive field holds more rows like the one listing it$/);
     // @ts-expect-error — no rollup is called median
     const median = () => series('t', halls(), { collections: { members: series.rows({ load: series.values({ rollup: 'median' }) }) }, tile: 'day' });
     assert.throws(median, /rolls up by "median", which is no rollup/);
@@ -216,14 +250,14 @@ describe('e3.recordIndex.series, nested — its declaration', () => {
     assert.throws(foldAlone, /rolls up by \{ fold: "last" \}, which is no rollup/);
     // @ts-expect-error — the row has no field 'job'
     const unknown = () => series('t', rec, { collections: { job: series.items({ from: 'start', to: 'end' }) }, tile: 'week' });
-    assert.throws(unknown, /^Error: e3.recordIndex.series 't' collections names unknown row field 'job'$/);
+    assert.throws(unknown, /^Error: e3\.record 'machines': index\.nested 't' collections names unknown row field 'job'$/);
   });
 
   describe('refuses, at definition time, in its words', () => {
     const refused = (spec: object, words: string, rec: RecordDef = machines()) =>
       assert.throws(() => series('machines_in_time', rec as never, spec as never), (error: unknown) => {
         assert.ok(error instanceof Error);
-        assert.equal(error.message, `e3.recordIndex.series 'machines_in_time' ${words}`);
+        assert.equal(error.message, `e3.record '${rec.name}': index.nested 'machines_in_time' ${words}`);
         return true;
       });
     const jobs = series.items({ from: 'start', to: 'end' });
@@ -231,7 +265,7 @@ describe('e3.recordIndex.series, nested — its declaration', () => {
     it('collections declaring none, or a field no builder made', () => {
       refused({ collections: {}, tile: 'week' }, 'collections declares no collection');
       refused({ collections: { jobs: { from: 'start' } }, tile: 'week' },
-        'collections.jobs is no declaration — declare it with e3.recordIndex.series.items(times), values(), rows(collections) or recursive()');
+        'collections.jobs is no declaration — declare it with index.nested.items(times), values(), rows(collections) or recursive()');
     });
 
     it('a field that is not a Dict, or not one of the row\'s', () => {
@@ -242,9 +276,9 @@ describe('e3.recordIndex.series, nested — its declaration', () => {
 
     it('child rows that are not structs', () => {
       const Bay = StructType({ name: StringType, loads: DictType(StringType, FloatType) });
-      const bays = record('bays', DictType(StringType, Bay), new Map());
+      const bays = record('bays', DictType(StringType, Bay), { initial: new Map() });
       assert.throws(() => series('halls_in_time', bays, { collections: { loads: series.rows({}) } as never, tile: 'day' }),
-        /^Error: e3.recordIndex.series 'halls_in_time' collections.loads is rows\(…\), and 'loads' holds \.Float — items and child rows are a Dict<String, Struct>$/);
+        /^Error: e3\.record 'bays': index\.nested 'halls_in_time' collections.loads is rows\(…\), and 'loads' holds \.Float — items and child rows are a Dict<String, Struct>$/);
     });
 
     it('a time of another type', () => {
@@ -260,33 +294,26 @@ describe('e3.recordIndex.series, nested — its declaration', () => {
         collections: { measures: series.rows({ readings: series.values({ rollup } as never), children: series.recursive() }) }, tile: 'day',
       });
       assert.throws(() => series('ledgers_in_time', ledgers(), ledgerSpec({ fold: 'sum', aggregate: 'count' }) as never),
-        /^Error: e3.recordIndex.series 'ledgers_in_time' collections.measures.readings rolls up by \{ fold: 'sum', aggregate: 'count' \} — a count counts the leaf rows with a value, whatever they fold to: write rollup: "count"$/);
+        /^Error: e3\.record 'ledgers': index\.nested 'ledgers_in_time' collections.measures.readings rolls up by \{ fold: 'sum', aggregate: 'count' \} — a count counts the leaf rows with a value, whatever they fold to: write rollup: "count"$/);
       assert.throws(() => series('ledgers_in_time', ledgers(), ledgerSpec(['sum', 'sum']) as never),
-        /^Error: e3.recordIndex.series 'ledgers_in_time' collections.measures.readings rolls up by sum twice — name each rollup once$/);
+        /^Error: e3\.record 'ledgers': index\.nested 'ledgers_in_time' collections.measures.readings rolls up by sum twice — name each rollup once$/);
     });
 
     it('the key form, on or a value beside collections, and a tile of none of the five', () => {
       const collections = { jobs };
       refused({ collections, key: 'site', from: 'installed', to: 'retired', tile: 'week' },
-        'takes collections, or key, from and to — not both: collections files what a row nests, key the record\'s own events');
+        'takes collections, tile and summary — key, from and to file the record\'s own events: index.series({ key, from, to, tile })');
       refused({ collections, on: ['site'], tile: 'week' },
         'takes no on with collections — a nested collection is read by its row\'s key, which the rail\'s indexes page');
       refused({ collections, value: () => null, tile: 'week' }, 'takes no value — each entry carries its own item, totals or subtotal');
       assert.throws(() => series('machines_in_time', machines(), { collections, tile: 'fortnight' } as never), /tile/);
-    });
-
-    it('a second nested series index on a record, where it is declared', () => {
-      const rec = machines();
-      machinesInTime(rec);
-      assert.throws(() => series('machines_by_day', rec, { collections: { jobs }, tile: 'day' }),
-        /^Error: e3.recordIndex.series 'machines_by_day': record 'machines' has a nested series index already, 'machines_in_time' — one declares every collection a record nests$/);
     });
   });
 });
 
 // ── A row's entries ──────────────────────────────────────────────────────────
 
-describe('e3.recordIndex.series, nested — a row\'s entries', () => {
+describe('index.nested — a row\'s entries', () => {
   it('files a job once under the week its length fits, a value at its instant, and keeps their month totals', () => {
     const def = machinesInTime(machines());
     const row = parsed(Machine, machine({ 'j-0042': job('2026-10-02T06:00:00.000', '2026-10-06T06:00:00.000') }, { '2026-10-05T00:00:00.000': 0.82 }));
@@ -377,7 +404,7 @@ describe('e3.recordIndex.series, nested — a row\'s entries', () => {
 
 // ── Parents' subtotals ───────────────────────────────────────────────────────
 
-describe('e3.recordIndex.series, nested — every parent\'s subtotals, by hand', () => {
+describe('index.nested — every parent\'s subtotals, by hand', () => {
   // m1 holds m11 and m12; m2 holds readings alone; m3 holds readings of its
   // own, and m31, whose stock it derives.
   const ledger = `(name="Ledger 1", site="North", measures={
@@ -446,15 +473,23 @@ describe('e3.recordIndex.series, nested — every parent\'s subtotals, by hand',
 
 // ── The lean rows ────────────────────────────────────────────────────────────
 
-describe('e3.recordIndex.series, nested — the record\'s other indexes carry its lean rows', () => {
-  const rec = machines();
-  const nested = machinesInTime(rec);
-  const plain = recordIndex('machines_by_site_status', rec, { on: ['site', 'status'] });
-  const interval = recordIndex.interval('machines_in_service', rec, { from: 'installed', to: 'retired' });
-  const area = recordIndex.area('machines_on_floor', rec, { x: 'x', y: 'y', cell: 1 });
-  const keyed = recordIndex.series('machines_by_site_week', rec, { key: 'site', from: 'installed', to: 'retired', tile: 'week' });
-  const named = recordIndex('machines_by_name', rec, { on: ['name'], value: East.function([StringType, Machine], StringType, (_$, _key, row) => row.name) });
-  const assembled = package_('machines', '1.0.0', rec, nested, plain, interval, area, keyed, named).records.machines!;
+describe('index.nested — the record\'s other indexes carry its lean rows', () => {
+  const rec = record('machines', Machines, {
+    initial: new Map(),
+    indexes: (index) => ({
+      machines_in_time: machinesNested(index),
+      machines_by_site_status: index.on(['site', 'status']),
+      machines_in_service: index.interval({ from: 'installed', to: 'retired' }),
+      machines_on_floor: index.area({ x: 'x', y: 'y', cell: 1 }),
+      machines_by_site_week: index.series({ key: 'site', from: 'installed', to: 'retired', tile: 'week' }),
+      machines_by_name: index.on(['name'], { value: East.function([StringType, Machine], StringType, (_$, _key, row) => row.name) }),
+    }),
+  });
+  const {
+    machines_in_time: nested, machines_by_site_status: plain, machines_in_service: interval, machines_on_floor: area,
+    machines_by_site_week: keyed, machines_by_name: named,
+  } = rec.indexes;
+  const assembled = package_('machines', '1.0.0', rec).records.machines!;
   const row = parsed(Machine, machine({ 'j-1': job('2026-10-02T06:00:00.000') }, { '2026-10-05T00:00:00.000': 0.5 })
     .replace('installed=.none', 'installed=.some 2026-01-05T00:00:00.000'));
   const lean = parsed(Machine, machine({}).replace('installed=.none', 'installed=.some 2026-01-05T00:00:00.000'));
@@ -476,15 +511,15 @@ describe('e3.recordIndex.series, nested — the record\'s other indexes carry it
     assert.equal(builtIndex(assembled, assembled.indexes[nested.name]!), assembled.indexes[nested.name]);
   });
 
-  it('is part of its record from its declaration: a package holding the record builds it, though it is not listed (#1435)', () => {
-    const held = machines();
-    const declared = machinesInTime(held);
-    const bySite = recordIndex('machines_by_site', held, { on: ['site'] });
-    assert.equal(held.indexes[declared.name], declared, 'the record\'s definition holds it');
-    assert.ok(isTypeEqual(builtIndex(held, bySite).valueType, Machine), 'an index of the record as declared carries the lean machine');
-    const packaged = package_('machines', '1.0.0', held, bySite).records.machines!;
+  it('is part of its record from its declaration, whichever index is declared first: a package builds it with the record (#1435)', () => {
+    const held = record('machines', Machines, {
+      initial: new Map(),
+      indexes: (index) => ({ machines_by_site: index.on(['site']), machines_in_time: machinesNested(index) }),
+    });
+    assert.ok(isTypeEqual(builtIndex(held, held.indexes.machines_by_site).valueType, Machine), 'an index declared before it carries the lean machine');
+    const packaged = package_('machines', '1.0.0', held).records.machines!;
     assert.deepEqual(Object.keys(packaged.indexes).sort(), ['machines_by_site', 'machines_in_time'], 'built with the record');
-    assert.ok(isTypeEqual(builtIndex(packaged, packaged.indexes[bySite.name]!).valueType, Machine), 'its other index carries the lean machine');
+    assert.ok(isTypeEqual(builtIndex(packaged, packaged.indexes.machines_by_site!).valueType, Machine), 'its other index carries the lean machine');
   });
 });
 
@@ -541,8 +576,9 @@ function replacingRows(rec: RecordDef, before: unknown, after: unknown): unknown
  * returns the ops.
  */
 function maintainedIsRebuilt(rec: RecordDef, index: RecordIndexDef, before: unknown, after: unknown, what: string): SortedMap<unknown, variant<string, unknown>> {
-  const patch = mutation.patch(rec as never);
-  const assembled = package_('nested', '1.0.0', rec, patch, index).records[rec.name]!;
+  const patch = rec.mutations.patch;
+  if (patch === undefined) throw new Error(`record '${rec.name}' declares no patch for a write to go through`);
+  const assembled = package_('nested', '1.0.0', rec).records[rec.name]!;
   const { keyType } = entryOf(rec);
   const entryKey = StructType({ ik: index.keyType, k: keyType });
   const collection = DictType(entryKey, index.valueType);
@@ -582,7 +618,7 @@ function rowOpsTable(ops: SortedMap<unknown, variant<string, unknown>>): string[
   return words.sort();
 }
 
-describe('e3.recordIndex.series, nested — through a write and a rebuild', () => {
+describe('index.nested — through a write and a rebuild', () => {
   const OCT_2 = '2026-10-02T06:00:00.000';
   const OCT_2_NIGHT = '2026-10-02T14:00:00.000';
 
@@ -772,7 +808,7 @@ function assertCompared(index: RecordIndexDef, compared: variant<string, unknown
   assertEast(entriesType, both.after, parsed(entriesType, after), 'the entries after');
 }
 
-describe('e3.recordIndex.series, nested — a write by its patch', () => {
+describe('index.nested — a write by its patch', () => {
   const OCT_2 = '2026-10-02T06:00:00.000';
   const OCT_2_NIGHT = '2026-10-02T14:00:00.000';
   const NOV_3 = '2026-11-03T06:00:00.000';

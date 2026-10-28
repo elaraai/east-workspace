@@ -1474,8 +1474,7 @@ export function nestedLean(decl: NestedDeclaration, keyType: EastType, rowType: 
 // ── The definition ────────────────────────────────────────────────────────────
 
 /**
- * The nested form of a series index's definition (`e3.recordIndex.series`
- * with `collections`, #1434): its key function a row's entries, `(K, V) →
+ * The nested series index's definition (`index.nested`, #1434): its key function a row's entries, `(K, V) →
  * Dict<IK, P>` — every declared collection's items filed by #1433's levels,
  * each node's totals where a summary is declared, each item rolled up filed
  * under every ancestor too, and every parent's subtotals of each collection of
@@ -1497,9 +1496,7 @@ export function nestedDefinition(
 ): RecordIndexDef {
   const { keyType, valueType } = indexedEntry(constructor, name, rec);
   if ('key' in spec || 'from' in spec || 'to' in spec) {
-    throw new Error(constructor.startsWith('e3.recordIndex')
-      ? `${constructor} '${name}' takes collections, or key, from and to — not both: collections files what a row nests, key the record's own events`
-      : `${constructor} '${name}' takes collections, tile and summary — key, from and to file the record's own events: index.series({ key, from, to, tile })`);
+    throw new Error(`${constructor} '${name}' takes collections, tile and summary — key, from and to file the record's own events: index.series({ key, from, to, tile })`);
   }
   if ('on' in spec) {
     throw new Error(`${constructor} '${name}' takes no on with collections — a nested collection is read by its row's key, which the rail's indexes page`);
@@ -1535,9 +1532,5 @@ export function nestedDefinition(
     valueType: entryValue,
     runner,
   };
-  // Part of its record from here (#1435): the record's other indexes carry its lean rows whichever of them a package or
-  // a binding is given, so the record's definition holds it — a package holding the record builds it, and a binding of
-  // the record's other indexes knows to list it.
-  rec.indexes[name] = def;
   return def;
 }

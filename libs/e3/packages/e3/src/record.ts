@@ -6,11 +6,11 @@
 /**
  * Record dataset definitions for e3 packages.
  *
- * `e3.record` declares a root dataset whose writes go through typed, pure East
- * mutations (`e3.mutation`) instead of blind replace — durable, audited,
- * compare-and-swap state that participates in reactive dataflow as a root
- * input. The current state reads exactly like a value dataset; only the write
- * protocol differs.
+ * `e3.record` declares a root dataset written only through the typed, pure
+ * East mutations its declaration names, never by blind replace: durable,
+ * audited, compare-and-swap state that participates in reactive dataflow as a
+ * root input. The current state reads exactly like a value dataset; only the
+ * write protocol differs.
  */
 
 import type { EastType, ValueTypeOf } from '@elaraai/east';
@@ -85,11 +85,14 @@ export const recordsTree: DataTreeDef = {
  * @param config - `initial`, the genesis state, omitted for a record whose first
  *   state is committed from outside; `indexes`, `mutations` and `migrations`
  * @returns A RecordDef, usable anywhere a dataset is, its parts by name
- * @throws {Error} Naming the record and the part: a part's name that is not an
- *   identifier, or `primary` for an index; a second nested series index; a part
- *   not made by its builder; two migrations of one name, or a migration that
- *   does not take the record as the step before it leaves it, or a last step
- *   that leaves it as other than its type; or anything a part's builder refuses
+ * @throws {Error} For a declaration that is not an object of `initial`,
+ *   `indexes`, `mutations` and `migrations` — an initial value passed in its
+ *   place is refused, naming `{ initial: value }` — and naming the record and
+ *   the part: a part's name that is not an identifier, or `primary` for an
+ *   index; a second nested series index; a part not made by its builder; two
+ *   migrations of one name, or a migration that does not take the record as the
+ *   step before it leaves it, or a last step that leaves it as other than its
+ *   type; or anything a part's builder refuses
  *
  * @example
  * ```ts
@@ -120,26 +123,10 @@ export function record<
   type: T,
   config?: RecordConfig<T, I, M>,
 ): RecordDef<T, [variant<'field', 'records'>, variant<'field', Name>], IndexesOf<I, T>, MutationsOf<M, T>>;
-/**
- * Defines a record with only an initial value, its parts declared apart with
- * `e3.recordIndex`, `e3.mutation` and `e3.migration` and folded on by
- * `e3.package`.
- *
- * @typeParam Name - Record name (literal type)
- * @typeParam T - The East type of the record state
- * @param name - Record name
- * @param type - East type of the record state
- * @param initialValue - The initial state, the genesis commit
- * @returns A RecordDef
- */
-export function record<Name extends string, T extends EastType>(
-  name: Name,
-  type: T,
-  initialValue: ValueTypeOf<T>,
-): RecordDef<T, [variant<'field', 'records'>, variant<'field', Name>]>;
 export function record(name: string, type: EastType, declared?: unknown): RecordDef {
-  const config = declaredWhole(type, declared) ? declared as RecordConfig<EastType, object, object> : undefined;
-  const initial = config === undefined ? declared : config.initial;
+  const where = `e3.record '${name}'`;
+  const config = declared === undefined ? undefined : declarationOf(where, type, declared);
+  const initial = config?.initial;
   const rec = {
     kind: 'dataset' as const,
     recordKind: 'record' as const,
@@ -153,18 +140,15 @@ export function record(name: string, type: EastType, declared?: unknown): Record
     migrations: [] as MigrationDef[],
     deps: new Set([...recordsTree.deps, recordsTree]),
   };
-  if (config === undefined) return rec;
-
-  const where = `e3.record '${name}'`;
   // Each part is built in the order declared, over the record itself: an index or a mutation under its key, a
   // migration after the step before it.
-  for (const [key, draft] of partsOf(where, 'indexes', config.indexes?.(INDEX_BUILDER as unknown as IndexBuilder<EastType>))) {
+  for (const [key, draft] of partsOf(where, 'indexes', config?.indexes?.(INDEX_BUILDER as unknown as IndexBuilder<EastType>))) {
     rec.indexes[key] = builderOf(where, 'index', key, draft).build(rec, key);
   }
-  for (const [key, draft] of partsOf(where, 'mutations', config.mutations?.(MUTATION_BUILDER as unknown as MutationBuilder<EastType>))) {
+  for (const [key, draft] of partsOf(where, 'mutations', config?.mutations?.(MUTATION_BUILDER as unknown as MutationBuilder<EastType>))) {
     rec.mutations[key] = builderOf(where, 'mutation', key, draft).build(rec, key);
   }
-  const steps: unknown = config.migrations?.(MIGRATION_BUILDER as unknown as MigrationBuilder);
+  const steps: unknown = config?.migrations?.(MIGRATION_BUILDER as unknown as MigrationBuilder);
   if (steps !== undefined) {
     if (!Array.isArray(steps)) {
       throw new Error(`${where}: migrations returns the steps in order, as a list — [migration.rows('add_site', fn), …]`);
@@ -187,18 +171,35 @@ export function record(name: string, type: EastType, declared?: unknown): Record
   return rec;
 }
 
-/** What `e3.record` takes beside its name and type: the record's parts, through its builders. */
+/** What `e3.record` takes beside its name and type: its initial value, and its parts through its builders. */
 const CONFIG_KEYS: readonly string[] = ['initial', 'indexes', 'mutations', 'migrations'];
 
 /**
- * Whether `e3.record`'s third argument declares the record whole: a plain
- * object of its parts — never a Dict's, a Set's or an Array's value, and never a
- * struct record's value whose fields happen to be named so.
+ * `e3.record`'s declaration, checked: a plain object of its initial value and
+ * its parts' builders' functions, and nothing else.
+ *
+ * @param where - The record, as a refusal names it
+ * @param type - Its state type
+ * @param declared - What was given
+ * @returns The declaration
+ * @throws {Error} For anything else, naming `{ initial: value }` where it is a value of the record's type
  */
-function declaredWhole(type: EastType, declared: unknown): boolean {
-  if (typeof declared !== 'object' || declared === null || Object.getPrototypeOf(declared) !== Object.prototype) return false;
-  if (!Object.keys(declared).every((key) => CONFIG_KEYS.includes(key))) return false;
-  return !isValueOf(declared, type);
+function declarationOf(where: string, type: EastType, declared: unknown): RecordConfig<EastType, object, object> {
+  const value = isValueOf(declared, type) ? ' — its initial value is declared as { initial: value }' : '';
+  if (typeof declared !== 'object' || declared === null || Object.getPrototypeOf(declared) !== Object.prototype) {
+    throw new Error(`${where} takes its declaration as { initial?, indexes?, mutations?, migrations? }${value}`);
+  }
+  const extra = Object.keys(declared).filter((key) => !CONFIG_KEYS.includes(key));
+  if (extra.length > 0) {
+    throw new Error(`${where} takes initial, indexes, mutations and migrations, not ${extra.map((key) => `'${key}'`).join(', ')}${value}`);
+  }
+  for (const part of ['indexes', 'mutations', 'migrations'] as const) {
+    const builds = (declared as Record<string, unknown>)[part];
+    if (builds !== undefined && typeof builds !== 'function') {
+      throw new Error(`${where}: ${part} is a function of its builder — ${part}: (${part === 'indexes' ? 'index' : part.slice(0, -1)}) => …`);
+    }
+  }
+  return declared as RecordConfig<EastType, object, object>;
 }
 
 /** The parts a builder's function returned, by name: an object of them, or none. */
@@ -214,7 +215,7 @@ function partsOf(where: string, what: string, returned: unknown): [string, unkno
 interface PartBuilds {
   readonly index: (record: RecordDef, name: string) => RecordIndexDef;
   readonly mutation: (record: RecordDef, name: string) => MutationDef;
-  readonly migration: (record: RecordDef, after: MigrationDef | undefined) => MigrationDef;
+  readonly migration: (record: RecordDef, previous: MigrationDef | undefined) => MigrationDef;
 }
 
 /** A part's builder, as its draft carries it; refused, naming the part, for anything its builder did not make. */

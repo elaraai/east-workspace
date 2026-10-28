@@ -16,17 +16,12 @@
  *
  * All three are pure East: purity is what makes retry-on-conflict safe, since
  * the compare-and-swap loop can re-run against fresher state with no
- * observable side effects. They are `e3.mutation.reduce`, `e3.mutation.edit`
- * and `e3.mutation.patch`, beside `e3.mutation.editType`, the type of the
- * `edit` capability.
+ * observable side effects. A record declares them in its `mutations`, as
+ * `mutation.reduce`, `mutation.edit` and `mutation.patch`; `e3.mutation.editType`
+ * is the type of the `edit` capability.
  */
 
-import type {
-  CallableFunctionExpr,
-  EastType,
-  FunctionExpr,
-  PatchTypeOf,
-} from '@elaraai/east';
+import type { EastType } from '@elaraai/east';
 import { NullType, PatchType, printType } from '@elaraai/east';
 import { editTypeOf } from '@elaraai/e3-types';
 import type { MutationDef, RecordDef } from './types.js';
@@ -38,11 +33,6 @@ import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.j
  *  names the commits the mutation makes, beside e3's own, which begin with `$`,
  *  and `e3 mutate` addresses it as `record.mutation`. */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
-
-/** The reducer form, as a refusal suggesting it names it: the record's builder's, or the separate constructor's. */
-function reduceWords(words: string): string {
-  return words.startsWith('e3.mutation') ? 'e3.mutation.reduce' : 'mutation.reduce';
-}
 
 /** Refuses a mutation name that is not an identifier. */
 function checkName(words: string, name: string): void {
@@ -84,73 +74,14 @@ function checkKeyed(words: string, name: string, rec: RecordDef): void {
     throw new Error(
       `${words} '${name}' writes a delta addressed by key, so it needs a ` +
       `Dict or Set record — '${rec.name}' holds ${printType(rec.type)}. Use ` +
-      `${reduceWords(words)}, whose reducer returns the whole state.`,
+      `mutation.reduce, whose reducer returns the whole state.`,
     );
   }
 }
 
 /**
- * Defines a mutation that writes a record by reducing its whole state.
- *
- * The reducer is an ordinary East function whose first parameter is the
- * current state and whose return is the new state — both the record's type,
- * enforced at compile time by the shared `T`. The extra parameter types are
- * read off the function's signature, so there is nothing to keep in sync.
- *
- * The body must be a pure, synchronous East function (no platform IO): purity
- * is what lets the compare-and-swap loop re-run the reducer against fresher
- * state safely. Async reducers and any platform call are rejected at definition
- * time. The state parameter is a frozen task input — derive the new state
- * from a `.copy()` (or build it fresh) rather than mutating in place, which
- * raises the uniform copy-first runtime error.
- *
- * The reducer sees the whole state, so its cost in the runner is the record's
- * size however little it changes; only its write, for a Dict or Set record, is
- * proportional to what it touched — any other record's state is written whole.
- * {@link edit} is the form whose body reads only the entries it touches, and
- * whose commit rewrites only the segments they live in.
- *
- * @typeParam Name - Mutation name (literal type)
- * @typeParam T - The owning record's state type
- * @typeParam Args - The EXTRA positional parameter types (after the state)
- * @param name - Mutation name: an identifier, unique within the record
- * @param rec - The record this mutation writes
- * @param fn - The reducer `(state, ...args) => state`
- * @param config - Optional runner selection (known runtimes only, like e3.function)
- * @returns A MutationDef to pass to `e3.package`
- *
- * @example
- * ```ts
- * const orders = e3.record('orders', OrdersType, new Map());
- *
- * const placeOrder = e3.mutation.reduce('place_order', orders,
- *   East.function([OrdersType, OrderType], OrdersType, ($, state, order) => {
- *     $.if(state.has(order.id), $ => $.error(East.str`duplicate order ${order.id}`));
- *     const next = $.let(state.copy());
- *     $(next.insert(order.id, order));
- *     return next;
- *   }));
- *
- * const pkg = e3.package('planning', '1.0.0', orders, placeOrder);
- * ```
- */
-function reduce<Name extends string, T extends EastType, Args extends EastType[]>(
-  name: Name,
-  rec: RecordDef<T>,
-  fn: FunctionExpr<[T, ...Args], T> | CallableFunctionExpr<[T, ...Args], T>,
-  config?: { runner?: FunctionRunner },
-): MutationDef<Name, T, Args>;
-function reduce(
-  name: string,
-  rec: RecordDef,
-  fn: IndexFunction,
-  config?: { runner?: FunctionRunner },
-): MutationDef {
-  return reduceDefinition('e3.mutation.reduce', name, rec, fn, config);
-}
-
-/**
- * Builds a reducer's definition, each guard of {@link reduce}'s applied.
+ * Builds a reducer's definition, `(state, ...args) => state`: a pure,
+ * synchronous body whose first parameter and whose return are the record's state.
  *
  * @param words - The declaration, as a refusal names it
  * @param name - The mutation
@@ -158,7 +89,8 @@ function reduce(
  * @param fn - The reducer `(state, ...args) => state`
  * @param config - Its runner selection
  * @returns The definition
- * @throws {Error} As {@link reduce} does
+ * @throws {Error} When the name is not an identifier, the runner is not a known runtime, the body is async or calls a
+ *   platform function, or its first parameter or its return is not the record's state
  */
 export function reduceDefinition(
   words: string, name: string, rec: RecordDef, fn: IndexFunction, config: { runner?: FunctionRunner } | undefined,
@@ -196,67 +128,9 @@ export function reduceDefinition(
 }
 
 /**
- * Defines a mutation that writes a record through an `edit` capability — the
- * lazy write.
- *
- * The body is `(state, ...args, edit) => Null`. It reads the state it is given
- * — lazily, so a body that looks at ten entries of a two-million-entry record
- * decodes the segments those ten live in and nothing else — and writes through
- * `edit.set(key, value)`, `edit.delete(key)` and `edit.update(key, patch)`. It
- * never returns a state, so its commit rewrites only the segments the entries
- * it touched live in. The state reaches its runner as the record's manifest,
- * the segments linked, so nothing on the way reads the record whole either.
- *
- * Repeated edits of one key fold: `set` after anything is that `set`; `update`
- * after `set` applies to the set value; `update` after `update` composes;
- * `delete` after anything is `delete`. A `set` of the value the record already
- * holds is no change. A `delete` or `update` of a key the record does not hold
- * is a conflict naming the key, exactly as applying such a patch would be.
- *
- * The purity rules of {@link reduce} apply unchanged.
- *
- * @typeParam Name - Mutation name (literal type)
- * @typeParam T - The owning record's state type (a Dict)
- * @typeParam Args - The EXTRA positional parameter types (between the state and the edit)
- * @typeParam E - The edit capability's struct type, `e3.mutation.editType(T)`
- * @param name - Mutation name: an identifier, unique within the record
- * @param rec - The record this mutation writes
- * @param fn - The body `(state, ...args, edit) => null`
- * @param config - Optional runner selection (known runtimes only)
- * @returns A MutationDef to pass to `e3.package`
- *
- * @example
- * ```ts
- * const PlanType = StructType({ title: StringType, owner: StringType, due: DateTimeType });
- * const plans = e3.record('plans', DictType(StringType, PlanType), new Map());
- *
- * // The edit capability is the body's LAST parameter; its type comes from
- * // the record, so `edit.set` checks the key and the row.
- * const reschedule = e3.mutation.edit('reschedule', plans,
- *   East.function([plans.type, StringType, DateTimeType, e3.mutation.editType(plans.type)], NullType,
- *     ($, state, id, due, edit) => {
- *       const plan = $.let(state.get(id));
- *       $(edit.set(id, { title: plan.title, owner: plan.owner, due }));
- *     }));
- * ```
- */
-function edit<Name extends string, T extends EastType, Args extends EastType[], E extends EastType>(
-  name: Name,
-  rec: RecordDef<T>,
-  fn: FunctionExpr<[T, ...Args, E], NullType> | CallableFunctionExpr<[T, ...Args, E], NullType>,
-  config?: { runner?: FunctionRunner },
-): MutationDef<Name, T, Args>;
-function edit(
-  name: string,
-  rec: RecordDef,
-  fn: IndexFunction,
-  config?: { runner?: FunctionRunner },
-): MutationDef {
-  return editDefinition('e3.mutation.edit', name, rec, fn, config);
-}
-
-/**
- * Builds an edit body's definition, each guard of {@link edit}'s applied.
+ * Builds an edit body's definition, `(state, ...args, edit) => null`: a pure,
+ * synchronous body writing a Dict or Set record through its last parameter,
+ * the `edit` capability.
  *
  * @param words - The declaration, as a refusal names it
  * @param name - The mutation
@@ -264,7 +138,8 @@ function edit(
  * @param fn - The body `(state, ...args, edit) => null`
  * @param config - Its runner selection
  * @returns The definition
- * @throws {Error} As {@link edit} does
+ * @throws {Error} When the name is not an identifier, the runner is not a known runtime, the record is not a Dict or a
+ *   Set, the body is async or calls a platform function, or its parameters or its return are not the form's
  */
 export function editDefinition(
   words: string, name: string, rec: RecordDef, fn: IndexFunction, config: { runner?: FunctionRunner } | undefined,
@@ -279,14 +154,14 @@ export function editDefinition(
   if (signature.inputs.length < 2 || last === undefined || !sameEastType(editType, last)) {
     throw new Error(
       `${words} '${name}' body's LAST parameter must be the edit ` +
-      `capability ${printType(editType)} — e3.mutation.editType(record.type) — but got ` +
+      `capability ${printType(editType)} — e3.mutation.editType of the record's type — but got ` +
       `${last === undefined ? 'no parameters' : printType(last)}.`,
     );
   }
   if (!sameEastType(NullType, signature.output)) {
     throw new Error(
       `${words} '${name}' body writes through 'edit' and returns Null, ` +
-      `but returns ${printType(signature.output)}. Use ${reduceWords(words)} for a reducer ` +
+      `but returns ${printType(signature.output)}. Use mutation.reduce for a reducer ` +
       `that returns the whole state.`,
     );
   }
@@ -305,57 +180,15 @@ export function editDefinition(
 }
 
 /**
- * Defines the mutation that applies a patch a client computed — one door for
- * interactive edits.
- *
- * There is no body: the argument IS the change, a `PatchType(State)` sent by
- * whoever made the edit — so it is what a view's save should call, and what an
- * integration sending diffs should call.
- *
- * On a record with no secondary index a patch of per-key changes IS the delta
- * and no program runs at all, which makes it the only write whose cost is
- * independent of the record's size: the touched keys are known before anything
- * runs. Any other patch, such as one replacing the whole state, runs a program
- * that checks it against the state, and on a record with indexes one run
- * computes the index entries the change moves, since that is user East and
- * only a runner evaluates it. That run reads the rows the patch touches, and a
- * replace reads them all.
- *
- * @typeParam Name - Mutation name (literal type)
- * @typeParam T - The owning record's state type (a Dict or a Set)
- * @param rec - The record this mutation writes
- * @param name - Mutation name: an identifier; defaults to `patch`
- * @param config - Optional runner selection (known runtimes only)
- * @returns A MutationDef to pass to `e3.package`
- *
- * @example
- * ```ts
- * const plans = e3.record('plans', DictType(StringType, PlanType), new Map());
- * const pkg = e3.package('planning', '1.0.0', plans, e3.mutation.patch(plans));
- * ```
- */
-function patch<T extends EastType, Name extends string = 'patch'>(
-  rec: RecordDef<T>,
-  name?: Name,
-  config?: { runner?: FunctionRunner },
-): MutationDef<Name, T, [PatchTypeOf<T>]>;
-function patch(
-  rec: RecordDef,
-  name: string = 'patch',
-  config?: { runner?: FunctionRunner },
-): MutationDef {
-  return patchDefinition('e3.mutation.patch', name, rec, config);
-}
-
-/**
- * Builds the patch door's definition, each guard of {@link patch}'s applied.
+ * Builds the patch door's definition: no body, its argument the change, a
+ * `PatchType` of a Dict or Set record's state.
  *
  * @param words - The declaration, as a refusal names it
  * @param name - The mutation
  * @param rec - The record it writes
  * @param config - Its runner selection
  * @returns The definition
- * @throws {Error} As {@link patch} does
+ * @throws {Error} When the name is not an identifier, the runner is not a known runtime, or the record is not a Dict or a Set
  */
 export function patchDefinition(words: string, name: string, rec: RecordDef, config: { runner?: FunctionRunner } | undefined): MutationDef {
   checkName(words, name);
@@ -374,7 +207,7 @@ export function patchDefinition(words: string, name: string, rec: RecordDef, con
 }
 
 /**
- * The write forms of a record: {@link reduce}, {@link edit} and {@link patch},
- * and `editType`, the type of the capability an `edit` body writes through.
+ * What a record's mutations need beside their builder: `editType(type)`, the
+ * type of the capability an `edit` body writes through, its last parameter.
  */
-export const mutation = { reduce, edit, patch, editType: editTypeOf };
+export const mutation = { editType: editTypeOf };

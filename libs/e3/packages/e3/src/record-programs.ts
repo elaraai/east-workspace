@@ -235,7 +235,7 @@ function rekeyStep(fn: IndexFunction, fromKey: EastType, fromValue: EastType, to
  */
 export function migrationProgram(def: MigrationDef) {
   if (def.form === 'value') {
-    throw new Error(`e3.migration.value '${def.name}' runs its own function, and has no program`);
+    throw new Error(`e3.record '${def.record.name}': migration.value '${def.name}' runs its own function, and has no program`);
   }
   const from: EastType = def.from;
   const to: EastType = def.to;
@@ -289,7 +289,7 @@ export function migrationProgram(def: MigrationDef) {
       });
     }));
   }
-  throw new Error(`e3.migration.${def.form} '${def.name}' migrates a Dict, a Set or an Array, from ${printType(from)} to ${printType(to)}`);
+  throw new Error(`e3.record '${def.record.name}': migration.${def.form} '${def.name}' migrates a Dict, a Set or an Array, from ${printType(from)} to ${printType(to)}`);
 }
 
 /**
@@ -992,12 +992,12 @@ export function buildMutationProgram(rec: RecordDef, mut: MutationDef) {
   const recordType: EastType = rec.type;
   if (recordType.type !== 'Dict' && recordType.type !== 'Set') {
     throw new Error(
-      `e3.mutation.${mut.form} '${mut.name}' writes a delta, ` +
-      `which addresses a Dict or a Set by key; record '${rec.name}' holds ${recordType.type}.`);
+      `e3.record '${rec.name}': mutation.${mut.form} '${mut.name}' writes a delta, ` +
+      `which addresses a Dict or a Set by key, and the record holds ${recordType.type}.`);
   }
   // A Set record is indexed by nothing, and written by a patch or a reducer: an edit writes a Dict.
   if (recordType.type === 'Set' && mut.form === 'edit') {
-    throw new Error(`e3.mutation.edit '${mut.name}' writes a Dict record; '${rec.name}' holds a Set`);
+    throw new Error(`e3.record '${rec.name}': mutation.edit '${mut.name}' writes a Dict record, and the record holds a Set`);
   }
   if (mut.form !== 'patch') bodyOf(mut);
   return locationFree(() => writeProgram(rec, mut));

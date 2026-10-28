@@ -134,7 +134,7 @@ export const areaCode = East.function([FloatType, FloatType, FloatType, FloatTyp
 const largerSide = East.function([FloatType, FloatType], FloatType, (_$, width, height) =>
   width.abs().greaterEqual(height.abs()).ifElse(() => width.abs(), () => height.abs()));
 
-/** What an area index's declaration names (`e3.recordIndex.area`). */
+/** What an area index's declaration names (`index.area`). */
 export interface AreaSpec {
   readonly on?: readonly string[];
   readonly x: string;
@@ -146,7 +146,7 @@ export interface AreaSpec {
 }
 
 /**
- * An area index's definition (`e3.recordIndex.area`): its key function, one
+ * An area index's definition (`index.area`): its key function, one
  * entry per row — one per combination of its leading values where a Set among
  * them fans out — `{ on: { …on }, area }`, the row's leading fields under `on`
  * and the cell's code beside them (#1432); and its projection, the whole row,

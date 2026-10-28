@@ -69,8 +69,6 @@ import type {
 import { input } from './input.js';
 import { record } from './record.js';
 import { mutation } from './mutation.js';
-import { migration } from './migration.js';
-import { recordIndex } from './record-index.js';
 import { task, customTask, streamTask, partition } from './task.js';
 import { output } from './output.js';
 import { function_ } from './function.js';
@@ -119,8 +117,6 @@ const e3 = {
   input,
   record,
   mutation,
-  migration,
-  recordIndex,
   task,
   customTask,
   streamTask,
@@ -134,9 +130,8 @@ const e3 = {
 export default e3;
 
 // Also export individual functions for tree-shaking
-export { input, record, mutation, migration, recordIndex, task, customTask, streamTask, partition, output, function_, package_ as package, export_ as export };
+export { input, record, mutation, task, customTask, streamTask, partition, output, function_, package_ as package, export_ as export };
 export type { StreamTaskSpec } from './task.js';
-export type { MigrationConfig } from './migration.js';
 
 // Singleton tree definitions
 export { inputsTree } from './input.js';
@@ -162,7 +157,7 @@ export { DatasetSourceType, type DatasetSource } from './input.js';
 export { addObject } from './export.js';
 export { indexBuildProgram, buildMutationProgram, migrationProgram, summaryMergeProgram, deltaTargets, indexEntryKeyType, builtIndex } from './record-programs.js';
 export type {
-  RecordIndexSpec, IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, NestedSeriesIndexSpec, TimeTileOf,
+  IntervalIndexSpec, AreaIndexSpec, AreaIndexOf, SeriesIndexSpec, SummaryIndexSpec, NestedSeriesIndexSpec, TimeTileOf,
   IndexFunction, IndexKeyOf, SummaryKeyOf, NestedKeyOf, NestedValueOf, IndexOn, ProjectionOf,
 } from './record-index.js';
 export type {

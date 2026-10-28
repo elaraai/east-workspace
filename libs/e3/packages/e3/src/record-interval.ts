@@ -76,7 +76,7 @@ const optionInstantAt = East.function([OptionType(DateTimeType), IntegerType], O
 });
 
 /**
- * An interval index's definition (`e3.recordIndex.interval`): its key
+ * An interval index's definition (`index.interval`): its key
  * function, `{ on: { …on }, node, at }` an entry, filing each event under at
  * most three entries a combination of its leading values — a Set among them
  * fanning out — and the backlog's, with no start, under node 0. It stays an

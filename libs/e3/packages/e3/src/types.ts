@@ -267,8 +267,9 @@ export interface FunctionDef<
  * declared without one is unassigned until its first state is committed from
  * outside, which is then its genesis (see `record`).
  *
- * A record declared whole — `e3.record(name, type, { indexes, mutations })` —
- * holds its indexes and its mutations by name, each typed as declared.
+ * A record is declared whole — `e3.record(name, type, { initial, indexes,
+ * mutations, migrations })` — and holds its indexes and its mutations by name,
+ * each typed as declared, and its migrations in the order they run.
  *
  * @typeParam T - The East type of the record state
  * @typeParam Path - Its path in the package's tree
@@ -303,7 +304,8 @@ export interface RecordDef<
  * `Dict<{ik, k}, P>` stored as a segment manifest exactly like the primary,
  * maintained inside the same commit, and read with the same paging machinery.
  *
- * Passed to `e3.package` like a mutation; it is collected onto its record.
+ * Declared in its record's `indexes`, by the `index` builder; the record
+ * carries it by its name.
  *
  * @typeParam Name - The index name (literal type)
  * @typeParam T - The owning record's state type
@@ -408,8 +410,8 @@ export interface RecordIndexDef<
  *
  * A mutation is a pure East reducer `(State, ...Args) => State` that runs
  * server-side in a compare-and-swap retry loop. Its output type is the owning
- * record's type, so there is no separate return type. Passed to `e3.package`
- * like a function; it is collected onto its record.
+ * record's type, so there is no separate return type. Declared in its record's
+ * `mutations`, by the `mutation` builder; the record carries it by its name.
  *
  * @typeParam Name - The mutation name (literal type)
  * @typeParam T - The owning record's state type
@@ -446,8 +448,8 @@ export interface MutationDef<
  * A migration definition — one step of a record's migration chain, which a
  * deploy runs over a workspace's state that has not applied it.
  *
- * Passed to `e3.package` like a mutation; it is folded onto its record in
- * chain order, with the steps its `after` names.
+ * Declared in its record's `migrations`, by the `migration` builder, the list's
+ * order its chain; the record carries the chain.
  *
  * @typeParam Name - The migration name (literal type)
  * @typeParam T - The owning record's declared state type
@@ -478,8 +480,6 @@ export interface MigrationDef<
    *  it into the program a `rows` or `rekey` step runs, which reaches it
    *  through its IR alone — so no call signature is claimed here. */
   readonly fn: { toIR(): unknown };
-  /** The step before this one; absent for the chain's first. */
-  readonly after?: MigrationDef;
   /** Runtime the step runs on; defaults to DEFAULT_RUNNER. */
   readonly runner: Runner;
 }

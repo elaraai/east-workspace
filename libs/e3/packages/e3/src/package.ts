@@ -7,20 +7,15 @@
  * Package definitions for e3.
  */
 
-import { printType } from '@elaraai/east';
 import { nameProblem, pathToString } from '@elaraai/e3-types';
 import type {
   DatasetDef,
   FunctionDef,
-  MigrationDef,
-  MutationDef,
-  RecordIndexDef,
   PackageDef,
   PackageItem,
   RecordDef,
   TaskDef,
 } from './types.js';
-import { sameEastType } from './record-guards.js';
 
 /**
  * Creates a package definition from items.
@@ -39,10 +34,9 @@ import { sameEastType } from './record-guards.js';
  * @param items - Items to include (datasets, tasks)
  * @returns A PackageDef with typed access to contents
  * @throws {Error} When the name or the version cannot be a file name — a
- *   repository keeps the package at `packages/<name>/<version>` — when a
- *   record is given two different mutations, indexes or migrations of one
- *   name, or when a record's migrations are not one chain that leaves it as
- *   its declared type
+ *   repository keeps the package at `packages/<name>/<version>` — or when given
+ *   a record's index, mutation or migration apart from its record: a record is
+ *   declared whole, its parts in `e3.record`, and a package takes the record
  *
  * @example
  * ```ts
@@ -73,7 +67,7 @@ interface DatasetTree {
 export function package_(
   name: string,
   version: string,
-  ...items: (PackageItem | FunctionDef | MutationDef | RecordIndexDef | MigrationDef | PackageDef<Record<string, unknown>>)[]
+  ...items: (PackageItem | FunctionDef | PackageDef<Record<string, unknown>>)[]
 ): PackageDef<Record<string, unknown>> {
   for (const [kind, value] of [['package', name], ['package version', version]] as const) {
     const problem = nameProblem(kind, value);
@@ -86,16 +80,8 @@ export function package_(
   // Functions have no deps and never enter the data tree — collected by
   // name, separately from all_items.
   const functions: Record<string, FunctionDef> = {};
-  // Mutations are collected by owning record name, like functions; they are
-  // folded onto their record below. Records themselves are datasets, so they
-  // ride `all_items` and only need a separate RecordObject channel.
-  const mutationsByRecord = new Map<string, MutationDef[]>();
-  // Indexes are collected onto their record the same way, and for the same
-  // reason: an index is declared beside the record and belongs to it.
-  const indexesByRecord = new Map<string, RecordIndexDef[]>();
-  // Migrations are collected onto their record too, each with the steps before
-  // it, which its `after` names: passing a chain's last step passes the chain.
-  const migrationsByRecord = new Map<string, MigrationDef[]>();
+  // Records are datasets, so they ride `all_items`, each whole with its parts;
+  // an imported package's records arrive here as well.
   const importedRecords: Record<string, RecordDef> = {};
 
   function collect(item: PackageItem): void {
@@ -120,19 +106,8 @@ export function package_(
       Object.assign(importedRecords, item.records);
     } else if (item.kind === "function") {
       functions[item.name] = item;
-    } else if (item.kind === "mutation") {
-      // Pull in the owning record's dataset and register the mutation onto it.
-      collect(item.record);
-      mutationsByRecord.set(item.record.name, [...(mutationsByRecord.get(item.record.name) ?? []), item]);
-    } else if (item.kind === "recordIndex") {
-      collect(item.record);
-      indexesByRecord.set(item.record.name, [...(indexesByRecord.get(item.record.name) ?? []), item]);
-    } else if (item.kind === "migration") {
-      collect(item.record);
-      const steps = migrationsByRecord.get(item.record.name) ?? [];
-      for (let step: MigrationDef | undefined = item; step !== undefined; step = step.after) steps.push(step);
-      migrationsByRecord.set(item.record.name, steps);
     } else {
+      refusePart(name, item);
       collect(item);
     }
   }
@@ -165,104 +140,12 @@ export function package_(
     }
   }
 
-  // One declaration per name on a record: given two different mutations, or
-  // two different indexes, under one name, the record would keep whichever
-  // came last.
-  const byName = <D extends { name: string }>(record: string, kind: string, defs: D[]): Record<string, D> => {
-    const named: Record<string, D> = {};
-    for (const def of defs) {
-      const taken = named[def.name];
-      if (taken !== undefined && taken !== def) {
-        throw new Error(`e3.package '${name}': record '${record}' declares two ${kind} named '${def.name}' — pass each declaration once`);
-      }
-      named[def.name] = def;
-    }
-    return named;
-  };
-
-  // One nested series index a record (#1434): it declares every collection the
-  // record's rows nest, and the record's other indexes carry its lean rows.
-  const oneNested = (record: string, indexes: Record<string, RecordIndexDef>): Record<string, RecordIndexDef> => {
-    const nested = Object.values(indexes).filter((index) => index.nested !== undefined);
-    if (nested.length > 1) {
-      throw new Error(`e3.recordIndex.series '${nested[1]!.name}': record '${record}' has a nested series index already, '${nested[0]!.name}' — ` +
-        'one declares every collection a record nests');
-    }
-    return indexes;
-  };
-
-  // A record's migrations in the order they run. They are one chain: exactly
-  // one step has no `after`, no two name the same one, and the last leaves the
-  // record as it is declared, since a deploy leaves a migrated record at the
-  // package's type.
-  const chainOf = (rec: RecordDef, steps: MigrationDef[]): MigrationDef[] => {
-    const all = Object.values(byName(rec.name, 'migrations', steps));
-    if (all.length === 0) return [];
-    const where = `e3.package '${name}': record '${rec.name}'`;
-    const firsts = all.filter((step) => step.after === undefined);
-    if (firsts.length !== 1) {
-      throw new Error(
-        `${where} has ${firsts.length} migrations with no 'after' (${firsts.map((step) => `'${step.name}'`).join(', ')}) — ` +
-        `its migrations are one chain, and only the first step names none`,
-      );
-    }
-    const next = new Map<string, MigrationDef>();
-    for (const step of all) {
-      if (step.after === undefined) continue;
-      const taken = next.get(step.after.name);
-      if (taken !== undefined) {
-        throw new Error(
-          `${where} has two migrations after '${step.after.name}', '${taken.name}' and '${step.name}' — ` +
-          `its migrations are one chain`,
-        );
-      }
-      next.set(step.after.name, step);
-    }
-    const chain = [firsts[0]!];
-    for (let step = next.get(firsts[0]!.name); step !== undefined; step = next.get(step.name)) chain.push(step);
-    const last = chain[chain.length - 1]!;
-    if (!sameEastType(last.to, rec.type)) {
-      throw new Error(
-        `${where} is declared as ${printType(rec.type)}, but its last migration, '${last.name}', ` +
-        `leaves it as ${printType(last.to)}`,
-      );
-    }
-    return chain;
-  };
-
-  // Assemble records: a record's dataset rides `all_items`; fold in any
-  // mutations collected for it. A record imported via a package arrives twice —
-  // its bare dataset (mutations `{}`) in `all_items` and its already-assembled
-  // form in `importedRecords` — so merge the existing entry's mutations rather
-  // than rebuilding from the bare `rec.mutations`, or the import's folded
-  // mutations would be clobbered to empty.
+  // Each record whole, as `e3.record` declared it.
   const records: Record<string, RecordDef> = { ...importedRecords };
   for (const item of all_items) {
     if (item.kind === 'dataset' && 'recordKind' in item && (item as RecordDef).recordKind === 'record') {
       const rec = item as RecordDef;
-      records[rec.name] = {
-        ...rec,
-        mutations: byName(rec.name, 'mutations', [
-          ...Object.values(records[rec.name]?.mutations ?? {}),
-          ...Object.values(rec.mutations),
-          ...(mutationsByRecord.get(rec.name) ?? []),
-        ]),
-        indexes: oneNested(rec.name, byName(rec.name, 'indexes', [
-          ...Object.values(records[rec.name]?.indexes ?? {}),
-          ...Object.values(rec.indexes),
-          ...(indexesByRecord.get(rec.name) ?? []),
-        ])),
-        migrations: chainOf(rec, [
-          ...(records[rec.name]?.migrations ?? []),
-          ...rec.migrations,
-          ...(migrationsByRecord.get(rec.name) ?? []),
-        ]),
-      };
-    }
-  }
-  for (const recName of mutationsByRecord.keys()) {
-    if (!records[recName]) {
-      throw new Error(`Mutation references record '${recName}' which is not in the package`);
+      records[rec.name] = rec;
     }
   }
 
@@ -275,4 +158,25 @@ export function package_(
     functions,
     records,
   };
+}
+
+/** What each part of a record is called, by its kind. */
+const PART_WORDS: Readonly<Record<string, string>> = { recordIndex: 'index', mutation: 'mutation', migration: 'migration' };
+
+/**
+ * Refuses a record's part given apart from its record, naming the record: its
+ * parts are declared in `e3.record`, and a package takes the record whole.
+ *
+ * @param name - The package
+ * @param item - What it was given
+ * @throws {Error} When the item is an index, a mutation or a migration
+ */
+function refusePart(name: string, item: unknown): void {
+  const part = item as { readonly kind: string; readonly name: string; readonly record?: { readonly name: string } };
+  const words = PART_WORDS[part.kind];
+  if (words === undefined) return;
+  throw new Error(
+    `e3.package '${name}': the ${words} '${part.name}' is part of record '${part.record?.name}' — a record is declared ` +
+    `whole, its ${words === 'index' ? 'indexes' : `${words}s`} in e3.record, so pass the record`,
+  );
 }

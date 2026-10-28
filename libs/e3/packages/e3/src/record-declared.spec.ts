@@ -107,9 +107,10 @@ describe('e3.record declared whole', () => {
     assert.ok(isTypeEqual(rec.mutations.retire.argTypes[0]!, StringType), 'retire takes the id, the edit capability apart');
   });
 
-  it('builds its migrations in the order listed, each after the one before, the last leaving the record as its type', () => {
+  it('builds its migrations in the order listed, each taking the record as the one before leaves it, the last leaving it as its type', () => {
     const rec = machines();
-    assert.deepEqual(rec.migrations.map((step) => [step.name, step.after?.name]), [['name_machines', undefined], ['fill_machines', 'name_machines']]);
+    assert.deepEqual(rec.migrations.map((step) => step.name), ['name_machines', 'fill_machines']);
+    assert.ok(isTypeEqual(rec.migrations[1]!.from, rec.migrations[0]!.to));
     assert.ok(isTypeEqual(rec.migrations.at(-1)!.to, Machines));
   });
 
@@ -242,5 +243,40 @@ describe('e3.record refuses, naming the record and the part', () => {
       // @ts-expect-error the steps are a list, in order
       migrations: (migration) => ({ first: migration.value('name_machines', named) }),
     }), /^Error: e3\.record 'm': migrations returns the steps in order, as a list/);
+  });
+
+  it('a declaration that is not one: an initial value in its place, a key it does not take, a part that is not a function', () => {
+    // @ts-expect-error an initial value is declared as { initial: value }
+    assert.throws(() => record('m', Machines, new Map()),
+      /^Error: e3\.record 'm' takes its declaration as \{ initial\?, indexes\?, mutations\?, migrations\? \} — its initial value is declared as \{ initial: value \}$/);
+    // @ts-expect-error a record's parts are its indexes, mutations and migrations
+    assert.throws(() => record('m', Machines, { initial: new Map(), views: () => ({}) }),
+      /^Error: e3\.record 'm' takes initial, indexes, mutations and migrations, not 'views'$/);
+    // @ts-expect-error each part is a function of its builder
+    assert.throws(() => record('m', Machines, { mutations: { patch: mutation.editType(Machines) } }),
+      /^Error: e3\.record 'm': mutations is a function of its builder — mutations: \(mutation\) => …$/);
+  });
+});
+
+describe('e3.package takes a record whole', () => {
+  it('refuses its part apart from it, naming the record', () => {
+    const rec = machines();
+    // @ts-expect-error a package takes the record, its parts with it
+    assert.throws(() => package_('p', '1.0.0', rec.indexes.by_site),
+      /^Error: e3\.package 'p': the index 'by_site' is part of record 'machines' — a record is declared whole, its indexes in e3\.record, so pass the record$/);
+    // @ts-expect-error a package takes the record, its parts with it
+    assert.throws(() => package_('p', '1.0.0', rec.mutations.patch),
+      /^Error: e3\.package 'p': the mutation 'patch' is part of record 'machines' — a record is declared whole, its mutations in e3\.record, so pass the record$/);
+    // @ts-expect-error a package takes the record, its parts with it
+    assert.throws(() => package_('p', '1.0.0', rec.migrations[0]!),
+      /^Error: e3\.package 'p': the migration 'name_machines' is part of record 'machines' — a record is declared whole, its migrations in e3\.record, so pass the record$/);
+  });
+
+  it('carries each record as it was declared, its parts with it', () => {
+    const rec = machines();
+    const pkg = package_('p', '1.0.0', rec);
+    assert.equal(pkg.records.machines, rec);
+    assert.deepEqual(Object.keys(pkg.records.machines!.indexes), Object.keys(rec.indexes));
+    assert.ok(Object.isFrozen(rec.indexes) && Object.isFrozen(rec.mutations) && Object.isFrozen(rec.migrations));
   });
 });

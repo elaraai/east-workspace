@@ -22,15 +22,11 @@
 
 import type { DateTimeType, DictType, EastType, Expr, FloatType, FunctionType, IntegerType, OptionType, SetType, StructType, VariantType } from '@elaraai/east';
 import { NullType } from '@elaraai/east';
-import type { NestedEntryKeyType, RecordLevelType, RecordNestedTotalsType, RecordSummaryTotalsType } from '@elaraai/e3-types';
+import type { NestedEntryKeyType, RecordLevelType, RecordNestedTotalsType } from '@elaraai/e3-types';
 import type { RecordDef, RecordIndexDef } from './types.js';
-import { intervalDefinition } from './record-interval.js';
-import { areaDefinition } from './record-area.js';
-import { seriesDefinition, summaryDefinition } from './record-series.js';
-import { items, recursive, rows, values, type NestedOf, type PlacesOf, type SeriesCollections } from './record-nested.js';
-import { nestedDefinition } from './record-nested-programs.js';
+import type { PlacesOf, SeriesCollections } from './record-nested.js';
 import type { RecordTile } from './record-tiles.js';
-import { indexFunctions, indexedEntry, onlyOptions } from './record-guards.js';
+import { indexFunctions, indexedEntry } from './record-guards.js';
 import type { IndexConstructor, IndexFunction } from './record-guards.js';
 import { checkLeading, fieldKeyOf } from './record-keys.js';
 import type { FunctionRunner } from './runner.js';
@@ -75,32 +71,8 @@ type KeyField<T> = { [F in keyof RowFields<T>]: RowFields<T>[F] extends SetType<
 type LeadingFields<S, T> = S extends { on: infer On extends readonly (keyof RowFields<T> & string)[] }
   ? { [F in On[number]]: FieldKey<RowFields<T>[F]> } : Record<never, never>;
 
-/** What a plain index keys on: `on` (row fields), `key` (one computed entry
- *  per row), or `keys` (one per Set element), and an optional covering
- *  projection. An index that answers more than an order has a constructor of
- *  its own: {@link IntervalIndexSpec}, {@link AreaIndexSpec}.
- *  @typeParam T - The owning record's state type
- */
-export type RecordIndexSpec<T extends EastType = EastType> = {
-  /** Row fields in index order. One field uses its value as the key; several
-   *  use a struct in this order. Set fields fan out over their elements. */
-  on?: readonly (keyof RowFields<T> & string)[];
-  /** `(K, V) -> IK` — one index entry per row. */
-  key?: IndexFunction;
-  /** `(K, V) -> Set<IK>` — one index entry per element, so a row that names
-   *  five resources appears under five keys. An empty set is a row the index
-   *  does not carry, which is how a partial index is written. */
-  keys?: IndexFunction;
-  /** `(K, V) -> P` — the fields a view renders from the index alone, so it
-   *  never touches the primary's segments. */
-  value?: IndexFunction;
-  /** Refused: an interval index has a constructor of its own,
-   *  `e3.recordIndex.interval(name, record, { on?, from, to })`. */
-  interval?: never;
-};
-
 /**
- * What an interval index keys on (`e3.recordIndex.interval`): the events
+ * What an interval index keys on (`index.interval`): the events
  * overlapping a half-open time window, carry-in events among them, without
  * day fan-out or duration lookbacks.
  *
@@ -119,7 +91,7 @@ export interface IntervalIndexSpec<T extends EastType = EastType> {
 }
 
 /**
- * What an area index keys on (`e3.recordIndex.area`): the rows whose box meets
+ * What an area index keys on (`index.area`): the rows whose box meets
  * a window, each filed once, by a box its fields name. It carries the whole row
  * as its projection, so a window reads the index alone.
  *
@@ -148,7 +120,7 @@ export interface AreaIndexSpec<T extends EastType = EastType> {
 }
 
 /**
- * What a series index files a record's events by (`e3.recordIndex.series`,
+ * What a series index files a record's events by (`index.series`,
  * #1039): the key an event is on — a Plan's resource — and its time, each
  * event filed once at the level its length fits (#1433), so a key's events
  * over any span are one range a level.
@@ -174,7 +146,7 @@ export interface SeriesIndexSpec<T extends EastType = EastType> {
 
 /**
  * What the nested form of a series index files (#1434): every collection a
- * record's rows nest, each declared with a builder of `e3.recordIndex.series`,
+ * record's rows nest, each declared with a builder of `index.nested`,
  * typed against its field from the record's type alone.
  *
  * @typeParam T - The owning record's state type (a Dict of Struct rows)
@@ -207,7 +179,7 @@ export type NestedValueOf<T extends EastType, S extends NestedSeriesIndexSpec<T>
   VariantType<{ item: PlacesOf<RowOf<T>, S['collections']>; totals: typeof RecordNestedTotalsType; subtotal: FloatType }>;
 
 /**
- * What a summary index totals a record's events by (`e3.recordIndex.summary`,
+ * What a summary index totals a record's events by (`index.summary`,
  * #1039): the same key and tiles as a series index, and under each key how
  * many rows touch its tile and the milliseconds of it they cover.
  *
@@ -315,74 +287,6 @@ function plainKey(
 }
 
 /**
- * Defines a secondary index over a record.
- *
- * The index is a collection `Dict<{ik, k}, P>` — the index key first, the
- * primary key second — so every entry sharing an index key is one contiguous
- * run ordered by primary key inside it, and a RANGE of index keys is one
- * contiguous run too. Pages and key searches take the index by name; a view
- * that renders from the index alone declares its fields as `value` and never
- * reads the primary at all.
- *
- * An index that answers more than an order has a constructor of its own:
- * {@link intervalIndex | e3.recordIndex.interval}, the events overlapping a time
- * window, and {@link areaIndex | e3.recordIndex.area}, the boxes meeting a
- * window. This one refuses `interval`, naming its constructor.
- *
- * Every guard here is a definition-time error rather than a deploy failure.
- *
- * @typeParam Name - Index name (literal type)
- * @typeParam T - The owning record's state type (a Dict)
- * @typeParam S - The spec as written, from which the index key and covering
- *   projection types are read
- * @param name - Index name: never `primary`, and one declaration per name on
- *   the record, which `e3.package` enforces when it folds indexes onto it
- * @param rec - The record to index
- * @param spec - `on`, `key` or `keys`; optional covering `value`
- * @param config - Optional runner selection (known runtimes only)
- * @returns A RecordIndexDef to pass to `e3.package`
- *
- * @example
- * ```ts
- * const plans = e3.record('plans', DictType(PlanKeyType, PlanRowType), new Map());
- *
- * // One key per row, with a covering projection: a queue renders from the
- * // index alone.
- * const byStatus = e3.recordIndex('by_status', plans, {
- *   key:   East.function([PlanKeyType, PlanRowType], StatusKeyType,
- *            ($, k, v) => ({ status: v.status, due: v.due })),
- *   value: East.function([PlanKeyType, PlanRowType], QueueCardType,
- *            ($, k, v) => ({ title: v.title, owner: v.owner })),
- * });
- *
- * // A row field supplies its own key type.
- * const byDue = e3.recordIndex('by_due', plans, { on: ['due'] });
- *
- * // Many keys per row: a Set return.
- * const byResource = e3.recordIndex('by_resource', plans, {
- *   keys: East.function([PlanKeyType, PlanRowType], SetType(ResourceRefType),
- *           ($, k, v) => v.resources),
- * });
- *
- * const pkg = e3.package('planning', '1.0.0', plans, byStatus, byDue, byResource);
- * ```
- */
-function plainIndex<Name extends string, T extends EastType, const S extends RecordIndexSpec<T>>(
-  name: Name,
-  rec: RecordDef<T>,
-  spec: S,
-  config?: { runner?: FunctionRunner },
-): RecordIndexDef<Name, T, IndexKeyOf<S, T>, ProjectionOf<S>, IndexOn<S>> {
-  // The name and the record first, as every index's guards check them, then the options.
-  indexedEntry('e3.recordIndex', name, rec);
-  onlyOptions('e3.recordIndex', name, spec, ['on', 'key', 'keys', 'value'], 'interval' in spec
-    ? `an interval index has a constructor of its own: e3.recordIndex.interval('${name}', record, { on?, from, to })`
-    : undefined);
-  // Built from the spec at run time; the type restates, from the spec as written, what it built.
-  return plainDefinition('e3.recordIndex', name, rec, spec, config) as RecordIndexDef<Name, T, IndexKeyOf<S, T>, ProjectionOf<S>, IndexOn<S>>;
-}
-
-/**
  * Builds a plain index's definition: its key from `on`, `key` or `keys`, and
  * its projection from `value`, each checked as every index's functions are.
  *
@@ -416,53 +320,6 @@ export function plainDefinition(
   };
 }
 
-/**
- * Defines an interval index over a record: the events overlapping a half-open
- * time window `[from, to)`, carry-in events and those spanning the whole window
- * among them, each once, without day fan-out or a guessed lookback.
- *
- * It is an ordinary maintained index whose keys the SDK generates: each event
- * is filed under at most three entries a combination of its leading fields,
- * independent of its duration — a centred interval tree laid along the index's
- * key order. A record Slice reads a window through it as one start range and
- * at most 54 carry-in ranges a combination. A missing start is the backlog,
- * selectable as Unset; a missing or non-positive end is an instant.
- *
- * @typeParam Name - Index name (literal type)
- * @typeParam T - The owning record's state type (a Dict of Struct rows)
- * @typeParam S - The spec as written, from which the index key type is read
- * @param name - Index name: an identifier, never `primary`, declared once on the record
- * @param rec - The record to index
- * @param spec - `from` and `to`, the row's DateTime (or Option<DateTime>)
- *   fields an event starts and ends at, and optional exact leading `on` fields
- * @param config - Optional runner selection (known runtimes only)
- * @returns A RecordIndexDef to pass to `e3.package`, its key `{ on: { …on }, node, at }` — the tree node an entry is
- *   filed at and the instant it is ordered by (#1432)
- * @throws {Error} When `from` or `to` is not a DateTime field, when the start is
- *   a leading field, or on any guard `e3.recordIndex` applies to a name and a record
- *
- * @example
- * ```ts
- * const events = e3.record('events', DictType(StringType, EventRow), new Map());
- * // The events of a window, whatever their status:
- * const byTime = e3.recordIndex.interval('by_time', events, { from: 'start', to: 'end' });
- * // A choice of statuses and the window, in one read:
- * const byStatusTime = e3.recordIndex.interval('by_status_time', events, {
- *   on: ['status'], from: 'start', to: 'end',
- * });
- * ```
- */
-function intervalIndex<Name extends string, T extends EastType, const S extends IntervalIndexSpec<T>>(
-  name: Name,
-  rec: RecordDef<T>,
-  spec: S,
-  config?: { runner?: FunctionRunner },
-): RecordIndexDef<Name, T, IndexKeyOf<S, T>, NullType, IndexOn<S>> & { interval: { readonly from: S['from']; readonly to: S['to'] } } {
-  // Built from the spec at run time; the type restates, from the spec as written, what it built.
-  return intervalDefinition('e3.recordIndex.interval', name, rec, spec, config) as
-    RecordIndexDef<Name, T, IndexKeyOf<S, T>, NullType, IndexOn<S>> & { interval: { readonly from: S['from']; readonly to: S['to'] } };
-}
-
 /** The box an area index declares, as its definition carries it, `cell` rounded to its power of two. */
 export interface AreaIndexOf<S> {
   /** The field holding the box's `x`. */
@@ -479,65 +336,6 @@ export interface AreaIndexOf<S> {
   readonly cell: number;
 }
 
-/**
- * Defines an area index over a record: the rows whose box meets a window, each
- * once, the 2D twin of {@link intervalIndex | the interval index}.
- *
- * It is an ordinary maintained index whose keys the SDK generates: a loose
- * quadtree laid along a Z-order curve. The domain is the square
- * `[−cell·2²⁷, cell·2²⁷)` world units in 29 levels; each row is filed once,
- * under the deepest level whose cell is at least twice its box's larger side,
- * in the cell holding its box's centre, its key `{ on: { …on }, area }`. A row whose
- * `x` or `y` is `none` is unplaced, `area` −1; one outside the domain, not
- * finite, or larger than half the domain is filed under the root. A record Slice
- * reads a window through it as at most 266 disjoint searches a combination of
- * its leading fields, every row whose box meets the window among their rows.
- *
- * It carries its rows: each entry's projection is the whole row, so a window
- * reads the index alone and no record segment. It takes no `value`.
- *
- * @typeParam Name - Index name (literal type)
- * @typeParam T - The owning record's state type (a Dict of Struct rows)
- * @typeParam S - The spec as written, from which the index key type is read
- * @param name - Index name: an identifier, never `primary`, declared once on the record
- * @param rec - The record to index
- * @param spec - The box's fields — `x`, `y` (Float, or Option<Float> for a row
- *   that may be unplaced), `width` and `height` (Float, or neither for a point)
- *   — `at` (`"corner"`, the default, or `"centre"`), `cell` (the finest cell's
- *   side in world units, rounded down to a power of two) and optional exact
- *   leading `on` fields
- * @param config - Optional runner selection (known runtimes only)
- * @returns A RecordIndexDef to pass to `e3.package`, its key `{ on: { …on }, area }`,
- *   its projection the row
- * @throws {Error} When a field is not of its option's type, naming the option,
- *   the field and its type; when `x` and `y` are not both Options or neither,
- *   or `width` and `height` are not given together; when `cell` is not a
- *   positive number; or on any guard
- *   `e3.recordIndex` applies to a name and a record
- *
- * @example
- * ```ts
- * const racks = e3.record('racks', DictType(StringType, RackRow), new Map());
- * // The window, whatever the rail chooses:
- * const racksByArea = e3.recordIndex.area('racks_by_area', racks, {
- *   x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01,
- * });
- * // Beside it, a choice of halls and the window in one read:
- * const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', racks, {
- *   on: ['hall'], x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01,
- * });
- * ```
- */
-function areaIndex<Name extends string, T extends EastType, const S extends AreaIndexSpec<T>>(
-  name: Name,
-  rec: RecordDef<T>,
-  spec: S,
-  config?: { runner?: FunctionRunner },
-): RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { area: AreaIndexOf<S> } {
-  // Built from the spec at run time; the type restates, from the spec as written, what it built.
-  return areaDefinition('e3.recordIndex.area', name, rec, spec, config) as RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { area: AreaIndexOf<S> };
-}
-
 /** The fields and tile a series or summary index files by, as its definition carries them. */
 export interface TimeTileOf<S> {
   /** The field naming what an event is on. */
@@ -549,165 +347,3 @@ export interface TimeTileOf<S> {
   /** The tile. */
   readonly tile: RecordTile;
 }
-
-/**
- * Defines a series index over a record (#1039): its events filed by the key
- * they are on — a Plan's resource — and by time, so a key's events over any
- * span are one contiguous range a level (#1433).
- *
- * It is an ordinary maintained index whose keys the SDK generates,
- * `{ on: { …on }, key, level, tile }`. An event `[from, to)` is filed once: at
- * the finest level, from `tile` up to `year`, whose shortest tile holds its
- * length — a day, a week, 28 days, 90 days, 365 days — under that level's tile
- * holding its start; past 365 days, under each year it touches, as many as
- * 4,096 (past those, it is refused where it is written, naming it and its
- * span). An instant — no end, or one at or before its start — is filed at
- * `tile`; a row with no start is filed nowhere.
- *
- * It carries its rows: each entry's projection is the whole row, so a cell
- * reads the index alone and no record segment. It takes no `value`.
- *
- * **The nested form** (#1434), `{ collections, tile, summary? }`, files instead
- * every collection a record's rows nest, each field declared with a builder
- * hung on this function: `items(times, options?)` for things people drag,
- * `values(options?)` for a value per instant, `rows(collections)` for child
- * rows and `recursive()` for more rows of the row's own type. Each item is
- * filed once (or once a year past a year) by its collection, its row, the node
- * holding it and its time, carrying the item; each node's totals are kept a
- * `summary` tile at a time; every parent's subtotals of a collection of values
- * declared with a rollup are kept at every level from `tile` up; and each item
- * of a collection declared `{ rollup: true }` is filed under every ancestor
- * too. The record's other indexes then carry its rows without the listed
- * collections. A record has one nested series index; no field leads it, and
- * it takes no `value`. It is part of its record once declared: the record's
- * definition holds it, so a package holding the record builds it, listed or
- * not, and `Data.bindPaged` asks it beside any of the record's indexes that
- * carry the lean rows (#1435).
- *
- * @typeParam Name - Index name (literal type)
- * @typeParam T - The owning record's state type (a Dict of Struct rows)
- * @typeParam S - The spec as written, from which the index key type is read
- * @param name - Index name: an identifier, never `primary`, declared once on the record
- * @param rec - The record to index
- * @param spec - `key`, the field naming what an event is on (any but a Set);
- *   `from` and `to`, its DateTime (or Option<DateTime>) start and end fields;
- *   `tile`, `day`, `week`, `month`, `quarter` or `year`; and optional exact
- *   leading `on` fields — or the nested form's `collections`, `tile` and
- *   optional `summary`
- * @param config - Optional runner selection (known runtimes only)
- * @returns A RecordIndexDef to pass to `e3.package`, its key `{ on: { …on }, key, level, tile }`, its projection the row
- *   — or, nested, its key e3-types' `NestedEntryKeyType` and its value `NestedEntryType`
- * @throws {Error} When a field is not of its option's type, naming the option,
- *   the field and its type; when the tile is not one of the five; when the key
- *   is a leading field; where a nested declaration does not fit its field,
- *   naming the collection and what to write; for a second nested series index
- *   on a record, naming the first; or on any guard `e3.recordIndex` applies to
- *   a name and a record
- *
- * @example
- * ```ts
- * const jobs = e3.record('jobs', DictType(StringType, JobRow), new Map());
- * // The jobs on each press, a week at a time:
- * const jobsByPressWeek = e3.recordIndex.series('jobs_by_press_week', jobs, {
- *   key: 'press', from: 'start', to: 'end', tile: 'week',
- * });
- *
- * // Every collection a machine nests, filed from a week up and totalled a month at a time:
- * const machinesInTime = e3.recordIndex.series('machines_in_time', machines, {
- *   collections: {
- *     jobs: e3.recordIndex.series.items({ from: 'start', to: 'end' }),
- *     load: e3.recordIndex.series.values(),
- *   },
- *   tile: 'week',
- *   summary: 'month',
- * });
- * ```
- */
-function seriesIndex<Name extends string, T extends EastType, const S extends NestedSeriesIndexSpec<T>>(
-  name: Name,
-  rec: RecordDef<T>,
-  spec: S,
-  config?: { runner?: FunctionRunner },
-): RecordIndexDef<Name, T, NestedKeyOf<T>, NestedValueOf<T, S>, readonly []> & { readonly nested: NestedOf<S> };
-function seriesIndex<Name extends string, T extends EastType, const S extends SeriesIndexSpec<T>>(
-  name: Name,
-  rec: RecordDef<T>,
-  spec: S,
-  config?: { runner?: FunctionRunner },
-): RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { series: TimeTileOf<S> };
-function seriesIndex(
-  name: string,
-  rec: RecordDef,
-  spec: SeriesIndexSpec | NestedSeriesIndexSpec,
-  config?: { runner?: FunctionRunner },
-): RecordIndexDef {
-  // Built from the spec at run time; each overload restates, from the spec as written, what it built.
-  return 'collections' in spec
-    ? nestedDefinition('e3.recordIndex.series', name, rec, spec, config)
-    : seriesDefinition('e3.recordIndex.series', name, rec, spec, config);
-}
-
-/**
- * Defines a summary index over a record (#1039): under each key and time tile
- * of a series index, how many rows touch the tile and the milliseconds of it
- * they cover — what a zoomed-out view draws where its events are too many to
- * read.
- *
- * Its entries are `{ ik: { on: { …on }, key, tile }, k: Null }` → `{ count, ms }`,
- * one per key a row touches, standing for every row that does. A write changes
- * them by adding what its rows took away and gave, summed — its program reads
- * the record, never the summary — and the apply drops a total whose count
- * reaches zero, so a maintained summary equals the one a reindex sums, byte for
- * byte. The totals are Integers, so the sum is exact in any order.
- *
- * An event's share of a tile is the milliseconds of it the event overlaps, and
- * its shares add up to its length; an instant counts in the tile holding it and
- * covers none of it. A row with no start counts in no tile. An event touching
- * more than 4,096 tiles is refused where it is written, naming it and the tile.
- *
- * @typeParam Name - Index name (literal type)
- * @typeParam T - The owning record's state type (a Dict of Struct rows)
- * @typeParam S - The spec as written, from which the index key type is read
- * @param name - Index name: an identifier, never `primary`, declared once on the record
- * @param rec - The record to total
- * @param spec - `key`, `from`, `to` and `tile`, as a series index takes them,
- *   and optional exact leading `on` fields
- * @param config - Optional runner selection (known runtimes only)
- * @returns A RecordIndexDef to pass to `e3.package`, its key `{ on: { …on }, key, tile }`, its value the totals
- * @throws {Error} As {@link seriesIndex} does
- *
- * @example
- * ```ts
- * const jobs = e3.record('jobs', DictType(StringType, JobRow), new Map());
- * // How busy each press is, a month at a time:
- * const jobsByPressMonth = e3.recordIndex.summary('jobs_by_press_month', jobs, {
- *   key: 'press', from: 'start', to: 'end', tile: 'month',
- * });
- * ```
- */
-function summaryIndex<Name extends string, T extends EastType, const S extends SummaryIndexSpec<T>>(
-  name: Name,
-  rec: RecordDef<T>,
-  spec: S,
-  config?: { runner?: FunctionRunner },
-): RecordIndexDef<Name, T, SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>> & { summary: TimeTileOf<S> } {
-  // Built from the spec at run time; the type restates, from the spec as written, what it built.
-  return summaryDefinition('e3.recordIndex.summary', name, rec, spec, config) as
-    RecordIndexDef<Name, T, SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>> & { summary: TimeTileOf<S> };
-}
-
-/**
- * Defines a secondary index over a record — `e3.recordIndex(name, record, {
- * on | key | keys, value? })`, an order to page in — and, as its own
- * constructors, the indexes that answer more than an order:
- * `e3.recordIndex.interval` (the events overlapping a time window),
- * `e3.recordIndex.area` (the boxes meeting a window), `e3.recordIndex.series`
- * (the events of a block of keys over a span of time tiles) and
- * `e3.recordIndex.summary` (their totals per key and tile).
- */
-export const recordIndex = Object.assign(plainIndex, {
-  interval: intervalIndex,
-  area: areaIndex,
-  series: Object.assign(seriesIndex, { items, values, rows, recursive }),
-  summary: summaryIndex,
-});

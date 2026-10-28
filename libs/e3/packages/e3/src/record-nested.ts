@@ -4,9 +4,9 @@
  */
 
 /**
- * The nested form of a series index's declaration (#1434): one declaration a
- * record, `e3.recordIndex.series(name, record, { collections, tile, summary })`,
- * whose `collections` declares every collection the record's rows nest, each
+ * The nested series index's declaration (#1434): one a record,
+ * `index.nested({ collections, tile, summary })` among its indexes, whose
+ * `collections` declares every collection the record's rows nest, each
  * field with a builder saying what it holds — things people drag (`items`), a
  * value per instant (`values`), child rows (`rows`), or more rows of the row's
  * own type (`recursive`).
@@ -127,7 +127,7 @@ export function values<const O extends SeriesValuesOptions = { readonly rollup?:
  * whose own collections are declared the same way.
  *
  * @typeParam C - The child rows' collections, as written
- * @param collections - Each collection field of the child row, declared with a builder of `e3.recordIndex.series`
+ * @param collections - Each collection field of the child row, declared with a builder of `index.nested`
  * @returns The declaration, for its field in `collections`
  */
 export function rows<const C>(collections: C): SeriesRows<C> {
@@ -387,8 +387,6 @@ function builderOf(given: unknown): 'items' | 'values' | 'rows' | 'recursive' | 
  */
 export function checkNested(constructor: string, name: string, rowType: EastType, collections: unknown): NestedDeclaration {
   const prefix = `${constructor} '${name}'`;
-  // The collection builders as the declaration reaches them: the record's own builder, or the separate constructor's.
-  const builders = constructor.startsWith('e3.recordIndex') ? 'e3.recordIndex.series' : 'index.nested';
   const groups: NestedGroup[] = [];
   // How many groups have taken their place: a group takes its own before its child groups take theirs.
   let placed = 0;
@@ -416,7 +414,7 @@ export function checkNested(constructor: string, name: string, rowType: EastType
       if (fieldType === undefined) throw new Error(`${prefix} ${where} names unknown row field '${field}'`);
       const builder = builderOf(given);
       if (builder === undefined) {
-        throw new Error(`${prefix} ${at} is no declaration — declare it with ${builders}.items(times), values(), rows(collections) or recursive()`);
+        throw new Error(`${prefix} ${at} is no declaration — declare it with index.nested.items(times), values(), rows(collections) or recursive()`);
       }
       if (fieldType.type !== 'Dict') {
         throw new Error(`${prefix} ${at} is '${field}', of type ${printType(fieldType)} — a collection is a Dict: Dict<String, Item> keyed by an id, ` +
