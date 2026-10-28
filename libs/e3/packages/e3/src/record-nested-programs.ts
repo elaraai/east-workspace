@@ -96,6 +96,24 @@ const pathOf = East.function([KeysType], RecordNestedPathType, ($, keys) => {
   return keys.reverse().reduce((_$, rest, key) => variant('step', { key, rest }), end);
 });
 
+/** `(path) → keys`: a node's keys out of a key's path, from the row down — the inverse of {@link pathOf}. */
+const keysOf = East.function([RecordNestedPathType], KeysType, ($, path) => {
+  const keys = $.let([], KeysType);
+  const at = $.let(path);
+  $.while(true, ($2, label) => {
+    $2.match(at.unwrap(), {
+      step: ($3, step) => {
+        $3(keys.pushLast(step.key));
+        $3.assign(at, step.rest);
+      },
+      end: ($3) => {
+        $3.break(label);
+      },
+    });
+  });
+  return keys;
+});
+
 /** No totals: a tile's before any item touches it. */
 const NO_TOTALS = { count: 0n, ms: 0n, values: none };
 
@@ -1545,14 +1563,41 @@ function filledType(collection: NestedCollection): EastType {
 }
 
 /**
+ * An entry as a fill puts its item back: `(entry) → Option<entry>` — one filed
+ * at its own node as it is; one filed under a parent (`subtree`) at the node
+ * holding it, its path the parent's then the keys down to it, its item its id;
+ * a total or a subtotal none.
+ *
+ * @param entry - An entry's type, `{ ik, value }`
+ * @returns The placing
+ */
+function fillingEntry(entry: StructType<{ ik: EastType; value: EastType }>) {
+  return East.function([entry], OptionType(entry), ($, filed) => {
+    const keys = $.const(keysOf);
+    const ik = $.let(filed.ik);
+    return East.field(ik, 'run', RecordNestedRunType).match({
+      items: () => some(filed),
+      subtree: ($2) => {
+        const under = $2.let(East.field(ik, 'item', RecordNestedItemType).unwrap('under'));
+        const path = $2.let(keys(East.field(ik, 'path', RecordNestedPathType)).reverse().reduce(
+          (_$, rest, key) => variant('step', { key, rest }), under.path));
+        const item = $2.let(variant('id', under.id), RecordNestedItemType);
+        return some({ ik: East.withField(East.withField(ik, 'path', path), 'item', item), value: filed.value });
+      },
+    }, () => none);
+  });
+}
+
+/**
  * A lean row filled with items read of it: `(K, V, Array<{ ik, value }>) →
  * V`, each item the entries file — of a node, by its path, and a collection,
  * by its place — put back in its collection under its id or its instant, an
  * item filed in several tiles once, and every other field as the lean row
  * holds it. The inverse of the filing: a row's lean form filled with all its
  * entries is the row, and filled with the entries of some cells, the row
- * holding the items read there. Totals, subtotals and items filed under a
- * parent fill nothing.
+ * holding the items read there. An item filed under a parent is put back in
+ * the node holding it, as its own entry puts it — so a parent's items read
+ * whole are its descendants' — and totals and subtotals fill nothing.
  *
  * @param decl - The checked declaration
  * @param keyType - The record's key type
@@ -1628,10 +1673,12 @@ export function nestedFill(decl: NestedDeclaration, keyType: EastType, rowType: 
     });
   }
   const rowFill = fillOf[0]!;
+  const filling = fillingEntry(entry);
   return East.function([keyType, rowType, ArrayType(entry)], rowType, ($, _key, row, entries) => {
     const fill = $.const(rowFill);
+    const place = $.const(filling);
     const own = $.let(entries
-      .filter((_$, filed) => East.field(East.field(filed, 'ik'), 'run', RecordNestedRunType).match({ items: () => true }, () => false))
+      .filterMap((_$, filed) => place(filed))
       .groupToArrays(($2, filed) => {
         const ik = $2.let(East.field(filed, 'ik'));
         const place = $2.let({ collection: East.field(ik, 'collection', RecordNestedPathType), path: East.field(ik, 'path', RecordNestedPathType) }, NodePlaceType);

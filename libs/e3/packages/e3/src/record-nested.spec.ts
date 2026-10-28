@@ -586,14 +586,31 @@ describe('index.nested — a lean row filled with the entries read of it (#1438)
     assertEast(Machine, filled(def, 'R-1', leanOf(def, 'R-1', machineRow), october), expected, 'the October weeks read');
   });
 
-  it('fills nothing from a total, a subtotal, or an item filed under a parent', () => {
+  it('fills nothing from a total or a subtotal', () => {
     for (const [def, row] of [[assembliesIndex, assemblyRow], [hallsIndex, hallRow]] as const) {
       const print = printFor(def.keyType);
-      const others = [...entries(def, 'R-1', row)].filter(([ik]) => !/run=\.items/.test(print(ik as never)));
-      assert.ok(others.length > 0, `${def.name} files totals, subtotals or subtree items`);
+      const others = [...entries(def, 'R-1', row)].filter(([ik]) => !/run=\.(items|subtree),/.test(print(ik as never)));
+      assert.ok(others.length > 0, `${def.name} files totals or subtotals`);
       const lean = leanOf(def, 'R-1', row);
       assertEast(entryOf(def.record).rowType, filled(def, 'R-1', lean, others), lean as never, `${def.name}: the lean row as it was`);
     }
+  });
+
+  it('puts an item filed under a parent back in the node holding it, once beside its own entry', () => {
+    const def = assembliesIndex;
+    const print = printFor(def.keyType);
+    const all = [...entries(def, 'R-1', assemblyRow)];
+    const under = all.filter(([ik]) => /run=\.subtree,/.test(print(ik as never)));
+    // Every part's jobs are filed under the row: filled with them alone, every part holds its own.
+    assert.ok(under.length > 0, 'the assembly files its parts\' jobs under their parents');
+    const lean = leanOf(def, 'R-1', assemblyRow);
+    assertEast(Assembly, filled(def, 'R-1', lean, under), assemblyRow as never, 'every part holding its own jobs');
+    // Under p1 alone: p1.2's job in p1.2, and none of p1's own, which is filed under the row.
+    const p1 = under.filter(([ik]) => /path=\.step \(key="p1", rest=\.end\), run=/.test(print(ik as never)));
+    assertEast(Assembly, filled(def, 'R-1', lean, p1), parsed(Assembly, '(name="Assembly 1", parts={"p1":(name="p1", jobs={:}, parts={' +
+      '"p1.2":(name="p1.2", jobs={"j-9":' + job('2026-11-03T06:00:00.000', '2026-11-03T14:00:00.000') + '}, parts={:})})})'), 'p1\'s descendants\' jobs');
+    // Beside each job's own entry, each job once.
+    assertEast(Assembly, filled(def, 'R-1', lean, all), assemblyRow as never, 'the row, each job once');
   });
 });
 
