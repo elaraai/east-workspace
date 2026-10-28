@@ -92,6 +92,32 @@ describe("packLanes", () => {
         }
     });
 
+    it("stretches every event exactly as far as no event of the lanes to its right overlaps it, instants and ties among them (#1398, CL9)", () => {
+        // A seeded run over clusters of every shape — instants, events starting together, events inside others — held
+        // to the rule itself: each lane an event spans beyond its own holds no event overlapping it, and the lane past
+        // its span, where there is one, holds one that does. Events of other clusters overlap none of it.
+        let seed = 1398;
+        const next = (n: number): number => {
+            seed = (seed * 16807) % 2147483647;
+            return seed % n;
+        };
+        const overlapping = (a: LaneSpan, b: LaneSpan): boolean => a.start < b.end && b.start < a.end;
+        for (let round = 0; round < 300; round += 1) {
+            const spans: LaneSpan[] = Array.from({ length: 1 + next(40) }, () => {
+                const start = next(80);
+                return { start, end: start + next(3) * next(12) };
+            });
+            const places = packLanes(spans);
+            spans.forEach((span, i) => {
+                const place = places[i]!;
+                const lanesHold = (lane: number): boolean =>
+                    spans.some((other, j) => j !== i && places[j]!.lane === lane && overlapping(span, other));
+                for (let lane = place.lane + 1; lane < place.lane + place.span; lane += 1) expect(lanesHold(lane)).toBe(false);
+                if (place.lane + place.span < place.lanes) expect(lanesHold(place.lane + place.span)).toBe(true);
+            });
+        }
+    });
+
     it("answers in the order the events were given, whatever their times", () => {
         const places = packLanes([ev("14:00", "15:00"), ev("09:00", "10:00"), ev("09:30", "10:30")]);
         expect(places).toEqual([
