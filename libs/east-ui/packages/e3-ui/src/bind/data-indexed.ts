@@ -103,9 +103,19 @@ export type NestedMarker<C> = StructType<{ [F in keyof C & string]: CollectionMa
 type NestedMarkerOf<I extends FieldIndexes<EastType>> =
     [Extract<I[number], { nested: object }>] extends [never] ? never
         : Extract<I[number], { nested: object }> extends { nested: { collections: infer C } } ? NestedMarker<C> : never;
+/** The listed nested series index's name; `never` where none is listed. */
+type NestedNameOf<I extends FieldIndexes<EastType>> = Extract<I[number], { nested: object }>["name"];
 
-/** A binding's nested part (#1435), its collections' marker `C` ({@link NestedPartType}). */
-export type NestedPart<C extends EastType> = ReturnType<typeof NestedPartType<C>>;
+/**
+ * A binding's nested part (#1435): its collections' marker `C`, and the
+ * index's name `Name` as structure — a struct whose one field is the name, as
+ * a time's role names its field — so a Plan's refusals in the editor name the
+ * index ({@link NestedPartType}).
+ *
+ * @typeParam C - The collections' marker type
+ * @typeParam Name - The nested series index's name
+ */
+export type NestedPart<C extends EastType, Name extends string> = ReturnType<typeof NestedPartType<C, StructType<{ [N in Name]: NullType }>>>;
 /** Each named index's metadata, preserved in the source's East type (#1432): its row fields in order, and its kind. */
 type IndexFields<I extends FieldIndexes<EastType>> = StructType<{
     [D in I[number] as D["name"]]: StructType<{ fields: StructType<DeclaredFields<D>>; kind: IndexKind<D> }>
@@ -154,21 +164,24 @@ export type IndexedPagedValue<T extends EastType, I extends FieldIndexes<T>> =
     T extends DictType<infer K extends EastType, infer R extends EastType>
         ? IndexedSource<K, R,
             [Extract<I[number], { nested: object }>] extends [never] ? BindingProjection<ProjectedIndexes<I>["valueType"], R> : R,
-            IndexFields<RailIndexes<I>>, IndexKeys<K, I>, NestedPart<NestedMarkerOf<I>>>
+            IndexFields<RailIndexes<I>>, IndexKeys<K, I>, NestedPart<NestedMarkerOf<I>, NestedNameOf<I>>>
         : never;
 
 /**
  * A binding's nested part's type (#1434, #1435): its nested series index's
- * name, tile and summary tile, and how each collection the index files is
- * declared, as structure ({@link NestedMarker}); none where the binding lists
- * none, its marker then the empty struct.
+ * name, as a struct whose one field is it, its tile and its summary tile, and
+ * how each collection the index files is declared, as structure
+ * ({@link NestedMarker}); none where the binding lists none, its index and its
+ * marker then the empty struct.
  *
  * @typeParam C - The collections' marker type
+ * @typeParam I - The index's name, as a struct of one field
  * @param collections - The collections' marker type
+ * @param index - The index's name, as a struct of one field
  * @returns The part's type
  */
-export function NestedPartType<C extends EastType>(collections: C) {
-    return OptionType(StructType({ index: StringType, tile: RecordLevelType, summary: OptionType(RecordLevelType), collections }));
+export function NestedPartType<C extends EastType, I extends EastType>(collections: C, index: I) {
+    return OptionType(StructType({ index, tile: RecordLevelType, summary: OptionType(RecordLevelType), collections }));
 }
 
 /**
@@ -337,9 +350,10 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
     // The nested index's part (#1435): its declaration as structure, its tile and its summary tile.
     const declared = nested?.nested;
     const marker = declared === undefined ? { type: StructType({}), value: {} } : nestedMarker(declared.declaration);
-    const nestedType = NestedPartType(marker.type);
-    const nestedValue = declared === undefined || nested === undefined ? none : some({
-        index: nested.name, tile: variant(declared.tile, null), summary: declared.summary === undefined ? none : some(variant(declared.summary, null)),
+    const index = nested === undefined ? markerStruct([]) : markerStruct([[nested.name, LEAF]]);
+    const nestedType = NestedPartType(marker.type, index.type);
+    const nestedValue = declared === undefined ? none : some({
+        index: index.value, tile: variant(declared.tile, null), summary: declared.summary === undefined ? none : some(variant(declared.summary, null)),
         collections: marker.value,
     });
     return bindIndexedPagedPlatformFn(

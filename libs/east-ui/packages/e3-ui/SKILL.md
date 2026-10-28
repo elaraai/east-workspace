@@ -360,7 +360,12 @@ is refused, and so is an index with a `value` of its own beside it, which is
 bound apart. A row is read whole by its key. The binding's type carries how
 each collection is declared (what it holds, its times, its rollups), and the
 nested index's own entries — items, totals and subtotals — are read a cell at a
-time: a page or a count of it is refused.
+time: a page or a count of it is refused. A `<Plan>` given such a binding as
+`data`, or a Slice whose `rows` source is one, holds its `series` to the index
+in the editor: a series reading a collection the index does not declare, by
+other times than it files by, items as values, a subtotal by a rollup it does
+not keep, or runs rolled up that it files under no parent, fails to compile,
+the error naming the index and what to write.
 
 **A builder narrows through `Slice.bindRecords` alone** (#1340): one rail on
 its toolbar, `Slice.bindRecords(key, { [source]: { source:

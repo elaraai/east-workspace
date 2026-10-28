@@ -99,7 +99,8 @@ import {
 import { WINDOWLESS_AXES, axisKindOf, linkEventKinds } from "./builders.js";
 import { buildPlanRoot, type PlanConfig } from "./root.js";
 import { overSeriesKeys, type PlanOverRows } from "./over.js";
-import { planSeriesKeys } from "./series.js";
+import { planSeriesKeys, type PlanSeriesInput } from "./series.js";
+import type { PlanNestedChecked, PlanRowsNestedOf } from "./nested.js";
 import { PlanEventBlocksType, PlanEventPagedType, createEventBlocks, createEventPaged, eventDrawsOf } from "./event-rows.js";
 import { PlanLibraryTabType, buildLibrary, type PlanLibraryTab } from "./library.js";
 
@@ -233,11 +234,24 @@ export type PlanRowsItem<K extends PlanAxisKindLiteral = never> = PlanRowsValue<
  * hand-built row must lie within it (a `"time"` series on a `"number"` axis
  * fails to compile here), and event kinds need a time axis.
  *
+ * Its `series` is held to its rows' nested series index too (#1435): beside
+ * `data` or a `slice` whose `rows` source lists one
+ * (`Data.bindPaged(record, { indexes })`), a series reading a collection the
+ * index does not declare, by other times than it files by, items as values or
+ * values as items, a subtotal by a rollup it does not keep, or runs rolled up
+ * that it files under no parent, fails to compile here, the refusal in words.
+ *
  * @typeParam K - The canvas's axis kind, inferred from `axis`
+ * @typeParam D - The `data` prop's type, inferred: what the rows' nested series index declares, where it lists one
+ * @typeParam S - The `slice` prop's type, inferred: its `rows` source's declarations, where it has one
+ * @typeParam L - The `series` prop's type, inferred: held to the declarations ({@link PlanNestedChecked})
  */
-export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> extends Omit<PlanConfig<K>, "data" | "canDrop"> {
+export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, D = unknown, S = unknown, L = unknown>
+    extends Omit<PlanConfig<K>, "data" | "canDrop" | "series"> {
     /** The rows' source — a keyed collection, a bind handle over one or a paged source of one, laid out by `series` or `pick` (see {@link PlanConfig}). Leave it out for a Plan of event kinds or `rows` alone, and beside `slice`'s `rows` source, which gives the rows. */
-    data?: PlanConfig<K>["data"];
+    data?: D & PlanConfig<K>["data"];
+    /** The row series over the rows (see {@link PlanConfig}), each held to the rows' nested series index where they carry one (#1435). */
+    series?: L & PlanSeriesInput<NoInfer<K>> & PlanNestedChecked<NoInfer<L>, NoInfer<PlanRowsNestedOf<D, S>>>;
     /**
      * The narrowing (#1344): `slice={{ slice: Slice.bindRecords(key, { rows, … }) }}`, one rail on the toolbar, with
      * its `affordances` and `persist`. Its `rows` source gives the canvas its rows, paged from it in its index's order —
@@ -255,7 +269,7 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral> 
      * the footer's counts, the overlaps — read every event. `Slice.bind`, a single `Slice.bindRecord` and a source
      * nothing names are refused.
      */
-    slice?: RecordSlicesChromeOptions;
+    slice?: S & RecordSlicesChromeOptions;
     /** The resource kinds, by slot — `Schedule.resources(rows, { … })`, or a paged read of them: the rows events are placed on, in this order. */
     resources?: Readonly<Record<string, ScheduleResourceKind<EastType, EastType>>>;
     /** The event kinds, by slot — `Schedule.events(record, { … })`, each a record of its own: at least one, when given. An event is scheduled in time, so they need a time axis. */
@@ -764,10 +778,13 @@ function checkPagedKinds(resources: readonly (readonly [string, ScheduleResource
  * `optionsTag(...)`, whose props would fix `K` at every kind.
  *
  * @typeParam K - The canvas's axis kind, inferred from `axis`
+ * @typeParam D - The `data` prop's type, inferred
+ * @typeParam S - The `slice` prop's type, inferred
+ * @typeParam L - The `series` prop's type, inferred, held to the rows' nested series index (#1435)
  * @param props - The Plan's props ({@link PlanProps})
  * @returns The Plan — the `Plan` carrier over its payload
  */
-export function PlanTag<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>(props: PlanProps<K>): UIElement {
+export function PlanTag<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, D = unknown, S = unknown, L = unknown>(props: PlanProps<K, D, S, L>): UIElement {
     return PlanComponent.Root(createPlanPayload(props as unknown as PlanProps));
 }
 

@@ -29,17 +29,25 @@ const DAY = 24 * HOUR;
 /** An instant some hours after Monday. */
 const hours = (count: number) => new Date(MONDAY + count * HOUR);
 
-/** A job: what it makes, its state, and when it runs. */
-export const NestedJob = StructType({ product: StringType, state: StringType, start: DateTimeType, end: DateTimeType });
+/** A job: what it makes, its state, when it runs, and when it was planned to. */
+export const NestedJob = StructType({
+    product: StringType, state: StringType, start: DateTimeType, end: DateTimeType, planned_start: DateTimeType, planned_end: DateTimeType,
+});
 /** A machine's stop: why, and when. */
 export const NestedStop = StructType({ reason: StringType, start: DateTimeType, end: DateTimeType });
 /** A machine's alarm: its code, at an instant. */
 export const NestedAlarm = StructType({ code: StringType, at: DateTimeType });
-/** A machine: where it stands, its state, what people drag on it, and its load and its output a day at a time. */
+/** A note on a machine, at an instant: a collection its nested series index does not file. */
+export const NestedNote = StructType({ text: StringType, at: DateTimeType });
+/**
+ * A machine: where it stands, its state, what people drag on it, its load and
+ * its output a day at a time, and its notes, which its nested series index
+ * does not file.
+ */
 export const NestedMachine = StructType({
     name: StringType, site: StringType, status: StringType,
     jobs: DictType(StringType, NestedJob), stops: DictType(StringType, NestedStop), alarms: DictType(StringType, NestedAlarm),
-    load: DictType(DateTimeType, FloatType), output: DictType(DateTimeType, IntegerType),
+    load: DictType(DateTimeType, FloatType), output: DictType(DateTimeType, IntegerType), notes: DictType(StringType, NestedNote),
 });
 /** The machines. */
 export const NestedMachines = DictType(StringType, NestedMachine);
@@ -62,19 +70,24 @@ export const STATES = ["down", "idle", "running"] as const;
  */
 export function nestedMachine(i: number): ValueTypeOf<typeof NestedMachine> {
     const shift = i % 24;
+    const job = (product: string, state: string, from: number, to: number) => ({
+        product, state, start: hours(from), end: hours(to), planned_start: hours(from - 4), planned_end: hours(to - 4),
+    });
     const jobs = new SortedMap<string, ValueTypeOf<typeof NestedJob>>([
-        [`J-${i}-a`, { product: "cap", state: "running", start: hours(shift), end: hours(shift + 8) }],
-        [`J-${i}-b`, { product: "lid", state: "planned", start: hours(48 + shift), end: hours(78 + shift) }],
-        [`J-${i}-c`, { product: "tub", state: "planned", start: hours(216 + shift), end: hours(216 + shift + 40 * 24) }],
+        [`J-${i}-a`, job("cap", "running", shift, shift + 8)],
+        [`J-${i}-b`, job("lid", "planned", 48 + shift, 78 + shift)],
+        [`J-${i}-c`, job("tub", "planned", 216 + shift, 216 + shift + 40 * 24)],
     ], keyOrder);
     const stops = new SortedMap<string, ValueTypeOf<typeof NestedStop>>([[`S-${i}`, { reason: "clean", start: hours(30), end: hours(32) }]], keyOrder);
     const alarms = new SortedMap<string, ValueTypeOf<typeof NestedAlarm>>([[`A-${i}`, { code: "E7", at: hours(36 + i % 5) }]], keyOrder);
     const days = Array.from({ length: 7 }, (_, day) => new Date(MONDAY + day * DAY));
+    const notes = new SortedMap<string, ValueTypeOf<typeof NestedNote>>([[`N-${i}`, { text: "serviced", at: hours(12) }]], keyOrder);
     return {
         name: `Machine ${String(i).padStart(3, "0")}`, site: SITES[i % SITES.length]!, status: STATES[i % STATES.length]!,
         jobs, stops, alarms,
         load: new SortedMap(days.map((day, d) => [day, (i % 10) / 10 + d / 100] as const), instantOrder),
         output: new SortedMap(days.map((day, d) => [day, BigInt(100 + i + d)] as const), instantOrder),
+        notes,
     };
 }
 
@@ -143,12 +156,17 @@ function part(name: string, jobs: [string, ValueTypeOf<typeof NestedJob>][], par
     return { name, jobs: new SortedMap(jobs, keyOrder), parts: new SortedMap(parts, keyOrder) };
 }
 
+/** A job of a part, from its first and its last hour that week. */
+function partJob(product: string, from: number, to: number): ValueTypeOf<typeof NestedJob> {
+    return { product, state: "planned", start: hours(from), end: hours(to), planned_start: hours(from), planned_end: hours(to) };
+}
+
 /** An assembly of a frame holding a motor, which holds a rotor: each with a job that week. */
 export const nestedAssemblies = e3.record("nested_assemblies", DictType(StringType, NestedAssembly), new SortedMap([
     ["A-1", { name: "Pump", parts: new SortedMap([
-        ["frame", part("Frame", [["weld", { product: "frame", state: "planned", start: hours(8), end: hours(20) }]], [
-            ["motor", part("Motor", [["wind", { product: "motor", state: "planned", start: hours(26), end: hours(40) }]], [
-                ["rotor", part("Rotor", [["turn", { product: "rotor", state: "running", start: hours(50), end: hours(60) }]], [])],
+        ["frame", part("Frame", [["weld", partJob("frame", 8, 20)]], [
+            ["motor", part("Motor", [["wind", partJob("motor", 26, 40)]], [
+                ["rotor", part("Rotor", [["turn", partJob("rotor", 50, 60)]], [])],
             ])],
         ])],
     ], keyOrder) }],

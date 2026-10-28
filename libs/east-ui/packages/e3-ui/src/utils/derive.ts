@@ -35,7 +35,7 @@
  * @packageDocumentation
  */
 
-import type { EastTypeValue, IR, OptionType, PlatformIR, StringType as StringTypeOf, StructType as StructTypeOf, ValueTypeOf, VariableIR } from '@elaraai/east';
+import type { EastTypeValue, IR, NullType as NullTypeOf, OptionType, PlatformIR, StringType as StringTypeOf, StructType as StructTypeOf, ValueTypeOf, VariableIR } from '@elaraai/east';
 import {
     ArrayType, EastTypeType, StringType, StructType, constValueOf, equalFor, none, variant, walkIR,
 } from '@elaraai/east';
@@ -334,8 +334,8 @@ export function deriveUiAccess(ir: IR): UiAccess {
                         // its nested part, a nested series index it lists (#1435).
                         const indexes = call.value.type_parameters[3];
                         if (indexes?.type !== "Struct") throw new Error("data_bind_indexed requires a Struct of declared indexes");
-                        const nested = constValueOf(args[2]!) as ValueTypeOf<OptionType<StructTypeOf<{ index: StringTypeOf }>>>;
-                        const names = [...indexes.value.map(({ name }) => name), ...(nested.type === "some" ? [nested.value.index] : [])];
+                        const nested = constValueOf(args[2]!) as ValueTypeOf<OptionType<StructTypeOf<{ index: StructTypeOf<Record<string, NullTypeOf>> }>>>;
+                        const names = [...indexes.value.map(({ name }) => name), ...(nested.type === "some" ? Object.keys(nested.value.index) : [])];
                         for (const name of names) {
                             if (!record.indexes.includes(name)) record.indexes.push(name);
                         }

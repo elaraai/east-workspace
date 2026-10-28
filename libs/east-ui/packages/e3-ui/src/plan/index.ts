@@ -463,6 +463,15 @@ export {
     type PlanValuesUse,
     type PlanValuesEdit,
 } from "./reads.js";
+export {
+    type PlanNestedItemsOf,
+    type PlanNestedIndexOf,
+    type PlanNestedCollection,
+    type PlanNestedCollections,
+    type PlanRowsNestedOf,
+    type PlanNestedRefusals,
+    type PlanNestedChecked,
+} from "./nested.js";
 
 // ============================================================================
 // Namespace

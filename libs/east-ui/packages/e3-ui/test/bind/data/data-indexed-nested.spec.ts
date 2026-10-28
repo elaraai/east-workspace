@@ -69,9 +69,10 @@ describe("Data.bindPaged beside a nested series index", () => {
     test("carries each collection's declaration as structure, and the index's name, tile and summary as its value", () => {
         const source = machines();
         const nestedType = typeOf(source).fields.nested!;
-        assert.ok(isTypeEqual(nestedType, NestedPartType(MachineCollections)), "each collection by its field: what it holds, and its times by role");
+        assert.ok(isTypeEqual(nestedType, NestedPartType(MachineCollections, StructType({ machines_in_time: LEAF }))),
+            "the index's name, and each collection by its field: what it holds, and its times by role");
         const expected = some({
-            index: "machines_in_time", tile: variant("week", null), summary: some(variant("month", null)),
+            index: { machines_in_time: null }, tile: variant("week", null), summary: some(variant("month", null)),
             collections: {
                 alarms: { items: { at: { at: null } } }, jobs: { items: { from: { start: null }, to: { end: null } } },
                 load: { values: null }, output: { values: null }, stops: { items: { from: { start: null }, to: { end: null } } },
@@ -83,18 +84,19 @@ describe("Data.bindPaged beside a nested series index", () => {
     test("carries child rows' collections and their rollups, each fold a struct of its aggregates, and a recursive field and a rollup of items", () => {
         const ledgers = Data.bindPaged(ex.nestedLedgers, { indexes: [ex.ledgersByName, ex.ledgersInTime] });
         const Readings = StructType({ values: StructType({ rollup: StructType({ sum: StructType({ sum: LEAF }) }) }) });
-        assert.ok(isTypeEqual(typeOf(ledgers).fields.nested!, NestedPartType(StructType({ measures: StructType({ rows: StructType({ readings: Readings }) }) }))));
+        assert.ok(isTypeEqual(typeOf(ledgers).fields.nested!,
+            NestedPartType(StructType({ measures: StructType({ rows: StructType({ readings: Readings }) }) }), StructType({ ledgers_in_time: LEAF }))));
         const assemblies = Data.bindPaged(ex.nestedAssemblies, { indexes: [ex.assembliesByName, ex.assembliesInTime] });
         const Jobs = StructType({ items: StructType({ ...Span, rollup: LEAF }) });
         assert.ok(isTypeEqual(typeOf(assemblies).fields.nested!,
-            NestedPartType(StructType({ parts: StructType({ rows: StructType({ jobs: Jobs, parts: StructType({ recursive: LEAF }) }) }) }))));
+            NestedPartType(StructType({ parts: StructType({ rows: StructType({ jobs: Jobs, parts: StructType({ recursive: LEAF }) }) }) }), StructType({ assemblies_in_time: LEAF }))));
     });
 
     test("binds an index carrying a value of its own apart, joined as any other, and the record's rows whole", () => {
         const apart = Data.bindPaged(ex.nestedMachines, { indexes: [ex.machinesByName] });
         assert.ok(isTypeEqual(entryOf(apart).projection, StringType), "its own value");
         assert.equal(handleOf(apart).joined, true);
-        assert.ok(isTypeEqual(typeOf(apart).fields.nested!, NestedPartType(StructType({}))), "no nested part");
+        assert.ok(isTypeEqual(typeOf(apart).fields.nested!, NestedPartType(StructType({}), StructType({}))), "no nested part");
         assert.ok(equalFor(typeOf(apart).fields.nested!)(handleOf(apart).nested, none), "none");
         assert.doesNotThrow(() => Data.bindPaged(ex.nestedMachines, { index: ex.machinesByName }));
         assert.doesNotThrow(() => Data.bindPaged(ex.nestedMachines));

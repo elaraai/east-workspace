@@ -302,6 +302,13 @@ export {
     type PlanTableCellLook,
     type PlanChartPointLook,
     type PlanChartBandLook,
+    type PlanNestedItemsOf,
+    type PlanNestedIndexOf,
+    type PlanNestedCollection,
+    type PlanNestedCollections,
+    type PlanRowsNestedOf,
+    type PlanNestedRefusals,
+    type PlanNestedChecked,
 } from './plan/index.js';
 // The resources' rows a Plan of event kinds draws over a window (#1192): the
 // `blocks` seam its payload carries, made inside the payload's assembly, and

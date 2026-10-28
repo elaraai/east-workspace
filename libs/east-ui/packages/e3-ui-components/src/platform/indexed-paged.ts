@@ -20,8 +20,8 @@ import type { PagedRuntime } from "./paged-runtime.js";
 import { toFindQuery } from "./find-query.js";
 
 type Metadata = Record<string, Record<string, unknown>>;
-/** A binding's nested part (#1435): the nested series index it lists, by name, or none. */
-type Nested = ValueTypeOf<ReturnType<typeof NestedPartType<StructType>>>;
+/** A binding's nested part (#1435): the nested series index it lists, its name the one field of its `index`, or none. */
+type Nested = ValueTypeOf<ReturnType<typeof NestedPartType<StructType, StructType>>>;
 type Query = ValueTypeOf<typeof SeekQueryType>;
 type Range = ValueTypeOf<typeof SeekRangeType>;
 type Entry = { ik: unknown; key: unknown; value: unknown; row: option<unknown> };
@@ -53,7 +53,7 @@ interface Binding {
 
 /** Whether an index is the nested series index a binding lists (#1435): its entries items, totals and subtotals, read a cell at a time. */
 function isNested(nested: Nested, name: string): boolean {
-    return nested.type === "some" && nested.value.index === name;
+    return nested.type === "some" && Object.hasOwn(nested.value.index, name);
 }
 
 /** The refusal of a page or a count of a nested series index (#1435): its entries are no window of rows. */
@@ -410,7 +410,7 @@ export class IndexedPagedRuntime {
                 const pathKey = datasetPathToString(path);
                 if (allowed !== null && !allowed.has(pathKey)) throw new Error(`Data.bindPaged: source path '${pathKey}' not declared in manifest`);
                 const typeKey = printType(StructType(Object.fromEntries(schema.args.map((type, i) => [`T${i}`, type]))));
-                const listed = [...Object.keys(metadata), ...(nested.type === "some" ? [nested.value.index] : [])];
+                const listed = [...Object.keys(metadata), ...(nested.type === "some" ? Object.keys(nested.value.index) : [])];
                 const id = `${pathKey}@indexes:${listed.join(",")}${joined ? "+join" : ""}`;
                 const cacheKey = `${typeKey}:${id}`;
                 const cached = this.handles.get(cacheKey);
