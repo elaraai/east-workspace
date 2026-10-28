@@ -37,6 +37,20 @@ export interface LanePlace {
     readonly span: number;
 }
 
+/**
+ * Test-only probe — lets "an event stretches by searching each lane's events, never sweeping its cluster a lane" be
+ * asserted as the events a stretch examines (#1398, CL9). `undefined` outside tests.
+ */
+let lanesProbe: (() => void) | undefined;
+/**
+ * Install (or clear) the lanes probe. Test use only.
+ *
+ * @param fn - Called for each event a stretch examines; `undefined` clears it
+ */
+export function setLanesProbe(fn: (() => void) | undefined): void {
+    lanesProbe = fn;
+}
+
 /** Whether two half-open spans overlap. */
 function overlaps(a: LaneSpan, b: LaneSpan): boolean {
     return a.start < b.end && b.start < a.end;
@@ -78,7 +92,7 @@ export function packLanes(spans: readonly LaneSpan[]): LanePlace[] {
             const lane = laneOf.get(i)!;
             let span = 1;
             while (lane + span < lanes
-                && !cluster.some((j) => laneOf.get(j) === lane + span && overlaps(spans[i]!, spans[j]!))) {
+                && !cluster.some((j) => { lanesProbe?.(); return laneOf.get(j) === lane + span && overlaps(spans[i]!, spans[j]!); })) {
                 span += 1;
             }
             places[i] = { lane, lanes, span };

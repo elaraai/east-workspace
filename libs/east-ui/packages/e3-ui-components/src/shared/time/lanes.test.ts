@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { packLanes, type LaneSpan } from "./lanes.js";
+import { packLanes, setLanesProbe, type LaneSpan } from "./lanes.js";
 
 /** An event from one time of day to another, in minutes since midnight. */
 const ev = (from: string, to: string): LaneSpan => {
@@ -69,6 +69,27 @@ describe("packLanes", () => {
             { lane: 1, lanes: 2, span: 1 },
             { lane: 0, lanes: 2, span: 1 },
         ]);
+    });
+
+    it("stretches each event of a long cluster by searching each lane's events, never sweeping the cluster a lane (#1398, CL9)", () => {
+        // A day-long event, 20 at once at its start, then 400 a minute or two each, one after another: one cluster of 421
+        // in 21 lanes, as a year-long reservation and a press's jobs are. Each of the 400 takes lane 1 and stretches over the
+        // 19 lanes the 20 left free.
+        const spans: LaneSpan[] = [{ start: 0, end: 1440 }, ...Array.from({ length: 20 }, () => ({ start: 0, end: 10 })),
+            ...Array.from({ length: 400 }, (_, i) => ({ start: 20 + i * 3, end: 22 + i * 3 }))];
+        let examined = 0;
+        setLanesProbe(() => { examined += 1; });
+        try {
+            const places = packLanes(spans);
+            expect(places[0]).toEqual({ lane: 0, lanes: 21, span: 1 });
+            expect(places.slice(1, 21).map(place => place.lane)).toEqual(Array.from({ length: 20 }, (_, i) => i + 1));
+            expect(places.slice(21).every(place => place.lane === 1 && place.lanes === 21 && place.span === 20)).toBe(true);
+            // Each event examines the lanes to its right by a search of each lane's events, in order: a search its log.
+            const lanes = 21;
+            expect(examined).toBeLessThanOrEqual(spans.length * lanes * (Math.ceil(Math.log2(spans.length)) + 2));
+        } finally {
+            setLanesProbe(undefined);
+        }
     });
 
     it("answers in the order the events were given, whatever their times", () => {
