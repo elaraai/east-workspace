@@ -20,10 +20,10 @@
 
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi, type MockInstance } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DictType, East, PatchType, StringType, decodeBeast2For, some, type ValueTypeOf } from "@elaraai/east";
+import { DictType, East, PatchType, StringType, decodeBeast2For, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { layOut } from "@elaraai/east-ui-components/testing";
-import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
+import { Editing, Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Plan, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan-nested/plan-nested";
 import { MutationCallRequestType, type TreePath } from "@elaraai/e3-types";
@@ -749,6 +749,43 @@ describe("a gesture drafts its row whole (#1438)", () => {
         await anotherMoves("J-10001-114");
         await waitFor(() => expect(slot(c, "banners")?.textContent ?? "").toContain(editingMessages.bannerStale()));
         expect(applyButton(c).hasAttribute("disabled")).toBe(true);
+    });
+
+    test("an author's readiness check over a drafted machine sees every job of it, those out of view too, with the draft in place, and asks e3 nothing", async () => {
+        onTestFinished(emulateWindowScroll());
+        const before = await readMachines();
+        const moved = new Date(before.get("M-10001")!.jobs.get("J-10001-114")!.start.getTime() + 86_400_000);
+        // Ready only over the machine whole — its eighty jobs — with the job a day on.
+        const readyPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const record = $.const(Record.bind(ex.machines, ["patch"]));
+            const slice = $.const(Slice.bindRecords("plan.nested.dom.ready", {
+                rows: { source: Data.bindPaged(ex.machines, { indexes: ["machines_by_name", "machines_by_site_status", "machines_in_time"] }), fields: { site: { label: "Site" } } },
+            }));
+            const ready = $.const(East.function([ex.Machine, StringType], Editing.Types.Readiness, ($2, machine) => {
+                const result = $2.let(variant("invalid", [{ field: "jobs", message: "not the machine whole, or not as drafted" }]), Editing.Types.Readiness);
+                $2.if(machine.jobs.size().equal(80n).and(() => East.equal(machine.jobs.get("J-10001-114").start, moved)), ($3) => {
+                    $3.assign(result, variant("ready", null));
+                });
+                return result;
+            }));
+            return Plan({
+                axis: axis(), slice: { slice },
+                series: [Plan.series.span(ex.Machine, {
+                    key: "presses", title: "Presses", label: (m) => m.name, edit: true,
+                    runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
+                })],
+                editing: { onApply: Record.onApply(record, { keyed: true }), ready },
+            });
+        }))) };
+        const { container: c } = await h.mount(readyPlan, { drag: true });
+        await settle();
+        await dragADay(c);
+        const asked = h.requests().length;
+        await settle();
+        const row = c.querySelector<HTMLElement>(rowAt(entry("presses", "M-10001")))!;
+        expect([row.hasAttribute("data-draft"), row.hasAttribute("data-invalid"), row.hasAttribute("data-incomplete")]).toEqual([true, false, false]);
+        expect(applyButton(c).hasAttribute("disabled")).toBe(false);
+        expect(h.requests().slice(asked).filter((request) => request.dataset === MACHINES)).toEqual([]);
     });
 
     test("a machine's only job moved off it is deleted by key, never its jobs replaced", async () => {
