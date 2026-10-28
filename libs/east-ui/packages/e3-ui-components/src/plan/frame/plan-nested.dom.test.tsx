@@ -516,6 +516,49 @@ describe("a span parent's bands are its subtree's runs, as e3 files them under i
         await settle();
         expect(paged).toEqual(tops.flatMap((part) => drawnPart(whole, part)));
     });
+
+    test("past 10,000 jobs in the folded parts' subtrees in view, the parts shade from their subtrees' totals, and stay shaded", async () => {
+        onTestFinished(emulateWindowScroll());
+        type AssemblyValue = ValueTypeOf<typeof ex.Assembly>;
+        type PartValue = ValueTypeOf<typeof ex.Part>;
+        const start = (await h.read(ex.assemblies)) as ReadonlyMap<string, AssemblyValue>;
+        const a101 = start.get("A-101")!;
+        const top = a101.parts.get("P101.1")!;
+        const middle = top.parts.get("P101.1.1")!;
+        const leaf = middle.parts.get("P101.1.1.1")!;
+        // 10,500 jobs of an hour on the leaf, across January, each filed under every part above it.
+        const state = [...leaf.jobs.values()][0]!.state;
+        const JAN_5 = Date.UTC(2026, 0, 5);
+        const jobs = new Map(Array.from({ length: 10_500 }, (_, i) => [`B-${String(i).padStart(5, "0")}`, {
+            product: "batch", start: new Date(JAN_5 + (i % 600) * 3_600_000), end: new Date(JAN_5 + (i % 600 + 1) * 3_600_000), state, sheets: 1,
+        }] as const));
+        const withPart = (parts: PartValue["parts"], key: string, part: PartValue) => { const next = new Map(parts); next.set(key, part); return next; };
+        const busyMiddle = { ...middle, parts: withPart(middle.parts, "P101.1.1.1", { ...leaf, jobs }) };
+        const busyTop = { ...top, parts: withPart(top.parts, "P101.1.1", busyMiddle) };
+        const next = new Map(start);
+        next.set("A-101", { ...a101, parts: withPart(a101.parts, "P101.1", busyTop) });
+        await h.patch(ex.assemblies, next);
+        // The first half of 2026 a month at a time: the index's summary tile, which divides the bucket.
+        const months = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const assemblies = $.const(Data.bindPaged(ex.assemblies, { indexes: ["assemblies_by_line", "assemblies_in_time"] }));
+            return Plan({
+                axis: Plan.axis({ window: { min: new Date("2026-01-01T00:00:00Z"), max: new Date("2026-07-01T00:00:00Z") }, resolution: "month" }),
+                data: assemblies, series: assemblySeries(true),
+            });
+        }))) };
+        const { container } = await h.mount(months);
+        await settle();
+        const part = (key: string) => slot(container, "main")!.querySelector<HTMLElement>(rowAt(entry("parts", "A-101", key)))!;
+        // The parts draw their months shaded, no band and no run: the cap is the collection's, over every part in view.
+        for (const key of ["P101.1", "P101.2"]) {
+            expect(part(key).querySelectorAll("[data-plan-band], [data-run]")).toHaveLength(0);
+            expect(part(key).querySelectorAll("[data-cell]").length).toBeGreaterThan(0);
+        }
+        // A shaded part is drawn as heat, but reads as the parent it is: its subtree's totals, every read after.
+        const asked = h.requests().length;
+        await settle();
+        expect(h.requests().length).toBe(asked);
+    });
 });
 
 // ── A gesture drafts its row whole (#1438) ────────────────────────────────────

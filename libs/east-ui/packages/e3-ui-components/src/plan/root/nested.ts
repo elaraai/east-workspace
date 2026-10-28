@@ -296,6 +296,13 @@ function subtotals(row: PlanRowValue): boolean {
 /** Whether a row rolls its children's runs up into bands: a span declaring a rollup. */
 const rollsUp = (row: PlanRowValue): boolean => row.kind.type === "span" && row.kind.value.rollup.type === "some";
 
+/** How a parent row derives its numbers from its children's: its subtotals, or its subtree's runs rolled up into bands. */
+interface Derives {
+    readonly subtotals: boolean;
+    readonly rollsUp: boolean;
+}
+const DERIVES_NOTHING: Derives = { subtotals: false, rollsUp: false };
+
 /** The rows in view, as places among the rows laid out; the first block's before the canvas reports any. */
 function viewOf(view: PlanNestedView | undefined, visible: readonly PlanRowValue[]): { first: number; last: number } {
     if (view === undefined) return { first: 0, last: 0 };
@@ -312,10 +319,12 @@ function viewOf(view: PlanNestedView | undefined, visible: readonly PlanRowValue
  * @param args - What the reader reads over
  * @param lit - The index's literals
  * @param capped - The places past the cap, as their key prints them: their rows read totals in place of items
+ * @param derives - How a row derives its numbers from its children's: as it was drawn before the reader shaded it
  * @param summary - The summary tile, where it divides the canvas's bucket; `undefined` where none does
  * @returns The runs, each node's at a level once
  */
-function wantedCells(args: PlanNestedArgs, lit: Literals, capped: ReadonlySet<string>, summary: RecordTile | undefined): Cell[] {
+function wantedCells(args: PlanNestedArgs, lit: Literals, capped: ReadonlySet<string>, summary: RecordTile | undefined,
+    derives: (row: PlanRowValue) => Derives): Cell[] {
     const { seam, visible, index, range, resolution } = args;
     if (range === undefined) return [];
     const tile = seam.tile.type as RecordTile;
@@ -359,7 +368,8 @@ function wantedCells(args: PlanNestedArgs, lit: Literals, capped: ReadonlySet<st
             seam.uses.forEach((use, u) => {
                 if (use.parents.type !== "some" || ![...beneath].some((s) => stringEqual(s, use.series))) return;
                 const parents = use.parents.value;
-                if (!(parents.type === "subtotals" ? subtotals(row) : rollsUp(row))) return;
+                const how = derives(row);
+                if (!(parents.type === "subtotals" ? how.subtotals : how.rollsUp)) return;
                 if (parents.type === "subtotals") {
                     if (level !== undefined && subtotalRun !== undefined) {
                         add("subtotals", u, row, leaves, keys, variant("subtotals", parents.value), level, subtotalRun.from, subtotalRun.to);
@@ -556,6 +566,24 @@ class NestedCellsReader {
     } | undefined;
     /** The last cells encoded, and the entries and previews they were made from. */
     private encoded: { from: readonly (readonly Entry[])[]; previews: PlanNestedArgs["previews"]; bytes: Uint8Array } | undefined;
+    /**
+     * How each row derives its numbers from its children's, as it was last
+     * drawn unshaded, by its key; and the rows the last read shaded. A row the
+     * reader shades is drawn as heat, so what it reads for the row as a parent
+     * — its subtree past the cap, its subtotals — is decided by what the row
+     * was before it shaded: else it would read less, fall under the cap, and
+     * shade no longer, over and over.
+     */
+    private derived = new Map<string, Derives>();
+    private shadedRows: ReadonlySet<string> = new Set();
+
+    /** How a row derives its numbers from its children's: as drawn, or, while this reader shades it, as it was. */
+    private derivesOf = (row: PlanRowValue): Derives => {
+        if (this.shadedRows.has(row.key)) return this.derived.get(row.key) ?? DERIVES_NOTHING;
+        const how = { subtotals: subtotals(row), rollsUp: rollsUp(row) };
+        this.derived.set(row.key, how);
+        return how;
+    };
 
     /**
      * What the view wants, read: every part of a run whose tiles are not
@@ -581,7 +609,7 @@ class NestedCellsReader {
         const summaryTile = args.seam.summary.type === "some" ? args.seam.summary.value.type as RecordTile : undefined;
         const summary = summaryTile !== undefined && dividingTiles(args.resolution).includes(summaryTile) ? summaryTile : undefined;
         // The runs wanted, their parts not held counted; then the places past the cap, whose rows read their totals instead.
-        const first = wantedCells(args, lit, new Set(), undefined);
+        const first = wantedCells(args, lit, new Set(), undefined, this.derivesOf);
         const firstParts = this.partsOf(first, lit);
         if (!this.counted(binding, index, firstParts)) return READING;
         const items = new Map<string, number>();
@@ -590,7 +618,7 @@ class NestedCellsReader {
             items.set(cell.place, (items.get(cell.place) ?? 0) + this.countOf(cell, firstParts));
         }
         const capped = new Set([...items].filter(([, n]) => n > SCHEDULE_EVENT_CAP).map(([place]) => place));
-        const wanted = capped.size === 0 ? first : wantedCells(args, lit, capped, summary);
+        const wanted = capped.size === 0 ? first : wantedCells(args, lit, capped, summary, this.derivesOf);
         const parts = capped.size === 0 ? firstParts : this.partsOf(wanted, lit);
         if (!this.counted(binding, index, parts)) return READING;
         // Every part's entries not held, in one request: their runs in the index's order, which a read of runs asks.
@@ -805,6 +833,14 @@ class NestedCellsReader {
                 shading.set(use.series, rows);
             }
         }
+        // The rows shaded now: their totals read, or hatched.
+        const shadedRows = new Set(cells.flatMap((cell) => (cell.kind === "totals" ? [cell.row.key] : [])));
+        for (const notice of notices) {
+            for (const row of args.visible) {
+                if (row.id.type === "entry" && args.seam.uses.some((use) => samePlace(use.place, notice.place) && stringEqual(use.series, row.id.value.series))) shadedRows.add(row.key);
+            }
+        }
+        this.shadedRows = shadedRows;
         return { cells: bytes, shading: shading as unknown as PlanNestedShadingValue, parents, notices };
     }
 }
