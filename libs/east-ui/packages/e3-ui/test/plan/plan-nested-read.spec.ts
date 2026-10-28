@@ -114,6 +114,20 @@ describe("A Plan over paged rows carries what it reads of their nested series in
         ] as Uses);
     });
 
+    test("a table's parent subtotalling its children's cells by their sum, as the row folds them", () => {
+        const ledgerTable = [Plan.series.table(ex.NestedLedger, {
+            key: "ledgers", title: "Ledgers", label: (l) => l.name,
+            children: Plan.children("measures", [Plan.series.table(ex.NestedMeasure, {
+                key: "readings", title: "Readings", label: (m) => m.name,
+                cells: Plan.tableCells(Plan.values("readings", (v) => ({ value: some(v) }))),
+            })]),
+        })] as unknown as PlanSeriesValue[];
+        seamBoth(ledgerTable, ledgers, "ledgers_in_time", [
+            { series: "readings", place: ["measures", "readings"], levels: week, shade: variant("fold", variant("sum", null)),
+                parents: some(variant("subtotals", { fold: variant("sum", null), aggregate: variant("sum", null) })) },
+        ] as Uses);
+    });
+
     test("rows paged whole read no index", () => {
         const whole = () => Data.bindPaged(ex.nestedMachines);
         const series = [Plan.series.span(Machine, { key: "presses", title: "Presses", label: (m) => m.name, runs: () => [] })] as unknown as PlanSeriesValue[];

@@ -3769,6 +3769,9 @@ export function createSeriesTable<
         ? East.value(some(resolveTag(cfg.aggregate ?? "sum", TableAggregateType)), OptionType(TableAggregateType))
         : East.value(none, OptionType(TableAggregateType));
     const cells = consumerField(rowType, cfg.cells, "tableCells", where, "cells");
+    // Its cells fold as the row declares, `sum` unless it says (#1436): what a parent subtotals them by (#1435, #1438).
+    const rowFold = tagOf(cfg.fold, "sum") as PlanFoldLiteral | undefined;
+    const cellReads = (cells?.reads ?? []).map((read) => (read.fold !== undefined || rowFold === undefined ? read : { ...read, fold: rowFold }));
     const positions = listField(rowType, cfg.series, "tableSeries", where, "series");
     // The positions a typed number writes (#1436), each read checked as it built above.
     const values = tableEditsOf(rowType, cfg, where);
@@ -3782,7 +3785,7 @@ export function createSeriesTable<
             ...(cfg.format !== undefined ? { format: cfg.format } : {}),
             ...(cfg.emphasis !== undefined ? { emphasis: cfg.emphasis } : {}),
         }, aggregate),
-        reads: [...(cells?.reads ?? []), ...(positions?.reads ?? [])],
+        reads: [...cellReads, ...(positions?.reads ?? [])],
         values,
         // Its row derives its children's numbers by its aggregate: a tree's own values, or a step-down's (#1435).
         ...(cfg.children !== undefined ? { aggregate: tagOf(cfg.aggregate, "sum"), subtotalsOwn: true } : {}),

@@ -165,6 +165,22 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
             'week up — declare tile: "day", or drop "auto" from the axis\'s resolutions', ["auto"]);
     });
 
+    /** The ledgers a table, subtotalling its measures' readings by its aggregate: their cells folding as the row declares, by their sum. */
+    const ledgerTable = (aggregate: "sum" | "mean"): PlanSeriesValue[] => [Plan.series.table(ex.NestedLedger, {
+        key: "ledgers", title: "Ledgers", label: (l) => l.name, aggregate,
+        children: Plan.children("measures", [Plan.series.table(ex.NestedMeasure, {
+            key: "readings", title: "Readings", label: (m) => m.name,
+            cells: Plan.tableCells(Plan.values("readings", (v) => ({ value: some(v) }))),
+        })]),
+    })] as unknown as PlanSeriesValue[];
+
+    test("holds a table's subtotal to the rollups the index keeps, its cells folding by their sum as the row declares", () => {
+        admittedBoth(ledgerTable("sum"), ledgers);
+        refusedBoth(ledgerTable("mean"), ledgers,
+            'Plan: series "readings" subtotals "measures.readings" by { fold: "sum", aggregate: "mean" }, and "ledgers_in_time" keeps it by sum — add ' +
+            'the rollup: index.nested.values({ rollup: ["sum", { fold: "sum", aggregate: "mean" }] }), or subtotal it by sum');
+    });
+
     test("admits a span rolling up runs the index files under each parent, and refuses one it files under none", () => {
         admittedBoth([Plan.series.group(ex.NestedAssembly, {
             key: "assemblies", title: "Assemblies", label: (a) => a.name,
