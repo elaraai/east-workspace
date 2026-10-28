@@ -24,6 +24,7 @@ import { useState, type ReactNode } from "react";
 import { system } from "../../theme/index.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
 import { pointAt } from "../../testing/drag-layer.js";
+import type { ToolbarItem } from "../../toolbar/index.js";
 import { BuilderFrame, type BuilderFrameDock, type BuilderFrameProps } from "./index.js";
 
 // ── jsdom's layout, laid out by the test ────────────────────────────────────
@@ -433,6 +434,54 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         fireEvent.click(screen.getByRole("button", { name: "IN MAIN" }));
         fireEvent.click(screen.getByRole("button", { name: "IN MAIN" }));
         expect([clicks, paneOf("start")]).toEqual([2, ["overlay", false]]);
+    });
+});
+
+describe("BuilderFrame — drawn again by its host (#1398, CL9)", () => {
+    test("drawn again — as a builder's frame is at every window landing — it works out none of its recipe's styles again, nor its toolbar's, and the toolbar handed the same items draws and measures nothing again; new items it measures", () => {
+        // Each slot recipe's styles worked out from here on, by the recipe's class name: each call of a recipe `sva` made.
+        const worked: string[] = [];
+        const sva = system.sva.bind(system);
+        vi.spyOn(system, "sva").mockImplementation((config) => {
+            const styles = sva(config);
+            return Object.assign((props?: Parameters<typeof styles>[0]) => {
+                worked.push(String(config.className));
+                return styles(props);
+            }, styles);
+        });
+        // Each element the toolbar measures.
+        const measured: Element[] = [];
+        const rectOf = Element.prototype.getBoundingClientRect;
+        vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+            if (this.closest("[data-toolbar]") !== null) measured.push(this);
+            return rectOf.call(this);
+        });
+        const items: ToolbarItem[] = [
+            { key: "name", forms: [<span>Untitled</span>] },
+            { key: "save", side: "end", forms: [<button type="button">Save</button>] },
+        ];
+        let toolbar = items;
+        let draw = (): void => undefined;
+        function Host() {
+            const [, setDrawn] = useState(0);
+            draw = () => setDrawn((n) => n + 1);
+            return <BuilderFrame storageKey="frame-test" toolbar={toolbar} start={library()}>{MAIN}</BuilderFrame>;
+        }
+        render(<ChakraProvider value={system}><Host /></ChakraProvider>);
+        expect(slot("toolbar").querySelector("[data-toolbar-item=name]")!.textContent).toBe("Untitled");
+        const ofFrame = () => worked.filter((name) => name === "elara-builder-frame" || name === "elara-toolbar");
+        worked.length = 0;
+        measured.length = 0;
+        // Drawn again twice, its items the same.
+        act(() => { draw(); });
+        act(() => { draw(); });
+        expect(ofFrame()).toEqual([]);
+        expect(measured).toEqual([]);
+        // Items made anew may have moved: the toolbar measures them.
+        toolbar = [...items];
+        act(() => { draw(); });
+        expect(measured.length).toBeGreaterThan(0);
+        expect(ofFrame()).toEqual([]);
     });
 });
 

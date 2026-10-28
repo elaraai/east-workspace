@@ -124,6 +124,20 @@ test("the item is keyed seek, on the side it is given, its one step at its rank 
     expect(plain.result.current?.rank).toBe(100);
 });
 
+test("drawn again with the same search and words, the item is the very item: a builder drawn again as each window lands hands its toolbar the same one, which draws and measures nothing again for it (#1398, CL9)", () => {
+    const source = search();
+    const { result, rerender } = renderHook(({ given }) => useKeySearchToolbarItem(given, { rank: 20, label: "Find a job" }),
+        { wrapper: ({ children }) => wrap(children), initialProps: { given: source } });
+    const first = result.current;
+    expect(first?.key).toBe("seek");
+    rerender({ given: source });
+    rerender({ given: source });
+    expect(result.current).toBe(first);
+    // A search keyed afresh is another item: its box starts empty.
+    rerender({ given: search("r2") });
+    expect(result.current).not.toBe(first);
+});
+
 test("the box, then its icon: the search folds at its rank, after the row's other items", () => {
     // The whole row: 300 + 200 + 10.
     const view = mount(510, search());
