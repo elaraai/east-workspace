@@ -156,8 +156,11 @@ type RollupWords<R> =
     R extends { readonly fold: infer F extends string; readonly aggregate: infer A extends string }
         ? ([F] extends [A] ? ([A] extends [F] ? F : `{ fold: "${F}", aggregate: "${A}" }`) : `{ fold: "${F}", aggregate: "${A}" }`)
         : never;
-/** A rollup as code: `{ fold: "sum", aggregate: "mean" }`. */
-type RollupCode<R> = R extends { readonly fold: infer F extends string; readonly aggregate: infer A extends string } ? `{ fold: "${F}", aggregate: "${A}" }` : never;
+/** A rollup as code: `"sum"`, where its fold and its aggregate are one, else `{ fold: "sum", aggregate: "mean" }`. */
+type RollupCode<R> =
+    R extends { readonly fold: infer F extends string; readonly aggregate: infer A extends string }
+        ? ([F] extends [A] ? ([A] extends [F] ? `"${F}"` : `{ fold: "${F}", aggregate: "${A}" }`) : `{ fold: "${F}", aggregate: "${A}" }`)
+        : never;
 /** How a nested series index declares a collection, as code. */
 type DeclarationCode<D> =
     D extends { kind: "items"; times: infer T; rollup: infer R } ? `items(${TimesCode<T>}${R extends true ? ", { rollup: true }" : ""})`
@@ -192,6 +195,8 @@ type ValuesRefusal<V, D, Place extends string, Name extends string> =
             ? ([R] extends [never]
                 ? `Plan: a series subtotals "${Place}" by ${RollupWords<U>}, and "${Name}" keeps no subtotals of it — declare it e3.recordIndex.series.values({ rollup: ${RollupCode<U>} })`
                 : [U] extends [R] ? never
+                // A count is the index's count, whatever its values fold to.
+                : U extends { readonly aggregate: "count" } ? ([Extract<R, { readonly aggregate: "count" }>] extends [never] ? RollupKept<R, U, Place, Name> : never)
                 : RollupKept<R, U, Place, Name>)
             : never
     : D extends { kind: "items"; times: infer DT }

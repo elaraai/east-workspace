@@ -21,7 +21,7 @@ import { toFindQuery } from "./find-query.js";
 
 type Metadata = Record<string, Record<string, unknown>>;
 /** A binding's nested part (#1435): the nested series index it lists, its name the one field of its `index`, or none. */
-type Nested = ValueTypeOf<ReturnType<typeof NestedPartType<StructType, StructType>>>;
+type Nested = ValueTypeOf<ReturnType<typeof NestedPartType<StructType, StructType, StructType, StructType>>>;
 type Query = ValueTypeOf<typeof SeekQueryType>;
 type Range = ValueTypeOf<typeof SeekRangeType>;
 type Entry = { ik: unknown; key: unknown; value: unknown; row: option<unknown> };

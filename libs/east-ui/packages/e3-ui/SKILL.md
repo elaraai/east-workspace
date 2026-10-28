@@ -360,12 +360,21 @@ is refused, and so is an index with a `value` of its own beside it, which is
 bound apart. A row is read whole by its key. The binding's type carries how
 each collection is declared (what it holds, its times, its rollups), and the
 nested index's own entries — items, totals and subtotals — are read a cell at a
-time: a page or a count of it is refused. A `<Plan>` given such a binding as
-`data`, or a Slice whose `rows` source is one, holds its `series` to the index
-in the editor: a series reading a collection the index does not declare, by
-other times than it files by, items as values, a subtotal by a rollup it does
-not keep, or runs rolled up that it files under no parent, fails to compile,
-the error naming the index and what to write.
+time: a page or a count of it is refused. A component given an indexed binding
+as `data` reads its unfiltered view, a page at a time in its default index's
+order. A `<Plan>` given such a binding as `data`, or a Slice whose `rows`
+source is one, holds its `series` to the index in the editor: a series reading
+a collection the index does not declare, by other times than it files by,
+items as values, a subtotal by a rollup it does not keep, or runs rolled up
+that it files under no parent, fails to compile, the error naming the index and
+what to write. The Plan holds them again as it is built, a series list held in
+a variable too, and refuses as well a function of the row mapping a collection
+the page carries empty (a function it cannot see into, given the row, is
+refused rather than guessed), a subtotal of values drawn as another number than
+stored or at a resolution finer than the index's tile, a read by name where the
+binding lists no nested series index or on an axis other than time, and an
+index keeping no totals. Rows paged whole (`Data.bindPaged(dataset)`) are read
+as before.
 
 **A builder narrows through `Slice.bindRecords` alone** (#1340): one rail on
 its toolbar, `Slice.bindRecords(key, { [source]: { source:

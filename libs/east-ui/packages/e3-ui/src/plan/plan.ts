@@ -98,6 +98,7 @@ import {
 } from "./types.js";
 import { WINDOWLESS_AXES, axisKindOf, linkEventKinds } from "./builders.js";
 import { buildPlanRoot, type PlanConfig } from "./root.js";
+import { nestedPartOf } from "./nested-checks.js";
 import { overSeriesKeys, type PlanOverRows } from "./over.js";
 import { planSeriesKeys, type PlanSeriesInput } from "./series.js";
 import type { PlanNestedChecked, PlanRowsNestedOf } from "./nested.js";
@@ -553,8 +554,11 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
                 `and these are keyed by ${printType(kind.keyType)}`);
         }
     }
-    // The `rows` source gives the canvas its rows, paged from it in its index's order (#1344).
+    // The `rows` source gives the canvas its rows, paged from it in its index's order (#1344), held to its record's
+    // nested series index, its type's (#1435).
     const pagesRows = sources.names.includes(ROWS);
+    const rowsNested = pagesRows && narrowing !== undefined
+        ? nestedPartOf(Expr.type(East.value(narrowing.slice) as Expr) as EastType) : undefined;
     if (pagesRows && canvas.data !== undefined) {
         throw new Error("Plan: `slice`'s `rows` source gives the canvas its rows, paged from it — leave `data` out: " +
             "data={Slice.rows(slice)} is gone, and the Plan reads its rows from the slice: slice={{ slice }}");
@@ -638,6 +642,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
             { ...canvas, data, axis, links, ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
             rows === undefined ? (events !== undefined && data === undefined ? East.value([], PlanBlocksType) : undefined) : rowsBlocks(rows),
             sources.chrome,
+            rowsNested,
         );
         if (events !== undefined) {
             checkPagedKinds(resourceKinds, data);

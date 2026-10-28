@@ -39,6 +39,9 @@ const handleOf = (source: unknown) => East.compile(East.function([], typeOf(sour
 
 /** Each collection's leaf: a role's field, or a kind holding nothing more. */
 const LEAF = NullType;
+/** The machines' tile and summary tile, as a binding carries them. */
+const WEEK = StructType({ week: LEAF });
+const MONTH = StructType({ month: LEAF });
 /** An item's times from `start` to `end`, as a binding carries them. */
 const Span = { from: StructType({ start: LEAF }), to: StructType({ end: LEAF }) };
 /** How the machines' binding carries each collection the nested index files. */
@@ -69,10 +72,10 @@ describe("Data.bindPaged beside a nested series index", () => {
     test("carries each collection's declaration as structure, and the index's name, tile and summary as its value", () => {
         const source = machines();
         const nestedType = typeOf(source).fields.nested!;
-        assert.ok(isTypeEqual(nestedType, NestedPartType(MachineCollections, StructType({ machines_in_time: LEAF }))),
-            "the index's name, and each collection by its field: what it holds, and its times by role");
+        assert.ok(isTypeEqual(nestedType, NestedPartType(MachineCollections, StructType({ machines_in_time: LEAF }), WEEK, MONTH)),
+            "the index's name, tile and summary, and each collection by its field: what it holds, and its times by role");
         const expected = some({
-            index: { machines_in_time: null }, tile: variant("week", null), summary: some(variant("month", null)),
+            index: { machines_in_time: null }, tile: { week: null }, summary: { month: null },
             collections: {
                 alarms: { items: { at: { at: null } } }, jobs: { items: { from: { start: null }, to: { end: null } } },
                 load: { values: null }, output: { values: null }, stops: { items: { from: { start: null }, to: { end: null } } },
@@ -85,18 +88,18 @@ describe("Data.bindPaged beside a nested series index", () => {
         const ledgers = Data.bindPaged(ex.nestedLedgers, { indexes: [ex.ledgersByName, ex.ledgersInTime] });
         const Readings = StructType({ values: StructType({ rollup: StructType({ sum: StructType({ sum: LEAF }) }) }) });
         assert.ok(isTypeEqual(typeOf(ledgers).fields.nested!,
-            NestedPartType(StructType({ measures: StructType({ rows: StructType({ readings: Readings }) }) }), StructType({ ledgers_in_time: LEAF }))));
+            NestedPartType(StructType({ measures: StructType({ rows: StructType({ readings: Readings }) }) }), StructType({ ledgers_in_time: LEAF }), WEEK, MONTH)));
         const assemblies = Data.bindPaged(ex.nestedAssemblies, { indexes: [ex.assembliesByName, ex.assembliesInTime] });
         const Jobs = StructType({ items: StructType({ ...Span, rollup: LEAF }) });
         assert.ok(isTypeEqual(typeOf(assemblies).fields.nested!,
-            NestedPartType(StructType({ parts: StructType({ rows: StructType({ jobs: Jobs, parts: StructType({ recursive: LEAF }) }) }) }), StructType({ assemblies_in_time: LEAF }))));
+            NestedPartType(StructType({ parts: StructType({ rows: StructType({ jobs: Jobs, parts: StructType({ recursive: LEAF }) }) }) }), StructType({ assemblies_in_time: LEAF }), WEEK, MONTH)));
     });
 
     test("binds an index carrying a value of its own apart, joined as any other, and the record's rows whole", () => {
         const apart = Data.bindPaged(ex.nestedMachines, { indexes: [ex.machinesByName] });
         assert.ok(isTypeEqual(entryOf(apart).projection, StringType), "its own value");
         assert.equal(handleOf(apart).joined, true);
-        assert.ok(isTypeEqual(typeOf(apart).fields.nested!, NestedPartType(StructType({}), StructType({}))), "no nested part");
+        assert.ok(isTypeEqual(typeOf(apart).fields.nested!, NestedPartType(StructType({}), StructType({}), StructType({}), StructType({}))), "no nested part");
         assert.ok(equalFor(typeOf(apart).fields.nested!)(handleOf(apart).nested, none), "none");
         assert.doesNotThrow(() => Data.bindPaged(ex.nestedMachines, { index: ex.machinesByName }));
         assert.doesNotThrow(() => Data.bindPaged(ex.nestedMachines));

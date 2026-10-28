@@ -61,6 +61,7 @@ import {
     StructType,
     VariantType,
     isTypeEqual,
+    isVariant,
     printFor,
     printTypeSummary,
     toEastTypeValue,
@@ -1086,6 +1087,8 @@ interface PlanSeriesSpec {
     readonly charts: number | undefined;
     /** The named reads its own fields make (#1436) — its nested series' are theirs. */
     readonly reads: readonly PlanSeriesRead[];
+    /** What a Plan holds to its rows' nested series index as it is built (#1435); none for hand-built rows. */
+    readonly nest?: PlanSeriesNest;
     /** This series' rows for entries of `collection`, as ONE stream — what an
      *  entry's subtree holds when a step-down lays the series out below it. */
     emitter(collection: EastType, where: string): EmitFn;
@@ -1105,8 +1108,105 @@ interface PlanSeriesSpec {
     ownFor?(key: EastType): OwnEditFn | undefined;
 }
 
+/**
+ * What a series reads and how, as its build records it beside its spec
+ * (#1435): what a Plan holds to its rows' nested series index as it is built,
+ * whatever TypeScript could see.
+ *
+ * @internal
+ */
+export interface PlanSeriesNest {
+    /** The entry type its accessors read; none for a section, which reads nothing of its own. */
+    readonly rowType: EastType | undefined;
+    /** Its entries' key type, as its accessors take it. */
+    readonly keyType: EastType;
+    /** Each of its config's functions of the row, by the field it is given as: what a Plan walks for a collection read in a function. */
+    readonly accessors: readonly { readonly via: string; readonly fn: (node: ExprType<EastType>, key: ExprType<EastType>) => unknown }[];
+    /** A tree's field: more of its own entries, beneath each. */
+    readonly tree: string | undefined;
+    /** Each step-down: the field it steps down to, or the function of the row computing its rows, and its series. */
+    readonly steps: readonly PlanSeriesNestStep<PlanSeriesSpec>[];
+    /** The series over its own entries: a section's or a views' members. */
+    readonly members: readonly PlanSeriesSpec[];
+    /** The aggregate its row derives its children's numbers by: a heat's or a table's, a group's `summaryAggregate`. */
+    readonly aggregate: string | undefined;
+    /** Whether the aggregate subtotals its own values over a tree (a heat's, a table's), and not only a step-down's (a group's). */
+    readonly subtotalsOwn: boolean;
+    /** What its runs roll up into its bands by: a span's, with children or a `rollup` declared. */
+    readonly rollup: string | undefined;
+}
+
+/**
+ * One step-down of a series (#1435): the field it steps down to, or the
+ * function of the row computing its rows, and its series.
+ *
+ * @typeParam S - What each series is given as
+ * @internal
+ */
+export interface PlanSeriesNestStep<S> {
+    /** The field of the row holding the child rows; none for computed ones. */
+    readonly field: string | undefined;
+    /** The function of the row computing them, where they are computed. */
+    readonly of: ((node: ExprType<EastType>, key: ExprType<EastType>) => unknown) | undefined;
+    /** Its series. */
+    readonly series: readonly S[];
+}
+
+/**
+ * The facts a Plan holds to its rows' nested series index (#1435), off the
+ * spec a `Plan.series.*` builder recorded.
+ *
+ * @internal
+ */
+export interface PlanSeriesNestFacts {
+    /** The series' key. */
+    readonly key: string;
+    /** Its kind. */
+    readonly arm: PlanSeriesArm;
+    /** The named reads its own fields make. */
+    readonly reads: readonly PlanSeriesRead[];
+    /** What it reads and how. */
+    readonly nest: PlanSeriesNest | undefined;
+}
+
 /** Every series value a builder made, with its build spec. */
 const SPECS = new WeakMap<object, PlanSeriesSpec>();
+
+/** A spec's facts for the nested checks (#1435). */
+function nestFactsOf(spec: PlanSeriesSpec): PlanSeriesNestFacts {
+    return { key: spec.key, arm: spec.arm, reads: spec.reads, nest: spec.nest };
+}
+
+/**
+ * The facts a Plan holds to its rows' nested series index (#1435), of a
+ * series value a `Plan.series.*` builder made, and of each series its spec
+ * nests: `facts(spec)` for any of them.
+ *
+ * @param series - The series value
+ * @returns Its facts; `undefined` for a value no builder made in place (a bound, picked or stored one)
+ * @internal
+ */
+export function planSeriesNestOf(series: unknown): PlanSeriesNestFacts | undefined {
+    const spec = specOf(series);
+    return spec === undefined ? undefined : nestFactsOf(spec);
+}
+
+/**
+ * The facts of the series a spec nests (#1435), as {@link planSeriesNestOf} gives them.
+ *
+ * @param nest - A series' nest
+ * @returns Its step-downs' series and its members, each with its facts
+ * @internal
+ */
+export function planNestedSeriesFacts(nest: PlanSeriesNest): {
+    readonly steps: readonly PlanSeriesNestStep<PlanSeriesNestFacts>[];
+    readonly members: readonly PlanSeriesNestFacts[];
+} {
+    return {
+        steps: nest.steps.map((step) => ({ field: step.field, of: step.of, series: step.series.map(nestFactsOf) })),
+        members: nest.members.map(nestFactsOf),
+    };
+}
 
 /** The spec of a series value a `Plan.series.*` builder made, if it was one. */
 function specOf(s: unknown): PlanSeriesSpec | undefined {
@@ -1336,6 +1436,12 @@ interface KindRecipe {
     reads?: readonly PlanSeriesRead[];
     /** The table positions whose values take typed numbers (#1436). */
     values?: readonly ValuesEditRecipe[];
+    /** The aggregate its row derives its children's numbers by (#1435): a heat's or a table's, a group's `summaryAggregate`; unknown for one given in East. */
+    aggregate?: string | undefined;
+    /** Whether the aggregate subtotals its own values over a tree (#1435): a heat's or a table's, not a group's. */
+    subtotalsOwn?: boolean;
+    /** What its runs roll up into its bands by (#1435): a span's, with children or a `rollup` declared; unknown for one given in East. */
+    rollup?: string | undefined;
 }
 
 /** A table position whose values take typed numbers (#1436): where it sits, and the read naming its collection. */
@@ -1464,6 +1570,10 @@ export interface PlanSeriesRead {
     readonly read: PlanReadSpec;
     readonly key: EastType;
     readonly via: string;
+    /** The fold its consumer folds a bucket's values by, where a consumer takes the read (#1435): what a parent subtotals them by. */
+    readonly fold?: PlanFoldLiteral;
+    /** Whether a table position is flagged to feed its parent's subtotal (#1435). */
+    readonly flagged?: boolean;
 }
 
 /** An East type's name as a message reads it: `an Array`, `a Dict`. */
@@ -1780,9 +1890,11 @@ const CONSUMER_HINTS: Record<PlanValuesUseSpec["makes"], string> = {
 function useField(rowType: EastType, use: PlanValuesUseSpec, makes: PlanValuesUseSpec["makes"], where: string, via: string): RowField {
     if (use.makes !== makes) throw new Error(`${where}: ${via} takes ${CONSUMER_HINTS[makes]}`);
     const built = buildRead(rowType, use.read, use.cell, where);
+    // The consumer's fold and flag beside the read (#1435): what a parent subtotals its values by.
+    const read: PlanSeriesRead = { ...readRecord(rowType, use.read, via, where), ...(use.fold !== undefined ? { fold: use.fold } : {}), flagged: use.rollup };
     return {
         at: (node, _key, value) => use.wrap(built(collectionOn(node, use.read.field), value) as ExprType<EastType>),
-        reads: [readRecord(rowType, use.read, via, where)],
+        reads: [read],
     };
 }
 
@@ -1883,18 +1995,19 @@ function tableEditsOf(rowType: EastType, cfg: { readonly cells?: unknown; readon
 type TypedValueKind = "float" | "option" | "integer";
 
 /**
- * Refuse a typed position whose cells draw another number than each value
- * (#1436): a typed number is stored as the value, so each value must draw as
- * it is — a `Float`'s `some(v)` (or `v`), an `Option` of a `Float`'s `v`, an
- * `Integer`'s `some(v.toFloat())` (or `v.toFloat()`). Read off the draw's
+ * Whether a values read's cells draw each value as it is stored (#1436,
+ * #1435): a `Float`'s `some(v)` (or `v`), an `Option` of a `Float`'s `v`, an
+ * `Integer`'s `some(v.toFloat())` (or `v.toFloat()`) — what a typed number is
+ * written as, and what e3 keeps a parent's subtotals of. Read off the draw's
  * expression, as an accessor's field is (`childRefOf`).
  *
  * @param rowType - The entry type
- * @param read - The position's values read
- * @param where - The series, for the message
- * @throws {Error} In the refusal's words
+ * @param read - The values read
+ * @param where - The series, for messages
+ * @returns Whether each value draws as it is stored
+ * @internal
  */
-function refuseDrawnOtherwise(rowType: EastType, read: PlanValuesReadSpec, where: string): void {
+export function drawsAsStored(rowType: EastType, read: PlanValuesReadSpec, where: string): boolean {
     const shape = collectionOfRead(rowType, read, where);
     const kind: TypedValueKind | undefined = isTypeEqual(shape.item, FloatType) ? "float"
         : isTypeEqual(shape.item, OptionType(FloatType)) ? "option"
@@ -1921,15 +2034,67 @@ function refuseDrawnOtherwise(rowType: EastType, read: PlanValuesReadSpec, where
             return null;
         });
     }
-    if (!asStored) {
+    return asStored;
+}
+
+/**
+ * Refuse a typed position whose cells draw another number than each value
+ * (#1436): a typed number is stored as the value, so each value must draw as
+ * it is ({@link drawsAsStored}).
+ *
+ * @param rowType - The entry type
+ * @param read - The position's values read
+ * @param where - The series, for the message
+ * @throws {Error} In the refusal's words
+ */
+function refuseDrawnOtherwise(rowType: EastType, read: PlanValuesReadSpec, where: string): void {
+    if (!drawsAsStored(rowType, read, where)) {
         throw new Error(
             `${where}: edit writes a typed number as its readings, and its cells draw another number than each reading — ` +
             "draw value: some(v), and show it another way through format");
     }
 }
 
+/**
+ * A tag given as a literal — its name, or a variant value's case — as the
+ * build reads it (#1435); `undefined` for an East expression, known only as
+ * the Plan is evaluated.
+ *
+ * @param given - The tag, as given
+ * @param fallback - Its default, where it is not given
+ * @returns Its name, or `undefined`
+ */
+function tagOf(given: unknown, fallback: string): string | undefined {
+    if (given === undefined) return fallback;
+    if (typeof given === "string") return given;
+    return isVariant(given) ? given.type : undefined;
+}
+
 /** Erase a config's entry type for the untyped build machinery. */
 type AnyRowConfig = Omit<PlanSeriesRowConfig<EastType, EastType>, "children"> & { children?: unknown };
+
+/**
+ * A series config's functions of the row (#1435), each by the field it is
+ * given as — its accessors, its element fields and its consumers given as
+ * functions, and a list's members that are — what a Plan walks for a
+ * collection read in a function.
+ *
+ * @param cfg - The config, as given
+ * @returns Its functions of the row
+ */
+function accessorsOf(cfg: object): PlanSeriesNest["accessors"] {
+    type Accessor = PlanSeriesNest["accessors"][number]["fn"];
+    const out: { via: string; fn: Accessor }[] = [];
+    for (const [via, value] of Object.entries(cfg)) {
+        if (typeof value === "function") out.push({ via, fn: value as Accessor });
+        else if (Array.isArray(value)) {
+            value.forEach((member: unknown, i) => {
+                if (typeof member === "function") out.push({ via: `${via}[${i}]`, fn: member as Accessor });
+            });
+        }
+    }
+    return out;
+}
 
 /**
  * Refuse a tree's `children` field that is not a Dict of the row's own type,
@@ -2549,6 +2714,20 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         nests: children !== undefined,
         charts,
         reads: recipe.reads ?? [],
+        nest: {
+            rowType,
+            keyType: cfg.keyType ?? StringType,
+            accessors: accessorsOf(cfg),
+            tree: treeField,
+            steps: steps.map((step, i) => ({
+                field: step.field, of: step.of as PlanSeriesNestStep<PlanSeriesSpec>["of"],
+                series: step.series.map((x) => nestedSpec(x, `${where} › children[${i}]`)),
+            })),
+            members: [],
+            aggregate: recipe.aggregate,
+            subtotalsOwn: recipe.subtotalsOwn === true,
+            rollup: recipe.rollup,
+        },
         emitter(collection, at) {
             return emitters.get(collection, () => {
                 const { entry, key: kt } = shapeOf(collection, at);
@@ -2838,6 +3017,8 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
         nests: cfg.children !== undefined,
         charts,
         reads: [],
+        // Its members read its own entries; its children are the host envelope's (#1435).
+        nest: { ...host.nest!, members: memberSpecs },
         emitter(collection, at) {
             return emitters.get(collection, () => {
                 const { entry, key: kt } = shapeOf(collection, at);
@@ -2979,6 +3160,11 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
         // Each entry makes its members' rows; the header is no entry's (#1398).
         charts: chartsOf(memberSpecs),
         reads: [],
+        // Its members read the section's entries; it reads nothing of its own (#1435).
+        nest: {
+            rowType: undefined, keyType: StringType, accessors: [], tree: undefined, steps: [], members: memberSpecs,
+            aggregate: undefined, subtotalsOwn: false, rollup: undefined,
+        },
         emitter(collection, at) {
             return emitters.get(collection, () => {
                 const blocks = memberSpecs.map((m) => m.emitter(collection, `${at} › ${where}`));
@@ -3500,6 +3686,8 @@ export function createSeriesSpan<
                 () => East.value(none, OptionType(PlanRollupType)))),
         edit,
         reads: [...runs.reads, ...(decisions?.reads ?? []), ...(ports?.reads ?? [])],
+        // Its runs roll up into its bands where it has children or declares a rollup (#1435).
+        ...(cfg.children !== undefined || cfg.rollup !== undefined ? { rollup: tagOf(cfg.rollup, "union") } : {}),
     });
     return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanSpanReads<UR, UD, UP, CT, CU, CF, CS, RL>>;
 }
@@ -3540,6 +3728,8 @@ export function createSeriesHeat<
             ...(cfg.scale !== undefined ? { scale: cfg.scale } : {}),
         }, aggregate),
         reads: cells?.reads ?? [],
+        // Its row derives its children's numbers by its aggregate: a tree's own values, or a step-down's (#1435).
+        ...(cfg.children !== undefined ? { aggregate: tagOf(cfg.aggregate, "mean"), subtotalsOwn: true } : {}),
     });
     return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanHeatReads<UC, FO, A, CT, CU, CF, CS>> & PlanFoldsBrand<PlanFoldsOf<UC, FO>>;
 }
@@ -3594,6 +3784,8 @@ export function createSeriesTable<
         }, aggregate),
         reads: [...(cells?.reads ?? []), ...(positions?.reads ?? [])],
         values,
+        // Its row derives its children's numbers by its aggregate: a tree's own values, or a step-down's (#1435).
+        ...(cfg.children !== undefined ? { aggregate: tagOf(cfg.aggregate, "sum"), subtotalsOwn: true } : {}),
     });
     return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanTableReads<UC, S, FO, A, CT, CU, CF, CS>>
         & PlanFoldsBrand<PlanReadsNormal<PlanFoldsOf<UC, FO> & PlanPositionsFolds<S>>>;
@@ -3815,6 +4007,8 @@ export function createSeriesGroup<
             variant("cells", East.value(summary!.at(node, key, value) as SubtypeExprOrValue<PlanHeatCellsType>, PlanHeatCellsType)),
             PlanGroupSummaryType)),
         reads: summary?.reads ?? [],
+        // Its strip derives its members' numbers by its summaryAggregate (#1435).
+        ...(cfg.summaryAggregate !== undefined ? { aggregate: tagOf(cfg.summaryAggregate, "mean") } : {}),
     });
     return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<US & PlanChildrenReads<CT, CU, CF, CS, A>>>;
 }

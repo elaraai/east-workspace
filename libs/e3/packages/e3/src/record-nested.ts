@@ -220,13 +220,13 @@ export type PlacesOf<V, C> = VariantType<{
 
 /**
  * What a nested series index's definition carries for its binding (#1435): its
- * collections as written, its tile and summary tile, and its declaration as an
- * East value, the field names as data.
+ * collections as written, its tile and summary tile as written, and its
+ * declaration as an East value, the field names as data.
  */
 export interface NestedOf<S> {
   readonly collections: S extends { collections: infer C } ? C : never;
-  readonly tile: RecordTile;
-  readonly summary: RecordTile | undefined;
+  readonly tile: S extends { tile: infer T extends RecordTile } ? T : RecordTile;
+  readonly summary: S extends { summary: infer U extends RecordTile } ? U : undefined;
   readonly declaration: RecordNestedDecl;
 }
 

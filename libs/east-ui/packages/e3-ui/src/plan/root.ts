@@ -87,7 +87,8 @@ import {
 } from "./types.js";
 import { orderedPlanSource } from "./ordered-source.js";
 import { PlanRootType } from "./ir.js";
-import { WINDOWLESS_AXES, axisKindOf } from "./builders.js";
+import { WINDOWLESS_AXES, axisKindOf, axisResolutionsOf } from "./builders.js";
+import { checkPlanNested, nestedPartOf, planNestedIndex } from "./nested-checks.js";
 import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesType, type PlanSeriesInput } from "./series.js";
 
 
@@ -376,7 +377,7 @@ export type PlanCanvasOptions = Omit<PlanConfig, "data"> & { data?: PlanConfig["
  * @internal
  */
 export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlocksType> | undefined,
-    chrome: option<ExprType<RecordSlicesChromeType>>): ExprType<PlanRootType> {
+    chrome: option<ExprType<RecordSlicesChromeType>>, rowsNested?: EastType): ExprType<PlanRootType> {
     // A canvas is DEFINED as data + series (+ the root resolvers) — there
     // is no rows-authoring channel; the IR's inline arm is what inline
     // application collapses to. A Plan of event kinds or `rows` alone has no data.
@@ -418,6 +419,14 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
             "an event kind's, or a tab's: slice={{ slice: Slice.bindRecords(key, { <kind>: { source, range } }) }}. " +
             "A canvas never fits its axis to the data, so it reads the same inline and paged.",
         );
+    }
+    // Over a record's paged rows, each series is held to the rows' nested series index first (#1435): where its slice's
+    // `rows` source gives them, or `data` is the record's indexed binding, whose type carries its nested part. Rows paged
+    // whole (`Data.bindPaged(dataset)`) are read as #1436 reads them.
+    const nested = config.data === undefined ? undefined
+        : rowsNested ?? nestedPartOf(Expr.type(East.value(config.data as SubtypeExprOrValue<EastType>) as Expr) as EastType);
+    if (nested !== undefined && config.series !== undefined) {
+        checkPlanNested(config.series, { index: planNestedIndex(nested), axisKind: axisKindOf(config.axis), resolutions: axisResolutionsOf(config.axis) });
     }
     if (config.series !== undefined) checkSeries(config.series, "Plan", axisKindOf(config.axis));
     const data = config.data;

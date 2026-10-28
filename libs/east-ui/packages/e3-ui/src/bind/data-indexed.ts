@@ -12,7 +12,7 @@ import {
 import type { RecordDef, RecordIndexDef, SeriesItems, SeriesRecursive, SeriesRows, SeriesValues } from "@elaraai/e3";
 // The browser-safe entry: the components' runtime imports this module (#99).
 import { builtIndex } from "@elaraai/e3/browser";
-import { RecordLevelType, TreePathType, type RecordNestedDecl } from "@elaraai/e3-types";
+import { TreePathType, type RecordNestedDecl } from "@elaraai/e3-types";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import {
     IndexedEntryType, IndexedSourceType, areaMarkerFields, intervalMarkerFields, tileMarkerFields, type IndexedSource,
@@ -105,17 +105,29 @@ type NestedMarkerOf<I extends FieldIndexes<EastType>> =
         : Extract<I[number], { nested: object }> extends { nested: { collections: infer C } } ? NestedMarker<C> : never;
 /** The listed nested series index's name; `never` where none is listed. */
 type NestedNameOf<I extends FieldIndexes<EastType>> = Extract<I[number], { nested: object }>["name"];
+/** The listed nested series index's tile, as written; `never` where none is listed. */
+type NestedTileOf<I extends FieldIndexes<EastType>> =
+    Extract<I[number], { nested: object }> extends { nested: { tile: infer T extends string } } ? T : never;
+/** The listed nested series index's summary tile, as written; `never` where it keeps none, or none is listed. */
+type NestedSummaryOf<I extends FieldIndexes<EastType>> =
+    Extract<I[number], { nested: object }> extends { nested: { summary: infer U } } ? (U extends string ? U : never) : never;
+/** A name as a binding's type carries it: a struct whose one field is the name; the empty struct for none. */
+type OneOf<N extends string> = StructType<{ [K in N]: NullType }>;
 
 /**
  * A binding's nested part (#1435): its collections' marker `C`, and the
- * index's name `Name` as structure — a struct whose one field is the name, as
- * a time's role names its field — so a Plan's refusals in the editor name the
- * index ({@link NestedPartType}).
+ * index's name, its tile and its summary tile, each as structure — a struct
+ * whose one field is the name, as a time's role names its field — so a Plan
+ * holds its series to them in the editor and as it is built, through `$.let`
+ * and the Slice ({@link NestedPartType}).
  *
  * @typeParam C - The collections' marker type
  * @typeParam Name - The nested series index's name
+ * @typeParam Tile - Its tile
+ * @typeParam Summary - Its summary tile; `never` for none
  */
-export type NestedPart<C extends EastType, Name extends string> = ReturnType<typeof NestedPartType<C, StructType<{ [N in Name]: NullType }>>>;
+export type NestedPart<C extends EastType, Name extends string, Tile extends string = never, Summary extends string = never> =
+    ReturnType<typeof NestedPartType<C, OneOf<Name>, OneOf<Tile>, OneOf<Summary>>>;
 /** Each named index's metadata, preserved in the source's East type (#1432): its row fields in order, and its kind. */
 type IndexFields<I extends FieldIndexes<EastType>> = StructType<{
     [D in I[number] as D["name"]]: StructType<{ fields: StructType<DeclaredFields<D>>; kind: IndexKind<D> }>
@@ -164,24 +176,28 @@ export type IndexedPagedValue<T extends EastType, I extends FieldIndexes<T>> =
     T extends DictType<infer K extends EastType, infer R extends EastType>
         ? IndexedSource<K, R,
             [Extract<I[number], { nested: object }>] extends [never] ? BindingProjection<ProjectedIndexes<I>["valueType"], R> : R,
-            IndexFields<RailIndexes<I>>, IndexKeys<K, I>, NestedPart<NestedMarkerOf<I>, NestedNameOf<I>>>
+            IndexFields<RailIndexes<I>>, IndexKeys<K, I>, NestedPart<NestedMarkerOf<I>, NestedNameOf<I>, NestedTileOf<I>, NestedSummaryOf<I>>>
         : never;
 
 /**
  * A binding's nested part's type (#1434, #1435): its nested series index's
- * name, as a struct whose one field is it, its tile and its summary tile, and
- * how each collection the index files is declared, as structure
- * ({@link NestedMarker}); none where the binding lists none, its index and its
- * marker then the empty struct.
+ * name, its tile and its summary tile, each a struct whose one field is it,
+ * and how each collection the index files is declared, as structure
+ * ({@link NestedMarker}); none where the binding lists none, its parts then the
+ * empty struct, as a summary tile is where the index keeps no totals.
  *
  * @typeParam C - The collections' marker type
  * @typeParam I - The index's name, as a struct of one field
+ * @typeParam T - Its tile, as a struct of one field
+ * @typeParam U - Its summary tile, as a struct of one field, or the empty struct
  * @param collections - The collections' marker type
- * @param index - The index's name, as a struct of one field
+ * @param index - The index's name
+ * @param tile - Its tile
+ * @param summary - Its summary tile
  * @returns The part's type
  */
-export function NestedPartType<C extends EastType, I extends EastType>(collections: C, index: I) {
-    return OptionType(StructType({ index, tile: RecordLevelType, summary: OptionType(RecordLevelType), collections }));
+export function NestedPartType<C extends EastType, I extends EastType, T extends EastType, U extends EastType>(collections: C, index: I, tile: T, summary: U) {
+    return OptionType(StructType({ index, tile, summary, collections }));
 }
 
 /**
@@ -350,12 +366,13 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
     // The nested index's part (#1435): its declaration as structure, its tile and its summary tile.
     const declared = nested?.nested;
     const marker = declared === undefined ? { type: StructType({}), value: {} } : nestedMarker(declared.declaration);
-    const index = nested === undefined ? markerStruct([]) : markerStruct([[nested.name, LEAF]]);
-    const nestedType = NestedPartType(marker.type, index.type);
-    const nestedValue = declared === undefined ? none : some({
-        index: index.value, tile: variant(declared.tile, null), summary: declared.summary === undefined ? none : some(variant(declared.summary, null)),
-        collections: marker.value,
-    });
+    const one = (name: string | undefined) => markerStruct(name === undefined ? [] : [[name, LEAF]]);
+    const index = one(nested?.name);
+    const tile = one(declared?.tile);
+    const summary = one(declared?.summary);
+    const nestedType = NestedPartType(marker.type, index.type, tile.type, summary.type);
+    const nestedValue = declared === undefined ? none
+        : some({ index: index.value, tile: tile.value, summary: summary.value, collections: marker.value });
     return bindIndexedPagedPlatformFn(
         [type.key, type.value, projection, indexFields, VariantType(keyTypes), nestedType, nested?.valueType ?? NullType],
         East.value(record.path, TreePathType), East.value(metadata, indexFields), East.value(nestedValue, nestedType), joined, entryKeys, record.name,

@@ -69,14 +69,14 @@ same<Machines["N"], NestedPart<StructType<{
     alarms: StructType<{ items: StructType<{ at: StructType<{ at: NullType }> }> }>;
     load: StructType<{ values: NullType }>;
     output: StructType<{ values: NullType }>;
-}>, "machines_in_time">>();
+}>, "machines_in_time", "week", "month">>();
 
 // A measure's readings, and the rollup its ledger keeps their subtotals by: each fold a struct of its aggregates.
 partsOf(Data.bindPaged(ex.nestedLedgers, { indexes: [ex.ledgersByName, ex.ledgersInTime] })).nested<NestedPart<StructType<{
     measures: StructType<{ rows: StructType<{
         readings: StructType<{ values: StructType<{ rollup: StructType<{ sum: StructType<{ sum: NullType }> }> }> }>;
     }> }>;
-}>, "ledgers_in_time">>();
+}>, "ledgers_in_time", "week", "month">>();
 
 // A part's jobs, filed under every part above it too, and the parts beneath it.
 partsOf(Data.bindPaged(ex.nestedAssemblies, { indexes: [ex.assembliesByName, ex.assembliesInTime] })).nested<NestedPart<StructType<{
@@ -84,7 +84,7 @@ partsOf(Data.bindPaged(ex.nestedAssemblies, { indexes: [ex.assembliesByName, ex.
         jobs: StructType<{ items: StructType<{ from: StructType<{ start: NullType }>; to: StructType<{ end: NullType }>; rollup: NullType }> }>;
         parts: StructType<{ recursive: NullType }>;
     }> }>;
-}>, "assemblies_in_time">>();
+}>, "assemblies_in_time", "week", "month">>();
 
 /** A part of a Slice over several records: the handle of the source by its name, as its type holds it. */
 type PartOf<H, Name extends string> = TypeOf<H> extends StructType<infer F>
@@ -186,7 +186,7 @@ const subtotalled = <const F extends "sum" | "mean", const A extends "sum" | "me
 })];
 refusalsOf(subtotalled("sum", "sum"), ledgers).are<never>();
 refusalsOf(subtotalled("mean", "mean"), ledgers).are<
-    'Plan: a series subtotals "measures.readings" by mean, and "ledgers_in_time" keeps it by sum — add the rollup: e3.recordIndex.series.values({ rollup: [{ fold: "sum", aggregate: "sum" }, { fold: "mean", aggregate: "mean" }] }), or subtotal it by sum'>();
+    'Plan: a series subtotals "measures.readings" by mean, and "ledgers_in_time" keeps it by sum — add the rollup: e3.recordIndex.series.values({ rollup: ["sum", "mean"] }), or subtotal it by sum'>();
 
 /** A part of a work: its jobs, and more parts beneath it. */
 const WorkPart = RecursiveType((self) => StructType({ name: StringType, jobs: DictType(StringType, ex.NestedJob), parts: DictType(StringType, self) }));

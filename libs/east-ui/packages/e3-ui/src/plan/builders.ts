@@ -317,6 +317,25 @@ export function axisKindOf(axis: unknown): PlanAxisKindLiteral | undefined {
 }
 
 /**
+ * The resolutions each time axis `Plan.axis` built offers, as written — its
+ * resolution and its segment's options (#1435): what a Plan holds to its rows'
+ * nested series index's tile at build. A resolution given in East is not
+ * known here.
+ */
+const AXIS_RESOLUTIONS = new WeakMap<object, readonly string[]>();
+
+/**
+ * The resolutions a time axis `Plan.axis` built offers (#1435).
+ *
+ * @param axis - A Plan's `axis`
+ * @returns Each resolution written as a literal; `undefined` for an axis held in a variable, or one of another kind
+ * @internal
+ */
+export function axisResolutionsOf(axis: unknown): readonly string[] | undefined {
+    return typeof axis === "object" && axis !== null ? AXIS_RESOLUTIONS.get(axis) : undefined;
+}
+
+/**
  * Builds the `time` axis declaration — `Plan.axis({ … })` / `Plan.axis.time`.
  *
  * @param options - Window, resolution(s), now instant and tick format ({@link PlanAxisOptions})
@@ -343,6 +362,9 @@ export function createTimeAxis(options: PlanAxisOptions): PlanAxisExpr<"time"> {
     }), PlanAxisType) as PlanAxisExpr<"time">;
     if (options.window === undefined) WINDOWLESS_AXES.add(axis);
     AXIS_KINDS.set(axis, "time");
+    const written = [options.resolution, ...(options.resolutions ?? [])]
+        .flatMap((r): string[] => (typeof r === "string" ? [r] : isVariant(r) ? [r.type] : []));
+    AXIS_RESOLUTIONS.set(axis, written);
     return axis;
 }
 
