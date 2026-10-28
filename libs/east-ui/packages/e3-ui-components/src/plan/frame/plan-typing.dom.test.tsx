@@ -26,12 +26,12 @@
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { East, equalFor, DateTimeType, some, type ValueTypeOf } from "@elaraai/east";
+import { DictType, East, PatchType, StringType, decodeBeast2For, equalFor, DateTimeType, some, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Plan, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan-nested/plan-nested";
-import type { TreePath } from "@elaraai/e3-types";
+import { MutationCallRequestType, type TreePath } from "@elaraai/e3-types";
 import { instantKey, timeInstant } from "../instant.js";
 import { rowKeyOf } from "../model.js";
 import { planMessages } from "../messages.js";
@@ -161,6 +161,54 @@ describe("a number typed into a table cell (#1438)", () => {
         await settle();
         expect(inFlight()).toEqual([false, false, false, false]);
         await waitFor(() => expect([printed(c, LEAF, JAN_12), printed(c, MIDDLE, JAN_12)]).toEqual(["15", "22"]));
+    });
+
+    test("Undo, Redo and Discard leave every subtotal as the session then stands", async () => {
+        const { container: c } = await h.mount(ledgersTyped("week"));
+        await settle();
+        const weekOf = () => [LEAF, MIDDLE, TOP].map((row) => printed(c, row, JAN_12));
+        await openOn(c, LEAF, JAN_12);
+        await typeIn(c, "15");
+        await press(c, "Enter");
+        await settle();
+        await waitFor(() => expect(weekOf()).toEqual(["15", "22", "67"]));
+        const historyButton = async (name: string) => {
+            const button = within(slot(c, "toolbar") ?? c).getByRole("button", { name });
+            await act(async () => { fireEvent.mouseDown(button, { button: 0 }); fireEvent.click(button); });
+            await settle();
+        };
+        await historyButton(editingMessages.undo());
+        await waitFor(() => expect(weekOf()).toEqual(["2", "9", "54"]));
+        await historyButton(editingMessages.redo());
+        await waitFor(() => expect(weekOf()).toEqual(["15", "22", "67"]));
+        await historyButton(editingMessages.discard());
+        await waitFor(() => expect(weekOf()).toEqual(["2", "9", "54"]));
+    });
+
+    test("Save is one commit naming the one ledger and the one measure under it, and a remount draws the value saved", async () => {
+        const { container: c } = await h.mount(ledgersTyped("week"));
+        await settle();
+        await openOn(c, LEAF, JAN_12);
+        await typeIn(c, "15");
+        await press(c, "Enter");
+        await settle();
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar") ?? c).getByRole("button", { name: editingMessages.apply() })); });
+        await settle();
+        const commits = h.requests("mutate", ex.ledgers.name);
+        expect(commits).toHaveLength(1);
+        // The patch names ledger 101 alone, and in it the top measure the leaf is under: a node of a recursive tree is a
+        // whole value to East's patches.
+        const patch = decodeBeast2For(PatchType(DictType(StringType, ex.Ledger)))(decodeBeast2For(MutationCallRequestType)(commits[0]!.body!).args[0]!);
+        expect(patch.type).toBe("patch");
+        if (patch.type !== "patch") return;
+        expect([...patch.value.keys()]).toEqual(["L-101"]);
+        const ledger = patch.value.get("L-101")!;
+        expect(ledger.type === "update" && ledger.value.type === "patch" ? ledger.value.value.measures.type : ledger.type).toBe("patch");
+        if (ledger.type !== "update" || ledger.value.type !== "patch" || ledger.value.value.measures.type !== "patch") return;
+        expect([...ledger.value.value.measures.value.keys()]).toEqual(["101.1"]);
+        const { container: again } = await h.mount(ledgersTyped("week"), { storageKey: "again" });
+        await settle();
+        expect([LEAF, MIDDLE, TOP].map((row) => printed(again, row, JAN_12))).toEqual(["15", "22", "67"]);
     });
 
     test("cleared, a value goes and its subtotals with it; typed into the empty bucket, it comes back", async () => {
