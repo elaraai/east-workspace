@@ -27,6 +27,7 @@ import { ValueTree } from '@elaraai/east-ui';
 import { DatasetSegments, LocalStorage, workspaceGetDatasetHash, workspaceSetDataset } from '@elaraai/e3-core';
 import { treePathOf } from './api.js';
 import { createDatasetLoader, MAX_RETAINED_PAGES } from './data/dataset.js';
+import { isRunLive } from './data/dataflow.js';
 import { startRepoServer, type RepoServerHandle } from '../e3-server.js';
 import { openSession, type Session } from './session.js';
 import { initialState } from './state/actions.js';
@@ -158,9 +159,12 @@ describe('integration (E3_UI_INTEGRATION=1)', { skip: !enabled }, () => {
         await m.press('r');
         await m.press(KEY.enter);
         await m.waitFor(() => /Dataflow started · inputs · 1 task queued/.test(m.lines()[33] ?? ''), 600);
+        // Ended as the terminal tells it: a run that has recorded its end is
+        // polled `stopping` until it lets its workspace go, and is live till then.
         await m.waitFor(() => {
-            const execution = m.store.getState().data.execution['inputs'];
-            return execution !== undefined && execution.state !== null && execution.state.status.type !== 'running' && !execution.settling;
+            const state = m.store.getState();
+            const execution = state.data.execution['inputs'];
+            return execution !== undefined && execution.state !== null && !isRunLive(state, 'inputs');
         }, RUN_TURNS);
         const outcome = m.store.getState().data.execution['inputs']?.state?.status.type;
         if (outcome !== 'completed') {
