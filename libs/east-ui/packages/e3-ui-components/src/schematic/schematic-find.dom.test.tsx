@@ -9,12 +9,12 @@
  * through their source of the rail, are sought in their record's own order
  * through e3 — a find of it, and no whole read — and a frame, read whole, in
  * its rows. A pick shows the rack's key in the box and its place among the
- * matches, and Next steps on from it. A rack the rail hides — or, dimmed,
- * draws as context, which no path selects — is listed with the choice that
- * hides it, as every builder's Search Records names one (the shared hidden
- * pick): its pick clears just that choice, flies to where it stands and
- * selects it once the narrowing it leaves draws it. A rack with no position
- * says it is in the Backlog.
+ * matches, and Next steps on from it. A rack the rail hides is listed with
+ * the choice that hides it, as every builder's Search Records names one (the
+ * shared hidden pick) — and one a dimmed narrowing draws as context, which no
+ * path selects, with the choice that dims it: its pick clears just that
+ * choice, flies to where it stands and selects it once the narrowing it leaves
+ * draws it. A rack with no position says it is in the Backlog.
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin.
@@ -115,6 +115,9 @@ const HARBOUR: Where = new SortedMap([["owner", variant("values", [printText("Ha
 
 /** A03's line while Harbour Labs' racks are chosen: the choice that hides it, as the shared hidden pick words it. */
 const A03_HIDDEN = "A03 · Rack · hidden by Owner: Harbour Labs — picking it clears that filter";
+
+/** A03's line while Harbour Labs' racks are chosen under a dimmed narrowing, which draws it as context: the choice that dims it. */
+const A03_DIMMED = "A03 · Rack · dimmed by Owner: Harbour Labs — picking it clears that filter";
 
 /** The racks' record, as its dataset's requests name it. */
 const RACKS_DATASET = `records.${ex.schematicRacks.name}`;
@@ -217,12 +220,12 @@ test("a rack the rail hides is listed with the choice that hides it, as every bu
     expect(foundNotice(container)).toBeNull();
 });
 
-test("the same under a dimmed narrowing, whose context no path selects: a rack drawn as context is listed with the choice that hides it, and its pick clears that choice and selects the rack once it draws as itself", async () => {
+test("the same under a dimmed narrowing, whose context no path selects: a rack drawn as context is listed with the choice that dims it — never as hidden — and its pick clears that choice and selects the rack once it draws as itself", async () => {
     const { container } = await open(dimFloor);
     await narrow(HARBOUR);
     await waitFor(() => expect(card(container, "racks", "A03")?.hasAttribute("data-context")).toBe(true));
     await typeIntoFind(container, "A03");
-    await waitFor(() => expect(lines()).toEqual([A03_HIDDEN]), { timeout: 5_000 });
+    await waitFor(() => expect(lines()).toEqual([A03_DIMMED]), { timeout: 5_000 });
     const input = findBox(container).querySelector<HTMLInputElement>("input")!;
     vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
     try {
