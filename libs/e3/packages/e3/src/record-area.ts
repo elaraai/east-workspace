@@ -25,7 +25,7 @@
 import { East, FloatType, IntegerType, OptionType, SetType, StructType, isTypeEqual, none, printType, some, type EastType } from '@elaraai/east';
 import type { RecordDef, RecordIndexDef } from './types.js';
 import { INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexFunction } from './record-guards.js';
-import { checkLeading, leadingValue, leadingValues, optionField, readerOf, type RowType } from './record-keys.js';
+import { checkLeading, fieldReader, leadingValue, leadingValues, optionField, type RowType } from './record-keys.js';
 
 /** The finest level: a level-28 cell is `cell` wide. */
 export const AREA_FINEST_LEVEL = 28;
@@ -211,38 +211,43 @@ export function areaDefinition(name: string, rec: RecordDef, spec: AreaSpec, con
   const indexType = StructType({ on: leading.onType, area: IntegerType });
   // The row's box as the code reads it: its centre, `none` for a row not placed, and its larger side, a point's none.
   const BoxType = StructType({ cx: OptionType(FloatType), cy: OptionType(FloatType), side: FloatType });
-  const place = readerOf(keyType, rowType, { x: { option: x }, y: { option: y } });
-  const size = box.width === undefined || box.height === undefined ? undefined
-    : readerOf(keyType, rowType, { width: { field: box.width, type: FloatType }, height: { field: box.height, type: FloatType } });
+  const readX = fieldReader(keyType, rowType, { option: x });
+  const readY = fieldReader(keyType, rowType, { option: y });
+  const size = box.width === undefined || box.height === undefined ? undefined : {
+    width: fieldReader(keyType, rowType, { field: box.width, type: FloatType }),
+    height: fieldReader(keyType, rowType, { field: box.height, type: FloatType }),
+  };
   const boxOf = size === undefined
     // A point: its place, no side.
     ? East.function([keyType, rowType], BoxType, ($, key, row) => {
-      const readPlace = $.const(place.fn);
-      const at = $.let(readPlace(key, row));
-      return { cx: at.x, cy: at.y, side: 0.0 };
+      const xOf = $.const(readX);
+      const yOf = $.const(readY);
+      return { cx: xOf(key, row), cy: yOf(key, row), side: 0.0 };
     })
     : box.at === 'corner'
       // A box by its minimum corner: its centre half the box on.
       ? East.function([keyType, rowType], BoxType, ($, key, row) => {
-        const readPlace = $.const(place.fn);
-        const readSize = $.const(size.fn);
+        const xOf = $.const(readX);
+        const yOf = $.const(readY);
+        const widthOf = $.const(size.width);
+        const heightOf = $.const(size.height);
         const larger = $.const(largerSide);
-        const at = $.let(readPlace(key, row));
-        const extent = $.let(readSize(key, row));
+        const width = $.let(widthOf(key, row));
+        const height = $.let(heightOf(key, row));
         return {
-          cx: at.x.match({ some: (_$, cx) => some(cx.add(extent.width.divide(2.0))), none: () => none }),
-          cy: at.y.match({ some: (_$, cy) => some(cy.add(extent.height.divide(2.0))), none: () => none }),
-          side: larger(extent.width, extent.height),
+          cx: xOf(key, row).match({ some: (_$, cx) => some(cx.add(width.divide(2.0))), none: () => none }),
+          cy: yOf(key, row).match({ some: (_$, cy) => some(cy.add(height.divide(2.0))), none: () => none }),
+          side: larger(width, height),
         };
       })
       // A box by its centre.
       : East.function([keyType, rowType], BoxType, ($, key, row) => {
-        const readPlace = $.const(place.fn);
-        const readSize = $.const(size.fn);
+        const xOf = $.const(readX);
+        const yOf = $.const(readY);
+        const widthOf = $.const(size.width);
+        const heightOf = $.const(size.height);
         const larger = $.const(largerSide);
-        const at = $.let(readPlace(key, row));
-        const extent = $.let(readSize(key, row));
-        return { cx: at.x, cy: at.y, side: larger(extent.width, extent.height) };
+        return { cx: xOf(key, row), cy: yOf(key, row), side: larger(widthOf(key, row), heightOf(key, row)) };
       });
   // The row's cell code: unplaced, or the cell of its box's centre and larger side.
   const areaOf = East.function([keyType, rowType], IntegerType, ($, key, row) => {

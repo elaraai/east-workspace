@@ -7,7 +7,7 @@
 import { DateTimeType, East, IntegerType, NullType, OptionType, SetType, StructType, none, some } from '@elaraai/east';
 import type { RecordDef, RecordIndexDef } from './types.js';
 import { INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf } from './record-guards.js';
-import { checkLeading, checkTimeField, leadingValues, readerOf, type RowType } from './record-keys.js';
+import { checkLeading, checkTimeField, fieldReader, leadingValues, type RowType } from './record-keys.js';
 
 /** The signed millisecond domain containing every valid JavaScript Date. */
 const BIAS = 1n << 53n;
@@ -110,7 +110,8 @@ export function intervalDefinition(
   // The row's leading fields under `on`, and e3's own parts beside them (#1432): the tree node an entry is filed at,
   // and the instant it is ordered by, at the start field's type.
   const indexType = StructType({ on: leading.onType, node: IntegerType, at: rowType.fields[spec.from]! });
-  const event = readerOf(keyType, rowType, { start: { option: start }, end: { option: end } });
+  const readStart = fieldReader(keyType, rowType, { option: start });
+  const readEnd = fieldReader(keyType, rowType, { option: end });
   const leads = leadingValues(keyType, rowType, leading);
   // An entry's instant at the start field's type.
   const instant = start.optional ? optionInstantAt : instantAt;
@@ -120,13 +121,14 @@ export function intervalDefinition(
     return entries.toSet((_$, entry) => ({ on, node: entry.node, at: at(from, entry.at) }));
   });
   const keyFn = East.function([keyType, rowType], SetType(indexType), ($, key, row) => {
-    const read = $.const(event.fn);
+    const startOf = $.const(readStart);
+    const endOf = $.const(readEnd);
     const locate = $.const(eventEntries);
     const combinations = $.const(leads);
     const under = $.const(entriesUnder);
-    const times = $.let(read(key, row));
-    const entries = $.let(locate(times.start, times.end));
-    return combinations(key, row).flattenToSet((_$, on) => under(on, times.start, entries));
+    const from = $.let(startOf(key, row));
+    const entries = $.let(locate(from, endOf(key, row)));
+    return combinations(key, row).flattenToSet((_$, on) => under(on, from, entries));
   });
   const runner = indexRunner(config);
   checkPure(`e3.recordIndex '${name}' 'keys' function`, keyFn, INDEX_PURITY);

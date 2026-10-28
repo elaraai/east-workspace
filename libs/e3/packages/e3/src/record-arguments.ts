@@ -8,18 +8,17 @@
  *
  * A mutation's program is called as the runner calls every write — `(State,
  * …Args, Emit) → Null`, with as many arguments as the mutation declares — and
- * calls the author's function with them. East names a function's parameters
- * where its code is written, so the two places a program meets the arguments
- * by position are made here: the program's entry, which hands them on as one
- * struct, `{ arg0, arg1, … }`, and the author's function, called with that
- * struct's fields. Everything between is ordinary East over the struct.
- *
- * Like the readers (`record-keys.ts`), the region East's rules cannot check is
- * marked so.
+ * calls the author's function with them. The two places a program meets the
+ * arguments by position are made here: the program's entry, which hands them
+ * on as one struct, `{ arg0, arg1, … }`, and the author's function, called
+ * with that struct's fields in order. Both build and read the struct by its
+ * fields' names (`East.struct`, `East.fields`), which East checks against its
+ * type as the program is built; everything between is ordinary East over the
+ * struct.
  *
  * @packageDocumentation
  */
-import { East, NullType, StructType, type EastType, type ExprType, type FunctionExpr } from '@elaraai/east';
+import { East, NullType, StructType, type EastType, type FunctionExpr } from '@elaraai/east';
 import { functionAt, type IndexFunction } from './record-guards.js';
 
 /** A mutation's arguments as one struct, by position: `{ arg0, arg1, … }`. */
@@ -35,8 +34,6 @@ export function argumentsType(argTypes: readonly EastType[]): ArgumentsType {
   return StructType(Object.fromEntries(argTypes.map((type, at) => [`arg${at}`, type])));
 }
 
-/* eslint-disable east/east-rules -- a mutation's arguments, by position: East names a function's parameters only where its code is written */
-
 /**
  * A mutation's program as the runner calls it, `(State, …Args, Emit) → Null`:
  * the state, the arguments as one struct, and the emit, handed to `write`.
@@ -50,10 +47,14 @@ export function argumentsType(argTypes: readonly EastType[]): ArgumentsType {
 export function programOverArguments(
   stateType: EastType, argTypes: readonly EastType[], emitType: EastType, write: FunctionExpr<[EastType, ArgumentsType, EastType], NullType>,
 ): FunctionExpr<EastType[], NullType> {
-  return East.function([stateType, ...argTypes, emitType], NullType, ($, ...params) => {
+  const argsType = argumentsType(argTypes);
+  // The parameters after the state, as one struct: the arguments in order, then the emit.
+  const restType = StructType({ ...argsType.fields, emit: emitType });
+  const argNames = Object.keys(argsType.fields);
+  return East.function([stateType, ...argTypes, emitType], NullType, ($, state, ...rest) => {
     const writeFn = $.const(write);
-    const args = Object.fromEntries(argTypes.map((_, at) => [`arg${at}`, params[at + 1]!]));
-    $(writeFn(params[0]!, args as never, params[params.length - 1]!));
+    const after = $.let(East.struct(restType, rest));
+    $(writeFn(state, East.struct(argsType, East.fields(after, argNames)), East.field(after, 'emit')));
   });
 }
 
@@ -73,11 +74,9 @@ export function callWithArguments(
   fn: IndexFunction, stateType: EastType, argTypes: readonly EastType[], after: readonly EastType[], output: EastType,
 ): FunctionExpr<EastType[], EastType> {
   const call = functionAt(fn, [stateType, ...argTypes, ...after], output);
-  return East.function([stateType, argumentsType(argTypes), ...after], output, ($, state, args, ...rest) => {
+  const argsType = argumentsType(argTypes);
+  return East.function([stateType, argsType, ...after], output, ($, state, args, ...rest) => {
     const callFn = $.const(call);
-    const fields = args as unknown as Readonly<Record<string, ExprType<EastType>>>;
-    return callFn(state, ...argTypes.map((_, at) => fields[`arg${at}`]!), ...rest);
+    return callFn(state, ...East.fields(args), ...rest);
   });
 }
-
-/* eslint-enable east/east-rules */

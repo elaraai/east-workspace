@@ -32,25 +32,26 @@
  * row to be compared whole.
  *
  * The functions here are typed East over fixed shapes, or factories of one
- * from a declaration's types, which a row's entries chain together. The one
- * place a node is read or rebuilt by the names a declaration gives, and an
- * item placed in its place's variants, is marked so: East names a struct's
- * fields, and a variant's cases, where its code is written.
+ * from a declaration's types, which a row's entries chain together. A node is
+ * read and rebuilt, and an item placed in its place's variants, by the names
+ * a declaration gives, through East's own builders for names held as values
+ * (`East.field`, `East.withField`, `East.inCase`), which check each name
+ * against its type as the program is built.
  *
  * @packageDocumentation
  */
 import {
   ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType,
   VariantType, none, printType, some, variant,
-  type EastType, type ExprType, type FunctionExpr,
+  type EastType, type FunctionExpr,
 } from '@elaraai/east';
 import {
   NestedEntryKeyType, NestedEntryType, RecordLevelType, RecordNestedPathType, RecordNestedTotalsType, RecordRollupType,
   type RecordLevel,
 } from '@elaraai/e3-types';
 import { checkNested, type NestedCollection, type NestedDeclaration, type NestedGroup, type NestedItems, type NestedValues } from './record-nested.js';
-import { INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, sameEastType, signatureOf } from './record-guards.js';
-import { readerOf } from './record-keys.js';
+import { INDEX_PURITY, checkEntryParams, checkPure, functionAt, indexRunner, indexedEntry, onlyOptions, sameEastType, signatureOf } from './record-guards.js';
+import { fieldReader } from './record-keys.js';
 import { patchTypeOf } from './record-patches.js';
 import { RECORD_TILES, TileShareType, checkTile, placedFilings, placedShares, tileNext, tileStart, type RecordTile } from './record-tiles.js';
 import type { RecordDef, RecordIndexDef } from './types.js';
@@ -134,11 +135,12 @@ const valueTotals = East.function([DictType(DateTimeType, FloatType), RecordLeve
   );
 });
 
-/** `(Integer) → Float`: an Integer value as its totals and subtotals take it. */
-const integerAsFloat = East.function([IntegerType], FloatType, (_$, value) => value.toFloat());
+/** `(Dict<DateTime, Integer>) → Dict<DateTime, Float>`: Integer values as their totals and subtotals take them. */
+const integersAsFloats = East.function([DictType(DateTimeType, IntegerType)], DictType(DateTimeType, FloatType), (_$, values) =>
+  values.map((_$, value) => value.toFloat()));
 
-/** `(Float) → Float`: a Float value as its totals and subtotals take it. */
-const floatAsFloat = East.function([FloatType], FloatType, (_$, value) => value);
+/** `(Dict<DateTime, Float>) → Dict<DateTime, Float>`: Float values as their totals and subtotals take them. */
+const floatsAsFloats = East.function([DictType(DateTimeType, FloatType)], DictType(DateTimeType, FloatType), (_$, values) => values);
 
 /** `(keys) → Option<keys>`: the keys of the node above, within a walk of a Dict's rows; none for one of its own. */
 const keysAbove = East.function([KeysType], OptionType(KeysType), (_$, keys) =>
@@ -405,37 +407,22 @@ function chainTo(decl: NestedDeclaration, group: number): readonly NestedGroup[]
   return chain;
 }
 
-/* eslint-disable east/east-rules -- a node read and rebuilt by the field names a declaration gives, an item placed in its place's variants by the case names it gives, and a collection's numbers as Floats, of a type it gives: East names a struct's fields, a variant's cases and a value's type where its code is written */
-
-/** A node's fields by name: the one cast the readers make, of names every caller checked against the node's type. */
-function byName(fields: unknown): Readonly<Record<string, ExprType<EastType>>> {
-  return fields as Readonly<Record<string, ExprType<EastType>>>;
-}
-
-/** A node's fields: a recursive node's, unwrapped. */
-function fieldsOf(nodeType: EastType, node: ExprType<EastType>): Readonly<Record<string, ExprType<EastType>>> {
-  return byName(nodeType.type === 'Recursive' ? (node as unknown as { unwrap(): unknown }).unwrap() : node);
-}
-
 /**
  * A collection's values as Floats: `(Dict<DateTime, V>) → Dict<DateTime,
  * Float>`, an Integer's converted — the declaration checked they are numbers.
  *
  * @param valueType - The values' type
  * @param numeric - Their kind
- * @returns The conversion
+ * @returns The conversion, at the values' own type
  */
 function floatsOf(valueType: EastType, numeric: 'Float' | 'Integer'): FunctionExpr<[EastType], DictType<DateTimeType, FloatType>> {
-  const asFloat = (numeric === 'Integer' ? integerAsFloat : floatAsFloat) as FunctionExpr<[EastType], FloatType>;
-  return East.function([DictType(DateTimeType, valueType)], DictType(DateTimeType, FloatType), ($, values) => {
-    const float = $.const(asFloat);
-    return values.map((_$, value) => float(value));
-  });
+  return functionAt<[EastType], DictType<DateTimeType, FloatType>>(
+    numeric === 'Integer' ? integersAsFloats : floatsAsFloats, [DictType(DateTimeType, valueType)], DictType(DateTimeType, FloatType));
 }
 
 /**
  * A node's field: `(N) → T`, the field named, which the declaration checked
- * is of the type given.
+ * is of the type given — read through a recursive node.
  *
  * @param nodeType - The node's type: a Struct, or a RecursiveType of one
  * @param field - The field
@@ -443,27 +430,29 @@ function floatsOf(valueType: EastType, numeric: 'Float' | 'Integer'): FunctionEx
  * @returns The reader
  */
 function fieldOf<T extends EastType>(nodeType: EastType, field: string, type: T): FunctionExpr<[EastType], T> {
-  return East.function([nodeType], type, (_$, node) => fieldsOf(nodeType, node)[field]! as never);
+  const read: EastType = type;
+  return functionAt<[EastType], T>(East.function([nodeType], read, (_$, node) => East.field(node, field, read)), [nodeType], type);
 }
 
 /**
- * A node rebuilt: `(N, …) → N`, each field named given what its function makes
- * of the node, every other field as it is.
+ * A node rebuilt: `(N) → N`, each field named given what its function makes
+ * of the node, every other field as it is — a field at a time, each step
+ * calling the one before it.
  *
  * @param nodeType - The node's type: a Struct, or a RecursiveType of one
  * @param fields - The fields rebuilt, each by a function of the node
  * @returns The rebuild
  */
 function rebuiltNode(nodeType: EastType, fields: Readonly<Record<string, FunctionExpr<[EastType], EastType>>>): FunctionExpr<[EastType], EastType> {
-  const struct = nodeType.type === 'Recursive' ? nodeType.node : nodeType;
-  if (struct.type !== 'Struct') throw new Error(`a nested series index's node is a Struct, not ${struct.type}`);
-  return East.function([nodeType], nodeType, ($, node) => {
-    const held = fieldsOf(nodeType, node);
-    return Object.fromEntries(Object.keys(struct.fields).map((name) => {
-      const make = fields[name];
-      return [name, make === undefined ? held[name]! : $.const(make)(node)];
-    })) as never;
-  });
+  return Object.entries(fields).reduce<FunctionExpr<[EastType], EastType>>(
+    (before, [field, make]) => East.function([nodeType], nodeType, ($, node) => {
+      const earlier = $.const(before);
+      const value = $.const(make);
+      const held = $.let(earlier(node));
+      return East.withField(held, field, value(node));
+    }),
+    East.function([nodeType], nodeType, (_$, node) => node),
+  );
 }
 
 /**
@@ -475,18 +464,14 @@ function rebuiltNode(nodeType: EastType, fields: Readonly<Record<string, Functio
  * @returns The rebuild
  */
 function withField(nodeType: EastType, field: string, type: EastType): FunctionExpr<[EastType, EastType], EastType> {
-  const struct = nodeType.type === 'Recursive' ? nodeType.node : nodeType;
-  if (struct.type !== 'Struct') throw new Error(`a nested series index's node is a Struct, not ${struct.type}`);
-  return East.function([nodeType, type], nodeType, (_$, node, value) => {
-    const held = fieldsOf(nodeType, node);
-    return Object.fromEntries(Object.keys(struct.fields).map((name) => [name, name === field ? value : held[name]!])) as never;
-  });
+  return East.function([nodeType, type], nodeType, (_$, node, value) => East.withField(node, field, value));
 }
 
 /**
  * An item of a collection as its entry carries it: `(I) → P`, the item placed
  * in the variants of the collection's place, nesting as the declaration
- * nests (`.item .members .load 0.82`).
+ * nests (`.item .members .load 0.82`) — a case at a time, from the item out,
+ * each step calling the one before it.
  *
  * @param decl - The declaration
  * @param collection - The collection
@@ -504,15 +489,37 @@ function placedItem(decl: NestedDeclaration, collection: NestedCollection, itemT
     group = decl.groups[group.parent.group]!;
   }
   cases.push({ name: 'item', type: entryValue });
-  return East.function([itemType], entryValue, (_$, item) =>
-    cases.reduce<ExprType<EastType>>((inner, at) => East.value(variant(at.name, inner) as never, at.type), item) as never);
+  const placed = cases.reduce<FunctionExpr<[EastType], EastType>>(
+    (inner, at) => East.function([itemType], at.type, ($, item) => {
+      const within = $.const(inner);
+      return East.inCase(at.type, at.name, within(item));
+    }),
+    East.function([itemType], itemType, (_$, item) => item),
+  );
+  return functionAt<[EastType], EntryValueType>(placed, [itemType], entryValue);
 }
-
-/* eslint-enable east/east-rules */
 
 /** The empty collection a lean node holds in place of a listed one: `(N) → Dict<…>`, empty. */
 function emptied(nodeType: EastType, type: EastType): FunctionExpr<[EastType], EastType> {
   return East.function([nodeType], type, () => new Map());
+}
+
+/**
+ * A node of a collection's own group, its values as Floats: `(N) → Dict<DateTime, Float>`.
+ *
+ * @param nodeType - The group's node type
+ * @param collection - The collection, whose group it is
+ * @param numeric - Its values' kind
+ * @returns The node's values
+ */
+function valuesAsFloats(nodeType: EastType, collection: NestedValues, numeric: 'Float' | 'Integer'): FunctionExpr<[EastType], DictType<DateTimeType, FloatType>> {
+  const holding = fieldOf(nodeType, collection.field, DictType(DateTimeType, collection.valueType));
+  const asFloats = floatsOf(collection.valueType, numeric);
+  return East.function([nodeType], DictType(DateTimeType, FloatType), ($, node) => {
+    const held = $.const(holding);
+    const floats = $.const(asFloats);
+    return floats(held(node));
+  });
 }
 
 /** A node above a collection's group, which holds none of its values: `(N) → Dict<DateTime, Float>`, empty. */
@@ -851,13 +858,15 @@ function itemEntries(decl: NestedDeclaration, types: NestedTypes, collection: Ne
   const group = decl.groups[collection.group]!;
   const { keyType, rowType, entryKey, entries, tile } = types;
   const holding = fieldOf(group.type, collection.field, DictType(StringType, collection.itemType));
-  const times = readerOf(StringType, collection.itemType, { start: { option: collection.start }, end: { option: collection.end } }).fn;
+  const readStart = fieldReader(StringType, collection.itemType, { option: collection.start });
+  const readEnd = fieldReader(StringType, collection.itemType, { option: collection.end });
   const place = placedItem(decl, collection, collection.itemType, types.entryValue);
   const words = whatWords(collection);
   return East.function([keyType, rowType], entries, ($, key, row) => {
     const nodes = $.const(nodesOf);
     const held = $.const(holding);
-    const read = $.const(times);
+    const startOf = $.const(readStart);
+    const endOf = $.const(readEnd);
     const file = $.const(placedFilings);
     const into = $.const(place);
     const path = $.const(pathOf);
@@ -865,9 +874,8 @@ function itemEntries(decl: NestedDeclaration, types: NestedTypes, collection: Ne
     return nodes(row).flattenToDict(($, node) => {
       const here = $.let(path(node.path));
       return held(node.node).flattenToDict(($, item, id) => {
-        const at = $.let(read(id, item));
         const value = $.let(into(item));
-        return file(tile, at.start, at.end, East.str`${East.print(key)} ${words} ${East.print(id)}`).toDict(
+        return file(tile, startOf(id, item), endOf(id, item), East.str`${East.print(key)} ${words} ${East.print(id)}`).toDict(
           (_$, filing) => East.value({
             collection: collectionPath, row: key, path: here, run: variant('items', null), level: filing.level, tile: filing.tile,
             item: variant('id', id),
@@ -889,21 +897,22 @@ function itemSubtreeEntries(decl: NestedDeclaration, types: NestedTypes, collect
   const group = decl.groups[collection.group]!;
   const { keyType, rowType, entryKey, entries, tile } = types;
   const holding = fieldOf(group.type, collection.field, DictType(StringType, collection.itemType));
-  const times = readerOf(StringType, collection.itemType, { start: { option: collection.start }, end: { option: collection.end } }).fn;
+  const readStart = fieldReader(StringType, collection.itemType, { option: collection.start });
+  const readEnd = fieldReader(StringType, collection.itemType, { option: collection.end });
   const place = placedItem(decl, collection, collection.itemType, types.entryValue);
   const words = whatWords(collection);
   return East.function([keyType, rowType], entries, ($, key, row) => {
     const nodes = $.const(nodesOf);
     const held = $.const(holding);
-    const read = $.const(times);
+    const startOf = $.const(readStart);
+    const endOf = $.const(readEnd);
     const file = $.const(placedFilings);
     const into = $.const(place);
     const path = $.const(pathOf);
     const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
     return nodes(row).flattenToDict(($, node) => held(node.node).flattenToDict(($, item, id) => {
-      const at = $.let(read(id, item));
       const value = $.let(into(item));
-      const filings = $.let(file(tile, at.start, at.end, East.str`${East.print(key)} ${words} ${East.print(id)}`));
+      const filings = $.let(file(tile, startOf(id, item), endOf(id, item), East.str`${East.print(key)} ${words} ${East.print(id)}`));
       return East.Array.range(0n, node.path.size()).flattenToDict(($, depth) => {
         const ancestor = $.let(path(node.path.slice(0n, depth)));
         const under = $.let(variant('under', { path: path(node.path.slice(depth, node.path.size())), id }));
@@ -930,22 +939,25 @@ const NodeSharesType = StructType({ path: KeysType, shares: ArrayType(TileShareT
 function itemShares(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, summary: RecordLevel, nodesOf: NodesOf) {
   const group = decl.groups[collection.group]!;
   const holding = fieldOf(group.type, collection.field, DictType(StringType, collection.itemType));
-  const times = readerOf(StringType, collection.itemType, { start: { option: collection.start }, end: { option: collection.end } }).fn;
+  const readStart = fieldReader(StringType, collection.itemType, { option: collection.start });
+  const readEnd = fieldReader(StringType, collection.itemType, { option: collection.end });
   const words = whatWords(collection);
   return East.function([types.keyType, types.rowType, WithinType], ArrayType(NodeSharesType), ($, key, row, within) => {
     const nodes = $.const(nodesOf);
     const held = $.const(holding);
-    const read = $.const(times);
+    const startOf = $.const(readStart);
+    const endOf = $.const(readEnd);
     const share = $.const(placedShares);
     const may = $.const(reaches);
     const kept = $.const(sharesWithin);
     return nodes(row).map((_$, node) => ({
       path: node.path,
       shares: held(node.node).flattenToArray(($, item, id) => {
-        const at = $.let(read(id, item));
+        const start = $.let(startOf(id, item));
+        const end = $.let(endOf(id, item));
         const shares = $.let([], ArrayType(TileShareType));
-        $.if(may(within, at.start, at.end), ($) => {
-          $.assign(shares, kept(share(summary, at.start, at.end, East.str`${East.print(key)} ${words} ${East.print(id)}`), within));
+        $.if(may(within, start, end), ($) => {
+          $.assign(shares, kept(share(summary, start, end, East.str`${East.print(key)} ${words} ${East.print(id)}`), within));
         });
         return shares;
       }),
@@ -1117,15 +1129,7 @@ function valueSubtotals(decl: NestedDeclaration, types: NestedTypes, collection:
   const gathered = chainTo(decl, collection.group).reduce<FunctionExpr<[EastType], ArrayType<typeof SubtotalNodeType>>>((before, group) => {
     const nodes = nodesOf[group.index]!;
     const ownGroup = BigInt(group.index);
-    const holding = fieldOf(group.type, collection.field, DictType(DateTimeType, collection.valueType));
-    const asFloats = floatsOf(collection.valueType, numeric);
-    const own = group.index === collection.group
-      ? East.function([group.type], DictType(DateTimeType, FloatType), ($, node) => {
-        const held = $.const(holding);
-        const floats = $.const(asFloats);
-        return floats(held(node));
-      })
-      : noValues(group.type);
+    const own = group.index === collection.group ? valuesAsFloats(group.type, collection, numeric) : noValues(group.type);
     return East.function([rowType], ArrayType(SubtotalNodeType), ($, row) => {
       const earlier = $.const(before);
       const these = $.const(nodes);

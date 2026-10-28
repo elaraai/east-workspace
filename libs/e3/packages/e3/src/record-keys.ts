@@ -6,23 +6,22 @@
 /**
  * Reading a record's row by the names a declaration gives.
  *
- * East names a struct's fields where its code is written. A generated index
+ * East names a struct's fields where its code is written; a generated index
  * reads the fields its declaration names — its leading fields, an event's
- * start and end, a box's place — which exist only as the declaration runs. So
- * every generated program reads its row through a reader made here: an East
- * function giving a struct of the declared fields, under names of its own,
- * over which the rest of the program is ordinary East.
- *
- * The readers are the one place in the record code East's own rules cannot
- * check, and the region holding them is marked so: everything else is held to
- * the rules.
+ * start and end, a box's place — which it holds as values. So every generated
+ * program reads its row through East's own builders for names held as values
+ * (`East.field`, `East.fields`, `East.struct`), which check each name against
+ * the row's type as the program is built: a reader a field, the leading
+ * values as the key's `on`, and their combinations where a Set field fans a
+ * row out.
  *
  * @packageDocumentation
  */
 import {
-  DateTimeType, East, OptionType, SetType, StructType, isTypeEqual, printType, some,
-  type EastType, type ExprType, type FunctionExpr,
+  ArrayType, DateTimeType, East, OptionType, SetType, StructType, isTypeEqual, printType, some,
+  type EastType, type FunctionExpr,
 } from '@elaraai/east';
+import { functionAt } from './record-guards.js';
 
 /** A record's Struct row type, its fields named at run time. */
 export type RowType = StructType<Record<string, EastType>>;
@@ -115,55 +114,42 @@ export function checkTimeField(constructor: string, name: string, rowType: RowTy
 }
 
 /**
- * What a reader reads into one field of its struct: a row field's value as it
- * is, at its type, or a field as an Option — a field holding the value itself
- * read as its `some`.
- */
-export type Read =
-  | { readonly field: string; readonly type: EastType }
-  | { readonly option: OptionField };
-
-/** The type a read gives. */
-export type ReadType<R> = R extends { readonly option: OptionField<infer T> } ? OptionType<T>
-  : R extends { readonly type: infer T extends EastType } ? T : never;
-
-/** The struct a reader gives, each field at the type its read gives. */
-export type ReadStruct<R extends Readonly<Record<string, Read>>> = StructType<{ [K in keyof R]: ReadType<R[K]> }>;
-
-/** A reader: the function, and the struct it gives. */
-export interface Reader<R extends Readonly<Record<string, Read>>> {
-  readonly fn: FunctionExpr<[EastType, RowType], ReadStruct<R>>;
-  readonly type: ReadStruct<R>;
-}
-
-/* eslint-disable east/east-rules -- the readers: they read a row by the names a declaration gives, which East code names only where it is written */
-
-/** A row's fields by name: the one cast the readers make, of names every caller checked against the row's type. */
-function byName(row: unknown): Readonly<Record<string, ExprType<EastType>>> {
-  return row as Readonly<Record<string, ExprType<EastType>>>;
-}
-
-/**
- * A reader of a row's declared fields: `(K, V) -> { …reads }`, each field of
- * its struct the row's field a read names.
+ * A reader of a row's field, as an index reads it: `(K, V) → T`, the field as
+ * it is — East reads it by its name, checked against the row's type as the
+ * program is built.
  *
  * @param keyType - The record's key type
  * @param rowType - The record's row type
- * @param reads - Each field of the struct, and what it reads
+ * @param read - The field and its type
  * @returns The reader
  */
-export function readerOf<const R extends Readonly<Record<string, Read>>>(keyType: EastType, rowType: RowType, reads: R): Reader<R> {
-  const type = StructType(Object.fromEntries(Object.entries(reads).map(([out, read]) =>
-    [out, 'option' in read ? OptionType(read.option.type) : read.type]))) as ReadStruct<R>;
-  const fn = East.function([keyType, rowType], type, (_$, _key, row) => {
-    const fields = byName(row);
-    return Object.fromEntries(Object.entries(reads).map(([out, read]) => {
-      if (!('option' in read)) return [out, fields[read.field]!];
-      const value = fields[read.option.field]!;
-      return [out, read.option.optional ? value : some(value)];
-    })) as never;
-  });
-  return { fn, type };
+export function fieldReader<T extends EastType>(
+  keyType: EastType, rowType: RowType, read: { readonly field: string; readonly type: T },
+): FunctionExpr<[EastType, RowType], T>;
+/**
+ * A reader of a row's field as an Option, as an index reads an event's times
+ * and a box's place: `(K, V) → Option<T>`, a field holding an Option as it
+ * is, and one holding the value itself as its `some`.
+ *
+ * @param keyType - The record's key type
+ * @param rowType - The record's row type
+ * @param read - The field, checked to be a `T` or an Option of one ({@link optionField})
+ * @returns The reader
+ */
+export function fieldReader<T extends EastType>(
+  keyType: EastType, rowType: RowType, read: { readonly option: OptionField<T> },
+): FunctionExpr<[EastType, RowType], OptionType<T>>;
+export function fieldReader(
+  keyType: EastType, rowType: RowType, read: { readonly field: string; readonly type: EastType } | { readonly option: OptionField },
+): FunctionExpr<[EastType, RowType], EastType> {
+  if (!('option' in read)) {
+    const type: EastType = read.type;
+    return East.function([keyType, rowType], type, (_$, _key, row) => East.field(row, read.field, type));
+  }
+  const { field, optional, type } = read.option;
+  const option: EastType = OptionType(type);
+  if (optional) return East.function([keyType, rowType], option, (_$, _key, row) => East.field(row, field, option));
+  return East.function([keyType, rowType], option, (_$, _key, row) => some(East.field(row, field, type)));
 }
 
 /**
@@ -179,7 +165,18 @@ export function readerOf<const R extends Readonly<Record<string, Read>>>(keyType
  */
 export function leadingValue(keyType: EastType, rowType: RowType, leading: Leading): FunctionExpr<[EastType, RowType], RowType> {
   if (leading.multi) throw new Error('a Set field fans a row out: read its combinations with leadingValues');
-  return readerOf(keyType, rowType, Object.fromEntries(leading.fields.map((f) => [f.field, { field: f.field, type: f.type }]))).fn;
+  const names = leading.fields.map((f) => f.field);
+  return East.function([keyType, rowType], leading.onType, (_$, _key, row) => East.struct(leading.onType, East.fields(row, names)));
+}
+
+/**
+ * A row's leading values partly fanned out: the function giving their
+ * combinations so far, and a combination's type. An Array: a combination not
+ * yet fanned out holds Sets, which no Set may.
+ */
+interface Fanning {
+  readonly fn: FunctionExpr<[EastType, RowType], ArrayType<RowType>>;
+  readonly type: RowType;
 }
 
 /**
@@ -188,29 +185,46 @@ export function leadingValue(keyType: EastType, rowType: RowType, leading: Leadi
  * its elements — and the one combination where no Set leads, the empty struct
  * where none do.
  *
+ * @remarks
+ * The leading fields are read as one struct, each Set field still a Set; then
+ * each Set field in turn is fanned out over its elements, a step each, each
+ * step calling the one before it — so the combinations are built by ordinary
+ * East, whatever the fields.
+ *
  * @param keyType - The record's key type
  * @param rowType - The record's row type
  * @param leading - The checked leading fields
  * @returns The function
  */
 export function leadingValues(keyType: EastType, rowType: RowType, leading: Leading): FunctionExpr<[EastType, RowType], SetType<RowType>> {
-  const sets = leading.fields.filter((f) => f.set);
-  const fn = East.function([keyType, rowType], SetType(leading.onType), (_$, _key, row) => {
-    const fields = byName(row);
-    // One combination: each Set field's element chosen, each other field its value, in key order.
-    const combination = (chosen: Readonly<Record<string, ExprType<EastType>>>) =>
-      Object.fromEntries(leading.fields.map((f) => [f.field, chosen[f.field] ?? fields[f.field]!]));
-    // The Set fields from the one at `at` on, each over its elements: the last by `toSet`, those before it by `flattenToSet`.
-    const fan = (at: number, chosen: Readonly<Record<string, ExprType<EastType>>>): ExprType<SetType<RowType>> => {
-      const field = sets[at]!;
-      const elements = fields[field.field] as ExprType<SetType<EastType>>;
-      return (at === sets.length - 1
-        ? elements.toSet((_$element, element) => combination({ ...chosen, [field.field]: element }))
-        : elements.flattenToSet((_$element, element) => fan(at + 1, { ...chosen, [field.field]: element }))) as never;
+  const names = leading.fields.map((f) => f.field);
+  const read: RowType = StructType(Object.fromEntries(leading.fields.map((f) => [f.field, f.set ? SetType(f.type) : f.type])));
+  const first: Fanning = {
+    fn: East.function([keyType, rowType], ArrayType(read), (_$, _key, row) => [East.struct(read, East.fields(row, names))]),
+    type: read,
+  };
+  const fanned = leading.fields.filter((f) => f.set).reduce<Fanning>((before, f) => {
+    // This Set field's element in its place; the fields before and after it as they are.
+    const type: RowType = StructType({ ...before.type.fields, [f.field]: f.type });
+    const at = names.indexOf(f.field);
+    const ahead = names.slice(0, at);
+    const behind = names.slice(at + 1);
+    const elements = SetType(f.type);
+    return {
+      fn: East.function([keyType, rowType], ArrayType(type), ($, key, row) => {
+        const earlier = $.const(before.fn);
+        return earlier(key, row).flatMap((_$, partial) => East.field(partial, f.field, elements).toArray((_$, element) =>
+          East.struct(type, [...East.fields(partial, ahead), element, ...East.fields(partial, behind)])));
+      }),
+      type,
     };
-    return (sets.length === 0 ? new Set([combination({})]) : fan(0, {})) as never;
+  }, first);
+  // Every Set fanned out: the combinations, each once.
+  const combinations = East.function([keyType, rowType], SetType(fanned.type), ($, key, row) => {
+    const all = $.const(fanned.fn);
+    return all(key, row).toSet((_$, combination) => combination);
   });
-  return fn;
+  return functionAt<[EastType, RowType], SetType<RowType>>(combinations, [keyType, rowType], SetType(leading.onType));
 }
 
 /**
@@ -227,7 +241,6 @@ export function fieldKeyOf(keyType: EastType, rowType: RowType, leading: Leading
   const only = leading.fields.length === 1 ? leading.fields[0] : undefined;
   if (only === undefined) return leading.multi ? leadingValues(keyType, rowType, leading) : leadingValue(keyType, rowType, leading);
   // The one field: its value, or a Set field's elements, as they are.
-  return East.function([keyType, rowType], only.set ? SetType(only.type) : only.type, (_$, _key, row) => byName(row)[only.field]! as never);
+  const type: EastType = only.set ? SetType(only.type) : only.type;
+  return East.function([keyType, rowType], type, (_$, _key, row) => East.field(row, only.field, type));
 }
-
-/* eslint-enable east/east-rules */

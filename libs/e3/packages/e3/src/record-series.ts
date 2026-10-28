@@ -38,7 +38,7 @@ import type { RecordDef, RecordIndexDef } from './types.js';
 import {
   INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexConstructor,
 } from './record-guards.js';
-import { checkLeading, checkTimeField, leadingValues, readerOf, type Leading, type OptionField, type RowType } from './record-keys.js';
+import { checkLeading, checkTimeField, fieldReader, leadingValues, type Leading, type OptionField, type RowType } from './record-keys.js';
 import { TileFilingType, TileShareType, checkTile, placedFilings, placedShares, type RecordTile } from './record-tiles.js';
 
 /** What a series or a summary index's declaration names (`e3.recordIndex.series`, `e3.recordIndex.summary`). */
@@ -129,19 +129,23 @@ export function seriesDefinition(name: string, rec: RecordDef, spec: TimeTileSpe
   const { rowType, leading } = fields;
   const indexType = StructType({ on: leading.onType, key: fields.key.type, level: RecordLevelType, tile: DateTimeType });
   const level = variant(fields.tile, null);
-  const event = readerOf(keyType, rowType, { key: fields.key, start: { option: fields.start }, end: { option: fields.end } });
+  const readKey = fieldReader(keyType, rowType, fields.key);
+  const readStart = fieldReader(keyType, rowType, { option: fields.start });
+  const readEnd = fieldReader(keyType, rowType, { option: fields.end });
   const leads = leadingValues(keyType, rowType, leading);
   // An event's entries under one combination of its leading values: one a place it is filed.
   const filedUnder = East.function([leading.onType, fields.key.type, ArrayType(TileFilingType)], SetType(indexType), (_$, on, key, filings) =>
     filings.toSet((_$, filing) => ({ on, key, level: filing.level, tile: filing.tile })));
   const keyFn = East.function([keyType, rowType], SetType(indexType), ($, key, row) => {
-    const read = $.const(event.fn);
+    const keyOf = $.const(readKey);
+    const startOf = $.const(readStart);
+    const endOf = $.const(readEnd);
     const file = $.const(placedFilings);
     const combinations = $.const(leads);
     const under = $.const(filedUnder);
-    const times = $.let(read(key, row));
-    const filings = $.let(file(level, times.start, times.end, East.print(key)));
-    return combinations(key, row).flattenToSet((_$, on) => under(on, times.key, filings));
+    const eventKey = $.let(keyOf(key, row));
+    const filings = $.let(file(level, startOf(key, row), endOf(key, row), East.print(key)));
+    return combinations(key, row).flattenToSet((_$, on) => under(on, eventKey, filings));
   });
   // It carries its rows: each entry's projection is the whole row, so a cell reads the index alone and no record segment.
   const valueFn = East.function([keyType, rowType], rowType, (_$, _key, row) => row);
@@ -217,19 +221,23 @@ export function summaryDefinition(name: string, rec: RecordDef, spec: TimeTileSp
   const indexType = StructType({ on: leading.onType, key: fields.key.type, tile: DateTimeType });
   const totalsType = DictType(indexType, RecordSummaryTotalsType);
   const level = variant(fields.tile, null);
-  const event = readerOf(keyType, rowType, { key: fields.key, start: { option: fields.start }, end: { option: fields.end } });
+  const readKey = fieldReader(keyType, rowType, fields.key);
+  const readStart = fieldReader(keyType, rowType, { option: fields.start });
+  const readEnd = fieldReader(keyType, rowType, { option: fields.end });
   const leads = leadingValues(keyType, rowType, leading);
   // An event's contributions under one combination of its leading values: the count 1 and its share, under each tile.
   const sharesUnder = East.function([leading.onType, fields.key.type, ArrayType(TileShareType)], totalsType, (_$, on, key, shares) =>
     shares.toDict((_$, share) => ({ on, key, tile: share.tile }), (_$, share) => ({ count: 1n, ms: share.ms })));
   const keyFn = East.function([keyType, rowType], totalsType, ($, key, row) => {
-    const read = $.const(event.fn);
+    const keyOf = $.const(readKey);
+    const startOf = $.const(readStart);
+    const endOf = $.const(readEnd);
     const share = $.const(placedShares);
     const combinations = $.const(leads);
     const under = $.const(sharesUnder);
-    const times = $.let(read(key, row));
-    const shares = $.let(share(level, times.start, times.end, East.print(key)));
-    return combinations(key, row).flattenToDict((_$, on) => under(on, times.key, shares));
+    const eventKey = $.let(keyOf(key, row));
+    const shares = $.let(share(level, startOf(key, row), endOf(key, row), East.print(key)));
+    return combinations(key, row).flattenToDict((_$, on) => under(on, eventKey, shares));
   });
   // Built with no source locations, so its program is the same wherever the package is built.
   const mergeFn = withLocationCapture(false, () => East.function(

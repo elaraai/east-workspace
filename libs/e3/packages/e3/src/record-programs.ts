@@ -29,7 +29,7 @@
 import {
   ArrayType, BooleanType, DictType, East, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StructType,
   VariantType, none, printType, some, variant, withLocationCapture,
-  type EastIR, type EastType, type FunctionExpr,
+  type EastIR, type EastType, type FunctionExpr, type Patches,
 } from '@elaraai/east';
 import {
   DELTA_CONFLICT, RecordSummaryTotalsType, editTypeOf, indexCollectionType, mutationDeltaType, type DeltaTarget,
@@ -37,7 +37,7 @@ import {
 import { functionAt, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
 import { argumentsType, callWithArguments, programOverArguments } from './record-arguments.js';
 import { NestedPatchedType } from './record-nested-programs.js';
-import { patchTypeOf, patchesOf, type Patches } from './record-patches.js';
+import { patchTypeOf } from './record-patches.js';
 import type { MigrationDef, MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
 /**
@@ -355,7 +355,7 @@ function deltaEmitType(recordType: EastType, indexes: readonly RecordIndexDef[])
  */
 function dictWrite(keyType: EastType, valueType: EastType, indexes: readonly RecordIndexDef[]) {
   const stateType = DictType(keyType, valueType);
-  const rows = patchesOf(valueType);
+  const rows = East.patchesFor(valueType);
   const opsType = DictType(keyType, VariantType({ delete: valueType, insert: valueType, update: rows.patchType }));
   const patchType = VariantType({ unchanged: NullType, replace: StructType({ before: stateType, after: stateType }), patch: opsType });
   if (!sameEastType(patchType, patchTypeOf(stateType))) {
@@ -490,7 +490,7 @@ function indexChanges(index: RecordIndexDef, types: DictWrite) {
   const { keyType, valueType, changesType, emitType } = types;
   const keys = indexKeys(index, keyType, valueType);
   const projection = indexProjection(index, keyType, valueType);
-  const projected = patchesOf(index.valueType);
+  const projected = East.patchesFor(index.valueType);
   // A row's entries: its index keys and its projection; none for no row.
   const entriesType = StructType({ keys: SetType(index.keyType), value: OptionType(index.valueType) });
   const entriesOf = East.function([keyType, OptionType(valueType)], entriesType, ($, key, row) => {
@@ -543,7 +543,7 @@ function nestedChanges(index: RecordIndexDef, byPatchFn: IndexFunction, types: D
   const changedType = StructType({ before: entriesType, after: entriesType });
   const entries = functionAt(index.keyFn, [keyType, valueType], entriesType);
   const byPatch = functionAt(byPatchFn, [keyType, valueType, valueType, rows.patchType], NestedPatchedType(entriesType));
-  const values = patchesOf(index.valueType);
+  const values = East.patchesFor(index.valueType);
   // A row's entries; none for no row.
   const entriesOf = East.function([keyType, OptionType(valueType)], entriesType, ($, key, row) => {
     const of = $.const(entries);
@@ -905,12 +905,13 @@ interface WriteSteps {
 
 /** A Dict record's write steps. */
 function dictSteps(types: DictWrite, indexes: readonly RecordIndexDef[]): WriteSteps {
+  const { diff } = East.patchesFor(types.stateType);
   return {
     stateType: types.stateType,
     patchType: types.patchType,
     opsType: types.opsType,
     emitType: types.emitType,
-    diff: patchesOf(types.stateType).diff,
+    diff,
     patchOps: dictPatchOps(types),
     apply: dictApply(indexes, types),
   };
@@ -922,12 +923,13 @@ function setSteps(keyType: EastType): WriteSteps {
   const patchType = PatchType(stateType);
   const opsType = patchType.cases.patch;
   const emitType = deltaEmitType(stateType, []);
+  const { diff } = East.patchesFor(stateType);
   return {
     stateType,
     patchType,
     opsType,
     emitType,
-    diff: patchesOf(stateType).diff,
+    diff,
     patchOps: setPatchOps(keyType, emitType),
     apply: primaryApply(stateType, opsType, emitType),
   };

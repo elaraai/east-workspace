@@ -30,7 +30,7 @@ import { functionAt } from './record-guards.js';
 import { mutation } from './mutation.js';
 import { package_ } from './package.js';
 import { NestedPatchedType } from './record-nested-programs.js';
-import { patchTypeOf, patchesOf } from './record-patches.js';
+import { patchTypeOf } from './record-patches.js';
 import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
 const series = recordIndex.series;
@@ -504,7 +504,7 @@ function written(rec: RecordDef, mut: MutationDef, before: unknown, patch: unkno
 
 /** The patch from one state to another, as a client's diff makes it: each row it updates by the row's own patch. */
 function diffOf(rec: RecordDef, before: unknown, after: unknown): unknown {
-  return East.compile(patchesOf(rec.type).diff, [])(before as never, after as never);
+  return East.compile(East.patchesFor(rec.type).diff, [])(before as never, after as never);
 }
 
 /**
@@ -544,7 +544,7 @@ function maintainedIsRebuilt(rec: RecordDef, index: RecordIndexDef, before: unkn
   const held = new SortedMap(emitted(index, rec.type, before) as never, compareFor(entryKey));
   const rebuilt = new SortedMap(emitted(index, rec.type, after) as never, compareFor(entryKey));
   const ops = opsOf(diffOf(rec, before, after));
-  const apply = East.compile(patchesOf(collection).apply, []);
+  const apply = East.compile(East.patchesFor(collection).apply, []);
   const maintained = apply(held, variant('patch', ops));
   assert.deepEqual(encodeBeast2PagedFor(collection)(maintained as never), encodeBeast2PagedFor(collection)(rebuilt as never), `${what}: maintained is rebuilt`);
   const print = printFor(deltaType);
@@ -749,7 +749,7 @@ function byPatch(index: RecordIndexDef, key: string, held: unknown, next: unknow
   if (nested === undefined) throw new Error(`'${index.name}' is no nested series index`);
   const entriesType = DictType(index.keyType, index.valueType);
   const run = East.compile(functionAt(nested.byPatch, [keyType, rowType, rowType, patchTypeOf(rowType)], NestedPatchedType(entriesType)), []);
-  const sent = patch ?? East.compile(patchesOf(rowType).diff, [])(held as never, next as never);
+  const sent = patch ?? East.compile(East.patchesFor(rowType).diff, [])(held as never, next as never);
   return run(key, held, next, sent) as variant<string, unknown>;
 }
 
