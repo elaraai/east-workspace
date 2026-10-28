@@ -793,7 +793,10 @@ export class RecordSliceSource<T> {
         const answers: boolean[] = [];
         let pending = false;
         for (let at = 0; at < entries.length; at += MAX_RECORD_SLICE_BATCH) {
-            const part = this.reader.withinAll(resolved.value.index, resolved.value.runs, entries.slice(at, at + MAX_RECORD_SLICE_BATCH));
+            // Entries that fit one read are handed on as they are, the same array whenever they are asked again, so a
+            // reader keeping what it made of them by the array finds it.
+            const batch = entries.length <= MAX_RECORD_SLICE_BATCH ? entries : entries.slice(at, at + MAX_RECORD_SLICE_BATCH);
+            const part = this.reader.withinAll(resolved.value.index, resolved.value.runs, batch);
             if (part.type === "none") pending = true;
             else answers.push(...part.value);
         }

@@ -31,6 +31,13 @@ export interface RecordSliceEntry {
     /** Joined row, encoded whole only for editing confirmation. */
     row?: option<unknown>;
 }
+/** Some rows' maintained entries of an index, as a membership read asks them: each entry, and the row it is one of. */
+interface RowEntries {
+    readonly entries: readonly RecordSliceEntryKey[];
+    /** Each entry's row, by its place among the rows. */
+    readonly owners: readonly number[];
+}
+
 /** Indexed reads together with the binding's stable identity and default path. */
 export interface RecordSliceBinding extends RecordSliceReader<RecordSliceEntry> {
     /** Binding identity. */
@@ -59,6 +66,8 @@ export class RecordSliceController {
     private readonly schemas = new Map<string, RecordSliceFieldSchema>();
     private readonly parse = new Map<string, ReturnType<typeof parseFor>>();
     private readonly print = new Map<string, ReturnType<typeof printFor>>();
+    /** Each page of the record's own rows' entries, by the page read — the window the source keeps it in — and the index asked of. */
+    private readonly pageEntries = new WeakMap<readonly RecordSliceEntry[], Map<string, RowEntries>>();
 
     /**
      * @param source - Bound indexed reads.
@@ -382,18 +391,31 @@ export class RecordSliceController {
         const plan = this.plan(where);
         // No narrowing holds every row.
         if (plan.queries.length === 0) return some(rows.map(() => true));
+        return this.held(plan, this.entriesOf(plan.index, rows), rows.length);
+    }
+
+    /**
+     * Some rows' maintained entries of an index, each beside the row it is one of: each row's keys, as the binding
+     * maintains them — an East function of the row, evaluated row by row.
+     */
+    private entriesOf(index: string, rows: readonly { key: unknown; row: unknown }[]): RowEntries {
         const entries: RecordSliceEntryKey[] = [];
         const owners: number[] = [];
         for (const [i, { key, row }] of rows.entries()) {
-            for (const ik of this.source.entryKeys(plan.index, key, row)) {
+            for (const ik of this.source.entryKeys(index, key, row)) {
                 entries.push({ ik, key });
                 owners.push(i);
             }
         }
-        const answers = this.windows.within(plan, entries);
+        return { entries, owners };
+    }
+
+    /** Which of `count` rows a narrowing holds, their entries asked of its runs: a row is held when any of its entries is. */
+    private held(plan: RecordSlicePlan, asked: RowEntries, count: number): option<boolean[]> {
+        const answers = this.windows.within(plan, asked.entries);
         if (answers.type === "none") return none;
-        const held = rows.map(() => false);
-        for (const [j, inside] of answers.value.entries()) if (inside) held[owners[j]!] = true;
+        const held: boolean[] = new Array<boolean>(count).fill(false);
+        for (const [j, inside] of answers.value.entries()) if (inside) held[asked.owners[j]!] = true;
         return some(held);
     }
 
@@ -413,11 +435,25 @@ export class RecordSliceController {
     withinAt(where: Where, offset: bigint, limit: bigint): option<boolean[]> {
         const page = this.windows.page(this.plan(new Map()), offset, limit);
         if (page.type === "none") return none;
-        const rows = page.value.map((entry) => {
-            if (entry.row?.type !== "some") throw new Error("Asking which of a record's own rows a narrowing holds reads them with their rows: bind the record with its rows joined");
-            return { key: entry.key, row: entry.row.value };
-        });
-        return this.within(where, rows);
+        const plan = this.plan(where);
+        // No narrowing holds every row.
+        if (plan.queries.length === 0) return some(page.value.map(() => true));
+        // The page's entries are made once, by the page read and the index: a membership asked again — every
+        // evaluation that reads it while its answer is in flight — evaluates no row's maintained keys again.
+        let byIndex = this.pageEntries.get(page.value);
+        if (byIndex === undefined) {
+            byIndex = new Map();
+            this.pageEntries.set(page.value, byIndex);
+        }
+        let asked = byIndex.get(plan.index);
+        if (asked === undefined) {
+            asked = this.entriesOf(plan.index, page.value.map((entry) => {
+                if (entry.row?.type !== "some") throw new Error("Asking which of a record's own rows a narrowing holds reads them with their rows: bind the record with its rows joined");
+                return { key: entry.key, row: entry.row.value };
+            }));
+            byIndex.set(plan.index, asked);
+        }
+        return this.held(plan, asked, page.value.length);
     }
 
     /** Labels a typical exact choice would replace, for advance explanation. */
