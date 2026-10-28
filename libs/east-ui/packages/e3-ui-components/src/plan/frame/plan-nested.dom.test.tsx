@@ -453,3 +453,43 @@ describe("a gesture drafts its row whole (#1438)", () => {
         expect(after.get("M-10002")).toEqual(before.get("M-10002"));
     });
 });
+
+// ── A link end the cells do not hold (#1438) ──────────────────────────────────
+
+/** Two machines' jobs linked: one in the fortnight read, the other in November, outside it. */
+const linksPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const machines = $.const(Data.bindPaged(ex.machines, { indexes: ["machines_by_name", "machines_in_time"] }));
+    return Plan({
+        axis: axis(), data: machines,
+        series: [Plan.series.span(ex.Machine, {
+            key: "presses", title: "Presses", label: (m) => m.name,
+            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
+        })],
+        links: [Plan.link({ key: "next", from: Plan.ref("presses", "M-10001"), fromRun: "J-10001-114", to: Plan.ref("presses", "M-10002"), toRun: "J-10002-170" })],
+    });
+}))) };
+
+describe("a link end the cells do not hold (#1438)", () => {
+    test("opening the links focus reads the far end's machine whole, by its key, once, and the link draws toward where its job is", async () => {
+        // The ribbons' layer as a browser lays it: as wide as the plot.
+        const saved = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+        Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+            configurable: true, get(this: HTMLElement) { return this.hasAttribute("data-plan-ribbons") ? 1168 : 0; },
+        });
+        onTestFinished(() => {
+            if (saved !== undefined) Object.defineProperty(HTMLElement.prototype, "clientWidth", saved);
+            else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+        });
+        const { container: c } = await h.mount(linksPlan);
+        await settle();
+        const rowsAsked = h.requests("rows", MACHINES).length;
+        // The November job is outside the cells read: its machine's row holds no run of it.
+        expect(c.querySelector(`${rowAt(entry("presses", "M-10002"))} [data-run="J-10002-170"]`)).toBeNull();
+        await act(async () => { fireEvent.click(c.querySelector(`${rowAt(entry("presses", "M-10001"))} [data-plan-control="links"]`)!); });
+        await settle();
+        // Its machine read whole, by its key, once.
+        expect(h.requests("rows", MACHINES).length - rowsAsked).toBe(1);
+        // The link draws, from the job in view toward November, past the plot's right edge.
+        await waitFor(() => expect(c.querySelector('[data-plan-link="0"] [data-plan-ribbon-band]')).not.toBeNull());
+    });
+});

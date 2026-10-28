@@ -85,7 +85,7 @@ import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east"
 import { Plan, ScheduleEventRefType, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
     getSomeorUndefined, optimiseMessages, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState,
-    historyShortcut, takeKey,
+    historyShortcut, takeKey, useTrackedEvaluation,
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
@@ -205,6 +205,9 @@ const NO_KINDS_DRAWN: ReadonlySet<string> = new Set();
 const NOTHING_AWAITED: { readonly run: boolean; readonly cells: boolean } = { run: false, cells: false };
 /** No row in view yet. */
 const NO_ROWS_IN_VIEW: readonly PlanRowValue[] = [];
+/** No link ends read through their rows (#1438). */
+const NO_LINK_ENDS: { readonly focus: string; readonly ids: readonly string[] } = { focus: "", ids: [] };
+const NO_LINK_ROWS: ReadonlyMap<string, Uint8Array> = new Map();
 /** No run of the optimiser has left anything on the canvas. */
 const NO_OPTIMISED_MARKS: PlanOptimisedMarks = { ops: new Map(), ghosts: new Map(), lit: false };
 
@@ -457,7 +460,23 @@ export function usePlanCanvas({
     // component of its own (`PlanNestedReader`, in `provide`), each window drawn through the root's seam with what it read.
     const [nestedViews] = useState(createNestedViewStore);
     const [nestedLead, setNestedLead] = useState<PlanNestedLead | undefined>(undefined);
-    const nested = usePlanNestedRoot(editing.value, editing.data, editing.data.nested.type === "some" ? nestedLead : undefined, editing.drafted);
+    // A link end the cells do not hold (#1438): a run the links focus names on a row read lean, outside the cells read,
+    // has its row read whole by its key — every such row in one request — and drawn whole in its lean row's place, the run
+    // where its times put it. The rows asked stay whole while the focus lasts (`linkEnds`, set below once the rows draw).
+    const [linkEnds, setLinkEnds] = useState<{ readonly focus: string; readonly ids: readonly string[] }>(NO_LINK_ENDS);
+    const linkRowsRead = useCallback((): ReadonlyMap<string, Uint8Array> => {
+        if (whole === undefined || linkEnds.ids.length === 0) return NO_LINK_ROWS;
+        const out = new Map<string, Uint8Array>();
+        for (const id of linkEnds.ids) {
+            const got = whole.read(id);
+            if (got.type === "some" && got.value.type === "some") out.set(id, got.value.value);
+        }
+        return out;
+    }, [whole, linkEnds]);
+    const { result: linkRowsResult } = useTrackedEvaluation(linkRowsRead);
+    const linkRows = linkRowsResult.ok ? linkRowsResult.value : NO_LINK_ROWS;
+    const nested = usePlanNestedRoot(editing.value, editing.data, editing.data.nested.type === "some" ? nestedLead : undefined, editing.drafted,
+        linkRows);
     // The event kinds' rows ahead of the drafted root's own, and its links'
     // event ends named where the events draw — over a paged resource kind's
     // windows when a kind pages (#1199).
@@ -728,6 +747,29 @@ export function usePlanCanvas({
 
     // ── Row focus and the visible rows ────────────────────────────────────
     const { linkFamily, focusVisibleKeys, focusCtx } = usePlanFocus(view.focus, data.links);
+    // The links focus's ends whose runs a row read lean does not hold, once its rows draw (#1438): their rows are read
+    // whole (above), and stay so while the focus lasts. A row the canvas has not placed has no end to draw.
+    const linksFocusKey = view.focus?.kind === "links" ? view.focus.key : undefined;
+    const readsWhole = whole !== undefined;
+    useEffect(() => {
+        if (linksFocusKey === undefined || !readsWhole || focusVisibleKeys === undefined) {
+            setLinkEnds((prior) => (prior.ids.length === 0 ? prior : NO_LINK_ENDS));
+            return;
+        }
+        setLinkEnds((prior) => {
+            const kept = prior.focus === linksFocusKey ? prior.ids : [];
+            const ids = new Set(kept);
+            for (const link of data.links) {
+                for (const end of [link.from, link.to]) {
+                    const rowKey = rowKeyOf(end.row);
+                    if (!focusVisibleKeys.has(rowKey) || !index.byKey.has(rowKey) || linkedElementOf(rowKey, end.run) !== undefined) continue;
+                    const id = entryOf(end.row);
+                    if (id !== undefined) ids.add(id);
+                }
+            }
+            return prior.focus === linksFocusKey && ids.size === kept.length ? prior : { focus: linksFocusKey, ids: [...ids] };
+        });
+    }, [linksFocusKey, readsWhole, focusVisibleKeys, data.links, index, linkedElementOf]);
     // Keyed on the view FIELDS the walk reads (`grain`, `collapsed`), and each
     // row object kept while it holds, so a row's memo survives both a store
     // change that did not move it and a window landing (#616, #815).

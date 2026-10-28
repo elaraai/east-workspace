@@ -971,6 +971,8 @@ export function usePlanWholeRows(seam: PlanNestedValue | undefined): PlanWholeRo
 
 /** No drafted rows. */
 const NOTHING_DRAFTED = { drafts: new Map<string, Uint8Array>(), version: 0 };
+/** No rows read whole for their links. */
+const NO_ROWS_WHOLE: ReadonlyMap<string, Uint8Array> = new Map();
 const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 
 /**
@@ -985,15 +987,20 @@ const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.pa
  * @param data - Its data-stable twin
  * @param lead - What the reader read; `undefined` before it first lands, or for a root reading no nested series index
  * @param drafted - The session's drafted rows, whole, by id, and their version: each draws in its lean row's place
+ * @param readWhole - Rows read whole for the link ends the cells do not hold, by id: each draws whole in its lean
+ *   row's place, its runs where their times put them — a drafted row before it
  * @returns The two roots the canvas draws
  */
 export function usePlanNestedRoot(value: PlanRootValue, data: PlanRootValue, lead: PlanNestedLead | undefined,
-    drafted: { readonly drafts: ReadonlyMap<string, Uint8Array>; readonly version: number } = NOTHING_DRAFTED): { value: PlanRootValue; data: PlanRootValue } {
+    drafted: { readonly drafts: ReadonlyMap<string, Uint8Array>; readonly version: number } = NOTHING_DRAFTED,
+    readWhole: ReadonlyMap<string, Uint8Array> = NO_ROWS_WHOLE): { value: PlanRootValue; data: PlanRootValue } {
     const seam = data.nested.type === "some" ? data.nested.value : undefined;
     const paged = seam !== undefined && lead !== undefined ? windowedSourceOf(value.rows) : undefined;
-    const rows = useMemo(() => new SortedMap([...drafted.drafts], compareString), [drafted.drafts]);
-    const latest = useRef({ src: paged, lead, seam, rows, version: drafted.version });
-    latest.current = { src: paged, lead, seam, rows, version: drafted.version };
+    const rows = useMemo(() => new SortedMap([...readWhole, ...drafted.drafts], compareString), [readWhole, drafted.drafts]);
+    // Which rows are read whole for their links names the revision too, so the windows are read again as they land.
+    const whole = useMemo(() => [...readWhole.keys()].join("|"), [readWhole]);
+    const latest = useRef({ src: paged, lead, seam, rows, version: drafted.version, whole });
+    latest.current = { src: paged, lead, seam, rows, version: drafted.version, whole };
     const wrapperOf = useRef<{ src: PlanPagedSourceValue; wrapped: PlanPagedSourceValue } | undefined>(undefined);
     const wrapped = useMemo((): PlanPagedSourceValue | undefined => {
         if (paged === undefined) return undefined;
@@ -1011,7 +1018,7 @@ export function usePlanNestedRoot(value: PlanRootValue, data: PlanRootValue, lea
             revision: () => {
                 const l = latest.current;
                 const r = l.src?.revision?.() ?? none;
-                return some(`${r.type === "some" ? r.value : ""}#nested-${l.lead?.version ?? 0}-${l.version}`);
+                return some(`${r.type === "some" ? r.value : ""}#nested-${l.lead?.version ?? 0}-${l.version}-${l.whole}`);
             },
             refresh: (revision) => latest.current.src?.refresh?.(revision) ?? null,
             seek: paged.seek.type === "some"
