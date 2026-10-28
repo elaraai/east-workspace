@@ -115,7 +115,7 @@ function reachedFrom(item: DataTreeDef | Definition): (DataTreeDef | Definition)
         case "recordIndex":
             return [item.record];
         case "migration":
-            return item.after === undefined ? [item.record] : [item.record, item.after];
+            return [item.record];
         case "function":
             return [];
     }
