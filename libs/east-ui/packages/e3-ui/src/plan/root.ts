@@ -91,6 +91,7 @@ import { WINDOWLESS_AXES, axisKindOf, axisResolutionsOf } from "./builders.js";
 import { checkPlanNested, nestedPartOf, planNestedIndex, type PlanNestedIndex, type PlanNestedRead } from "./nested-checks.js";
 import { planNestedRestatement } from "./nested-patch.js";
 import { PlanNestedType, planNestedUses } from "./nested-read.js";
+import { pickedSeriesOf } from "./pick.js";
 import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesType, type PlanSeriesInput } from "./series.js";
 
 
@@ -430,8 +431,20 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     const nested = config.data === undefined ? undefined
         : rowsNested ?? nestedPartOf(Expr.type(East.value(config.data as SubtypeExprOrValue<EastType>) as Expr) as EastType);
     let reads: readonly PlanNestedRead[] = [];
-    if (nested !== undefined && config.series !== undefined) {
-        reads = checkPlanNested(config.series, { index: planNestedIndex(nested), axisKind: axisKindOf(config.axis), resolutions: axisResolutionsOf(config.axis) });
+    if (nested !== undefined) {
+        // What each series reads is known as the Plan is built: from the list it was given, or the one its pick was. A pick
+        // read through an East variable is an expression whose series the build cannot see.
+        const declared = config.pick !== undefined ? pickedSeriesOf(config.pick) : config.series;
+        const index = planNestedIndex(nested);
+        if (index !== undefined && !Array.isArray(declared)) {
+            throw new Error(config.pick !== undefined
+                ? "Plan: its rows are read through a nested series index, a cell at a time, by what each series reads — known as the Plan is " +
+                    "built — and its pick is an East expression whose series it cannot see. Give `pick` Plan.pick(key, [Plan.series.span(…), …]) " +
+                    "as it returns it: its series a list, and the pick held in no East variable ($.let)"
+                : "Plan: its rows are read through a nested series index, a cell at a time, by what each series reads — known as the Plan is " +
+                    "built — and its `series` are an East expression of a list. Give `series` the list itself: [Plan.series.span(…), …]");
+        }
+        reads = checkPlanNested(declared, { index, axisKind: axisKindOf(config.axis), resolutions: axisResolutionsOf(config.axis) });
     }
     if (config.series !== undefined) checkSeries(config.series, "Plan", axisKindOf(config.axis));
     const data = config.data;

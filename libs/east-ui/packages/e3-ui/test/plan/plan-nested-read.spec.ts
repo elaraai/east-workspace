@@ -15,7 +15,7 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, East, OptionType, StringType, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, East, NullType, OptionType, StringType, equalFor, none, printFor, some, variant, type BlockBuilder, type ValueTypeOf } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui";
 import { RecordSliceTileType } from "@elaraai/east-ui/internal";
 import { Data, Plan, PlanNestedUseType, PlanPayloadType, type PlanSeriesValue as BrandedSeries } from "@elaraai/e3-ui/internal";
@@ -126,6 +126,17 @@ describe("A Plan over paged rows carries what it reads of their nested series in
             { series: "readings", place: ["measures", "readings"], levels: week, shade: variant("fold", variant("sum", null)),
                 parents: some(variant("subtotals", { fold: variant("sum", null), aggregate: variant("sum", null) })) },
         ] as Uses);
+    });
+
+    test("a series list given as an East expression is refused, and so is a pick held in an East variable: what each series reads is known as the Plan is built", () => {
+        const presses = Plan.series.span(Machine, { key: "presses", title: "Presses", label: (m) => m.name, runs: () => [] });
+        const build = (plan: ($: BlockBuilder<NullType>) => unknown) => () => { East.function([], NullType, ($) => { plan($); }); };
+        assert.throws(build(($) => Plan.Payload({ axis: axis(), data: machines() as never, series: $.const([presses], ArrayType(Plan.Types.Series(Machine))) as never })),
+            /its `series` are an East expression of a list/);
+        assert.throws(build(($) => Plan.Payload({ axis: axis(), data: machines() as never, pick: $.let(Plan.pick("presses.pick", [presses])) as never })),
+            /its pick is an East expression whose series it cannot see/);
+        // The pick as Plan.pick returns it, its series a list, builds.
+        assert.doesNotThrow(build(() => Plan.Payload({ axis: axis(), data: machines() as never, pick: Plan.pick("presses.pick", [presses]) as never })));
     });
 
     test("rows paged whole read no index", () => {

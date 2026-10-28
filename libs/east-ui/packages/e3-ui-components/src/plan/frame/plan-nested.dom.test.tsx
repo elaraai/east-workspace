@@ -103,6 +103,12 @@ const slicePlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
     return Plan({ axis: axis(), series: machineSeries(), slice: { slice } });
 }))) };
 
+/** The thousand machines paged lean, their series picked: the library's Series tab lists them, each with its eye. */
+const pickedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const machines = $.const(Data.bindPaged(ex.machines, { indexes: ["machines_by_name", "machines_in_time"] }));
+    return Plan({ axis: axis(), data: machines, pick: Plan.pick("plan.nested.dom.pick", machineSeries()), library: [Plan.library.series()] });
+}))) };
+
 /** The same machines' first twelve read whole: what the paged Plan draws the same as, for them. */
 const wholePlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const machines = $.const(Data.bind(ex.machinesFew));
@@ -152,6 +158,20 @@ async function zoomTo(c: HTMLElement, resolution: "day" | "week" | "month" | "qu
     await settle();
 }
 
+/** The library's Series tab opened, and one of its lines toggled by its name. */
+async function toggleSeries(c: HTMLElement, name: string) {
+    const pane = slot(c, "start")!;
+    const tab = [...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "));
+    if (tab === undefined) throw new Error("no Series tab");
+    if (tab.getAttribute("aria-selected") !== "true") {
+        fireEvent.click(tab);
+        await settle();
+    }
+    const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+    fireEvent.click(within(panel).getByRole("button", { name: `Toggle ${name}` }));
+    await settle();
+}
+
 /** What the first twelve machines' presses rows draw: the rows the canvas opens on. */
 const drawnTwelve = (c: HTMLElement) => TWELVE.flatMap((key) => drawnRow(c, "presses", key));
 
@@ -180,6 +200,33 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         const { container: whole } = await h.mount(wholePlan, { storageKey: "whole" });
         await settle();
         expect(paged).toEqual(drawnTwelve(whole));
+    });
+
+    test("a picked Plan reads its series' collections as a listed one does, and the library's eye hides a series and shows it again", async () => {
+        onTestFinished(emulateWindowScroll());
+        const { container } = await h.mount(pickedPlan);
+        await settle();
+        // The same one batch of searches and one read of their entries as the series listed, and the same rows drawn.
+        expect(askedOf(IN_TIME)).toEqual(["find 250", "runs"]);
+        const { container: whole } = await h.mount(wholePlan, { storageKey: "whole" });
+        await settle();
+        expect(drawnTwelve(container)).toEqual(drawnTwelve(whole));
+        // Each series is a block of the thousand machines' rows: hiding the presses brings their load to the top, read a
+        // cell at a time in one batch of searches and one read, drawn as read whole.
+        const loads = (c: HTMLElement) => TWELVE.flatMap((key) => drawnRow(c, "load", key));
+        const before = askedOf(IN_TIME).length;
+        await toggleSeries(container, "Presses");
+        await waitFor(() => expect(loads(container)).toEqual(loads(whole)));
+        expect(drawnTwelve(container)).toEqual(TWELVE.map((key) => `presses ${key}: no row`));
+        expect(askedOf(IN_TIME).slice(before)).toEqual([expect.stringMatching(/^find \d+$/), "runs"]);
+        // Shown again, the presses' cells are read in one batch and one read: the view keeps the load it showed, and the
+        // presses above it draw what they drew.
+        const shown = askedOf(IN_TIME).length;
+        await toggleSeries(container, "Presses");
+        await waitFor(() => expect(askedOf(IN_TIME).slice(shown)).toEqual([expect.stringMatching(/^find \d+$/), "runs"]));
+        await waitFor(() => expect(loads(container)).toEqual(loads(whole)));
+        act(() => { window.scrollTo({ top: 0 }); });
+        await waitFor(() => expect(drawnTwelve(container)).toEqual(drawnTwelve(whole)), { timeout: 10_000 });
     });
 
     test("a pan within the tiles it holds reads nothing; a week on reads the new week's tiles alone, a range a machine a collection", async () => {

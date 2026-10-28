@@ -61,7 +61,7 @@ import {
 import type { SeekQueryType } from "@elaraai/east-ui";
 import { levelRuns, summaryRun, type RecordTile } from "@elaraai/east-ui/internal";
 import { Plan, PlanNestedShadingType, SCHEDULE_EVENT_CAP, type PlanNestedType } from "@elaraai/e3-ui/internal";
-import { useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { indexedBindingOf, type IndexedBindingRead } from "../../platform/indexed-paged.js";
 import { useRecordDrafts, type PreviewedRow, type RecordDraftsSession } from "../../shared/records/drafts.js";
@@ -1081,8 +1081,10 @@ export function usePlanNestedRoot(value: PlanRootValue, data: PlanRootValue, lea
     const rows = useMemo(() => new SortedMap([...readWhole, ...drafted.drafts], compareString), [readWhole, drafted.drafts]);
     // Which rows are read whole for their links names the revision too, so the windows are read again as they land.
     const whole = useMemo(() => [...readWhole.keys()].join("|"), [readWhole]);
-    const latest = useRef({ src: paged, lead, seam, rows, version: drafted.version, whole });
-    latest.current = { src: paged, lead, seam, rows, version: drafted.version, whole };
+    // A pick's series switched on or off names it too: the window function reads which are on as it draws a window.
+    const picked = useSliceReactivity(data.pick.type === "some" ? data.pick.value.key : undefined);
+    const latest = useRef({ src: paged, lead, seam, rows, version: drafted.version, whole, picked });
+    latest.current = { src: paged, lead, seam, rows, version: drafted.version, whole, picked };
     const wrapperOf = useRef<{ src: PlanPagedSourceValue; wrapped: PlanPagedSourceValue } | undefined>(undefined);
     const wrapped = useMemo((): PlanPagedSourceValue | undefined => {
         if (paged === undefined) return undefined;
@@ -1100,7 +1102,7 @@ export function usePlanNestedRoot(value: PlanRootValue, data: PlanRootValue, lea
             revision: () => {
                 const l = latest.current;
                 const r = l.src?.revision?.() ?? none;
-                return some(`${r.type === "some" ? r.value : ""}#nested-${l.lead?.version ?? 0}-${l.version}-${l.whole}`);
+                return some(`${r.type === "some" ? r.value : ""}#nested-${l.lead?.version ?? 0}-${l.version}-${l.whole}-${l.picked}`);
             },
             refresh: (revision) => latest.current.src?.refresh?.(revision) ?? null,
             seek: paged.seek.type === "some"

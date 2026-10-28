@@ -399,7 +399,14 @@ while which rows show keeps to what is saved; Save restates each listed
 collection's change by key (`Record.onApply(record, { keyed: true })`), so
 another planner's item added meanwhile is kept. A table's `edit: true` takes
 typed numbers the same way (the ledgers: a reading typed into a leaf moves
-every subtotal above it at once).
+every subtotal above it at once). What each series reads is known as the Plan
+is built, so its series are a list of `Plan.series.*` values: in `series`, or
+in `Plan.pick(key, [...])` passed to `pick` as it returns it, which lets a
+viewer switch each series on and off from the library's Series tab
+(`Plan.library.series()`). A list held as an East expression, or a pick held
+in an East variable (`$.let`), is refused: the Plan could not see what its
+series read. While cells are read — a pan, a zoom, a scroll, a commit — the
+rows waiting on them wash, their plots busy, until the cells land.
 
 **A builder narrows through `Slice.bindRecords` alone** (#1340): one rail on
 its toolbar, `Slice.bindRecords(key, { [source]: { source:

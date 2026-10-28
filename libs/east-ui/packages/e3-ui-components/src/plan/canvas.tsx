@@ -85,7 +85,7 @@ import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east"
 import { Plan, ScheduleEventRefType, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
     getSomeorUndefined, optimiseMessages, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState,
-    historyShortcut, takeKey, useTrackedEvaluation,
+    historyShortcut, takeKey, useSliceReactivity, useTrackedEvaluation,
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
 import {
@@ -504,6 +504,10 @@ export function usePlanCanvas({
     // So did what was read of the rows' nested series index (#1438), which every window is drawn with.
     const nestedVersion = nestedLead?.version ?? 0;
     useLayoutEffect(() => { if (nestedVersion > 0) controller.refreshSource(); }, [controller, nestedVersion]);
+    // So did which of `data`'s series its pick shows (#590): a window of the rows read beside their nested series index
+    // draws with them, and names them in its revision.
+    const pickVersion = useSliceReactivity(data.pick.type === "some" ? data.pick.value.key : undefined);
+    useLayoutEffect(() => { if (pickVersion > 0) controller.refreshSource(); }, [controller, pickVersion]);
     // The source's channels are listened to while the canvas is mounted.
     useEffect(() => controller.connect(), [controller]);
 

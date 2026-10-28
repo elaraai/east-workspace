@@ -162,8 +162,26 @@ export function createPlanPick(
     const allExpr = East.value(all as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
     // Typed at the SERIES shape, not the erased element type: that is what
     // makes `Pick.active(shown)` assignable straight back to the `series` prop.
-    return createPickBind(key, allExpr, planPickOptions(allExpr, options)) as unknown as
+    const pick = createPickBind(key, allExpr, planPickOptions(allExpr, options)) as unknown as
         PickHandle<ReturnType<typeof PlanSeriesType>>;
+    if (Array.isArray(all)) PICKED.set(pick, all);
+    return pick;
+}
+
+/** The series each pick was built from, where `Plan.pick` was given them as a list (#1438). */
+const PICKED = new WeakMap<object, readonly unknown[]>();
+
+/**
+ * The series a pick was built from, as they were written (#1438): a Plan over
+ * a record's paged rows holds them to the rows' nested series index as it
+ * holds its `series`, and reads what each reads a cell at a time.
+ *
+ * @param pick - The pick
+ * @returns The list `Plan.pick` was given; `undefined` where it was given an East expression of one
+ * @internal
+ */
+export function pickedSeriesOf(pick: object): readonly unknown[] | undefined {
+    return PICKED.get(pick);
 }
 
 /**
