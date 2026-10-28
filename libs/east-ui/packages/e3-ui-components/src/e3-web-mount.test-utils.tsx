@@ -278,7 +278,8 @@ const heardStatus = (workspace: string): Promise<void> => refreshMounted(workspa
  * with the package of the given example modules deployed
  * (`startTestE3`); before each, the test gets a fresh copy of the deployed
  * workspace, a store of its own and the measuring stubs; after each, its
- * holds and faults stop, what it mounted unmounts and its requests settle.
+ * holds and faults stop, what it mounted unmounts, every spy lets go of what
+ * it recorded and its requests settle.
  *
  * @param modules - Each e3-ui example module the file mounts, by its key under e3-ui's `test/` (`calendar/calendar-records`), as the file imports it
  * @param options - The builder's main area, and whether to measure it
@@ -331,6 +332,13 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
         state.e3?.reset();
         cleanup();
         localStorage.clear();
+        // What every spy recorded goes with the test, as its stub does: vitest
+        // keeps each spy a file makes until the file ends, and restoring one
+        // keeps its calls, each with the element it was called on — which
+        // reaches the whole page the test drew, and what React drew it from.
+        // The measures above, new each test, held every page the file had
+        // drawn: the Calendar's records file passed 4 GiB.
+        vi.clearAllMocks();
         vi.restoreAllMocks();
         observers.clear();
         await state.e3?.idle();
