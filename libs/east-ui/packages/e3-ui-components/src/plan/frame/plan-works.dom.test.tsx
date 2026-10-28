@@ -138,6 +138,37 @@ describe("the works on a Plan (#1438)", () => {
         await waitFor(() => expect(spanReads().slice(before)).toEqual(["runs"]));
     });
 
+    test("a works' crew hours, folded, draw each week's sum of its crews' hours as e3 keeps it", async () => {
+        const { container } = await h.mount(ex.planNestedAll);
+        await settle();
+        // Jobs and Load switched off: the works' crew hours come to the top, each works folded over its two crews.
+        const pane = slot(container, "start")!;
+        fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
+        await settle();
+        for (const name of ["Jobs", "Load"]) {
+            const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+            fireEvent.click([...panel.querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!);
+            await settle();
+        }
+        // The first works' crews' hours in the weeks drawn — the window's, and the one it ends at — summed by week, as the
+        // generator made them.
+        const first = East.compile(ex.generateWorks, [])(0n, 522n);
+        const from = new Date("2026-09-28T00:00:00Z").getTime();
+        const to = new Date("2026-12-28T00:00:00Z").getTime();
+        const sums = new Map<number, number>();
+        for (const crew of first.crews.values()) {
+            for (const [at, hours] of crew.hours) if (at.getTime() >= from && at.getTime() <= to) sums.set(at.getTime(), (sums.get(at.getTime()) ?? 0) + hours);
+        }
+        expect(sums.size).toBeGreaterThan(0);
+        const row = () => slot(container, "main")!.querySelector(rowAt(entry("crews", "W-10001")));
+        await waitFor(() => expect(row()?.querySelectorAll("[data-cell] [data-part]").length ?? 0).toBeGreaterThan(0));
+        const drawn = [...row()!.querySelectorAll<HTMLElement>("[data-cell]")].flatMap((cell) => {
+            const part = cell.querySelector("[data-part]");
+            return part === null ? [] : [[cell.getAttribute("data-cell"), Number((part.textContent ?? "").replace(/,/g, ""))] as const];
+        });
+        expect(drawn).toEqual([...sums].sort(([a], [b]) => a - b).map(([at, sum]) => [`time:${new Date(at).toISOString().replace("Z", "")}`, sum]));
+    });
+
     test("a quarter on, every works in view draws jobs there: the works are sparse, and spread evenly over their years", async () => {
         const { container } = await h.mount(ex.planNestedAll);
         await settle();

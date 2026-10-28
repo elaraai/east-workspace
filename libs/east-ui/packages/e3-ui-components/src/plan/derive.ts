@@ -485,13 +485,15 @@ function givenHeatCells(given: readonly (readonly PlanParentSubtotal[])[]): Heat
  * — and carries the leaves its children's do.
  */
 function withGivenPositions(positions: readonly TablePosition[], given: readonly (readonly PlanParentSubtotal[])[] | undefined,
-    declared: readonly TableSeriesValue[]): TablePosition[] {
+    declared: readonly TableSeriesValue[], children: readonly PlanRowValue[]): TablePosition[] {
     if (given === undefined) return [...positions];
     const out: TablePosition[] = [];
     for (let i = 0; i < Math.max(positions.length, given.length); i++) {
         const p = positions[i];
         const subtotals = given[i];
-        const style = p?.series ?? declared[i];
+        // Styled as its children's position is: derived from them, declared by the parent, or — the children holding no
+        // value in the window, a lean row's empty — as the first table child declares it.
+        const style = p?.series ?? declared[i] ?? childPositionStyle(children, i);
         if (subtotals === undefined || style === undefined) {
             if (p !== undefined) out.push(p);
             continue;
@@ -499,6 +501,16 @@ function withGivenPositions(positions: readonly TablePosition[], given: readonly
         out.push({ series: { ...style, cells: subtotals.map((s): TableCellValue => ({ at: s.at, value: some(s.value), text: none, tone: none })) }, leaves: p?.leaves ?? [] });
     }
     return out;
+}
+
+/** A position's style as the first table child of a parent declares it, its cells none (#1438). */
+function childPositionStyle(children: readonly PlanRowValue[], i: number): TableSeriesValue | undefined {
+    for (const child of children) {
+        if (child.kind.type !== "table") continue;
+        const style = child.kind.value.series[i];
+        if (style !== undefined) return { ...style, cells: [] };
+    }
+    return undefined;
 }
 
 /**
@@ -661,10 +673,11 @@ export function derivePlan(
                 const declared = kind.value.series;
                 const folded = foldTableSeries(declared, period, ordinal);
                 // Each position's subtotals as e3 keeps them where it is given them (#1438), styled as its children's.
-                const derived = kind.value.aggregate.type === "some" && children.length > 0
+                const given = parents?.get(row.key);
+                const derived = kind.value.aggregate.type === "some" && (children.length > 0 || given !== undefined)
                     ? withGivenPositions(deriveTableSeries(
                         children.map(aggregableOf).filter((p) => p.length > 0), kind.value.aggregate.value.type, ordinal, period),
-                    parents?.get(row.key), declared)
+                    given, declared, children)
                     : [];
                 const own = folded.map((s) => ownPosition(s, ordinal, period));
                 if (!declared.some((s) => s.cells.length > 0)) {
