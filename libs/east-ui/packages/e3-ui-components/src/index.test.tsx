@@ -12,7 +12,7 @@
 import { describe, test, expect } from "vitest";
 import { ArrayType, East, OptionType, StringType, equalFor, none, some, variant } from "@elaraai/east";
 import type { DataManifest } from "@elaraai/e3-types";
-import { DecisionConstraintType, DiffBindingType, Flowchart, Schematic, decisionBindPlatformFn } from "@elaraai/e3-ui/internal";
+import { DecisionConstraintType, DataBindingType, Flowchart, Schematic, decisionBindPlatformFn } from "@elaraai/e3-ui/internal";
 import {
     ClipboardImpl, DownloadImpl, OverlayImpl, ShareImpl, SliceApplyImpl, SliceImpl, StateImpl,
     hasExtensionRenderer,
@@ -62,8 +62,8 @@ describe("the package's root", () => {
         const opened = East.function([], OptionType(StringType), ($) => {
             const handle = $.let(decisionBindPlatformFn(
                 [DecisionConstraintType],
-                East.value(decisions, ArrayType(DiffBindingType)),
-                East.value(judgements, DiffBindingType),
+                East.value(decisions, ArrayType(DataBindingType)),
+                East.value(judgements, DataBindingType),
             ));
             $(handle.select("case-1"));
             $.return(handle.selected());

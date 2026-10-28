@@ -62,10 +62,10 @@ const registry = new Map<string, RegistryEntry>();
  * ```tsx
  * // In your *-components package:
  * import { implementUIComponent } from "@elaraai/east-ui-components";
- * import { Diff } from "@elaraai/e3-ui";
- * import { EastChakraDiff } from "./diff";
+ * import { Ontology } from "@elaraai/e3-ui/internal";
+ * import { EastChakraOntology } from "./ontology";
  *
- * implementUIComponent(Diff, EastChakraDiff);
+ * implementUIComponent(Ontology.Component, EastChakraOntology);
  * ```
  */
 export function implementUIComponent<S extends EastType>(

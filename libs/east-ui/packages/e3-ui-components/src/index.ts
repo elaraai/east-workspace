@@ -12,7 +12,6 @@
 import './platform/bind-runtime.js';      // → registerPlatformImplementation(BindPlatform)
 import './platform/paged-runtime.js';     // → registerPlatformImplementation(PagedPlatform)
 import './platform/func-runtime.js';      // → registerPlatformImplementation(FuncPlatform)
-import './diff/index.js';                 // → implementUIComponent(Diff.Component, EastChakraDiff)
 import './ontology/index.js';             // → implementUIComponent(Ontology.Component, EastChakraOntology)
 import './experiment/index.js';           // → implementUIComponent(Experiment.Component, EastChakraExperiment)
 import './decision/queue.js';             // → implementUIComponent(DecisionQueue.Component, EastChakraDecisionQueue)
@@ -48,9 +47,6 @@ export {
     RECOVERY_MAX_MS,
     type RecoveringQuery,
 } from './platform/recovery.js';
-
-// Diff renderer — registers itself against the Diff extension on import.
-export { EastChakraDiff, type EastChakraDiffProps } from './diff/index.js';
 
 // Ontology renderer — registers itself against the Ontology extension on import.
 export { EastChakraOntology, type EastChakraOntologyProps } from './ontology/index.js';

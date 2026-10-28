@@ -26,8 +26,8 @@ component is an **interface and a renderer**:
    state — from the payload, on the theme's recipes. Parts two components
    share are shared React components, never shared East trees.
 
-`<Diff>`, `<Ontology>`, `<Experiment>` and `<DecisionQueue>` are built this
-way. UI an author passes in — a `children` slot, a `UIComponentType` prop, a
+`<Ontology>`, `<Experiment>` and `<DecisionQueue>` are built this way. UI
+an author passes in — a `children` slot, a `UIComponentType` prop, a
 behaviour that returns UI — is the author's composition and renders as
 given; this rule governs how a component itself is made.
 

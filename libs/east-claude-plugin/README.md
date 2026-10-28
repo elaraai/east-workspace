@@ -17,7 +17,7 @@ Runtime code, the skill catalog, index generation and CLI installers are shared 
 | `east-py-datascience` | `@elaraai/east-py-datascience` | Data science & ML (MADS, Optuna, XGBoost, Torch, GP, SHAP, Causal) |
 | `east-ui` | `@elaraai/east-ui` | UI components (50+ typed components for layouts, forms, charts) |
 | `e3` | `@elaraai/e3` | East Execution Engine - durable execution for East pipelines |
-| `e3-ui` | `@elaraai/e3-ui` | e3 + UI bridge - reactive decision surfaces as e3 tasks (Data.bind, ui(), Diff, Ontology) |
+| `e3-ui` | `@elaraai/e3-ui` | e3 + UI bridge - reactive decision surfaces as e3 tasks (Data.bind, ui(), Ontology, DecisionQueue) |
 | `e3-ui-cli` | `@elaraai/e3-ui-cli` | Render east-ui / e3-ui components to PNG/HTML (`e3-ui shot`), managed headless Chromium, server setup (`install-browser`, `doctor`) |
 | `east-project` | _(plugin-native)_ | Create + manage East/e3 projects — scaffolds via `east-scaffold`, drives the build/deploy/run lifecycle |
 | `east-design` | _(plugin-native)_ | Architect a solution before coding — discovery questions, capability→skill mapping, example searches, design doc |

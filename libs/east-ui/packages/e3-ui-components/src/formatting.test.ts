@@ -4,8 +4,8 @@
  *
  * @vitest-environment jsdom
  *
- * One formatter (#850) in e3-ui-components — a decision constraint's chip, a
- * diff leaf, the experiment's numbers and its journal print in the app's
+ * One formatter (#850) in e3-ui-components — a decision constraint's chip,
+ * the experiment's numbers and its journal print in the app's
  * locale, and every date its UTC day. Each runs under timezones either side
  * of UTC, where a local reading would move an instant to another day.
  */
@@ -20,7 +20,6 @@ import { Experiment, judgementInputType } from "@elaraai/e3-ui/internal";
 import { formatters } from "@elaraai/east-ui-components";
 import { formatConstraint } from "./decision/constraint-format.js";
 import { constraintContractOf, type ConstraintContract } from "./decision/contract.js";
-import { formatLeafValue } from "./diff/format.js";
 import { deriveView, fmt, signed, type ConfigValue, type JournalRowValue } from "./experiment/derive.js";
 
 /** 01:30 on Monday 29 June, UTC — west of UTC, still Sunday the 28th. */
@@ -54,9 +53,9 @@ const levers = contractOf(Levers);
 const localDay = (d: Date): string => new Intl.DateTimeFormat("en-US", { day: "numeric" }).format(d);
 
 describe.each([
-    { tz: "America/Los_Angeles", moved: EARLY, localDayOf: "28", east: "2026-06-29T01:30:00.000" },
-    { tz: "Pacific/Kiritimati", moved: LATE, localDayOf: "30", east: "2026-06-29T23:30:00.000" },
-])("dates are UTC — TZ=$tz (#850)", ({ tz, moved, localDayOf, east }) => {
+    { tz: "America/Los_Angeles", moved: EARLY, localDayOf: "28" },
+    { tz: "Pacific/Kiritimati", moved: LATE, localDayOf: "30" },
+])("dates are UTC — TZ=$tz (#850)", ({ tz, moved, localDayOf }) => {
     beforeEach(() => { vi.stubEnv("TZ", tz); });
     afterEach(() => { vi.unstubAllEnvs(); });
 
@@ -68,10 +67,6 @@ describe.each([
         const deadline: ValueTypeOf<typeof Levers> = variant("deadline", moved);
         expect(formatConstraint(deadline, levers, undefined, en)).toEqual({ lever: "deadline", op: "·", value: "Jun 29" });
         expect(formatConstraint(deadline, levers, undefined, de).value).toBe("29. Juni");
-    });
-
-    test("a diff leaf's DateTime prints its exact UTC instant, as East prints it", () => {
-        expect(formatLeafValue(toEastTypeValue(DateTimeType), moved, de)).toBe(east);
     });
 
     test("a journal row's weekday is its UTC day, and its effect is in the locale", () => {
@@ -103,20 +98,6 @@ describe("numbers (#850)", () => {
         expect(formatConstraint(year, levers, undefined, de).value).toBe("2026");
         const load: ValueTypeOf<typeof Levers> = variant("load", variant("between", { min: 0.5, max: 1.25 }));
         expect(formatConstraint(load, levers, undefined, de)).toEqual({ lever: "load", op: "between", value: "0,5 – 1,25" });
-    });
-
-    test("a diff leaf: an integer as East prints it, a float as East prints it in the locale's decimal separator", () => {
-        const integer = toEastTypeValue(IntegerType);
-        const float = toEastTypeValue(FloatType);
-        expect(formatLeafValue(integer, 2026n, de)).toBe("2026");
-        expect(formatLeafValue(integer, 1234567n, en)).toBe("1234567");
-        expect(formatLeafValue(float, 42, en)).toBe("42.0");
-        expect(formatLeafValue(float, 42, de)).toBe("42,0");
-        expect(formatLeafValue(float, 1234.567, en)).toBe("1234.567");
-        expect(formatLeafValue(float, 1234.567, de)).toBe("1234,567");
-        // Every digit: a change past the fourth decimal stays visible.
-        expect(formatLeafValue(float, 0.12345, en)).toBe("0.12345");
-        expect(formatLeafValue(float, 0.12346, en)).toBe("0.12346");
     });
 
     test("the experiment speaks a number whole, else to one decimal; a value that rounds to zero is unsigned", () => {

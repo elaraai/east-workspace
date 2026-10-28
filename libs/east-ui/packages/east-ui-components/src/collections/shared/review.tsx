@@ -233,7 +233,7 @@ const FOOT_LABELS: ReviewFootLabels = { approveAll: "Approve all", rejectAll: "R
 
 /**
  * The batch review foot on the shared `commitBar` recipe (the same block the
- * Diff + DecisionQueue commit bars use), mounted outside any scrolling grid
+ * Blend's action foot uses), mounted outside any scrolling grid
  * so it stays full-width under the surface. The summary is the host-composed
  * `review.summary` component; the buttons are Reject all / Rerun / Approve
  * all (left→right). Renders `null` when the foot has nothing to show.

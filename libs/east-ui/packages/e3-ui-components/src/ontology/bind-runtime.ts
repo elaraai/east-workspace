@@ -8,7 +8,7 @@
  *
  * `useBindingOntology(binding)` is a thin reactive wrapper over the shared
  * `BindRuntime.buildBindHandle` — the same handle that powers every other
- * `Data.bind` consumer (including `EastChakraDiff`). It builds the handle for
+ * `Data.bind` consumer (the Experiment's among them). It builds the handle for
  * the binding's `(sourceType, source, patch, mode)`, subscribes to the staged
  * store + reactive dataset cache so the canvas re-renders on edits, and exposes
  * the handle's `read` / `write` / `pending` / `commit` / `discard` as an
@@ -25,7 +25,7 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { type ValueTypeOf } from '@elaraai/east';
 import type { TreePath } from '@elaraai/e3-types';
-import { DiffBindingType } from '@elaraai/e3-ui/internal';
+import { DataBindingType } from '@elaraai/e3-ui/internal';
 import {
     defaultBindRuntime,
     getBindingTypes,
@@ -37,7 +37,7 @@ import {
 } from '../platform/index.js';
 import type { Ontology } from './types.js';
 
-type DiffBindingValue = ValueTypeOf<typeof DiffBindingType>;
+type DataBindingValue = ValueTypeOf<typeof DataBindingType>;
 
 export interface UseBindingOntologyResult {
     /** Current ontology value (buffered if staged, otherwise server). `null`
@@ -84,13 +84,13 @@ function useBindingVersion(
 }
 
 /**
- * Resolve a {@link DiffBindingType} value into a live ontology + the
+ * Resolve a {@link DataBindingType} value into a live ontology + the
  * commit / discard / mutate handlers, delegating to the shared bind runtime.
  *
  * Returns `ontology: null` if the binding hasn't run yet (types not
  * registered) or no source value is present.
  */
-export function useBindingOntology(binding: DiffBindingValue): UseBindingOntologyResult {
+export function useBindingOntology(binding: DataBindingValue): UseBindingOntologyResult {
     const cache = getReactiveDatasetCache();
     const workspace = cache.getConfig().workspace ?? '';
     const sourcePath = binding.source as TreePath;
