@@ -31,6 +31,7 @@ import { UIStore, editingMessages, getRegisteredPlatformImplementations } from "
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
+import { searched } from "../e3-web.test-utils.js";
 import { act, flowchartHarness, settle } from "./flowchart.test-utils.js";
 import { flowchartMessages } from "./messages.js";
 import { countBuilds, type UIProgram } from "../shared/builds.test-utils.js";
@@ -295,6 +296,29 @@ describe("the open flow, its drafts and its Save (#1346)", () => {
         expect(await flowCommits()).toEqual(["patch", ...before]);
         // Its Save confirmed, and its exit counted, by reads of the flow and seeks of the indexes: never the flows whole.
         expect(h.requests("read", FLOWS_DATASET)).toEqual([]);
+    });
+});
+
+describe("opening a flow (#1398, CL5)", () => {
+    test("covers nothing while the flow it opens is read — the toolbar, the panes and the footer live, main busy, the footer naming it — and draws it once it lands", async () => {
+        const { container } = await mount(flowchart);
+        await waitFor(() => expect(cardKeys(container)).toContain("FLOW-10001"));
+        const frame = container.querySelector<HTMLElement>("[data-builder-frame]")!;
+        expect(frame.hasAttribute("data-loading")).toBe(false);
+        // The flow's read by its name, held on its way to e3.
+        const read = h.e3.hold((request) => request.dataset === FLOWS_DATASET && searched(request, undefined, printText("FLOW-10001")));
+        await act(async () => { fireEvent.click(panel(container).querySelector('[data-library-item="FLOW-10001"]')!); });
+        await read.holding;
+        await settle();
+        expect(frame.hasAttribute("data-loading"), "the frame is not covered").toBe(false);
+        expect(["toolbar", "start", "end", "footer"].filter((name) => slot(container, name)!.closest("[inert], [aria-hidden='true']") !== null), "no region is hidden").toEqual([]);
+        expect(slot(container, "main")!.getAttribute("aria-busy")).toBe("true");
+        expect(openFlow(container)).toBe("FLOW-10001");
+        expect(container.querySelectorAll("[data-flowchart-node]")).toHaveLength(0);
+        await act(async () => { read.release(); });
+        await settle();
+        await waitFor(() => expect(container.querySelectorAll("[data-flowchart-node]")).toHaveLength(4));
+        expect([slot(container, "main")!.getAttribute("aria-busy"), frame.hasAttribute("data-loading")]).toEqual(["false", false]);
     });
 });
 
