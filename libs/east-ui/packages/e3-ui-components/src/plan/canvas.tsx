@@ -750,25 +750,25 @@ export function usePlanCanvas({
     // whole (above), and stay so while the focus lasts. A row the canvas has not placed has no end to draw.
     const linksFocusKey = view.focus?.kind === "links" ? view.focus.key : undefined;
     const readsWhole = whole !== undefined;
+    // Set only when they move: an update that leaves them as they are is still a render, and a window landing — which
+    // moves the index — would commit twice (#815).
     useEffect(() => {
         if (linksFocusKey === undefined || !readsWhole || focusVisibleKeys === undefined) {
-            setLinkEnds((prior) => (prior.ids.length === 0 ? prior : NO_LINK_ENDS));
+            if (linkEnds.ids.length > 0) setLinkEnds(NO_LINK_ENDS);
             return;
         }
-        setLinkEnds((prior) => {
-            const kept = prior.focus === linksFocusKey ? prior.ids : [];
-            const ids = new Set(kept);
-            for (const link of data.links) {
-                for (const end of [link.from, link.to]) {
-                    const rowKey = rowKeyOf(end.row);
-                    if (!focusVisibleKeys.has(rowKey) || !index.byKey.has(rowKey) || linkedElementOf(rowKey, end.run) !== undefined) continue;
-                    const id = entryOf(end.row);
-                    if (id !== undefined) ids.add(id);
-                }
+        const kept = linkEnds.focus === linksFocusKey ? linkEnds.ids : [];
+        const ids = new Set(kept);
+        for (const link of data.links) {
+            for (const end of [link.from, link.to]) {
+                const rowKey = rowKeyOf(end.row);
+                if (!focusVisibleKeys.has(rowKey) || !index.byKey.has(rowKey) || linkedElementOf(rowKey, end.run) !== undefined) continue;
+                const id = entryOf(end.row);
+                if (id !== undefined) ids.add(id);
             }
-            return prior.focus === linksFocusKey && ids.size === kept.length ? prior : { focus: linksFocusKey, ids: [...ids] };
-        });
-    }, [linksFocusKey, readsWhole, focusVisibleKeys, data.links, index, linkedElementOf]);
+        }
+        if (linkEnds.focus !== linksFocusKey || ids.size !== kept.length) setLinkEnds({ focus: linksFocusKey, ids: [...ids] });
+    }, [linksFocusKey, readsWhole, focusVisibleKeys, data.links, index, linkedElementOf, linkEnds]);
     // Keyed on the view FIELDS the walk reads (`grain`, `collapsed`), and each
     // row object kept while it holds, so a row's memo survives both a store
     // change that did not move it and a window landing (#616, #815).
