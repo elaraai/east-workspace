@@ -25,6 +25,14 @@ type Nested = ValueTypeOf<ReturnType<typeof NestedPartType<StructType, StructTyp
 type Query = ValueTypeOf<typeof SeekQueryType>;
 type Range = ValueTypeOf<typeof SeekRangeType>;
 type Entry = { ik: unknown; key: unknown; value: unknown; row: option<unknown> };
+/**
+ * An index's maintenance for one row (#1437): e3's, the function the record's commit runs — given a row's key, the
+ * row before and after, and the patch an update sent, the changes the row makes to the index, by entry, each an op of
+ * the index's own patch or a summary's add.
+ */
+export type IndexMaintenance = (key: unknown, held: option<unknown>, next: option<unknown>, patch: option<unknown>) => ReadonlyMap<unknown, unknown>;
+/** Each listed nested series and summary index's maintenance for one row, by its name; none where the binding lists neither. */
+export type IndexMaintenances = option<Readonly<Record<string, IndexMaintenance>>>;
 interface Handle {
     id: string;
     page(offset: bigint, limit: bigint): option<unknown>;
@@ -403,10 +411,11 @@ export class IndexedPagedRuntime {
     platform(allowed: ReadonlySet<string> | null): PlatformFunction[] {
         const primitives = this.primitives();
         return [bindIndexedPagedPlatformFn.implement((...types: EastTypeValue[]) => {
-            const schema = this.schema(types);
+            // The binding's types, as its reads take them; its maintenance part's last, which the handle carries (#1437).
+            const schema = this.schema(types.slice(0, -1));
             return (...values: unknown[]) => {
-                const [path, metadata, nested, joined, entryKeys, recordId] =
-                    values as [TreePath, Metadata, Nested, boolean, (index: string, key: unknown, row: unknown) => string[], string];
+                const [path, metadata, nested, joined, entryKeys, recordId, maintenance] =
+                    values as [TreePath, Metadata, Nested, boolean, (index: string, key: unknown, row: unknown) => string[], string, IndexMaintenances];
                 const pathKey = datasetPathToString(path);
                 if (allowed !== null && !allowed.has(pathKey)) throw new Error(`Data.bindPaged: source path '${pathKey}' not declared in manifest`);
                 const typeKey = printType(StructType(Object.fromEntries(schema.args.map((type, i) => [`T${i}`, type]))));
@@ -420,7 +429,7 @@ export class IndexedPagedRuntime {
                     East.value(joined, BooleanType)] as const;
                 const { page, seek, total, revision, refresh } = DataIndexedPrimitives;
                 const handle = {
-                    id, recordId, indexes: metadata, nested, joined, defaultIndex: this.defaultIndex(schema, metadata, joined), entryKeys,
+                    id, recordId, indexes: metadata, nested, joined, defaultIndex: this.defaultIndex(schema, metadata, joined), entryKeys, maintenance,
                     page: East.compile(East.function([StringType, IntegerType, IntegerType], OptionType(schema.window), ($, name, offset, limit) =>
                         $.return(page(args, ...descriptor, name, offset, limit))), primitives),
                     seek: East.compile(East.function([StringType, SeekQueryType], OptionType(SeekRangeType), ($, name, query) =>

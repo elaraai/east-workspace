@@ -20,8 +20,9 @@ import { bindRecord, type RecordSliceOptions, type RecordSliceWhere } from "./re
 import { RecordSliceBindType, RecordSlicePartType, RecordSlicesHandleType } from "./record-types.js";
 
 /** An indexed binding's type parameters, recovered from its expression. */
-type Parameters_<S> = S extends IndexedSource<infer K extends EastType, infer R extends StructType, infer P extends EastType, infer M extends StructType, infer IK extends VariantType, infer N extends EastType>
-    ? { K: K; R: R; P: P; M: M; IK: IK; N: N } : never;
+type Parameters_<S> = S extends IndexedSource<infer K extends EastType, infer R extends StructType, infer P extends EastType, infer M extends StructType, infer IK extends VariantType,
+    infer N extends EastType, infer Maint extends EastType>
+    ? { K: K; R: R; P: P; M: M; IK: IK; N: N; Maint: Maint } : never;
 type RowOf<S> = Parameters_<S> extends { R: infer R extends StructType } ? R : never;
 type MetaOf<S> = Parameters_<S> extends { M: infer M extends StructType } ? M : never;
 
@@ -56,8 +57,10 @@ export interface RecordSlicesOptions<S> {
 }
 
 /** The typed handle of one part, as `Slice.bindRecord` returns it. */
-type PartHandle<S> = Parameters_<S> extends { K: infer K extends EastType; R: infer R extends StructType; P: infer P extends EastType; M: infer M extends StructType; IK: infer IK extends VariantType; N: infer N extends EastType }
-    ? TypeOf<ReturnType<typeof bindRecord<K, R, P, M, IK, N>>> : never;
+type PartHandle<S> = Parameters_<S> extends {
+    K: infer K extends EastType; R: infer R extends StructType; P: infer P extends EastType; M: infer M extends StructType; IK: infer IK extends VariantType;
+    N: infer N extends EastType; Maint: infer Maint extends EastType;
+} ? TypeOf<ReturnType<typeof bindRecord<K, R, P, M, IK, N, Maint>>> : never;
 
 /**
  * The typed handle `Slice.bindRecords` returns.

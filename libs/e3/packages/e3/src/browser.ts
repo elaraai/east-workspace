@@ -63,5 +63,8 @@ export { package_ as package } from './package.js';
 
 // An index as it is built and bound beside a record's nested series index
 // (#1434): what a binding reads to know which of the indexes it lists carry
-// the record's lean rows (#1435).
-export { builtIndex } from './record-programs.js';
+// the record's lean rows (#1435). And an index's maintenance for one row, which
+// a binding carries so a page previews a drafted row's Save with the function
+// the commit runs (#1437).
+export { builtIndex, indexMaintenance } from './record-programs.js';
+export type { IndexMaintenance } from './record-programs.js';

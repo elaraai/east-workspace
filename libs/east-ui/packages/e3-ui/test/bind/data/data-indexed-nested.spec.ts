@@ -17,8 +17,9 @@ import assert from "node:assert/strict";
 import {
     ArrayType, DateTimeType, DictType, East, Expr, IRType, NullType, SortedMap, StringType, StructType, compareFor, decodeBeast2For,
     encodeBeast2For, equalFor, isTypeEqual, isValueOf, none, some, variant,
-    type FunctionType, type IR, type ValueTypeOf, type VariantType,
+    type FunctionType, type IR, type option, type ValueTypeOf, type VariantType,
 } from "@elaraai/east";
+import { builtIndex, indexMaintenance } from "@elaraai/e3";
 import { Reactive, Text, UIComponentType, bindRecord, resolveRowSource, type ResolvedRowSource } from "@elaraai/east-ui/internal";
 import { Data, NestedPartType, Sheet, deriveUiAccess, orderedRowSource } from "@elaraai/e3-ui/internal";
 import { refusingPlatform } from "../../refusing-platform.js";
@@ -32,9 +33,12 @@ const entryOf = (source: unknown) => {
     const entry = ((page.output as VariantType).cases.some as ArrayType<StructType>).value;
     return { projection: (entry.fields.value as VariantType).cases.some!, row: (entry.fields.row as VariantType).cases.some! };
 };
+/** An index's maintenance for one row, as a handle carries it (#1437): `(K, Option<R>, Option<R>, Option<RowPatch>) → Dict<EntryKey, Op>`. */
+type Maintain = (key: unknown, held: option<unknown>, next: option<unknown>, patch: option<unknown>) => ReadonlyMap<unknown, unknown>;
 /** A binding's handle, built on a platform that reads nothing. */
 const handleOf = (source: unknown) => East.compile(East.function([], typeOf(source), $ => $.return(source as Expr)), refusingPlatform)() as {
     readonly indexes: Readonly<Record<string, unknown>>; readonly nested: unknown; readonly joined: boolean; readonly defaultIndex: string;
+    readonly maintenance: option<Readonly<Record<string, Maintain>>>;
 };
 
 /** Each collection's leaf: a role's field, or a kind holding nothing more. */
@@ -95,12 +99,35 @@ describe("Data.bindPaged beside a nested series index", () => {
             NestedPartType(StructType({ parts: StructType({ rows: StructType({ jobs: Jobs, parts: StructType({ recursive: LEAF }) }) }) }), StructType({ assemblies_in_time: LEAF }), WEEK, MONTH)));
     });
 
+    test("carries the nested index's maintenance for one row, e3's own: given a row's patch, the ops its commit writes (#1437)", () => {
+        const record = ex.nestedMachines;
+        const own = indexMaintenance(record, builtIndex(record, record.indexes.machines_in_time));
+        const source = machines();
+        const carried = (typeOf(source).fields.maintenance as VariantType).cases.some as StructType;
+        assert.deepEqual(Object.keys(carried.fields), ["machines_in_time"], "the nested index's; the index paging the rows read as saved");
+        const type = carried.fields.machines_in_time as FunctionType;
+        assert.ok(isTypeEqual(type, Expr.type(own as unknown as Expr)), "typed as e3's own");
+        // A job's state changed: the carried function gives the ops e3's own does, entry for entry.
+        const maintenance = handleOf(source).maintenance;
+        assert.ok(maintenance.type === "some");
+        const held = ex.nestedMachine(0);
+        const next = {
+            ...held,
+            jobs: new SortedMap([...held.jobs].map(([key, job], i) => [key, i === 0 ? { ...job, state: "scrapped" } : job] as const), compareFor(StringType)),
+        };
+        const patch = some(East.compile(East.patchesFor(ex.NestedMachine).diff, [])(held, next));
+        const ops = maintenance.value.machines_in_time!("M-000", some(held), some(next), patch);
+        assert.ok(ops.size > 0, "the job's entries change");
+        assert.ok(equalFor(type.output)(ops, East.compile(own, [])("M-000", some(held), some(next), patch)), "e3's own ops");
+    });
+
     test("binds an index carrying a value of its own apart, joined as any other, and the record's rows whole", () => {
         const apart = Data.bindPaged(ex.nestedMachines, { indexes: ["machines_by_name"] });
         assert.ok(isTypeEqual(entryOf(apart).projection, StringType), "its own value");
         assert.equal(handleOf(apart).joined, true);
         assert.ok(isTypeEqual(typeOf(apart).fields.nested!, NestedPartType(StructType({}), StructType({}), StructType({}), StructType({}))), "no nested part");
         assert.ok(equalFor(typeOf(apart).fields.nested!)(handleOf(apart).nested, none), "none");
+        assert.ok(equalFor(typeOf(apart).fields.maintenance!)(handleOf(apart).maintenance, none), "no index to maintain: none");
         assert.doesNotThrow(() => Data.bindPaged(ex.nestedMachines, { index: "machines_by_name" }));
         assert.doesNotThrow(() => Data.bindPaged(ex.nestedMachines));
     });

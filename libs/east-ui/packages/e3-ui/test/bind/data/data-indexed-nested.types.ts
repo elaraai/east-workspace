@@ -14,7 +14,7 @@
 
 import {
     DictType, RecursiveType, StringType, StructType, some,
-    type BlockBuilder, type NullType, type TypeOf,
+    type BlockBuilder, type EastType, type FunctionType, type NullType, type OptionType, type TypeOf,
 } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui";
 import type { IndexedSource } from "@elaraai/east-ui/internal";
@@ -36,8 +36,8 @@ function same<A, B>(..._exact: Equal<A, B> extends true ? [] : [never]): void {
 }
 
 /** A binding's type arguments, from its expression. */
-type Parts<S> = S extends IndexedSource<infer K, infer R, infer P, infer M, infer IK, infer N>
-    ? { K: K; R: R; P: P; M: M; IK: IK; N: N } : never;
+type Parts<S> = S extends IndexedSource<infer K, infer R, infer P, infer M, infer IK, infer N, infer Maint>
+    ? { K: K; R: R; P: P; M: M; IK: IK; N: N; Maint: Maint } : never;
 
 /**
  * A binding's parts, held where it is written: `partsOf(source).are<U>()`
@@ -70,6 +70,11 @@ same<Machines["N"], NestedPart<StructType<{
     load: StructType<{ values: NullType }>;
     output: StructType<{ values: NullType }>;
 }>, "machines_in_time", "week", "month">>();
+// The nested index's maintenance for one row, by its name (#1437), which a page previews a drafted row's Save with;
+// the row's patch and the ops typed as any East type, which the runtime's type names.
+same<Machines["Maint"], OptionType<StructType<{
+    machines_in_time: FunctionType<[StringType, OptionType<typeof ex.NestedMachine>, OptionType<typeof ex.NestedMachine>, EastType], EastType>;
+}>>>();
 
 // A measure's readings, and the rollup its ledger keeps their subtotals by: each fold a struct of its aggregates.
 partsOf(Data.bindPaged(ex.nestedLedgers, { indexes: ["ledgers_by_name", "ledgers_in_time"] })).nested<NestedPart<StructType<{

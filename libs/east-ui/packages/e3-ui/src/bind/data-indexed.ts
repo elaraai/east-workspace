@@ -5,13 +5,13 @@
 
 /** Field-indexed record bindings for Slice; all reads use the paged runtime. */
 import {
-    BooleanType, East, StructType, VariantType, NullType, StringType,
+    BooleanType, East, Expr, StructType, VariantType, NullType, StringType,
     IntegerType, ArrayType, OptionType, FunctionType, DictType, SetType,
     isSubtype, isTypeEqual, none, printType, some, variant, type EastType, type ExprType,
 } from "@elaraai/east";
 import type { RecordDef, RecordIndexDef, SeriesItems, SeriesRecursive, SeriesRows, SeriesValues } from "@elaraai/e3";
 // The browser-safe entry: the components' runtime imports this module (#99).
-import { builtIndex } from "@elaraai/e3/browser";
+import { builtIndex, indexMaintenance } from "@elaraai/e3/browser";
 import { TreePathType, type RecordNestedDecl } from "@elaraai/e3-types";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import {
@@ -136,6 +136,17 @@ type IndexFields<I extends FieldIndexes<EastType>> = StructType<{
 type IndexKeys<K extends EastType, I extends FieldIndexes<EastType>> = VariantType<{
     primary: K;
 } & { [D in I[number] as D["name"]]: D["keyType"] }>;
+/**
+ * Each listed nested series and summary index's maintenance for one row, by
+ * its name (e3's #1437): `(K, Option<R>, Option<R>, Option<RowPatch>) →
+ * Dict<EntryKey, Op>`; none where the binding lists neither. The row's patch
+ * and the ops are typed here as any East type, which the binding's runtime
+ * type names exactly: only the page's runtime calls them, and East's patch
+ * type of a large row is costly to compute in TypeScript.
+ */
+type MaintenanceOf<K extends EastType, R extends EastType, I extends FieldIndexes<EastType>> = OptionType<StructType<{
+    [D in Extract<I[number], { nested: object } | { summary: object }> as D["name"]]: FunctionType<[K, OptionType<R>, OptionType<R>, EastType], EastType>
+}>>;
 
 /**
  * Bind a record with the field indexes its Slice may use, by their names.
@@ -191,7 +202,8 @@ export type IndexedPagedValue<T extends EastType, I extends FieldIndexes<T>> =
     T extends DictType<infer K extends EastType, infer R extends EastType>
         ? IndexedSource<K, R,
             [Extract<I[number], { nested: object }>] extends [never] ? BindingProjection<ProjectedIndexes<I>["valueType"], R> : R,
-            IndexFields<RailIndexes<I>>, IndexKeys<K, I>, NestedPart<NestedMarkerOf<I>, NestedNameOf<I>, NestedTileOf<I>, NestedSummaryOf<I>>>
+            IndexFields<RailIndexes<I>>, IndexKeys<K, I>, NestedPart<NestedMarkerOf<I>, NestedNameOf<I>, NestedTileOf<I>, NestedSummaryOf<I>>,
+            MaintenanceOf<K, R, I>>
         : never;
 
 /**
@@ -220,13 +232,15 @@ export function NestedPartType<C extends EastType, I extends EastType, T extends
  * paged calls and their return types remain unchanged. `NestedValue` is what
  * the listed nested series index's entries carry, as its definition declares
  * it (#1435), or Null where none is listed: the runtime reads its cells by it,
- * and the handle's type never names it.
+ * and the handle's type never names it. `Maintenance` is each listed nested
+ * series and summary index's maintenance for one row (#1437), the last
+ * argument, which the handle carries.
  * @internal
  */
 export const bindIndexedPagedPlatformFn = East.genericPlatform(
-    "data_bind_indexed", ["K", "R", "P", "Indexes", "IK", "N", "NestedValue"],
-    [TreePathType, "Indexes", "N", BooleanType, FunctionType([StringType, "K", "R"], ArrayType(StringType)), StringType],
-    IndexedSourceType("K", "R", "P", "Indexes", "IK", "N"), { optional: true },
+    "data_bind_indexed", ["K", "R", "P", "Indexes", "IK", "N", "NestedValue", "Maintenance"],
+    [TreePathType, "Indexes", "N", BooleanType, FunctionType([StringType, "K", "R"], ArrayType(StringType)), StringType, "Maintenance"],
+    IndexedSourceType("K", "R", "P", "Indexes", "IK", "N", "Maintenance"), { optional: true },
 );
 
 const descriptor = [TreePathType, "Indexes", "N", BooleanType] as const;
@@ -388,9 +402,17 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
     const nestedType = NestedPartType(marker.type, index.type, tile.type, summary.type);
     const nestedValue = declared === undefined ? none
         : some({ index: index.value, tile: tile.value, summary: summary.value, collections: marker.value });
+    // Each listed nested series and summary index's maintenance for one row (#1437): e3's own, the function its commit
+    // runs, so a page previews a drafted row's Save with it. A reader of the record's other indexes reads them as saved.
+    const maintained = options.indexes
+        .filter((index) => index.nested !== undefined || index.summary !== undefined)
+        .map((index) => [index.name, indexMaintenance(record, builtIndex(record, index))] as const);
+    const maintenanceType = OptionType(StructType(Object.fromEntries(maintained.map(([name, maintain]) =>
+        [name, Expr.type(maintain as unknown as Expr) as EastType]))));
     return bindIndexedPagedPlatformFn(
-        [type.key, type.value, projection, indexFields, VariantType(keyTypes), nestedType, nested?.valueType ?? NullType],
+        [type.key, type.value, projection, indexFields, VariantType(keyTypes), nestedType, nested?.valueType ?? NullType, maintenanceType],
         East.value(record.path, TreePathType), East.value(metadata, indexFields), East.value(nestedValue, nestedType), joined, entryKeys, record.name,
+        East.value(maintained.length === 0 ? none : some(Object.fromEntries(maintained)), maintenanceType),
     ) as unknown as IndexedPagedValue<T, I>;
 }
 

@@ -16,7 +16,7 @@ import {
 } from "@elaraai/east-ui/internal";
 import { TreePathType } from "@elaraai/e3-types";
 import { Data, bindPagedPlatformFn } from "@elaraai/e3-ui";
-import e3, { tileNext as e3TileNext, tileStart as e3TileStart } from "@elaraai/e3";
+import e3, { builtIndex, indexMaintenance, tileNext as e3TileNext, tileStart as e3TileStart } from "@elaraai/e3";
 import * as ex from "./data.examples.js";
 
 describeEast("Data", (test) => {
@@ -373,6 +373,16 @@ describe("Data.bindPaged over a series and a summary index", () => {
         assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["by_press_week", "by_press_month"] })), Job), "a series beside a summary: the row");
         assert.ok(isTypeEqual(projectionOf(Data.bindPaged(jobs, { indexes: ["by_time", "by_press_week", "by_press_month"] })), NullType),
             "beside an index that carries nothing: Null");
+    });
+
+    hostTest("carries a summary index's maintenance for one row, typed as e3's own, and none where it lists no nested or summary index (#1437)", () => {
+        const maintenance = typeOf(Data.bindPaged(jobs, { indexes: ["by_press_week", "by_press_month"] })).fields.maintenance as VariantType;
+        const carried = (maintenance.cases.some as StructType).fields;
+        assert.deepEqual(Object.keys(carried), ["by_press_month"], "the summary's; a series index read as saved");
+        const own = indexMaintenance(jobs, builtIndex(jobs, jobs.indexes.by_press_month));
+        assert.ok(isTypeEqual(carried.by_press_month!, Expr.type(own as unknown as ExprType<StructType>)), "typed as e3's own");
+        assert.ok(isTypeEqual(typeOf(Data.bindPaged(jobs, { indexes: ["by_time", "by_state"] })).fields.maintenance!, OptionType(StructType({}))),
+            "neither listed: none");
     });
 
     hostTest("a record Slice over it offers no field of a series or a summary index's; a row's fields named `tile` or `__tile` are fields like any other (#1432)", () => {
