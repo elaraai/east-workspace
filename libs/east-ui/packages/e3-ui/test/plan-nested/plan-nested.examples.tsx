@@ -2,6 +2,7 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
+/** @jsxImportSource @elaraai/e3-ui */
 
 /**
  * Records whose rows nest what a Plan draws, at the sizes a Plan reads a cell
@@ -21,13 +22,27 @@
  * function of `n` alone, so the twelve machines are the thousand's first
  * twelve.
  *
+ * The Plans over them (#1439), each series reading its collections by name:
+ *
+ * - `planNestedMachines`, the machines paged through a rail, five collections
+ *   read a cell at a time, and `planNestedMachinesPhone`, the same at a
+ *   phone's width;
+ * - `planNestedHalls`, each hall's strip its members' mean, kept by e3;
+ * - `planNestedAssemblies`, a tree of parts, each part's bands its subtree's
+ *   jobs, filed under it by e3;
+ * - `planNestedLedgers`, trees of measures, each parent's subtotals kept by e3
+ *   by two rollups, a leaf's readings typed into, every subtotal above it
+ *   moving at once;
+ * - `planNestedInline`, the machines' series over twelve machines read whole.
+ *
  * @packageDocumentation
  */
 
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, variant,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, RecursiveType, StringType, StructType, example, some, variant,
 } from "@elaraai/east";
-import { EventStateType } from "@elaraai/east-ui";
+import { Box, EventStateType, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+import { Data, Plan, Record } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 
 /** Monday 5 January 2026, where every record's year starts. */
@@ -403,4 +418,306 @@ export const ledgers = e3.record("ledgers", DictType(StringType, Ledger), {
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
+});
+
+// ============================================================================
+// The Plans (#1439)
+// ============================================================================
+
+/** The machines, paged through a rail and read a cell at a time. */
+export const planNestedMachines = example({
+    keywords: [
+        "Plan", "series", "nested", "Plan.items", "Plan.values", "index.nested", "items", "values", "Slice", "bindRecords", "rows",
+        "paging", "Record", "editing", "views", "cap", "totals",
+    ],
+    description: "1,000 machines on a Plan, each holding a year of jobs, stops, alarms and weekly load and output: the rail pages the machines without their collections, and the Plan reads the collections of the machines in view a cell at a time — 50 machines by every level's tiles — shading each machine's months from its totals zoomed out; a drag drafts only the job it moves, and Save sends that job's patch",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{($) => {
+            const record = $.let(Record.bind(machines, ["patch"]));
+            const slice = $.let(Slice.bindRecords("ex.planNestedMachines", {
+                rows: {
+                    source: Data.bindPaged(machines, { indexes: ["machines_by_site_status", "machines_by_name", "machines_in_time"] }),
+                    label: "Machines",
+                    fields: {
+                        name: { label: "Name" },
+                        site: { label: "Site", hints: ["north", "south", "east", "west", "central"] },
+                        status: { label: "Status", hints: ["running", "idle", "down"] },
+                    },
+                    search: ["name"],
+                },
+            }));
+            return <Box width="100%" height="760px"><Plan id="planNestedMachines" slice={{ slice }}
+                axis={Plan.axis({ window: { min: new Date("2026-09-28T00:00:00Z"), max: new Date("2026-12-28T00:00:00Z") },
+                    resolution: "week", resolutions: ["year", "quarter", "month", "week", "day"] })}
+                series={[
+                    Plan.series.views(Machine, { key: "machine", title: "Machines" }, [
+                        Plan.series.span(Machine, {
+                            key: "jobs", title: "Jobs", label: (m) => m.name, sub: (m) => some(m.status), edit: true,
+                            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({
+                                label: job.product, state: job.state, quantity: Plan.quantity(job.sheets, { unit: "sheets" }),
+                            })),
+                        }),
+                        Plan.series.cards(Machine, {
+                            key: "stops", title: "Stops", label: (m) => m.name,
+                            chips: Plan.items("stops", { from: "start", to: "end" }, (stop) => ({ label: stop.reason, state: variant("confirmed", null) })),
+                        }),
+                        Plan.series.events(Machine, {
+                            key: "alarms", title: "Alarms", label: (m) => m.name,
+                            marks: Plan.items("alarms", { at: "at" }, (alarm) => ({
+                                kind: alarm.severity.equal("high").ifElse(
+                                    () => East.value(variant("exception", null), Plan.Types.EventMarkKind),
+                                    () => East.value(variant("milestone", null), Plan.Types.EventMarkKind)),
+                                label: some(alarm.code),
+                            })),
+                        }),
+                        Plan.series.heat(Machine, {
+                            key: "load", title: "Load", label: (m) => m.name,
+                            cells: Plan.heatCells(Plan.values("load", (fraction) => ({ value: some(fraction) })), { min: 0, max: 1, warnAt: 0.95 }),
+                        }),
+                        Plan.series.table(Machine, {
+                            key: "output", title: "Output", label: (m) => m.name,
+                            cells: Plan.tableCells(Plan.values("output", (n) => ({ value: some(n.toFloat()) }))),
+                        }),
+                    ]),
+                ]}
+                editing={{ onApply: Record.onApply(record, { keyed: true }) }}
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** The machines at a phone's width: the toolbar's folded forms and the narrow layout, read a cell at a time. */
+export const planNestedMachinesPhone = example({
+    keywords: ["Plan", "series", "nested", "narrow", "phone", "mobile", "cards", "Slice", "bindRecords", "rows", "paging"],
+    description: "The 1,000 machines' Plan in a 360px parent: the frame's toolbar folds to a phone's room and the canvas draws its narrow layout — groups, rows and measures as cards on one shared window — reading the collections of the machines a phone shows a cell at a time",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{($) => {
+            const record = $.let(Record.bind(machines, ["patch"]));
+            const slice = $.let(Slice.bindRecords("ex.planNestedMachinesPhone", {
+                rows: {
+                    source: Data.bindPaged(machines, { indexes: ["machines_by_site_status", "machines_by_name", "machines_in_time"] }),
+                    label: "Machines",
+                    fields: {
+                        name: { label: "Name" },
+                        site: { label: "Site", hints: ["north", "south", "east", "west", "central"] },
+                        status: { label: "Status", hints: ["running", "idle", "down"] },
+                    },
+                    search: ["name"],
+                },
+            }));
+            return <Box width="360px" height="760px"><Plan id="planNestedMachinesPhone" slice={{ slice }}
+                axis={Plan.axis({ window: { min: new Date("2026-09-28T00:00:00Z"), max: new Date("2026-12-28T00:00:00Z") },
+                    resolution: "week", resolutions: ["year", "quarter", "month", "week", "day"] })}
+                series={[
+                    Plan.series.views(Machine, { key: "machine", title: "Machines" }, [
+                        Plan.series.span(Machine, {
+                            key: "jobs", title: "Jobs", label: (m) => m.name, sub: (m) => some(m.status), edit: true,
+                            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({
+                                label: job.product, state: job.state, quantity: Plan.quantity(job.sheets, { unit: "sheets" }),
+                            })),
+                        }),
+                        Plan.series.cards(Machine, {
+                            key: "stops", title: "Stops", label: (m) => m.name,
+                            chips: Plan.items("stops", { from: "start", to: "end" }, (stop) => ({ label: stop.reason, state: variant("confirmed", null) })),
+                        }),
+                        Plan.series.events(Machine, {
+                            key: "alarms", title: "Alarms", label: (m) => m.name,
+                            marks: Plan.items("alarms", { at: "at" }, (alarm) => ({
+                                kind: alarm.severity.equal("high").ifElse(
+                                    () => East.value(variant("exception", null), Plan.Types.EventMarkKind),
+                                    () => East.value(variant("milestone", null), Plan.Types.EventMarkKind)),
+                                label: some(alarm.code),
+                            })),
+                        }),
+                        Plan.series.heat(Machine, {
+                            key: "load", title: "Load", label: (m) => m.name,
+                            cells: Plan.heatCells(Plan.values("load", (fraction) => ({ value: some(fraction) })), { min: 0, max: 1, warnAt: 0.95 }),
+                        }),
+                        Plan.series.table(Machine, {
+                            key: "output", title: "Output", label: (m) => m.name,
+                            cells: Plan.tableCells(Plan.values("output", (n) => ({ value: some(n.toFloat()) }))),
+                        }),
+                    ]),
+                ]}
+                editing={{ onApply: Record.onApply(record, { keyed: true }) }}
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** The halls: each a strip of its members' load, the strip their mean as e3 keeps it. */
+export const planNestedHalls = example({
+    keywords: ["Plan", "series", "nested", "group", "children", "Plan.children", "heat", "summaryAggregate", "mean", "subtotals", "index.nested", "rows", "rollup"],
+    description: "40 halls on a Plan, each a group over its six members' daily load: a folded hall's strip is its members' mean, kept by e3 as the hall's subtotal — one range read, none of its members' cells — and an open hall reads its members' load a cell at a time",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{($) => {
+            const slice = $.let(Slice.bindRecords("ex.planNestedHalls", {
+                rows: {
+                    source: Data.bindPaged(halls, { indexes: ["halls_by_site", "halls_in_time"] }),
+                    label: "Halls",
+                    fields: { site: { label: "Site", hints: ["north", "south"] } },
+                },
+            }));
+            return <Box width="100%" height="640px"><Plan id="planNestedHalls" slice={{ slice }}
+                axis={Plan.axis({ window: { min: new Date("2026-01-05T00:00:00Z"), max: new Date("2026-03-02T00:00:00Z") },
+                    resolution: "week", resolutions: ["quarter", "month", "week", "day"] })}
+                series={[
+                    Plan.series.group(Hall, {
+                        key: "halls", title: "Halls", label: (h) => h.name, summaryAggregate: "mean", collapsed: true,
+                        children: Plan.children("members", [
+                            Plan.series.heat(Member, {
+                                key: "member-load", title: "Load", label: (m) => m.name,
+                                cells: Plan.heatCells(Plan.values("load", (fraction) => ({ value: some(fraction) })), { min: 0, max: 1, warnAt: 0.95 }),
+                            }),
+                        ]),
+                    }),
+                ]}
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** The assemblies: a tree of parts, each part's bands its subtree's jobs as e3 files them under it. */
+export const planNestedAssemblies = example({
+    keywords: ["Plan", "series", "nested", "tree", "children", "span", "rollup", "union", "bands", "index.nested", "recursive", "editing", "Record"],
+    description: "50 assemblies on a Plan, each a group over a tree of parts three deep: each part rolls its subtree's jobs up into bands, read from what e3 files under it — one range a level, its parts folded or not — and a job dragged under a folded part moves that part's band at once, from the draft",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{($) => {
+            const record = $.let(Record.bind(assemblies, ["patch"]));
+            const slice = $.let(Slice.bindRecords("ex.planNestedAssemblies", {
+                rows: {
+                    source: Data.bindPaged(assemblies, { indexes: ["assemblies_by_line", "assemblies_in_time"] }),
+                    label: "Assemblies",
+                    fields: { line: { label: "Line", hints: ["line 1", "line 2"] } },
+                },
+            }));
+            return <Box width="100%" height="700px"><Plan id="planNestedAssemblies" slice={{ slice }}
+                axis={Plan.axis({ window: { min: new Date("2026-01-05T00:00:00Z"), max: new Date("2026-03-02T00:00:00Z") },
+                    resolution: "week", resolutions: ["quarter", "month", "week", "day"] })}
+                series={[
+                    Plan.series.group(Assembly, {
+                        key: "assemblies", title: "Assemblies", label: (a) => a.name,
+                        children: Plan.children("parts", [
+                            Plan.series.span(Part, {
+                                key: "parts", title: "Parts", label: (p) => p.name, children: "parts", rollup: "union", edit: true,
+                                runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
+                            }),
+                        ]),
+                    }),
+                ]}
+                editing={{ onApply: Record.onApply(record, { keyed: true }) }}
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** The ledgers: trees of measures, each parent's subtotals kept by e3, a leaf's readings typed into. */
+export const planNestedLedgers = example({
+    keywords: [
+        "Plan", "series", "nested", "table", "tree", "children", "subtotals", "aggregate", "sum", "count", "fold", "last",
+        "edit", "typing", "typed value", "tableSeries", "index.nested", "rollup", "editing", "Record",
+    ],
+    description: "20 ledgers on a Plan, each a group over a tree of measures three deep, twice: their totals — the readings, typed into, by their sum, and the closing stock by its last, summed — and the readings counted. Every parent's subtotals are e3's, one range a rollup, none of the measures beneath it read while it is folded; a reading typed into a leaf's cell moves every subtotal above it at once, from e3's preview, and Save sends that reading's patch",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{($) => {
+            const record = $.let(Record.bind(ledgers, ["patch"]));
+            const slice = $.let(Slice.bindRecords("ex.planNestedLedgers", {
+                rows: {
+                    source: Data.bindPaged(ledgers, { indexes: ["ledgers_by_site", "ledgers_in_time"] }),
+                    label: "Ledgers",
+                    fields: { site: { label: "Site", hints: ["north", "south"] } },
+                },
+            }));
+            // Opens at the week, the readings' own resolution, where a leaf's cell takes a typed reading; a coarser
+            // bucket folds several, and says where they take one.
+            return <Box width="100%" height="700px"><Plan id="planNestedLedgers" slice={{ slice }}
+                axis={Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-12-28T00:00:00Z") },
+                    resolution: "week", resolutions: ["year", "quarter", "month", "week"] })}
+                series={[
+                    // Their totals: a reading typed into a leaf's week moves every subtotal above it.
+                    Plan.series.group(Ledger, {
+                        key: "totals", title: "Totals", label: (l) => l.name,
+                        children: Plan.children("measures", [
+                            Plan.series.table(Measure, {
+                                key: "measure-totals", title: "Measures", label: (m) => m.label, children: "children",
+                                series: [
+                                    Plan.tableSeries({ cells: Plan.tableCells(Plan.values("readings", (v) => ({ value: some(v) }))), edit: true }),
+                                    Plan.tableSeries({ cells: Plan.tableCells(Plan.values("stock", (v) => ({ value: some(v) }))), fold: "last", tone: "muted" }),
+                                ],
+                            }),
+                        ]),
+                    }),
+                    // The same readings counted: how many leaf measures read in each bucket.
+                    Plan.series.group(Ledger, {
+                        key: "counted", title: "Readings counted", label: (l) => l.name, collapsed: true,
+                        children: Plan.children("measures", [
+                            Plan.series.table(Measure, {
+                                key: "measure-counts", title: "Measures", label: (m) => m.label, children: "children", aggregate: "count",
+                                cells: Plan.tableCells(Plan.values("readings", (v) => ({ value: some(v) }))),
+                            }),
+                        ]),
+                    }),
+                ]}
+                editing={{ onApply: Record.onApply(record, { keyed: true }) }}
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+/** The machines' series over twelve machines read whole: the same named reads, nothing read a cell at a time. */
+export const planNestedInline = example({
+    keywords: ["Plan", "series", "Plan.items", "Plan.values", "inline", "Data.bind", "views", "whole"],
+    description: "The machines' series over twelve machines read whole: the same named reads draw inline rows as they draw paged ones, every collection in hand, nothing read a cell at a time",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{($) => {
+            const rows = $.let(Data.bind(machinesFew));
+            return <Box width="100%" height="640px"><Plan id="planNestedInline" data={rows.read()}
+                axis={Plan.axis({ window: { min: new Date("2026-09-28T00:00:00Z"), max: new Date("2026-12-28T00:00:00Z") },
+                    resolution: "week", resolutions: ["year", "quarter", "month", "week", "day"] })}
+                series={[
+                    Plan.series.views(Machine, { key: "machine", title: "Machines" }, [
+                        Plan.series.span(Machine, {
+                            key: "jobs", title: "Jobs", label: (m) => m.name, sub: (m) => some(m.status),
+                            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({
+                                label: job.product, state: job.state, quantity: Plan.quantity(job.sheets, { unit: "sheets" }),
+                            })),
+                        }),
+                        Plan.series.cards(Machine, {
+                            key: "stops", title: "Stops", label: (m) => m.name,
+                            chips: Plan.items("stops", { from: "start", to: "end" }, (stop) => ({ label: stop.reason, state: variant("confirmed", null) })),
+                        }),
+                        Plan.series.events(Machine, {
+                            key: "alarms", title: "Alarms", label: (m) => m.name,
+                            marks: Plan.items("alarms", { at: "at" }, (alarm) => ({
+                                kind: alarm.severity.equal("high").ifElse(
+                                    () => East.value(variant("exception", null), Plan.Types.EventMarkKind),
+                                    () => East.value(variant("milestone", null), Plan.Types.EventMarkKind)),
+                                label: some(alarm.code),
+                            })),
+                        }),
+                        Plan.series.heat(Machine, {
+                            key: "load", title: "Load", label: (m) => m.name,
+                            cells: Plan.heatCells(Plan.values("load", (fraction) => ({ value: some(fraction) })), { min: 0, max: 1, warnAt: 0.95 }),
+                        }),
+                        Plan.series.table(Machine, {
+                            key: "output", title: "Output", label: (m) => m.name,
+                            cells: Plan.tableCells(Plan.values("output", (n) => ({ value: some(n.toFloat()) }))),
+                        }),
+                    ]),
+                ]}
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
 });

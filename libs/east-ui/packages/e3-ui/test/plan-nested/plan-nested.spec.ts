@@ -7,12 +7,18 @@
  * The nested series records (#1438, #1439), as their seeds make them: the
  * sizes each is declared at, a row a function of its number alone, a parent
  * measure holding nothing of its own, and enough jobs in a year's view that a
- * Plan shades it from the totals.
+ * Plan shades it from the totals. And the Plans over them (#1439): each builds,
+ * reads its rows a page, a search or a cell at a time — never whole, but the
+ * twelve machines it reads whole on purpose — and writes through the record's
+ * patch door where it edits. What they draw and read, on e3, is
+ * e3-ui-components' (`plan/frame/plan-nested.dom.test.tsx`, `plan-typing`).
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { DictType, East, StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
+import { DictType, East, StringType, decodeBeast2For, encodeBeast2For, equalFor, type EastIR, type ValueTypeOf } from "@elaraai/east";
+import { UIComponentType } from "@elaraai/east-ui";
+import { deriveManifest } from "@elaraai/e3-ui/internal";
 import * as ex from "./plan-nested.examples.js";
 
 type Part = ValueTypeOf<typeof ex.Part>;
@@ -71,5 +77,35 @@ describe("the nested series records", () => {
         for (const parent of measures.filter((measure) => measure.children.size > 0)) {
             assert.deepEqual([parent.readings.size, parent.stock.size], [0, 0], "a parent's subtotals are e3's, of its children");
         }
+    });
+});
+
+describe("the Plans over them (#1439)", () => {
+    const paged = [
+        { example: ex.planNestedMachines, record: ex.machines, edits: true },
+        { example: ex.planNestedMachinesPhone, record: ex.machines, edits: true },
+        { example: ex.planNestedHalls, record: ex.halls, edits: false },
+        { example: ex.planNestedAssemblies, record: ex.assemblies, edits: true },
+        { example: ex.planNestedLedgers, record: ex.ledgers, edits: true },
+    ];
+    for (const { example, record, edits } of paged) {
+        test(example.description, () => {
+            const manifest = deriveManifest(example.fn);
+            // Its rows are read a page, a search or a cell at a time, never whole; an editing Plan writes through the patch door.
+            assert.deepEqual(manifest.pages, [record.path]);
+            assert.equal(manifest.paths.length, 0, "the Plan never reads the record whole");
+            assert.deepEqual(manifest.records, edits ? [record.name] : []);
+            const component = (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
+            assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
+        });
+    }
+
+    test(ex.planNestedInline.description, () => {
+        const manifest = deriveManifest(ex.planNestedInline.fn);
+        // The twelve machines read whole, and nothing a page or a cell at a time.
+        assert.deepEqual(manifest.paths, [ex.machinesFew.path]);
+        assert.deepEqual([manifest.pages, manifest.records], [[], []]);
+        const component = (ex.planNestedInline.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
+        assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
     });
 });

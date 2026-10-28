@@ -376,6 +376,31 @@ resolution finer than the index's tile, a read by name where the binding lists
 no nested series index or on an axis other than time, and an index keeping no
 totals. Rows paged whole (`Data.bindPaged(dataset)`) are read as before.
 
+**A Plan over them reads a cell at a time** (#1438; the `plan-nested` examples:
+`planNestedMachines`, `planNestedHalls`, `planNestedAssemblies`,
+`planNestedLedgers`). The rail pages the rows lean; for the rows in view and 25
+either side, in blocks of fifty, the Plan reads each collection its series
+draw — one range a row a level its items are filed at — in one batch of
+searches and one read of the entries, and draws them with the same series as
+over rows read whole. A pan reads only the tiles it adds; a zoom reads the
+levels it shows. Past 10,000 items of a collection in the cells it wants, the
+rows shade from the index's totals at its summary tile (runs and chips by the
+share of the bucket booked, marks by how many, values folded as the series
+folds them), or are hatched, a banner saying how many and why. A parent reads
+what e3 keeps for it: a table's or a heat's aggregate and a group's strip are
+its subtotals, one range at the resolution, by the rollup its `fold` and
+`aggregate` make (which the index must keep: `values({ rollup })`); a span's
+bands are the items e3 files under it (`items(…, { rollup: true })`) — so a
+folded parent reads none of the rows beneath it. Editing over them: a gesture
+drafts each row it touches read whole by its key, every row asked meanwhile in
+one request; each drafted row's Save, previewed by e3 (#1437), is laid over
+the cells, so the moved item and every subtotal over it draw before Save,
+while which rows show keeps to what is saved; Save restates each listed
+collection's change by key (`Record.onApply(record, { keyed: true })`), so
+another planner's item added meanwhile is kept. A table's `edit: true` takes
+typed numbers the same way (the ledgers: a reading typed into a leaf moves
+every subtotal above it at once).
+
 **A builder narrows through `Slice.bindRecords` alone** (#1340): one rail on
 its toolbar, `Slice.bindRecords(key, { [source]: { source:
 Data.bindPaged(record, { indexes }), label?, icon?, fields, range?, search?,

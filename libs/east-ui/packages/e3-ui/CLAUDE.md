@@ -154,6 +154,20 @@ never its hours — the hours those of the kinds read — and names it, one line
 for all it does not count. A kind hidden in the Series tab is in none of the
 footer's or the inspector's figures, and nothing says so.
 
+A `rows` source (or `data`) listing a nested series index (#1438) is read a
+cell at a time: its rows lean, each series reading its collections by name
+(`Plan.items`, `Plan.values`, `Plan.children` over a field), and the canvas
+reading the collections of the rows in view through the index. The root
+carries what it reads as its `nested` seam (`src/plan/nested-read.ts`: the
+index, the binding by its id, the tiles, each series' place, levels, shade and
+parents, and the function that fills a window's lean rows with the cells read,
+through e3's own fill); a parent's subtotals and bands come from e3, never its
+children's cells. A drafted row is read whole; Save restates each listed
+collection's change by key (`src/plan/nested-patch.ts`). The `plan-nested`
+examples (#1439) show each ruling on e3: the machines (five collections, the
+cap), the halls (strips by their members' mean), the assemblies (bands filed
+under parents) and the ledgers (subtotals by two rollups, typed readings).
+
 The Schematic (#1386) takes `slice={{ slice: Slice.bindRecords(key, { … })
 }}`. Each of its kinds — `Schematic.items`, `zones`, `links` and `nets`, keyed
 by its slot — is bound as it is read. Read whole, an editable kind binds
