@@ -29,6 +29,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan-nested/plan-nested";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
+import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
 import { act, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
@@ -220,6 +221,41 @@ describe("a Plan over paged rows reads their nested series a cell at a time (#14
         expect(drawnRow(container, "presses", "M-10150").length).toBeGreaterThan(0);
     });
 
+    test("an instant collection is searched at the index's tile alone, and a span's items at every level from it", async () => {
+        /** Each collection searched, by name: the levels its items were searched at. */
+        const levelsSearched = () => {
+            const levels = new Map<string, Set<string>>();
+            for (const request of h.requests().filter((r) => r.kind === "find" && through(IN_TIME)(r))) {
+                for (const search of request.searches) {
+                    const from = "from" in search ? search.from ?? [] : [];
+                    const place = /key="([^"]+)"/.exec(from[0] ?? "")?.[1];
+                    if (from[3] !== ".items" || place === undefined) continue;
+                    levels.set(place, (levels.get(place) ?? new Set()).add(from[4]!));
+                }
+            }
+            return new Map([...levels].map(([place, at]) => [place, [...at].sort()]));
+        };
+        await h.mount(nestedPlan);
+        await settle();
+        // The presses rows are in view: their jobs at every level, their alarms at the week alone.
+        expect(levelsSearched()).toEqual(new Map([["jobs", [".month", ".quarter", ".week", ".year"]], ["alarms", [".week"]]]));
+        // Each machine's load and output in view, each a value a week: the week alone.
+        const valuesPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+            const machines = $.const(Data.bindPaged(ex.machines, { indexes: ["machines_by_name", "machines_in_time"] }));
+            return Plan({
+                axis: axis(), data: machines,
+                series: [Plan.series.views(ex.Machine, { key: "machine", title: "Machines" }, [
+                    Plan.series.heat(ex.Machine, { key: "load", title: "Load", label: (m) => m.name, cells: Plan.heatCells(Plan.values("load", (pct) => ({ value: some(pct) }))) }),
+                    Plan.series.table(ex.Machine, { key: "output", title: "Output", label: (m) => m.name, cells: Plan.tableCells(Plan.values("output", (n) => ({ value: some(n.toFloat()) }))) }),
+                ])],
+            });
+        }))) };
+        await h.mount(valuesPlan, { storageKey: "values" });
+        await settle();
+        const searched = levelsSearched();
+        expect([searched.get("load"), searched.get("output")]).toEqual([[".week"], [".week"]]);
+    });
+
     test("zoomed out to a year over 150 machines, past 10,000 jobs: their counts, then their month totals, each machine's months shaded by the share booked", async () => {
         onTestFinished(emulateWindowScroll());
         const { container } = await h.mount(slicePlan);
@@ -334,6 +370,88 @@ describe("a parent's subtotals are e3's (#1438)", () => {
         const { container: whole } = await h.mount(ledgersWhole("week", true), { storageKey: "whole" });
         await settle();
         expect(paged).toEqual(tops.flatMap((path) => drawnCells(whole, path)));
+    });
+});
+
+// ── The halls: a group's strip is its members' mean, as e3 keeps it (#1438) ───
+
+/** The halls' record, as e3's requests name it, and their nested series index. */
+const HALLS = pathText(ex.halls.path as TreePath);
+const HALLS_IN_TIME = ex.halls.indexes.halls_in_time;
+
+/** The searches of the halls' nested series index, each its lower bound's literals: `[place, row, path, run, level, tile]`. */
+const hallSearches = () => h.requests().filter((request) => request.kind === "find" && request.dataset === HALLS
+    && (request.query.get("index") ?? undefined) === HALLS_IN_TIME.name)
+    .flatMap((request) => request.searches.map((search) => ("from" in search ? search.from ?? [] : [])));
+
+/** Each hall a strip of its members' load, the strip their mean, folded or open. */
+const hallSeries = (collapsed: boolean) => [Plan.series.group(ex.Hall, {
+    key: "halls", title: "Halls", label: (hall) => hall.name, summaryAggregate: "mean", collapsed,
+    children: Plan.children("members", [Plan.series.heat(ex.Member, {
+        key: "member-load", title: "Load", label: (m) => m.name,
+        cells: Plan.heatCells(Plan.values("load", (v) => ({ value: some(v) })), { min: 0, max: 1 }),
+    })]),
+})];
+/** Four weeks of January 2026, a week at a time. */
+const hallAxis = () => Plan.axis({ window: { min: new Date("2026-01-05T00:00:00Z"), max: new Date("2026-02-02T00:00:00Z") }, resolution: "week" });
+
+/** The forty halls paged lean beside their nested series index. */
+const hallsPaged = (collapsed: boolean) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const halls = $.const(Data.bindPaged(ex.halls, { indexes: ["halls_by_site", "halls_in_time"] }));
+    return Plan({ axis: hallAxis(), data: halls, series: hallSeries(collapsed) });
+}))) });
+
+/** The same halls read whole. */
+const hallsWhole = (collapsed: boolean) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const halls = $.const(Data.bind(ex.halls));
+    return Plan({ axis: hallAxis(), data: halls.read(), series: hallSeries(collapsed) });
+}))) });
+
+/** What a hall's strip draws: each cell, by its bucket and its name. */
+function drawnStrip(c: HTMLElement, key: string): string[] {
+    const strip = slot(c, "main")!.querySelector<HTMLElement>(`[data-plan-group=${JSON.stringify(rowKeyOf(entry("halls", key)))}]`);
+    if (strip === null) return [`${key}: no strip`];
+    return [...strip.querySelectorAll<HTMLElement>("[data-cell]")].map((cell) => `${key} ${cell.getAttribute("data-cell")} ${cell.getAttribute("aria-label")}`);
+}
+
+/** What a member's row draws: each cell, by its bucket and its name. */
+function drawnMember(c: HTMLElement, hall: string, member: string): string[] {
+    const row = slot(c, "main")!.querySelector<HTMLElement>(rowAt(entry("member-load", hall, member)));
+    if (row === null) return [`${hall}/${member}: no row`];
+    return [...row.querySelectorAll<HTMLElement>("[data-cell]")].map((cell) => `${hall}/${member} ${cell.getAttribute("data-cell")} ${cell.getAttribute("aria-label")}`);
+}
+
+describe("a group's strip is its members' mean, as e3 keeps it (#1438)", () => {
+    test("a folded hall reads its strip's subtotals alone, no member's load, and draws the strip its members read whole make", async () => {
+        onTestFinished(emulateWindowScroll());
+        const { container } = await h.mount(hallsPaged(true));
+        await settle();
+        const searches = hallSearches();
+        expect(searches.length).toBeGreaterThan(0);
+        expect(searches.filter((from) => from[3] === ".items")).toEqual([]);
+        expect(searches.every((from) => from[3]!.startsWith(".subtotals"))).toBe(true);
+        const halls = ["H-101", "H-102", "H-103"];
+        const paged = halls.flatMap((key) => drawnStrip(container, key));
+        expect(paged.filter((line) => line.endsWith("no strip"))).toEqual([]);
+        const { container: whole } = await h.mount(hallsWhole(true), { storageKey: "whole" });
+        await settle();
+        expect(paged).toEqual(halls.flatMap((key) => drawnStrip(whole, key)));
+    });
+
+    test("an open hall reads each member's load, one range a member, and draws what its members read whole draw", async () => {
+        onTestFinished(emulateWindowScroll());
+        const { container } = await h.mount(hallsPaged(false));
+        await settle();
+        const items = hallSearches().filter((from) => from[3] === ".items" && from[1] === '"H-101"');
+        // Its six members, one range each, at the index's tile: their load is a value a day.
+        expect(items.map((from) => from[4])).toEqual(Array.from({ length: 6 }, () => ".day"));
+        expect(new Set(items.map((from) => from[2])).size).toBe(6);
+        const members = Array.from({ length: 6 }, (_, i) => `H-101-${i + 1}`);
+        const paged = members.flatMap((member) => drawnMember(container, "H-101", member));
+        expect(paged.filter((line) => line.endsWith("no row"))).toEqual([]);
+        const { container: whole } = await h.mount(hallsWhole(false), { storageKey: "whole" });
+        await settle();
+        expect(paged).toEqual(members.flatMap((member) => drawnMember(whole, "H-101", member)));
     });
 });
 
