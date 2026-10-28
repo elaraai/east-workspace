@@ -184,6 +184,61 @@ test("which of the record's own rows a narrowing holds is asked of the rows its 
     assert.throws(() => controller.withinAt(late, 0n, 1n), /with their rows/);
 });
 
+test("which of a page's rows a narrowing holds, asked again while its answer is on its way, makes the page's entries once: each row's entries are worked out once, and the same entries are asked of each time (#1398)", () => {
+    // The record's rows a to d, in its own order; the index files `held` at its rows 0 to 9 and `late` at 10 to 19.
+    const SetRow = StructType({ status: StringType, due: OptionType(IntegerType), statuses: SetType(StringType) });
+    type SetRowValue = ValueTypeOf<typeof SetRow>;
+    const printString = printFor(StringType);
+    const rowOfStatus = new Map([[printString("held"), 0n], [printString("late"), 10n]]);
+    const holding = (...statuses: string[]): SetRowValue => ({ status: statuses[0] ?? "none", due: none, statuses: new Set(statuses) });
+    const stored = [
+        { key: "a", row: holding("held") },
+        { key: "b", row: holding("held", "late") },
+        { key: "c", row: holding() },
+        { key: "d", row: holding("late") },
+    ];
+    // Each row's entries as the binding works them out, by its key; and what each ask of which rows hold was asked with.
+    const made: unknown[] = [];
+    const asked: (readonly unknown[])[] = [];
+    let answered = false;
+    const binding: RecordSliceBinding = {
+        id: "small", recordId: "small", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(4n),
+        entryKeys: (_index, key, row) => {
+            made.push(key);
+            return [...(row as SetRowValue).statuses].map(status => printString(status));
+        },
+        seek(_index, query) {
+            const fields = query.type === "fields" ? query.value.values : [];
+            return some({ found: true, row: rowOfStatus.get(fields[0]!) ?? 20n, count: 10n });
+        },
+        page: (index, offset, limit) => some(stored.slice(Number(offset), Number(offset + limit)).map(({ key, row }) => ({ ik: variant(index, key), key, row: some(row) }))),
+        withinAll(_index, runs, entries) {
+            asked.push(entries);
+            // On its way until the test says it has landed: a lens asks again at every evaluation meanwhile.
+            if (!answered) return none;
+            return some(entries.map(({ ik }) => {
+                const row = rowOfStatus.get(ik) ?? 20n;
+                return runs.some(run => row >= run.row && row < run.row + run.count);
+            }));
+        },
+    };
+    let current = decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, SetRow, () => current, next => { current = next; });
+    const late = new Map([["status", values(printString("late"))]]);
+    assert.deepEqual(controller.withinAt(late, 1n, 3n), none, "on its way");
+    assert.deepEqual(made, ["b", "c", "d"], "each of the page's rows' entries worked out once");
+    // Asked again twice while it is on its way, and once as it lands: no row's entries are worked out again, and each ask
+    // is of the very entries the first was.
+    assert.deepEqual(controller.withinAt(late, 1n, 3n), none);
+    assert.deepEqual(controller.withinAt(late, 1n, 3n), none);
+    answered = true;
+    assert.deepEqual(controller.withinAt(late, 1n, 3n), some([true, false, true]), "b and d hold `late`; c holds no status");
+    assert.deepEqual(made, ["b", "c", "d"]);
+    assert.equal(asked.length, 4);
+    assert.ok(asked.every(entries => Object.is(entries, asked[0])), "the same entries, asked of each time");
+});
+
 test("the rows of several of the record's keys are read in one request when the binding batches them, else each by its key, a key the record lacks none (#1039)", () => {
     // The record holds a and c, in that order.
     const printString = printFor(StringType);
