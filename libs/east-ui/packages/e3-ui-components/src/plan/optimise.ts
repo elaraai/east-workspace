@@ -14,6 +14,10 @@
  * add on the canvas, placed → backlog a remove, a moved or re-assigned bar a
  * change — and what the landing draws kept until Apply: each element's
  * operation and provenance, and the ghosts of what stood on each row before.
+ * Each kind's rows are read once for the request (`planRows`), and each
+ * kind's events once for its landing — what each changed event was before the
+ * run, among the events the request was built from — so neither's work grows
+ * with the events times the rows.
  *
  * @packageDocumentation
  */
@@ -25,7 +29,7 @@ import { optimiseMessages, useTrackedEvaluation, type Formatters } from "@elaraa
 import { diffOptimiseRows, mergeOptimiseDiffs, optimiseIdOf, optimiseKeyOf, optimisePlacementOps } from "../shared/func/optimise-diff.js";
 import type { OptimiseCounts } from "../shared/func/use-optimise.js";
 import { scheduleWithinCap, type ScheduleCellsRead } from "../shared/schedule/cells.js";
-import type { PlanEventEditing, PlanEventReadValue } from "./edit/events.js";
+import type { PlanEventEditing, PlanEventReadValue, PlanKindDraftsValue } from "./edit/events.js";
 import type { PlanInstantValue } from "./instant.js";
 import { rowKeyOf, type PlanWireBlock } from "./model.js";
 import type { PlanEventRange } from "./root/events.js";
@@ -39,6 +43,8 @@ type PlanResourceKindValue = ValueTypeOf<typeof PlanPayloadType>["resources"][nu
 type PlanEventItemValue = PlanEventReadValue["item"];
 /** A kind's rows by key, as the request and the result carry them. */
 type Rows = SortedMap<unknown, unknown>;
+/** A kind's events by key, each as a kind's seams read it: what a landing finds a changed event among. */
+type EventsByKey = SortedMap<unknown, PlanEventItemValue>;
 
 /** The run's request: the window, the run's number, each event kind's rows by slot, and each resource kind's. */
 export interface PlanOptimiseRequest {
@@ -86,7 +92,7 @@ export interface PlanOptimiseProbe {
 let planOptimiseProbe: PlanOptimiseProbe | undefined;
 
 /**
- * Install (or clear) the probe a run's request is watched by. Test use only.
+ * Install (or clear) the probe a run's request and its landing are watched by. Test use only.
  *
  * @param probe - What watches it; `undefined` clears it
  */
@@ -227,6 +233,24 @@ function rowsByKey(bytes: Uint8Array, keyType: EastType, rowType: EastType): Row
 }
 
 /**
+ * A kind's events a run's request carries (R1, R24): those overlapping the plan
+ * window and its backlog, the drafts in place, as Plan draws them — none of a
+ * read still in flight. The request finds each one's row among the kind's rows
+ * ({@link planOptimiseRequest}), and its landing what each was before the run
+ * ({@link landPlanOptimise}).
+ *
+ * @param kind - The event kind
+ * @param drafts - Its drafts, which every read puts in place
+ * @param window - The plan window
+ * @returns Its events in the window, then its backlog's
+ */
+function windowEvents(kind: PlanEventKindValue, drafts: PlanKindDraftsValue, window: PlanOptimiseWindow): PlanEventItemValue[] {
+    const placed = kind.planItems(window.from, window.to, drafts, none);
+    const waiting = kind.backlog ? kind.planUnscheduled(window.from, window.to, drafts, none) : none;
+    return [...(placed.type === "some" ? placed.value : []), ...(waiting.type === "some" ? waiting.value : [])];
+}
+
+/**
  * The run's request (R1, R24, O3, O5): the window, the run's number, every
  * event kind's rows in the window and its backlog by key, as the session
  * holds them — base plus every unapplied draft, every row whatever the rail
@@ -254,14 +278,13 @@ export function planOptimiseRequest(kinds: readonly PlanEventKindValue[], resour
         const keyOf = optimiseKeyOf(keyType);
         const rows: Rows = new SortedMap([], compareFor(keyType) as (a: unknown, b: unknown) => number);
         const drafts = editing.draftsOf(kind.key);
-        const placed = kind.planItems(window.from, window.to, drafts, none);
-        const waiting = kind.backlog ? kind.planUnscheduled(window.from, window.to, drafts, none) : none;
+        const carried = windowEvents(kind, drafts, window);
         // Every event's row, read once: the kind's rows over the range and its backlog's, drafts in place, by key.
         planOptimiseProbe?.readRows?.(kind.key);
         const held = kind.planRows(range.from, range.to, drafts);
         if (held.type === "some") {
             const byKey = rowsByKey(held.value, keyType, rowType);
-            for (const item of [...(placed.type === "some" ? placed.value : []), ...(waiting.type === "some" ? waiting.value : [])]) {
+            for (const item of carried) {
                 const key = keyOf(item.key);
                 const row = key === undefined ? undefined : byKey.get(key);
                 if (row !== undefined) rows.set(key, row);
@@ -332,11 +355,43 @@ function previousWords(item: PlanEventItemValue, resources: readonly PlanResourc
     return `${format.weekdayDate(item.start.value)} ${format.time(item.start.value)}${item.end.type === "some" ? `–${format.time(item.end.value)}` : ""} · ${where}`;
 }
 
+/**
+ * A kind's events as they stood before the run, by key (R24): the events the
+ * request was built from — those in its window and the kind's backlog, the
+ * drafts in place ({@link windowEvents}) — read once, and indexed in East's own
+ * collection, the key type's order deciding which key is which, so a landing
+ * finds each changed event there rather than reading the kind's rows again for
+ * each. A read that throws is said, and holds no event: a changed event it does
+ * not hold lands as one the kind did not hold before.
+ *
+ * @param kind - The event kind
+ * @param drafts - Its drafts: the request's, as nothing writes while the run is out
+ * @param window - The plan window the request was built over
+ * @param keyType - Its record's key type
+ * @returns Its events before the run, by key
+ */
+function eventsBefore(kind: PlanEventKindValue, drafts: PlanKindDraftsValue, window: PlanOptimiseWindow, keyType: EastType): EventsByKey {
+    planOptimiseProbe?.readEvents?.(kind.key);
+    const keyOf = optimiseKeyOf(keyType);
+    const byKey: EventsByKey = new SortedMap([], compareFor(keyType) as (a: unknown, b: unknown) => number);
+    let events: readonly PlanEventItemValue[] = [];
+    try {
+        events = windowEvents(kind, drafts, window);
+    } catch (err) {
+        console.error(`[Plan] ${kind.name}'s events could not be read as they stood before the run:`, err);
+    }
+    for (const item of events) {
+        const key = keyOf(item.key);
+        if (key !== undefined) byKey.set(key, item);
+    }
+    return byKey;
+}
+
 /** What a landing is made over. */
 export interface PlanLanding {
     readonly kinds: readonly PlanEventKindValue[];
     readonly resources: readonly PlanResourceKindValue[];
-    /** The kinds' editing: where each event is read before the run, and where the step is recorded. */
+    /** The kinds' editing: each kind's drafts, which its events before the run are read with, and where the step is recorded. */
     readonly editing: PlanEventEditing;
     readonly request: PlanOptimiseRequest;
     readonly result: PlanOptimiseResult;
@@ -355,8 +410,12 @@ export interface PlanLanding {
 /**
  * The result landed (R7, R8, R10, R24, §12): diffed against the request by
  * key, kind by kind, its operations told by place, and recorded as one step
- * of the history, origin `optimise`. A result that answers no rows for a
- * kind the request asked is invalid, and nothing is recorded; one that
+ * of the history, origin `optimise`. What each changed event was before the
+ * run — its provenance's `Was …`, and whether the backlog moved — is found
+ * among its kind's events as the request was built from them, read once a
+ * kind that changed ({@link eventsBefore}), so a landing's work grows with the
+ * changes plus the events, never their product. A result that answers no rows
+ * for a kind the request asked is invalid, and nothing is recorded; one that
  * changes nothing records nothing and leaves what earlier runs left as it is
  * (R10); one that does lays its operations and ghosts over theirs.
  *
@@ -369,12 +428,15 @@ export function landPlanOptimise(args: PlanLanding): { counts: OptimiseCounts; o
     const ops = new Map<string, PlanElementOp>(before?.ops ?? []);
     const ghosts = new Map<string, PlanGhost[]>([...(before?.ghosts ?? [])].map(([row, list]) => [row, [...list]]));
     const placed = placedOf(blocks);
+    // The plan window the request was built over: where each kind's events before the run are read.
+    const requested: PlanOptimiseWindow = { from: request.from, to: request.to };
     let backlogChanged = false;
     for (const kind of kinds) {
         const asked = request.events[kind.key];
         const answered = result.events[kind.key];
         if (asked === undefined || answered === undefined) return undefined;
         const { keyType, rowType } = typesOf(kind);
+        const keyOf = optimiseKeyOf(keyType);
         const startField = kind.schedule.start;
         const unscheduled = (row: unknown): boolean => {
             const start = (row as Record<string, { type: string }>)[startField];
@@ -383,14 +445,15 @@ export function landPlanOptimise(args: PlanLanding): { counts: OptimiseCounts; o
         const diff = optimisePlacementOps(diffOptimiseRows(kind.key, rowType, optimiseIdOf(keyType), asked as ReadonlyMap<unknown, unknown>, answered as ReadonlyMap<unknown, unknown>),
             (row) => !unscheduled(row));
         diffs.push(diff);
+        // The kind's events as they stood before the run, read once for all its changes — never once an event (R24).
+        let eventsWere: EventsByKey | undefined;
         for (const [key, op] of diff.ops) {
             const id = key.slice(kind.key.length + 1);
             const element = printEventRef({ kind: kind.key, key: id });
-            // The event as its kind read it before the run: the provenance's `Was …`, and whether the backlog moves — read
-            // through the kind's editing, which reads the kind's rows over the range to find it.
-            planOptimiseProbe?.readEvents?.(kind.key);
-            let was: PlanEventItemValue | undefined;
-            try { was = editing.read(kind.key, id)?.item; } catch { was = undefined; }
+            // The event as its kind read it before the run: the provenance's `Was …`, and whether the backlog moves.
+            eventsWere ??= eventsBefore(kind, editing.draftsOf(kind.key), requested, keyType);
+            const at = keyOf(id);
+            const was = at === undefined ? undefined : eventsWere.get(at);
             if ((was !== undefined && was.start.type !== "some") || ("row" in op && unscheduled(op.row))) backlogChanged = true;
             // Where the element stood: an earlier run's ghost of it gives way to this run's.
             for (const list of ghosts.values()) {
