@@ -54,6 +54,7 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  *   as another type than this step takes.
  */
 function declare(
+  surface: string,
   form: MigrationForm,
   name: string,
   rec: RecordDef,
@@ -61,7 +62,6 @@ function declare(
   config: MigrationConfig | undefined,
   recordTypes: (inputs: readonly EastType[], output: EastType) => { from: EastType; to: EastType },
 ): MigrationDef {
-  const surface = `e3.migration.${form}`;
   if (!IDENTIFIER.test(name)) {
     throw new Error(
       `${surface} requires a name that is an identifier, got '${name}' — a workspace records ` +
@@ -172,12 +172,7 @@ function value(
   fn: IndexFunction,
   config?: MigrationConfig,
 ): MigrationDef {
-  return declare('value', name, rec, fn, config, (inputs, output) => {
-    if (inputs.length !== 1) {
-      throw new Error(`a value step's function takes the record's state alone, but takes ${inputs.length} parameters.`);
-    }
-    return { from: inputs[0]!, to: output };
-  });
+  return stepDefinition('e3.migration.value', 'value', name, rec, fn, config);
 }
 
 /**
@@ -233,14 +228,7 @@ function rows(
   fn: IndexFunction,
   config?: MigrationConfig,
 ): MigrationDef {
-  return declare('rows', name, rec, fn, config, (inputs, output) => {
-    if (inputs.length === 1) return { from: ArrayType(inputs[0]!), to: ArrayType(output) };
-    if (inputs.length === 2) return { from: DictType(inputs[0]!, inputs[1]!), to: DictType(inputs[0]!, output) };
-    throw new Error(
-      `a rows step's function takes a Dict's row, (key, value), or an Array's element, but takes ` +
-      `${inputs.length} parameters.`,
-    );
-  });
+  return stepDefinition('e3.migration.rows', 'rows', name, rec, fn, config);
 }
 
 /**
@@ -303,7 +291,26 @@ function rekey(
   fn: IndexFunction,
   config?: MigrationConfig,
 ): MigrationDef {
-  return declare('rekey', name, rec, fn, config, (inputs, output) => {
+  return stepDefinition('e3.migration.rekey', 'rekey', name, rec, fn, config);
+}
+
+/** Each form's record types before and after a step, read off its function's signature. */
+const STEP_TYPES: Readonly<Record<MigrationForm, (inputs: readonly EastType[], output: EastType) => { from: EastType; to: EastType }>> = {
+  value: (inputs, output) => {
+    if (inputs.length !== 1) {
+      throw new Error(`a value step's function takes the record's state alone, but takes ${inputs.length} parameters.`);
+    }
+    return { from: inputs[0]!, to: output };
+  },
+  rows: (inputs, output) => {
+    if (inputs.length === 1) return { from: ArrayType(inputs[0]!), to: ArrayType(output) };
+    if (inputs.length === 2) return { from: DictType(inputs[0]!, inputs[1]!), to: DictType(inputs[0]!, output) };
+    throw new Error(
+      `a rows step's function takes a Dict's row, (key, value), or an Array's element, but takes ` +
+      `${inputs.length} parameters.`,
+    );
+  },
+  rekey: (inputs, output) => {
     if (inputs.length === 1) return { from: SetType(inputs[0]!), to: SetType(output) };
     if (inputs.length === 2) {
       const entry = output as unknown as { type: string; fields: Record<string, EastType> };
@@ -320,7 +327,27 @@ function rekey(
       `a rekey step's function takes a Dict's entry, (key, value), or a Set's element, but takes ` +
       `${inputs.length} parameters.`,
     );
-  });
+  },
+};
+
+/**
+ * Builds a migration step's definition in a form, each guard of the form's
+ * applied: its name, its purity, its signature, and its place after the step
+ * before it.
+ *
+ * @param surface - The declaration, as a refusal names it
+ * @param form - The step's form
+ * @param name - The step
+ * @param rec - The record it changes
+ * @param fn - Its function
+ * @param config - The step before it, and its runner
+ * @returns The definition
+ * @throws {Error} As {@link value}, {@link rows} and {@link rekey} do
+ */
+export function stepDefinition(
+  surface: string, form: MigrationForm, name: string, rec: RecordDef, fn: IndexFunction, config: MigrationConfig | undefined,
+): MigrationDef {
+  return declare(surface, form, name, rec, fn, config, STEP_TYPES[form]);
 }
 
 /**

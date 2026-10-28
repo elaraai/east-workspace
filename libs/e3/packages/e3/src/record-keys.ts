@@ -43,17 +43,18 @@ export interface Leading {
 /**
  * Checks an index's leading fields against the record's row.
  *
+ * @param constructor - The declaration, for the refusals
  * @param name - The index, for the refusals
  * @param rowType - The record's row type
  * @param on - The leading fields, in key order; none for an index led by none
  * @returns The fields, the key's `on`, and whether a row fans out
  * @throws {Error} When a field is named twice, or is not one of the row's
  */
-export function checkLeading(name: string, rowType: RowType, on: readonly string[]): Leading {
-  if (new Set(on).size !== on.length) throw new Error(`e3.recordIndex '${name}' on must not repeat a field`);
+export function checkLeading(constructor: string, name: string, rowType: RowType, on: readonly string[]): Leading {
+  if (new Set(on).size !== on.length) throw new Error(`${constructor} '${name}' on must not repeat a field`);
   const fields = on.map((field): LeadingField => {
     const type = rowType.fields[field];
-    if (type === undefined) throw new Error(`e3.recordIndex '${name}' on names unknown row field '${field}'`);
+    if (type === undefined) throw new Error(`${constructor} '${name}' on names unknown row field '${field}'`);
     return type.type === 'Set' ? { field, type: type.key, set: true } : { field, type, set: false };
   });
   return {

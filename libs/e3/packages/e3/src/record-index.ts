@@ -31,7 +31,7 @@ import { items, recursive, rows, values, type NestedOf, type PlacesOf, type Seri
 import { nestedDefinition } from './record-nested-programs.js';
 import type { RecordTile } from './record-tiles.js';
 import { indexFunctions, indexedEntry, onlyOptions } from './record-guards.js';
-import type { IndexFunction } from './record-guards.js';
+import type { IndexConstructor, IndexFunction } from './record-guards.js';
 import { checkLeading, fieldKeyOf } from './record-keys.js';
 import type { FunctionRunner } from './runner.js';
 
@@ -260,7 +260,7 @@ export type IndexKeyOf<S, T extends EastType = EastType> =
   : S extends { on: infer On extends readonly (keyof RowFields<T> & string)[] }
     ? number extends On['length'] ? EastType : StructType<{ [K in On[number]]: FieldKey<RowFields<T>[K]> }>
   : S extends { key: infer F } ? OutputOf<F>
-  : S extends { keys: infer F } ? (OutputOf<F> extends SetType<infer IK> ? IK : EastType)
+  : S extends { keys: infer F } ? (OutputOf<F> extends SetType<infer IK extends EastType> ? IK : EastType)
   : EastType;
 
 /**
@@ -287,6 +287,7 @@ export type ProjectionOf<S> =
  * A plain index's key function, from exactly one of `on` — row fields, whose
  * key function is generated — `key` or `keys`.
  *
+ * @param constructor - The declaration, for the refusals
  * @param name - The index, for the refusals
  * @param keyType - The record's key type
  * @param valueType - The record's row type
@@ -295,20 +296,20 @@ export type ProjectionOf<S> =
  * @throws {Error} When the declaration gives none of them or more than one, or `on` names no field of the row's
  */
 function plainKey(
-  name: string, keyType: EastType, valueType: EastType,
+  constructor: IndexConstructor, name: string, keyType: EastType, valueType: EastType,
   spec: { readonly on?: readonly string[]; readonly key?: IndexFunction; readonly keys?: IndexFunction },
 ): { keyFn: IndexFunction; multi: boolean } {
   const { on, key, keys } = spec;
   if (on !== undefined && key === undefined && keys === undefined) {
-    if (valueType.type !== 'Struct') throw new Error(`e3.recordIndex '${name}' on requires a record with Struct rows`);
-    if (on.length === 0) throw new Error(`e3.recordIndex '${name}' on requires at least one field`);
-    const leading = checkLeading(name, valueType, on);
+    if (valueType.type !== 'Struct') throw new Error(`${constructor} '${name}' on requires a record with Struct rows`);
+    if (on.length === 0) throw new Error(`${constructor} '${name}' on requires at least one field`);
+    const leading = checkLeading(constructor, name, valueType, on);
     return { keyFn: fieldKeyOf(keyType, valueType, leading), multi: leading.multi };
   }
   if (key !== undefined && on === undefined && keys === undefined) return { keyFn: key, multi: false };
   if (keys !== undefined && on === undefined && key === undefined) return { keyFn: keys, multi: true };
   throw new Error(
-    `e3.recordIndex '${name}' takes exactly one of 'key' (one entry per row) ` +
+    `${constructor} '${name}' takes exactly one of 'key' (one entry per row) ` +
     `or 'keys' (one per element of a returned Set), or 'on' (row fields)`,
   );
 }
@@ -372,25 +373,45 @@ function plainIndex<Name extends string, T extends EastType, const S extends Rec
   spec: S,
   config?: { runner?: FunctionRunner },
 ): RecordIndexDef<Name, T, IndexKeyOf<S, T>, ProjectionOf<S>, IndexOn<S>> {
-  const { keyType, valueType } = indexedEntry('e3.recordIndex', name, rec);
+  // The name and the record first, as every index's guards check them, then the options.
+  indexedEntry('e3.recordIndex', name, rec);
   onlyOptions('e3.recordIndex', name, spec, ['on', 'key', 'keys', 'value'], 'interval' in spec
     ? `an interval index has a constructor of its own: e3.recordIndex.interval('${name}', record, { on?, from, to })`
     : undefined);
-  const { keyFn, multi } = plainKey(name, keyType, valueType, spec);
-  const { runner, indexKeyType, projectionType } = indexFunctions(name, keyType, valueType, keyFn, multi, spec.value, config);
+  // Built from the spec at run time; the type restates, from the spec as written, what it built.
+  return plainDefinition('e3.recordIndex', name, rec, spec, config) as RecordIndexDef<Name, T, IndexKeyOf<S, T>, ProjectionOf<S>, IndexOn<S>>;
+}
 
+/**
+ * Builds a plain index's definition: its key from `on`, `key` or `keys`, and
+ * its projection from `value`, each checked as every index's functions are.
+ *
+ * @param constructor - The declaration, as a refusal names it
+ * @param name - The index
+ * @param rec - Its record
+ * @param spec - Exactly one of `on`, `key` and `keys`, and an optional `value`
+ * @param config - Its runner selection
+ * @returns The definition
+ * @throws {Error} When the spec gives none of `on`, `key` and `keys` or more than one, or on any guard every index applies
+ */
+export function plainDefinition(
+  constructor: IndexConstructor, name: string, rec: RecordDef,
+  spec: { readonly on?: readonly string[]; readonly key?: IndexFunction; readonly keys?: IndexFunction; readonly value?: IndexFunction },
+  config: { runner?: FunctionRunner } | undefined,
+): RecordIndexDef {
+  const { keyType, valueType } = indexedEntry(constructor, name, rec);
+  const { keyFn, multi } = plainKey(constructor, name, keyType, valueType, spec);
+  const { runner, indexKeyType, projectionType } = indexFunctions(constructor, name, keyType, valueType, keyFn, multi, spec.value, config);
   return {
     kind: 'recordIndex',
     name,
     record: rec,
-    on: (spec.on === undefined ? undefined : Object.freeze([...spec.on])) as IndexOn<S>,
+    on: spec.on === undefined ? undefined : Object.freeze([...spec.on]),
     keyFn,
     ...(spec.value !== undefined && { valueFn: spec.value }),
     multi,
-    // The signature read above IS the type the spec's functions declare; the
-    // casts only restate it at the TypeScript level.
-    keyType: indexKeyType as IndexKeyOf<S, T>,
-    valueType: (projectionType ?? NullType) as ProjectionOf<S>,
+    keyType: indexKeyType,
+    valueType: projectionType ?? NullType,
     runner,
   };
 }
@@ -438,7 +459,7 @@ function intervalIndex<Name extends string, T extends EastType, const S extends 
   config?: { runner?: FunctionRunner },
 ): RecordIndexDef<Name, T, IndexKeyOf<S, T>, NullType, IndexOn<S>> & { interval: { readonly from: S['from']; readonly to: S['to'] } } {
   // Built from the spec at run time; the type restates, from the spec as written, what it built.
-  return intervalDefinition(name, rec, spec, config) as
+  return intervalDefinition('e3.recordIndex.interval', name, rec, spec, config) as
     RecordIndexDef<Name, T, IndexKeyOf<S, T>, NullType, IndexOn<S>> & { interval: { readonly from: S['from']; readonly to: S['to'] } };
 }
 
@@ -514,7 +535,7 @@ function areaIndex<Name extends string, T extends EastType, const S extends Area
   config?: { runner?: FunctionRunner },
 ): RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { area: AreaIndexOf<S> } {
   // Built from the spec at run time; the type restates, from the spec as written, what it built.
-  return areaDefinition(name, rec, spec, config) as RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { area: AreaIndexOf<S> };
+  return areaDefinition('e3.recordIndex.area', name, rec, spec, config) as RecordIndexDef<Name, T, IndexKeyOf<S, T>, RowOf<T>, IndexOn<S>> & { area: AreaIndexOf<S> };
 }
 
 /** The fields and tile a series or summary index files by, as its definition carries them. */
@@ -621,7 +642,9 @@ function seriesIndex(
   config?: { runner?: FunctionRunner },
 ): RecordIndexDef {
   // Built from the spec at run time; each overload restates, from the spec as written, what it built.
-  return 'collections' in spec ? nestedDefinition(name, rec, spec, config) : seriesDefinition(name, rec, spec, config);
+  return 'collections' in spec
+    ? nestedDefinition('e3.recordIndex.series', name, rec, spec, config)
+    : seriesDefinition('e3.recordIndex.series', name, rec, spec, config);
 }
 
 /**
@@ -669,7 +692,7 @@ function summaryIndex<Name extends string, T extends EastType, const S extends S
   config?: { runner?: FunctionRunner },
 ): RecordIndexDef<Name, T, SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>> & { summary: TimeTileOf<S> } {
   // Built from the spec at run time; the type restates, from the spec as written, what it built.
-  return summaryDefinition(name, rec, spec, config) as
+  return summaryDefinition('e3.recordIndex.summary', name, rec, spec, config) as
     RecordIndexDef<Name, T, SummaryKeyOf<S, T>, typeof RecordSummaryTotalsType, IndexOn<S>> & { summary: TimeTileOf<S> };
 }
 

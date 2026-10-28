@@ -141,6 +141,11 @@ export type { MigrationConfig } from './migration.js';
 // Singleton tree definitions
 export { inputsTree } from './input.js';
 export { recordsTree } from './record.js';
+export type { RecordConfig } from './record.js';
+export type {
+  IndexBuilder, NestedBuilder, MutationBuilder, MigrationBuilder, IndexDraft, MutationDraft, MigrationDraft,
+  IndexesOf, MutationsOf, PlainIndexOptions, PartRunner,
+} from './record-builders.js';
 export { tasksTree } from './task.js';
 
 // Utility exports

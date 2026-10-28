@@ -267,16 +267,26 @@ export interface FunctionDef<
  * declared without one is unassigned until its first state is committed from
  * outside, which is then its genesis (see `record`).
  *
+ * A record declared whole — `e3.record(name, type, { indexes, mutations })` —
+ * holds its indexes and its mutations by name, each typed as declared.
+ *
  * @typeParam T - The East type of the record state
+ * @typeParam Path - Its path in the package's tree
+ * @typeParam I - Its indexes by name, as declared
+ * @typeParam M - Its mutations by name, as declared
  */
-export interface RecordDef<T extends EastType = EastType, Path extends TreePath = TreePath>
-  extends DatasetDef<T, Path> {
+export interface RecordDef<
+  T extends EastType = EastType,
+  Path extends TreePath = TreePath,
+  I extends object = Record<string, RecordIndexDef>,
+  M extends object = Record<string, MutationDef>,
+> extends DatasetDef<T, Path> {
   /** Discriminant distinguishing a record from a plain dataset. */
   readonly recordKind: 'record';
   /** Mutations that may write this record, by name. */
-  readonly mutations: Record<string, MutationDef>;
+  readonly mutations: M;
   /** Secondary indexes over this record, by name. */
-  readonly indexes: Record<string, RecordIndexDef>;
+  readonly indexes: I;
   /** Migrations of this record, in chain order: the steps a deploy runs over
    *  a workspace's state that has not applied them. */
   readonly migrations: readonly MigrationDef[];

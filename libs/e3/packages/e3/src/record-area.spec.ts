@@ -89,14 +89,14 @@ function emitted(recordType: typeof RacksType | typeof ZonesType, def: RecordInd
 
 describe('e3.recordIndex.area — its keys (§11.2)', () => {
   it('rounds cell down to a power of two, and refuses one that is no positive number', () => {
-    assert.equal(areaCellExponent('a', 0.01), -7, '0.01 m is filed by 2^-7 = 0.0078125 m cells');
-    assert.equal(areaCellExponent('a', 1), 0);
-    assert.equal(areaCellExponent('a', 0.0078125), -7, 'a power of two is its own');
-    assert.equal(areaCellExponent('a', 1000), 9);
+    assert.equal(areaCellExponent('e3.recordIndex.area', 'a', 0.01), -7, '0.01 m is filed by 2^-7 = 0.0078125 m cells');
+    assert.equal(areaCellExponent('e3.recordIndex.area', 'a', 1), 0);
+    assert.equal(areaCellExponent('e3.recordIndex.area', 'a', 0.0078125), -7, 'a power of two is its own');
+    assert.equal(areaCellExponent('e3.recordIndex.area', 'a', 1000), 9);
     for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
-      assert.throws(() => areaCellExponent('a', bad), /takes a cell: the finest cell's side in world units/);
+      assert.throws(() => areaCellExponent('e3.recordIndex.area', 'a', bad), /takes a cell: the finest cell's side in world units/);
     }
-    assert.throws(() => areaCellExponent('a', 2 ** 1000), /out of range/);
+    assert.throws(() => areaCellExponent('e3.recordIndex.area', 'a', 2 ** 1000), /out of range/);
   });
 
   it('files a box under the deepest level whose cell is twice its larger side, in the cell holding its centre — as the oracle does', () => {

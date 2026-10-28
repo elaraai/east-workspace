@@ -50,7 +50,9 @@ import {
   type RecordLevel,
 } from '@elaraai/e3-types';
 import { checkNested, type NestedCollection, type NestedDeclaration, type NestedGroup, type NestedItems, type NestedValues } from './record-nested.js';
-import { INDEX_PURITY, checkEntryParams, checkPure, functionAt, indexRunner, indexedEntry, onlyOptions, sameEastType, signatureOf } from './record-guards.js';
+import {
+  INDEX_PURITY, checkEntryParams, checkPure, functionAt, indexRunner, indexedEntry, onlyOptions, sameEastType, signatureOf, type IndexConstructor,
+} from './record-guards.js';
 import { fieldReader } from './record-keys.js';
 import { patchTypeOf } from './record-patches.js';
 import { RECORD_TILES, TileShareType, checkTile, placedFilings, placedShares, tileNext, tileStart, type RecordTile } from './record-tiles.js';
@@ -1481,6 +1483,7 @@ export function nestedLean(decl: NestedDeclaration, keyType: EastType, rowType: 
  * it by where the patch can say what it touched, and, for the record's other
  * indexes, its lean row.
  *
+ * @param constructor - The declaration, as a refusal names it
  * @param name - The index
  * @param rec - Its record
  * @param spec - `collections`, `tile` and `summary`, as written
@@ -1489,11 +1492,14 @@ export function nestedLean(decl: NestedDeclaration, keyType: EastType, rowType: 
  * @throws {Error} Beside `collections`, the key form's fields, `on` or a `value`; a tile of none of the five; a second
  *   nested series index on the record; or what {@link checkNested} refuses, each in its words
  */
-export function nestedDefinition(name: string, rec: RecordDef, spec: object, config: { runner?: FunctionRunner } | undefined): RecordIndexDef {
-  const constructor = 'e3.recordIndex.series';
+export function nestedDefinition(
+  constructor: IndexConstructor, name: string, rec: RecordDef, spec: object, config: { runner?: FunctionRunner } | undefined,
+): RecordIndexDef {
   const { keyType, valueType } = indexedEntry(constructor, name, rec);
   if ('key' in spec || 'from' in spec || 'to' in spec) {
-    throw new Error(`${constructor} '${name}' takes collections, or key, from and to — not both: collections files what a row nests, key the record's own events`);
+    throw new Error(constructor.startsWith('e3.recordIndex')
+      ? `${constructor} '${name}' takes collections, or key, from and to — not both: collections files what a row nests, key the record's own events`
+      : `${constructor} '${name}' takes collections, tile and summary — key, from and to file the record's own events: index.series({ key, from, to, tile })`);
   }
   if ('on' in spec) {
     throw new Error(`${constructor} '${name}' takes no on with collections — a nested collection is read by its row's key, which the rail's indexes page`);
@@ -1507,12 +1513,12 @@ export function nestedDefinition(name: string, rec: RecordDef, spec: object, con
   if (already !== undefined) {
     throw new Error(`${constructor} '${name}': record '${rec.name}' has a nested series index already, '${already.name}' — one declares every collection a record nests`);
   }
-  const decl = checkNested(name, valueType, written.collections);
+  const decl = checkNested(constructor, name, valueType, written.collections);
   const { entries, byPatch, entryKey, entryValue } = nestedEntries(decl, keyType, valueType, tile, summary);
   const runner = indexRunner(config);
   checkPure(`${constructor} '${name}' entries`, entries, INDEX_PURITY);
   checkPure(`${constructor} '${name}' entries by a patch`, byPatch, INDEX_PURITY);
-  checkEntryParams(name, 'entries', keyType, valueType, signatureOf(entries).inputs);
+  checkEntryParams(constructor, name, 'entries', keyType, valueType, signatureOf(entries).inputs);
   const def: RecordIndexDef = {
     kind: 'recordIndex',
     name,

@@ -84,8 +84,9 @@ export interface IndexFunction {
   toIR(): unknown;
 }
 
-/** The constructor a refusal names. */
-export type IndexConstructor = 'e3.recordIndex' | 'e3.recordIndex.interval' | 'e3.recordIndex.area' | 'e3.recordIndex.series' | 'e3.recordIndex.summary';
+/** The declaration a refusal names: a builder of the record's, `e3.record 'plans': index.on`, or a separate
+ *  constructor, `e3.recordIndex.series`. */
+export type IndexConstructor = string;
 
 /**
  * The signature of a function a declaration gives — an index's, a mutation's,
@@ -145,11 +146,11 @@ export const INDEX_PURITY = {
 };
 
 /** Refuses an index function whose parameters are not the record's entry. */
-export function checkEntryParams(name: string, role: string, keyType: EastType, valueType: EastType, inputs: readonly EastType[]): void {
+export function checkEntryParams(constructor: IndexConstructor, name: string, role: string, keyType: EastType, valueType: EastType, inputs: readonly EastType[]): void {
   if (inputs.length !== 2 || !sameEastType(keyType, inputs[0]!) || !sameEastType(valueType, inputs[1]!)) {
     const got = inputs.length === 0 ? 'no parameters' : inputs.map((t) => printType(t)).join(', ');
     throw new Error(
-      `e3.recordIndex '${name}' ${role} must take the record's entry ` +
+      `${constructor} '${name}' ${role} must take the record's entry ` +
       `(${printType(keyType)}, ${printType(valueType)}), but got ${got}.`,
     );
   }
@@ -229,22 +230,22 @@ export function indexRunner(config: { runner?: FunctionRunner } | undefined): Fu
  * @returns The runner, and the index key and projection types the functions declare
  */
 export function indexFunctions(
-  name: string, keyType: EastType, valueType: EastType,
+  constructor: IndexConstructor, name: string, keyType: EastType, valueType: EastType,
   keyFn: IndexFunction, multi: boolean, valueFn: IndexFunction | undefined, config: { runner?: FunctionRunner } | undefined,
 ): { runner: FunctionRunner; indexKeyType: EastType; projectionType: EastType | undefined } {
   const runner = indexRunner(config);
-  checkPure(`e3.recordIndex '${name}' ${multi ? "'keys' function" : "'key' function"}`, keyFn, INDEX_PURITY);
+  checkPure(`${constructor} '${name}' ${multi ? "'keys' function" : "'key' function"}`, keyFn, INDEX_PURITY);
   const keySig = signatureOf(keyFn);
-  checkEntryParams(name, multi ? "'keys' function" : "'key' function", keyType, valueType, keySig.inputs);
+  checkEntryParams(constructor, name, multi ? "'keys' function" : "'key' function", keyType, valueType, keySig.inputs);
 
   let indexKeyType = keySig.output;
   if (multi) {
     const returned = keySig.output;
     if (returned.type !== 'Set') {
       throw new Error(
-        `e3.recordIndex '${name}' declared with 'keys' must return a Set of index ` +
+        `${constructor} '${name}' declared with 'keys' must return a Set of index ` +
         `keys — one entry per element — but returns ${printType(keySig.output)}. ` +
-        `For one entry per row use 'key'.`,
+        `For one entry per row use ${constructor.startsWith('e3.recordIndex') ? "'key'" : 'index.key'}.`,
       );
     }
     indexKeyType = returned.key;
@@ -252,9 +253,9 @@ export function indexFunctions(
 
   let projectionType: EastType | undefined;
   if (valueFn !== undefined) {
-    checkPure(`e3.recordIndex '${name}' 'value' projection`, valueFn, INDEX_PURITY);
+    checkPure(`${constructor} '${name}' 'value' projection`, valueFn, INDEX_PURITY);
     const valueSig = signatureOf(valueFn);
-    checkEntryParams(name, "'value' projection", keyType, valueType, valueSig.inputs);
+    checkEntryParams(constructor, name, "'value' projection", keyType, valueType, valueSig.inputs);
     projectionType = valueSig.output;
   }
   return { runner, indexKeyType, projectionType };

@@ -6,7 +6,7 @@
 /** Centred interval-tree keys for ordinary maintained record indexes. */
 import { DateTimeType, East, IntegerType, NullType, OptionType, SetType, StructType, none, some } from '@elaraai/east';
 import type { RecordDef, RecordIndexDef } from './types.js';
-import { INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf } from './record-guards.js';
+import { INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexConstructor } from './record-guards.js';
 import { checkLeading, checkTimeField, fieldReader, leadingValues, type RowType } from './record-keys.js';
 
 /** The signed millisecond domain containing every valid JavaScript Date. */
@@ -83,6 +83,7 @@ const optionInstantAt = East.function([OptionType(DateTimeType), IntegerType], O
  * ordinary multi-entry index: mutation, rebuild, storage and transport are
  * shared.
  *
+ * @param constructor - The declaration, as a refusal names it
  * @param name - The index
  * @param rec - Its record
  * @param spec - `from` and `to`, and the optional leading `on`
@@ -91,22 +92,21 @@ const optionInstantAt = East.function([OptionType(DateTimeType), IntegerType], O
  * @throws {Error} When a field is not of its option's type, when the start leads the index, or on any guard every index applies
  */
 export function intervalDefinition(
-  name: string, rec: RecordDef, spec: { readonly on?: readonly string[]; readonly from: string; readonly to: string },
+  constructor: IndexConstructor, name: string, rec: RecordDef, spec: { readonly on?: readonly string[]; readonly from: string; readonly to: string },
   config: { runner?: RecordIndexDef['runner'] } | undefined,
 ): RecordIndexDef {
-  const constructor = 'e3.recordIndex.interval';
   const { keyType, valueType } = indexedEntry(constructor, name, rec);
   onlyOptions(constructor, name, spec, ['on', 'from', 'to']);
-  if (valueType.type !== 'Struct') throw new Error(`e3.recordIndex.interval '${name}' indexes a record with Struct rows`);
+  if (valueType.type !== 'Struct') throw new Error(`${constructor} '${name}' indexes a record with Struct rows`);
   const rowType: RowType = valueType;
   const start = checkTimeField(constructor, name, rowType, 'from', spec.from);
   const end = checkTimeField(constructor, name, rowType, 'to', spec.to);
   const on = spec.on ?? [];
   // Led by its start and ordered by it again, the index would answer nothing the interval does not.
   if (on.includes(spec.from)) {
-    throw new Error(`e3.recordIndex.interval '${name}': its start '${spec.from}' cannot be a leading field — the index orders by it already`);
+    throw new Error(`${constructor} '${name}': its start '${spec.from}' cannot be a leading field — the index orders by it already`);
   }
-  const leading = checkLeading(name, rowType, on);
+  const leading = checkLeading(constructor, name, rowType, on);
   // The row's leading fields under `on`, and e3's own parts beside them (#1432): the tree node an entry is filed at,
   // and the instant it is ordered by, at the start field's type.
   const indexType = StructType({ on: leading.onType, node: IntegerType, at: rowType.fields[spec.from]! });
@@ -131,8 +131,8 @@ export function intervalDefinition(
     return combinations(key, row).flattenToSet((_$, on) => under(on, from, entries));
   });
   const runner = indexRunner(config);
-  checkPure(`e3.recordIndex '${name}' 'keys' function`, keyFn, INDEX_PURITY);
-  checkEntryParams(name, "'keys' function", keyType, valueType, signatureOf(keyFn).inputs);
+  checkPure(`${constructor} '${name}' 'keys' function`, keyFn, INDEX_PURITY);
+  checkEntryParams(constructor, name, "'keys' function", keyType, valueType, signatureOf(keyFn).inputs);
   return {
     kind: 'recordIndex',
     name,

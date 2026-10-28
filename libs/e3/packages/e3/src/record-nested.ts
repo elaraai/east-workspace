@@ -378,14 +378,17 @@ function builderOf(given: unknown): 'items' | 'values' | 'rows' | 'recursive' | 
  * declaration TypeScript could not see, such as plain JavaScript or a spec
  * built at run time.
  *
+ * @param constructor - The declaration, for the refusals
  * @param name - The index, for the refusals
  * @param rowType - The record's row type
  * @param collections - The `collections` as written
  * @returns The groups, their collections, the declaration as an East value, and the places
  * @throws {Error} Naming the collection and what to write
  */
-export function checkNested(name: string, rowType: EastType, collections: unknown): NestedDeclaration {
-  const prefix = `e3.recordIndex.series '${name}'`;
+export function checkNested(constructor: string, name: string, rowType: EastType, collections: unknown): NestedDeclaration {
+  const prefix = `${constructor} '${name}'`;
+  // The collection builders as the declaration reaches them: the record's own builder, or the separate constructor's.
+  const builders = constructor.startsWith('e3.recordIndex') ? 'e3.recordIndex.series' : 'index.nested';
   const groups: NestedGroup[] = [];
   // How many groups have taken their place: a group takes its own before its child groups take theirs.
   let placed = 0;
@@ -413,7 +416,7 @@ export function checkNested(name: string, rowType: EastType, collections: unknow
       if (fieldType === undefined) throw new Error(`${prefix} ${where} names unknown row field '${field}'`);
       const builder = builderOf(given);
       if (builder === undefined) {
-        throw new Error(`${prefix} ${at} is no declaration — declare it with e3.recordIndex.series.items(times), values(), rows(collections) or recursive()`);
+        throw new Error(`${prefix} ${at} is no declaration — declare it with ${builders}.items(times), values(), rows(collections) or recursive()`);
       }
       if (fieldType.type !== 'Dict') {
         throw new Error(`${prefix} ${at} is '${field}', of type ${printType(fieldType)} — a collection is a Dict: Dict<String, Item> keyed by an id, ` +

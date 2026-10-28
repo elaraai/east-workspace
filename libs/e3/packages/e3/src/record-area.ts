@@ -24,7 +24,7 @@
  */
 import { East, FloatType, IntegerType, OptionType, SetType, StructType, isTypeEqual, none, printType, some, type EastType } from '@elaraai/east';
 import type { RecordDef, RecordIndexDef } from './types.js';
-import { INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexFunction } from './record-guards.js';
+import { INDEX_PURITY, checkEntryParams, checkPure, indexRunner, indexedEntry, onlyOptions, signatureOf, type IndexConstructor, type IndexFunction } from './record-guards.js';
 import { checkLeading, fieldReader, leadingValue, leadingValues, optionField, type RowType } from './record-keys.js';
 
 /** The finest level: a level-28 cell is `cell` wide. */
@@ -51,16 +51,17 @@ export interface AreaBox {
  * The exponent of the largest power of two at most `cell`: the finest cell's
  * side, as the index files rows by it.
  *
+ * @param constructor - The declaration, for the refusal
  * @param name - The index, for the refusal
  * @param cell - The finest cell's side the author declared, in world units
  * @returns `e`, with `2^e ≤ cell < 2^(e+1)`
  * @throws {Error} When `cell` is not a positive finite number, or is so large or
  *   small that the domain, `2^(e+27)` either side of zero, is not a finite Float
  */
-export function areaCellExponent(name: string, cell: number): number {
+export function areaCellExponent(constructor: IndexConstructor, name: string, cell: number): number {
   if (typeof cell !== 'number' || !Number.isFinite(cell) || cell <= 0) {
     throw new Error(
-      `e3.recordIndex.area '${name}' takes a cell: the finest cell's side in world units, ` +
+      `${constructor} '${name}' takes a cell: the finest cell's side in world units, ` +
       `a positive number (0.01 for a floor in metres, 1 for one in millimetres) — got ${String(cell)}`,
     );
   }
@@ -70,7 +71,7 @@ export function areaCellExponent(name: string, cell: number): number {
   // The domain is 2^(e+27) either side of zero, and a cell 2^e: both must be
   // normal, finite Floats for the arithmetic to stay exact.
   if (e + 28 > 1023 || e < -1022) {
-    throw new Error(`e3.recordIndex.area '${name}' cell ${cell} is out of range: its domain, 2^${e + 27} world units either side of zero, is not a finite Float`);
+    throw new Error(`${constructor} '${name}' cell ${cell} is out of range: its domain, 2^${e + 27} world units either side of zero, is not a finite Float`);
   }
   return e;
 }
@@ -153,6 +154,7 @@ export interface AreaSpec {
  * ordinary maintained index: mutation, rebuild, storage and transport are
  * shared.
  *
+ * @param constructor - The declaration, as a refusal names it
  * @param name - The index
  * @param rec - Its record
  * @param spec - The box's fields, whether `x`, `y` is its centre or its corner, the finest cell, and the optional leading `on`
@@ -161,53 +163,54 @@ export interface AreaSpec {
  * @throws {Error} When a field is not of its option's type, naming the option, the field and its type; when `x` and `y`
  *   are not both Options or neither; when `width` and `height` are not given together; or on any guard every index applies
  */
-export function areaDefinition(name: string, rec: RecordDef, spec: AreaSpec, config: { runner?: RecordIndexDef['runner'] } | undefined): RecordIndexDef {
-  const constructor = 'e3.recordIndex.area';
+export function areaDefinition(
+  constructor: IndexConstructor, name: string, rec: RecordDef, spec: AreaSpec, config: { runner?: RecordIndexDef['runner'] } | undefined,
+): RecordIndexDef {
   const { keyType, valueType } = indexedEntry(constructor, name, rec);
   onlyOptions(constructor, name, spec, ['on', 'x', 'y', 'width', 'height', 'at', 'cell'],
     'value' in spec ? 'an area index carries the whole row as its projection, so it takes no value' : undefined);
-  const exponent = areaCellExponent(name, spec.cell);
+  const exponent = areaCellExponent(constructor, name, spec.cell);
   const box: AreaBox = {
     x: spec.x, y: spec.y,
     ...(spec.width !== undefined && { width: spec.width }),
     ...(spec.height !== undefined && { height: spec.height }),
     at: spec.at ?? 'corner',
   };
-  if (valueType.type !== 'Struct') throw new Error(`e3.recordIndex.area '${name}' indexes a record with Struct rows`);
+  if (valueType.type !== 'Struct') throw new Error(`${constructor} '${name}' indexes a record with Struct rows`);
   const rowType: RowType = valueType;
   const typeOf = (option: string, field: string): EastType => {
     const type = rowType.fields[field];
-    if (type === undefined) throw new Error(`e3.recordIndex.area '${name}' ${option} names unknown row field '${field}'`);
+    if (type === undefined) throw new Error(`${constructor} '${name}' ${option} names unknown row field '${field}'`);
     return type;
   };
   const placeOf = (option: string, field: string) => {
     const type = typeOf(option, field);
     const place = optionField(rowType, field, FloatType);
     if (place === undefined) {
-      throw new Error(`e3.recordIndex.area '${name}' ${option} names '${field}', of type ${printType(type)}: ${option} is a Float or an Option<Float> field`);
+      throw new Error(`${constructor} '${name}' ${option} names '${field}', of type ${printType(type)}: ${option} is a Float or an Option<Float> field`);
     }
     return place;
   };
   const x = placeOf('x', box.x);
   const y = placeOf('y', box.y);
   if (x.optional !== y.optional) {
-    throw new Error(`e3.recordIndex.area '${name}': x '${box.x}' and y '${box.y}' are both Options, or neither — a row is placed, or not, by both`);
+    throw new Error(`${constructor} '${name}': x '${box.x}' and y '${box.y}' are both Options, or neither — a row is placed, or not, by both`);
   }
   if ((box.width === undefined) !== (box.height === undefined)) {
-    throw new Error(`e3.recordIndex.area '${name}' takes width and height together, or neither for a point`);
+    throw new Error(`${constructor} '${name}' takes width and height together, or neither for a point`);
   }
   for (const [option, field] of [['width', box.width], ['height', box.height]] as const) {
     if (field === undefined) continue;
     const type = typeOf(option, field);
     if (!isTypeEqual(type, FloatType)) {
-      throw new Error(`e3.recordIndex.area '${name}' ${option} names '${field}', of type ${printType(type)}: ${option} is a Float field`);
+      throw new Error(`${constructor} '${name}' ${option} names '${field}', of type ${printType(type)}: ${option} is a Float field`);
     }
   }
   if (box.at !== 'corner' && box.at !== 'centre') {
-    throw new Error(`e3.recordIndex.area '${name}' at is "corner" or "centre", not ${String(box.at)}`);
+    throw new Error(`${constructor} '${name}' at is "corner" or "centre", not ${String(box.at)}`);
   }
   const on = spec.on ?? [];
-  const leading = checkLeading(name, rowType, on);
+  const leading = checkLeading(constructor, name, rowType, on);
   const indexType = StructType({ on: leading.onType, area: IntegerType });
   // The row's box as the code reads it: its centre, `none` for a row not placed, and its larger side, a point's none.
   const BoxType = StructType({ cx: OptionType(FloatType), cy: OptionType(FloatType), side: FloatType });
@@ -289,8 +292,8 @@ export function areaDefinition(name: string, rec: RecordDef, spec: AreaSpec, con
   const valueFn = East.function([keyType, rowType], rowType, (_$, _key, row) => row);
   const runner = indexRunner(config);
   const role = leading.multi ? "'keys' function" : "'key' function";
-  checkPure(`e3.recordIndex '${name}' ${role}`, keyFn, INDEX_PURITY);
-  checkEntryParams(name, role, keyType, valueType, signatureOf(keyFn).inputs);
+  checkPure(`${constructor} '${name}' ${role}`, keyFn, INDEX_PURITY);
+  checkEntryParams(constructor, name, role, keyType, valueType, signatureOf(keyFn).inputs);
   return {
     kind: 'recordIndex',
     name,

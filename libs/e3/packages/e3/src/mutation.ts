@@ -39,11 +39,16 @@ import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.j
  *  and `e3 mutate` addresses it as `record.mutation`. */
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+/** The reducer form, as a refusal suggesting it names it: the record's builder's, or the separate constructor's. */
+function reduceWords(words: string): string {
+  return words.startsWith('e3.mutation') ? 'e3.mutation.reduce' : 'mutation.reduce';
+}
+
 /** Refuses a mutation name that is not an identifier. */
-function checkName(surface: string, name: string): void {
+function checkName(words: string, name: string): void {
   if (!IDENTIFIER.test(name)) {
     throw new Error(
-      `e3.${surface} requires a name that is an identifier, got '${name}' — it names the record's ` +
+      `${words} requires a name that is an identifier, got '${name}' — it names the record's ` +
       `commits beside e3's own, which begin with '$', and \`e3 mutate\` addresses it as record.mutation.`,
     );
   }
@@ -52,10 +57,10 @@ function checkName(surface: string, name: string): void {
 /** The shared guards: a synchronous, platform-free body whose leading
  *  parameter is the record's state. Returns the body's signature. */
 function checkBody(
-  surface: string, name: string, rec: RecordDef, fn: { toIR(): unknown },
+  words: string, name: string, rec: RecordDef, fn: { toIR(): unknown },
 ): { inputs: readonly EastType[]; output: EastType } {
-  checkName(surface, name);
-  checkPure(`e3.${surface} '${name}' body`, fn, {
+  checkName(words, name);
+  checkPure(`${words} '${name}' body`, fn, {
     async: 'an async body implies platform IO, which the compare-and-swap retry loop cannot safely re-run against fresher state.',
     platform: 'the compare-and-swap retry loop re-runs the mutation, so a platform call makes the committed record non-deterministic across retries.',
   });
@@ -63,7 +68,7 @@ function checkBody(
   if (signature.inputs.length < 1 || !sameEastType(rec.type, signature.inputs[0]!)) {
     const got = signature.inputs.length ? printType(signature.inputs[0]!) : 'no parameters';
     throw new Error(
-      `e3.${surface} '${name}' body's first parameter must be the record's ` +
+      `${words} '${name}' body's first parameter must be the record's ` +
       `state type ${printType(rec.type)}, but got ${got}.`,
     );
   }
@@ -74,12 +79,12 @@ function checkBody(
  *  patch is positional and a scalar's is a whole replace, so neither can be
  *  applied segment by segment — and both are exactly what the `reduce` form
  *  already handles by writing the state whole. */
-function checkKeyed(surface: string, name: string, rec: RecordDef): void {
+function checkKeyed(words: string, name: string, rec: RecordDef): void {
   if (!hasKeyedDelta(rec.type)) {
     throw new Error(
-      `e3.${surface} '${name}' writes a delta addressed by key, so it needs a ` +
+      `${words} '${name}' writes a delta addressed by key, so it needs a ` +
       `Dict or Set record — '${rec.name}' holds ${printType(rec.type)}. Use ` +
-      `e3.mutation.reduce, whose reducer returns the whole state.`,
+      `${reduceWords(words)}, whose reducer returns the whole state.`,
     );
   }
 }
@@ -141,11 +146,28 @@ function reduce(
   fn: IndexFunction,
   config?: { runner?: FunctionRunner },
 ): MutationDef {
+  return reduceDefinition('e3.mutation.reduce', name, rec, fn, config);
+}
+
+/**
+ * Builds a reducer's definition, each guard of {@link reduce}'s applied.
+ *
+ * @param words - The declaration, as a refusal names it
+ * @param name - The mutation
+ * @param rec - The record it writes
+ * @param fn - The reducer `(state, ...args) => state`
+ * @param config - Its runner selection
+ * @returns The definition
+ * @throws {Error} As {@link reduce} does
+ */
+export function reduceDefinition(
+  words: string, name: string, rec: RecordDef, fn: IndexFunction, config: { runner?: FunctionRunner } | undefined,
+): MutationDef {
   const runner = config?.runner ?? DEFAULT_RUNNER;
   // Validate eagerly so a bad runner fails at definition time, not export time.
   runnerToVariant(runner);
 
-  const signature = checkBody('mutation.reduce', name, rec, fn);
+  const signature = checkBody(words, name, rec, fn);
   // The reducer is (state, ...args) => state: the return must be the record's
   // state type too. The typed overload enforces this at compile time, but a
   // dynamic / cast caller could pass a mismatched function — and because
@@ -153,7 +175,7 @@ function reduce(
   // would be silently undetectable downstream.
   if (!sameEastType(rec.type, signature.output)) {
     throw new Error(
-      `e3.mutation.reduce '${name}' reducer must return the record's state type ` +
+      `${words} '${name}' reducer must return the record's state type ` +
       `${printType(rec.type)}, but returns ${printType(signature.output)}.`,
     );
   }
@@ -230,24 +252,41 @@ function edit(
   fn: IndexFunction,
   config?: { runner?: FunctionRunner },
 ): MutationDef {
+  return editDefinition('e3.mutation.edit', name, rec, fn, config);
+}
+
+/**
+ * Builds an edit body's definition, each guard of {@link edit}'s applied.
+ *
+ * @param words - The declaration, as a refusal names it
+ * @param name - The mutation
+ * @param rec - The record it writes
+ * @param fn - The body `(state, ...args, edit) => null`
+ * @param config - Its runner selection
+ * @returns The definition
+ * @throws {Error} As {@link edit} does
+ */
+export function editDefinition(
+  words: string, name: string, rec: RecordDef, fn: IndexFunction, config: { runner?: FunctionRunner } | undefined,
+): MutationDef {
   const runner = config?.runner ?? DEFAULT_RUNNER;
   runnerToVariant(runner);
-  checkKeyed('mutation.edit', name, rec);
+  checkKeyed(words, name, rec);
 
-  const signature = checkBody('mutation.edit', name, rec, fn);
+  const signature = checkBody(words, name, rec, fn);
   const editType = editTypeOf(rec.type);
   const last = signature.inputs[signature.inputs.length - 1];
   if (signature.inputs.length < 2 || last === undefined || !sameEastType(editType, last)) {
     throw new Error(
-      `e3.mutation.edit '${name}' body's LAST parameter must be the edit ` +
+      `${words} '${name}' body's LAST parameter must be the edit ` +
       `capability ${printType(editType)} — e3.mutation.editType(record.type) — but got ` +
       `${last === undefined ? 'no parameters' : printType(last)}.`,
     );
   }
   if (!sameEastType(NullType, signature.output)) {
     throw new Error(
-      `e3.mutation.edit '${name}' body writes through 'edit' and returns Null, ` +
-      `but returns ${printType(signature.output)}. Use e3.mutation.reduce for a reducer ` +
+      `${words} '${name}' body writes through 'edit' and returns Null, ` +
+      `but returns ${printType(signature.output)}. Use ${reduceWords(words)} for a reducer ` +
       `that returns the whole state.`,
     );
   }
@@ -305,10 +344,24 @@ function patch(
   name: string = 'patch',
   config?: { runner?: FunctionRunner },
 ): MutationDef {
-  checkName('mutation.patch', name);
+  return patchDefinition('e3.mutation.patch', name, rec, config);
+}
+
+/**
+ * Builds the patch door's definition, each guard of {@link patch}'s applied.
+ *
+ * @param words - The declaration, as a refusal names it
+ * @param name - The mutation
+ * @param rec - The record it writes
+ * @param config - Its runner selection
+ * @returns The definition
+ * @throws {Error} As {@link patch} does
+ */
+export function patchDefinition(words: string, name: string, rec: RecordDef, config: { runner?: FunctionRunner } | undefined): MutationDef {
+  checkName(words, name);
   const runner = config?.runner ?? DEFAULT_RUNNER;
   runnerToVariant(runner);
-  checkKeyed('mutation.patch', name, rec);
+  checkKeyed(words, name, rec);
 
   return {
     kind: 'mutation',

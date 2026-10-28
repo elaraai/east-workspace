@@ -100,7 +100,7 @@ function checkTimeTile(constructor: IndexConstructor, name: string, valueType: E
       throw new Error(`${constructor} '${name}': '${field}' is the event's ${what}, which its tiles are cut by, and cannot be a leading field`);
     }
   }
-  return { rowType, leading: checkLeading(name, rowType, on), key: { field: spec.key, type: keyType }, start, end, tile };
+  return { rowType, leading: checkLeading(constructor, name, rowType, on), key: { field: spec.key, type: keyType }, start, end, tile };
 }
 
 /**
@@ -112,6 +112,7 @@ function checkTimeTile(constructor: IndexConstructor, name: string, valueType: E
  * so a cell reads the index alone and no record segment. It stays an ordinary
  * maintained index: mutation, rebuild, storage and transport are shared.
  *
+ * @param constructor - The declaration, as a refusal names it
  * @param name - The index
  * @param rec - Its record
  * @param spec - The key, the start and the end, the tile, and the optional leading `on`
@@ -120,8 +121,9 @@ function checkTimeTile(constructor: IndexConstructor, name: string, valueType: E
  * @throws {Error} When a field is not of its option's type, naming the option, the field and its type; when the tile is
  *   not one of the five; when the key, the start or the end is a leading field; or on any guard every index applies
  */
-export function seriesDefinition(name: string, rec: RecordDef, spec: TimeTileSpec, config: { runner?: RecordIndexDef['runner'] } | undefined): RecordIndexDef {
-  const constructor = 'e3.recordIndex.series';
+export function seriesDefinition(
+  constructor: IndexConstructor, name: string, rec: RecordDef, spec: TimeTileSpec, config: { runner?: RecordIndexDef['runner'] } | undefined,
+): RecordIndexDef {
   const { keyType, valueType } = indexedEntry(constructor, name, rec);
   onlyOptions(constructor, name, spec, ['on', 'key', 'from', 'to', 'tile'],
     'value' in spec ? 'a series index carries the whole row as its projection, so it takes no value' : undefined);
@@ -150,8 +152,8 @@ export function seriesDefinition(name: string, rec: RecordDef, spec: TimeTileSpe
   // It carries its rows: each entry's projection is the whole row, so a cell reads the index alone and no record segment.
   const valueFn = East.function([keyType, rowType], rowType, (_$, _key, row) => row);
   const runner = indexRunner(config);
-  checkPure(`e3.recordIndex '${name}' 'keys' function`, keyFn, INDEX_PURITY);
-  checkEntryParams(name, "'keys' function", keyType, valueType, signatureOf(keyFn).inputs);
+  checkPure(`${constructor} '${name}' 'keys' function`, keyFn, INDEX_PURITY);
+  checkEntryParams(constructor, name, "'keys' function", keyType, valueType, signatureOf(keyFn).inputs);
   return {
     kind: 'recordIndex',
     name,
@@ -204,6 +206,7 @@ const addTotals = East.function([StringType, RecordSummaryTotalsType, RecordSumm
  * merge, `({ik, k}, Totals, Totals) → Totals`: a build's pieces hold the same
  * keys, and a key's totals across them are their sum.
  *
+ * @param constructor - The declaration, as a refusal names it
  * @param name - The index
  * @param rec - Its record
  * @param spec - The key, the start and the end, the tile, and the optional leading `on`
@@ -211,8 +214,9 @@ const addTotals = East.function([StringType, RecordSummaryTotalsType, RecordSumm
  * @returns The definition
  * @throws {Error} As {@link seriesDefinition} does
  */
-export function summaryDefinition(name: string, rec: RecordDef, spec: TimeTileSpec, config: { runner?: RecordIndexDef['runner'] } | undefined): RecordIndexDef {
-  const constructor = 'e3.recordIndex.summary';
+export function summaryDefinition(
+  constructor: IndexConstructor, name: string, rec: RecordDef, spec: TimeTileSpec, config: { runner?: RecordIndexDef['runner'] } | undefined,
+): RecordIndexDef {
   const { keyType, valueType } = indexedEntry(constructor, name, rec);
   onlyOptions(constructor, name, spec, ['on', 'key', 'from', 'to', 'tile'],
     'value' in spec ? 'a summary index holds its totals, so it takes no value' : undefined);
@@ -248,8 +252,8 @@ export function summaryDefinition(name: string, rec: RecordDef, spec: TimeTileSp
     },
   ));
   const runner = indexRunner(config);
-  checkPure(`e3.recordIndex.summary '${name}' contributions`, keyFn, INDEX_PURITY);
-  checkEntryParams(name, 'contributions', keyType, valueType, signatureOf(keyFn).inputs);
+  checkPure(`${constructor} '${name}' contributions`, keyFn, INDEX_PURITY);
+  checkEntryParams(constructor, name, 'contributions', keyType, valueType, signatureOf(keyFn).inputs);
   return {
     kind: 'recordIndex',
     name,
