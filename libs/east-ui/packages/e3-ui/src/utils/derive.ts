@@ -224,7 +224,7 @@ interface Scope {
  * - `Decision.bind`, given its `binding`, writes through its `write`, as the
  *   decision handle does;
  * - handed on any other way — to a component, a function or a value, or its
- *   `binding` to a `<Diff>` — it may be used for anything it allows.
+ *   `binding` to an `<Ontology>` — it may be used for anything it allows.
  *
  * A handle is followed through the variables that hold it, by name and scope
  * as East resolves them: within a scope chain no two variables share a name.

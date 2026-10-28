@@ -596,3 +596,17 @@ Each wire changed under this rule, with the kind it is.
   package declares is rebuilt as the package is deployed, as any changed index
   is, and a deploy builds the nested index its state lacks. An index is
   derived from its record, so no repository upgrade step ships.
+- **e3-ui's `Diff` extension is removed, and the binding a `Data.bind`
+  handle carries is named `DataBindingType` (#1447, #1449)** —
+  package-borne, and no wire changes. `<Diff>` and its renderer go: a staged
+  edit stays pending until the app's own control calls the handle's
+  `commit()` or `discard()`. The binding — its source, its patch and its mode
+  — is the same East type under its new name, so the `data_bind` platform
+  function, the IR that calls it and every payload that carries one keep their
+  forms. A UI value's `Extension` arm holds its kind as a String and its
+  payload as a Blob, so `UIComponentType` keeps its form too: a UI task's
+  output an earlier package computed that holds a `Diff` still decodes, and
+  draws the missing renderer's notice, naming its kind, where the Diff was. A
+  package whose source writes `<Diff>` no longer builds; taking it out before
+  the next export is that source's own change. A UI task's output is not
+  stored state, so no repository upgrade step ships with it.

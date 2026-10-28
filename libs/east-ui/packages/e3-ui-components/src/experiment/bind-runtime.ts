@@ -23,7 +23,7 @@
 import { useCallback, useMemo, useSyncExternalStore } from 'react';
 import { type ValueTypeOf } from '@elaraai/east';
 import { pathToString, type TreePath } from '@elaraai/e3-types';
-import { DiffBindingType } from '@elaraai/e3-ui/internal';
+import { DataBindingType } from '@elaraai/e3-ui/internal';
 import {
     defaultBindRuntime,
     getBindingTypes,
@@ -34,7 +34,7 @@ import {
     type BindHandle,
 } from '../platform/index.js';
 
-type DiffBindingValue = ValueTypeOf<typeof DiffBindingType>;
+type DataBindingValue = ValueTypeOf<typeof DataBindingType>;
 
 const EMPTY_PATH: TreePath = [];
 
@@ -83,10 +83,10 @@ function useBindingVersion(
 }
 
 /**
- * Resolve a {@link DiffBindingType} value (or `null`) into a live, reactive
+ * Resolve a {@link DataBindingType} value (or `null`) into a live, reactive
  * value of type `T`, delegating to the shared bind runtime.
  */
-export function useBindingValue<T>(binding: DiffBindingValue | null): UseBindingValueResult<T> {
+export function useBindingValue<T>(binding: DataBindingValue | null): UseBindingValueResult<T> {
     const cache = getReactiveDatasetCache();
     const workspace = cache.getConfig().workspace ?? '';
     const sourcePath = binding ? binding.source : EMPTY_PATH;

@@ -1,6 +1,6 @@
 ---
 name: east-ontology
-description: "Build an Economic Ontology of a business and render it with the e3-ui Ontology editor. Use when: (1) Modelling how a business creates value as a graph of resources, activities, KPIs, decisions, objectives, policies, data/systems ('map our supply chain', 'build an ontology', 'model the business', 'create a digital twin', 'what should we optimize or automate', 'where is the value created'), (2) Running an ontology-elicitation workshop and turning the captured activity table into nodes + links, (3) Encoding that graph as an `OntologyType` e3.input and surfacing it via `Ontology.Root` with staged commit/discard + Diff, (4) Using the ontology to identify high-value, decision-improving AI / optimization initiatives."
+description: "Build an Economic Ontology of a business and render it with the e3-ui Ontology editor. Use when: (1) Modelling how a business creates value as a graph of resources, activities, KPIs, decisions, objectives, policies, data/systems ('map our supply chain', 'build an ontology', 'model the business', 'create a digital twin', 'what should we optimize or automate', 'where is the value created'), (2) Running an ontology-elicitation workshop and turning the captured activity table into nodes + links, (3) Encoding that graph as an `OntologyType` e3.input and surfacing it via `Ontology.Root` with staged commit/discard, (4) Using the ontology to identify high-value, decision-improving AI / optimization initiatives."
 ---
 
 # Economic Ontology
@@ -135,22 +135,22 @@ const ontology = e3.input('supply_chain', OntologyType, variant('value', {
 const editor = East.function([], UIComponentType, (_$) =>
   Reactive.Root(East.function([], UIComponentType, $ => {
     const view = $.let(Data.bind(ontology));
-    return Ontology.Root({ binding: view.binding });
+    return Ontology.Root({ value: view });
   })),
 );
 ```
 
 ### `Ontology.Root` options
 
-`Ontology.Root({ value, ... })` — only `value` is required (pass the `Data.bind` handle over an `OntologyType` dataset). Options: `readonly` (hide mutation surfaces; commit-bar + drawer still render), `hideMiniMap`, `hideSearch`, `density` (`'comfortable'` | `'compact'` | `'condensed'`), `defaultView` (`'graph'` | `'table'` — the header's segmented control switches at runtime either way), `onCommitted` / `onDiscarded`, `style` (per-surface colour escape hatches — see `OntologyStyleType`).
+`Ontology.Root({ value, ... })` — only `value` is required (pass the `Data.bind` handle over an `OntologyType` dataset). Options: `readonly` (hide mutation surfaces; the property drawer still renders), `hideMiniMap`, `hideSearch`, `density` (`'comfortable'` | `'compact'` | `'condensed'`), `defaultView` (`'graph'` | `'table'` — the header's segmented control switches at runtime either way), `onCommitted` / `onDiscarded`, `style` (per-surface colour escape hatches — see `OntologyStyleType`).
 
 ### The table view
 
 The editor's header has a segmented `Graph | Table` control. The table is a value-driver-tree projection of the same bound value: rows are `process` nodes **grouped by the objective they serve** (via KPI `drives` paths), ordered by **value-chain stage** (topological order of `uses`/`produces` resource flow, with cycles — e.g. cash → materials → goods → cash — condensed, sharing a stage, and flagged ↺). Each row shows uses/produces/KPIs/data/**decisions**/policies plus owning agents; expanding a row reveals what feeds it and what it feeds (with the carrying resources) and completeness warnings (no inputs, no outputs, no KPI, no decision). Hovering any chip highlights every occurrence of that node across the table.
 
-### Edit modes, commit, and Diff
+### Edit modes and commit
 
-The editor uses the same staged-buffer machinery as `Diff`. `Data.bind(dataset)` **without `mode`** stages edits — the footer commit-bar applies or discards them, and you can stack a `Diff.Root({ bindings: [view.binding] })` beside the editor to review the pending node/link patch before commit. Pass `{ mode: 'direct' }` to write each mutation straight back instead (good for read-mostly demos). For a locked view, `readonly: some(true)`.
+`Data.bind(dataset)` writes each mutation straight back — `direct`, the default. Pass `{ mode: 'staged' }` to stage edits instead: the editor's header says *Unsaved changes*, and they stay pending until the app commits the handle — `view.commit()`, or `view.discard()`, from a control of its own beside the editor. The editor has no commit control itself. For a locked view, `readonly: some(true)`.
 
 ## Validation
 
@@ -165,7 +165,7 @@ The graph exists to find the decisions worth improving. For each `decision` node
 
 ## Related skills
 
-- **e3-ui** — the `Ontology`, `Data.bind`, and `Diff` API this builds on (and `ui()` to ship the editor as an e3 task).
+- **e3-ui** — the `Ontology` and `Data.bind` API this builds on (and `ui()` to ship the editor as an e3 task).
 - **east-ui** — layout (`Card`, `Stack`) for composing the editor into a dashboard.
 - **east-design** — turn the prioritised decisions into an implementation plan.
 - **east-py-datascience** — the optimization / ML that improves a targeted decision.
@@ -176,6 +176,5 @@ The graph exists to find the decisions worth improving. For each `decision` node
 Ground the encoding in real graphs via `search_east_examples`:
 - `Ontology supply-chain process kpi objective` — a full activity/resource/KPI graph
 - `Ontology governance policy decision document` — policy/decision/document-heavy graph
-- `Ontology Diff review pending patch` — editor + Diff panel for staged commits
 - `Ontology readonly viewer` — locked, mutation-free view
 - `Ontology density compact` — density presets

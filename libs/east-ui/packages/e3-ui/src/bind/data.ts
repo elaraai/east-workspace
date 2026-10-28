@@ -39,7 +39,7 @@ import { builtIndex } from '@elaraai/e3/browser';
 import { bindDataIndexed, type BindPagedIndexesOptions, type FieldIndexes, type IndexedPagedValue } from './data-indexed.js';
 
 // ============================================================================
-// Mode + binding descriptor types — shared with the Diff component.
+// Mode + binding descriptor types.
 // ============================================================================
 
 /**
@@ -63,11 +63,13 @@ export type DataBindModeType = typeof DataBindModeType;
 export type DataBindModeLiteral = "staged" | "direct";
 
 /**
- * Descriptor for a single binding the {@link Diff.Root} component displays.
+ * The descriptor of a {@link Data.bind} binding: where it reads and writes,
+ * as plain data — the data binding's counterpart of `FuncBindingType`.
  *
  * Every {@link Data.bind} call exposes this descriptor as its `binding`
- * field, so callers can wire a Diff card via `Diff.Root({ bindings:
- * [view.binding, ...] })` without re-spelling the source / patch paths.
+ * field. A component that takes the handle — the Ontology's editor, the
+ * Experiment — forwards its `binding` in its payload, so the renderer finds
+ * the same binding without re-spelling the source / patch paths.
  *
  * @property source - The dataset path of the source value the binding
  *   reads from.
@@ -76,13 +78,13 @@ export type DataBindModeLiteral = "staged" | "direct";
  *   the source on commit (or to the staging buffer in staged mode).
  * @property mode - The binding's operating mode — see {@link DataBindModeType}.
  */
-export const DiffBindingType = StructType({
+export const DataBindingType = StructType({
     source: TreePathType,
     patch:  OptionType(TreePathType),
     mode:   DataBindModeType,
 });
-/** Type alias for {@link DiffBindingType}. */
-export type DiffBindingType = typeof DiffBindingType;
+/** Type alias for {@link DataBindingType}. */
+export type DataBindingType = typeof DataBindingType;
 
 // ============================================================================
 // Bind handle — return type of `Data.bind`.
@@ -113,8 +115,8 @@ export type DiffBindingType = typeof DiffBindingType;
  * @property has - True iff the source dataset has a value.
  * @property status - Per-dataset freshness signal — see
  *   {@link DatasetStatusType}.
- * @property binding - Descriptor for this binding — pass directly to
- *   {@link Diff.Root}'s `bindings` array.
+ * @property binding - Descriptor for this binding — see
+ *   {@link DataBindingType}.
  */
 export const DataBindHandleType = <T extends EastType | string>(t: T) => StructType({
     read:          FunctionType([], t),
@@ -127,7 +129,7 @@ export const DataBindHandleType = <T extends EastType | string>(t: T) => StructT
     discard:       FunctionType([], NullType),
     has:           FunctionType([], BooleanType),
     status:        FunctionType([], DatasetStatusType),
-    binding:       DiffBindingType,
+    binding:       DataBindingType,
 });
 
 /**
@@ -135,7 +137,7 @@ export const DataBindHandleType = <T extends EastType | string>(t: T) => StructT
  * — i.e. the return of `Data.bind(dataset)` for a `DatasetDef<T>`.
  *
  * @remarks
- * Unlike the bare `binding` field (a {@link DiffBindingType} descriptor that is
+ * Unlike the bare `binding` field (a {@link DataBindingType} descriptor that is
  * type-erased at the IR level — `{ source, patch, mode }` paths only), this
  * carries `T` **structurally**, in the signatures of its `read` / `write` /
  * `source` fields. Because the type information lives in the East type — not a
@@ -143,10 +145,8 @@ export const DataBindHandleType = <T extends EastType | string>(t: T) => StructT
  * plumbing, so a component that requires `BoundValue<SomeType>` gives the
  * developer a compile error when handed a handle bound to any other type.
  *
- * Type-specific components take a `BoundValue<…>` (e.g. `Ontology` requires
- * `BoundValue<OntologyType>`); the type-agnostic {@link Diff} keeps taking the
- * bare `binding` descriptors, since it displays pending changes for a
- * heterogeneous set of bindings.
+ * A component takes a `BoundValue<…>` of the type it edits (e.g. `Ontology`
+ * requires `BoundValue<OntologyType>`).
  *
  * @typeParam T - The East type of the bound dataset value.
  */
@@ -177,7 +177,7 @@ export const bindPlatformFn = East.genericPlatform(
         discard:       FunctionType([], NullType),
         has:           FunctionType([], BooleanType),
         status:        FunctionType([], DatasetStatusType),
-        binding:       DiffBindingType,
+        binding:       DataBindingType,
     }),
     { optional: true },
 );
@@ -241,7 +241,7 @@ export const DataBindPrimitives = {
  *
  * @property mode - Operating mode. `"direct"` (default) writes through
  *   immediately; `"staged"` buffers edits locally and commits on demand
- *   (use it for review surfaces — e.g. bindings fed to a {@link Diff} card).
+ *   (use it for an editor whose changes are reviewed before they commit).
  * @property patch - When supplied, the binding's commit / live writes
  *   target this patch dataset (typed `PatchType(T)`) instead of the
  *   source. Its path comes from the def, so it is statically known for
@@ -268,7 +268,7 @@ export interface DataBindOptions {
  * @param options - {@link DataBindOptions}. When omitted, defaults to
  *   `{ mode: "direct" }` (no separate patch dataset, writes go straight to
  *   the source dataset). Pass `{ mode: "staged" }` to buffer edits locally
- *   for review (e.g. surfacing them in a {@link Diff} card before commit).
+ *   until `commit()`.
  * @returns A handle struct described by {@link DataBindHandleType} —
  *   `read` / `write` / `writeAndStart` / `source` / `pending` /
  *   `commit` / `discard` / `has` / `status` / `binding`.
@@ -290,9 +290,8 @@ export interface DataBindOptions {
  * on `commit` instead).
  *
  * The `binding` field surfaces this binding's descriptor as a
- * {@link DiffBindingType} value — pass it directly to
- * {@link Diff.Root}'s `bindings` array to surface the in-flight change
- * in a Diff card.
+ * {@link DataBindingType} value, which a component taking the handle
+ * forwards to its renderer.
  *
  * Use inside `Reactive.Root` so `read` / `pending` / `status` re-fire
  * on every dataset or staging-buffer change.
@@ -301,7 +300,7 @@ export interface DataBindOptions {
  * ```ts
  * import { East, FloatType, NullType, variant } from "@elaraai/east";
  * import { Reactive, Slider, UIComponentType } from "@elaraai/east-ui";
- * import { Data, Diff } from "@elaraai/e3-ui";
+ * import { Data } from "@elaraai/e3-ui";
  * import * as e3 from "@elaraai/e3";
  *
  * const thresholdInput = e3.input("threshold", FloatType, variant("value", 38.0));

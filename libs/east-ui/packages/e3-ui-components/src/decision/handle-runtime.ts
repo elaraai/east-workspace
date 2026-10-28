@@ -45,7 +45,7 @@ import type { TreePath } from '@elaraai/e3-types';
 import {
     decisionBindPlatformFn,
     DecisionBindPrimitives,
-    DiffBindingType,
+    DataBindingType,
     DecisionType,
     DecisionHandleType,
     DecisionHandleRefType,
@@ -69,7 +69,7 @@ import {
 } from '../platform/index.js';
 import type { Decision } from './types.js';
 
-type DiffBindingValue = ValueTypeOf<typeof DiffBindingType>;
+type DataBindingValue = ValueTypeOf<typeof DataBindingType>;
 
 /** JS-side shape of a decoded {@link DecisionHandleType} value. */
 export type DecisionHandleValue = ValueTypeOf<typeof DecisionHandleType>;
@@ -96,7 +96,7 @@ const decodeSelection = decodeBeast2For(SELECTION_TYPE);
  *  bound source paths so it is stable across reloads without anyone naming
  *  it. Shared by the platform impl (reads/writes) and the React hook
  *  (subscription). */
-export function deriveSelectionKey(decisions: readonly DiffBindingValue[]): string {
+export function deriveSelectionKey(decisions: readonly DataBindingValue[]): string {
     return ['decision.selection', ...decisions.map(d => datasetPathToString(d.source as TreePath))].join('|');
 }
 
@@ -104,7 +104,7 @@ export function deriveSelectionKey(decisions: readonly DiffBindingValue[]): stri
 // Platform implementation.
 // =============================================================================
 
-function viewFor(binding: DiffBindingValue): BindHandle {
+function viewFor(binding: DataBindingValue): BindHandle {
     const workspace = getReactiveDatasetCache().getConfig().workspace ?? '';
     const source = binding.source as TreePath;
     const types = getBindingTypes(workspace, source);
@@ -119,7 +119,7 @@ function viewFor(binding: DiffBindingValue): BindHandle {
 
 /** East's text for a handle's binding descriptors — the plain data its
  *  compiled methods capture — so equal descriptors key one cache entry. */
-const printDescriptors = printFor(StructType({ decisions: ArrayType(DiffBindingType), judgements: DiffBindingType }));
+const printDescriptors = printFor(StructType({ decisions: ArrayType(DataBindingType), judgements: DataBindingType }));
 
 /** East's text for a type value; a contract's recursive ids are renamed
  *  canonically first, so equal contracts print alike however they were built. */
@@ -142,13 +142,13 @@ function writeSelectionAt(selectionKey: string, value: SelectionValue): null {
     StateRuntime.getStore().write(selectionKey, encodeSelection(value));
     return null;
 }
-function hostQueue(decisions: DiffBindingValue[]): Decision[] {
+function hostQueue(decisions: DataBindingValue[]): Decision[] {
     return decisions.flatMap(b => viewFor(b).read() as Decision[]);
 }
-function readJudgementsAt(judgements: DiffBindingValue): Map<string, Judgement> {
+function readJudgementsAt(judgements: DataBindingValue): Map<string, Judgement> {
     return viewFor(judgements).read() as Map<string, Judgement>;
 }
-function judgementForAt(judgements: DiffBindingValue, caseId: string): Judgement {
+function judgementForAt(judgements: DataBindingValue, caseId: string): Judgement {
     return readJudgementsAt(judgements).get(caseId) ?? {
         caseId,
         answers: new Map(),
@@ -158,13 +158,13 @@ function judgementForAt(judgements: DiffBindingValue, caseId: string): Judgement
         resolvedAt: none,
     };
 }
-function stageJudgementAt(judgements: DiffBindingValue, caseId: string, change: Partial<Judgement>): null {
+function stageJudgementAt(judgements: DataBindingValue, caseId: string, change: Partial<Judgement>): null {
     const dict = new Map(readJudgementsAt(judgements));
     dict.set(caseId, { ...judgementForAt(judgements, caseId), ...change });
     viewFor(judgements).write(dict);
     return null;
 }
-function removeFromOwningView(decisions: DiffBindingValue[], caseId: string): void {
+function removeFromOwningView(decisions: DataBindingValue[], caseId: string): void {
     for (const binding of decisions) {
         const view = viewFor(binding);
         const rows = view.read() as Decision[];
@@ -186,14 +186,14 @@ const decisionHandleCache = new Map<string, Record<string, unknown>>();
 
 function compileDecisionMethods(
     constraintType: EastTypeValue,
-    decisions: DiffBindingValue[],
-    judgements: DiffBindingValue,
+    decisions: DataBindingValue[],
+    judgements: DataBindingValue,
     selectionKey: string,
 ): Record<string, unknown> {
     const platform = getRegisteredPlatformImplementations();
     const c = fromEastTypeValue(constraintType);
-    const decisionsExpr = East.value(decisions as never, ArrayType(DiffBindingType));
-    const judgementsExpr = East.value(judgements as never, DiffBindingType);
+    const decisionsExpr = East.value(decisions as never, ArrayType(DataBindingType));
+    const judgementsExpr = East.value(judgements as never, DataBindingType);
     const selKeyExpr = East.value(selectionKey, StringType);
     const {
         queue, selected, select, clearSelection, decision, update,
@@ -220,8 +220,8 @@ function compileDecisionMethods(
  *  the renderer + React hook call. The compiled East.functions are typed loosely
  *  by inference, so we re-assert the call shapes here. */
 interface DecisionHandleFns {
-    decisions: DiffBindingValue[];
-    judgements: DiffBindingValue;
+    decisions: DataBindingValue[];
+    judgements: DataBindingValue;
     queue: () => Decision[];
     selected: () => SelectionValue;
     select: (caseId: string) => unknown;
@@ -249,8 +249,8 @@ interface DecisionHandleFns {
  * never-encoded local handle).
  */
 function buildDecisionHandle(
-    decisions: DiffBindingValue[],
-    judgements: DiffBindingValue,
+    decisions: DataBindingValue[],
+    judgements: DataBindingValue,
     constraintType?: EastTypeValue,
 ): DecisionHandleFns {
     const cType = constraintType ?? toEastTypeValue(DecisionConstraintType);
@@ -318,8 +318,8 @@ export const DecisionBindPlatform: PlatformFunction[] = [
     decisionBindPlatformFn.implement((constraintType: EastTypeValue) =>
         (decisionsArg: unknown, judgementsArg: unknown) =>
             buildDecisionHandle(
-                decisionsArg as DiffBindingValue[],
-                judgementsArg as DiffBindingValue,
+                decisionsArg as DataBindingValue[],
+                judgementsArg as DataBindingValue,
                 constraintType,
             )),
 
@@ -327,7 +327,7 @@ export const DecisionBindPlatform: PlatformFunction[] = [
     // Each is a faithful lift of the original closure body, taking the plain-data
     // descriptor(s) + the selection key as arguments. ──
     DecisionBindPrimitives.queue.implement((decisions: unknown) =>
-        hostQueue(decisions as DiffBindingValue[]) as never),
+        hostQueue(decisions as DataBindingValue[]) as never),
     DecisionBindPrimitives.selected.implement((selectionKey: unknown) =>
         readSelectionAt(selectionKey as string)),
     DecisionBindPrimitives.select.implement((selectionKey: unknown, caseId: unknown) =>
@@ -337,12 +337,12 @@ export const DecisionBindPlatform: PlatformFunction[] = [
     DecisionBindPrimitives.decision.implement((decisions: unknown, selectionKey: unknown) => {
         const sel = readSelectionAt(selectionKey as string);
         if (sel.type === 'none') return none as never;
-        const found = hostQueue(decisions as DiffBindingValue[]).find(d => d.id === sel.value);
+        const found = hostQueue(decisions as DataBindingValue[]).find(d => d.id === sel.value);
         return (found === undefined ? none : some(found)) as never;
     }),
     DecisionBindPrimitives.update.implement((decisions: unknown, edited: unknown) => {
         const e = edited as Decision;
-        for (const binding of decisions as DiffBindingValue[]) {
+        for (const binding of decisions as DataBindingValue[]) {
             const view = viewFor(binding);
             const rows = view.read() as Decision[];
             if (rows.some(d => d.id === e.id)) {
@@ -353,34 +353,34 @@ export const DecisionBindPlatform: PlatformFunction[] = [
     }),
     DecisionBindPrimitives.judgement.implement((_c: EastTypeValue) =>
         (judgements: unknown, caseId: unknown) =>
-            judgementForAt(judgements as DiffBindingValue, caseId as string) as never),
+            judgementForAt(judgements as DataBindingValue, caseId as string) as never),
     DecisionBindPrimitives.answer.implement((judgements: unknown, caseId: unknown, prompt: unknown, response: unknown) => {
-        const answers = new Map(judgementForAt(judgements as DiffBindingValue, caseId as string).answers);
+        const answers = new Map(judgementForAt(judgements as DataBindingValue, caseId as string).answers);
         answers.set(prompt as string, response as Judgement['answers'] extends Map<string, infer A> ? A : never);
-        return stageJudgementAt(judgements as DiffBindingValue, caseId as string, { answers });
+        return stageJudgementAt(judgements as DataBindingValue, caseId as string, { answers });
     }),
     DecisionBindPrimitives.addKnowledge.implement((judgements: unknown, caseId: unknown, text: unknown) =>
-        stageJudgementAt(judgements as DiffBindingValue, caseId as string, { knowledge: some(text as string) })),
+        stageJudgementAt(judgements as DataBindingValue, caseId as string, { knowledge: some(text as string) })),
     DecisionBindPrimitives.inject.implement((_c: EastTypeValue) =>
         (judgements: unknown, caseId: unknown, constraint: unknown) => {
             // Upsert by contract case name — one constraint per lever.
             const con = constraint as ConstraintValue;
-            const constraints = judgementForAt(judgements as DiffBindingValue, caseId as string).constraints
+            const constraints = judgementForAt(judgements as DataBindingValue, caseId as string).constraints
                 .filter(x => x.type !== con.type)
                 .concat([con]);
-            return stageJudgementAt(judgements as DiffBindingValue, caseId as string, { constraints });
+            return stageJudgementAt(judgements as DataBindingValue, caseId as string, { constraints });
         }),
     DecisionBindPrimitives.resolve.implement((decisions: unknown, judgements: unknown, selectionKey: unknown, caseId: unknown, verdict: unknown) => {
-        stageJudgementAt(judgements as DiffBindingValue, caseId as string, { verdict: some(verdict as Verdict), resolvedAt: some(new Date()) });
-        removeFromOwningView(decisions as DiffBindingValue[], caseId as string);
+        stageJudgementAt(judgements as DataBindingValue, caseId as string, { verdict: some(verdict as Verdict), resolvedAt: some(new Date()) });
+        removeFromOwningView(decisions as DataBindingValue[], caseId as string);
         writeSelectionAt(selectionKey as string, none);
         return null;
     }),
     DecisionBindPrimitives.commitState.implement((decisions: unknown, judgements: unknown, caseId: unknown) => {
         const cid = caseId as string;
-        const decision = hostQueue(decisions as DiffBindingValue[]).find(d => d.id === cid);
+        const decision = hostQueue(decisions as DataBindingValue[]).find(d => d.id === cid);
         const prompts = decision?.prompts ?? [];
-        const answers = judgementForAt(judgements as DiffBindingValue, cid).answers;
+        const answers = judgementForAt(judgements as DataBindingValue, cid).answers;
         const responses = prompts.map(p => answers.get(p.id)?.type);
         if (responses.some(r => r === 'no')) return variant('blocked', null) as never;
         if (responses.some(r => r === 'unknown')) return variant('handoff', null) as never;

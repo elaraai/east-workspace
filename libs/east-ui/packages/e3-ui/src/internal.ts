@@ -4,10 +4,10 @@
  */
 
 /**
- * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Schematic` / `Diff` /
+ * Internal exports — the `Plan` / `Sheet` / `Flowchart` / `Schematic` /
  * `Ontology` **factories** (`Plan.Payload(…)`, `Sheet.Payload(…)`,
- * `Flowchart.Payload(…)`, `Schematic.Payload(…)`, `Diff.Root(…)`,
- * `Diff.Component`) plus `Data`, the manifest type and derivation, and types.
+ * `Flowchart.Payload(…)`, `Schematic.Payload(…)`, `Ontology.Root(…)`,
+ * `Ontology.Component`) plus `Data`, the manifest type and derivation, and types.
  *
  * @remarks
  * The public `@elaraai/e3-ui` entry exports JSX **tags** (and `ui()`, which
@@ -23,7 +23,7 @@ export {
     Data,
     DataBindModeType,
     type DataBindModeLiteral,
-    DiffBindingType,
+    DataBindingType,
     type BoundValue,
     DataBindHandleType,
     type DataBindOptions,
@@ -664,13 +664,6 @@ export {
     ScheduleOptimiseRequestTypeFor, ScheduleOptimiseResultTypeFor, scheduleOptimiseBinding, scheduleOptimiseRows,
     type ScheduleOptimiseRecordsOf, type ScheduleOptimiseRecordsType, type ScheduleOptimiseRequestType, type ScheduleOptimiseResultType, type ScheduleOptimiseRows,
 } from './schedule/optimise.js';
-export {
-    Diff,
-    DiffComponent,
-    DiffPayloadType,
-    DiffStyleType,
-    type DiffOptions,
-} from './diff/index.js';
 export {
     Ontology,
     OntologyComponent,
