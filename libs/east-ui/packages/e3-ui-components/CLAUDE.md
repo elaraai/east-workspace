@@ -1394,7 +1394,11 @@ Tests: `plan/frame/plan-nested.dom.test.tsx`, on e3, over e3-ui's
 its index's order; page by an index whose order puts the rows compared first,
 and scroll by the canvas's row geometry under `emulateWindowScroll`. A Plan
 pans and zooms only through its Slice, which holds the canvas's own window
-when no source holds one.
+when no source holds one. A Plan in a bounded frame (one with a toolbar)
+mounts no row in jsdom until the frame is laid out: lay it out with the
+Sheet's `boundFrame` and `frameScrolls` (`sheet/frame.test-utils.ts`), and
+scroll it with the frame's `scrollTo` (`plan/frame/plan-dense.dom.test.tsx`,
+whose stress run, `E3_UI_PERF=1`, times the dense works example at scale).
 
 ### Typing a number into a table cell (#1436, #1438)
 

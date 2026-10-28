@@ -3,8 +3,10 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, example, none, some, variant } from "@elaraai/east";
-import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
+import {
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, RecursiveType, StringType, StructType, example, none, some, variant,
+} from "@elaraai/east";
+import { Box, EventStateType, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 import { indexedWorkDue, indexedWorkJob, indexedWorkOrders, indexedWorkReference } from "../sheet/sheet-records.examples.js";
@@ -229,6 +231,231 @@ export const planRecordIndexesMobile = example({
                         resource: { field: "work", of: "orders" }, entries: operationEntries,
                     }),
                 }}
+                style={{ height: "fill" }} />
+            </Box>;
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ============================================================================
+// The works, dense: every collection a Plan reads a cell at a time (#1438)
+// ============================================================================
+
+/** Monday 5 January 2026, where the dense works' first week starts. */
+const DENSE_YEAR = new Date(Date.UTC(2026, 0, 5));
+
+/** A works' job: what it makes, when it runs, and its state. */
+export const PlanDenseJob = StructType({ product: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType });
+/** A works' alarm, raised at an instant. */
+export const PlanDenseAlarm = StructType({ code: StringType, at: DateTimeType });
+/** A crew of a works: its name, and its hours each week, by the week's Monday. */
+export const PlanDenseCrew = StructType({ name: StringType, hours: DictType(DateTimeType, FloatType) });
+/** A part of a works: its jobs, and the parts beneath it. */
+export const PlanDensePart = RecursiveType((self) => StructType({ name: StringType, jobs: DictType(StringType, PlanDenseJob), parts: DictType(StringType, self) }));
+/**
+ * A works: where it stands and how it is; its jobs and its alarms, things
+ * people drag; its load each week; its crews, each one's hours each week; and
+ * its parts, a tree, each part's jobs filed under every part above it too.
+ */
+export const PlanDenseWorks = StructType({
+    name: StringType, site: StringType, status: StringType,
+    jobs: DictType(StringType, PlanDenseJob), alarms: DictType(StringType, PlanDenseAlarm), load: DictType(DateTimeType, FloatType),
+    crews: DictType(StringType, PlanDenseCrew), parts: DictType(StringType, PlanDensePart),
+});
+const DenseWorks = DictType(StringType, PlanDenseWorks);
+
+/**
+ * A part's jobs over the weeks: one every eight weeks from its first, a day
+ * long, each keyed by the part and its number.
+ */
+export const generateDensePartJobs = East.function([StringType, IntegerType, IntegerType], DictType(StringType, PlanDenseJob), ($, at, first, weeks) => {
+    const year = $.const(DENSE_YEAR);
+    const confirmed = $.const(variant("confirmed", null), EventStateType);
+    return East.Array.range(0n, weeks.subtract(first).add(7n).divide(8n)).toDict(
+        (_$2, j) => East.str`${at}-J${j.add(1n)}`,
+        ($2, j) => {
+            const start = $2.const(year.addWeeks(first.add(j.multiply(8n))).addHours(30n));
+            return { product: "part", start, end: start.addHours(24n), state: confirmed };
+        },
+    );
+});
+
+/** A part at the foot of a works' tree: its jobs over the weeks, from its first, and no parts beneath it. */
+export const generateDenseLeafPart = East.function([StringType, IntegerType, IntegerType], PlanDensePart, ($, at, first, weeks) => {
+    const jobs = $.const(generateDensePartJobs);
+    return $.const({ name: at, jobs: jobs(at, first, weeks), parts: new Map() }, PlanDensePart);
+});
+
+/** A works' top part: its jobs over the weeks, and two parts beneath it, each starting a week later than the one before. */
+export const generateDenseTopPart = East.function([StringType, IntegerType], PlanDensePart, ($, at, weeks) => {
+    const jobs = $.const(generateDensePartJobs);
+    const leaf = $.const(generateDenseLeafPart);
+    return $.const({
+        name: at,
+        jobs: jobs(at, 0n, weeks),
+        parts: East.Array.range(0n, 2n).toDict(
+            (_$2, k) => East.str`${at}.${k.add(1n)}`,
+            (_$2, k) => leaf(East.str`${at}.${k.add(1n)}`, k.add(1n), weeks),
+        ),
+    }, PlanDensePart);
+});
+
+/**
+ * Works `n` over a number of weeks: a job each week — one to three days long,
+ * every thirteenth four weeks — an alarm every four weeks, its load each week,
+ * two crews' hours each week, and three parts, a top part over two, each with
+ * a job every eight weeks. A function of `n` and the weeks alone.
+ */
+export const generateDenseWorks = East.function([IntegerType, IntegerType], PlanDenseWorks, ($, n, weeks) => {
+    const year = $.const(DENSE_YEAR);
+    const sites = $.const(["north", "south", "east", "west"], ArrayType(StringType));
+    const statuses = $.const(["running", "idle", "down"], ArrayType(StringType));
+    const products = $.const(["cap", "lid", "tub", "jar"], ArrayType(StringType));
+    const confirmed = $.const(variant("confirmed", null), EventStateType);
+    const topPart = $.const(generateDenseTopPart);
+    const number = $.const(n.add(10_001n));
+    const shift = $.const(n.remainder(24n));
+    return {
+        name: East.str`Works ${number}`,
+        site: sites.get(n.remainder(4n)),
+        status: statuses.get(n.remainder(3n)),
+        jobs: East.Array.range(0n, weeks).toDict(
+            (_$2, w) => East.str`J-${number}-${w.add(1n)}`,
+            ($2, w) => {
+                const start = $2.const(year.addWeeks(w).addHours(shift));
+                const hours = $2.const(w.remainder(13n).equal(12n).ifElse(() => 672n, () => w.remainder(3n).add(1n).multiply(24n)));
+                return { product: products.get(w.remainder(4n)), start, end: start.addHours(hours), state: confirmed };
+            },
+        ),
+        alarms: East.Array.range(0n, weeks.add(3n).divide(4n)).toDict(
+            (_$2, a) => East.str`A-${number}-${a.add(1n)}`,
+            (_$2, a) => ({ code: East.str`E${a.remainder(9n).add(1n)}`, at: year.addWeeks(a.multiply(4n)).addHours(shift.add(6n)) }),
+        ),
+        load: East.Array.range(0n, weeks).toDict(
+            (_$2, w) => year.addWeeks(w),
+            (_$2, w) => n.multiply(7n).add(w).remainder(100n).toFloat().divide(100.0),
+        ),
+        crews: East.Array.range(0n, 2n).toDict(
+            (_$2, c) => East.str`C-${number}-${c.add(1n)}`,
+            (_$2, c) => ({
+                name: East.str`Crew ${c.add(1n)}`,
+                hours: East.Array.range(0n, weeks).toDict(
+                    (_$3, w) => year.addWeeks(w),
+                    (_$3, w) => n.add(w).add(c.multiply(5n)).remainder(15n).add(30n).toFloat(),
+                ),
+            }),
+        ),
+        parts: East.Array.range(0n, 1n).toDict(
+            (_$2, k) => East.str`P${number}.${k.add(1n)}`,
+            (_$2, k) => topPart(East.str`P${number}.${k.add(1n)}`, weeks),
+        ),
+    };
+});
+
+/** The first `rows` works over a number of weeks, by key: `W-` and each one's number plus 10,001. */
+export const generateDenseWorksAll = East.function([IntegerType, IntegerType], DenseWorks, ($, rows, weeks) => {
+    const works = $.const(generateDenseWorks);
+    return East.Array.range(0n, rows).toDict((_$2, n) => East.str`W-${n.add(10_001n)}`, (_$2, n) => works(n, weeks));
+});
+
+/** How many works the task generates: ten thousand. */
+export const planDenseRows = e3.input("plan_dense_rows", IntegerType, variant("value", 10_000n));
+/** How many weeks of each works' collections the task generates: two years'. */
+export const planDenseWeeks = e3.input("plan_dense_weeks", IntegerType, variant("value", 104n));
+/** The task that generates the works from their sizes. */
+export const planDenseGenerated = e3.task("plan_dense_generated", [planDenseRows, planDenseWeeks], generateDenseWorksAll);
+
+/**
+ * The dense works, a hundred of them over two years, some 48,000 items: read
+ * lean a page at a time and their collections a cell at a time through their
+ * nested series index, never whole. A stress run writes the task's ten
+ * thousand through the patch door.
+ */
+export const planDenseWorks = e3.record("plan_dense_works", DenseWorks, {
+    initial: East.compile(generateDenseWorksAll, [])(100n, 104n),
+    indexes: (index) => ({
+        // The works by name: the rail's default order.
+        plan_dense_by_name: index.on(["name"]),
+        // The works by site and state: what the rail narrows by.
+        plan_dense_by_site_status: index.on(["site", "status"]),
+        // Every collection of a works in time: its jobs a span each, its alarms an instant each, its load a week each, its
+        // crews' hours a week each, the works keeping their sums, and its parts' jobs filed under every part above them.
+        plan_dense_in_time: index.nested({
+            collections: {
+                jobs: index.nested.items({ from: "start", to: "end" }),
+                alarms: index.nested.items({ at: "at" }),
+                load: index.nested.values(),
+                crews: index.nested.rows({ hours: index.nested.values({ rollup: "sum" }) }),
+                parts: index.nested.rows({ jobs: index.nested.items({ from: "start", to: "end" }, { rollup: true }), parts: index.nested.recursive() }),
+            },
+            tile: "week",
+            summary: "month",
+        }),
+    }),
+    mutations: (mutation) => ({
+        // The works' patch door: a canvas's Save commits through it, by the works' key and each item's.
+        patch: mutation.patch(),
+    }),
+});
+
+/**
+ * The dense works on a Plan, every collection read a cell at a time through
+ * their nested series index (#1438): each works' jobs as runs and its alarms
+ * as decisions, its load as a heat strip, its crews' hours as a table whose
+ * works row draws their sums as e3 keeps them, and its parts as a tree whose
+ * folded parents draw their bands from the jobs e3 files under them. The rail
+ * narrows the works by site and state; the canvas reads the cells around the
+ * rows in view, shades a collection from its totals past 10,000 items, and a
+ * moved job is a draft of its works read whole, saved by key through the
+ * patch door.
+ */
+export const planDenseIndexes = example({
+    keywords: [
+        "Plan", "Slice", "Slice.bindRecords", "rows", "rail", "paged", "Data.bindPaged", "index.nested", "nested series index",
+        "cell", "subtotals", "bands", "rollup", "tree", "children", "shading", "cap", "large record", "dense", "stress",
+        "Record.onApply", "keyed", "editing", "Save", "#1438",
+    ],
+    description: "The dense works on a Plan — jobs and alarms, weekly load, crews' weekly hours under each works and a tree of parts — every collection read a cell at a time through the works' nested series index: the cells around the rows in view, each works' crew-hour sums and each folded part's bands as e3 keeps them, a collection past 10,000 items shaded from its totals; a moved job drafts its works read whole and saves by key",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const works = $.let(Record.bind(planDenseWorks, ["patch"]));
+            // One rail: its `rows` source pages the works lean by name, narrowed by site and state, beside their nested index.
+            const slice = $.let(Slice.bindRecords("ex.planDenseIndexes", {
+                rows: {
+                    source: Data.bindPaged(planDenseWorks, { indexes: ["plan_dense_by_name", "plan_dense_by_site_status", "plan_dense_in_time"] }),
+                    label: "Works", icon: { prefix: "fas", name: "industry" },
+                    fields: { site: { label: "Site", hints: ["north", "south", "east", "west"] }, status: { label: "Status", hints: ["running", "idle", "down"] } },
+                },
+            }));
+            return <Box width="100%" height="760px"><Plan id="planDenseIndexes" slice={{ slice }}
+                axis={Plan.axis({ window: { min: new Date("2026-01-05T00:00:00Z"), max: new Date("2026-03-02T00:00:00Z") }, resolution: "week", resolutions: ["week", "month", "quarter", "year"] })}
+                series={[
+                    Plan.series.span(PlanDenseWorks, {
+                        key: "works", title: "Jobs", label: (w) => w.name, edit: true,
+                        runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
+                        decisions: Plan.items("alarms", { at: "at" }, () => ({ applied: false })),
+                    }),
+                    Plan.series.heat(PlanDenseWorks, {
+                        key: "load", title: "Load", label: (w) => w.name,
+                        cells: Plan.heatCells(Plan.values("load", (v) => ({ value: some(v) })), { min: 0, max: 1 }),
+                    }),
+                    Plan.series.table(PlanDenseWorks, {
+                        key: "crews", title: "Crew hours", label: (w) => w.name, aggregate: "sum", collapsed: true,
+                        children: Plan.children("crews", [Plan.series.table(PlanDenseCrew, {
+                            key: "crew", title: "Crew", label: (c) => c.name,
+                            cells: Plan.tableCells(Plan.values("hours", (h) => ({ value: some(h) }))),
+                        })]),
+                    }),
+                    Plan.series.group(PlanDenseWorks, {
+                        key: "assembly", title: "Parts", label: (w) => w.name, collapsed: true,
+                        children: Plan.children("parts", [Plan.series.span(PlanDensePart, {
+                            key: "parts", title: "Part", label: (p) => p.name, children: "parts", rollup: "union", collapsed: true,
+                            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
+                        })]),
+                    }),
+                ]}
+                editing={{ onApply: Record.onApply(works, { keyed: true }) }}
                 style={{ height: "fill" }} />
             </Box>;
         }}</Reactive>
