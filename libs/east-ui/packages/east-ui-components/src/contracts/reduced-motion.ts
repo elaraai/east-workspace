@@ -46,3 +46,13 @@ function getServerSnapshot(): boolean {
 export function usePrefersReducedMotion(): boolean {
     return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
+
+/**
+ * Whether the user has asked the OS for reduced motion, read now — for a timer or an animation frame that sets its own
+ * duration as it starts, where no hook reaches (the list's hold, the decision queue's receipt).
+ *
+ * @returns `true` if `prefers-reduced-motion: reduce` matches; `false` otherwise, and where the page has no `matchMedia`.
+ */
+export function prefersReducedMotion(): boolean {
+    return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(QUERY).matches;
+}
