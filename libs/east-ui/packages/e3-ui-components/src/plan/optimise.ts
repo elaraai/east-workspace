@@ -70,13 +70,16 @@ export interface PlanOptimised {
 const printEventRef = printFor(ScheduleEventRefType);
 
 /**
- * What a spec watches a run's request by (test use only), as the canvas's
- * render probe watches the canvas: each read of an event kind's rows the
- * request makes as a click builds it.
+ * What a spec watches a run's request and its landing by (test use only), as
+ * the canvas's render probe watches the canvas: each read of an event kind's
+ * rows the request makes as a click builds it, and each read of a kind's
+ * events its landing makes for what a changed event was before the run.
  */
 export interface PlanOptimiseProbe {
     /** Called for each read of a kind's rows, with the kind's slot. */
     readonly readRows?: (kind: string) => void;
+    /** Called for each read of a kind's events as they stood before the run, as its result lands, with the kind's slot. */
+    readonly readEvents?: (kind: string) => void;
 }
 
 /** The probe a spec installed; `undefined` outside tests. */
@@ -383,7 +386,9 @@ export function landPlanOptimise(args: PlanLanding): { counts: OptimiseCounts; o
         for (const [key, op] of diff.ops) {
             const id = key.slice(kind.key.length + 1);
             const element = printEventRef({ kind: kind.key, key: id });
-            // The event as its kind read it before the run: the provenance's `Was …`, and whether the backlog moves.
+            // The event as its kind read it before the run: the provenance's `Was …`, and whether the backlog moves — read
+            // through the kind's editing, which reads the kind's rows over the range to find it.
+            planOptimiseProbe?.readEvents?.(kind.key);
             let was: PlanEventItemValue | undefined;
             try { was = editing.read(kind.key, id)?.item; } catch { was = undefined; }
             if ((was !== undefined && was.start.type !== "some") || ("row" in op && unscheduled(op.row))) backlogChanged = true;

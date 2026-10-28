@@ -21,7 +21,9 @@
  * windows alone, and a click builds its request from one read of the jobs'
  * rows over the range, never one a job (R24) — each of its reads landing re-running that reader
  * alone, never the canvas or the frame, which draw again as the eye can be
- * used. A rows' window that fails is said once, on the footer's loading line
+ * used. A landing over many jobs reads what each was before the run in one
+ * read of the jobs, never one a job. A rows' window that fails is said once,
+ * on the footer's loading line
  * in the jobs' words — `Couldn't read print job events` — with Retry, never a
  * status in the toolbar (#1398): the eye stays disabled, asking nothing again,
  * until Retry asks e3 again at once and the read lands; beside another kind,
@@ -405,6 +407,33 @@ describe("what the eye waits on, read in a component of its own (#1343)", () => 
         } finally {
             restore();
         }
+    });
+});
+
+describe("the landing, over jobs read a window at a time (#1343)", () => {
+    test("R24 — a landing over more changed jobs than one reads the jobs as they stood before the run once — never once a job — and lands them as ever: each bar the run placed marked for it, the banner counting them, the backlog's count flashing", async () => {
+        const { container } = await h.mount(windowed);
+        await waitFor(() => expect(eye(container)!.disabled).toBe(false), { timeout: 10_000 });
+        const reads: string[] = [];
+        setPlanOptimiseProbe({ readEvents: (kind) => { reads.push(kind); } });
+        let placed = 0;
+        try {
+            await press(eye(container));
+            // The run places every job of the backlog its request carries: more changes than one.
+            placed = [...calls.requests()[0]!.events.job.values()].filter((job) => job.start.type === "none").length;
+            expect(placed).toBeGreaterThan(1);
+            await landed(container, placed);
+        } finally {
+            setPlanOptimiseProbe(undefined);
+        }
+        // What each changed job was before the run — its provenance's words, and whether the backlog moved — is found in
+        // one read of the jobs, whatever the number of changes.
+        expect(reads).toEqual(["job"]);
+        // Landed as ever: each bar the run placed marked for it, the banner counting them, and — each job found in the
+        // backlog it left — the backlog's count flashing.
+        expect([...added(container)].every((el) => el.getAttribute("title")!.startsWith("Added by Elara · run #1"))).toBe(true);
+        expect(words(banner(container, "done")!)[1]).toBe(`${placed} changes: ${placed} added. Undo or apply them like any edit.`);
+        expect(container.querySelector('[data-plan-count="backlog"][data-opn]')).not.toBeNull();
     });
 });
 
