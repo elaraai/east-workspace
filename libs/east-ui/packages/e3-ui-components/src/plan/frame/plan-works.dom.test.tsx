@@ -28,7 +28,7 @@ import { East, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { layOut } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
-import type { TreePath } from "@elaraai/e3-types";
+import { nestedSpanName, type TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
@@ -45,6 +45,8 @@ const WORKS = pathText(ex.planWorks.path as TreePath);
 /** The works' index by name, which pages them lean, and their nested series index. */
 const BY_NAME = ex.planWorks.indexes.plan_works_by_name;
 const IN_TIME = ex.planWorks.indexes.plan_works_in_time;
+/** The span e3 keeps beside their nested series index: each collection's months across the works. */
+const SPAN = { name: nestedSpanName(IN_TIME.name) };
 
 /** Whether a request reads the works through one of their indexes. */
 const through = (index: { readonly name: string }) => (request: E3Request) =>
@@ -112,6 +114,28 @@ describe("the works on a Plan (#1438)", () => {
         expect(h.requests("rows", WORKS)).toEqual([]);
         expect(h.requests("read", WORKS)).toEqual([]);
         expect(worksRow(container, "W-10001")!.querySelectorAll("[data-run]").length).toBeGreaterThan(0);
+    });
+
+    test("the horizon spans the ten years the series shown read, as e3 keeps their span, and a series switched off leaves its collections out", async () => {
+        const { container } = await h.mount(ex.planNestedAll);
+        await settle();
+        // The span's searches: one for each collection the series read, in one request, then their first and last months.
+        const spanReads = () => h.requests().filter(through(SPAN)).map((request) => (request.kind === "find" ? `find ${request.searches.length}` : request.kind));
+        expect(spanReads()).toEqual(["find 5", "runs"]);
+        // Ten years of weeks, from the works' first month to their last: the strip spans them, not the window's own margins.
+        const caption = () => Number((container.querySelector("[data-slot='horizon']")?.textContent ?? "").replace(/[^0-9]/g, ""));
+        await waitFor(() => expect(caption()).toBeGreaterThanOrEqual(520));
+        expect(caption()).toBeLessThan(540);
+        // Jobs switched off: its jobs and alarms are read no more, and the span of the rest is — their searches held from
+        // the first batch, one read of their first and last months.
+        const before = spanReads().length;
+        const pane = slot(container, "start")!;
+        fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
+        await settle();
+        const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+        fireEvent.click([...panel.querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === "Toggle Jobs")!);
+        await settle();
+        await waitFor(() => expect(spanReads().slice(before)).toEqual(["runs"]));
     });
 
     test("a quarter on, every works in view draws jobs there: the works are sparse, and spread evenly over their years", async () => {

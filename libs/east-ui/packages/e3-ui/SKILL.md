@@ -407,7 +407,12 @@ viewer switch each series on and off from the library's Series tab
 (`Plan.library.series()`). A list held as an East expression, or a pick held
 in an East variable (`$.let`), is refused: the Plan could not see what its
 series read. While cells are read — a pan, a zoom, a scroll, a commit — the
-rows waiting on them wash, their plots busy, until the cells land.
+rows waiting on them wash, their plots busy, until the cells land. Its horizon
+spans the time the series shown read, as e3 keeps it beside the index (its
+span, `<index>_span`): from the first month to the last any row's items or
+values touch, in the collections those series read, read again at each commit
+— a series switched off leaves its collections out — so the brush reaches
+every part of the data from the start, not the window's own margins.
 
 **A builder narrows through `Slice.bindRecords` alone** (#1340): one rail on
 its toolbar, `Slice.bindRecords(key, { [source]: { source:

@@ -39,6 +39,7 @@ import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanHorizonUnit } from "../messages.js";
 import type { PlanWindowPart } from "../root/window.js";
+import type { PlanNestedSpan, SPAN_READING } from "../root/nested.js";
 import { usePlanWords } from "../words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -60,6 +61,9 @@ export interface HorizonBrushProps {
     parts: readonly PlanWindowPart[];
     /** The axis's stated window, `[from, to)` on its domain: beside the window shown, the horizon of a canvas holding its own. */
     stated: readonly [number, number] | undefined;
+    /** The span of the collections the series shown read through the rows' nested series index (#1438), or its read in flight: beside the
+     *  window shown, the horizon of a canvas holding its own, in place of the stated window's. */
+    span?: PlanNestedSpan | typeof SPAN_READING | undefined;
     /** The now instant, if any (domain tick) — on the axis's arm. */
     now: PlanInstantValue | undefined;
 }
@@ -101,8 +105,25 @@ function ownHorizon(kind: RecordSliceRange["kind"], stated: readonly [number, nu
     return { kind, min: min - margin, max: max + margin };
 }
 
+/** The span of a read in flight, as the span's reader names it. */
+const READING: typeof SPAN_READING = "reading";
+
+/**
+ * The horizon of a canvas holding its own window over rows whose collections
+ * it reads through their nested series index (#1438): the span of what its
+ * series shown read, and the window shown — the time it can be brushed to, as
+ * a source's domain is.
+ *
+ * @param span - The span, `[from, to)` in ms
+ * @param shown - The window shown
+ * @returns The horizon
+ */
+function spanHorizon(span: PlanNestedSpan, shown: readonly [number, number]): RecordSliceRange {
+    return { kind: "datetime", min: Math.min(span[0], shown[0]), max: Math.max(span[1], shown[1]) };
+}
+
 /** The horizon band — caption gutter cell + the shared brush strip + its lens. */
-export function HorizonBrush({ styles, gridTemplate, parts, stated, now }: HorizonBrushProps) {
+export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSpan, now }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
     const words = usePlanWords();
@@ -120,8 +141,14 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, now }: Horiz
     const own = parts.length === 0;
     const shownFrom = scale.toNumber(scale.window.min);
     const shownTo = scale.toNumber(scale.window.max);
+    // Over the rows' nested series (#1438), the span of what the series shown read, held while it is read.
+    const reading = dataSpan === READING;
+    const read = dataSpan === READING ? undefined : dataSpan;
     const domain = own
-        ? (scale.kind === "ordinal" ? undefined : ownHorizon(scale.kind === "time" ? "datetime" : "float", stated, [shownFrom, shownTo]))
+        ? (scale.kind === "ordinal" ? undefined
+            : scale.kind === "time" && reading ? undefined
+                : scale.kind === "time" && read !== undefined ? spanHorizon(read, [shownFrom, shownTo])
+                    : ownHorizon(scale.kind === "time" ? "datetime" : "float", stated, [shownFrom, shownTo]))
         : recordDomain.ok ? recordDomain.value : undefined;
     // The domain must speak the axis's arm — a datetime field on a time
     // axis, a numeric field on a number axis. An ordinal axis never fits.

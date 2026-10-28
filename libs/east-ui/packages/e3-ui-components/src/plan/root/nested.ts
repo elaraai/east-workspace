@@ -59,7 +59,8 @@ import {
     type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { SeekQueryType } from "@elaraai/east-ui";
-import { levelRuns, summaryRun, type RecordTile } from "@elaraai/east-ui/internal";
+import { levelRuns, summaryRun, tileNext, type RecordTile } from "@elaraai/east-ui/internal";
+import { nestedSpanName } from "@elaraai/e3-types";
 import { Plan, PlanNestedShadingType, SCHEDULE_EVENT_CAP, type PlanNestedType } from "@elaraai/e3-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
@@ -929,6 +930,8 @@ export interface PlanNestedReaderProps {
     onLead: (lead: PlanNestedLead | undefined) => void;
     /** Where the rows waiting on a read in flight go, by their keys: called only when they move, and with none as it unmounts. */
     onWaiting: (rows: ReadonlySet<string>) => void;
+    /** Where the span of the collections the series shown read goes (#1438): called only when it moves. */
+    onSpan: (span: PlanNestedSpan | typeof SPAN_READING | undefined) => void;
 }
 
 /**
@@ -939,7 +942,7 @@ export interface PlanNestedReaderProps {
  * @param props - What it reads over, and where it goes
  * @returns Nothing: it reads
  */
-export function PlanNestedReader({ seam, visible, index, scale, views, session, onLead, onWaiting }: PlanNestedReaderProps): null {
+export function PlanNestedReader({ seam, visible, index, scale, views, session, onLead, onWaiting, onSpan }: PlanNestedReaderProps): null {
     const view = useSyncExternalStore(views.subscribe, views.get);
     const range = useMemo(() => eventReadRange(scale), [scale]);
     const buckets = useMemo(() => (scale === undefined || range === undefined ? undefined : bucketsOver(scale, range.from, range.to)), [scale, range]);
@@ -956,7 +959,93 @@ export function PlanNestedReader({ seam, visible, index, scale, views, session, 
     });
     // Gone, no row waits on it.
     useLayoutEffect(() => () => onWaiting(NOTHING_WAITING), [onWaiting]);
+    // The span of what the series shown read, apart: it moves with the series and a commit, never with the view.
+    const span = usePlanNestedSpan(seam, index);
+    useLayoutEffect(() => { onSpan(span); }, [span, onSpan]);
     return null;
+}
+
+// ============================================================================
+// The span of what the series read
+// ============================================================================
+
+/** The span of the collections a Plan's series read (#1438): `[from, to)`, in ms. */
+export type PlanNestedSpan = readonly [number, number];
+
+/** A span whose read is in flight. */
+export const SPAN_READING = "reading";
+
+/**
+ * The span of some collections, as the index's span keeps it (#1438): each
+ * one's first and last month across the record's rows — one batch of
+ * searches, each an exact match on a collection's place, and one read of the
+ * first and last entry of each — joined, to the end of the last month.
+ *
+ * @param binding - The binding the rows are read through
+ * @param places - The collections' places, each by its field names from the row down
+ * @returns The span; {@link SPAN_READING} while a read is in flight; undefined where none holds an item
+ */
+function spanOf(binding: IndexedBindingRead, places: readonly (readonly string[])[]): PlanNestedSpan | typeof SPAN_READING | undefined {
+    if (places.length === 0) return undefined;
+    const name = nestedSpanName(binding.nested!.index);
+    const lit = literals(binding);
+    const found = binding.batches.seekAll(name, places.map((place) => variant("fields", { values: [lit.path(place)], prefix: none })));
+    if (found.type !== "some") return SPAN_READING;
+    const held = found.value.filter((range) => range.count > 0n);
+    if (held.length === 0) return undefined;
+    // Each collection's first and last entry, each row once and in the index's order, as a read of runs asks.
+    const rows = [...new Set(held.flatMap((range) => [range.row, range.row + range.count - 1n]))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const read = binding.batches.runsAll(name, rows.map((row) => ({ found: true, row, count: 1n })));
+    if (read.type !== "some") return SPAN_READING;
+    let from = Infinity;
+    let last = -Infinity;
+    for (const entry of read.value as readonly { readonly ik: { readonly value: { readonly tile: Date } } }[]) {
+        const at = entry.ik.value.tile.getTime();
+        from = Math.min(from, at);
+        last = Math.max(last, at);
+    }
+    return [from, tileNext("month", new Date(last)).getTime()];
+}
+
+/**
+ * The span of the collections the series the canvas holds rows of read
+ * (#1438), read again at each revision: a series switched off holds none, so
+ * its collections count for nothing.
+ *
+ * @param seam - The root's seam
+ * @param index - Every row the canvas holds
+ * @returns The span; {@link SPAN_READING} while it is read; undefined where none is held
+ */
+export function usePlanNestedSpan(seam: PlanNestedValue, index: PlanRowIndex): PlanNestedSpan | typeof SPAN_READING | undefined {
+    // The places the shown series read, printed as their key: what the read is asked again for when they move.
+    const places = useMemo(() => {
+        const shown = new Set<string>();
+        for (const row of index.byKey.values()) if (row.id.type === "entry") shown.add(row.id.value.series);
+        const out = new Map<string, readonly string[]>();
+        for (const use of seam.uses) if (shown.has(use.series)) out.set(use.place.join("\u0001"), use.place);
+        return [...out.values()];
+    }, [seam, index]);
+    const placesKey = places.map((place) => place.join("\u0001")).join("\u0002");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the places are read by their key: a new index holding the same series asks nothing
+    const kept = useMemo(() => places, [placesKey]);
+    const read = useCallback(() => {
+        const binding = indexedBindingOf(seam.source);
+        return binding?.nested === undefined ? undefined : spanOf(binding, kept);
+    }, [seam.source, kept]);
+    const { result } = useTrackedEvaluation(read);
+    const last = useRef<PlanNestedSpan | typeof SPAN_READING | undefined>(SPAN_READING);
+    return useMemo(() => {
+        if (!result.ok) {
+            console.error("[Plan] the span of the rows' nested series could not be read:", result.error);
+            return undefined;
+        }
+        const next = result.value;
+        // The same span as the last is the last, so a reader of it draws once.
+        const was = last.current;
+        if (next !== SPAN_READING && next !== undefined && was !== SPAN_READING && was !== undefined && was[0] === next[0] && was[1] === next[1]) return was;
+        last.current = next;
+        return next;
+    }, [result]);
 }
 
 // ============================================================================

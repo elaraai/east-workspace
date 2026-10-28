@@ -17,6 +17,7 @@ import { PlanRuler } from "../shell/Ruler.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanUiView } from "./view.js";
 import type { PlanWindowPart } from "./window.js";
+import type { PlanNestedSpan, SPAN_READING } from "./nested.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -29,6 +30,9 @@ export interface PlanHeaderProps {
     windowParts: readonly PlanWindowPart[];
     /** The axis's stated window, `[from, to)` on its domain: with no source holding the window, the brush spans it and the window shown, as long again either side. */
     stated: readonly [number, number] | undefined;
+    /** The span of the collections the series shown read through the rows' nested series index (#1438), or its read in flight: with no
+     *  source holding the window, the brush spans it and the window shown. */
+    span: PlanNestedSpan | typeof SPAN_READING | undefined;
     affordances: ReadonlyArray<string>;
     now: PlanInstantValue | undefined;
     /** The ruler's gutter caption — the active grain's name. */
@@ -50,7 +54,7 @@ export interface PlanHeaderProps {
 
 /** The sticky header band. */
 export function PlanHeader({
-    styles, gridTemplate, headerRef, windowParts, stated, affordances, now, rulerCaption, cursorChipRef,
+    styles, gridTemplate, headerRef, windowParts, stated, span, affordances, now, rulerCaption, cursorChipRef,
     pinned, pinnedId, focus, focusLabel, linkCounts,
 }: PlanHeaderProps) {
     return (
@@ -60,7 +64,7 @@ export function PlanHeader({
                 own (#1344); only on the axis's arm, which the band decides
                 itself (#631). */}
             {affordances.includes("brush") && (
-                <HorizonBrush styles={styles} gridTemplate={gridTemplate} parts={windowParts} stated={stated} now={now} />
+                <HorizonBrush styles={styles} gridTemplate={gridTemplate} parts={windowParts} stated={stated} span={span} now={now} />
             )}
             <PlanRuler styles={styles} gridTemplate={gridTemplate} caption={rulerCaption}
                 cursorChipRef={cursorChipRef} />

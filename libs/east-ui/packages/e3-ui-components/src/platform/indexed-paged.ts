@@ -13,7 +13,7 @@ import type { PlatformFunction } from "@elaraai/east/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { IndexedEntryType, type RecordSliceEntryKey } from "@elaraai/east-ui/internal";
 import { bindIndexedPagedPlatformFn, DataIndexedPrimitives, NestedPartType } from "@elaraai/e3-ui/internal";
-import { RecordSummaryTotalsType, TreePathType, indexWindowType, type TreePath } from "@elaraai/e3-types";
+import { NestedSpanKeyType, RecordSummaryTotalsType, TreePathType, indexWindowType, nestedSpanName, type TreePath } from "@elaraai/e3-types";
 import type { RecordSliceBatches } from "@elaraai/east-ui-components/platform";
 import { datasetPathToString } from "./dataset-store.js";
 import type { PagedRuntime } from "./paged-runtime.js";
@@ -67,6 +67,16 @@ interface Binding {
 /** Whether an index is the nested series index a binding lists (#1435): its entries items, totals and subtotals, read a cell at a time. */
 function isNested(nested: Nested, name: string): boolean {
     return nested.type === "some" && Object.hasOwn(nested.value.index, name);
+}
+
+/**
+ * Whether an index is the listed nested series index's span (#1438): the index
+ * e3 keeps beside it, each collection's months across the record's rows,
+ * summed as a summary's totals are — read by its searches and runs, never
+ * listed, as the nested series index is.
+ */
+function isSpan(nested: Nested, name: string): boolean {
+    return nested.type === "some" && Object.keys(nested.value.index).some((index) => nestedSpanName(index) === name);
 }
 
 /** The refusal of a page or a count of a nested series index (#1435): its entries are no window of rows. */
@@ -260,22 +270,25 @@ export class IndexedPagedRuntime {
 
     private source(schema: Schema, path: TreePath, metadata: Metadata, nested: Nested, joined: boolean, name: string): Handle {
         const inNested = isNested(nested, name);
-        if (name !== "primary" && !inNested && !Object.hasOwn(metadata, name)) throw new Error(`Index '${name}' was not declared on this binding`);
+        const span = isSpan(nested, name);
+        if (name !== "primary" && !inNested && !span && !Object.hasOwn(metadata, name)) throw new Error(`Index '${name}' was not declared on this binding`);
         let built = this.sources.get(schema);
         if (built === undefined) { built = new Map(); this.sources.set(schema, built); }
         // An index that carries its rows is read without a join, whatever the binding's (D29); a summary index's
-        // entries name no row to join (#1039), and a nested series index's are its rows' items (#1435).
-        const rows = name !== "primary" && this.carriesRow(schema, nested, name);
-        const summary = name !== "primary" && this.isSummary(schema, name);
+        // entries name no row to join (#1039), nor do a nested series index's span's (#1438), and a nested series index's
+        // are its rows' items (#1435).
+        const rows = name !== "primary" && !span && this.carriesRow(schema, nested, name);
+        const summary = name !== "primary" && (span || this.isSummary(schema, name));
         const join = name !== "primary" && joined && !rows && !summary && !inNested;
         const sourceKey = `${datasetPathToString(path)}\u0000${name}\u0000${join ? "+join" : ""}`;
         const cached = built.get(sourceKey);
         if (cached !== undefined) return cached;
         const [key, row, projection, , , , nestedValue] = schema.args;
         const type = name === "primary" ? schema.collection
-            : summary ? indexWindowType(NullType, schema.keys[name]!, RecordSummaryTotalsType, row)
-                : inNested ? indexWindowType(key, schema.keys[name]!, nestedValue, row)
-                    : indexWindowType(key, schema.keys[name]!, rows ? row : projection, row);
+            : span ? indexWindowType(NullType, NestedSpanKeyType, RecordSummaryTotalsType, row)
+                : summary ? indexWindowType(NullType, schema.keys[name]!, RecordSummaryTotalsType, row)
+                    : inNested ? indexWindowType(key, schema.keys[name]!, nestedValue, row)
+                        : indexWindowType(key, schema.keys[name]!, rows ? row : projection, row);
         const handle = this.paged.buildHandle(toEastTypeValue(type), path,
             { index: name === "primary" ? null : name, join }, "pinned") as unknown as Handle;
         built.set(sourceKey, handle);
@@ -296,7 +309,7 @@ export class IndexedPagedRuntime {
         if (rows === undefined) {
             if (name === "primary") {
                 rows = [...window as Map<unknown, unknown>].map(([key, row]) => ({ ik: variant("primary", key), key, value: none, row: some(row) }));
-            } else if (this.isSummary(schema, name) || isNested(nested, name)) {
+            } else if (this.isSummary(schema, name) || isNested(nested, name) || isSpan(nested, name)) {
                 rows = (window as Entry[]).map(entry => ({ ik: variant(name, entry.ik), key: entry.key, value: some(entry.value), row: none }));
             } else if (this.carriesRow(schema, nested, name)) {
                 const whole = isTypeEqual(schema.args[2], schema.row);

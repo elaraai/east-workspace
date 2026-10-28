@@ -1383,6 +1383,14 @@ window through the seam with what it read:
   rows waiting on it — each row with a run not held, as a pan, a zoom, a
   scroll or a commit asks — which wash as a paged kind's unread rows do (the
   plot busy, #1398 CL2) until their cells land: never a blank plot that fills.
+- **The span.** The collections the series the canvas holds rows of read
+  (`usePlanNestedSpan`): their first and last month across the record's rows,
+  as e3 keeps them in the index's span (`<index>_span`, which the binding reads
+  as a summary index, never listed) — one search a collection, an exact match
+  on its place, and one read of the first and last entry of each, each row
+  once and ascending. Reported apart (`onSpan`); the horizon spans it beside
+  the window shown where no source holds the window, its row held while it is
+  read.
 - **Finding the binding.** The seam names the binding by id; the indexed
   runtime keeps each binding it built by id (`indexedBindingOf`).
 - **Drafting.** A gesture drafts each row it touches read whole by key

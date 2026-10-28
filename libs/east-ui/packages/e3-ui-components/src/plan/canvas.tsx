@@ -133,7 +133,7 @@ import {
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
 import { cellKinds, createCellSpanStore, shownCellSpan } from "./root/cells.js";
-import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead } from "./root/nested.js";
+import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead, type PlanNestedSpan, type SPAN_READING } from "./root/nested.js";
 import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
@@ -464,6 +464,8 @@ export function usePlanCanvas({
     const [nestedLead, setNestedLead] = useState<PlanNestedLead | undefined>(undefined);
     // The rows waiting on the nested series' read in flight (#1438): they wash as a paged kind's unread rows do.
     const [nestedWaiting, setNestedWaiting] = useState<ReadonlySet<RowKey>>(NO_ROWS_WAITING);
+    // The span of the collections the series shown read (#1438): the horizon a canvas holding its own window spans.
+    const [nestedSpan, setNestedSpan] = useState<PlanNestedSpan | typeof SPAN_READING | undefined>(undefined);
     // A link end the cells do not hold (#1438): a run the links focus names on a row read lean, outside the cells read,
     // has its row read whole by its key — every such row in one request — and drawn whole in its lean row's place, the run
     // where its times put it. The rows asked stay whole while the focus lasts (`linkEnds`, set below once the rows draw).
@@ -1639,7 +1641,8 @@ export function usePlanCanvas({
     const laidOut = useMemo(() => visible.map((v) => v.row), [visible]);
     const nestedReader = nestedSeam !== undefined
         ? <PlanNestedReader seam={nestedSeam} visible={laidOut} index={index} scale={scale} views={nestedViews}
-            session={editing.enabled ? editing.session as never : undefined} onLead={setNestedLead} onWaiting={setNestedWaiting} />
+            session={editing.enabled ? editing.session as never : undefined} onLead={setNestedLead} onWaiting={setNestedWaiting}
+            onSpan={setNestedSpan} />
         : null;
     // Whether a run's request can carry the window whole (R24): read by a component of its own, beside the event kinds'
     // rows, while an optimiser is bound — over the range the canvas reads them, where each event's row is held.
@@ -1710,7 +1713,7 @@ export function usePlanCanvas({
 
     const header = (
         <PlanHeader styles={styles} gridTemplate={gridTemplate} headerRef={headerRef}
-            windowParts={windowParts} stated={stated} affordances={affordances} now={now}
+            windowParts={windowParts} stated={stated} span={nestedSeam !== undefined ? nestedSpan : undefined} affordances={affordances} now={now}
             // The ruler's gutter caption is the active grain's name (the §1 mock).
             rulerCaption={words.m.grainName({ grain })} cursorChipRef={cursorChipRef}
             pinned={pinned.map((v) => (
