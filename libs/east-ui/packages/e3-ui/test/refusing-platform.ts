@@ -104,7 +104,7 @@ const pinned = bindPagedPinnedPlatformFn.implement((type: EastTypeValue) => (pat
  * otherwise the first index with one entry a row, as the runtime chooses it.
  */
 const indexed = bindIndexedPagedPlatformFn.implement((...types: EastTypeValue[]) =>
-    (pathArg: unknown, metadataArg: unknown, nested: unknown, joinedArg: unknown, entryKeys: unknown, recordId: unknown, maintenance: unknown) => {
+    (pathArg: unknown, metadataArg: unknown, nested: unknown, joinedArg: unknown, entryKeys: unknown, recordId: unknown, maintenance: unknown, fill: unknown) => {
         const metadata = metadataArg as Record<string, Record<string, unknown>>;
         const joined = joinedArg === true;
         const [, row, , indexes] = types.map(fromEastTypeValue);
@@ -123,7 +123,7 @@ const indexed = bindIndexedPagedPlatformFn.implement((...types: EastTypeValue[])
         if (defaultIndex === undefined) throw new Error("A covering-only binding needs an index with one entry per record row");
         const what = `Data.bindPaged(${pathKey}, { indexes })`;
         return {
-            id, recordId, indexes: metadata, nested, joined, defaultIndex, entryKeys, maintenance,
+            id, recordId, indexes: metadata, nested, joined, defaultIndex, entryKeys, maintenance, fill,
             page: refusal(`${what}.page`), seek: refusal(`${what}.seek`), total: refusal(`${what}.total`),
             revision: refusal(`${what}.revision`), refresh: refusal(`${what}.refresh`),
         };

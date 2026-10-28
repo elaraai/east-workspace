@@ -10,7 +10,7 @@
  */
 
 import {
-    ArrayType, BooleanType, FunctionType, IntegerType, NullType, OptionType,
+    ArrayType, BlobType, BooleanType, DictType, FunctionType, IntegerType, NullType, OptionType,
     StringType, StructType, type EastType, type ExprType,
 } from "@elaraai/east";
 import { SeekQueryType, SeekRangeType } from "./source.js";
@@ -74,6 +74,12 @@ export function IndexedEntryType<K, R, P, IK>(key: K, row: R, projection: P, ind
  * East patch or a summary's add. A page previews a drafted row's Save with it.
  * None where the binding lists neither.
  *
+ * `fill` is, where the binding lists a nested series index, e3's fill of a
+ * page's lean rows with the entries read of the index (e3's #1438):
+ * `(Dict<K, R>, Blob) → Dict<K, R>`, the Blob a beast2 Array of the index's
+ * entries, each `{ ik, value }` as the index holds it; each row given back with
+ * the items read of it in its collections. None where the binding lists none.
+ *
  * @typeParam K - Primary key type.
  * @typeParam R - Record row type.
  * @typeParam P - Common covering projection type.
@@ -102,6 +108,7 @@ export function IndexedEntryType<K, R, P, IK>(key: K, row: R, projection: P, ind
  * @property refresh - Follow a confirmed state hash, or the current record state.
  * @property entryKeys - Exact maintained keys for one primary row, printed at the index key type; used only for bounded editing membership checks.
  * @property maintenance - Each listed nested series and summary index's maintenance for one row, by its name.
+ * @property fill - A page's lean rows filled with the entries read of the listed nested series index.
  */
 export function IndexedSourceType<K, R, P, Indexes, IK, N, Maintenance>(
     key: K, row: R, projection: P, indexes: Indexes, indexKey: IK, nested: N, maintenance: Maintenance,
@@ -115,6 +122,7 @@ export function IndexedSourceType<K, R, P, Indexes, IK, N, Maintenance>(
         defaultIndex: StringType,
         entryKeys: FunctionType([StringType, key, row], ArrayType(StringType)),
         maintenance,
+        fill: OptionType(FunctionType([DictType(key, row), BlobType], DictType(key, row))),
         page: FunctionType([StringType, IntegerType, IntegerType], OptionType(ArrayType(IndexedEntryType(key, row, projection, indexKey)))),
         seek: FunctionType([StringType, SeekQueryType], OptionType(SeekRangeType)),
         total: FunctionType([StringType], OptionType(IntegerType)),

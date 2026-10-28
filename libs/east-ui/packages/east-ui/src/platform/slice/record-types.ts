@@ -247,8 +247,8 @@ export type RecordSliceBindType = typeof RecordSliceBindType;
 
 /**
  * Typed authoring handle; `data` preserves the narrowed window type through
- * $.let, and `indexes` and `nested` the binding's declarations as its type
- * holds them.
+ * $.let, `indexes` and `nested` the binding's declarations as its type holds
+ * them, and `source` the binding itself.
  * @remarks `data` is a live source (#1354): one per binding, whatever the
  * narrowing, its reads reading the narrowing as it stands when they run and
  * its `query` naming it — so a component built over it is not built again when
@@ -257,20 +257,28 @@ export type RecordSliceBindType = typeof RecordSliceBindType;
  * (#1435), as the binding gives them: a reader of the narrowed rows reads what
  * their record declares from the Slice alone. The nested part is no index's
  * marker, so the Slice offers no field of it and plans no narrowing through it.
+ * `source` is the binding the Slice narrows (#1438): what a builder reading
+ * the narrowed rows' nested series index reads through — its cells, its
+ * maintenance and its fill of a page — the record's, whatever the narrowing.
  * @typeParam C - The collection type one narrowed window serves.
  * @typeParam M - Each index's metadata, as the binding's type holds it.
  * @typeParam N - The binding's nested part, as its type holds it.
+ * @typeParam S - The binding's type.
  * @param collection - Window type.
  * @param indexes - Each index's metadata type.
  * @param nested - The nested part's type.
+ * @param source - The binding's type.
  * @returns The typed record Slice handle.
  */
-export function RecordSliceHandleType<C extends EastType | string, M extends EastType | string, N extends EastType | string>(collection: C, indexes: M, nested: N) {
+export function RecordSliceHandleType<C extends EastType | string, M extends EastType | string, N extends EastType | string, S extends EastType | string>(
+    collection: C, indexes: M, nested: N, source: S,
+) {
     return StructType({ ...RecordSliceBindType.fields, data: LiveSourceType(collection),
         /** Read a captured narrowing — and a read by area's clause — without replacing the shared controls' state. */
         pageWhere: FunctionType([RecordSliceReadType, IntegerType, IntegerType], OptionType(collection)),
         indexes,
         nested,
+        source,
     });
 }
 
@@ -325,7 +333,7 @@ export function RecordSlicesHandleType<S extends Record<string, EastType>>(sourc
 
 /** New record-arm bind; local slice_bind remains byte-for-byte unchanged. @internal */
 export const recordSliceBindPlatform = East.genericPlatform("slice_bind_record", ["S", "C", "M", "N"],
-    [StringType, "S", RecordSliceConfigType, RecordSliceStateType], RecordSliceHandleType("C", "M", "N"), { optional: true });
+    [StringType, "S", RecordSliceConfigType, RecordSliceStateType], RecordSliceHandleType("C", "M", "N", "S"), { optional: true });
 
 const descriptor = [StringType, "S", RecordSliceConfigType, RecordSliceStateType] as const;
 function op<const A extends readonly (EastType | string)[], O extends EastType | string>(name: string, args: A, output: O) {

@@ -17,8 +17,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, East, Expr, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isValueOf, none, printFor, some, variant,
-    type ValueTypeOf,
+    ArrayType, DateTimeType, East, Expr, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isValueOf, none,
+    printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { SeekQueryType } from "@elaraai/east-ui";
 import {
@@ -753,6 +753,32 @@ test("a record Slice over the machines carries its binding's index metadata and 
     assert.ok(nestedEqual(decoded.nested, binding.nested) && indexesEqual(decoded.indexes, binding.indexes), "carried through encode and decode");
     const rows = await h.ready(() => handle.data.page(0n, 3n));
     assert.ok(rows.every(entry => entry.row.type === "some" && entry.row.value.jobs.size === 0), "the narrowed rows lean");
+    // The binding itself (#1438): what a reader of the narrowed rows' nested index reads its cells, maintenance and fill through.
+    assert.ok(Object.is(handle.source, binding), "the binding the Slice narrows, the same handle");
+    runtime.clear();
+});
+
+test("the binding fills a page's lean machines with the cells read of them: each machine its week's jobs, and nothing it was not read (#1438)", async () => {
+    const stored = await h.read(machines);
+    const { runtime } = newRuntime();
+    const handle = East.compile(machinesProgram, platform(runtime))();
+    const reads = recordSliceBatchesOf(handle)!;
+    assert.ok(handle.fill.type === "some", "a nested series index listed: its fill");
+    const block = ["M-000", "M-001", "M-002"];
+    const found = await h.ready(() => reads.seekAll("machines_in_time",
+        block.map(row => nestedRange(["jobs"], row, [], variant("items", null), "week", WEEK, NEXT_WEEK))));
+    const entries = await h.ready(() => reads.runsAll("machines_in_time", found));
+    // The entries as a reader hands them to the fill: each one's key and value, as the index holds them.
+    const index = machines.indexes.machines_in_time;
+    const Items = ArrayType(StructType({ ik: index.keyType, value: index.valueType }));
+    const items = entries.map(entry => ({ ik: (entry.ik as { value: unknown }).value, value: (entry.value as { value: unknown }).value }));
+    const page = new SortedMap(block.map(key => [key, leanOf(stored.get(key)!)] as const), keyOrder);
+    const filled = handle.fill.value(page, encodeBeast2For(Items)(items as never)) as ReadonlyMap<string, Machine>;
+    for (const key of block) {
+        const machine = stored.get(key)!;
+        const weekJobs = new SortedMap([...machine.jobs].filter(([id]) => !id.endsWith("-c")), keyOrder);
+        assert.ok(machineEqual(filled.get(key)!, { ...leanOf(machine), jobs: weekJobs }), `${key}: its week's jobs, every other collection empty`);
+    }
     runtime.clear();
 });
 

@@ -5,7 +5,7 @@
 
 /** Field-indexed record bindings for Slice; all reads use the paged runtime. */
 import {
-    BooleanType, East, Expr, StructType, VariantType, NullType, StringType,
+    BlobType, BooleanType, East, Expr, StructType, VariantType, NullType, StringType,
     IntegerType, ArrayType, OptionType, FunctionType, DictType, SetType,
     isSubtype, isTypeEqual, none, printType, some, variant, type EastType, type ExprType,
 } from "@elaraai/east";
@@ -233,13 +233,15 @@ export function NestedPartType<C extends EastType, I extends EastType, T extends
  * the listed nested series index's entries carry, as its definition declares
  * it (#1435), or Null where none is listed: the runtime reads its cells by it,
  * and the handle's type never names it. `Maintenance` is each listed nested
- * series and summary index's maintenance for one row (#1437), the last
- * argument, which the handle carries.
+ * series and summary index's maintenance for one row (#1437), which the
+ * handle carries, as it does the listed nested series index's fill of a page
+ * (#1438), the last argument.
  * @internal
  */
 export const bindIndexedPagedPlatformFn = East.genericPlatform(
     "data_bind_indexed", ["K", "R", "P", "Indexes", "IK", "N", "NestedValue", "Maintenance"],
-    [TreePathType, "Indexes", "N", BooleanType, FunctionType([StringType, "K", "R"], ArrayType(StringType)), StringType, "Maintenance"],
+    [TreePathType, "Indexes", "N", BooleanType, FunctionType([StringType, "K", "R"], ArrayType(StringType)), StringType, "Maintenance",
+        OptionType(FunctionType([DictType("K", "R"), BlobType], DictType("K", "R")))],
     IndexedSourceType("K", "R", "P", "Indexes", "IK", "N", "Maintenance"), { optional: true },
 );
 
@@ -409,10 +411,13 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         .map((index) => [index.name, indexMaintenance(record, builtIndex(record, index))] as const);
     const maintenanceType = OptionType(StructType(Object.fromEntries(maintained.map(([name, maintain]) =>
         [name, Expr.type(maintain as unknown as Expr) as EastType]))));
+    // The listed nested series index's fill of a page (#1438): its lean rows filled with the entries read of it, by e3's own program.
+    const fillType = OptionType(FunctionType([DictType(type.key, type.value), BlobType], DictType(type.key, type.value)));
     return bindIndexedPagedPlatformFn(
         [type.key, type.value, projection, indexFields, VariantType(keyTypes), nestedType, nested?.valueType ?? NullType, maintenanceType],
         East.value(record.path, TreePathType), East.value(metadata, indexFields), East.value(nestedValue, nestedType), joined, entryKeys, record.name,
         East.value(maintained.length === 0 ? none : some(Object.fromEntries(maintained)), maintenanceType),
+        East.value(nested === undefined ? none : some(nestedPageFill(type.key, type.value, nested)), fillType),
     ) as unknown as IndexedPagedValue<T, I>;
 }
 
@@ -454,6 +459,29 @@ function listedNested(record: RecordDef<EastType>, options: { readonly indexes: 
             "row without its collections — leave its value out, or bind it apart");
     }
     return listed;
+}
+
+/**
+ * A nested series index's fill of a page (#1438): `(Dict<K, R>, Blob) → Dict<K,
+ * R>`, the Blob a beast2 Array of the index's entries, `{ ik, value }`; each
+ * lean row filled with the items read of it, by e3's own program
+ * (`nested.fill`).
+ *
+ * @param keyType - The record's key type
+ * @param rowType - The record's row type
+ * @param index - Its nested series index
+ * @returns The fill
+ */
+function nestedPageFill(keyType: EastType, rowType: EastType, index: RecordIndexDef) {
+    const entry = StructType({ ik: index.keyType, value: index.valueType });
+    const rows = DictType(keyType, rowType);
+    const fillRow = index.nested!.fill as unknown as ExprType<FunctionType<[EastType, EastType, ArrayType<typeof entry>], EastType>>;
+    return East.function([rows, BlobType], rows, ($, page, items) => {
+        const fill = $.const(fillRow);
+        const read = $.let(items.decodeBeast(ArrayType(entry), "v2"));
+        const byRow = $.let(read.groupToArrays((_$, filed) => East.field(East.field(filed, "ik"), "row", keyType)));
+        return page.map((_$, row, key) => fill(key, row, byRow.get(key, () => East.value([], ArrayType(entry)))));
+    });
 }
 
 /** A declaration's marker as data (#1435): its East type, and its value. */

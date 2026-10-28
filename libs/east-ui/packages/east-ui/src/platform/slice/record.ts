@@ -188,7 +188,8 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     key: SubtypeExprOrValue<StringType>,
     source: IndexedSource<K, R, P, M, IK, N, Maint>,
     options: RecordSliceOptions<NoInfer<R>, NoInfer<M>> = {},
-): ExprType<ReturnType<typeof RecordSliceHandleType<ArrayType<ReturnType<typeof IndexedEntryType<K, R, P, IK>>>, M, N>>> {
+): ExprType<ReturnType<typeof RecordSliceHandleType<ArrayType<ReturnType<typeof IndexedEntryType<K, R, P, IK>>>, M, N,
+    ReturnType<typeof IndexedSourceType<K, R, P, M, IK, N, Maint>>>>> {
     const sourceType = Expr.type(source);
     if (sourceType.type !== "Struct" || sourceType.fields.page?.type !== "Function" || sourceType.fields.indexes?.type !== "Struct") {
         throw new Error("Slice.bindRecord needs Data.bindPaged(record, { indexes }); a plain paged binding cannot be narrowed");

@@ -272,8 +272,9 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
             }
             const dataType = LiveSourceType(types[1]!);
             const handle = { ...methods,
-                // The binding's declarations, as it gives them (#1435): what the narrowed rows' record declares.
-                indexes: source.indexes, nested: source.nested,
+                // The binding's declarations, as it gives them (#1435): what the narrowed rows' record declares; and the binding
+                // itself (#1438), what a reader of their nested series index reads through.
+                indexes: source.indexes, nested: source.nested, source,
                 pageWhere: compile("pageWhere", [RecordSliceReadType, IntegerType, IntegerType], dataType.fields.page.output),
                 data: {
                     // The source, never its narrowing: its reads read the narrowing as it stands, and `query` names it,

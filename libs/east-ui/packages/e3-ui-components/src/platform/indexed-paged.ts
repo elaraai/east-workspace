@@ -33,6 +33,11 @@ type Entry = { ik: unknown; key: unknown; value: unknown; row: option<unknown> }
 export type IndexMaintenance = (key: unknown, held: option<unknown>, next: option<unknown>, patch: option<unknown>) => ReadonlyMap<unknown, unknown>;
 /** Each listed nested series and summary index's maintenance for one row, by its name; none where the binding lists neither. */
 export type IndexMaintenances = option<Readonly<Record<string, IndexMaintenance>>>;
+/**
+ * The listed nested series index's fill of a page (#1438): its lean rows, by key, filled with the entries read of it —
+ * a beast2 Array of the index's `{ ik, value }` entries. None where the binding lists none.
+ */
+export type NestedFill = option<(rows: ReadonlyMap<unknown, unknown>, items: Uint8Array) => ReadonlyMap<unknown, unknown>>;
 interface Handle {
     id: string;
     page(offset: bigint, limit: bigint): option<unknown>;
@@ -414,8 +419,8 @@ export class IndexedPagedRuntime {
             // The binding's types, as its reads take them; its maintenance part's last, which the handle carries (#1437).
             const schema = this.schema(types.slice(0, -1));
             return (...values: unknown[]) => {
-                const [path, metadata, nested, joined, entryKeys, recordId, maintenance] =
-                    values as [TreePath, Metadata, Nested, boolean, (index: string, key: unknown, row: unknown) => string[], string, IndexMaintenances];
+                const [path, metadata, nested, joined, entryKeys, recordId, maintenance, fill] =
+                    values as [TreePath, Metadata, Nested, boolean, (index: string, key: unknown, row: unknown) => string[], string, IndexMaintenances, NestedFill];
                 const pathKey = datasetPathToString(path);
                 if (allowed !== null && !allowed.has(pathKey)) throw new Error(`Data.bindPaged: source path '${pathKey}' not declared in manifest`);
                 const typeKey = printType(StructType(Object.fromEntries(schema.args.map((type, i) => [`T${i}`, type]))));
@@ -429,7 +434,7 @@ export class IndexedPagedRuntime {
                     East.value(joined, BooleanType)] as const;
                 const { page, seek, total, revision, refresh } = DataIndexedPrimitives;
                 const handle = {
-                    id, recordId, indexes: metadata, nested, joined, defaultIndex: this.defaultIndex(schema, metadata, joined), entryKeys, maintenance,
+                    id, recordId, indexes: metadata, nested, joined, defaultIndex: this.defaultIndex(schema, metadata, joined), entryKeys, maintenance, fill,
                     page: East.compile(East.function([StringType, IntegerType, IntegerType], OptionType(schema.window), ($, name, offset, limit) =>
                         $.return(page(args, ...descriptor, name, offset, limit))), primitives),
                     seek: East.compile(East.function([StringType, SeekQueryType], OptionType(SeekRangeType), ($, name, query) =>

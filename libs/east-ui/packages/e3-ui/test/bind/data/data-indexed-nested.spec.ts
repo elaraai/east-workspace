@@ -39,6 +39,7 @@ type Maintain = (key: unknown, held: option<unknown>, next: option<unknown>, pat
 const handleOf = (source: unknown) => East.compile(East.function([], typeOf(source), $ => $.return(source as Expr)), refusingPlatform)() as {
     readonly indexes: Readonly<Record<string, unknown>>; readonly nested: unknown; readonly joined: boolean; readonly defaultIndex: string;
     readonly maintenance: option<Readonly<Record<string, Maintain>>>;
+    readonly fill: option<(rows: ReadonlyMap<unknown, unknown>, items: Uint8Array) => ReadonlyMap<unknown, unknown>>;
 };
 
 /** Each collection's leaf: a role's field, or a kind holding nothing more. */
@@ -121,6 +122,23 @@ describe("Data.bindPaged beside a nested series index", () => {
         assert.ok(equalFor(type.output)(ops, East.compile(own, [])("M-000", some(held), some(next), patch)), "e3's own ops");
     });
 
+    test("carries the nested index's fill: a page's lean rows filled with the entries read of them are the rows (#1438)", () => {
+        const record = ex.nestedMachines;
+        const index = record.indexes.machines_in_time;
+        const fill = handleOf(machines()).fill;
+        assert.ok(fill.type === "some");
+        // Three machines, as a page carries them lean, and every entry the index files of them, as a reader reads them.
+        const rows = new SortedMap([0, 1, 2].map((i) => [`M-00${i}`, ex.nestedMachine(i)] as const), compareFor(StringType));
+        const lean = East.compile(index.nested!.lean as never, []) as (key: string, row: unknown) => unknown;
+        const filed = East.compile(index.keyFn as never, []) as (key: string, row: unknown) => ReadonlyMap<unknown, unknown>;
+        const entry = StructType({ ik: index.keyType, value: index.valueType });
+        const items = [...rows].flatMap(([key, row]) => [...filed(key, row)].map(([ik, value]) => ({ ik, value })));
+        assert.ok(items.length > 0);
+        const page = new SortedMap([...rows].map(([key, row]) => [key, lean(key, row)] as const), compareFor(StringType));
+        const filled = fill.value(page, encodeBeast2For(ArrayType(entry))(items as never));
+        assert.ok(equalFor(DictType(StringType, ex.NestedMachine))(filled as never, rows as never), "the rows, their collections filled");
+    });
+
     test("binds an index carrying a value of its own apart, joined as any other, and the record's rows whole", () => {
         const apart = Data.bindPaged(ex.nestedMachines, { indexes: ["machines_by_name"] });
         assert.ok(isTypeEqual(entryOf(apart).projection, StringType), "its own value");
@@ -128,6 +146,7 @@ describe("Data.bindPaged beside a nested series index", () => {
         assert.ok(isTypeEqual(typeOf(apart).fields.nested!, NestedPartType(StructType({}), StructType({}), StructType({}), StructType({}))), "no nested part");
         assert.ok(equalFor(typeOf(apart).fields.nested!)(handleOf(apart).nested, none), "none");
         assert.ok(equalFor(typeOf(apart).fields.maintenance!)(handleOf(apart).maintenance, none), "no index to maintain: none");
+        assert.equal(handleOf(apart).fill.type, "none", "no nested index to fill rows from: none");
         assert.doesNotThrow(() => Data.bindPaged(ex.nestedMachines, { index: "machines_by_name" }));
         assert.doesNotThrow(() => Data.bindPaged(ex.nestedMachines));
     });
