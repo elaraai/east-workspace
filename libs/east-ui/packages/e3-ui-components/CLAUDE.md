@@ -686,6 +686,9 @@ Save through real e3, in addition to primary-key draft retention.
 
 The open graph is read separately by its original primary key. Filtering the
 list must not close it, split its states across pages, or discard its drafts.
+Opening a flow covers nothing (#1398, CL5): the frame's cold-load cover is its
+first read's alone, and a flow opened after it is read with the toolbar, the
+panes and Save live, main busy and the footer naming it, drawn once it lands.
 Sessions use the primary record identity and original flow name, independent
 of the browse query. A save that moves the flow outside the narrowing still
 confirms through primary reads and reports the shared Save notice. Keep a
