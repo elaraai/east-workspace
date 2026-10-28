@@ -327,6 +327,12 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
 
     // ── The flows, and the one open (FB12) ──────────────────────────────
     const flows = held.many ? held.flows : undefined;
+    // Cold load is the frame's until its first read has landed (#1398, CL5): after it, a read in flight — a flow opened,
+    // a narrowing, a new revision — covers nothing, the toolbar, the panes and Save live and main busy, and the flow it
+    // opens is drawn once it lands.
+    const reading = held.many && held.loading === true;
+    const [landed, setLanded] = useState(!reading);
+    useEffect(() => { if (!reading) setLanded(true); }, [reading]);
     const paged: FlowchartPagedRecord | undefined = value.source.type === "paged" ? value.source.value : undefined;
     // The session's Save, while the flowchart edits: a record's, or the host's onApply over `data`.
     const apply = value.readOnly ? undefined : saveOf(value.source);
@@ -711,7 +717,8 @@ function FlowchartFrame({ value, held, storageKey, chrome, flowsPart, followed, 
             ))}
             <BuilderFrame
                 storageKey={keys.frame}
-                loading={held.many && held.loading === true}
+                loading={reading && !landed}
+                busy={reading && landed}
                 toolbar={items}
                 banners={banners}
                 start={start}
