@@ -13,7 +13,7 @@
 import { expect, test } from "vitest";
 import {
     ArrayType, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant,
-    type ValueTypeOf,
+    type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
 import { liftDraft } from "./draft.js";
@@ -215,7 +215,7 @@ test("a move alone confirms at the revision it committed: its entry's value is n
 // ── The drafts a preview of the Save reads (#1437) ───────────────────────────
 
 /** Whether an entry's version, as the source holds one, is the job given — `none` for an absent one. */
-const isJob = equalFor(OptionType(Job));
+const isJob = (version: option<unknown>, job: option<JobValue>) => equalFor(OptionType(Job))(version as option<JobValue>, job);
 
 test("lists each entry drafted away from its original, each as the source holds an entry, and the revision the drafts began from (#1437)", () => {
     const session = keyed("r1");
