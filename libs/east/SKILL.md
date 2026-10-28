@@ -166,6 +166,9 @@ Task → What do you need?
     │   East.is() is identity for mutable collections — FROZEN ones (task inputs) compare by value
     ├─ Patches (East.*) → East.diff(before, after), East.applyPatch(value, patch),
     │   East.composePatch(first, second, type), East.invertPatch(patch, type)
+    ├─ Build East over types you are handed (a library, a generator) → East.field(v, name, T?), East.fields(v, names?),
+    │   East.struct(T, fields), East.withField(v, name, x), East.inCase(T, name, x), East.patchesFor(T): each name
+    │   checked as the program builds → "Names and types held as values"
     │
     ├─ Ask a question of a value in jq → East.jq(input, program, resultType), checked when the program
     │   builds → "Queries (typed jq)"
@@ -240,6 +243,42 @@ const counter = ref(0n);                // a mutable reference
 A variant is built with `variant()`, `some()` or `none` — never a
 `{ type, value }` literal, which lacks the marker the encoders read. Variants are
 encoded, compared and validated by case **name**.
+
+### Names and types held as values
+
+East names a struct's fields and a variant's cases where its code is written:
+`row.site`, `variant("load", x)`. Code that builds programs over types it is
+handed — a library generating a program for whatever record its caller
+declares — holds the names, and the types, as values. These build the same
+program pieces from them, and check each name against the type as the program
+is built: a name the type lacks fails there, naming the name and the type
+(`East.field: .Struct {name, site, status} has no field 'job'`). Nothing in the
+program differs from what the written form builds, so every runtime runs it.
+
+```typescript
+const Machine = StructType({ name: StringType, site: StringType, status: StringType });
+const Reading = VariantType({ load: FloatType, output: FloatType });
+
+const site = "site";                                       // a name a caller hands you
+const siteOf = East.function([Machine], StringType, ($, machine) =>
+    East.field(machine, site, StringType));                // typed by the type given, which is checked
+
+const stopped = East.function([Machine], Machine, ($, machine) =>
+    East.withField(machine, "status", "down"));            // the other fields as they are
+
+const Place = StructType({ site: StringType, name: StringType });
+const placeOf = East.function([Machine], Place, ($, machine) =>
+    East.struct(Place, East.fields(machine, ["site", "name"])));   // by name, or in the type's order
+
+const readingOf = (place: string) => East.function([FloatType], Reading, ($, x) =>
+    East.inCase(Reading, place, x));                       // a variant's case by name
+
+const { diff, apply, compose, invert } = East.patchesFor(Machine);   // East functions of a type held as a value
+```
+
+A recursive value is read, and rebuilt, through its node. `fields` and
+`withField` read the value once a field: give them a variable, not a
+computation. Code whose names are written keeps writing `row.site`.
 
 ### Error handling
 
