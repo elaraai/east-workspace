@@ -20,13 +20,13 @@
 
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi, type MockInstance } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { East, some, type ValueTypeOf } from "@elaraai/east";
+import { DictType, East, PatchType, StringType, decodeBeast2For, some, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { layOut } from "@elaraai/east-ui-components/testing";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Plan, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan-nested/plan-nested";
-import type { TreePath } from "@elaraai/e3-types";
+import { MutationCallRequestType, type TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
@@ -539,6 +539,54 @@ const editingPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
 /** The machines as e3 holds them now, read as another planner would. */
 const readMachines = async () => (await h.read(ex.machines)) as ReadonlyMap<string, ValueTypeOf<typeof ex.Machine>>;
 
+type MachineValue = ValueTypeOf<typeof ex.Machine>;
+const decodeCall = decodeBeast2For(MutationCallRequestType);
+const decodeMachinesPatch = decodeBeast2For(PatchType(DictType(StringType, ex.Machine)));
+
+/** Each machine a commit's patch names, and what it does to the machine's jobs: each job's operation by its id, or how the jobs change whole. */
+function jobsOps(request: E3Request): Map<string, string> {
+    const patch = decodeMachinesPatch(decodeCall(request.body!).args[0]!);
+    if (patch.type !== "patch") return new Map([["the machines", patch.type]]);
+    const out = new Map<string, string>();
+    for (const [machine, op] of patch.value) {
+        if (op.type !== "update" || op.value.type !== "patch") { out.set(machine, op.type); continue; }
+        const jobs = op.value.value.jobs;
+        out.set(machine, jobs.type === "patch" ? [...jobs.value].map(([id, change]) => `${change.type} ${id}`).join(", ") : jobs.type);
+    }
+    return out;
+}
+
+/** The machines with one machine's jobs set: as another planner leaves them. */
+function withJobs(machines: ReadonlyMap<string, MachineValue>, key: string, jobs: MachineValue["jobs"]): Map<string, MachineValue> {
+    const next = new Map(machines);
+    next.set(key, { ...machines.get(key)!, jobs });
+    return next;
+}
+
+/** Each of two machines' plots across the fortnight, a day 100px wide from x 200, one under the other. */
+function layOutMachines(c: HTMLElement, keys: readonly string[]): (key: string) => number {
+    const rects = new Map<Element, { left: number; top: number; width: number; height: number }>();
+    keys.forEach((key, i) => rects.set(c.querySelector(`${rowAt(entry("presses", key))} [data-plan-plot]`)!, { left: 200, top: i * 40, width: 1400, height: 32 }));
+    layOut(rects);
+    return (key) => keys.indexOf(key) * 40 + 16;
+}
+
+/** Drags a machine's job onto another machine's row, its times as they were. */
+async function dragToMachine(c: HTMLElement, from: string, job: string, to: string) {
+    const yOf = layOutMachines(c, [from, to]);
+    const element = c.querySelector<HTMLElement>(`${rowAt(entry("presses", from))} [data-run="${job}"]`)!;
+    const x = 200 + Number(element.getAttribute("data-plan-frac")) * 1400 + 10;
+    const letGo = await carry(element, { x, y: yOf(from) }, { x, y: yOf(to) });
+    await letGo();
+    await settle();
+}
+
+/** Saves the session, as the toolbar's Save does. */
+async function save(c: HTMLElement) {
+    await act(async () => { fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.apply() })); });
+    await settle();
+}
+
 describe("a gesture drafts its row whole (#1438)", () => {
     test("a job dragged a day along its machine reads the machine whole once, draws at once, and its Save commits the job alone, every other job as it was", async () => {
         onTestFinished(emulateWindowScroll());
@@ -569,6 +617,43 @@ describe("a gesture drafts its row whole (#1438)", () => {
         expect([...now.jobs.keys()]).toEqual([...was.jobs.keys()]);
         for (const [id, held] of was.jobs) if (id !== "J-10001-114") expect(now.jobs.get(id)).toEqual(held);
         expect(after.get("M-10002")).toEqual(before.get("M-10002"));
+    });
+
+    test("a job dragged to another machine reads both machines whole in one request, and its Save is one commit deleting it from one and inserting it in the other, by key", async () => {
+        onTestFinished(emulateWindowScroll());
+        const before = await readMachines();
+        const { container: c } = await h.mount(editingPlan, { drag: true });
+        await settle();
+        const rowsAsked = h.requests("rows", MACHINES).length;
+        await dragToMachine(c, "M-10001", "J-10001-114", "M-10002");
+        expect(h.requests("rows", MACHINES).length - rowsAsked).toBe(1);
+        await waitFor(() => expect(c.querySelector(`${rowAt(entry("presses", "M-10002"))} [data-run="J-10001-114"]`)).not.toBeNull());
+        await save(c);
+        const commits = h.requests("mutate", ex.machines.name);
+        expect(commits).toHaveLength(1);
+        expect(jobsOps(commits[0]!)).toEqual(new Map([["M-10001", "delete J-10001-114"], ["M-10002", "insert J-10001-114"]]));
+        const after = await readMachines();
+        expect(after.get("M-10001")!.jobs.has("J-10001-114")).toBe(false);
+        expect(after.get("M-10002")!.jobs.get("J-10001-114")).toEqual(before.get("M-10001")!.jobs.get("J-10001-114"));
+    });
+
+    test("a machine's only job moved off it is deleted by key, never its jobs replaced", async () => {
+        onTestFinished(emulateWindowScroll());
+        const start = await readMachines();
+        const only = start.get("M-10001")!.jobs.get("J-10001-114")!;
+        await h.patch(ex.machines, withJobs(start, "M-10001", new Map([["J-10001-114", only]])));
+        const { container: c } = await h.mount(editingPlan, { drag: true });
+        await settle();
+        await dragToMachine(c, "M-10001", "J-10001-114", "M-10002");
+        const commitsBefore = h.requests("mutate", ex.machines.name).length;
+        await save(c);
+        const ours = h.requests("mutate", ex.machines.name).slice(commitsBefore);
+        expect(ours).toHaveLength(1);
+        // East's diff of a Dict left empty is a whole replace; the Save restates it by key.
+        expect(jobsOps(ours[0]!)).toEqual(new Map([["M-10001", "delete J-10001-114"], ["M-10002", "insert J-10001-114"]]));
+        const after = await readMachines();
+        expect(after.get("M-10001")!.jobs.size).toBe(0);
+        expect(after.get("M-10002")!.jobs.get("J-10001-114")).toEqual(only);
     });
 });
 

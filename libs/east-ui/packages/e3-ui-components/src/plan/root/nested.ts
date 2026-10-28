@@ -905,6 +905,12 @@ export interface PlanWholeRows {
      * runs again when it lands.
      */
     read(id: string): option<option<Uint8Array>>;
+    /**
+     * Several rows whole, each as {@link PlanWholeRows.read} answers it, every
+     * one not yet read asked in one request: `none` while any of them is read.
+     * A tracked read.
+     */
+    readAll(ids: readonly string[]): option<ReadonlyMap<string, option<Uint8Array>>>;
 }
 
 const encodersOf = new WeakMap<object, (row: unknown) => Uint8Array>();
@@ -917,6 +923,11 @@ class WholeRows implements PlanWholeRows {
     constructor(private readonly source: string) {}
 
     read(id: string): option<option<Uint8Array>> {
+        const all = this.readAll([id]);
+        return all.type === "some" ? some(all.value.get(id)!) : none;
+    }
+
+    readAll(ids: readonly string[]): option<ReadonlyMap<string, option<Uint8Array>>> {
         const binding = indexedBindingOf(this.source);
         if (binding === undefined) return none;
         const revision = binding.handle.revision();
@@ -925,21 +936,21 @@ class WholeRows implements PlanWholeRows {
             this.held = { revision: revision.value, rows: new Map(), asking: new Set() };
         }
         const held = this.held;
-        const kept = held.rows.get(id);
-        if (kept !== undefined) return some(kept);
-        held.asking.add(id);
-        const ids = [...held.asking];
-        const keys = ids.map((asked) => keyOf(binding, asked));
-        const read = binding.batches.rowsAll(keys);
-        if (read.type !== "some") return none;
-        let encode = encodersOf.get(binding.row);
-        if (encode === undefined) { encode = encodeBeast2For(binding.row) as (row: unknown) => Uint8Array; encodersOf.set(binding.row, encode); }
-        ids.forEach((asked, i) => {
-            const row = read.value[i]!;
-            held.rows.set(asked, row.type === "some" ? some(encode(row.value)) : none);
-            held.asking.delete(asked);
-        });
-        return some(held.rows.get(id)!);
+        // Every row asked and not yet read is asked again with these, in one request.
+        for (const id of ids) if (!held.rows.has(id)) held.asking.add(id);
+        if (held.asking.size > 0) {
+            const asking = [...held.asking];
+            const read = binding.batches.rowsAll(asking.map((asked) => keyOf(binding, asked)));
+            if (read.type !== "some") return none;
+            let encode = encodersOf.get(binding.row);
+            if (encode === undefined) { encode = encodeBeast2For(binding.row) as (row: unknown) => Uint8Array; encodersOf.set(binding.row, encode); }
+            asking.forEach((asked, i) => {
+                const row = read.value[i]!;
+                held.rows.set(asked, row.type === "some" ? some(encode(row.value)) : none);
+                held.asking.delete(asked);
+            });
+        }
+        return some(new Map(ids.map((id) => [id, held.rows.get(id)!])));
     }
 }
 

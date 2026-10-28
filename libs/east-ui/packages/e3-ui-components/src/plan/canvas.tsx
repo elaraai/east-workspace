@@ -466,11 +466,10 @@ export function usePlanCanvas({
     const [linkEnds, setLinkEnds] = useState<{ readonly focus: string; readonly ids: readonly string[] }>(NO_LINK_ENDS);
     const linkRowsRead = useCallback((): ReadonlyMap<string, Uint8Array> => {
         if (whole === undefined || linkEnds.ids.length === 0) return NO_LINK_ROWS;
+        const read = whole.readAll(linkEnds.ids);
+        if (read.type !== "some") return NO_LINK_ROWS;
         const out = new Map<string, Uint8Array>();
-        for (const id of linkEnds.ids) {
-            const got = whole.read(id);
-            if (got.type === "some" && got.value.type === "some") out.set(id, got.value.value);
-        }
+        for (const [id, row] of read.value) if (row.type === "some") out.set(id, row.value);
         return out;
     }, [whole, linkEnds]);
     const { result: linkRowsResult } = useTrackedEvaluation(linkRowsRead);

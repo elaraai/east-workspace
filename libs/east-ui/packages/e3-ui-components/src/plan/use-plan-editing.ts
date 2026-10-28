@@ -462,7 +462,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         // The queue is a ref; its count says when it moved.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [waits]);
-    const landedRead = useCallback(() => whole === undefined || waitingIds.every((id) => whole.read(id).type === "some"), [whole, waitingIds]);
+    const landedRead = useCallback(() => whole === undefined || waitingIds.length === 0 || whole.readAll(waitingIds).type === "some", [whole, waitingIds]);
     // The rows the queue waits on.
     const inFlight = useMemo((): ReadonlySet<RowKey> => (waiting.current.length === 0 ? NO_ROWS
         : new Set(waiting.current.flatMap((w) => w.requests.flatMap((r) => r.rows.map(rowKeyOf))))),
@@ -473,7 +473,9 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     /** Write one gesture into the entries it touches, and record it as one transaction. */
     const record = (requests: readonly { id: string; rows: PlanRowId[] }[], gesture: PlanGesture, origin: Origin, label: string): boolean => {
         if (editing === undefined || codec === undefined || observed === undefined || !session.writable) return false;
-        if (whole !== undefined && requests.some((r) => !session.entries.has(r.id) && whole.read(r.id).type !== "some")) {
+        // Every row it touches not drafted yet is read whole, all of them in one request.
+        const unheld = requests.filter((r) => !session.entries.has(r.id)).map((r) => r.id);
+        if (whole !== undefined && unheld.length > 0 && whole.readAll(unheld).type !== "some") {
             waiting.current.push({ requests, gesture, origin, label });
             setWaits((n) => n + 1);
             return true;
