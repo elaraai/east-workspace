@@ -1414,6 +1414,11 @@ mounts no row in jsdom until the frame is laid out: lay it out with the
 Sheet's `boundFrame` and `frameScrolls` (`sheet/frame.test-utils.ts`), and
 scroll it with the frame's `scrollTo` (`plan/frame/plan-dense.dom.test.tsx`,
 whose stress run, `E3_UI_PERF=1`, times the dense works example at scale).
+The benchmark (`plan/frame/plan-nested-perf.dom.test.tsx`, `E3_UI_PERF=1`)
+writes its own machines through the harness — `E3_NESTED_MACHINES`, the first
+`E3_NESTED_HEAVY` each with `E3_NESTED_HEAVY_JOBS` more jobs — and times
+opening, a scroll, a zoom, a heavy machine's drag and its Save; e3-web holds
+the record in the test's process, so its sizes are what the test's heap holds.
 
 ### Typing a number into a table cell (#1436, #1438)
 
