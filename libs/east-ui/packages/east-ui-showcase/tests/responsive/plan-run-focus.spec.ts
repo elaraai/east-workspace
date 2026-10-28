@@ -147,10 +147,13 @@ async function clickRunAt(page: Page, entry: Locator, at: number): Promise<numbe
         el.scrollTop = Math.round((el.scrollHeight - el.clientHeight) * part);
         return el.scrollTop;
     }, at);
-    const run = entry.locator("[data-plan-window-band]").first();
-    await expect(run, "a run stands for the rows the view was sent among").toBeVisible();
+    // A run stands for the rows the view was sent among, under the point the click lands on: the scroll set here draws
+    // it once the page has heard the scroll, at its next frame, which a click sent at once — as a CI run's was — can beat.
     const box = await scrollerOf(entry).boundingBox();
-    await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+    const point = { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
+    await expect.poll(() => page.evaluate(({ x, y }) => (document.elementFromPoint(x, y)?.closest("[data-plan-window-band]") ?? null) !== null, point),
+        "a run stands for the rows the view was sent among, where the click lands").toBe(true);
+    await page.mouse.click(point.x, point.y);
     expect(await page.evaluate(() => document.activeElement?.hasAttribute("data-plan-window-band") === true), "the click puts the keyboard on the run").toBe(true);
     // Every frame from here on: the run holding the keyboard, until a row takes it.
     await record(entry);
