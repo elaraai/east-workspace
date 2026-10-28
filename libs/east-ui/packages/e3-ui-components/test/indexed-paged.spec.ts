@@ -21,7 +21,9 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { SeekQueryType } from "@elaraai/east-ui";
-import { RecordSliceReadType, RecordSliceWhereType, areaQueries, bindRecord, type RecordSliceJoined } from "@elaraai/east-ui/internal";
+import {
+    RecordSliceReadType, RecordSliceWhereType, areaQueries, bindRecord, resolveRowSource, type RecordSliceJoined, type ResolvedRowSource,
+} from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
 import {
     recordSliceCellEntries, recordSliceCellJoins, recordSliceCellRuns, recordSliceOnPrinter, recordSlicePlace, recordSliceWithin, recordSliceWithinAt,
@@ -732,6 +734,22 @@ test("a record Slice over the machines carries its binding's index metadata and 
     assert.ok(nestedEqual(decoded.nested, binding.nested) && indexesEqual(decoded.indexes, binding.indexes), "carried through encode and decode");
     const rows = await h.ready(() => handle.data.page(0n, 3n));
     assert.ok(rows.every(entry => entry.row.type === "some" && entry.row.value.jobs.size === 0), "the narrowed rows lean");
+    runtime.clear();
+});
+
+test("a component given the binding as its rows pages its unfiltered view: lean machines in its default index's order, joining none (#1435)", async () => {
+    const stored = await h.read(machines);
+    const { runtime } = newRuntime();
+    const resolved = resolveRowSource(machinesBinding, "Rows") as Extract<ResolvedRowSource, { kind: "ordered" }>;
+    assert.deepEqual([resolved.kind, resolved.pinned, resolved.query], ["ordered", true, false]);
+    const Window = OptionType(resolved.collectionType);
+    const source = resolved.source as unknown as { page(offset: bigint, limit: bigint): Expr };
+    const page = East.compile(East.function([], Window, $ => $.return(source.page(0n, 4n) as never)), platform(runtime));
+    const window = await h.ready(() => page() as never) as { key: string; value: { type: string; value: Machine }; row: { type: string; value: Machine } }[];
+    const ordered = [...stored].sort(([ka, a], [kb, b]) => keyOrder(a.site, b.site) || keyOrder(a.status, b.status) || keyOrder(ka, kb)).map(([key]) => key);
+    assert.deepEqual(window.map(entry => entry.key), ordered.slice(0, 4), "the default index's order");
+    for (const entry of window) assert.ok(entry.row.type === "some" && machineEqual(entry.row.value, leanOf(stored.get(entry.key)!)), `${entry.key} lean`);
+    assert.deepEqual(pagesOf(machines).map(request => [request.query.get("index"), request.query.has("join")]), [[nx.machinesBySiteStatus.name, false]]);
     runtime.clear();
 });
 

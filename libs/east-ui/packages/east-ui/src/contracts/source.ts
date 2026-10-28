@@ -57,6 +57,7 @@ import {
     some,
     none,
 } from "@elaraai/east";
+import { IndexedSourceType, type IndexedSource } from "./indexed-source.js";
 
 // ============================================================================
 // Seek — where a key lands in a source's row space
@@ -553,6 +554,52 @@ function windowedSource(t: EastType, fields: Record<string, EastType>): { collec
 }
 
 /**
+ * Recognise a record's indexed binding (`Data.bindPaged(record, { indexes })`)
+ * by its East type, through East's own subtype relation: a subtype of
+ * {@link IndexedSourceType} over the window its `page` serves, its indexes'
+ * metadata and its nested part.
+ *
+ * @param t - The rows prop's East type
+ * @param fields - Its struct fields
+ * @returns The window of index entries it pages; `undefined` when it is no indexed binding
+ */
+function indexedWindow(t: EastType, fields: Record<string, EastType>): ArrayType<StructType> | undefined {
+    const window = pagePayload(fields);
+    if (window?.type !== "Array" || fields["indexes"] === undefined || fields["nested"] === undefined) return undefined;
+    const entry = window.value as EastType;
+    const entryFields = structFields(entry);
+    const row = entryFields?.["row"];
+    const value = entryFields?.["value"];
+    if (entryFields?.["key"] === undefined || entryFields["ik"] === undefined || row?.type !== "Variant" || value?.type !== "Variant") return undefined;
+    const rowType = (row.cases as Record<string, EastType>)["some"];
+    const projection = (value.cases as Record<string, EastType>)["some"];
+    if (rowType === undefined || projection === undefined) return undefined;
+    const contract = IndexedSourceType(entryFields["key"], rowType, projection, fields["indexes"], entryFields["ik"], fields["nested"]);
+    return isSubtype(t, contract) ? window as ArrayType<StructType> : undefined;
+}
+
+/**
+ * A record's indexed binding as its unfiltered view (#1435): a pinned source
+ * of its default index's window — each row once, in that index's order —
+ * counted, searched and following its revision as the binding does.
+ *
+ * @param expr - The indexed binding
+ * @param window - The window of index entries it pages
+ * @returns The pinned source
+ */
+function indexedRows(expr: ExprType<EastType>, window: ArrayType<StructType>): ExprType<StructType> {
+    const handle = expr as unknown as IndexedSource<EastType, StructType, EastType, StructType, VariantType>;
+    return East.value({
+        id: handle.id.concat("@rows"),
+        page: East.function([IntegerType, IntegerType], OptionType(window), ($, offset, limit) => handle.page(handle.defaultIndex, offset, limit)),
+        total: East.function([], OptionType(IntegerType), () => handle.total("primary")),
+        seek: some(East.function([SeekQueryType], OptionType(SeekRangeType), ($, query) => handle.seek(handle.defaultIndex, query))),
+        revision: handle.revision,
+        refresh: handle.refresh,
+    } as never, PinnedSourceType(window)) as unknown as ExprType<StructType>;
+}
+
+/**
  * The contract's fields, as a refusal spells them — every field in its order,
  * at its type.
  */
@@ -573,6 +620,9 @@ const CONTRACT_FIELDS =
  *   of {@link LiveSourceType} (a rail's narrowed source, #1354) builds `live`,
  *   and a subtype of {@link PagedSourceType} (the shape that predates
  *   `revision` / `refresh`) builds `paged`. A window of index entries is `ordered`;
+ * - a record's indexed binding (`Data.bindPaged(record, { indexes })`, #1435)
+ *   ⇒ `ordered`: its unfiltered view, a pinned source of its default index's
+ *   window, each row once in that index's order;
  * - a struct carrying `read` ⇒ a whole-value bind handle, which resolves by
  *   CALLING `read()` and recursing. The call becomes part of the surrounding
  *   East expression, so it is evaluated inside the component's reactive render
@@ -600,6 +650,14 @@ export function resolveRowSource(data: unknown, label: string): ResolvedRowSourc
         return { kind: "inline", rows: expr, collectionType: t, elementType: inlineElement, keyType: keyTypeOf(t) };
     }
     const fields = structFields(t);
+    const indexed = fields === undefined ? undefined : indexedWindow(t, fields);
+    if (indexed !== undefined) {
+        const entry = orderedEntry(indexed.value)!;
+        return {
+            kind: "ordered", source: indexedRows(expr, indexed), collectionType: indexed, elementType: indexed.value,
+            keyType: entry.key, orderKeyType: entry.ik, pinned: true, query: false,
+        };
+    }
     const windowed = fields === undefined ? undefined : windowedSource(t, fields);
     if (windowed !== undefined) {
         const { collectionType, pinned, query } = windowed;
