@@ -18,7 +18,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DateTimeType, DictType, East, FloatType, IntegerType, OptionType, RecursiveType, SortedMap, StringType,
+  ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, RecursiveType, SortedMap, StringType,
   StructType, VariantType, compareFor, encodeBeast2PagedFor, equalFor, isTypeEqual, parseFor, printFor, printType, variant,
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
@@ -520,6 +520,80 @@ describe('index.nested — the record\'s other indexes carry its lean rows', () 
     const packaged = package_('machines', '1.0.0', held).records.machines!;
     assert.deepEqual(Object.keys(packaged.indexes).sort(), ['machines_by_site', 'machines_in_time'], 'built with the record');
     assert.ok(isTypeEqual(builtIndex(packaged, packaged.indexes.machines_by_site!).valueType, Machine), 'its other index carries the lean machine');
+  });
+});
+
+// ── A lean row filled with entries read of it ────────────────────────────────
+
+/** A row's lean form, as the record's other indexes carry it. */
+function leanOf(def: RecordIndexDef, key: string, row: unknown): unknown {
+  const { keyType, rowType } = entryOf(def.record);
+  return East.compile(functionAt(def.nested!.lean, [keyType, rowType], rowType), [])(key, row);
+}
+
+/** A lean row filled with entries, each `{ ik, value }`, as a reader of the index's cells fills it (#1438). */
+function filled(def: RecordIndexDef, key: string, lean: unknown, read: readonly [unknown, unknown][]): unknown {
+  const { keyType, rowType } = entryOf(def.record);
+  const entry = StructType({ ik: def.keyType, value: def.valueType });
+  const fill = East.compile(functionAt(def.nested!.fill, [keyType, rowType, ArrayType(entry)], rowType), []);
+  return fill(key, lean, read.map(([ik, value]) => ({ ik, value })));
+}
+
+describe('index.nested — a lean row filled with the entries read of it (#1438)', () => {
+  const [machinesIndex, hallsIndex, assembliesIndex, ledgersIndex] =
+    [machinesInTime(machines()), hallsInTime(halls()), assembliesInTime(assemblies()), ledgersInTime(ledgers())];
+  // Past a year long: filed once a year it touches (#1433).
+  const PAST_A_YEAR = job('2026-06-01T00:00:00.000', '2027-08-01T00:00:00.000');
+  const machineRow = parsed(Machine, machine({
+    'j-1': job('2026-10-02T06:00:00.000', '2026-10-02T14:00:00.000'),
+    'j-2': job('2026-11-03T06:00:00.000', '2026-11-03T14:00:00.000'),
+    'j-3': PAST_A_YEAR,
+  }, { '2026-10-05T00:00:00.000': 0.5, '2026-11-09T00:00:00.000': 0.75 }).replace('stops={:}, alarms={:}',
+    'stops={"s-1":(reason="Clean", start=2026-10-06T08:00:00.000, end=2026-10-06T10:00:00.000)}, ' +
+    'alarms={"a-1":(code="E7", severity="high", at=2026-10-07T09:30:00.000)}').replace('output={:}', 'output={2026-10-05T00:00:00.000:40}'));
+  const hallRow = parsed(Hall, '(name="Hall 1", site="North", members={' +
+    '"m-3":(name="Ada", load={2026-10-05T00:00:00.000:0.82, 2026-11-09T00:00:00.000:0.5}), "m-4":(name="Bo", load={2026-10-05T00:00:00.000:0.6})})');
+  const assemblyRow = parsed(Assembly, '(name="Assembly 1", parts={"p1":(name="p1", jobs={"j-1":' +
+    job('2026-10-02T06:00:00.000', '2026-10-02T14:00:00.000') + '}, parts={"p1.2":(name="p1.2", jobs={"j-9":' +
+    job('2026-11-03T06:00:00.000', '2026-11-03T14:00:00.000') + '}, parts={:})})})');
+  const ledgerRow = parsed(Ledger, '(name="Ledger 1", site="North", measures={"m1":(label="M1", readings={:}, stock={:}, children={' +
+    '"m1.1":(label="M1.1", readings={2026-10-05T00:00:00.000:3.0, 2026-10-12T00:00:00.000:4.0}, stock={2026-10-05T00:00:00.000:10.0}, children={:}), ' +
+    '"m1.2":(label="M1.2", readings={2026-10-05T00:00:00.000:5.0}, stock={:}, children={:})})})');
+
+  it('is the row, filled with every entry it files: items, values, child rows and a tree, an item filed in two tiles once', () => {
+    const cases: [RecordIndexDef, EastType, unknown][] = [
+      [machinesIndex, Machine, machineRow], [hallsIndex, Hall, hallRow], [assembliesIndex, Assembly, assemblyRow], [ledgersIndex, Ledger, ledgerRow],
+    ];
+    for (const [def, rowType, row] of cases) {
+      const all = entries(def, 'R-1', row);
+      assertEast(rowType, filled(def, 'R-1', leanOf(def, 'R-1', row), [...all]), row as never, `${def.name}: the row filled whole`);
+    }
+    // The job past a year long is filed in 2026's year tile and 2027's, and comes back once.
+    const machineEntries = [...entries(machinesIndex, 'R-1', machineRow).keys()]
+      .filter((ik) => printFor(machinesIndex.keyType)(ik as never).includes('item=.id "j-3"'));
+    assert.equal(machineEntries.length, 2, 'filed twice');
+  });
+
+  it('holds only the items read, filled with some cells\' entries', () => {
+    const def = machinesIndex;
+    const print = printFor(def.keyType);
+    // October's week tiles: j-1, the stop, the alarm, and each value of the week of October 5th.
+    const october = [...entries(def, 'R-1', machineRow)].filter(([ik]) => /level=\.week, tile=2026-(09-28|10-)/.test(print(ik as never)));
+    const expected = parsed(Machine, machine({ 'j-1': job('2026-10-02T06:00:00.000', '2026-10-02T14:00:00.000') }, { '2026-10-05T00:00:00.000': 0.5 })
+      .replace('stops={:}, alarms={:}',
+        'stops={"s-1":(reason="Clean", start=2026-10-06T08:00:00.000, end=2026-10-06T10:00:00.000)}, ' +
+        'alarms={"a-1":(code="E7", severity="high", at=2026-10-07T09:30:00.000)}').replace('output={:}', 'output={2026-10-05T00:00:00.000:40}'));
+    assertEast(Machine, filled(def, 'R-1', leanOf(def, 'R-1', machineRow), october), expected, 'the October weeks read');
+  });
+
+  it('fills nothing from a total, a subtotal, or an item filed under a parent', () => {
+    for (const [def, row] of [[assembliesIndex, assemblyRow], [hallsIndex, hallRow]] as const) {
+      const print = printFor(def.keyType);
+      const others = [...entries(def, 'R-1', row)].filter(([ik]) => !/run=\.items/.test(print(ik as never)));
+      assert.ok(others.length > 0, `${def.name} files totals, subtotals or subtree items`);
+      const lean = leanOf(def, 'R-1', row);
+      assertEast(entryOf(def.record).rowType, filled(def, 'R-1', lean, others), lean as never, `${def.name}: the lean row as it was`);
+    }
   });
 });
 

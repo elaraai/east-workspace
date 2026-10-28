@@ -43,10 +43,11 @@
 import {
   ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType,
   VariantType, none, printType, some, variant,
-  type EastType, type FunctionExpr,
+  type EastType, type Expr, type FunctionExpr, type VariantExpr,
 } from '@elaraai/east';
 import {
-  NestedEntryKeyType, NestedEntryType, RecordLevelType, RecordNestedPathType, RecordNestedTotalsType, RecordRollupType,
+  NestedEntryKeyType, NestedEntryType, RecordLevelType, RecordNestedItemType, RecordNestedPathType, RecordNestedRunType, RecordNestedTotalsType,
+  RecordRollupType,
   type RecordLevel,
 } from '@elaraai/e3-types';
 import { checkNested, type NestedCollection, type NestedDeclaration, type NestedGroup, type NestedItems, type NestedValues } from './record-nested.js';
@@ -1478,6 +1479,168 @@ export function nestedEntries(
   };
 }
 
+/** Where a node's items are filed: its collection's place and its path, as an entry's key holds them. */
+const NodePlaceType = StructType({ collection: RecordNestedPathType, path: RecordNestedPathType });
+
+/**
+ * An item out of its entry's value: `(P) → I`, from the outside in — the
+ * `item` case, then each child rows' field from the row down, then the
+ * collection's own (`.item .members .load 0.82` → `0.82`). The inverse of
+ * {@link placedItem}.
+ *
+ * @param decl - The declaration
+ * @param collection - The collection
+ * @param itemType - Its items' type
+ * @param entryValue - The entry value, `P`
+ * @returns The item
+ */
+function itemOf(decl: NestedDeclaration, collection: NestedCollection, itemType: EastType, entryValue: EastType): FunctionExpr<[EastType], EastType> {
+  const names: string[] = [];
+  for (let group = decl.groups[collection.group]!, name = collection.field; ;) {
+    names.unshift(name);
+    if (group.parent === undefined) break;
+    name = group.parent.field;
+    group = decl.groups[group.parent.group]!;
+  }
+  // The names are the declaration's, each a case of the variant it unwraps, so the variant's type is the one before.
+  return East.function([entryValue], itemType, (_$, value) => ['item', ...names].reduce<Expr>(
+    (within, name) => (within as unknown as VariantExpr<Record<string, EastType>>).unwrap(name), value as unknown as Expr) as never);
+}
+
+/**
+ * A collection of a node, filled: `(keys, byPlace) → Dict<…>`, the items its
+ * entries name at the node's path, under each one's id or instant — an item
+ * filed in several tiles once.
+ *
+ * @param decl - The declaration
+ * @param collection - The collection
+ * @param entry - An entry's type, `{ ik, value }`
+ * @param entryValue - The entry value, `P`
+ * @returns The filling
+ */
+function collectionFill(decl: NestedDeclaration, collection: NestedCollection, entry: EastType, entryValue: EastType): FunctionExpr<[typeof KeysType, EastType], EastType> {
+  const byPlace = DictType(NodePlaceType, ArrayType(entry));
+  const itemType: EastType = collection.kind === 'items' ? collection.itemType : collection.valueType;
+  const filled = filledType(collection);
+  const item = itemOf(decl, collection, itemType, entryValue);
+  const keyOf = collection.kind === 'items'
+    ? East.function([entry], StringType, (_$, filed) => East.field(East.field(filed, 'ik'), 'item', RecordNestedItemType).unwrap('id'))
+    : East.function([entry], DateTimeType, (_$, filed) => East.field(East.field(filed, 'ik'), 'item', RecordNestedItemType).unwrap('at'));
+  return East.function([KeysType, byPlace], filled, ($, keys, entries) => {
+    const path = $.const(pathOf);
+    const itemFrom = $.const(item);
+    const key = $.const(keyOf);
+    const here = $.let({ collection: path(East.value([...collection.place], KeysType)), path: path(keys) }, NodePlaceType);
+    return entries.get(here, () => East.value([], ArrayType(entry))).toDict(
+      (_$, filed) => key(filed),
+      (_$, filed) => itemFrom(East.field(filed, 'value', entryValue)),
+      (_$, kept) => kept,
+    );
+  });
+}
+
+/** A collection's type: its items by their ids, or its values by their instants. */
+function filledType(collection: NestedCollection): EastType {
+  return collection.kind === 'items' ? DictType(StringType, collection.itemType) : DictType(DateTimeType, collection.valueType);
+}
+
+/**
+ * A lean row filled with items read of it: `(K, V, Array<{ ik, value }>) →
+ * V`, each item the entries file — of a node, by its path, and a collection,
+ * by its place — put back in its collection under its id or its instant, an
+ * item filed in several tiles once, and every other field as the lean row
+ * holds it. The inverse of the filing: a row's lean form filled with all its
+ * entries is the row, and filled with the entries of some cells, the row
+ * holding the items read there. Totals, subtotals and items filed under a
+ * parent fill nothing.
+ *
+ * @param decl - The checked declaration
+ * @param keyType - The record's key type
+ * @param rowType - The record's row type
+ * @param entryKey - The entry key, `IK`
+ * @param entryValue - The entry value, `P`
+ * @returns The filling
+ */
+export function nestedFill(decl: NestedDeclaration, keyType: EastType, rowType: EastType, entryKey: EastType, entryValue: EastType) {
+  const entry = StructType({ ik: entryKey, value: entryValue });
+  const byPlace = DictType(NodePlaceType, ArrayType(entry));
+  // Each group's node filled, `(N, keys, byPlace) → N`, and its rows filled under a node at keys, `(Dict<String, N>, keys, byPlace) → Dict`:
+  // its child groups' first.
+  const fillOf: FunctionExpr<[EastType, typeof KeysType, typeof byPlace], EastType>[] = [];
+  const rowsFillOf: FunctionExpr<[EastType, typeof KeysType, typeof byPlace], EastType>[] = [];
+  for (const group of [...decl.groups].reverse()) {
+    const fields: { readonly field: string; readonly fill: FunctionExpr<[EastType, typeof KeysType, typeof byPlace], EastType> }[] = [];
+    for (const collection of group.collections) {
+      const filled = collectionFill(decl, collection, entry, entryValue);
+      const type = filledType(collection);
+      fields.push({ field: collection.field, fill: East.function([group.type, KeysType, byPlace], type, ($, _node, keys, entries) => {
+        const fill = $.const(filled);
+        return fill(keys, entries);
+      }) });
+    }
+    for (const child of group.rows) {
+      const rowsType = DictType(StringType, decl.groups[child.group]!.type);
+      const rowsOf = fieldOf(group.type, child.field, rowsType);
+      const rowsFill = rowsFillOf[child.group]!;
+      fields.push({ field: child.field, fill: East.function([group.type, KeysType, byPlace], rowsType, ($, node, keys, entries) => {
+        const rows = $.const(rowsOf);
+        const fill = $.const(rowsFill);
+        return fill(rows(node), keys, entries);
+      }) });
+    }
+    const own = fields.reduce<FunctionExpr<[EastType, typeof KeysType, typeof byPlace], EastType>>(
+      (before, { field, fill }) => East.function([group.type, KeysType, byPlace], group.type, ($, node, keys, entries) => {
+        const earlier = $.const(before);
+        const value = $.const(fill);
+        const held = $.let(earlier(node, keys, entries));
+        return East.withField(held, field, value(node, keys, entries));
+      }),
+      East.function([group.type, KeysType, byPlace], group.type, (_$, node) => node),
+    );
+    fillOf[group.index] = own;
+    const rowsType = DictType(StringType, group.type);
+    if (group.through === undefined) {
+      rowsFillOf[group.index] = East.function([rowsType, KeysType, byPlace], rowsType, ($, rows, keys, entries) => {
+        const fill = $.const(own);
+        return rows.map((_$, node, key) => fill(node, keys.concat([key]), entries));
+      });
+      continue;
+    }
+    // Beside recursive(): every row beneath, flattened, each filled at its keys, then rebuilt bottom-up, holding its own rebuilt rows.
+    const keyed = StructType({ key: StringType, node: group.type });
+    const deeper = fieldOf(group.type, group.through, rowsType);
+    const holding = withField(group.type, group.through, rowsType);
+    rowsFillOf[group.index] = East.function([rowsType, KeysType, byPlace], rowsType, ($, rows, keys, entries) => {
+      const beneath = $.const(deeper);
+      const fill = $.const(own);
+      const hold = $.const(holding);
+      const above = $.const(keysAbove);
+      const roots = $.let(rows.flattenTree((_$, node) => beneath(node)).toTree(
+        keyed,
+        (_$, at) => at.path,
+        (_$, at) => above(at.path),
+        (_$, at, _i, children) => ({
+          key: at.path.get(at.path.size().subtract(1n)),
+          node: hold(fill(at.node, keys.concat(at.path), entries), children.toDict((_$, child) => child.key, (_$, child) => child.node)),
+        }),
+      ));
+      return roots.toDict((_$, root) => root.key, (_$, root) => root.node);
+    });
+  }
+  const rowFill = fillOf[0]!;
+  return East.function([keyType, rowType, ArrayType(entry)], rowType, ($, _key, row, entries) => {
+    const fill = $.const(rowFill);
+    const own = $.let(entries
+      .filter((_$, filed) => East.field(East.field(filed, 'ik'), 'run', RecordNestedRunType).match({ items: () => true }, () => false))
+      .groupToArrays(($2, filed) => {
+        const ik = $2.let(East.field(filed, 'ik'));
+        const place = $2.let({ collection: East.field(ik, 'collection', RecordNestedPathType), path: East.field(ik, 'path', RecordNestedPathType) }, NodePlaceType);
+        return place;
+      }));
+    return fill(row, East.value([], KeysType), own);
+  });
+}
+
 /**
  * A row's lean form: `(K, V) → V`, every listed collection empty, each child
  * row kept with its own listed collections empty — a recursive group's rows
@@ -1587,6 +1750,7 @@ export function nestedDefinition(
   }
   const decl = checkNested(constructor, name, valueType, written.collections);
   const { entries, byPatch, entryKey, entryValue } = nestedEntries(decl, keyType, valueType, tile, summary);
+  const fill = nestedFill(decl, keyType, valueType, entryKey, entryValue);
   const runner = indexRunner(config);
   checkPure(`${constructor} '${name}' entries`, entries, INDEX_PURITY);
   checkPure(`${constructor} '${name}' entries by a patch`, byPatch, INDEX_PURITY);
@@ -1598,7 +1762,7 @@ export function nestedDefinition(
     // No field leads it: a nested collection is read by its row's key.
     on: Object.freeze([]),
     nested: Object.freeze({
-      collections: written.collections, tile, summary, declaration: decl.declaration, lean: nestedLean(decl, keyType, valueType), byPatch,
+      collections: written.collections, tile, summary, declaration: decl.declaration, lean: nestedLean(decl, keyType, valueType), byPatch, fill,
     }),
     keyFn: entries,
     // A row gives many entries, each with its own value.

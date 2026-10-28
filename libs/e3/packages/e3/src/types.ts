@@ -379,6 +379,8 @@ export interface RecordIndexDef<
     readonly declaration: RecordNestedDecl;
     readonly lean: { toIR(): unknown };
     readonly byPatch: { toIR(): unknown };
+    /** A lean row filled with entries read of it, `(K, V, Array<{ ik, value }>) → V` (#1438): what a reader of the index's cells draws a row with. */
+    readonly fill: { toIR(): unknown };
   } | undefined;
   /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi} — or, for a
    *  summary, `(K, V) -> Dict<IK, Totals>`, and for a nested series index a
