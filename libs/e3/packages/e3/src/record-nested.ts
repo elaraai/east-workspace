@@ -387,6 +387,8 @@ function builderOf(given: unknown): 'items' | 'values' | 'rows' | 'recursive' | 
 export function checkNested(name: string, rowType: EastType, collections: unknown): NestedDeclaration {
   const prefix = `e3.recordIndex.series '${name}'`;
   const groups: NestedGroup[] = [];
+  // How many groups have taken their place: a group takes its own before its child groups take theirs.
+  let placed = 0;
 
   // A group: its nodes' type, the group above it, and its declaration as written; its child groups follow it.
   const groupOf = (
@@ -397,15 +399,13 @@ export function checkNested(name: string, rowType: EastType, collections: unknow
     if (typeof declared !== 'object' || declared === null || Array.isArray(declared) || Object.keys(declared).length === 0) {
       throw new Error(`${prefix} ${where} declares no collection`);
     }
-    const index = groups.length;
+    const index = placed++;
     const root = parent === undefined;
     const own: NestedCollection[] = [];
     const childRows: { field: string; group: number }[] = [];
     const recursiveFields: string[] = [];
     const declaration = new Map<string, RecordNestedDecl extends Map<string, infer D> ? D : never>();
     const caseTypes: Record<string, EastType> = {};
-    // The group's place among the groups is taken before its child groups take theirs.
-    const slot = groups.push(undefined as unknown as NestedGroup) - 1;
     for (const field of Object.keys(declared).sort()) {
       const at = `${where}.${field}`;
       const given: unknown = (declared as Record<string, unknown>)[field];
@@ -510,7 +510,7 @@ export function checkNested(name: string, rowType: EastType, collections: unknow
     const group: NestedGroup = {
       index, type, parent, through: recursiveFields[0], collections: own, rows: childRows, places: VariantType(caseTypes),
     };
-    groups[slot] = group;
+    groups[index] = group;
     return { group, declaration };
   };
 
