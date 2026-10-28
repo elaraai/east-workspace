@@ -333,3 +333,66 @@ describe("a parent's subtotals are e3's (#1438)", () => {
         expect(paged).toEqual(tops.flatMap((path) => drawnCells(whole, path)));
     });
 });
+
+// ── The assemblies: a span parent's bands (#1438) ─────────────────────────────
+
+/** The assemblies' record, as e3's requests name it, and their nested series index. */
+const ASSEMBLIES = pathText(ex.assemblies.path as TreePath);
+const ASSEMBLIES_IN_TIME = ex.assemblies.indexes.assemblies_in_time;
+
+/** The searches of the assemblies' nested series index, each its lower bound's literals: `[place, row, path, run, level, tile]`. */
+const assemblySearches = () => h.requests().filter((request) => request.kind === "find" && request.dataset === ASSEMBLIES
+    && (request.query.get("index") ?? undefined) === ASSEMBLIES_IN_TIME.name)
+    .flatMap((request) => request.searches.map((search) => ("from" in search ? search.from ?? [] : [])));
+
+/** The assemblies' first four weeks, a day at a time. */
+const ASSEMBLY_WINDOW = { min: new Date("2026-01-05T00:00:00Z"), max: new Date("2026-02-02T00:00:00Z") };
+
+/** Each assembly a group, its parts a span tree rolling their jobs up into bands, folded or open. */
+const assemblySeries = (collapsed: boolean) => [Plan.series.group(ex.Assembly, {
+    key: "assemblies", title: "Assemblies", label: (a) => a.name,
+    children: Plan.children("parts", [Plan.series.span(ex.Part, {
+        key: "parts", title: "Parts", label: (p) => p.name, children: "parts", rollup: "union", collapsed,
+        runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
+    })]),
+})];
+
+/** The fifty assemblies paged lean beside their nested series index. */
+const assembliesPaged = (collapsed: boolean) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const assemblies = $.const(Data.bindPaged(ex.assemblies, { indexes: ["assemblies_by_line", "assemblies_in_time"] }));
+    return Plan({ axis: Plan.axis({ window: ASSEMBLY_WINDOW, resolution: "day" }), data: assemblies, series: assemblySeries(collapsed) });
+}))) });
+
+/** The same assemblies read whole: what the paged Plan draws the same as. */
+const assembliesWhole = (collapsed: boolean) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const assemblies = $.const(Data.bind(ex.assemblies));
+    return Plan({ axis: Plan.axis({ window: ASSEMBLY_WINDOW, resolution: "day" }), data: assemblies.read(), series: assemblySeries(collapsed) });
+}))) });
+
+/** What a part's row draws: each band and run, by its place, its width, its state and its words. */
+function drawnPart(c: HTMLElement, part: string): string[] {
+    const row = slot(c, "main")!.querySelector<HTMLElement>(rowAt(entry("parts", "A-101", part)));
+    if (row === null) return [`${part}: no row`];
+    return [...row.querySelectorAll<HTMLElement>("[data-plan-band], [data-run]")].map((node) => [part,
+        node.hasAttribute("data-plan-band") ? "band" : node.getAttribute("data-run"), node.style.left, node.style.width,
+        node.getAttribute("data-state"), node.textContent].join(" ")).sort();
+}
+
+describe("a span parent's bands are its subtree's runs, as e3 files them under it (#1438)", () => {
+    test("a folded part reads its subtree's jobs, one range a level, and nothing of its parts', and draws the bands the tree read whole derives", async () => {
+        onTestFinished(emulateWindowScroll());
+        const { container } = await h.mount(assembliesPaged(true));
+        await settle();
+        const searches = assemblySearches();
+        const under = searches.filter((from) => from[1] === '"A-101"' && from[2] === '.step (key="P101.1", rest=.end)' && from[3] === ".subtree");
+        expect(under.map((from) => from[4])).toEqual([".week", ".month", ".quarter", ".year"]);
+        // Only the top parts show: nothing of a part beneath one is searched.
+        expect(searches.filter((from) => from[2]!.includes("rest=.step"))).toEqual([]);
+        const tops = ["P101.1", "P101.2", "P101.3"];
+        const paged = tops.flatMap((part) => drawnPart(container, part));
+        expect(paged.filter((line) => line.includes(" band "))).not.toEqual([]);
+        const { container: whole } = await h.mount(assembliesWhole(true), { storageKey: "whole" });
+        await settle();
+        expect(paged).toEqual(tops.flatMap((part) => drawnPart(whole, part)));
+    });
+});
