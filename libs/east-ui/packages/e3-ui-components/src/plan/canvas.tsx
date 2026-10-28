@@ -154,6 +154,7 @@ import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
 import type { PlanSearch } from "./use-seek.js";
 import { DROPPABLE_KINDS } from "./rows/BodyRow.js";
 import { PlanEditContext, PlanEditStore, type PlanEditContextValue } from "./edit/store.js";
+import { PlanTypingStore, type PlanTyping } from "./edit/typing.js";
 import { originOf, unmoved, usePlanCarry, type PlanMoveRequest } from "./edit/use-carry.js";
 import { PlanCarryAnnouncer } from "./edit/announce.js";
 import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from "./rows/element-select.js";
@@ -1479,12 +1480,27 @@ export function usePlanCanvas({
     const patchKinds = useMemo(
         () => (narrow || rowDrop?.events === undefined ? NO_KINDS_DRAWN : drawnKinds(index.rows, rowDrop.events)),
         [narrow, rowDrop, index]);
+    // Typing a number into a table cell (#1436, #1438): the canvas's one input, while `data`'s rows take a gesture — in
+    // a popover anchored to its cell below 480px of main — each typed number one step of the session's history.
+    const typingStore = useMemo(() => new PlanTypingStore(), []);
+    const { typeValue: draftValue } = editing;
+    const typing = useMemo<PlanTyping | undefined>(() => (rowDrop?.data === true
+        ? {
+            store: typingStore,
+            popover: narrow,
+            type: (typed) => draftValue(typed, typed.value === undefined
+                ? words.m.clearedStep({ row: labelOf(typed.rowKey), bucket: typed.bucket })
+                : words.m.typedStep({ row: labelOf(typed.rowKey), bucket: typed.bucket, value: typed.text })),
+        }
+        : undefined), [rowDrop, typingStore, narrow, draftValue, words, labelOf]);
+    // The input closes once the rows take no typing: a Save under way, a run of the optimiser out.
+    useEffect(() => { if (typing === undefined) typingStore.close(); }, [typing, typingStore]);
     const editCtx = useMemo<PlanEditContextValue | null>(() => (scale !== undefined
         ? {
             store: editStore, surface: moveSurface, helpId, styles, words, scale,
-            dataMoves: rowDrop?.data === true, eventMove: rowDrop?.events?.rowMove,
+            dataMoves: rowDrop?.data === true, eventMove: rowDrop?.events?.rowMove, typing,
         }
-        : null), [editStore, moveSurface, helpId, styles, words, scale, rowDrop]);
+        : null), [editStore, moveSurface, helpId, styles, words, scale, rowDrop, typing]);
     /** Focus an element where it is now — else its row. */
     const focusElement = useCallback((rowKey: string, key: string) => {
         const bodyEl = focusBodyRef.current;

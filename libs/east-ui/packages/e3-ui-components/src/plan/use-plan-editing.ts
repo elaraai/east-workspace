@@ -57,6 +57,7 @@ import type { RowKey } from "./plan-state.js";
 import { planPart, planSlices, ROWS_SOURCE } from "./root/sources.js";
 import { mintKey } from "../shared/schedule/records.js";
 import type { PlanWholeRows } from "./root/nested.js";
+import type { PlanTypedValue } from "./edit/typing.js";
 
 /** The decoded Plan editing declaration (the root's `editing` some-value). */
 export type PlanEditingValue = ValueTypeOf<typeof Plan.Types.Editing>;
@@ -111,6 +112,16 @@ export interface PlanEditing {
      *   it or no series wrote it (the item is never taken without being put)
      */
     move(request: PlanMoveRequest): boolean;
+    /**
+     * A number typed into a table cell, or the cell cleared (#1436, #1438) —
+     * drafted into the entry its row came from as one step, labelled as the
+     * history names it. Stable.
+     *
+     * @returns Whether it was drafted — `false` when the session cannot take
+     *   it or the row's series wrote nothing (a fraction where its values are
+     *   whole, a cleared cell holding none)
+     */
+    typeValue(typed: PlanTypedValue, label: string): boolean;
     /** A history bar action. Stable. */
     action(action: HistoryAction): void;
 }
@@ -522,6 +533,15 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
                 : request.from === request.to ? `Move ${request.label}` : `Move ${request.label} to ${args.labelOf(request.to)}`;
             return record(requests, gesture, request.origin, label);
         },
+        typeValue(typed: PlanTypedValue, label: string): boolean {
+            const id = rowIdOfKey(typed.rowKey);
+            const entry = id !== undefined ? entryOf(id) : undefined;
+            if (id === undefined || entry === undefined) return false;
+            const gesture = variant("value", {
+                row: id, position: BigInt(typed.position), at: typed.at, value: typed.value === undefined ? none : some(typed.value),
+            });
+            return record([{ id: entry, rows: [id] }], gesture, "typed", label);
+        },
         action(action: HistoryAction): void {
             // The history's, across every source, once it holds this session (#1194).
             const history = joinedHistory();
@@ -545,6 +565,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     }, [landed]);
     const drop = useCallback((event: DragEventValue) => current.current.drop(event), []);
     const move = useCallback((request: PlanMoveRequest) => current.current.move(request), []);
+    const typeValue = useCallback((typed: PlanTypedValue, label: string) => current.current.typeValue(typed, label), []);
     const action = useCallback((a: HistoryAction) => current.current.action(a), []);
 
     return {
@@ -560,6 +581,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         marks,
         drop,
         move,
+        typeValue,
         action,
     };
 }

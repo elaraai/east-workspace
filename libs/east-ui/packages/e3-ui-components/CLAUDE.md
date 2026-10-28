@@ -1396,6 +1396,38 @@ and scroll by the canvas's row geometry under `emulateWindowScroll`. A Plan
 pans and zooms only through its Slice, which holds the canvas's own window
 when no source holds one.
 
+### Typing a number into a table cell (#1436, #1438)
+
+A table position its row says takes a typed number (`edits.values`, each
+`{ position, whole }`) takes one while the canvas's session takes a gesture
+(`PlanEditContextValue.typing`). The canvas holds one input in a store outside
+React (`plan/edit/typing.ts`); a table row (`rows/TableRow.tsx`) draws it only
+while it holds it, over the cell's column (`rows/CellInput.tsx`: the Sheet's
+number field, the Plan recipe's `tableCellInput` slots), or below 480px of
+main in a popover anchored to the cell.
+
+- **Which cells.** A bucket holding one of the position's own values, or none
+  — every bucket in the window draws a cell then. A parent's position drawing
+  its children's subtotals takes none; a bucket folding several values takes
+  none, its tooltip (`data-plan-note`, said by the overlay's label tooltip)
+  naming the resolution they take one at.
+- **Keys.** Enter, F2, a double click or a digit opens it (a tap below 480px).
+  Enter writes; Esc cancels; a blur writes. Tab and Shift+Tab write and move
+  along the row; ↑ and ↓ write and move to the mounted rows above and below
+  that take a number at the bucket (found in the DOM: `data-typed`). The
+  number field's own stepping never sees them (a prevented key).
+- **The text** reads through the position's format (`readTyped`: a percent's
+  `82` or `82%` is `0.82`) in the Sheet's grammar; a whole position refuses a
+  fraction, in the Plan's words under the field.
+- **What it writes** is the session's `value` gesture (`typeValue` on the
+  editing hook), one step labelled `Set <row>, <bucket> to <value>`: over rows
+  read lean, the row is read whole first, and the preview moves every
+  subtotal above it.
+
+Tests: `plan/frame/plan-typing.dom.test.tsx`, on e3, over the ledgers; type
+with `fireEvent.input`, as the Sheet's tests do — the field takes no change
+event.
+
 ### Shared time navigation
 
 Plan, Calendar and Roster use the internal `TimeNavigator` in

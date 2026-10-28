@@ -442,6 +442,19 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     valueRange: (p: { from: string; to: string }) => string;
     /** A bucket-quantised element's accessible name — `Week of Jun 29, 2026: 72`. */
     cellName: (p: { bucket: string; value: string }) => string;
+    /** A table cell's input's accessible name — `Week of Jun 29, 2026: type a number` (#1438). */
+    typedName: (p: { bucket: string }) => string;
+    /** The history's step for a number typed into a table cell — `Set Orders, Week of Jun 29, 2026 to 15` (#1438). */
+    typedStep: (p: { row: string; bucket: string; value: string }) => string;
+    /** The history's step for a table cell cleared — `Clear Orders, Week of Jun 29, 2026` (#1438). */
+    clearedStep: (p: { row: string; bucket: string }) => string;
+    /** A table cell's typed text that reads as no number (#1438). */
+    typedNotNumber: () => string;
+    /** A fraction typed into a table cell whose values are whole numbers (#1438). */
+    typedNotWhole: () => string;
+    /** What a table cell folding several values of a position that takes typing says: the resolution they are at, where
+     *  each takes one — `Holds several values, one each week: zoom to week to type one` (#1438). */
+    typedFolded: (p: { resolution: string | undefined }) => string;
     /** A tone-strip block's value — `101, beyond threshold`. */
     toneValue: (p: { value: string; warn: boolean }) => string;
     /** A chart layer's name in the chart's summary — `line`, or `columns 2`
@@ -734,6 +747,14 @@ export const planMessages: PlanMessages = {
     noValue: () => "no value",
     valueRange: ({ from, to }) => `${from}–${to}`,
     cellName: ({ bucket, value }) => `${bucket}: ${value}`,
+    typedName: ({ bucket }) => `${bucket}: type a number`,
+    typedStep: ({ row, bucket, value }) => `Set ${row}, ${bucket} to ${value}`,
+    clearedStep: ({ row, bucket }) => `Clear ${row}, ${bucket}`,
+    typedNotNumber: () => "Type a number",
+    typedNotWhole: () => "Type a whole number",
+    typedFolded: ({ resolution }) => (resolution === undefined
+        ? "Holds several values: zoom in to type one"
+        : `Holds several values, one each ${resolution}: zoom to ${resolution} to type one`),
     toneValue: ({ value, warn }) => (warn ? `${value}, beyond threshold` : value),
     chartLayer: ({ kind, index }) => (index !== undefined ? `${LAYER_WORD[kind]} ${index}` : LAYER_WORD[kind]),
     chartLayerValues: ({ layer, min, max, last, n, breaches }) =>

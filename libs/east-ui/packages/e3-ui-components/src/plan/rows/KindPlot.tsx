@@ -143,7 +143,9 @@ function KindPlotContent({ v, styles, derived, hasChildren, ctx, plotHeight, cha
                 <TableRowCells rowKey={rowKey} rowId={rowId}
                     series={derived.tableSeries.get(rowKey) ?? kind.value.series}
                     split={kind.value.split.type} ctx={ctx}
-                    format={getSomeorUndefined(kind.value.format)} styles={styles} />
+                    format={getSomeorUndefined(kind.value.format)} styles={styles}
+                    // The positions taking a typed number (#1436, #1438), its own values deciding which buckets.
+                    typed={v.row.edits.values} own={kind.value.series} parent={hasChildren} />
             );
         case "cards":
             return (

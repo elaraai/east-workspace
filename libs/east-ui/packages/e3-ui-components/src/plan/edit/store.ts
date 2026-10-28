@@ -30,6 +30,7 @@ import type { RowKey } from "../plan-state.js";
 import type { PlanRowMove } from "../rows/SpanRow.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
+import type { PlanTyping } from "./typing.js";
 
 /** An element's extent: a run's or a chip's two ends; a tile's or a mark's instant, twice. Moved by the time parts' arithmetic (`shared/time/drag.ts`, #1148). */
 export type PlanSpan = Span<PlanInstantValue>;
@@ -275,6 +276,11 @@ export interface PlanEditContextValue {
     surface: string | undefined;
     /** Whether `data`'s rows take a move now: the root edits them, and its session takes a gesture (#880). */
     dataMoves: boolean;
+    /**
+     * Typing a number into a table cell (#1436, #1438) — `undefined` while
+     * `data`'s rows take no gesture: no session, or one that takes none now.
+     */
+    typing: PlanTyping | undefined;
     /**
      * How an event kind's row's elements move (#1196) — `undefined` for a row
      * that is no event kind's, and while the canvas takes no event's drag.

@@ -15,6 +15,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../../style/hit-area.js";
+import { fieldInRingedControl } from "../../field-chrome.js";
 import { lifecycleStates } from "./states.js";
 import { PLAN_OVERLAP_RING, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
@@ -31,6 +32,7 @@ export const BOOKED_FILL = "{colors.brand.solid}";
 export const cellsSlots = [
     "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellWash", "cell", "cellTiles",
     "tile", "tileLabel", "tileMore", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart",
+    "tableCellInput", "tableCellField", "tableCellFieldInput", "tableCellRefusal", "tableCellPopover",
 ] as const;
 
 /**
@@ -552,5 +554,75 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         "&[data-tone='neg']":   { color: "{colors.status.neg}" },
         "&[data-tone='muted']": { color: "fg.subtle" },
         "&[data-strong]":       { fontWeight: "semibold", color: "fg.default" },
+    },
+    // ── Typing a number into a table cell (#1436, #1438) — the cell's field
+    //    over its bucket's column at the row's height, the brand ring its
+    //    chrome (the neg ring while its text is refused), its text in the
+    //    table's numerals; the renderer sets left/width per bucket ──
+    tableCellInput: {
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        zIndex: 10,
+        display: "flex",
+        alignItems: "center",
+        boxSizing: "border-box",
+        paddingX: "2px",
+        borderRadius: "2px",
+        background: "bg.surface",
+        boxShadow: "inset 0 0 0 2px {colors.brand.solid}",
+        "&[data-invalid]": { boxShadow: "inset 0 0 0 2px {colors.status.neg}" },
+        // Below 480px of main it opens in a popover anchored to its cell (#1438): a field of its own at a row's height.
+        "&[data-popover]": { position: "relative", height: "32px", width: "100%" },
+        "&[data-popover] input": { fontSize: "13px", _coarse: { fontSize: "16px" } },
+    },
+    // The common number field inside the ring: no border, no focus ring of its own.
+    tableCellField: {
+        flex: "1",
+        minWidth: "0",
+        height: "100%",
+        borderWidth: "0",
+        borderRadius: "0",
+        boxShadow: "none",
+        background: "transparent",
+        _focusWithin: { boxShadow: "none", borderColor: "transparent" },
+        _hover: { borderColor: "transparent" },
+    },
+    tableCellFieldInput: {
+        ...fieldInRingedControl,
+        width: "100%",
+        height: "100%",
+        minWidth: "0",
+        padding: "0",
+        border: "none",
+        outline: "none",
+        background: "transparent",
+        textAlign: "center",
+        fontFamily: "mono",
+        fontSize: "10.5px",
+        fontWeight: "medium",
+        color: "fg",
+        // A phone zooms into type under 16 px.
+        _coarse: { fontSize: "16px" },
+    },
+    // The popover a tap opens the field in below 480px of main, anchored to its cell.
+    tableCellPopover: {
+        padding: "8px",
+        width: "160px",
+    },
+    // Why its text was refused: under the field, on the surface, in the neg tone.
+    tableCellRefusal: {
+        position: "absolute",
+        top: "100%",
+        left: 0,
+        marginTop: "2px",
+        paddingX: "6px",
+        paddingY: "2px",
+        borderRadius: "2px",
+        background: "bg.surface",
+        boxShadow: "sm",
+        whiteSpace: "nowrap",
+        fontSize: "11px",
+        color: "{colors.status.neg}",
     },
 };
