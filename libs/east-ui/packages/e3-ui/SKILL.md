@@ -2405,10 +2405,12 @@ and Next and Previous step on from it, each showing its match; asked again,
 the box keeps a match wherever the matches still hold it. Each line reads
 the item's key, its label where it is not its key, its kind's name, what
 keeps it off the canvas — `on a hidden layer`, or `no position` — and, where
-the rail's filters leave it out, hidden or dimmed as context, the choices that
-do, as every builder's Search Records names them: `· hidden by Owner:
-Northwind Media — picking it clears that filter`, asked of e3 through the
-kind's indexes, `· hidden by the filters` until it has said. A pick of such an
+the rail's filters leave it out, the choices that do, as every builder's
+Search Records names them: `· hidden by Owner: Northwind Media — picking it
+clears that filter`, asked of e3 through the kind's indexes, `· hidden by the
+filters` until it has said — and, under `narrowed="dim"`, which draws the item
+as context, `· dimmed by Owner: Northwind Media — picking it clears that
+filter` and `· dimmed by the filters`. A pick of such an
 item clears just those choices — every choice of its kind's source while e3
 has not said — then goes to it as any pick does, and selects it once the
 narrowing they leave draws it as itself. A pick flies to an item drawn as

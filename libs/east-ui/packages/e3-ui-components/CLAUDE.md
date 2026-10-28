@@ -104,9 +104,11 @@ faded, greyed or a bare marker, by the recipe and the painter — and is selecte
 by no path. The Index, the Backlog, the inspector's Choosers, what an item is
 joined to and the drawing's counts show only what it leaves in, and the matches
 take the emphasis, the frame and the fit. Find lists what it leaves out too,
-dimmed or hidden alike, through the frame's hidden pick (below, #1404); the
-footer says why a pick's item still doesn't show as itself — its layer hidden,
-or no position. Below 480px of main (#1394, D15) its
+through the frame's hidden pick (below, #1404), each line naming the choices
+that hide the item — or, dimmed, that dim it, as it draws as context
+(`dimmed by Owner: Harbour Labs — …`); the footer says why a pick's item
+still doesn't show as itself — its layer hidden, or no position. Below 480px
+of main (#1394, D15) its
 canvas pans, pinches and selects and nothing drags — no Move or Connect, no
 card dragged, no drop cell or link handle — and Details takes the gestures'
 place: an item's Connect to…, and the Backlog's card picked as an item with no
@@ -445,8 +447,11 @@ Records and Go to issue — the Schematic's Find among them; no builder keeps a
 copy of it. Its line names the choices that hide the row, as the rail words
 them — `· hidden by Status: Ready — picking it clears that filter`, and `·
 hidden by the filters` until e3 has said — in the builder's message table's
-words (`words.ts`' `HiddenWords`, `hiddenLine`). Which choices hide it is
-asked of e3 through the record's indexes: each choice alone where an index
+words (`words.ts`' `HiddenWords`, `hiddenLine`), the English one sentence
+(`hiddenByText`), whose verb is `dimmed` where the narrowing draws the row as
+context, as the Schematic's Find words it under `narrowed="dim"`. Which
+choices hide it is asked of e3 through the record's indexes: each choice
+alone where an index
 serves it, else with the choices before it on the narrowing's index, as the
 rail plans them, one request a choice for the hidden rows a list shows or an
 issue names and no others — a list's by the page it read them from
@@ -496,7 +501,13 @@ builder supplies only its own:
   the frame — Find's items, and an unsaved change waiting in its session that
   Issues names; a pick flies to where the row stands and selects it through
   the canvas once the narrowing draws it as itself, never as context, which no
-  path selects. Its Find hands the canvas no keyboard.
+  path selects. Its Find hands the canvas no keyboard, and under a dimmed
+  narrowing (`narrowed="dim"`, the frame's `look.dim`) its lines say the
+  choices dim an item they leave out — `· dimmed by Owner: Harbour Labs —
+  picking it clears that filter`, `· dimmed by the filters` until e3 has said
+  (its message table's `dimmedBy`, `dimmedByFilters`) — listed again as the
+  narrowing comes to dim or to hide; the pick clears and lands as under a
+  narrowing that hides.
 
 A Search Records box's count shows and Enter jumps once the query is
 found, the lines following. A pick — a match chosen from the list, or Enter in
