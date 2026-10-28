@@ -19,7 +19,7 @@ import { describe, test, expect } from "vitest";
 import { some, none, variant } from "@elaraai/east";
 import {
     rowHeight, deriveBands, deriveHeatCells, deriveTableCells, derivePlan, indexRows, toCanvasRows, windowRestHeight,
-    axisKindMismatches, HEAT_ROW_H, ROW_H, ROW_H_DENSE, GROUP_STRIP_H, GROUP_H, type PlanRowValue,
+    axisKindMismatches, HEAT_ROW_H, ROW_H, ROW_H_DENSE, GROUP_STRIP_H, GROUP_H, type PlanParentSubtotals, type PlanRowValue,
     type PlanWireRow, type VisibleRow,
 } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
@@ -479,6 +479,62 @@ describe("Plan subtotals compose level by level, as e3 keeps them (#1436)", () =
             trow("z", "q", level("sum", [cell(W27, 96)], [cell(W27, 1)])),
         ]));
         expect(own.tableSeries.has("q")).toBe(false);
+    });
+});
+
+describe("A parent's subtotals as e3 keeps them, over paged rows (#1438)", () => {
+    // A month scale over July: e3 keeps a parent's subtotals a month at a time, at the month's start.
+    const month = planScale({ kind: "time", window: { min: new Date("2026-07-01T00:00:00Z"), max: new Date("2026-08-01T00:00:00Z") }, resolution: "month" })!.period;
+    const JUL = t(new Date("2026-07-01T00:00:00Z"));
+    const tcell = (at: PlanInstantValue, v: number) => ({ at, value: some(v), text: none, tone: none });
+    const table = (mode: string, ...positions: unknown[][]) => variant("table", {
+        series: positions.map((cells) => series(cells)),
+        split: variant("horizontal", null),
+        aggregate: some(variant(mode, null)), format: none, emphasis: variant("body", null),
+    });
+    const heatLeaf = (key: string, parent: string, v: number) => trow(key, parent, variant("heat", {
+        cells: heatArm([{ at: t(W28), value: some(v), label: none }], hscale(0, 100)), aggregate: none, scale: none,
+    }));
+    const given = (key: string, ...positions: number[]): PlanParentSubtotals => new Map([[key, positions.map((value) => [{ at: JUL, value }])]]);
+
+    test("a table parent draws its subtotals, never its children's, and a count is never counted again", () => {
+        const rows = indexRows([
+            trow("mid", undefined, table("count", [], [])),
+            trow("a", "mid", table("count", [tcell(t(W28), 10)], [tcell(t(W28), 1)])),
+            trow("b", "mid", table("count", [tcell(t(W29), 20)], [tcell(t(W29), 2)])),
+        ]);
+        // From the children in the window: two leaves draw a value in July.
+        expect(derivePlan(rows, undefined, "time", PLAN_WORDS, month).tableSeries.get("mid")![0]!.cells).toEqual([tcell(JUL, 2)]);
+        // e3's counts every leaf beneath, the window's or not: drawn as kept, at the month's start, never counted again.
+        const derived = derivePlan(rows, undefined, "time", PLAN_WORDS, month, given("mid", 9, 4));
+        expect(derived.tableSeries.get("mid")!.map((position) => position.cells)).toEqual([[tcell(JUL, 9)], [tcell(JUL, 4)]]);
+    });
+
+    test("a heat parent and a group's strip draw theirs, labelled and on their members' scale", () => {
+        const rows = indexRows([
+            trow("g", undefined, variant("group", { summary: variant("aggregate", variant("sum", null)) })),
+            trow("p", "g", variant("heat", { cells: heatArm([]), aggregate: some(variant("mean", null)), scale: none })),
+            heatLeaf("a", "p", 10),
+            heatLeaf("b", "p", 50),
+        ]);
+        const derived = derivePlan(rows, undefined, "time", PLAN_WORDS, month, new Map([...given("p", 42), ...given("g", 420)]));
+        const parent = derived.heatArms.get("p")!;
+        expect(parent.value.cells).toEqual([{ at: JUL, value: some(42), label: some("42") }]);
+        expect(parent.type === "heat" ? parent.value.scale : undefined).toEqual(hscale(0, 100));
+        expect(derived.groupStrips.get("g")!.value.cells).toEqual([{ at: JUL, value: some(420), label: some("420") }]);
+        // Given none, each derives from its children as before: their one week each, at its own instant.
+        const own = derivePlan(rows, undefined, "time", PLAN_WORDS, month);
+        expect(own.heatArms.get("p")!.value.cells).toEqual([expect.objectContaining({ at: t(W28), value: some(30) })]);
+        expect(own.groupStrips.get("g")!.value.cells).toEqual([expect.objectContaining({ at: t(W28), value: some(30) })]);
+    });
+
+    test("a parent holding values of its own draws them, given subtotals or not", () => {
+        const rows = indexRows([
+            trow("q", undefined, table("sum", [tcell(t(W28), 7)])),
+            trow("z", "q", table("sum", [tcell(t(W28), 96)])),
+        ]);
+        // It draws the series it declares, as it is: nothing derived for it.
+        expect(derivePlan(rows, undefined, "time", PLAN_WORDS, month, given("q", 103)).tableSeries.has("q")).toBe(false);
     });
 });
 

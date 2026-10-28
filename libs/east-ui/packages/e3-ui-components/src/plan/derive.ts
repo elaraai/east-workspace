@@ -453,6 +453,46 @@ function rollupPositions(positions: readonly TablePosition[]): readonly TablePos
 }
 
 /**
+ * One bucket's subtotal of a parent, as e3 keeps it (#1438): the instant its
+ * bucket starts at, and the value.
+ */
+export interface PlanParentSubtotal {
+    readonly at: PlanInstantValue;
+    readonly value: number;
+}
+
+/**
+ * Each parent's subtotals as e3 keeps them, by the row's key (#1438): what a
+ * Plan over paged rows read beside their nested series index reads for a
+ * parent, at the period's buckets — one series a collection its children
+ * read, in the order they read them: a heat parent's and a group's strip
+ * aggregated as declared, a table parent's one a position. A parent given
+ * them draws them in place of deriving them from its children, which a window
+ * holds folded, off screen or not at all — and never folds them again, each
+ * being one bucket's already.
+ */
+export type PlanParentSubtotals = ReadonlyMap<RowKey, readonly (readonly PlanParentSubtotal[])[]>;
+
+/** A parent's subtotals as cells its heat derivation takes, one a bucket a collection (#1438). */
+function givenHeatCells(given: readonly (readonly PlanParentSubtotal[])[]): HeatCellValue[] {
+    return given.flatMap((subtotals) => subtotals.map((s): HeatCellValue => ({ at: s.at, value: some(s.value), label: none })));
+}
+
+/**
+ * A table parent's positions with its subtotals in place (#1438): each
+ * position given one draws it, styled as its children's subtotal would be,
+ * and carries the leaves its children's do.
+ */
+function withGivenPositions(positions: readonly TablePosition[], given: readonly (readonly PlanParentSubtotal[])[] | undefined): TablePosition[] {
+    if (given === undefined) return [...positions];
+    return positions.map((p, i): TablePosition => {
+        const subtotals = given[i];
+        if (subtotals === undefined) return p;
+        return { series: { ...p.series, cells: subtotals.map((s): TableCellValue => ({ at: s.at, value: some(s.value), text: none, tone: none })) }, leaves: p.leaves };
+    });
+}
+
+/**
  * The per-value derived numbers, computed once per decoded root and period.
  *
  * Each `…` map says what a row DRAWS where that is not its own declaration —
@@ -517,6 +557,9 @@ export interface PlanDerived {
  * @param w - The canvas's words — how a derived number prints (#820); English in
  *   `en-US` by default (a height measure prints nothing it reads)
  * @param period - The canvas's period (`PlanScale.period`); omit to fold nothing
+ * @param parents - Each parent's subtotals as e3 keeps them, by its key (#1438): a parent given them — a heat parent, a
+ *   group's strip, a table parent's positions — draws them in place of its children's; omit to derive every parent
+ *   from its children
  * @returns Every derived number, keyed by row
  */
 export function derivePlan(
@@ -525,6 +568,7 @@ export function derivePlan(
     axisKind?: PlanAxisKind,
     w: PlanWords = PLAN_WORDS,
     period?: PlanPeriod,
+    parents?: PlanParentSubtotals,
 ): PlanDerived {
     const bands = new Map<RowKey, DerivedBand[]>();
     const heatArms = new Map<RowKey, HeatCellsValue>();
@@ -589,7 +633,10 @@ export function derivePlan(
                     const mode = kind.value.aggregate.value.type;
                     const arms = drawnHeatArms(children);
                     const format = own.type === "heat" && own.value.format.type === "some" ? own.value.format : inheritedFormat(arms);
-                    const cells = deriveHeatCells(children.flatMap(drawnHeatCells), mode, ordinal, w, period, getSomeorUndefined(format));
+                    // Its subtotals as e3 keeps them where it is given them (#1438), never its children's cells.
+                    const given = parents?.get(row.key);
+                    const from = given !== undefined ? givenHeatCells(given) : children.flatMap(drawnHeatCells);
+                    const cells = deriveHeatCells(from, mode, ordinal, w, period, getSomeorUndefined(format));
                     // The parent's declared scale, else the one its members share (#824).
                     const scale = kind.value.scale.type === "some" ? kind.value.scale.value : scaleValue(inheritedScale(arms, mode));
                     heatArms.set(row.key, variant("heat", {
@@ -604,9 +651,11 @@ export function derivePlan(
             case "table": {
                 const declared = kind.value.series;
                 const folded = foldTableSeries(declared, period, ordinal);
+                // Each position's subtotals as e3 keeps them where it is given them (#1438), styled as its children's.
                 const derived = kind.value.aggregate.type === "some" && children.length > 0
-                    ? deriveTableSeries(
-                        children.map(aggregableOf).filter((p) => p.length > 0), kind.value.aggregate.value.type, ordinal, period)
+                    ? withGivenPositions(deriveTableSeries(
+                        children.map(aggregableOf).filter((p) => p.length > 0), kind.value.aggregate.value.type, ordinal, period),
+                    parents?.get(row.key))
                     : [];
                 const own = folded.map((s) => ownPosition(s, ordinal, period));
                 if (!declared.some((s) => s.cells.length > 0)) {
@@ -652,8 +701,11 @@ export function derivePlan(
                     const members = children.filter(placeable);
                     const arms = drawnHeatArms(members);
                     const format = inheritedFormat(arms);
+                    // Its subtotals as e3 keeps them where it is given them (#1438), never its members' cells.
+                    const given = parents?.get(row.key);
                     groupStrips.set(row.key, variant("heat", {
-                        cells: deriveHeatCells(children.flatMap(drawnHeatCells), mode, ordinal, w, period, getSomeorUndefined(format)),
+                        cells: deriveHeatCells(given !== undefined ? givenHeatCells(given) : children.flatMap(drawnHeatCells),
+                            mode, ordinal, w, period, getSomeorUndefined(format)),
                         scale: scaleValue(inheritedScale(arms, mode)),
                         fold: variant("mean", null),
                         format,
