@@ -63,7 +63,8 @@ import {
     type CSSProperties, type KeyboardEvent, type MutableRefObject, type ReactNode, type Ref,
 } from "react";
 import { flushSync } from "react-dom";
-import { Box, Skeleton, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, Skeleton, type SystemStyleObject } from "@chakra-ui/react";
+import { useSlotStyles } from "../../theme/slot-styles.js";
 import { DockPane, type DockRailMark } from "../dock/index.js";
 import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { useDragLayerOptional } from "../../dnd/drag-layer";
@@ -359,7 +360,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
     const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, onKeyDown, loading, busy, liveFooter } = props;
     const minMain = props.minMain ?? MIN_MAIN;
     const loadingPitch = props.loadingPitch ?? DEFAULT_LOADING_PITCH;
-    const styles = useSlotRecipe({ key: "builderFrame" })() as Styles;
+    const styles = useSlotStyles("builderFrame") as Styles;
     const dragging = useDragLayerOptional()?.active ?? false;
 
     const startDock = start !== undefined && !isElementPane(start) ? start : undefined;

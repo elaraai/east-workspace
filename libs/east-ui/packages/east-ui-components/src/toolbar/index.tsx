@@ -77,9 +77,10 @@
  * ladder still ends with the history's step.
  */
 
-import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, memo, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { Box, useSlotRecipe } from "@chakra-ui/react";
+import { Box } from "@chakra-ui/react";
+import { useSlotStyles } from "../theme/slot-styles.js";
 import {
     FIT_TOLERANCE_PX, FLOOR_RANK, chooseFolds, estimateWidth, foldSequence, formsAt, onLadder, rowWidth as widthOfRow,
     type FoldItem, type FoldRange,
@@ -192,8 +193,8 @@ function foldItemOf(it: ToolbarItem, held: FoldRange | undefined): FoldItem {
  * Renders one row of items, each in the widest form that lets the row fit —
  * folded by one ladder over every item's steps (see the module doc).
  */
-export function Toolbar({ items, gap }: ToolbarProps) {
-    const styles = useSlotRecipe({ key: "toolbar" })({ gap });
+export const Toolbar = memo(function Toolbar({ items, gap }: ToolbarProps) {
+    const styles = useSlotStyles("toolbar", { gap });
     const list = items.filter(isItem);
     const [chosen, setChosen] = useState<ReadonlyMap<string, number>>(NO_FORMS);
     // A width change asks for a render; the render's layout effect measures and chooses.
@@ -431,4 +432,4 @@ export function Toolbar({ items, gap }: ToolbarProps) {
             {keeps}
         </Box>
     );
-}
+});

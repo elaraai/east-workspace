@@ -32,7 +32,7 @@
  * @packageDocumentation
  */
 
-import { useCallback, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Box, chakra, useRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -184,44 +184,49 @@ export function useKeySearchToolbarItem(search: KeySearchSource | undefined, opt
     // drawn again with its builder's toolbar, draws nothing again for it (#1398, CL9).
     const resetKey = search?.resetKey ?? "";
     const onInputChange = useCallback((text: string) => setTyped({ resetKey, text }), [resetKey]);
-    if (search === undefined) return undefined;
-    const label = options.label ?? "Search Records";
-    const active = typed.resetKey === search.resetKey && typed.text !== "";
-    const box = (
-        <DatasetKeySearch key={search.resetKey} label={options.label} keyType={search.keyType} onFind={search.find}
-            browseQuery={search.browseQuery} noMatchesText={search.noMatchesText}
-            onListRange={search.listRange} onJump={search.jump} onClear={search.clear} requery={search.requery} relist={search.relist}
-            onInputChange={onInputChange} />
-    );
-    const popup = (heading: string, controls?: ReactNode | ((close: () => void) => ReactNode)) => (
-        <SliceEditPopover open={open} onOpenChange={setOpen} label={heading} size="lg" initialFocusEl={initialFocusEl}
-            trigger={
-                // A 44px touch target on a coarse pointer (#346).
-                <chakra.button type="button" css={[chip({ tone: active ? "brand" : "neutral", numeric: true }), coarseHitArea({ position: true })]}
-                    aria-label={heading} data-key-search="icon" data-state={open ? "open" : "closed"}>
-                    <FontAwesomeIcon icon={faMagnifyingGlass} data-chip-icon="" />
-                    <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
-                </chakra.button>
-            }>
-            {typeof controls === "function" ? controls(() => setOpen(false)) : controls}
-            <BoxSlot stage={stage} where="popover" css={styles.searchSlot} slot={popoverSlot} />
-        </SliceEditPopover>
-    );
-    return {
-        key: "seek",
-        side: options.side,
-        forms: [
-            <BoxSlot stage={stage} where="box" css={styles.searchSlot} />,
-            popup(label),
-            ...(options.compact === undefined ? [] : [popup(options.compact.label, options.compact.controls)]),
-        ],
-        rank: options.rank ?? DEFAULT_RANK,
-        // While a query stands the item keeps its form while anything else in the row can fold; once nothing else can,
-        // the box folds to its icon, its query and its pick in the popover its icon opens (ruled 26 Oct 2026, "Find folds").
-        foldsLast: active,
-        // The one box, whatever form the item takes: its slots show it where they place it.
-        keep: createPortal(box, stage.container),
-    };
+    const { side, rank, label: given, compact } = options;
+    const active = search !== undefined && typed.resetKey === search.resetKey && typed.text !== "";
+    // The item, made again only as what it shows moves: a builder drawn again as each window lands hands its toolbar the
+    // same item, so the row draws and measures nothing again for it (#1398, CL9).
+    return useMemo(() => {
+        if (search === undefined) return undefined;
+        const label = given ?? "Search Records";
+        const box = (
+            <DatasetKeySearch key={search.resetKey} label={given} keyType={search.keyType} onFind={search.find}
+                browseQuery={search.browseQuery} noMatchesText={search.noMatchesText}
+                onListRange={search.listRange} onJump={search.jump} onClear={search.clear} requery={search.requery} relist={search.relist}
+                onInputChange={onInputChange} />
+        );
+        const popup = (heading: string, controls?: ReactNode | ((close: () => void) => ReactNode)) => (
+            <SliceEditPopover open={open} onOpenChange={setOpen} label={heading} size="lg" initialFocusEl={initialFocusEl}
+                trigger={
+                    // A 44px touch target on a coarse pointer (#346).
+                    <chakra.button type="button" css={[chip({ tone: active ? "brand" : "neutral", numeric: true }), coarseHitArea({ position: true })]}
+                        aria-label={heading} data-key-search="icon" data-state={open ? "open" : "closed"}>
+                        <FontAwesomeIcon icon={faMagnifyingGlass} data-chip-icon="" />
+                        <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />
+                    </chakra.button>
+                }>
+                {typeof controls === "function" ? controls(() => setOpen(false)) : controls}
+                <BoxSlot stage={stage} where="popover" css={styles.searchSlot} slot={popoverSlot} />
+            </SliceEditPopover>
+        );
+        return {
+            key: "seek",
+            side,
+            forms: [
+                <BoxSlot stage={stage} where="box" css={styles.searchSlot} />,
+                popup(label),
+                ...(compact === undefined ? [] : [popup(compact.label, compact.controls)]),
+            ],
+            rank: rank ?? DEFAULT_RANK,
+            // While a query stands the item keeps its form while anything else in the row can fold; once nothing else can,
+            // the box folds to its icon, its query and its pick in the popover its icon opens (ruled 26 Oct 2026, "Find folds").
+            foldsLast: active,
+            // The one box, whatever form the item takes: its slots show it where they place it.
+            keep: createPortal(box, stage.container),
+        };
+    }, [search, side, rank, given, compact, active, open, stage, styles, chip, initialFocusEl, onInputChange]);
 }
 
 /**
