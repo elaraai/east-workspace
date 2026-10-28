@@ -1379,7 +1379,10 @@ window through the seam with what it read:
 - **What it hands on.** The cells, encoded as the binding's fill takes them;
   the shading; each parent's subtotals by row key, which `derivePlan` draws in
   place of its children's, unfolded; a version the canvas's paged source names
-  in its revision.
+  in its revision. Beside them (`onWaiting`), while a read is in flight, the
+  rows waiting on it — each row with a run not held, as a pan, a zoom, a
+  scroll or a commit asks — which wash as a paged kind's unread rows do (the
+  plot busy, #1398 CL2) until their cells land: never a blank plot that fills.
 - **Finding the binding.** The seam names the binding by id; the indexed
   runtime keeps each binding it built by id (`indexedBindingOf`).
 - **Drafting.** A gesture drafts each row it touches read whole by key

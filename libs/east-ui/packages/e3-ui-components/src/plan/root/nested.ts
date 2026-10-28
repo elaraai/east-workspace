@@ -45,7 +45,10 @@
  * parent's subtotals by its row's key, which the derivation draws in place of
  * its children's (`derivePlan`); and a version that moves when any of them
  * does, so the canvas's paged source, which draws each window through the
- * seam's `rows`, is read again.
+ * seam's `rows`, is read again. Beside them, while a read is in flight, the
+ * rows waiting on it — each row with a run of tiles not held, as a pan, a
+ * zoom, a scroll or a commit asks — which wash as a paged kind's unread rows
+ * do (#1398, CL2) until their cells land.
  *
  * @packageDocumentation
  */
@@ -394,8 +397,19 @@ function wantedCells(args: PlanNestedArgs, lit: Literals, capped: ReadonlySet<st
 // The reader
 // ============================================================================
 
-/** A read whose counts or entries are still in flight. */
-const READING = "reading";
+/** A read whose counts or entries are still in flight: the rows waiting on it, by their keys. */
+interface Waiting {
+    readonly waiting: ReadonlySet<string>;
+}
+
+/** No row waiting on a read. */
+const NOTHING_WAITING: ReadonlySet<string> = new Set();
+
+/** The rows of some runs not held, waiting on their read. */
+const waitingOn = (cells: readonly Cell[]): Waiting => ({ waiting: new Set(cells.map((cell) => cell.row.key)) });
+
+/** Whether a read is in flight. */
+const isWaiting = (read: Read | Waiting): read is Waiting => "waiting" in read;
 
 /** What a read lands: what the canvas draws. */
 interface Read {
@@ -591,27 +605,27 @@ class NestedCellsReader {
      * past the cap found — their rows' totals, the same way.
      *
      * @param args - What the reader reads over
-     * @returns What the canvas draws; {@link READING} while a revision, a count or a read is in flight
+     * @returns What the canvas draws; while a revision, a count or a read is in flight, the rows waiting on it
      * @throws {Error} When no runtime here built the binding the seam names, or it lists no nested series index
      */
-    read(args: PlanNestedArgs): Read | typeof READING {
+    read(args: PlanNestedArgs): Read | Waiting {
         const binding = indexedBindingOf(args.seam.source);
         if (binding?.nested === undefined) {
             throw new Error(`The Plan's rows are read through '${args.seam.source}', which no indexed runtime here built with a nested series index`);
         }
+        const lit = literals(binding);
         const revision = binding.handle.revision();
-        if (revision.type !== "some") return READING;
+        if (revision.type !== "some") return waitingOn(wantedCells(args, lit, new Set(), undefined, this.derivesOf));
         if (this.held === undefined || !stringEqual(this.held.revision, revision.value)) {
             this.held = { revision: revision.value, spans: new Map(), found: new Map(), read: new Map(), counting: [], reading: [] };
         }
-        const lit = literals(binding);
         const index = binding.nested.index;
         const summaryTile = args.seam.summary.type === "some" ? args.seam.summary.value.type as RecordTile : undefined;
         const summary = summaryTile !== undefined && dividingTiles(args.resolution).includes(summaryTile) ? summaryTile : undefined;
         // The runs wanted, their parts not held counted; then the places past the cap, whose rows read their totals instead.
         const first = wantedCells(args, lit, new Set(), undefined, this.derivesOf);
         const firstParts = this.partsOf(first, lit);
-        if (!this.counted(binding, index, firstParts)) return READING;
+        if (!this.counted(binding, index, firstParts)) return waitingOn(firstParts.map((part) => part.cell));
         const items = new Map<string, number>();
         for (const cell of first) {
             if (cell.kind !== "items" && cell.kind !== "subtree") continue;
@@ -620,10 +634,10 @@ class NestedCellsReader {
         const capped = new Set([...items].filter(([, n]) => n > SCHEDULE_EVENT_CAP).map(([place]) => place));
         const wanted = capped.size === 0 ? first : wantedCells(args, lit, capped, summary, this.derivesOf);
         const parts = capped.size === 0 ? firstParts : this.partsOf(wanted, lit);
-        if (!this.counted(binding, index, parts)) return READING;
+        if (!this.counted(binding, index, parts)) return waitingOn(parts.map((part) => part.cell));
         // Every part's entries not held, in one request: their runs in the index's order, which a read of runs asks.
-        if (!this.entries(binding, index, parts)) return READING;
         const read = this.held.read;
+        if (!this.entries(binding, index, parts)) return waitingOn(parts.filter((part) => !read.has(part.text)).map((part) => part.cell));
         // Each run's tiles held now: those it held in its span, and its parts' — and nothing else.
         const spans = this.held.spans;
         const byCell = new Map<string, Part[]>();
@@ -845,15 +859,24 @@ class NestedCellsReader {
     }
 }
 
+/** What the reader hands on: what it read, and the rows waiting on a read in flight. */
+export interface PlanNestedCells {
+    /** What it read; `undefined` before the first read lands. */
+    readonly lead: PlanNestedLead | undefined;
+    /** The rows waiting on a read in flight, by their keys: the same set while they are the same rows. */
+    readonly waiting: ReadonlySet<string>;
+}
+
 /**
  * The rows' collections, read a cell at a time (see the module docs), in a
  * tracked evaluation: a search that lands reads again. A read in flight
- * leaves the last standing; one that throws leaves it too, and says why.
+ * leaves the last standing, and says which rows wait on it; one that throws
+ * leaves it too, and says why.
  *
  * @param args - What it reads over
- * @returns What it read; `undefined` before the first read lands
+ * @returns What it read, and the rows waiting on a read in flight
  */
-export function usePlanNestedCells(args: PlanNestedArgs): PlanNestedLead | undefined {
+export function usePlanNestedCells(args: PlanNestedArgs): PlanNestedCells {
     const [reader] = useState(() => new NestedCellsReader());
     const { seam, visible, index, view, range, buckets, resolution, previews } = args;
     const from = range?.from.getTime();
@@ -864,21 +887,27 @@ export function usePlanNestedCells(args: PlanNestedArgs): PlanNestedLead | undef
     }), [reader, seam, visible, index, view, buckets, resolution, previews, from, to]);
     const { result } = useTrackedEvaluation(read);
     const last = useRef<{ read: Read; lead: PlanNestedLead } | undefined>(undefined);
-    return useMemo((): PlanNestedLead | undefined => {
+    const waited = useRef(NOTHING_WAITING);
+    return useMemo((): PlanNestedCells => {
         if (!result.ok) console.error("[Plan] the rows' nested series could not be read:", result.error);
-        const reading = !result.ok || result.value === READING;
+        const pending = result.ok && isWaiting(result.value) ? result.value.waiting : NOTHING_WAITING;
+        // The rows waiting kept as they were while they are the same rows, so the canvas washes them once.
+        const waiting = pending.size === waited.current.size && [...pending].every((key) => waited.current.has(key)) ? waited.current : pending;
+        waited.current = waiting;
         const was = last.current;
-        if (reading) return was === undefined ? undefined : was.lead.reading ? was.lead : { ...was.lead, reading: true };
-        const next = result.value as Read;
+        if (!result.ok || isWaiting(result.value)) {
+            return { lead: was === undefined ? undefined : was.lead.reading ? was.lead : { ...was.lead, reading: true }, waiting };
+        }
+        const next = result.value;
         if (was !== undefined && sameRead(was.read, next)) {
-            if (!was.lead.reading) return was.lead;
+            if (!was.lead.reading) return { lead: was.lead, waiting };
             const lead = { ...was.lead, reading: false };
             last.current = { read: was.read, lead };
-            return lead;
+            return { lead, waiting };
         }
         const lead: PlanNestedLead = { ...next, version: (was?.lead.version ?? 0) + 1, reading: false };
         last.current = { read: next, lead };
-        return lead;
+        return { lead, waiting };
     }, [result]);
 }
 
@@ -898,29 +927,35 @@ export interface PlanNestedReaderProps {
     session?: (RecordDraftsSession & Pick<EditSession<unknown>, "subscribe" | "getSnapshot">) | undefined;
     /** Where what it read goes: called only when it moves. */
     onLead: (lead: PlanNestedLead | undefined) => void;
+    /** Where the rows waiting on a read in flight go, by their keys: called only when they move, and with none as it unmounts. */
+    onWaiting: (rows: ReadonlySet<string>) => void;
 }
 
 /**
  * The rows' collections, read in a component of its own: each search that
- * lands re-runs it alone, and it hands the canvas what it read only when that
- * moves.
+ * lands re-runs it alone, and it hands the canvas what it read, and the rows
+ * waiting on a read in flight, only when they move.
  *
  * @param props - What it reads over, and where it goes
  * @returns Nothing: it reads
  */
-export function PlanNestedReader({ seam, visible, index, scale, views, session, onLead }: PlanNestedReaderProps): null {
+export function PlanNestedReader({ seam, visible, index, scale, views, session, onLead, onWaiting }: PlanNestedReaderProps): null {
     const view = useSyncExternalStore(views.subscribe, views.get);
     const range = useMemo(() => eventReadRange(scale), [scale]);
     const buckets = useMemo(() => (scale === undefined || range === undefined ? undefined : bucketsOver(scale, range.from, range.to)), [scale, range]);
     const handle = indexedBindingOf(seam.source)?.handle;
     const previews = useRecordDrafts(session === undefined ? undefined : handle, session);
-    const lead = usePlanNestedCells({ seam, visible, index, view, range, buckets, resolution: scale?.resolution, previews });
-    const reported = useRef<PlanNestedLead | undefined>(undefined);
+    const { lead, waiting } = usePlanNestedCells({ seam, visible, index, view, range, buckets, resolution: scale?.resolution, previews });
+    const reported = useRef<PlanNestedCells>({ lead: undefined, waiting: NOTHING_WAITING });
     useLayoutEffect(() => {
-        if (reported.current === lead) return;
-        reported.current = lead;
-        onLead(lead);
+        const was = reported.current;
+        if (was.lead === lead && was.waiting === waiting) return;
+        reported.current = { lead, waiting };
+        if (was.lead !== lead) onLead(lead);
+        if (was.waiting !== waiting) onWaiting(waiting);
     });
+    // Gone, no row waits on it.
+    useLayoutEffect(() => () => onWaiting(NOTHING_WAITING), [onWaiting]);
     return null;
 }
 

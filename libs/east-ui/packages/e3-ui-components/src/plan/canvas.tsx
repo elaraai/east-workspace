@@ -205,6 +205,8 @@ const NO_KINDS_DRAWN: ReadonlySet<string> = new Set();
 const NOTHING_AWAITED: { readonly run: boolean; readonly cells: boolean } = { run: false, cells: false };
 /** No row in view yet. */
 const NO_ROWS_IN_VIEW: readonly PlanRowValue[] = [];
+/** No row waiting on a read. */
+const NO_ROWS_WAITING: ReadonlySet<RowKey> = new Set();
 /** No link ends read through their rows (#1438). */
 const NO_LINK_ENDS: { readonly focus: string; readonly ids: readonly string[] } = { focus: "", ids: [] };
 const NO_LINK_ROWS: ReadonlyMap<string, Uint8Array> = new Map();
@@ -460,6 +462,8 @@ export function usePlanCanvas({
     // component of its own (`PlanNestedReader`, in `provide`), each window drawn through the root's seam with what it read.
     const [nestedViews] = useState(createNestedViewStore);
     const [nestedLead, setNestedLead] = useState<PlanNestedLead | undefined>(undefined);
+    // The rows waiting on the nested series' read in flight (#1438): they wash as a paged kind's unread rows do.
+    const [nestedWaiting, setNestedWaiting] = useState<ReadonlySet<RowKey>>(NO_ROWS_WAITING);
     // A link end the cells do not hold (#1438): a run the links focus names on a row read lean, outside the cells read,
     // has its row read whole by its key — every such row in one request — and drawn whole in its lean row's place, the run
     // where its times put it. The rows asked stay whole while the focus lasts (`linkEnds`, set below once the rows draw).
@@ -606,11 +610,15 @@ export function usePlanCanvas({
     // the region wash under what they hold — never an empty row.
     const drawnResources = cellsRead?.drawn;
     const pagedSlot = events?.paged?.kind;
-    const unread = useMemo(() => (drawnResources === undefined || pagedSlot === undefined ? undefined : (row: PlanRowValue): boolean => {
+    const cellsUnread = useMemo(() => (drawnResources === undefined || pagedSlot === undefined ? undefined : (row: PlanRowValue): boolean => {
         if (row.id.type !== "entry" || row.id.value.path.length !== 1) return false;
         const resource = row.id.value.path[0]!;
         return row.id.value.series.startsWith(`${pagedSlot}.`) && !drawnResources.has(resource);
     }), [drawnResources, pagedSlot]);
+    // A row whose nested series' cells are read (#1438) — a pan, a zoom or a scroll to tiles not held, or a commit —
+    // is unread the same way until they land: washed under what it holds, never an empty plot.
+    const unread = useMemo(() => (nestedWaiting.size === 0 ? cellsUnread
+        : (row: PlanRowValue) => nestedWaiting.has(row.key) || cellsUnread?.(row) === true), [cellsUnread, nestedWaiting]);
     // The canvas body: the ribbons' positioning parent, the keyboard surface,
     // and what the narrow layout measures (§10, #570 — below the adaptive
     // contract's compact width the Plan is a review tool, cards and tabs; the
@@ -1627,7 +1635,7 @@ export function usePlanCanvas({
     const laidOut = useMemo(() => visible.map((v) => v.row), [visible]);
     const nestedReader = nestedSeam !== undefined
         ? <PlanNestedReader seam={nestedSeam} visible={laidOut} index={index} scale={scale} views={nestedViews}
-            session={editing.enabled ? editing.session as never : undefined} onLead={setNestedLead} />
+            session={editing.enabled ? editing.session as never : undefined} onLead={setNestedLead} onWaiting={setNestedWaiting} />
         : null;
     // Whether a run's request can carry the window whole (R24): read by a component of its own, beside the event kinds'
     // rows, while an optimiser is bound — over the range the canvas reads them, where each event's row is held.
