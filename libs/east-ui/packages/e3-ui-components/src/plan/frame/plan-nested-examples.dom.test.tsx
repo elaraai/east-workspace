@@ -8,18 +8,20 @@
  * mounts it, its rows read through the record's indexes and its collections
  * through the nested series index a cell at a time, its Plan built with no
  * refusal and every row drawn; the twelve machines read whole read no index.
- * The ledgers take a typed reading at once, every subtotal above it moving.
+ * The works' series are picked, each switched off and on from the library's
+ * Series tab. The ledgers take a typed reading at once, every subtotal above
+ * it moving.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
-import * as ex from "@elaraai/e3-ui/examples/plan-nested/plan-nested";
+import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import type { TreePath } from "@elaraai/e3-types";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
 import { instantKey, timeInstant } from "../instant.js";
 import { act, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 
-const h = planHarness({ "plan-nested/plan-nested": ex });
+const h = planHarness({ "plan/plan-nested": ex });
 
 /** A record's path, as e3's requests name it. */
 const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
@@ -44,6 +46,7 @@ const kindsOf = (dataset: string, index?: string) => h.requests().filter((reques
 
 describe("the nested series examples on e3 (#1439)", () => {
     const paged = [
+        { name: "planNestedAll", example: ex.planNestedAll, record: ex.planWorks, index: ex.planWorks.indexes.plan_works_in_time.name },
         { name: "planNestedMachines", example: ex.planNestedMachines, record: ex.machines, index: ex.machines.indexes.machines_in_time.name },
         { name: "planNestedHalls", example: ex.planNestedHalls, record: ex.halls, index: ex.halls.indexes.halls_in_time.name },
         { name: "planNestedAssemblies", example: ex.planNestedAssemblies, record: ex.assemblies, index: ex.assemblies.indexes.assemblies_in_time.name },
@@ -64,6 +67,31 @@ describe("the nested series examples on e3 (#1439)", () => {
             expect(h.requests("read", dataset)).toEqual([]);
         });
     }
+
+    test("planNestedAll: the Series tab lists every series, and switching one off takes its rows and on brings them back", async () => {
+        const { container: c } = await h.mount(ex.planNestedAll);
+        await settle();
+        const pane = slot(c, "start")!;
+        const tab = [...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!;
+        fireEvent.click(tab);
+        await settle();
+        const panel = () => pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+        const lines = () => [...panel().querySelectorAll<HTMLElement>("[data-slot='pickPanel'] button[aria-pressed]")]
+            .map((line) => [line.getAttribute("aria-label")!.replace(/^Toggle /, ""), line.getAttribute("aria-pressed") === "true"]);
+        expect(lines()).toEqual([["Jobs", true], ["Load", true], ["Crew hours", true], ["Parts", true]]);
+        const jobs = () => slot(c, "main")!.querySelector(rowAt(entry("works", "W-10001")));
+        expect(jobs()).not.toBeNull();
+        const toggle = async (name: string) => {
+            fireEvent.click([...panel().querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!);
+            await settle();
+        };
+        await toggle("Jobs");
+        await waitFor(() => expect(jobs()).toBeNull());
+        // On again, its rows come back above the load the view kept: at the top, the first works' jobs draw again.
+        await toggle("Jobs");
+        await act(async () => { c.querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!.scrollTo({ top: 0 }); });
+        await waitFor(() => expect(jobs()?.querySelector("[data-run]")).not.toBeNull());
+    });
 
     test("planNestedInline: the twelve machines read whole, no index asked", async () => {
         const { container: c } = await h.mount(ex.planNestedInline);

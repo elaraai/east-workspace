@@ -18,7 +18,7 @@ import {
     type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Data, nestedPartOf, planNestedIndex, planNestedRestatement } from "@elaraai/e3-ui/internal";
-import * as ex from "../plan-nested/plan-nested.examples.js";
+import * as ex from "./plan-nested.examples.js";
 
 type Machine = ValueTypeOf<typeof ex.Machine>;
 type Hall = ValueTypeOf<typeof ex.Hall>;

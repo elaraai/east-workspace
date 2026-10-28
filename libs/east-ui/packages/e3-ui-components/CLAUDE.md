@@ -1408,15 +1408,16 @@ window through the seam with what it read:
   so the moved item and every subtotal over it draw before Save.
 
 Tests: `plan/frame/plan-nested.dom.test.tsx`, on e3, over e3-ui's
-`plan-nested` examples. jsdom mounts the rows the canvas lays out first, in
+`plan-nested` examples (`test/plan/`, on the Plan's page). jsdom mounts the rows the canvas lays out first, in
 its index's order; page by an index whose order puts the rows compared first,
 and scroll by the canvas's row geometry under `emulateWindowScroll`. A Plan
 pans and zooms only through its Slice, which holds the canvas's own window
 when no source holds one. A Plan in a bounded frame (one with a toolbar)
 mounts no row in jsdom until the frame is laid out: lay it out with the
 Sheet's `boundFrame` and `frameScrolls` (`sheet/frame.test-utils.ts`), and
-scroll it with the frame's `scrollTo` (`plan/frame/plan-dense.dom.test.tsx`,
-whose stress run, `E3_UI_PERF=1`, times the dense works example at scale).
+scroll it with the frame's `scrollTo` (`plan/frame/plan-works.dom.test.tsx`,
+whose stress run, `E3_UI_PERF=1`, times `planNestedAll` over the works at
+scale: `E3_WORKS_ROWS` of them over ten years, paged by rows and by time).
 The benchmark (`plan/frame/plan-nested-perf.dom.test.tsx`, `E3_UI_PERF=1`)
 writes its own machines through the harness — `E3_NESTED_MACHINES`, the first
 `E3_NESTED_HEAVY` each with `E3_NESTED_HEAVY_JOBS` more jobs — and times

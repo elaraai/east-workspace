@@ -4,19 +4,21 @@
  *
  * @vitest-environment jsdom
  *
- * The dense works on a Plan (`planDenseIndexes`, #1438), on e3 itself: every
- * collection a works holds — jobs, alarms, weekly load, its crews' weekly hours
- * and a tree of parts — read a cell at a time through its nested series index.
+ * The works on a Plan (`planNestedAll`, #1438), on e3 itself: every series
+ * kind over every collection a works holds — jobs, alarms, load, its crews'
+ * hours and a tree of parts, sparse and spread evenly over ten years — read a
+ * cell at a time through its nested series index, paged by rows and by time.
  *
- * - Opening the hundred works the record holds reads them lean a page at a
- *   time by name, then the cells around the rows in view in one batch of
+ * - Opening the two hundred works the record holds reads them lean a page at
+ *   a time by name, then the cells around the rows in view in one batch of
  *   searches and one read of entries, never a works whole: each works' jobs
- *   draw.
- * - The stress run (`E3_UI_PERF=1`, never in CI; `E3_DENSE_ROWS`, ten thousand
- *   unless given) commits the task's works over two years through the patch
- *   door, then times opening, a scroll, a zoom to a year and a job dragged and
- *   saved, each with its requests, and prints them — and writes them, as a
- *   Markdown table, to `E3_UI_PERF_OUT` where it is given.
+ *   draw. A quarter on, every works in view draws jobs there too.
+ * - The stress run (`E3_UI_PERF=1`, never in CI; `E3_WORKS_ROWS`, two thousand
+ *   unless given) commits the works over ten years through the patch door,
+ *   then times opening, a scroll, a job dragged and saved, a quarter's pan, a
+ *   zoom to the year and a pan three years back, each with its requests, and
+ *   prints them — and writes them, as a Markdown table, to `E3_UI_PERF_OUT`
+ *   where it is given.
  */
 
 import { appendFileSync } from "node:fs";
@@ -25,7 +27,7 @@ import { fireEvent, waitFor, within } from "@testing-library/react";
 import { East, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { layOut } from "@elaraai/east-ui-components/testing";
-import * as ex from "@elaraai/e3-ui/examples/plan/plan-records";
+import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
@@ -34,15 +36,15 @@ import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { act, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 
-const h = planHarness({ "plan/plan-records": ex });
+const h = planHarness({ "plan/plan-nested": ex });
 
 /** A dataset's path as e3's requests name it: its fields, joined by dots. */
 const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
 /** The works' record, as e3's requests name it. */
-const WORKS = pathText(ex.planDenseWorks.path as TreePath);
+const WORKS = pathText(ex.planWorks.path as TreePath);
 /** The works' index by name, which pages them lean, and their nested series index. */
-const BY_NAME = ex.planDenseWorks.indexes.plan_dense_by_name;
-const IN_TIME = ex.planDenseWorks.indexes.plan_dense_in_time;
+const BY_NAME = ex.planWorks.indexes.plan_works_by_name;
+const IN_TIME = ex.planWorks.indexes.plan_works_in_time;
 
 /** Whether a request reads the works through one of their indexes. */
 const through = (index: { readonly name: string }) => (request: E3Request) =>
@@ -75,9 +77,32 @@ async function scrollRows(c: HTMLElement, top: number) {
     await act(async () => { frameOf(c).scrollTo({ top }); });
 }
 
-describe("the dense works on a Plan (#1438)", () => {
+/** Pans the canvas a bucket at a time — `]` on, `[` back — as a planner's keys do, from the first works' row. */
+async function pan(c: HTMLElement, key: "[" | "]", times: number) {
+    for (let i = 0; i < times; i++) {
+        await act(async () => { fireEvent.keyDown(worksRow(c, "W-10001")!, { key }); });
+        await settle();
+    }
+}
+
+/** Zooms the canvas to a resolution through the toolbar's segment: the works' Plan lists week, month, quarter and year. */
+async function zoomTo(c: HTMLElement, resolution: "week" | "month" | "quarter" | "year") {
+    const seg = slot(c, "toolbar")!.querySelector<HTMLElement>("[data-plan-seg='resolution']")!;
+    const radio = [...seg.querySelectorAll<HTMLElement>("[role='radio']")][["week", "month", "quarter", "year"].indexOf(resolution)]!;
+    await act(async () => {
+        fireEvent.mouseDown(radio, { button: 0 });
+        fireEvent.click(radio);
+    });
+    await settle();
+}
+
+/** The works rows mounted, and whether each draws a job. */
+const mountedWorks = (c: HTMLElement, keys: ReadonlyMap<string, string>) => [...slot(c, "main")!.querySelectorAll<HTMLElement>("[data-plan-row]")]
+    .flatMap((row) => { const key = keys.get(row.getAttribute("data-plan-row")!); return key === undefined ? [] : [[key, row.querySelector("[data-run]") !== null] as const]; });
+
+describe("the works on a Plan (#1438)", () => {
     test("opens on the works lean by name, then one batch of the cells' searches and one read of their entries: each works' jobs draw, and no works is read whole", async () => {
-        const { container } = await h.mount(ex.planDenseIndexes);
+        const { container } = await h.mount(ex.planNestedAll);
         await settle();
         expect(h.requests("page", WORKS).every((request) => through(BY_NAME)(request) && request.query.get("join") !== "true")).toBe(true);
         const asked = askedOf(IN_TIME);
@@ -88,6 +113,16 @@ describe("the dense works on a Plan (#1438)", () => {
         expect(h.requests("read", WORKS)).toEqual([]);
         expect(worksRow(container, "W-10001")!.querySelectorAll("[data-run]").length).toBeGreaterThan(0);
     });
+
+    test("a quarter on, every works in view draws jobs there: the works are sparse, and spread evenly over their years", async () => {
+        const { container } = await h.mount(ex.planNestedAll);
+        await settle();
+        const keys = worksKeys(200n);
+        await pan(container, "]", 13);
+        const mounted = mountedWorks(container, keys);
+        expect(mounted.length).toBeGreaterThan(0);
+        expect(mounted.filter(([, drawn]) => !drawn)).toEqual([]);
+    });
 });
 
 /** A phase of the stress run: its time, and the requests it made of the works. */
@@ -97,9 +132,9 @@ interface Phase {
     readonly requests: string;
 }
 
-describe.skipIf(process.env["E3_UI_PERF"] !== "1")("the dense works at scale (#1438; E3_UI_PERF=1, never in CI)", () => {
-    test("the task's works over two years: opening, a scroll, a zoom to a year, and a job dragged and saved", { timeout: 3_600_000 }, async () => {
-        const rows = BigInt(process.env["E3_DENSE_ROWS"] ?? "10000");
+describe.skipIf(process.env["E3_UI_PERF"] !== "1")("the works at scale (#1438; E3_UI_PERF=1, never in CI)", () => {
+    test("the works over ten years: opening, a scroll, a job dragged and saved, a quarter's pan, a zoom to the year and a pan three years back", { timeout: 3_600_000 }, async () => {
+        const rows = BigInt(process.env["E3_WORKS_ROWS"] ?? "2000");
         const phases: Phase[] = [];
         let mark = h.requests().length;
         const timed = async (phase: string, run: () => Promise<void>) => {
@@ -112,12 +147,12 @@ describe.skipIf(process.env["E3_UI_PERF"] !== "1")("the dense works at scale (#1
             console.log(`${phase}: ${phases.at(-1)!.ms} ms; ${phases.at(-1)!.requests}`);
         };
         const keys = worksKeys(rows);
-        await timed(`commit ${rows} works over two years`, async () => {
-            await h.patch(ex.planDenseWorks, East.compile(ex.generateDenseWorksAll, [])(rows, 104n));
+        await timed(`commit ${rows} works over ten years`, async () => {
+            await h.patch(ex.planWorks, East.compile(ex.generateWorksAll, [])(rows, 522n));
         });
         let c!: HTMLElement;
         await timed("open", async () => {
-            c = (await h.mount(ex.planDenseIndexes, { drag: true })).container;
+            c = (await h.mount(ex.planNestedAll, { drag: true })).container;
             await waitFor(() => expect(worksRow(c, "W-10001")?.querySelectorAll("[data-run]").length ?? 0).toBeGreaterThan(0), { timeout: 600_000 });
             await settle();
         });
@@ -134,35 +169,17 @@ describe.skipIf(process.env["E3_UI_PERF"] !== "1")("the dense works at scale (#1
             await waitFor(() => expect(drawnWorks(c, keys)).toContain("W-10001"), { timeout: 600_000 });
             await settle();
         });
-        await timed("zoom to a year", async () => {
-            const seg = slot(c, "toolbar")!.querySelector<HTMLElement>("[data-plan-seg='resolution']")!;
-            const radio = [...seg.querySelectorAll<HTMLElement>("[role='radio']")][3]!;
-            await act(async () => {
-                fireEvent.mouseDown(radio, { button: 0 });
-                fireEvent.click(radio);
-            });
-            await settle();
-        });
-        await timed("back to the week", async () => {
-            const seg = slot(c, "toolbar")!.querySelector<HTMLElement>("[data-plan-seg='resolution']")!;
-            const radio = [...seg.querySelectorAll<HTMLElement>("[role='radio']")][0]!;
-            await act(async () => {
-                fireEvent.mouseDown(radio, { button: 0 });
-                fireEvent.click(radio);
-            });
-            await settle();
-        });
         // The first works' first job in view, dragged a week on: its works read whole once, then saved by key.
         const job = worksRow(c, "W-10001")!.querySelector<HTMLElement>("[data-run]")!;
         const moved = job.getAttribute("data-run")!;
-        const before = ((await h.read(ex.planDenseWorks)) as ReadonlyMap<string, ValueTypeOf<typeof ex.PlanDenseWorks>>).get("W-10001")!;
+        const before = ((await h.read(ex.planWorks)) as ReadonlyMap<string, ValueTypeOf<typeof ex.Works>>).get("W-10001")!;
         const rowsRead = h.requests("rows", WORKS).length;
         await timed("drag a job a week on", async () => {
             const plot = worksRow(c, "W-10001")!.querySelector("[data-plan-plot]")!;
-            // The eight weeks in view across 800px: a week is 100px.
+            // The thirteen weeks in view across 800px.
             layOut(new Map([[plot, { left: 200, top: 0, width: 800, height: 32 }]]));
             const x = 200 + Number(job.getAttribute("data-plan-frac")) * 800 + 5;
-            const letGo = await carry(job, { x, y: 16 }, { x: x + 100, y: 16 });
+            const letGo = await carry(job, { x, y: 16 }, { x: x + 800 / 13, y: 16 });
             await letGo();
             await settle();
         });
@@ -172,9 +189,20 @@ describe.skipIf(process.env["E3_UI_PERF"] !== "1")("the dense works at scale (#1
             await settle();
         });
         // e3 holds the job a week on, and every other job of the works as it was.
-        const after = ((await h.read(ex.planDenseWorks)) as ReadonlyMap<string, ValueTypeOf<typeof ex.PlanDenseWorks>>).get("W-10001")!;
+        const after = ((await h.read(ex.planWorks)) as ReadonlyMap<string, ValueTypeOf<typeof ex.Works>>).get("W-10001")!;
         expect(after.jobs.get(moved)!.start.getTime() - before.jobs.get(moved)!.start.getTime()).toBe(7 * 86_400_000);
         for (const [id, held] of before.jobs) if (id !== moved) expect(after.jobs.get(id)).toEqual(held);
+        // Across time: a quarter on, a week at a time; the ten years at the year, and three of them back; the week again.
+        await timed("pan a quarter on, a week at a time", async () => {
+            await pan(c, "]", 13);
+            await waitFor(() => expect(mountedWorks(c, keys).filter(([, drawn]) => !drawn)).toEqual([]), { timeout: 600_000 });
+        });
+        await timed("zoom to the year", async () => { await zoomTo(c, "year"); });
+        await timed("pan three years back", async () => { await pan(c, "[", 3); });
+        await timed("back to the week", async () => {
+            await zoomTo(c, "week");
+            await waitFor(() => expect(mountedWorks(c, keys).filter(([, drawn]) => !drawn)).toEqual([]), { timeout: 600_000 });
+        });
         console.table(phases);
         const out = process.env["E3_UI_PERF_OUT"];
         if (out !== undefined) {

@@ -16,7 +16,7 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { DictType, East, StringType, decodeBeast2For, encodeBeast2For, equalFor, type EastIR, type ValueTypeOf } from "@elaraai/east";
+import { DictType, East, StringType, decodeBeast2For, encodeBeast2For, equalFor, match, type EastIR, type ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import { deriveManifest } from "@elaraai/e3-ui/internal";
 import * as ex from "./plan-nested.examples.js";
@@ -33,6 +33,30 @@ function measuresOf(measures: ReadonlyMap<string, Measure>): Measure[] {
 }
 
 describe("the nested series records", () => {
+    test("the works over ten years, sparse and spread evenly: 104 jobs, 40 alarms, load every four weeks, two crews' quarterly hours and three parts each", () => {
+        const works = East.compile(ex.generateWorksAll, [])(2n, 522n);
+        assert.deepEqual([...works.keys()], ["W-10001", "W-10002"]);
+        for (const one of works.values()) {
+            assert.deepEqual([one.jobs.size, one.alarms.size, one.load.size, one.crews.size], [104, 40, 130, 2]);
+            for (const crew of one.crews.values()) assert.equal(crew.hours.size, 40);
+            // A top part over two, each a job every seventeen weeks from its own first week.
+            const [top] = [...one.parts.values()];
+            assert.equal(top!.parts.size, 2);
+            for (const part of [top!, ...top!.parts.values()]) assert.ok(part.jobs.size >= 30 && part.jobs.size <= 31, `${part.name}: ${part.jobs.size} jobs`);
+        }
+        // A works is a function of its number alone: the record's two hundred are the first two hundred of any more.
+        const more = East.compile(ex.generateWorksAll, [])(3n, 522n);
+        assert.ok(equalFor(ex.WorksByKey)(works, new Map([...more].slice(0, 2))));
+        assert.equal(ex.planWorks.default?.size, 200);
+    });
+
+    test("the works' task, at its inputs' defaults, makes the works the record starts with: a page runs every task of its area as the area starts", () => {
+        const start = (input: typeof ex.planWorksRows | typeof ex.planWorksWeeks) => match(input.source!, { value: (value) => value, file: () => assert.fail(`${input.name} starts from a file`) });
+        const works = ex.planWorks.default!;
+        assert.equal(start(ex.planWorksRows), BigInt(works.size), "the task makes no more works than the record holds");
+        assert.ok(equalFor(ex.WorksByKey)(East.compile(ex.generateWorksAll, [])(start(ex.planWorksRows), start(ex.planWorksWeeks)), works));
+    });
+
     test("a thousand machines, each with 80 jobs, 10 stops, 10 alarms and 52 weeks of load and output: 204,000 items", () => {
         const machines = East.compile(ex.generateMachines, [])(1_000n);
         assert.equal(machines.size, 1_000);
@@ -82,6 +106,7 @@ describe("the nested series records", () => {
 
 describe("the Plans over them (#1439)", () => {
     const paged = [
+        { example: ex.planNestedAll, record: ex.planWorks, edits: true },
         { example: ex.planNestedMachines, record: ex.machines, edits: true },
         { example: ex.planNestedMachinesPhone, record: ex.machines, edits: true },
         { example: ex.planNestedHalls, record: ex.halls, edits: false },

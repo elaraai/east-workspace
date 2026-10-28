@@ -219,13 +219,15 @@ describe("the examples' package step", () => {
         assert.deepEqual([...packages.keys()], [...new Set(keys.map(exampleArea))]);
     });
 
-    test("packages the nested series area with its five records and their indexes, and nothing of another area's (#1439)", async () => {
-        const nested = examplesAreaPackages(await loadExampleModules()).get("plan-nested");
-        assert.ok(nested !== undefined, "the nested series examples are an area of their own");
-        assert.equal(nested.name, "e3-ui-examples-plan-nested");
-        assert.deepEqual(datasetsOf(nested), [".records.assemblies", ".records.halls", ".records.ledgers", ".records.machines", ".records.machines_few"]);
-        assert.deepEqual(Object.keys(nested.records).sort(), ["assemblies", "halls", "ledgers", "machines", "machines_few"]);
-        assert.deepEqual(Object.keys(nested.records.ledgers!.indexes).sort(), ["ledgers_by_site", "ledgers_in_time"]);
-        assert.deepEqual(Object.keys(nested.records.machines!.indexes).sort(), ["machines_by_name", "machines_by_site_status", "machines_in_time"]);
+    test("packages the nested series examples with the Plan's, their records and their indexes in the Plan's area (#1439)", async () => {
+        const packages = examplesAreaPackages(await loadExampleModules());
+        assert.equal(packages.get("plan-nested"), undefined, "the nested series examples are the Plan's, on its page");
+        const plan = packages.get("plan");
+        assert.ok(plan !== undefined);
+        assert.equal(plan.name, "e3-ui-examples-plan");
+        const nested = ["assemblies", "halls", "ledgers", "machines", "machines_few"];
+        assert.deepEqual(Object.keys(plan.records).filter((name) => nested.includes(name)).sort(), nested);
+        assert.deepEqual(Object.keys(plan.records.ledgers!.indexes).sort(), ["ledgers_by_site", "ledgers_in_time"]);
+        assert.deepEqual(Object.keys(plan.records.machines!.indexes).sort(), ["machines_by_name", "machines_by_site_status", "machines_in_time"]);
     });
 });
