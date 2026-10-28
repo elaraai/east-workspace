@@ -308,16 +308,29 @@ interface Level {
     readonly collections: ReadonlyMap<string, PlanNestedDeclaration> | undefined;
 }
 
-/** A collection a series reads by name, how, and where. */
-interface Use {
+/**
+ * A collection a series reads by name, how, and where (#1435): what the
+ * checks hold to the index, and what a Plan reads of it a cell at a time
+ * (#1438).
+ */
+export interface PlanNestedRead {
+    /** The series' key. */
     readonly series: string;
+    /** The collection's place: its field names from the top row down. */
     readonly place: readonly string[];
+    /** Its field. */
     readonly field: string;
+    /** How the index declares it there; none where it declares nothing. */
     readonly declared: PlanNestedDeclaration | undefined;
+    /** The series' read by name of it; none for a step-down's rows or a tree's field. */
     readonly read: PlanSeriesRead | undefined;
+    /** What is read: items, values, a step-down's rows, or a tree's. */
     readonly kind: "items" | "values" | "rows" | "recursive";
+    /** The rollup a parent subtotals its values by; none where no parent does. */
     readonly subtotal: PlanNestedRollup | undefined;
+    /** What a span's runs roll up into its bands by; none where they do not. */
     readonly rolledUp: string | undefined;
+    /** The entry type the series reads it of. */
     readonly rowType: EastType | undefined;
 }
 
@@ -344,7 +357,7 @@ function declarationCode(d: PlanNestedDeclaration): string {
     }
 }
 /** The builder a read by name asks of the index. */
-function builderFor(use: Use): string {
+function builderFor(use: PlanNestedRead): string {
     if (use.read?.read.kind === "items") return `items(${timesCode(use.read.read.times)})`;
     if (use.kind === "values") return "values()";
     if (use.kind === "rows") return "rows({ … })";
@@ -406,7 +419,7 @@ function checkFunctions(facts: PlanSeriesNestFacts, level: Level, context: PlanN
  * and lists, each at its own level: a read with its subtotal and its rollup,
  * a tree's field, a step-down's rows.
  */
-function usesOf(facts: PlanSeriesNestFacts, level: Level, stepAggregate: string | undefined, out: Use[], context: PlanNestedContext): void {
+function usesOf(facts: PlanSeriesNestFacts, level: Level, stepAggregate: string | undefined, out: PlanNestedRead[], context: PlanNestedContext): void {
     const nest = facts.nest;
     if (nest === undefined) return;
     checkFunctions(facts, level, context);
@@ -445,7 +458,7 @@ function usesOf(facts: PlanSeriesNestFacts, level: Level, stepAggregate: string 
 }
 
 /** Refuses a read by name the index does not serve as it is written. */
-function checkUse(use: Use, index: PlanNestedIndex): void {
+function checkUse(use: PlanNestedRead, index: PlanNestedIndex): void {
     const place = placeOf(use.place);
     const series = `Plan: series "${use.series}"`;
     const declared = use.declared;
@@ -532,24 +545,26 @@ function checkResolutions(series: string, index: PlanNestedIndex, resolutions: r
  *
  * @param series - The `series` input
  * @param context - The rows source's nested series index, and the axis
+ * @returns What the series read, each held to the index: what a Plan reads of it a cell at a time (#1438); none for an
+ *   East expression of a series list
  * @throws {Error} The first refusal, in its words: a function mapping a collection of the paged rows, or one the Plan
  *   cannot see into; a read by name with no nested series index; a read of a collection the index does not declare, by
  *   other times than it files by, or as values where it declares items or items where values; a subtotal by a rollup it
  *   does not keep, of values drawn as another number, or at a resolution finer than its tile; runs rolled up that it
  *   files under no parent; a read by name on an axis other than time; and an index keeping no totals
  */
-export function checkPlanNested(series: unknown, context: PlanNestedContext): void {
-    if (!Array.isArray(series)) return;
+export function checkPlanNested(series: unknown, context: PlanNestedContext): readonly PlanNestedRead[] {
+    if (!Array.isArray(series)) return [];
     const { index } = context;
     const top: Level = { place: [], collections: index?.collections };
-    const uses: Use[] = [];
+    const uses: PlanNestedRead[] = [];
     for (const one of series) {
         const facts = planSeriesNestOf(one);
         if (facts !== undefined) usesOf(facts, top, undefined, uses, context);
     }
     const byName = uses.filter((use) => use.kind === "items" || use.kind === "values");
     const first = byName[0];
-    if (first === undefined) return;
+    if (first === undefined) return uses;
     if (index === undefined) {
         throw new Error(`Plan: series "${first.series}" reads "${placeOf(first.place)}" a cell at a time, and the rows source lists no nested series ` +
             `index — declare index.nested({ collections: { ${first.field}: index.nested.${builderFor(first)} }, ` +
@@ -566,4 +581,5 @@ export function checkPlanNested(series: unknown, context: PlanNestedContext): vo
     }
     const subtotalled = uses.find((use) => use.subtotal !== undefined);
     if (subtotalled !== undefined && context.resolutions !== undefined) checkResolutions(subtotalled.series, index, context.resolutions);
+    return uses;
 }

@@ -759,6 +759,34 @@ rows may still map a collection in one; `edit` needs the named read.
   a table's `edit` beside cells given as a function, or over a draw giving
   another number than each value.
 
+## A cell at a time (#1438)
+
+A Plan over a record's paged rows, beside their nested series index, reads
+the rows lean and each collection a cell at a time through the index: only
+the cells in view, at the resolution shown. Its root carries what it reads of
+the index, and the record's binding carries what the reader needs of e3.
+
+### The wire
+
+`PlanRootType` (`Plan.Types.Root`) gains `nested: Option<PlanNestedType>`:
+none, except over a record's rows paged beside their nested series index.
+`PlanNestedType` carries the index by name, the binding it is read through by
+its id (the record's, whatever a Slice narrows of it), the index's tile and
+summary tile, what each series reads of it (`PlanNestedUseType`: the
+collection's place, the levels its items are filed at, how its rows shade past
+the cap, how its parents read) and `rows`, the function that draws a window of
+lean rows filled with the cells read, the drafted rows in their places, and the
+rows' shading past the cap (`PlanNestedShadingType`).
+
+A record's indexed binding (`Data.bindPaged(record, { indexes })`, east-ui's
+`IndexedSourceType`) gains `maintenance` (#1437), each nested series and
+summary index's maintenance for one row, and `fill`, e3's fill of a page of
+lean rows with the items of a cell read. A record Slice's handle
+(`RecordSliceHandleType`) gains `source`, the binding it narrows.
+
+A `Plan` value serialized before them does not decode against them; stored
+`UIComponentType` values re-emit. No author changes a line.
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:

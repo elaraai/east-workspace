@@ -320,6 +320,10 @@ export {
     createEventBlocks, createEventPaged, eventDrawsOf, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventReadsType,
     PlanEventShadeType, PlanEventShadingType, PlanEventShownType,
 } from './plan/event-rows.js';
+// What a Plan over paged rows reads of their nested series index (#1438): the
+// seam on its root, what each series reads of the index, and the rows'
+// shading past the cap.
+export { PlanNestedShadingType, PlanNestedType, PlanNestedUseType } from './plan/nested-read.js';
 // The Plan's library pane on the wire (#1195): its tabs, an author's tab's
 // cards, the Series tab's lines and what hiding each hides, and the ids a
 // viewer's hidden set holds.

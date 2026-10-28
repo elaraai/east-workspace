@@ -88,7 +88,8 @@ import {
 import { orderedPlanSource } from "./ordered-source.js";
 import { PlanRootType } from "./ir.js";
 import { WINDOWLESS_AXES, axisKindOf, axisResolutionsOf } from "./builders.js";
-import { checkPlanNested, nestedPartOf, planNestedIndex } from "./nested-checks.js";
+import { checkPlanNested, nestedPartOf, planNestedIndex, type PlanNestedRead } from "./nested-checks.js";
+import { PlanNestedType, planNestedUses } from "./nested-read.js";
 import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesType, type PlanSeriesInput } from "./series.js";
 
 
@@ -371,13 +372,15 @@ export type PlanCanvasOptions = Omit<PlanConfig, "data"> & { data?: PlanConfig["
  * @param config - The canvas's configuration, `data` optional
  * @param extra - The fixed blocks after `data`'s: a Plan's `rows`
  * @param chrome - The chrome of the Plan's `Slice.bindRecords`; `none` with no slice
+ * @param rowsNested - The nested part of the Slice's `rows` source, where it gives the canvas its rows
+ * @param rowsBinding - The binding the Slice's `rows` source narrows, there: what its nested index is read through
  * @returns An East expression of {@link PlanRootType}
  * @throws {Error} As {@link createPlanRoot} does — an axis stating no window is taken beside a slice, a source of which
  *   holds the window in its `range`; and with no `data`, a `series`, `pick` or `editing`, each of which reads it
  * @internal
  */
 export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlocksType> | undefined,
-    chrome: option<ExprType<RecordSlicesChromeType>>, rowsNested?: EastType): ExprType<PlanRootType> {
+    chrome: option<ExprType<RecordSlicesChromeType>>, rowsNested?: EastType, rowsBinding?: ExprType<StructType>): ExprType<PlanRootType> {
     // A canvas is DEFINED as data + series (+ the root resolvers) — there
     // is no rows-authoring channel; the IR's inline arm is what inline
     // application collapses to. A Plan of event kinds or `rows` alone has no data.
@@ -425,12 +428,13 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     // whole (`Data.bindPaged(dataset)`) are read as #1436 reads them.
     const nested = config.data === undefined ? undefined
         : rowsNested ?? nestedPartOf(Expr.type(East.value(config.data as SubtypeExprOrValue<EastType>) as Expr) as EastType);
+    let reads: readonly PlanNestedRead[] = [];
     if (nested !== undefined && config.series !== undefined) {
-        checkPlanNested(config.series, { index: planNestedIndex(nested), axisKind: axisKindOf(config.axis), resolutions: axisResolutionsOf(config.axis) });
+        reads = checkPlanNested(config.series, { index: planNestedIndex(nested), axisKind: axisKindOf(config.axis), resolutions: axisResolutionsOf(config.axis) });
     }
     if (config.series !== undefined) checkSeries(config.series, "Plan", axisKindOf(config.axis));
     const data = config.data;
-    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome);
+    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome, undefined);
     // A pick feeds the canvas its SURVIVING series; everything downstream sees
     // one series input either way.
     const seriesInput: PlanSeriesInput = config.pick !== undefined
@@ -480,7 +484,20 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
         },
     ) as unknown as ExprType<PlanRowsType>;
     const editing = config.editing === undefined ? undefined : buildPlanEditing(resolved, seriesInput, config.editing);
-    return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome);
+    // Paged beside their nested series index (#1438): the seam the reader reads the index's cells through, and the window
+    // its rows are drawn from with what it read — the binding's, or the one the Slice's `rows` source narrows.
+    const index = planNestedIndex(nested);
+    const binding = (rowsBinding ?? config.data) as unknown as { id: ExprType<StringType>; fill: { unwrap(): ExprType<EastType> } };
+    const uses = index === undefined ? [] : planNestedUses(reads, index);
+    const nestedSeam = index === undefined || ordered === undefined ? undefined : East.value({
+        index: index.name,
+        source: binding.id,
+        tile: variant(index.tile, null),
+        summary: index.summary === undefined ? none : some(variant(index.summary, null)),
+        uses,
+        rows: ordered.nestedRows(seriesInput, binding.fill.unwrap(), new Set(uses.filter((use) => use.shade.type === "booked").map((use) => use.series))),
+    } as never, PlanNestedType) as ExprType<PlanNestedType>;
+    return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome, nestedSeam);
 }
 
 /**
@@ -490,10 +507,11 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
  * @param rowsValue - Its rows: inline blocks, or a paged source of them
  * @param editing - Its editing session over `data`, if it has one
  * @param chrome - The chrome of the Plan's `Slice.bindRecords`; `none` with no slice
+ * @param nested - What its paged rows' reader reads of their nested series index, if it reads it (#1438)
  * @returns An East expression of {@link PlanRootType}
  */
 function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, editing: ExprType<PlanEditingType> | undefined,
-    chrome: option<ExprType<RecordSlicesChromeType>>): ExprType<PlanRootType> {
+    chrome: option<ExprType<RecordSlicesChromeType>>, nested: ExprType<PlanNestedType> | undefined): ExprType<PlanRootType> {
     const style = config.style;
     const styleValue = style !== undefined
         ? some(East.value({
@@ -529,6 +547,7 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
             ? some(East.value((config.pick as unknown as ExprType<StructType<{ pick: PickBindType }>>).pick, PickBindType))
             : none,
         slice:    chrome,
+        nested:   nested !== undefined ? some(nested) : none,
         footer:   (config.footer ?? []).map(f => East.value({
             text: f.text,
             tone: f.tone !== undefined ? some(resolveTag(f.tone, StatusValueType)) : none,

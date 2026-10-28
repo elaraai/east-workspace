@@ -12,8 +12,9 @@
  *
  * Each handle has the shape its binding declares and the data the runtimes
  * give it — a record's and a function's descriptor, a dataset's paths, a paged
- * source's identity and whether it searches, an indexed source's declarations
- * — and every function in it refuses.
+ * source's identity and whether it searches, an indexed source's declarations,
+ * a Slice's narrowing of one (east-ui's) and the binding it narrows — and every
+ * function in it refuses.
  *
  * @packageDocumentation
  */
@@ -21,6 +22,7 @@
 import { fromEastTypeValue, none, some, type EastType, type EastTypeValue } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import type { TreePath } from "@elaraai/e3-types";
+import { LiveSourceType, RecordSliceHandleType, recordSliceBindPlatform } from "@elaraai/east-ui/internal";
 import {
     bindIndexedPagedPlatformFn, bindPagedPinnedPlatformFn, bindPagedPlatformFn, bindPlatformFn, funcBindPlatformFn, recordBindPlatformFn,
 } from "@elaraai/e3-ui/internal";
@@ -137,5 +139,23 @@ const functions = funcBindPlatformFn.implement((_handleType: EastTypeValue) => (
     return { ...Object.fromEntries(methods.map((method) => [method, refusal(`${what}.${method}`)])), binding: { name } };
 });
 
-/** Every binding e3-ui declares, each refusing to read, write or call: the platform its specs compile against. */
-export const refusingPlatform: PlatformFunction[] = [records, datasets, released, pinned, indexed, functions];
+/**
+ * `Slice.bindRecords`' binding of each of its sources (east-ui's): the handle
+ * its type declares, carrying what the runtime carries of the binding it
+ * narrows — its declarations (#1435) and the binding itself (#1438) — and its
+ * narrowed rows, a live source named as the runtime names it.
+ */
+const slices = recordSliceBindPlatform.implement((...types: EastTypeValue[]) => (keyArg: unknown, sourceArg: unknown, config: unknown) => {
+    const [sourceType, collection, metadata, nested] = types.map(fromEastTypeValue) as [EastType, EastType, EastType, EastType];
+    const key = keyArg as string;
+    const source = sourceArg as { id: string; recordId: string; indexes: unknown; nested: unknown };
+    const what = `Slice.bindRecords(${key})`;
+    return {
+        ...refusingFields(RecordSliceHandleType(collection, metadata, nested, sourceType), what),
+        key, config, sourceId: source.recordId, indexes: source.indexes, nested: source.nested, source,
+        data: { ...refusingFields(LiveSourceType(collection), `${what}.data`), id: `${source.id}@slice:${key}`, seek: some(refusal(`${what}.data.seek`)) },
+    };
+});
+
+/** Every binding e3-ui declares, and the Slice's, each refusing to read, write or call: the platform its specs compile against. */
+export const refusingPlatform: PlatformFunction[] = [records, datasets, released, pinned, indexed, functions, slices];

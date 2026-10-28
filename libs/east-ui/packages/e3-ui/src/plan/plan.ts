@@ -638,11 +638,14 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         const narrowed = East.value(new Map(sources.names.map((name) => [name, bound.keys[name]])) as never, NarrowedType) as ExprType<typeof NarrowedType>;
         const data = bound.data[ROWS] ?? canvas.data;
         // The canvas first, then the event kinds' rows, then the library: each refuses in that order.
+        // The binding the `rows` source narrows (#1438): what the canvas reads its rows' nested series index through.
+        const rowsBinding = pagesRows ? (bound.parts[ROWS] as unknown as { source: ExprType<StructType> }).source : undefined;
         const plan = buildPlanRoot(
             { ...canvas, data, axis, links, ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
             rows === undefined ? (events !== undefined && data === undefined ? East.value([], PlanBlocksType) : undefined) : rowsBlocks(rows),
             sources.chrome,
             rowsNested,
+            rowsBinding,
         );
         if (events !== undefined) {
             checkPagedKinds(resourceKinds, data);
