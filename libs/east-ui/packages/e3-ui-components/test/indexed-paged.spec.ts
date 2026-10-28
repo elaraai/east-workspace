@@ -332,6 +332,25 @@ test("interval Slice pages and counts overlapping original records once, includi
     runtime.clear();
 });
 
+test("a String search through an interval index finds the values its leading field holds, each once with its count, and none past the text (#1432)", async () => {
+    const events = ex.indexedIntervals;
+    // The status leads an interval index alone: its values are its key's leading field, under `on`.
+    const source = Data.bindPaged(events, { indexes: ["by_start", "by_status_time", "by_time"] });
+    const sliced = bindRecord("test.intervals.search", source, { range: "start", search: "status" });
+    const program = East.function([], Expr.type(sliced), $ => $.return(sliced));
+    const { runtime } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const handle = East.compile(program, slicePlatform(runtime))();
+    const found = (text: string) => h.ready(() => handle.suggest("status", text));
+    assert.deepEqual((await found("")).map(value => [value.label, value.count]), [["Cancelled", some(1n)], ["Ready", some(8n)]],
+        "each status once, in the index's order, counted under no other choice");
+    assert.deepEqual((await found("Re")).map(value => [value.label, value.count]), [["Ready", some(8n)]]);
+    assert.deepEqual(await found("Rex"), [], "no status starts so");
+    assert.deepEqual(await found("re"), [], "a search keeps the text's case");
+    assert.equal(h.requests("read", `records.${events.name}`).length, 0, "the record is never read whole");
+    runtime.clear();
+});
+
 test("a window over an area index reads the racks whose box meets it from the index alone, each with its row, once (#1385)", async () => {
     const racks = ex.indexedRacks;
     const stored = await h.read(racks);

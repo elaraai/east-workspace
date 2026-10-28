@@ -10,7 +10,7 @@ import {
 } from "@elaraai/east";
 import { recordSliceFieldSchema, recordSliceFieldTypes, type RecordSliceFieldSchema } from "../platform/slice/record.js";
 import {
-    planRecordSlice, recordChoiceWhere, recordIndexFields, recordIndexGenerated, recordPlanIndex, type RecordSlicePlan,
+    MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere, recordIndexFields, recordIndexGenerated, recordPlanIndex, type RecordSlicePlan,
 } from "../platform/slice/record-plan.js";
 import { recordOnPrinters, recordOnTypeOf, type RecordOnPrinters } from "../platform/slice/record-on.js";
 import type {
@@ -529,10 +529,15 @@ export class RecordSliceController {
         if (schema.kind !== "string") throw new Error("This field does not support text search");
         const exact = this.print.get(field)!(schema.optional ? some(text) : text);
         const proposal = this.proposed(field, variant("values", [exact]));
-        // A prefix searches a plain index's key: a generated one names its leading values as one `on` (#1432).
+        // A prefix searches a plain index's key, where one takes the field; else a generated one's, whose leading
+        // values are its key's `on` (#1432).
         const index = recordPlanIndex(this.config.indexes.filter(candidate => !recordIndexGenerated(candidate)), proposal);
         if (index === undefined) {
-            throw new Error(`Searching '${field}' reads a plain index led by it — by_${field}: index.on(["${field}"]) among the record's indexes, listed in Data.bindPaged's indexes`);
+            const generated = recordPlanIndex(this.config.indexes, proposal);
+            if (generated === undefined || !generated.fields.includes(field)) {
+                throw new Error(`Searching '${field}' reads an index led by it — by_${field}: index.on(["${field}"]) among the record's indexes, listed in Data.bindPaged's indexes`);
+            }
+            return this.suggestOn(generated, field, text, proposal, schema.optional);
         }
         const position = index.fields.indexOf(field);
         const leading = new Map([...proposal].filter(([name]) => index.fields.indexOf(name) < position));
@@ -572,6 +577,63 @@ export class RecordSliceController {
         }
         const current = this.source.revision();
         if (current.type === "none" || current.value !== ranges.value.revision) return none;
+        return some(values);
+    }
+
+    /**
+     * {@link suggest} through a generated index (#1432), whose key nests the row's leading fields under `on`: the
+     * values starting with the text are read from where the leading fields chosen before the field and the text bound
+     * its flattened key — one run for each combination of their values — an entry a value, each value's own run passed
+     * over by its bounds, from it to the String just after it, `value + "\u0000"`, which no other value lies between.
+     * A run ends at the first entry whose leading values, or whose field, no longer match.
+     */
+    private suggestOn(index: Config["indexes"][number], field: string, text: string, proposal: Where, optional: boolean): option<Count[]> {
+        const revision = this.source.revision();
+        if (revision.type === "none") return none;
+        const print = this.print.get(field)!;
+        const before = index.fields.slice(0, index.fields.indexOf(field));
+        let combinations: string[][] = [[]];
+        for (const name of before) {
+            const choice = proposal.get(name);
+            if (choice?.type !== "values") throw new Error(`Searching '${field}' through '${index.name}' needs an exact choice of '${name}' first`);
+            combinations = combinations.flatMap(leading => [...new Set(choice.value)].map(value => [...leading, value]));
+            if (combinations.length > MAX_RECORD_SLICE_RUNS) {
+                throw new Error(`This combination needs more than ${MAX_RECORD_SLICE_RUNS} searches; choose fewer values`);
+            }
+        }
+        const values: Count[] = [];
+        const seen = new Set<string>();
+        for (const leading of combinations) {
+            const first = this.source.seek(index.name, variant("range", { from: [...leading, print(optional ? some(text) : text)], to: [] }));
+            if (first.type === "none") return none;
+            let offset = first.value.row;
+            const end = first.value.row + first.value.count;
+            while (offset < end && values.length < 8) {
+                const page = this.source.page(index.name, offset, 1n);
+                if (page.type === "none") return none;
+                const entry = page.value[0];
+                if (entry === undefined) throw new Error("The results changed while searching; retry");
+                if (entry.ik.type !== index.name) throw new Error("The source returned a different ordering");
+                const on = (entry.ik.value as Record<string, unknown>).on as Record<string, unknown>;
+                if (before.some((name, at) => this.print.get(name)!(on[name]) !== leading[at])) break;
+                const found = optional ? on[field] as option<string> : some(on[field] as string);
+                if (found.type === "none" || !found.value.startsWith(text)) break;
+                const literal = print(on[field]);
+                if (!seen.has(literal)) {
+                    seen.add(literal);
+                    values.push(this.counted(field, literal, found.value));
+                }
+                const after = found.value + "\u0000";
+                const own = this.source.seek(index.name, variant("range", { from: [...leading, literal], to: [...leading, print(optional ? some(after) : after)] }));
+                if (own.type === "none") return none;
+                const next = own.value.row + own.value.count;
+                if (next <= offset) throw new Error("Search did not advance; retry");
+                offset = next;
+            }
+            if (values.length === 8) break;
+        }
+        const current = this.source.revision();
+        if (current.type === "none" || current.value !== revision.value) return none;
         return some(values);
     }
 }
