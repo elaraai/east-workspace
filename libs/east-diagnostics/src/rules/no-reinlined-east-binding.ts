@@ -38,7 +38,7 @@ export const REPEATING_METHODS: ReadonlySet<string> = new Set([
   "forEach", "reduce", "scan", "mapReduce", "groupReduce", "groupBy", "groupSize", "groupSum", "groupMean",
   "groupEvery", "groupSome", "groupMaximum", "groupMinimum", "groupToArrays", "groupToSets", "groupToDicts",
   "groupFindAll", "groupFindFirst", "groupFindMaximum", "groupFindMinimum", "toDict", "toSet", "toArray",
-  "toTree", "sort", "sortInPlace", "isSorted", "findFirst", "findAll", "findMaximum", "findMinimum",
+  "toTree", "flattenTree", "sort", "sortInPlace", "isSorted", "findFirst", "findAll", "findMaximum", "findMinimum",
   "findSortedFirst", "findSortedLast", "findSortedRange", "mergeAll", "unionInPlace", "mapRows", "some",
   "every", "sum", "mean", "maximum", "minimum", "getKeys", "generate",
 ]);
