@@ -32,7 +32,8 @@ import {
   type EastIR, type EastType, type FunctionExpr, type Patches,
 } from '@elaraai/east';
 import {
-  DELTA_CONFLICT, RecordSummaryTotalsType, editTypeOf, indexCollectionType, mutationDeltaType, type DeltaTarget,
+  DELTA_CONFLICT, RecordSummaryOpType, RecordSummaryTotalsType, editTypeOf, indexCollectionType, mutationDeltaType, patchOpsType,
+  type DeltaTarget,
 } from '@elaraai/e3-types';
 import { functionAt, sameEastType, signatureOf, type IndexFunction } from './record-guards.js';
 import { argumentsType, callWithArguments, programOverArguments } from './record-arguments.js';
@@ -475,19 +476,76 @@ function rowChanges(types: DictWrite) {
   });
 }
 
+/** `(totals, sign) → sign × totals`: a row's contribution given, `1`, or taken away, `−1`. */
+const signedTotals = East.function([RecordSummaryTotalsType, IntegerType], RecordSummaryTotalsType, (_$, totals, sign) =>
+  ({ count: totals.count.multiply(sign), ms: totals.ms.multiply(sign) }));
+
+/** `(a, b) → a + b`: two changes to one key's totals. */
+const addedTotals = East.function([RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType, (_$, a, b) =>
+  ({ count: a.count.add(b.count), ms: a.ms.add(b.ms) }));
+
 /**
- * One index's entry changes for a write's touched rows: `(Changes, Emit) → Null`.
+ * An index's maintenance for one row (#1437): the changes a row going from
+ * `held` to `next` makes to the index, `(K, Option<V>, Option<V>,
+ * Option<RowPatch>) → Dict<EntryKey, Op>` — the ops a mutation delta's arm for
+ * the index holds, by entry.
  *
  * @remarks
- * An index entry is `{ik, k}`, so a row moving from one index key to another is
- * a delete at the old entry and an insert at the new one — not an update. Only
- * an entry that keeps its index key and whose covering projection changed is an
- * update, and an index carrying no projection, whose projection is Null, has
- * none of those at all. The three sets are disjoint and `k` is this row's, so
- * no entry is emitted twice.
+ * For an index of entries they are its patch, East's own ops for its
+ * collection: a row's entry gone a `delete`, one come an `insert`, and one
+ * whose value changed an `update` by the value's own patch. For a summary
+ * index they are the row's `add`s: under each key it moves, what it took away
+ * and gave, summed, and none where they cancel (#1039). A nested series index
+ * is maintained by the row's patch where one is given and says what it touched
+ * (#1434), and by the two rows whole otherwise; every other index compares the
+ * rows' entries whole.
+ *
+ * A write's program runs it on each row the write touches, and a binding
+ * carries it, so a page previews a drafted row's Save with the function the
+ * commit runs.
+ *
+ * @param rec - The record, a Dict
+ * @param index - One of its indexes, as it is built ({@link builtIndex})
+ * @returns The function. The patch, where given, is the row's update, so the
+ *   row is present before and after.
+ * @throws {Error} When the record is not a Dict
  */
-function indexChanges(index: RecordIndexDef, types: DictWrite) {
-  const { keyType, valueType, changesType, emitType } = types;
+export function indexMaintenance(rec: RecordDef, index: RecordIndexDef): IndexMaintenance {
+  const { keyType, valueType } = dictEntry(rec.type, `index '${index.name}' of record '${rec.name}'`);
+  const rowPatchType = East.patchesFor(valueType).patchType;
+  return index.summary !== undefined ? summaryMaintenance(index, keyType, valueType, rowPatchType) : entriesMaintenance(index, keyType, valueType, rowPatchType);
+}
+
+/** An index's maintenance for one row ({@link indexMaintenance}): `(K, Option<V>, Option<V>, Option<RowPatch>) → Dict<EntryKey, Op>`. */
+export type IndexMaintenance = FunctionExpr<[EastType, EastType, EastType, EastType], EastType>;
+
+/** {@link indexMaintenance} for an index of entries — a nested series index or any other but a summary — at a Dict record's types. */
+function entriesMaintenance(index: RecordIndexDef, keyType: EastType, valueType: EastType, rowPatchType: EastType) {
+  return index.nested !== undefined ? nestedMaintenance(index, index.nested.byPatch, keyType, valueType, rowPatchType)
+    : entryMaintenance(index, keyType, valueType, rowPatchType);
+}
+
+/** What {@link indexMaintenance} gives for an index, by entry: its collection's patch ops, or a summary's `add`. */
+function maintenanceOpsType(index: RecordIndexDef, keyType: EastType) {
+  // A summary's entry stands for every row of its key, so its `k` is Null.
+  const k = index.summary !== undefined ? NullType : keyType;
+  const op = index.summary !== undefined ? RecordSummaryOpType : patchOpsType(indexCollectionType(k, index.keyType, index.valueType));
+  return DictType(indexEntryKeyType(k, index.keyType), op);
+}
+
+/**
+ * The maintenance of an index of entries for one row ({@link indexMaintenance}):
+ * its entries before and after, compared.
+ *
+ * @remarks
+ * An entry is `{ik, k}`, so a row moving from one index key to another is a
+ * delete at the old entry and an insert at the new one — not an update. Only
+ * an entry that keeps its index key and whose projection changed is an update,
+ * and an index carrying no projection, whose projection is Null, has none of
+ * those at all. The three sets are disjoint, so no entry changes twice.
+ */
+function entryMaintenance(index: RecordIndexDef, keyType: EastType, valueType: EastType, rowPatchType: EastType) {
+  const opsType = maintenanceOpsType(index, keyType);
   const keys = indexKeys(index, keyType, valueType);
   const projection = indexProjection(index, keyType, valueType);
   const projected = East.patchesFor(index.valueType);
@@ -504,45 +562,44 @@ function indexChanges(index: RecordIndexDef, types: DictWrite) {
     });
     return { keys: new Set([]), value: none };
   });
-  return East.function([changesType, emitType], NullType, ($, changes, emit) => {
+  return East.function([keyType, OptionType(valueType), OptionType(valueType), OptionType(rowPatchType)], opsType, ($, key, held, next, _patch) => {
     const entries = $.const(entriesOf);
     const diff = $.const(projected.diff);
-    $.for(changes, ($, change, key) => {
-      const before = $.let(entries(key, change.held));
-      const after = $.let(entries(key, change.next));
-      $.for(before.keys.difference(after.keys), ($, ik) => {
-        $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('delete', before.value.unwrap()))));
-      });
-      $.for(after.keys.difference(before.keys), ($, ik) => {
-        $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('insert', after.value.unwrap()))));
-      });
-      $.for(before.keys.intersection(after.keys), ($, ik) => {
-        const was = $.let(before.value.unwrap());
-        const is = $.let(after.value.unwrap());
-        $.if(East.notEqual<EastType>(was, is), ($) => {
-          $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('update', diff(was, is)))));
-        });
+    const ops = $.let(new Map(), opsType);
+    const before = $.let(entries(key, held));
+    const after = $.let(entries(key, next));
+    $.for(before.keys.difference(after.keys), ($, ik) => {
+      $(ops.insert({ ik, k: key }, variant('delete', before.value.unwrap())));
+    });
+    $.for(after.keys.difference(before.keys), ($, ik) => {
+      $(ops.insert({ ik, k: key }, variant('insert', after.value.unwrap())));
+    });
+    $.for(before.keys.intersection(after.keys), ($, ik) => {
+      const was = $.let(before.value.unwrap());
+      const is = $.let(after.value.unwrap());
+      $.if(East.notEqual<EastType>(was, is), ($) => {
+        $(ops.insert({ ik, k: key }, variant('update', diff(was, is))));
       });
     });
+    return ops;
   });
 }
 
 /**
- * A nested series index's entry changes for a write's touched rows (#1434):
- * `(Changes, Emit) → Null`, each row's entries before and after compared by
- * key — one gone a delete, one come an insert, one whose value changed an
- * update. A row updated by a patch is maintained by the patch: only the
- * entries of what it touched, before and after, are compared — unless a
- * replace on the way leaves the row to be compared whole, as a row inserted or
- * deleted is. Both give one delta. The entries' keys hold the row's own key,
- * so no two rows share one.
+ * A nested series index's maintenance for one row ({@link indexMaintenance},
+ * #1434): its entries before and after compared by key — one gone a delete,
+ * one come an insert, one whose value changed an update. By the row's patch
+ * where one is given: only the entries of what it touched, before and after,
+ * are compared — unless a replace on the way leaves the row to be compared
+ * whole, as a row inserted or deleted is. Both give the same ops. The entries'
+ * keys hold the row's own key, so no two rows share one.
  */
-function nestedChanges(index: RecordIndexDef, byPatchFn: IndexFunction, types: DictWrite) {
-  const { keyType, valueType, rows, changesType, emitType } = types;
+function nestedMaintenance(index: RecordIndexDef, byPatchFn: IndexFunction, keyType: EastType, valueType: EastType, rowPatchType: EastType) {
+  const opsType = maintenanceOpsType(index, keyType);
   const entriesType = DictType(index.keyType, index.valueType);
   const changedType = StructType({ before: entriesType, after: entriesType });
   const entries = functionAt(index.keyFn, [keyType, valueType], entriesType);
-  const byPatch = functionAt(byPatchFn, [keyType, valueType, valueType, rows.patchType], NestedPatchedType(entriesType));
+  const byPatch = functionAt(byPatchFn, [keyType, valueType, valueType, rowPatchType], NestedPatchedType(entriesType));
   const values = East.patchesFor(index.valueType);
   // A row's entries; none for no row.
   const entriesOf = East.function([keyType, OptionType(valueType)], entriesType, ($, key, row) => {
@@ -555,96 +612,126 @@ function nestedChanges(index: RecordIndexDef, byPatchFn: IndexFunction, types: D
     });
     return new Map();
   });
-  // A row's entries before and after its write: by its patch where one updated it and can say what it touched; whole otherwise.
-  const changedOf = East.function([keyType, changesType.value], changedType, ($, key, change) => {
-    const of = $.const(entriesOf);
-    const patched = $.const(byPatch);
-    $.match(change.patch, {
-      some: ($, patch) => {
-        $.match(patched(key, change.held.unwrap(), change.next.unwrap(), patch), {
-          changed: ($, both) => {
-            $.return(both);
-          },
-          whole: () => {},
-        });
-      },
-      none: () => {},
+  // A row's entries before and after: by its patch where one is given and can say what it touched; whole otherwise.
+  const changedOf = East.function([keyType, OptionType(valueType), OptionType(valueType), OptionType(rowPatchType)], changedType,
+    ($, key, held, next, patch) => {
+      const of = $.const(entriesOf);
+      const patched = $.const(byPatch);
+      $.match(patch, {
+        some: ($, rowPatch) => {
+          $.match(patched(key, held.unwrap(), next.unwrap(), rowPatch), {
+            changed: ($, both) => {
+              $.return(both);
+            },
+            whole: () => {},
+          });
+        },
+        none: () => {},
+      });
+      return { before: of(key, held), after: of(key, next) };
     });
-    return { before: of(key, change.held), after: of(key, change.next) };
-  });
-  return East.function([changesType, emitType], NullType, ($, changes, emit) => {
+  return East.function([keyType, OptionType(valueType), OptionType(valueType), OptionType(rowPatchType)], opsType, ($, key, held, next, patch) => {
     const changedFn = $.const(changedOf);
     const diff = $.const(values.diff);
-    $.for(changes, ($, change, key) => {
-      const both = $.let(changedFn(key, change));
-      const before = $.let(both.before);
-      const after = $.let(both.after);
-      $.for(before, ($, was, ik) => {
-        $.match(after.tryGet(ik), {
-          none: ($) => {
-            $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('delete', was))));
-          },
-          some: ($, is) => {
-            $.if(East.notEqual<EastType>(was, is), ($) => {
-              $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('update', diff(was, is)))));
-            });
-          },
-        });
-      });
-      $.for(after, ($, is, ik) => {
-        $.if(before.has(ik).not(), ($) => {
-          $(emit(variant(index.name, { ik, k: key }), variant(index.name, variant('insert', is))));
-        });
+    const ops = $.let(new Map(), opsType);
+    const both = $.let(changedFn(key, held, next, patch));
+    const before = $.let(both.before);
+    const after = $.let(both.after);
+    $.for(before, ($, was, ik) => {
+      $.match(after.tryGet(ik), {
+        none: ($) => {
+          $(ops.insert({ ik, k: key }, variant('delete', was)));
+        },
+        some: ($, is) => {
+          $.if(East.notEqual<EastType>(was, is), ($) => {
+            $(ops.insert({ ik, k: key }, variant('update', diff(was, is))));
+          });
+        },
       });
     });
+    $.for(after, ($, is, ik) => {
+      $.if(before.has(ik).not(), ($) => {
+        $(ops.insert({ ik, k: key }, variant('insert', is)));
+      });
+    });
+    return ops;
   });
 }
 
-/** `(totals, sign) → sign × totals`: a row's contribution given, `1`, or taken away, `−1`. */
-const signedTotals = East.function([RecordSummaryTotalsType, IntegerType], RecordSummaryTotalsType, (_$, totals, sign) =>
-  ({ count: totals.count.multiply(sign), ms: totals.ms.multiply(sign) }));
-
-/** `(a, b) → a + b`: two changes to one key's totals. */
-const addedTotals = East.function([RecordSummaryTotalsType, RecordSummaryTotalsType], RecordSummaryTotalsType, (_$, a, b) =>
-  ({ count: a.count.add(b.count), ms: a.ms.add(b.ms) }));
-
 /**
- * One summary's change for a write's touched rows (#1039): `(Changes, Emit) →
- * Null`, under each key the rows it replaced contributed to, or it writes do,
- * what those took away and these give, summed.
+ * A summary index's maintenance for one row ({@link indexMaintenance},
+ * #1039): under each key the row moves, what it took away and what it gives,
+ * summed, as an `add` — and none where the two cancel.
  *
  * @remarks
  * A write reads the record, never the summary, so it says what changed rather
- * than what a total becomes; the apply adds it to the total held. The change
- * of a key two rows share is summed here, so the delta holds it once, and a
- * change of nothing is not emitted.
+ * than what a total becomes; the apply adds it to the total held.
  */
-function summaryChanges(index: RecordIndexDef, types: DictWrite) {
-  const { keyType, valueType, changesType, emitType } = types;
+function summaryMaintenance(index: RecordIndexDef, keyType: EastType, valueType: EastType, rowPatchType: EastType) {
+  // A summary's entry stands for every row of its key, so its `k` is Null.
+  const opsType = DictType(indexEntryKeyType(NullType, index.keyType), RecordSummaryOpType);
   const totalsType = DictType(index.keyType, RecordSummaryTotalsType);
   const contributions = functionAt(index.keyFn, [keyType, valueType], totalsType);
-  return East.function([changesType, emitType], NullType, ($, changes, emit) => {
+  return East.function([keyType, OptionType(valueType), OptionType(valueType), OptionType(rowPatchType)], opsType, ($, key, held, next, _patch) => {
     const contribute = $.const(contributions);
     const signed = $.const(signedTotals);
     const add = $.const(addedTotals);
     const sums = $.let(new Map(), totalsType);
-    $.for(changes, ($, change, key) => {
-      $.match(change.held, {
-        some: ($, row) => {
-          $(sums.unionInPlace(contribute(key, row).map(($, part) => signed(part, -1n)), ($, was, part) => add(was, part)));
-        },
-        none: () => {},
-      });
-      $.match(change.next, {
-        some: ($, row) => {
-          $(sums.unionInPlace(contribute(key, row), ($, was, part) => add(was, part)));
-        },
-        none: () => {},
-      });
+    $.match(held, {
+      some: ($, row) => {
+        $(sums.unionInPlace(contribute(key, row).map(($, part) => signed(part, -1n)), ($, was, part) => add(was, part)));
+      },
+      none: () => {},
     });
+    $.match(next, {
+      some: ($, row) => {
+        $(sums.unionInPlace(contribute(key, row), ($, was, part) => add(was, part)));
+      },
+      none: () => {},
+    });
+    const ops = $.let(new Map(), opsType);
     $.for(sums, ($, change, ik) => {
       $.if(change.count.notEqual(0n).or(() => change.ms.notEqual(0n)), ($) => {
-        $(emit(variant(index.name, { ik, k: null }), variant(index.name, variant('add', change))));
+        $(ops.insert({ ik, k: null }, variant('add', change)));
+      });
+    });
+    return ops;
+  });
+}
+
+/**
+ * One index's changes for a write's touched rows: `(Changes, Emit) → Null`,
+ * its maintenance ({@link indexMaintenance}) run on each row, and each op it
+ * gives emitted under the index. A summary's `add`s are summed across the rows
+ * first, so the delta holds a key once, and never a change of nothing.
+ */
+function indexDelta(index: RecordIndexDef, types: DictWrite) {
+  const { keyType, valueType, rows, changesType, emitType } = types;
+  if (index.summary === undefined) {
+    const maintain = entriesMaintenance(index, keyType, valueType, rows.patchType);
+    return East.function([changesType, emitType], NullType, ($, changes, emit) => {
+      const maintainFn = $.const(maintain);
+      $.for(changes, ($, change, key) => {
+        $.for(maintainFn(key, change.held, change.next, change.patch), ($, op, entry) => {
+          $(emit(variant(index.name, entry), variant(index.name, op)));
+        });
+      });
+    });
+  }
+  const maintain = summaryMaintenance(index, keyType, valueType, rows.patchType);
+  const sumsType = DictType(indexEntryKeyType(NullType, index.keyType), RecordSummaryTotalsType);
+  return East.function([changesType, emitType], NullType, ($, changes, emit) => {
+    const maintainFn = $.const(maintain);
+    const add = $.const(addedTotals);
+    const sums = $.let(new Map(), sumsType);
+    $.for(changes, ($, change, key) => {
+      $.for(maintainFn(key, change.held, change.next, change.patch), ($, op, entry) => {
+        $(sums.insertOrUpdate(entry, op.unwrap('add'), ($, was, part) => add(was, part)));
+      });
+    });
+    $.for(sums, ($, change, entry) => {
+      $.if(change.count.notEqual(0n).or(() => change.ms.notEqual(0n)), ($) => {
+        $(emit(variant(index.name, entry), variant(index.name, variant('add', change))));
       });
     });
   });
@@ -659,9 +746,7 @@ function indexesChanges(indexes: readonly RecordIndexDef[], types: DictWrite) {
   const { changesType, emitType } = types;
   return indexes.reduce(
     (earlier, index) => {
-      const own = index.summary !== undefined ? summaryChanges(index, types)
-        : index.nested !== undefined ? nestedChanges(index, index.nested.byPatch, types)
-        : indexChanges(index, types);
+      const own = indexDelta(index, types);
       return East.function([changesType, emitType], NullType, ($, changes, emit) => {
         const before = $.const(earlier);
         const these = $.const(own);
