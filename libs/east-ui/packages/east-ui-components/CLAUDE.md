@@ -368,8 +368,18 @@ component, nothing in east-ui.
   rail, a row — reads its slot recipe's styles through `useSlotStyles(key,
   variants)` (`./internal`), made once for the theme and its variants, never
   `useSlotRecipe` an instance, which makes every slot again for each (#1398,
-  CL9); the shared rail's and a record rail's toolbar items are made again
-  only as what they show moves. A part drawn a thousand times at once — the
+  CL9); the frame's own styles and its toolbar's are read so too. The
+  shared rail's and a record rail's toolbar items are made again only as
+  what they show moves, and so is the key search's
+  (`useKeySearchToolbarItem`: its search, its rank, side and words, and its
+  own state); the `Toolbar` draws again only as its items move, so a host
+  that hands it the same items while what they show holds — the Plan's
+  frame, drawn again at each of its canvas's commits as a far jump lands —
+  draws and measures nothing of its toolbar again. An item whose content
+  moves inside it is still taken from the row's observer, as a width change
+  is; a test walking a toolbar's ladder tells the row's observer of each
+  width, as the browser does (`toolbar.dom.test.tsx`' `resize`), never draws
+  its host again for it. A part drawn a thousand times at once — the
   Calendar timeline's event blocks, as a glide mounts them — draws plain
   elements of its slots' classes (`useSlotClass`, `./internal`): each slot's
   styles made a class once for the theme, the class Chakra gives an element
