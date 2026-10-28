@@ -57,9 +57,6 @@ function indexedPlans<M extends Readonly<Record<string, MutationDraft>>>(mutatio
   });
 }
 
-/** The delta a mutation's program writes for `state` and `args`: the
- *  `(key, op)` pairs it emits, sorted by the delta's key as the runner sorts
- *  them, none emitted twice. */
 /** A delta's key or op, as the variant it is: the target it is of, and what it carries. */
 function partOf(part: unknown): variant {
   assert.ok(isVariant(part), 'a delta entry is a variant of its target');
@@ -80,7 +77,8 @@ interface Emitted {
   readonly conflict?: string;
 }
 
-/** What a write's program emits, in the delta's order: a dict, so no key twice. */
+/** The delta a mutation's program writes for `state` and `args`: the `(key, op)` pairs it emits, sorted by the delta's
+ *  key as the runner sorts them, none emitted twice. */
 function emitted(rec: RecordDef, mut: MutationDef, state: ValueTypeOf<EastType>, args: ValueTypeOf<EastType>[]): Emitted[] {
   const out: [unknown, unknown][] = [];
   const run = buildMutationProgram(rec, mut).compile([]);
