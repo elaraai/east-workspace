@@ -359,8 +359,12 @@ export const generateDenseWorksAll = East.function([IntegerType, IntegerType], D
     return East.Array.range(0n, rows).toDict((_$2, n) => East.str`W-${n.add(10_001n)}`, (_$2, n) => works(n, weeks));
 });
 
-/** How many works the task generates: ten thousand. */
-export const planDenseRows = e3.input("plan_dense_rows", IntegerType, variant("value", 10_000n));
+/**
+ * How many works the task generates: the hundred the record starts with. A page
+ * runs every task of its area as the area starts, so the showcase generates no
+ * more than it shows; a stress run asks for ten thousand.
+ */
+export const planDenseRows = e3.input("plan_dense_rows", IntegerType, variant("value", 100n));
 /** How many weeks of each works' collections the task generates: two years'. */
 export const planDenseWeeks = e3.input("plan_dense_weeks", IntegerType, variant("value", 104n));
 /** The task that generates the works from their sizes. */
@@ -369,8 +373,8 @@ export const planDenseGenerated = e3.task("plan_dense_generated", [planDenseRows
 /**
  * The dense works, a hundred of them over two years, some 48,000 items: read
  * lean a page at a time and their collections a cell at a time through their
- * nested series index, never whole. A stress run writes the task's ten
- * thousand through the patch door.
+ * nested series index, never whole. A stress run writes ten thousand
+ * through the patch door.
  */
 export const planDenseWorks = e3.record("plan_dense_works", DenseWorks, {
     initial: East.compile(generateDenseWorksAll, [])(100n, 104n),

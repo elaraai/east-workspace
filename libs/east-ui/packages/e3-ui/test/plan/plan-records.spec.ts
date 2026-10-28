@@ -4,7 +4,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DictType, East, StringType, decodeBeast2For, encodeBeast2For, equalFor, type EastIR } from "@elaraai/east";
+import { DictType, East, StringType, decodeBeast2For, encodeBeast2For, equalFor, match, type EastIR } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import { deriveManifest } from "@elaraai/e3-ui/internal";
 import { indexedWorkOrders } from "../sheet/sheet-records.examples.js";
@@ -47,4 +47,11 @@ test("the dense works over two years: a job a week, an alarm every four weeks, w
     const few = East.compile(ex.generateDenseWorksAll, [])(3n, 104n);
     assert.ok(equalFor(DictType(StringType, ex.PlanDenseWorks))(new Map([...works]) as never, new Map([...few].slice(0, 2)) as never));
     assert.equal(ex.planDenseWorks.default === undefined ? 0 : (ex.planDenseWorks.default as ReadonlyMap<string, unknown>).size, 100);
+});
+
+test("the dense works' task, at its inputs' defaults, makes the works the record starts with: a page runs every task of its area as the area starts", () => {
+    const start = (input: typeof ex.planDenseRows | typeof ex.planDenseWeeks) => match(input.source!, { value: (value) => value, file: () => assert.fail(`${input.name} starts from a file`) });
+    const works = ex.planDenseWorks.default!;
+    assert.equal(start(ex.planDenseRows), BigInt(works.size), "the task makes no more works than the record holds");
+    assert.ok(equalFor(DictType(StringType, ex.PlanDenseWorks))(East.compile(ex.generateDenseWorksAll, [])(start(ex.planDenseRows), start(ex.planDenseWeeks)), works));
 });
