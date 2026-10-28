@@ -715,3 +715,23 @@ test("a machine is read whole by its key beside a nested series index, and the n
     assert.equal(pagesOf(machines).length, 0, "nothing paged");
     runtime.clear();
 });
+
+test("a record Slice over the machines carries its binding's index metadata and nested part on its handle, through encode and decode (#1435)", async () => {
+    const { runtime } = newRuntime();
+    StateRuntime.initializeStore(new UIStore());
+    const binding = East.compile(machinesProgram, platform(runtime))();
+    const sliced = bindRecord("test.machines", machinesBinding, { fields: { site: { label: "Site", hints: [...nx.SITES] } } });
+    const Sliced = Expr.type(sliced);
+    const handle = East.compile(East.function([], Sliced, $ => $.return(sliced)), slicePlatform(runtime))();
+    const nestedEqual = equalFor(Expr.type(machinesBinding).fields.nested);
+    const indexesEqual = equalFor(Expr.type(machinesBinding).fields.indexes);
+    assert.ok(nestedEqual(handle.nested, binding.nested), "the nested part, as the binding gives it");
+    assert.ok(indexesEqual(handle.indexes, binding.indexes), "each index's metadata, as the binding gives it");
+    assert.deepEqual(handle.config.indexes.map(index => index.name), [nx.machinesBySiteStatus.name], "the rail plans through no part of the nested index");
+    const decoded = decodeBeast2For(Sliced, { platform: slicePlatform(runtime) })(encodeBeast2For(Sliced)(handle));
+    assert.ok(nestedEqual(decoded.nested, binding.nested) && indexesEqual(decoded.indexes, binding.indexes), "carried through encode and decode");
+    const rows = await h.ready(() => handle.data.page(0n, 3n));
+    assert.ok(rows.every(entry => entry.row.type === "some" && entry.row.value.jobs.size === 0), "the narrowed rows lean");
+    runtime.clear();
+});
+

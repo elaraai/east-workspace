@@ -187,7 +187,7 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     key: SubtypeExprOrValue<StringType>,
     source: IndexedSource<K, R, P, M, IK, N>,
     options: RecordSliceOptions<NoInfer<R>, NoInfer<M>> = {},
-): ExprType<ReturnType<typeof RecordSliceHandleType<ArrayType<ReturnType<typeof IndexedEntryType<K, R, P, IK>>>>>> {
+): ExprType<ReturnType<typeof RecordSliceHandleType<ArrayType<ReturnType<typeof IndexedEntryType<K, R, P, IK>>>, M, N>>> {
     const sourceType = Expr.type(source);
     if (sourceType.type !== "Struct" || sourceType.fields.page?.type !== "Function" || sourceType.fields.indexes?.type !== "Struct") {
         throw new Error("Slice.bindRecord needs Data.bindPaged(record, { indexes }); a plain paged binding cannot be narrowed");
@@ -317,6 +317,6 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         return { id: preset.id, name: preset.name, where: makeWhere(preset.where) };
     });
     const config = { fields, indexes, range: range === undefined ? none : some(range), search, presets };
-    return recordSliceBindPlatform([sourceType, output.cases.some], key, source as never,
+    return recordSliceBindPlatform([sourceType, output.cases.some, metadata, nested], key, source as never,
         East.value(config, RecordSliceConfigType), East.value(initial, RecordSliceStateType)) as never;
 }

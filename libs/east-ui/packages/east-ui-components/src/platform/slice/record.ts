@@ -29,7 +29,15 @@ type State = ValueTypeOf<RecordSliceStateType>;
 type Where = ValueTypeOf<RecordSliceWhereType>;
 type Read = ValueTypeOf<RecordSliceReadType>;
 type Query = ValueTypeOf<typeof SeekQueryType>;
-type Descriptor = [string, RecordSliceBinding, Config, State];
+/**
+ * What a binding declares, as its type holds it, which a record Slice's handle carries on: each index's metadata
+ * (#1432), and its nested part (#1435).
+ */
+interface BindingDeclarations {
+    readonly indexes: unknown;
+    readonly nested: unknown;
+}
+type Descriptor = [string, RecordSliceBinding & BindingDeclarations, Config, State];
 const encodeState = encodeBeast2For(RecordSliceStateType);
 const decodeState = decodeBeast2For(RecordSliceStateType);
 const printConfig = printFor(RecordSliceConfigType);
@@ -251,7 +259,8 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
                         East.function(inputs, output, ($, ...params) => {
                             const descriptor = $.let((shared as unknown as { get(): ExprType<EastType> }).get()) as unknown as
                                 { key: unknown; source: unknown; config: unknown; initial: unknown };
-                            return primitive(types, descriptor.key, descriptor.source, descriptor.config, descriptor.initial, ...params);
+                            // The primitives take the source's type and the window's; the bind's declarations' are the handle's alone (#1435).
+                            return primitive(types.slice(0, 2), descriptor.key, descriptor.source, descriptor.config, descriptor.initial, ...params);
                         })), platforms()) as (...args: never[]) => unknown;
                     entry.factories.set(name, factory);
                 }
@@ -263,6 +272,8 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
             }
             const dataType = LiveSourceType(types[1]!);
             const handle = { ...methods,
+                // The binding's declarations, as it gives them (#1435): what the narrowed rows' record declares.
+                indexes: source.indexes, nested: source.nested,
                 pageWhere: compile("pageWhere", [RecordSliceReadType, IntegerType, IntegerType], dataType.fields.page.output),
                 data: {
                     // The source, never its narrowing: its reads read the narrowing as it stands, and `query` names it,

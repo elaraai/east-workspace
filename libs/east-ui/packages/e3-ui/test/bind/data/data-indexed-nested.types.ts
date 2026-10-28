@@ -12,7 +12,8 @@
  * structure, every name a field's own; and `$.let` keeps all of it.
  */
 
-import type { BlockBuilder, NullType, StructType } from "@elaraai/east";
+import type { BlockBuilder, NullType, StructType, TypeOf } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui";
 import type { IndexedSource } from "@elaraai/east-ui/internal";
 import { Data, type NestedPart } from "@elaraai/e3-ui/internal";
 import * as ex from "./data-nested.examples.js";
@@ -80,6 +81,27 @@ partsOf(Data.bindPaged(ex.nestedAssemblies, { indexes: [ex.assembliesByName, ex.
         parts: StructType<{ recursive: NullType }>;
     }> }>;
 }>>>();
+
+/** A part of a Slice over several records: the handle of the source by its name, as its type holds it. */
+type PartOf<H, Name extends string> = TypeOf<H> extends StructType<infer F>
+    ? F extends { sources: StructType<infer P> } ? P extends { [K in Name]: StructType<infer Part> } ? Part : never : never : never;
+
+/**
+ * A Slice's part, held where it is written: `sliceOf(slice).carries<"rows",
+ * M, N>()` compiles only where the part named carries exactly the binding's
+ * index metadata `M` and nested part `N`.
+ *
+ * @param _slice - The Slice
+ * @returns Its check
+ */
+const sliceOf = <H,>(_slice: H) => ({
+    carries: <Name extends string, M, N>(..._exact: Equal<PartOf<H, Name>["indexes"], M> extends true
+        ? Equal<PartOf<H, Name>["nested"], N> extends true ? [] : [never] : [never]): void => undefined,
+});
+
+// A Slice over the machines carries the binding's declarations on in its part's handle: a Plan reads its `rows` source's.
+sliceOf(Slice.bindRecords("machines", { rows: { source: machines, fields: { site: { label: "Site" } } } }))
+    .carries<"rows", Machines["M"], Machines["N"]>();
 
 /**
  * What `$.let` keeps of a binding: every part of its type. Compiled, never
