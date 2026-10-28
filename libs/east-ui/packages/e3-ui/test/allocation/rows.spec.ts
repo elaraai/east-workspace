@@ -158,12 +158,12 @@ describe("a booking's row: its roles, its `values` and the defaults (B13)", () =
     let values: StructType | undefined;
     let bare: StructType | undefined;
     East.function([], NullType, ($) => {
-        const bins = $.let(Record.bind(ex.kilnBins, [ex.kilnBinsPatch]));
+        const bins = $.let(Record.bind(ex.kilnBins));
         values = Schedule.events(bins, {
             name: "Bin", icon: "box", at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
             quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
         }).allocationValues;
-        const minimal = $.let(Record.bind(ex.minimalBins, [ex.minimalBinsPatch]));
+        const minimal = $.let(Record.bind(ex.minimalBins));
         bare = Schedule.events(minimal, {
             name: "Bin", icon: "box", at: "at", resource: { field: "bay", of: "bays" }, arrival: "load", quantity: { field: "m3" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
         }).allocationValues;

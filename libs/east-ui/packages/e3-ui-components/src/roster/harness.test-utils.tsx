@@ -102,14 +102,14 @@ export function warehouseRoster(options: { readonly locked?: boolean; readonly f
     const locked = options.locked === true, contract = options.fit === "contract";
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         // The duties a test needs, the warehouse's own or its locked ones, each read a week at a time through its interval index.
-        const rota = $.let(locked ? Record.bind(ex.rosterLockedDuties, [ex.rosterLockedDutiesPatch]) : Record.bind(ex.rosterDuties, [ex.rosterDutiesPatch]));
+        const rota = $.let(locked ? Record.bind(ex.rosterLockedDuties, ["patch"]) : Record.bind(ex.rosterDuties, ["patch"]));
         const entries = $.let(locked ? Data.bindPaged(ex.rosterLockedDuties) : Data.bindPaged(ex.rosterDuties));
-        const weeks = $.let(Record.bind(ex.rosterWeeks, [ex.rosterWeeksPatch]));
-        const cover = $.let(Record.bind(ex.rosterCover, [ex.rosterCoverPatch]));
+        const weeks = $.let(Record.bind(ex.rosterWeeks, ["patch"]));
+        const cover = $.let(Record.bind(ex.rosterCover, ["patch"]));
         const people = $.let(Data.bind(ex.rosterStaff));
         const acts = $.let(Data.bind(ex.rosterActivities));
-        const staffIndex = $.let(Data.bindPaged(ex.rosterStaff, { indexes: [ex.rosterStaffByTeamName, ex.rosterStaffByPosition, ex.rosterStaffByTrainer, ex.rosterStaffByAgency, ex.rosterStaffBySkill, ex.rosterStaffByName] }));
-        const actIndex = $.let(Data.bindPaged(ex.rosterActivities, { indexes: [ex.rosterActivitiesByGroup] }));
+        const staffIndex = $.let(Data.bindPaged(ex.rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(ex.rosterActivities, { indexes: ["roster_activities_by_group"] }));
         const narrowing = {
             people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
                 fields: { team: { label: "Group", hints: ["inbound", "picking", "dispatch"] }, position: { label: "Position", hints: ["lead", "deputy", "acting", "crew"] },
@@ -118,8 +118,8 @@ export function warehouseRoster(options: { readonly locked?: boolean; readonly f
         } as const;
         const presets = { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] };
         const slice = $.let(locked
-            ? Slice.bindRecords("test.warehouseRoster", { duty: { source: Data.bindPaged(ex.rosterLockedDuties, { indexes: [ex.rosterLockedDutiesByTime] }), range: "start" }, ...narrowing }, presets)
-            : Slice.bindRecords("test.warehouseRoster", { duty: { source: Data.bindPaged(ex.rosterDuties, { indexes: [ex.rosterDutiesByTime] }), range: "start" }, ...narrowing }, presets));
+            ? Slice.bindRecords("test.warehouseRoster", { duty: { source: Data.bindPaged(ex.rosterLockedDuties, { indexes: ["roster_locked_duties_by_time"] }), range: "start" }, ...narrowing }, presets)
+            : Slice.bindRecords("test.warehouseRoster", { duty: { source: Data.bindPaged(ex.rosterDuties, { indexes: ["roster_duties_by_time"] }), range: "start" }, ...narrowing }, presets));
         const firms = $.let(Data.bind(ex.rosterAgencies));
         const times = $.let(Data.bind(ex.rosterShiftTimes));
         const teams = $.let(Data.bind(ex.rosterTeams));

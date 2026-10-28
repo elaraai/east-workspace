@@ -59,11 +59,15 @@ const PAGES = new SortedMap<Key, Entry>([
 
 describe("<Studio.Builder> (#1000)", () => {
     test("R4: its surface's manifest holds the record it writes, and exactly what its components read", () => {
-        const pages = e3.record("builder_pages", StudioPagesType, new SortedMap<Key, Entry>([], compareFor(StudioKeyType)));
-        const pagesPatch = e3.mutation.patch(pages);
+        const pages = e3.record("builder_pages", StudioPagesType, {
+            initial: new SortedMap<Key, Entry>([], compareFor(StudioKeyType)),
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+        });
         const surface = ui("builder_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const components = $.let([revenueTrend, kpiRail]);
-            const record = $.let(Record.bind(pages, [pagesPatch]));
+            const record = $.let(Record.bind(pages));
             return Studio.Builder({ pages: record, components, project: "ops" });
         }))));
         const manifest = surface.role.value!;

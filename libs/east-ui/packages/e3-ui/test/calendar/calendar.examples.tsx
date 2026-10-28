@@ -31,92 +31,147 @@ export const CalendarServiceTemplate = StructType({ name: StringType, group: Str
 /** Shift templates start at their hour when dropped on a day. */
 export const CalendarShiftTemplate = StructType({ name: StringType, group: StringType, hour: IntegerType, values: StructType({ title: StringType, notes: StringType }) });
 
-export const calendarMachines = e3.record("calendar_machines", DictType(StringType, CalendarMachine), new Map([
-    ["press1", { name: "Press 1", area: "Press shop" }], ["press2", { name: "Press 2", area: "Press shop" }],
-    ["lathe1", { name: "Lathe 1", area: "Machine shop" }], ["lathe2", { name: "Lathe 2", area: "Machine shop" }],
-]));
-export const calendarPeople = e3.record("calendar_people", DictType(StringType, CalendarPerson), new Map([
-    ["ash", { name: "A. Ash", team: "Maintenance" }], ["birch", { name: "B. Birch", team: "Production" }], ["cedar", { name: "C. Cedar", team: "Maintenance" }],
-]));
-export const calendarJobs = e3.record("calendar_jobs", DictType(StringType, CalendarJob), new Map([
-    ["job1", { title: "Mounting brackets · batch 42", start: some(new Date("2026-10-01T06:00:00Z")), end: some(new Date("2026-10-01T10:00:00Z")), machine: some("press1"), status: variant("active", null), hours: 4.0, customer: "Alder Works", due: some(new Date("2026-10-02T00:00:00Z")) }],
-    ["job2", { title: "Pump housings", start: some(new Date("2026-10-01T08:00:00Z")), end: some(new Date("2026-10-01T13:00:00Z")), machine: some("lathe1"), status: variant("planned", null), hours: 5.0, customer: "Birch Engineering", due: none }],
-    ["job3", { title: "Long title: stainless steel mounting plates for the prototype assembly", start: some(new Date("2026-10-01T11:00:00Z")), end: some(new Date("2026-10-01T11:30:00Z")), machine: some("press2"), status: variant("planned", null), hours: 0.5, customer: "Cedar Fabrication", due: none }],
-    ["job4", { title: "Bearing collars", start: some(new Date("2026-10-02T09:00:00Z")), end: some(new Date("2026-10-02T12:00:00Z")), machine: some("lathe2"), status: variant("planned", null), hours: 3.0, customer: "Alder Works", due: none }],
-    ["job5", { title: "Overnight batch", start: some(new Date("2026-10-01T22:00:00Z")), end: some(new Date("2026-10-02T02:00:00Z")), machine: some("press1"), status: variant("planned", null), hours: 4.0, customer: "Birch Engineering", due: none }],
-    ["job6", { title: "September closeout", start: some(new Date("2026-09-30T08:00:00Z")), end: some(new Date("2026-09-30T10:00:00Z")), machine: some("press2"), status: variant("done", null), hours: 2.0, customer: "Alder Works", due: none }],
-    ["backlog1", { title: "Torque-test fixtures", start: none, end: none, machine: some("press1"), status: variant("planned", null), hours: 2.0, customer: "Alder Works", due: some(new Date("2026-10-02T00:00:00Z")) }],
-    ["backlog2", { title: "Valve bodies", start: none, end: none, machine: none, status: variant("planned", null), hours: 3.0, customer: "Cedar Fabrication", due: some(new Date("2026-10-06T00:00:00Z")) }],
-    ["backlog3", { title: "Replacement shims", start: none, end: none, machine: none, status: variant("planned", null), hours: 1.0, customer: "Birch Engineering", due: some(new Date("2026-10-20T00:00:00Z")) }],
-    ["backlog4", { title: "Prototype spacers", start: none, end: none, machine: none, status: variant("planned", null), hours: 2.5, customer: "Alder Works", due: none }],
-]));
-export const calendarJobsPatch = e3.mutation.patch(calendarJobs);
-export const calendarServices = e3.record("calendar_services", DictType(StringType, CalendarService), new Map([
-    ["service1", { title: "Preventive maintenance", start: new Date("2026-10-01T09:00:00Z"), end: new Date("2026-10-01T11:00:00Z"), machine: "press1", technician: "ash", notes: "Inspect the tooling and check torque." }],
-    ["service2", { title: "Calibration", start: new Date("2026-10-02T13:00:00Z"), end: new Date("2026-10-02T14:00:00Z"), machine: "lathe1", technician: "cedar", notes: "Check against the reference gauge." }],
-]));
-export const calendarServicesPatch = e3.mutation.patch(calendarServices);
-export const calendarShifts = e3.record("calendar_shifts", DictType(StringType, CalendarShift), new Map([
-    ["shift1", { title: "Day shift", start: new Date("2026-10-01T06:00:00Z"), end: new Date("2026-10-01T14:00:00Z"), person: "ash", notes: "Press shop" }],
-    ["shift2", { title: "Late shift", start: new Date("2026-10-01T14:00:00Z"), end: new Date("2026-10-01T22:00:00Z"), person: "birch", notes: "Machine shop" }],
-]));
-export const calendarShiftsPatch = e3.mutation.patch(calendarShifts);
-export const calendarJobTemplates = e3.record("calendar_job_templates", DictType(StringType, CalendarJobTemplate), new Map([
-    ["brackets", { name: "Bracket batch", group: "Fabrication", hours: 4.0, values: { title: "Bracket batch", status: variant("planned", null), hours: 4.0, customer: "", due: none } }],
-    ["housings", { name: "Housing batch", group: "Machining", hours: 2.0, values: { title: "Housing batch", status: variant("planned", null), hours: 2.0, customer: "", due: none } }],
-]));
-export const calendarServiceTemplates = e3.record("calendar_service_templates", DictType(StringType, CalendarServiceTemplate), new Map([
-    ["calibration", { name: "Calibration", group: "Calibration", hours: 1.0, values: { title: "Calibration", technician: "cedar", notes: "Check against the reference gauge." } }],
-    ["service", { name: "Preventive maintenance", group: "Preventive", hours: 2.0, values: { title: "Preventive maintenance", technician: "ash", notes: "" } }],
-]));
-export const calendarShiftTemplates = e3.record("calendar_shift_templates", DictType(StringType, CalendarShiftTemplate), new Map([
-    ["day", { name: "Day shift", group: "Day", hour: 6n, values: { title: "Day shift", notes: "" } }],
-    ["late", { name: "Late shift", group: "Late", hour: 14n, values: { title: "Late shift", notes: "" } }],
-]));
-// The shop edits its machines and job templates elsewhere, each through its patch door; the Calendar reads them live.
-export const calendarMachinesPatch = e3.mutation.patch(calendarMachines);
-export const calendarJobTemplatesPatch = e3.mutation.patch(calendarJobTemplates);
+export const calendarMachines = e3.record("calendar_machines", DictType(StringType, CalendarMachine), {
+    initial: new Map([
+        ["press1", { name: "Press 1", area: "Press shop" }], ["press2", { name: "Press 2", area: "Press shop" }],
+        ["lathe1", { name: "Lathe 1", area: "Machine shop" }], ["lathe2", { name: "Lathe 2", area: "Machine shop" }],
+    ]),
+    indexes: (index) => ({
+        calendar_machines_by_area: index.on(["area"]),
+    }),
+    mutations: (mutation) => ({
+        // The shop edits its machines and job templates elsewhere, each through its patch door; the Calendar reads them live.
+        patch: mutation.patch(),
+    }),
+});
+export const calendarPeople = e3.record("calendar_people", DictType(StringType, CalendarPerson), {
+    initial: new Map([
+        ["ash", { name: "A. Ash", team: "Maintenance" }], ["birch", { name: "B. Birch", team: "Production" }], ["cedar", { name: "C. Cedar", team: "Maintenance" }],
+    ]),
+    indexes: (index) => ({
+        calendar_people_by_team: index.on(["team"]),
+    }),
+});
+export const calendarJobs = e3.record("calendar_jobs", DictType(StringType, CalendarJob), {
+    initial: new Map([
+        ["job1", { title: "Mounting brackets · batch 42", start: some(new Date("2026-10-01T06:00:00Z")), end: some(new Date("2026-10-01T10:00:00Z")), machine: some("press1"), status: variant("active", null), hours: 4.0, customer: "Alder Works", due: some(new Date("2026-10-02T00:00:00Z")) }],
+        ["job2", { title: "Pump housings", start: some(new Date("2026-10-01T08:00:00Z")), end: some(new Date("2026-10-01T13:00:00Z")), machine: some("lathe1"), status: variant("planned", null), hours: 5.0, customer: "Birch Engineering", due: none }],
+        ["job3", { title: "Long title: stainless steel mounting plates for the prototype assembly", start: some(new Date("2026-10-01T11:00:00Z")), end: some(new Date("2026-10-01T11:30:00Z")), machine: some("press2"), status: variant("planned", null), hours: 0.5, customer: "Cedar Fabrication", due: none }],
+        ["job4", { title: "Bearing collars", start: some(new Date("2026-10-02T09:00:00Z")), end: some(new Date("2026-10-02T12:00:00Z")), machine: some("lathe2"), status: variant("planned", null), hours: 3.0, customer: "Alder Works", due: none }],
+        ["job5", { title: "Overnight batch", start: some(new Date("2026-10-01T22:00:00Z")), end: some(new Date("2026-10-02T02:00:00Z")), machine: some("press1"), status: variant("planned", null), hours: 4.0, customer: "Birch Engineering", due: none }],
+        ["job6", { title: "September closeout", start: some(new Date("2026-09-30T08:00:00Z")), end: some(new Date("2026-09-30T10:00:00Z")), machine: some("press2"), status: variant("done", null), hours: 2.0, customer: "Alder Works", due: none }],
+        ["backlog1", { title: "Torque-test fixtures", start: none, end: none, machine: some("press1"), status: variant("planned", null), hours: 2.0, customer: "Alder Works", due: some(new Date("2026-10-02T00:00:00Z")) }],
+        ["backlog2", { title: "Valve bodies", start: none, end: none, machine: none, status: variant("planned", null), hours: 3.0, customer: "Cedar Fabrication", due: some(new Date("2026-10-06T00:00:00Z")) }],
+        ["backlog3", { title: "Replacement shims", start: none, end: none, machine: none, status: variant("planned", null), hours: 1.0, customer: "Birch Engineering", due: some(new Date("2026-10-20T00:00:00Z")) }],
+        ["backlog4", { title: "Prototype spacers", start: none, end: none, machine: none, status: variant("planned", null), hours: 2.5, customer: "Alder Works", due: none }],
+    ]),
+    indexes: (index) => ({
+        // The rail narrows each record through its own indexes (#1343): each event kind over its interval index — on its own,
+        // and after its status, its machine or its person — so a narrowing keeps every event overlapping the window once.
+        calendar_jobs_by_time: index.interval({ from: "start", to: "end" }),
+        calendar_jobs_by_status_time: index.interval({ on: ["status"], from: "start", to: "end" }),
+        calendar_jobs_by_machine_time: index.interval({ on: ["machine"], from: "start", to: "end" }),
+        // Each job is indexed under every UTC day it touches, leaving an exact midnight end out.
+        calendar_jobs_by_day: index.keys(East.function([StringType, CalendarJob], SetType(DateTimeType), ($, _key, row) => {
+            const days = $.const(Calendar.days);
+            return row.start.match({
+                some: (_$, start) => row.end.match({ some: (_$, end) => days(start, end), none: () => East.value(new Set<Date>(), SetType(DateTimeType)) }),
+                none: () => East.value(new Set<Date>(), SetType(DateTimeType)),
+            });
+        })),
+        // The unscheduled rows are indexed by due date; they remain in the jobs record.
+        calendar_jobs_unscheduled: index.keys(East.function([StringType, CalendarJob], SetType(OptionType(DateTimeType)), ($, _key, row) => {
+            const unscheduled = $.const(Calendar.unscheduled);
+            return unscheduled(row.start, row.due);
+        })),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+export const calendarServices = e3.record("calendar_services", DictType(StringType, CalendarService), {
+    initial: new Map([
+        ["service1", { title: "Preventive maintenance", start: new Date("2026-10-01T09:00:00Z"), end: new Date("2026-10-01T11:00:00Z"), machine: "press1", technician: "ash", notes: "Inspect the tooling and check torque." }],
+        ["service2", { title: "Calibration", start: new Date("2026-10-02T13:00:00Z"), end: new Date("2026-10-02T14:00:00Z"), machine: "lathe1", technician: "cedar", notes: "Check against the reference gauge." }],
+    ]),
+    indexes: (index) => ({
+        calendar_services_by_time: index.interval({ from: "start", to: "end" }),
+        calendar_services_by_machine_time: index.interval({ on: ["machine"], from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+export const calendarShifts = e3.record("calendar_shifts", DictType(StringType, CalendarShift), {
+    initial: new Map([
+        ["shift1", { title: "Day shift", start: new Date("2026-10-01T06:00:00Z"), end: new Date("2026-10-01T14:00:00Z"), person: "ash", notes: "Press shop" }],
+        ["shift2", { title: "Late shift", start: new Date("2026-10-01T14:00:00Z"), end: new Date("2026-10-01T22:00:00Z"), person: "birch", notes: "Machine shop" }],
+    ]),
+    indexes: (index) => ({
+        calendar_shifts_by_time: index.interval({ from: "start", to: "end" }),
+        calendar_shifts_by_person_time: index.interval({ on: ["person"], from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+export const calendarJobTemplates = e3.record("calendar_job_templates", DictType(StringType, CalendarJobTemplate), {
+    initial: new Map([
+        ["brackets", { name: "Bracket batch", group: "Fabrication", hours: 4.0, values: { title: "Bracket batch", status: variant("planned", null), hours: 4.0, customer: "", due: none } }],
+        ["housings", { name: "Housing batch", group: "Machining", hours: 2.0, values: { title: "Housing batch", status: variant("planned", null), hours: 2.0, customer: "", due: none } }],
+    ]),
+    indexes: (index) => ({
+        calendar_job_templates_by_group: index.on(["group"]),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+export const calendarServiceTemplates = e3.record("calendar_service_templates", DictType(StringType, CalendarServiceTemplate), {
+    initial: new Map([
+        ["calibration", { name: "Calibration", group: "Calibration", hours: 1.0, values: { title: "Calibration", technician: "cedar", notes: "Check against the reference gauge." } }],
+        ["service", { name: "Preventive maintenance", group: "Preventive", hours: 2.0, values: { title: "Preventive maintenance", technician: "ash", notes: "" } }],
+    ]),
+    indexes: (index) => ({
+        calendar_service_templates_by_group: index.on(["group"]),
+    }),
+});
+export const calendarShiftTemplates = e3.record("calendar_shift_templates", DictType(StringType, CalendarShiftTemplate), {
+    initial: new Map([
+        ["day", { name: "Day shift", group: "Day", hour: 6n, values: { title: "Day shift", notes: "" } }],
+        ["late", { name: "Late shift", group: "Late", hour: 14n, values: { title: "Late shift", notes: "" } }],
+    ]),
+    indexes: (index) => ({
+        calendar_shift_templates_by_group: index.on(["group"]),
+    }),
+});
 
-// The rail narrows each record through its own indexes (#1343): each event kind over its interval index — on its own,
-// and after its status, its machine or its person — so a narrowing keeps every event overlapping the window once.
-export const calendarJobsByTime = e3.recordIndex.interval("calendar_jobs_by_time", calendarJobs, { from: "start", to: "end" });
-export const calendarJobsByStatusTime = e3.recordIndex.interval("calendar_jobs_by_status_time", calendarJobs, { on: ["status"], from: "start", to: "end" });
-export const calendarJobsByMachineTime = e3.recordIndex.interval("calendar_jobs_by_machine_time", calendarJobs, { on: ["machine"], from: "start", to: "end" });
-export const calendarServicesByTime = e3.recordIndex.interval("calendar_services_by_time", calendarServices, { from: "start", to: "end" });
-export const calendarServicesByMachineTime = e3.recordIndex.interval("calendar_services_by_machine_time", calendarServices, { on: ["machine"], from: "start", to: "end" });
-export const calendarShiftsByTime = e3.recordIndex.interval("calendar_shifts_by_time", calendarShifts, { from: "start", to: "end" });
-export const calendarShiftsByPersonTime = e3.recordIndex.interval("calendar_shifts_by_person_time", calendarShifts, { on: ["person"], from: "start", to: "end" });
-export const calendarMachinesByArea = e3.recordIndex("calendar_machines_by_area", calendarMachines, { on: ["area"] });
-export const calendarPeopleByTeam = e3.recordIndex("calendar_people_by_team", calendarPeople, { on: ["team"] });
-export const calendarJobTemplatesByGroup = e3.recordIndex("calendar_job_templates_by_group", calendarJobTemplates, { on: ["group"] });
-export const calendarServiceTemplatesByGroup = e3.recordIndex("calendar_service_templates_by_group", calendarServiceTemplates, { on: ["group"] });
-export const calendarShiftTemplatesByGroup = e3.recordIndex("calendar_shift_templates_by_group", calendarShiftTemplates, { on: ["group"] });
 
 
 export const calendarOperations = example({
     inputs: [],
     description: "A metal fabrication calendar over three event records and bound machines, people and templates: Calendar, Resources and Timeline share one frame, one Slice.bindRecords rail — a source per event kind, resource kind and template record — and Save history. Its library schedules the event record's backlog and assigns technicians; overlapping production and maintenance warn without blocking Save.",
-    keywords: ["Calendar", "Record.bind", "Data.bind", "Calendar.templates", "Schedule", "Slice", "Slice.bindRecords", "Data.bindPaged", "recordIndex", "interval", "BuilderFrame", "library", "backlog", "inspector", "overlaps", "Save"],
+    keywords: ["Calendar", "Record.bind", "Data.bind", "Calendar.templates", "Schedule", "Slice", "Slice.bindRecords", "Data.bindPaged", "indexes", "interval", "BuilderFrame", "library", "backlog", "inspector", "overlaps", "Save"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // What the Calendar reads whole binds with Data.bind, which keeps it loaded beside its pages; the event records
         // it writes bind with Record.bind, and it reads their events through their pages alone.
         const machines = $.let(Data.bind(calendarMachines));
         const people = $.let(Data.bind(calendarPeople));
-        const jobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
-        const services = $.let(Record.bind(calendarServices, [calendarServicesPatch]));
-        const shifts = $.let(Record.bind(calendarShifts, [calendarShiftsPatch]));
+        const jobs = $.let(Record.bind(calendarJobs));
+        const services = $.let(Record.bind(calendarServices));
+        const shifts = $.let(Record.bind(calendarShifts));
         const jobTemplates = $.let(Data.bind(calendarJobTemplates));
         const serviceTemplates = $.let(Data.bind(calendarServiceTemplates));
         const shiftTemplates = $.let(Data.bind(calendarShiftTemplates));
         // Every record paged: each event kind's interval indexes and its own entries, the others' fields' indexes.
-        const jobIndex = $.let(Data.bindPaged(calendarJobs, { indexes: [calendarJobsByTime, calendarJobsByStatusTime, calendarJobsByMachineTime] }));
-        const serviceIndex = $.let(Data.bindPaged(calendarServices, { indexes: [calendarServicesByTime, calendarServicesByMachineTime] }));
-        const shiftIndex = $.let(Data.bindPaged(calendarShifts, { indexes: [calendarShiftsByTime, calendarShiftsByPersonTime] }));
-        const machineIndex = $.let(Data.bindPaged(calendarMachines, { indexes: [calendarMachinesByArea] }));
-        const peopleIndex = $.let(Data.bindPaged(calendarPeople, { indexes: [calendarPeopleByTeam] }));
-        const jobTemplateIndex = $.let(Data.bindPaged(calendarJobTemplates, { indexes: [calendarJobTemplatesByGroup] }));
-        const serviceTemplateIndex = $.let(Data.bindPaged(calendarServiceTemplates, { indexes: [calendarServiceTemplatesByGroup] }));
-        const shiftTemplateIndex = $.let(Data.bindPaged(calendarShiftTemplates, { indexes: [calendarShiftTemplatesByGroup] }));
+        const jobIndex = $.let(Data.bindPaged(calendarJobs, { indexes: ["calendar_jobs_by_time", "calendar_jobs_by_status_time", "calendar_jobs_by_machine_time"] }));
+        const serviceIndex = $.let(Data.bindPaged(calendarServices, { indexes: ["calendar_services_by_time", "calendar_services_by_machine_time"] }));
+        const shiftIndex = $.let(Data.bindPaged(calendarShifts, { indexes: ["calendar_shifts_by_time", "calendar_shifts_by_person_time"] }));
+        const machineIndex = $.let(Data.bindPaged(calendarMachines, { indexes: ["calendar_machines_by_area"] }));
+        const peopleIndex = $.let(Data.bindPaged(calendarPeople, { indexes: ["calendar_people_by_team"] }));
+        const jobTemplateIndex = $.let(Data.bindPaged(calendarJobTemplates, { indexes: ["calendar_job_templates_by_group"] }));
+        const serviceTemplateIndex = $.let(Data.bindPaged(calendarServiceTemplates, { indexes: ["calendar_service_templates_by_group"] }));
+        const shiftTemplateIndex = $.let(Data.bindPaged(calendarShiftTemplates, { indexes: ["calendar_shift_templates_by_group"] }));
         const jobEntries = $.let(Data.bindPaged(calendarJobs));
         const serviceEntries = $.let(Data.bindPaged(calendarServices));
         const shiftEntries = $.let(Data.bindPaged(calendarShifts));
@@ -180,21 +235,21 @@ export const calendarMobile = example({
         // it writes bind with Record.bind, and it reads their events through their pages alone.
         const machines = $.let(Data.bind(calendarMachines));
         const people = $.let(Data.bind(calendarPeople));
-        const jobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
-        const services = $.let(Record.bind(calendarServices, [calendarServicesPatch]));
-        const shifts = $.let(Record.bind(calendarShifts, [calendarShiftsPatch]));
+        const jobs = $.let(Record.bind(calendarJobs));
+        const services = $.let(Record.bind(calendarServices));
+        const shifts = $.let(Record.bind(calendarShifts));
         const jobTemplates = $.let(Data.bind(calendarJobTemplates));
         const serviceTemplates = $.let(Data.bind(calendarServiceTemplates));
         const shiftTemplates = $.let(Data.bind(calendarShiftTemplates));
         // Every record paged: each event kind's interval indexes and its own entries, the others' fields' indexes.
-        const jobIndex = $.let(Data.bindPaged(calendarJobs, { indexes: [calendarJobsByTime, calendarJobsByStatusTime, calendarJobsByMachineTime] }));
-        const serviceIndex = $.let(Data.bindPaged(calendarServices, { indexes: [calendarServicesByTime, calendarServicesByMachineTime] }));
-        const shiftIndex = $.let(Data.bindPaged(calendarShifts, { indexes: [calendarShiftsByTime, calendarShiftsByPersonTime] }));
-        const machineIndex = $.let(Data.bindPaged(calendarMachines, { indexes: [calendarMachinesByArea] }));
-        const peopleIndex = $.let(Data.bindPaged(calendarPeople, { indexes: [calendarPeopleByTeam] }));
-        const jobTemplateIndex = $.let(Data.bindPaged(calendarJobTemplates, { indexes: [calendarJobTemplatesByGroup] }));
-        const serviceTemplateIndex = $.let(Data.bindPaged(calendarServiceTemplates, { indexes: [calendarServiceTemplatesByGroup] }));
-        const shiftTemplateIndex = $.let(Data.bindPaged(calendarShiftTemplates, { indexes: [calendarShiftTemplatesByGroup] }));
+        const jobIndex = $.let(Data.bindPaged(calendarJobs, { indexes: ["calendar_jobs_by_time", "calendar_jobs_by_status_time", "calendar_jobs_by_machine_time"] }));
+        const serviceIndex = $.let(Data.bindPaged(calendarServices, { indexes: ["calendar_services_by_time", "calendar_services_by_machine_time"] }));
+        const shiftIndex = $.let(Data.bindPaged(calendarShifts, { indexes: ["calendar_shifts_by_time", "calendar_shifts_by_person_time"] }));
+        const machineIndex = $.let(Data.bindPaged(calendarMachines, { indexes: ["calendar_machines_by_area"] }));
+        const peopleIndex = $.let(Data.bindPaged(calendarPeople, { indexes: ["calendar_people_by_team"] }));
+        const jobTemplateIndex = $.let(Data.bindPaged(calendarJobTemplates, { indexes: ["calendar_job_templates_by_group"] }));
+        const serviceTemplateIndex = $.let(Data.bindPaged(calendarServiceTemplates, { indexes: ["calendar_service_templates_by_group"] }));
+        const shiftTemplateIndex = $.let(Data.bindPaged(calendarShiftTemplates, { indexes: ["calendar_shift_templates_by_group"] }));
         const jobEntries = $.let(Data.bindPaged(calendarJobs));
         const serviceEntries = $.let(Data.bindPaged(calendarServices));
         const shiftEntries = $.let(Data.bindPaged(calendarShifts));
@@ -258,21 +313,21 @@ export const calendarReadOnly = example({
         // it writes bind with Record.bind, and it reads their events through their pages alone.
         const machines = $.let(Data.bind(calendarMachines));
         const people = $.let(Data.bind(calendarPeople));
-        const jobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
-        const services = $.let(Record.bind(calendarServices, [calendarServicesPatch]));
-        const shifts = $.let(Record.bind(calendarShifts, [calendarShiftsPatch]));
+        const jobs = $.let(Record.bind(calendarJobs));
+        const services = $.let(Record.bind(calendarServices));
+        const shifts = $.let(Record.bind(calendarShifts));
         const jobTemplates = $.let(Data.bind(calendarJobTemplates));
         const serviceTemplates = $.let(Data.bind(calendarServiceTemplates));
         const shiftTemplates = $.let(Data.bind(calendarShiftTemplates));
         // Every record paged: each event kind's interval indexes and its own entries, the others' fields' indexes.
-        const jobIndex = $.let(Data.bindPaged(calendarJobs, { indexes: [calendarJobsByTime, calendarJobsByStatusTime, calendarJobsByMachineTime] }));
-        const serviceIndex = $.let(Data.bindPaged(calendarServices, { indexes: [calendarServicesByTime, calendarServicesByMachineTime] }));
-        const shiftIndex = $.let(Data.bindPaged(calendarShifts, { indexes: [calendarShiftsByTime, calendarShiftsByPersonTime] }));
-        const machineIndex = $.let(Data.bindPaged(calendarMachines, { indexes: [calendarMachinesByArea] }));
-        const peopleIndex = $.let(Data.bindPaged(calendarPeople, { indexes: [calendarPeopleByTeam] }));
-        const jobTemplateIndex = $.let(Data.bindPaged(calendarJobTemplates, { indexes: [calendarJobTemplatesByGroup] }));
-        const serviceTemplateIndex = $.let(Data.bindPaged(calendarServiceTemplates, { indexes: [calendarServiceTemplatesByGroup] }));
-        const shiftTemplateIndex = $.let(Data.bindPaged(calendarShiftTemplates, { indexes: [calendarShiftTemplatesByGroup] }));
+        const jobIndex = $.let(Data.bindPaged(calendarJobs, { indexes: ["calendar_jobs_by_time", "calendar_jobs_by_status_time", "calendar_jobs_by_machine_time"] }));
+        const serviceIndex = $.let(Data.bindPaged(calendarServices, { indexes: ["calendar_services_by_time", "calendar_services_by_machine_time"] }));
+        const shiftIndex = $.let(Data.bindPaged(calendarShifts, { indexes: ["calendar_shifts_by_time", "calendar_shifts_by_person_time"] }));
+        const machineIndex = $.let(Data.bindPaged(calendarMachines, { indexes: ["calendar_machines_by_area"] }));
+        const peopleIndex = $.let(Data.bindPaged(calendarPeople, { indexes: ["calendar_people_by_team"] }));
+        const jobTemplateIndex = $.let(Data.bindPaged(calendarJobTemplates, { indexes: ["calendar_job_templates_by_group"] }));
+        const serviceTemplateIndex = $.let(Data.bindPaged(calendarServiceTemplates, { indexes: ["calendar_service_templates_by_group"] }));
+        const shiftTemplateIndex = $.let(Data.bindPaged(calendarShiftTemplates, { indexes: ["calendar_shift_templates_by_group"] }));
         const jobEntries = $.let(Data.bindPaged(calendarJobs));
         const serviceEntries = $.let(Data.bindPaged(calendarServices));
         const shiftEntries = $.let(Data.bindPaged(calendarShifts));
@@ -333,7 +388,7 @@ export const calendarMinimal = example({
     keywords: ["Calendar", "minimal", "Record.bind", "day", "mobile", "optional panes"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const machines = $.let(Record.bind(calendarMachines, []));
-        const jobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
+        const jobs = $.let(Record.bind(calendarJobs));
         return <Box height="680px"><Calendar id="minimal" view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
             resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
             events={{ job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" }, backlog: { duration: row => variant("hours", row.hours), due: row => row.due } }) }} />
@@ -341,32 +396,15 @@ export const calendarMinimal = example({
     }}</Reactive>),
 });
 
-/** Each job is indexed under every UTC day it touches, leaving an exact midnight end out. */
-export const calendarJobsByDay = e3.recordIndex("calendar_jobs_by_day", calendarJobs, {
-    keys: East.function([StringType, CalendarJob], SetType(DateTimeType), ($, _key, row) => {
-        const days = $.const(Calendar.days);
-        return row.start.match({
-            some: (_$, start) => row.end.match({ some: (_$, end) => days(start, end), none: () => East.value(new Set<Date>(), SetType(DateTimeType)) }),
-            none: () => East.value(new Set<Date>(), SetType(DateTimeType)),
-        });
-    }),
-});
-/** The unscheduled rows are indexed by due date; they remain in the jobs record. */
-export const calendarJobsUnscheduled = e3.recordIndex("calendar_jobs_unscheduled", calendarJobs, {
-    keys: East.function([StringType, CalendarJob], SetType(OptionType(DateTimeType)), ($, _key, row) => {
-        const unscheduled = $.const(Calendar.unscheduled);
-        return unscheduled(row.start, row.due);
-    }),
-});
 export const calendarWindowed = example({
     inputs: [],
     description: "The jobs calendar read by its day and backlog indexes, with by-key reads for the inspector and checked saves. The calendar's own navigation picks the days read. Counts describe the loaded window. The same mobile agenda and explicit actions work over the paged record.",
-    keywords: ["Calendar", "Data.bindPaged", "recordIndex", "window", "backlogWindow", "entries", "day keys", "mobile", "Save"],
+    keywords: ["Calendar", "Data.bindPaged", "indexes", "window", "backlogWindow", "entries", "day keys", "mobile", "Save"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const machines = $.let(Record.bind(calendarMachines, []));
-        const jobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
-        const days = $.let(Data.bindPaged(calendarJobs, { index: calendarJobsByDay, join: true }));
-        const backlog = $.let(Data.bindPaged(calendarJobs, { index: calendarJobsUnscheduled, join: true }));
+        const jobs = $.let(Record.bind(calendarJobs));
+        const days = $.let(Data.bindPaged(calendarJobs, { index: "calendar_jobs_by_day", join: true }));
+        const backlog = $.let(Data.bindPaged(calendarJobs, { index: "calendar_jobs_unscheduled", join: true }));
         const entries = $.let(Data.bindPaged(calendarJobs));
         // The days in view are the calendar's own navigation's: it reads them through the day index, never the record whole.
         return <Box height="760px"><Calendar id="windowed" inspector view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
@@ -380,17 +418,21 @@ export const calendarWindowed = example({
 
 /** The smallest event record needs only its title and two instants. */
 export const CalendarAppointment = StructType({ title: StringType, start: DateTimeType, end: DateTimeType });
-export const calendarAppointments = e3.record("calendar_appointments", DictType(StringType, CalendarAppointment), new Map([
-    ["check", { title: "Safety check", start: new Date("2026-10-01T09:00:00Z"), end: new Date("2026-10-01T10:00:00Z") }],
-    ["review", { title: "Production review", start: new Date("2026-10-01T11:00:00Z"), end: new Date("2026-10-01T12:00:00Z") }],
-]));
-export const calendarAppointmentsPatch = e3.mutation.patch(calendarAppointments);
+export const calendarAppointments = e3.record("calendar_appointments", DictType(StringType, CalendarAppointment), {
+    initial: new Map([
+        ["check", { title: "Safety check", start: new Date("2026-10-01T09:00:00Z"), end: new Date("2026-10-01T10:00:00Z") }],
+        ["review", { title: "Production review", start: new Date("2026-10-01T11:00:00Z"), end: new Date("2026-10-01T12:00:00Z") }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 export const calendarQuickstart = example({
     inputs: [],
     description: "The smallest Calendar: a bound appointment record and its patch mutation. Calendar owns its frame, toolbar and editing session; the app names the fields that scheduling writes.",
     keywords: ["Calendar", "quickstart", "Record.bind", "events", "Save"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const appointments = $.let(Record.bind(calendarAppointments, [calendarAppointmentsPatch]));
+        const appointments = $.let(Record.bind(calendarAppointments));
         return <Box height="640px"><Calendar inspector view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }}
             events={{ appointment: Calendar.events(appointments, { name: "Appointment", icon: "calendar", title: "title", start: "start", end: "end" }) }} />
         </Box>;
@@ -403,7 +445,7 @@ export const calendarCustomInspector = example({
     description: "A typed custom appointment inspector updates the whole row through Calendar's shared Undo, Redo and Save session.",
     keywords: ["Calendar", "inspector", "custom", "Schedule.events", "update", "Record.bind"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const appointments = $.let(Record.bind(calendarAppointments, [calendarAppointmentsPatch]));
+        const appointments = $.let(Record.bind(calendarAppointments));
         const inspect = $.const(East.function([CalendarAppointment, FunctionType([CalendarAppointment], NullType)], UIComponentType, ($2, row, update) => {
             const change = $2.const(East.function([StringType], NullType, ($3, title) => { $3(update({ title, start: row.start, end: row.end })); }));
             return <Input.String value={row.title} placeholder="Appointment title" onChange={change} />;

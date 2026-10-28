@@ -273,7 +273,7 @@ describe("Plan element clicks (#569, #824)", () => {
 /** The rail over the dated rows' source — W27's and W39's — its window W27..W39: what the keys and the segment write. */
 const weekly = (key: string, affordances: readonly RecordSliceAffordance[] = []): Promise<Rail> => bindRail(() => Slice.bindRecords(key, {
     dated: {
-        source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+        source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
         fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
     },
 }), affordances);

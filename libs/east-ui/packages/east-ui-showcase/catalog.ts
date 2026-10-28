@@ -44,9 +44,9 @@ export interface LiveEntry extends CatalogBase {
     tier: "live";
     fn: ExampleDef["fn"];
     source?: CapturedSource;
-    /** The example file's module-scope dependencies (e3.input / record /
-     *  mutation defs the bodies reference), shared by every example in the
-     *  file. Absent for files that inline everything. */
+    /** The example file's module-scope dependencies (the e3.input and record
+     *  defs the bodies reference), shared by every example in the file.
+     *  Absent for files that inline everything. */
     dependencies?: CapturedSource;
 }
 

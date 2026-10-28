@@ -18,7 +18,6 @@
 import { DateTimeType, DictType, East, FloatType, IntegerType, RecursiveType, SortedMap, StringType, StructType, compareFor, type ValueTypeOf } from "@elaraai/east";
 import * as e3 from "@elaraai/e3";
 
-const series = e3.recordIndex.series;
 const keyOrder = compareFor(StringType);
 const instantOrder = compareFor(DateTimeType);
 
@@ -92,28 +91,31 @@ export function nestedMachine(i: number): ValueTypeOf<typeof NestedMachine> {
 }
 
 /** The machines, `M-000` to `M-199`. */
-export const nestedMachines = e3.record("nested_machines", NestedMachines, new SortedMap(
-    Array.from({ length: MACHINE_COUNT }, (_, i) => [`M-${String(i).padStart(3, "0")}`, nestedMachine(i)] as const), keyOrder,
-));
-export const nestedMachinesPatch = e3.mutation.patch(nestedMachines);
-/** The machines by site and state: beside their nested series index, each machine without its collections. */
-export const machinesBySiteStatus = e3.recordIndex("machines_by_site_status", nestedMachines, { on: ["site", "status"] });
-/** The machines by name, carrying a value of their own: their state. */
-export const machinesByName = e3.recordIndex("machines_by_name", nestedMachines, {
-    on: ["name"],
-    value: East.function([StringType, NestedMachine], StringType, (_$, _key, machine) => machine.status),
-});
-/** What the machines file in time: their jobs and stops a span each, their alarms an instant each, and their load and output a day each. */
-export const machinesInTime = series("machines_in_time", nestedMachines, {
-    collections: {
-        jobs: series.items({ from: "start", to: "end" }),
-        stops: series.items({ from: "start", to: "end" }),
-        alarms: series.items({ at: "at" }),
-        load: series.values(),
-        output: series.values(),
-    },
-    tile: "week",
-    summary: "month",
+export const nestedMachines = e3.record("nested_machines", NestedMachines, {
+    initial: new SortedMap(
+        Array.from({ length: MACHINE_COUNT }, (_, i) => [`M-${String(i).padStart(3, "0")}`, nestedMachine(i)] as const), keyOrder,
+    ),
+    indexes: (index) => ({
+        // The machines by site and state: beside their nested series index, each machine without its collections.
+        machines_by_site_status: index.on(["site", "status"]),
+        // The machines by name, carrying a value of their own: their state.
+        machines_by_name: index.on(["name"], { value: East.function([StringType, NestedMachine], StringType, (_$, _key, machine) => machine.status) }),
+        // What the machines file in time: their jobs and stops a span each, their alarms an instant each, and their load and output a day each.
+        machines_in_time: index.nested({
+            collections: {
+                jobs: index.nested.items({ from: "start", to: "end" }),
+                stops: index.nested.items({ from: "start", to: "end" }),
+                alarms: index.nested.items({ at: "at" }),
+                load: index.nested.values(),
+                output: index.nested.values(),
+            },
+            tile: "week",
+            summary: "month",
+        }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
 });
 
 /** A ledger's measure: its readings a day at a time. */
@@ -131,17 +133,23 @@ function nestedLedger(i: number): ValueTypeOf<typeof NestedLedger> {
 }
 
 /** Two ledgers of three measures. */
-export const nestedLedgers = e3.record("nested_ledgers", DictType(StringType, NestedLedger), new SortedMap([
-    ["L-1", nestedLedger(1)], ["L-2", nestedLedger(2)],
-], keyOrder));
-export const nestedLedgersPatch = e3.mutation.patch(nestedLedgers);
-/** The ledgers by name. */
-export const ledgersByName = e3.recordIndex("ledgers_by_name", nestedLedgers, { on: ["name"] });
-/** What the ledgers file in time: each measure's readings, a ledger keeping their sums from the week up. */
-export const ledgersInTime = series("ledgers_in_time", nestedLedgers, {
-    collections: { measures: series.rows({ readings: series.values({ rollup: "sum" }) }) },
-    tile: "week",
-    summary: "month",
+export const nestedLedgers = e3.record("nested_ledgers", DictType(StringType, NestedLedger), {
+    initial: new SortedMap([
+        ["L-1", nestedLedger(1)], ["L-2", nestedLedger(2)],
+    ], keyOrder),
+    indexes: (index) => ({
+        // The ledgers by name.
+        ledgers_by_name: index.on(["name"]),
+        // What the ledgers file in time: each measure's readings, a ledger keeping their sums from the week up.
+        ledgers_in_time: index.nested({
+            collections: { measures: index.nested.rows({ readings: index.nested.values({ rollup: "sum" }) }) },
+            tile: "week",
+            summary: "month",
+        }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
 });
 
 /** A part: its jobs, and more parts beneath it. */
@@ -162,21 +170,27 @@ function partJob(product: string, from: number, to: number): ValueTypeOf<typeof 
 }
 
 /** An assembly of a frame holding a motor, which holds a rotor: each with a job that week. */
-export const nestedAssemblies = e3.record("nested_assemblies", DictType(StringType, NestedAssembly), new SortedMap([
-    ["A-1", { name: "Pump", parts: new SortedMap([
-        ["frame", part("Frame", [["weld", partJob("frame", 8, 20)]], [
-            ["motor", part("Motor", [["wind", partJob("motor", 26, 40)]], [
-                ["rotor", part("Rotor", [["turn", partJob("rotor", 50, 60)]], [])],
+export const nestedAssemblies = e3.record("nested_assemblies", DictType(StringType, NestedAssembly), {
+    initial: new SortedMap([
+        ["A-1", { name: "Pump", parts: new SortedMap([
+            ["frame", part("Frame", [["weld", partJob("frame", 8, 20)]], [
+                ["motor", part("Motor", [["wind", partJob("motor", 26, 40)]], [
+                    ["rotor", part("Rotor", [["turn", partJob("rotor", 50, 60)]], [])],
+                ])],
             ])],
-        ])],
-    ], keyOrder) }],
-], keyOrder));
-export const nestedAssembliesPatch = e3.mutation.patch(nestedAssemblies);
-/** The assemblies by name. */
-export const assembliesByName = e3.recordIndex("assemblies_by_name", nestedAssemblies, { on: ["name"] });
-/** What the assemblies file in time: each part's jobs, under it and under every part above it. */
-export const assembliesInTime = series("assemblies_in_time", nestedAssemblies, {
-    collections: { parts: series.rows({ jobs: series.items({ from: "start", to: "end" }, { rollup: true }), parts: series.recursive() }) },
-    tile: "week",
-    summary: "month",
+        ], keyOrder) }],
+    ], keyOrder),
+    indexes: (index) => ({
+        // The assemblies by name.
+        assemblies_by_name: index.on(["name"]),
+        // What the assemblies file in time: each part's jobs, under it and under every part above it.
+        assemblies_in_time: index.nested({
+            collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: "start", to: "end" }, { rollup: true }), parts: index.nested.recursive() }) },
+            tile: "week",
+            summary: "month",
+        }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
 });

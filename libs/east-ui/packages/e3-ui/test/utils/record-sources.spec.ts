@@ -17,17 +17,25 @@ import e3 from "@elaraai/e3";
 import { Data, recordSources, tabSource, templatesSource } from "@elaraai/e3-ui/internal";
 
 const Person = StructType({ name: StringType, team: StringType });
-const staff = e3.record("sources_spec_staff", DictType(StringType, Person), new Map());
-const staffByTeam = e3.recordIndex("sources_spec_staff_by_team", staff, { on: ["team"] });
+const staff = e3.record("sources_spec_staff", DictType(StringType, Person), {
+    initial: new Map(),
+    indexes: (index) => ({
+        sources_spec_staff_by_team: index.on(["team"]),
+    }),
+});
 const Activity = StructType({ label: StringType, group: StringType });
-const activities = e3.record("sources_spec_activities", DictType(StringType, Activity), new Map());
-const activitiesByGroup = e3.recordIndex("sources_spec_activities_by_group", activities, { on: ["group"] });
+const activities = e3.record("sources_spec_activities", DictType(StringType, Activity), {
+    initial: new Map(),
+    indexes: (index) => ({
+        sources_spec_activities_by_group: index.on(["group"]),
+    }),
+});
 const spec = { builder: "Roster", names: ["people", "activities"], what: "its people and its activities" } as const;
 
 test("a Slice.bindRecords over the sources a builder takes: its chrome, and each source's part, typed data and keys bound once in the builder's block, in source order", () => {
     const slice = Slice.bindRecords("spec.roster", {
-        people: { source: Data.bindPaged(staff, { indexes: [staffByTeam] }), fields: { team: { label: "Group" } } },
-        activities: { source: Data.bindPaged(activities, { indexes: [activitiesByGroup] }) },
+        people: { source: Data.bindPaged(staff, { indexes: ["sources_spec_staff_by_team"] }), fields: { team: { label: "Group" } } },
+        activities: { source: Data.bindPaged(activities, { indexes: ["sources_spec_activities_by_group"] }) },
     });
     const sources = recordSources({ slice }, spec);
     assert.deepEqual(sources.names, ["people", "activities"]);
@@ -47,7 +55,7 @@ test("a Slice.bindRecords over the sources a builder takes: its chrome, and each
         return null;
     });
     // A builder may take only some of its sources.
-    assert.deepEqual(recordSources({ slice: Slice.bindRecords("spec.people", { people: { source: Data.bindPaged(staff, { indexes: [staffByTeam] }) } }) }, spec).names, ["people"]);
+    assert.deepEqual(recordSources({ slice: Slice.bindRecords("spec.people", { people: { source: Data.bindPaged(staff, { indexes: ["sources_spec_staff_by_team"] }) } }) }, spec).names, ["people"]);
 });
 
 test("no slice: no chrome, and nothing narrowed or bound", () => {
@@ -61,28 +69,32 @@ test("no slice: no chrome, and nothing narrowed or bound", () => {
 
 test("Slice.bind and a single Slice.bindRecord are refused, naming Slice.bindRecords and the builder's sources", () => {
     const local = Slice.bind("spec.local", [{ name: "A", team: "pick" }], { fields: { team: { label: "Group" } } });
-    const single = Slice.bindRecord("spec.single", Data.bindPaged(staff, { indexes: [staffByTeam] }));
+    const single = Slice.bindRecord("spec.single", Data.bindPaged(staff, { indexes: ["sources_spec_staff_by_team"] }));
     const message = /Roster: `slice` is Slice.bindRecords\(key, \{ people, activities \}\) — name each source after what it narrows; Slice.bind and Slice.bindRecord are not taken/;
     assert.throws(() => recordSources({ slice: local as never }, spec), message);
     assert.throws(() => recordSources({ slice: single as never }, spec), message);
 });
 
 test("a source the builder does not take is refused, naming the ones it does; an open builder takes its own names", () => {
-    const slice = Slice.bindRecords("spec.staff", { staff: { source: Data.bindPaged(staff, { indexes: [staffByTeam] }) } });
+    const slice = Slice.bindRecords("spec.staff", { staff: { source: Data.bindPaged(staff, { indexes: ["sources_spec_staff_by_team"] }) } });
     assert.throws(() => recordSources({ slice }, spec),
         /Roster: `slice` narrows its people and its activities — its source 'staff' is none of them; name the sources `people` and `activities`/);
     assert.deepEqual(recordSources({ slice }, { ...spec, takes: () => true }).names, ["staff"]);
 });
 
 test("a source over a record whose keys are not Strings is refused", () => {
-    const numbered = e3.record("sources_spec_numbered", DictType(IntegerType, Person), new Map());
-    const byTeam = e3.recordIndex("sources_spec_numbered_by_team", numbered, { on: ["team"] });
-    const slice = Slice.bindRecords("spec.numbered", { people: { source: Data.bindPaged(numbered, { indexes: [byTeam] }) } });
+    const numbered = e3.record("sources_spec_numbered", DictType(IntegerType, Person), {
+        initial: new Map(),
+        indexes: (index) => ({
+            sources_spec_numbered_by_team: index.on(["team"]),
+        }),
+    });
+    const slice = Slice.bindRecords("spec.numbered", { people: { source: Data.bindPaged(numbered, { indexes: ["sources_spec_numbered_by_team"] }) } });
     assert.throws(() => recordSources({ slice }, spec), /Roster: `slice`'s people narrows a record whose keys are not Strings — each source is a record with String primary keys/);
 });
 
 test("a String field with neither hints nor search is refused, naming its source: it would offer nothing to choose", () => {
-    const people = () => Data.bindPaged(staff, { indexes: [staffByTeam] });
+    const people = () => Data.bindPaged(staff, { indexes: ["sources_spec_staff_by_team"] });
     assert.throws(() => Slice.bindRecords("spec.fields", { people: { source: people(), search: [], fields: { team: { label: "Group" } } } }),
         /Slice.bindRecords: the 'people' source — Slice.bindRecord: 'Group' offers nothing to choose — give it hints, or list 'team' in search/);
     // Hints offer choices, a search finds them, and with no search named every String field is searched.

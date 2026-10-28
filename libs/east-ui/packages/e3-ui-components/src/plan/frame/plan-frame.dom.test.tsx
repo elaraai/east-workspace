@@ -78,7 +78,7 @@ const COUNTED = new Map<string, Job>([
 /** A Plan of the presses and their jobs, with a backlog — given no `library` and no `inspector`, so no pane. */
 const bareJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis,

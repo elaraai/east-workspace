@@ -44,7 +44,7 @@ function refusal(build: ($: BlockBuilder<NullType>) => unknown): string {
 /** A Plan of the jobs on the presses, with the props given beside them. */
 function payload($: BlockBuilder<NullType>, change: Readonly<Record<string, unknown>> = {}): unknown {
     const presses = $.let(Record.bind(base.planPrintPresses, []));
-    const jobs = $.let(Record.bind(base.planEventJobs, [base.planEventJobsPatch]));
+    const jobs = $.let(Record.bind(base.planEventJobs));
     return Plan.Payload({
         axis: Plan.axis({ window: WINDOW, resolution: "day" }),
         resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },

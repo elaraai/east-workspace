@@ -108,7 +108,7 @@ type TabName = "events" | "backlog" | "series" | "customers";
 function jobsPlan(tabs: readonly TabName[], id?: string, customerDrop = false) {
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const presses = $.let(Record.bind(ex.planPrintPresses, []));
-        const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+        const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
         const customers = $.let(Record.bind(ex.planPrintCustomers, []));
         const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day", now: new Date("2026-10-14T09:00:00Z") }));
         const library = tabs.map((tab) => (tab === "events" ? Plan.library.events() : tab === "backlog" ? Plan.library.backlog()

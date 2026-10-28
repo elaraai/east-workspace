@@ -70,9 +70,9 @@ const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
 const ORDERS = pathText(sheet.indexedWorkOrders.path as TreePath);
 const OPERATIONS = pathText(ex.planOperations.path as TreePath);
 /** The orders' status/due index; the operations' interval index and series index. */
-const BY_STATUS_DUE = sheet.indexedWorkByStatusDue;
-const BY_TIME = ex.planOperationsByTime;
-const SERIES = ex.planOperationsByWorkWeek;
+const BY_STATUS_DUE = sheet.indexedWorkOrders.indexes.by_status_due;
+const BY_TIME = ex.planOperations.indexes.plan_operations_by_time;
+const SERIES = ex.planOperations.indexes.plan_operations_by_work_week;
 
 /** How many orders a cell holds: a block of fifty of the narrowing's, in its index's order. */
 const BLOCK = 50;

@@ -51,11 +51,11 @@ type Context = ValueTypeOf<typeof Roster.Types.Context>;
 
 /** The warehouse's payload, the tag over its records as the warehouse example binds them, with its pay and its check. */
 const program = East.function([], RosterPayloadType, ($) => {
-    const rota = $.let(Record.bind(rx.rosterDuties, [rx.rosterDutiesPatch]));
+    const rota = $.let(Record.bind(rx.rosterDuties, ["patch"]));
     const entries = $.let(Data.bindPaged(rx.rosterDuties));
-    const byTime = $.let(Data.bindPaged(rx.rosterDuties, { indexes: [rx.rosterDutiesByTime] }));
-    const weeks = $.let(Record.bind(rx.rosterWeeks, [rx.rosterWeeksPatch]));
-    const cover = $.let(Record.bind(rx.rosterCover, [rx.rosterCoverPatch]));
+    const byTime = $.let(Data.bindPaged(rx.rosterDuties, { indexes: ["roster_duties_by_time"] }));
+    const weeks = $.let(Record.bind(rx.rosterWeeks, ["patch"]));
+    const cover = $.let(Record.bind(rx.rosterCover, ["patch"]));
     const people = $.let(Data.bind(rx.rosterStaff));
     const acts = $.let(Data.bind(rx.rosterActivities));
     const firms = $.let(Data.bind(rx.rosterAgencies));

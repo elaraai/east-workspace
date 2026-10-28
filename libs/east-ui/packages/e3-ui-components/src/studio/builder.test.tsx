@@ -49,7 +49,7 @@ const applyPages = applyFor(StudioPagesType);
 /** The components' code — the fingerprints a live version's cells store. */
 const kpiFn = East.function([], UIComponentType, (_$) => Text.Root("KPIs"));
 const trendFn = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const pages = $.let(Record.bind(ex.studioPages, [ex.studioPagesPatch]));
+    const pages = $.let(Record.bind(ex.studioPages, ["patch"]));
     return Text.Root(East.str`${East.print(pages.read().size())} pages`);
 })));
 const ordersFn = East.function([], UIComponentType, (_$) => Text.Root("Orders"));
@@ -154,7 +154,7 @@ beforeEach(async () => {
 const builder = {
     fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const listed = $.let(components);
-        const record = $.let(Record.bind(ex.studioPages, [ex.studioPagesPatch]));
+        const record = $.let(Record.bind(ex.studioPages, ["patch"]));
         return Studio.Builder({
             pages: record, components: listed, project: "ops",
             env: "Staging", audience: "Field ops · 24 users", rollout: "Immediate",

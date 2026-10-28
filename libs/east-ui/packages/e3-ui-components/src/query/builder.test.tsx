@@ -110,7 +110,7 @@ describe("<Query.Builder> — the shell (#935)", () => {
 
 /** The record bound with its patch door, as a surface binds it: what the session's surface reads, and what loads before it renders. */
 const HandleType = RecordBindHandleType(Query.Types.Saved, { patch: [PatchType(Query.Types.Saved)] });
-const bound = { fn: East.function([], HandleType, (_$) => Record.bind(ex.queries, [ex.queriesPatch])) };
+const bound = { fn: East.function([], HandleType, (_$) => Record.bind(ex.queries, ["patch"])) };
 
 /** A surface over the open query's session: the history item in its toolbar, and the session handed out. */
 function SessionHarness({ onState }: { onState: (state: QuerySessionState) => void }) {

@@ -83,10 +83,10 @@ const PRESSES = pathText(ex.planWindowPresses.output.path as TreePath);
 const HALL_PRESSES = pathText(ex.planSeriesPresses.path as TreePath);
 const JOBS = pathText(ex.planWindowJobs.path as TreePath);
 /** The jobs' interval index, their series index and their summary, and the presses' hall index. */
-const BY_TIME = ex.planWindowJobsByTime;
-const SERIES = ex.planWindowJobsByPressWeek;
-const SUMMARY = ex.planWindowJobsByPressMonth;
-const BY_HALL = ex.planSeriesPressesByHall;
+const BY_TIME = ex.planWindowJobs.indexes.plan_window_jobs_by_time;
+const SERIES = ex.planWindowJobs.indexes.plan_window_jobs_by_press_week;
+const SUMMARY = ex.planWindowJobs.indexes.plan_window_jobs_by_press_month;
+const BY_HALL = ex.planSeriesPresses.indexes.plan_series_presses_by_hall;
 
 /** What a dataset was asked from the `since`-th request on: each read's kind, the index it reads through — the record's own entries when none — and a page's window. */
 const askedOf = (dataset: string, since = 0) => h.requests().slice(since).filter((request) => request.dataset === dataset && request.kind !== "dataset-status")
@@ -761,12 +761,12 @@ describe("Search Records over the presses narrowed by hall (#1398)", () => {
  */
 const windowsTemplates = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.let(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
     const entries = $.let(Data.bindPaged(ex.planWindowJobs));
     const jobTemplates = $.let(Data.bind(pe.planPrintJobTemplates));
     const slice = $.let(Slice.bindRecords("test.calendarWindowsTemplates", {
-        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [BY_TIME, SERIES, SUMMARY] }), range: "start" },
-        jobTemplates: { source: Data.bindPaged(pe.planPrintJobTemplates, { indexes: [pe.planPrintJobTemplatesByGroup] }) },
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }), range: "start" },
+        jobTemplates: { source: Data.bindPaged(pe.planPrintJobTemplates, { indexes: ["plan_print_job_templates_by_group"] }) },
     }));
     return Calendar({
         id: "windowsTemplates", inspector: true, slice: { slice },

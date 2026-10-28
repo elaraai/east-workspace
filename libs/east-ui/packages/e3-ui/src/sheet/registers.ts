@@ -125,14 +125,18 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *         qty: i.remainder(11n).equal(0n).ifElse((_$2) => blank, (_$2) => East.value(some(i.multiply(7n).toFloat().add(50.0)), OptionType(FloatType))),
  *     }));
  * });
- * export const sheetStressJobs = e3.record("sheet_stress_jobs", DictType(StringType, StressJob),
- *     East.compile(East.function([IntegerType], DictType(StringType, StressJob), ($, count) => {
+ * export const sheetStressJobs = e3.record("sheet_stress_jobs", DictType(StringType, StressJob), {
+ *     initial: East.compile(East.function([IntegerType], DictType(StringType, StressJob), ($, count) => {
  *         const generate = $.const(generateStressJobs);
  *         return generate(count).toDict((_$, job) => job.id, (_$, job) => job);
- *     }), [])(2000n));
- * export const sheetStressByActivity = e3.recordIndex("sheet_stress_by_activity", sheetStressJobs, { on: ["activity"] });
- * export const sheetStressByStatus = e3.recordIndex("sheet_stress_by_status", sheetStressJobs, { on: ["status"] });
- * export const sheetStressByNotes = e3.recordIndex("sheet_stress_by_notes", sheetStressJobs, { on: ["notes"] });
+ *     }), [])(2000n),
+ *     indexes: (index) => ({
+ *         // The jobs by activity, by status and by their notes: what the rail narrows them by, each choice one index's runs.
+ *         sheet_stress_by_activity: index.on(["activity"]),
+ *         sheet_stress_by_status: index.on(["status"]),
+ *         sheet_stress_by_notes: index.on(["notes"]),
+ *     }),
+ * });
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
@@ -144,7 +148,7 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *         // One rail over the jobs: the sheet's rows are the record's, its `rows` source's narrowing drawn over them as the lens.
  *         const slice = $.let(Slice.bindRecords("sheet_stress", {
  *             rows: {
- *                 source: Data.bindPaged(sheetStressJobs, { indexes: [sheetStressByActivity, sheetStressByStatus, sheetStressByNotes] }),
+ *                 source: Data.bindPaged(sheetStressJobs, { indexes: ["sheet_stress_by_activity", "sheet_stress_by_status", "sheet_stress_by_notes"] }),
  *                 fields: {
  *                     activity: { label: "Activity", hints: ["Routing", "Spraying", "Wrapping", "Set-up", "Maintenance"] },
  *                     status:   { label: "Status", hints: ["PLANNED", "RELEASED", "COMPLETE"] },
@@ -328,125 +332,145 @@ export interface SheetDriverValue {
  *     { name: "Wrapping", uom: "units", days: 1n, rate: 10.0, family: "", sides: variant("in", null) },
  *     { name: "Delivery", uom: "loads", days: 1n, rate: 1.0, family: "", sides: variant("from", null) },
  * ]));
- * export const sheetWorkshopMachines = e3.record("sheet_workshop_machines", DictType(StringType, WorkshopMachine), new Map([
- *     ["S101", { family: "beam saw", bay: "Bay 1" }],
- *     ["S102", { family: "beam saw", bay: "Bay 1" }],
- *     ["S103", { family: "beam saw", bay: "Bay 1" }],
- *     ["E201", { family: "edge bander", bay: "Bay 2" }],
- *     ["E202", { family: "edge bander", bay: "Bay 2" }],
- *     ["R301", { family: "CNC router", bay: "Bay 3" }],
- *     ["R302", { family: "CNC router", bay: "Bay 3" }],
- *     ["R303", { family: "CNC router", bay: "Bay 3" }],
- *     ["F401", { family: "spray booth", bay: "Bay 4" }],
- *     ["F402", { family: "spray booth", bay: "Bay 4" }],
- *     ["A701", { family: "assembly bench", bay: "Bay 7" }],
- *     ["A702", { family: "assembly bench", bay: "Bay 7" }],
- * ]));
- * export const sheetWorkshopOrders = e3.record("sheet_workshop_orders", DictType(StringType, WorkshopOrder), new Map([
- *     ["WO-2201", { name: "WO-2201 · Kitchen, oak", customer: "Quillfeather Interiors", due: some(new Date("2026-10-23T00:00:00Z")), status: "RELEASED", ops: [
- *         { activity: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), end: some(new Date("2026-10-13T00:00:00Z")), qty: some(48.0),
- *           machines: { from: [variant("identified", { key: "S101" })], to: [variant("identified", { key: "E201" })] }, notes: "Oak veneered board", created_by: "planner" },
- *         { activity: "Edge banding", start: some(new Date("2026-10-14T00:00:00Z")), end: some(new Date("2026-10-15T00:00:00Z")), qty: some(120.0),
- *           machines: { from: [variant("identified", { key: "E201" })], to: [variant("identified", { key: "R301" })] }, notes: "", created_by: "planner" },
- *         { activity: "CNC routing", start: some(new Date("2026-10-15T00:00:00Z")), end: some(new Date("2026-10-17T00:00:00Z")), qty: some(48.0),
- *           machines: { from: [variant("identified", { key: "R301" })], to: [variant("identified", { key: "A701" })] }, notes: "Hinge cups and handle slots", created_by: "planner" },
- *         { activity: "Assembly", start: none, end: none, qty: some(12.0),
- *           machines: { from: [], to: [variant("identified", { key: "A701" })] }, notes: "Twelve carcasses", created_by: "planner" },
- *         { activity: "Spray finish", start: none, end: none, qty: some(24.0),
- *           machines: { from: [], to: [variant("identified", { key: "F401" })] }, notes: "Matt lacquer", created_by: "planner" },
- *     ] }],
- *     ["WO-2202", { name: "WO-2202 · Wardrobes, ash", customer: "Marrowby Lettings", due: some(new Date("2026-10-30T00:00:00Z")), status: "PLANNED", ops: [
- *         { activity: "Panel cutting", start: some(new Date("2026-10-13T00:00:00Z")), end: some(new Date("2026-10-14T00:00:00Z")), qty: some(36.0),
- *           machines: { from: [variant("identified", { key: "S102" })], to: [variant("identified", { key: "E202" })] }, notes: "", created_by: "planner" },
- *         { activity: "Edge banding", start: none, end: none, qty: some(90.0),
- *           machines: { from: [variant("identified", { key: "E202" })], to: [] }, notes: "", created_by: "planner" },
- *         { activity: "Drilling", start: none, end: none, qty: some(36.0),
- *           machines: { from: [], to: [variant("identified", { key: "R302" })] }, notes: "Hinge and shelf pins", created_by: "planner" },
- *         { activity: "Assembly", start: none, end: none, qty: some(6.0),
- *           machines: { from: [], to: [variant("identified", { key: "A702" })] }, notes: "", created_by: "planner" },
- *     ] }],
- *     ["WO-2203", { name: "WO-2203 · Vanity unit, walnut", customer: "Tallowmere Homes", due: some(new Date("2026-11-02T00:00:00Z")), status: "PLANNED", ops: [
- *         { activity: "Panel cutting", start: none, end: none, qty: some(12.0),
- *           machines: { from: [], to: [variant("identified", { key: "S101" })] }, notes: "", created_by: "planner" },
- *         { activity: "CNC routing", start: none, end: none, qty: some(12.0),
- *           machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] }, notes: "Basin cut-out", created_by: "planner" },
- *         { activity: "Spray finish", start: none, end: none, qty: some(4.0),
- *           machines: { from: [], to: [variant("identified", { key: "F402" })] }, notes: "", created_by: "planner" },
- *         { activity: "Assembly", start: none, end: none, qty: some(2.0),
- *           machines: { from: [], to: [] }, notes: "", created_by: "planner" },
- *     ] }],
- *     ["WO-2204", { name: "WO-2204 · Shelving, birch", customer: "Pebblecombe School", due: some(new Date("2026-10-20T00:00:00Z")), status: "ON HOLD", ops: [
- *         { activity: "Panel cutting", start: none, end: none, qty: some(60.0),
- *           machines: { from: [], to: [variant("counted", { n: 2n, key: "beam saw" })] }, notes: "Awaiting board delivery", created_by: "planner" },
- *         { activity: "Edge banding", start: none, end: none, qty: some(150.0),
- *           machines: { from: [], to: [] }, notes: "", created_by: "planner" },
- *         { activity: "Sanding", start: none, end: none, qty: some(60.0),
- *           machines: { from: [], to: [] }, notes: "", created_by: "planner" },
- *     ] }],
- *     ["WO-2205", { name: "WO-2205 · Office fit-out, maple", customer: "", due: none, status: "PLANNED", ops: [
- *         { activity: "Panel cutting", start: none, end: none, qty: some(80.0),
- *           machines: { from: [], to: [] }, notes: "", created_by: "planner" },
- *         { activity: "CNC routing", start: none, end: none, qty: some(40.0),
- *           machines: { from: [], to: [] }, notes: "Cable ports", created_by: "planner" },
- *         { activity: "Assembly", start: none, end: none, qty: some(10.0),
- *           machines: { from: [], to: [] }, notes: "", created_by: "planner" },
- *         { activity: "Wrapping", start: none, end: none, qty: some(10.0),
- *           machines: { from: [], to: [] }, notes: "", created_by: "planner" },
- *         { activity: "Delivery", start: none, end: none, qty: some(2.0),
- *           machines: { from: [], to: [] }, notes: "", created_by: "planner" },
- *     ] }],
- *     ["WO-2206", { name: "WO-2206 · Kitchen, painted", customer: "Orrisdale Cottages", due: some(new Date("2026-11-06T00:00:00Z")), status: "PLANNED", ops: [
- *         { activity: "Panel cutting", start: none, end: none, qty: some(30.0),
- *           machines: { from: [], to: [variant("identified", { key: "S103" })] }, notes: "", created_by: "planner" },
- *         { activity: "Edge banding", start: none, end: none, qty: some(70.0),
- *           machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] }, notes: "", created_by: "planner" },
- *         { activity: "Spray finish", start: none, end: none, qty: some(18.0),
- *           machines: { from: [], to: [variant("identified", { key: "F401" })] }, notes: "Primer, then two coats", created_by: "planner" },
- *         { activity: "Assembly", start: none, end: none, qty: some(8.0),
- *           machines: { from: [], to: [] }, notes: "", created_by: "planner" },
- *         { activity: "Wrapping", start: none, end: none, qty: some(8.0),
- *           machines: { from: [], to: [] }, notes: "", created_by: "planner" },
- *         { activity: "Delivery", start: none, end: none, qty: some(1.0),
- *           machines: { from: [], to: [] }, notes: "", created_by: "planner" },
- *     ] }],
- * ]));
- * export const sheetWorkshopOrdersPatch = e3.mutation.patch(sheetWorkshopOrders);
- * export const sheetWorkshopOrdersByStatus = e3.recordIndex("sheet_workshop_orders_by_status", sheetWorkshopOrders, { on: ["status"] });
- * export const sheetWorkshopOrdersByCustomer = e3.recordIndex("sheet_workshop_orders_by_customer", sheetWorkshopOrders, { on: ["customer"] });
+ * export const sheetWorkshopMachines = e3.record("sheet_workshop_machines", DictType(StringType, WorkshopMachine), {
+ *     initial: new Map([
+ *         ["S101", { family: "beam saw", bay: "Bay 1" }],
+ *         ["S102", { family: "beam saw", bay: "Bay 1" }],
+ *         ["S103", { family: "beam saw", bay: "Bay 1" }],
+ *         ["E201", { family: "edge bander", bay: "Bay 2" }],
+ *         ["E202", { family: "edge bander", bay: "Bay 2" }],
+ *         ["R301", { family: "CNC router", bay: "Bay 3" }],
+ *         ["R302", { family: "CNC router", bay: "Bay 3" }],
+ *         ["R303", { family: "CNC router", bay: "Bay 3" }],
+ *         ["F401", { family: "spray booth", bay: "Bay 4" }],
+ *         ["F402", { family: "spray booth", bay: "Bay 4" }],
+ *         ["A701", { family: "assembly bench", bay: "Bay 7" }],
+ *         ["A702", { family: "assembly bench", bay: "Bay 7" }],
+ *     ]),
+ * });
+ * export const sheetWorkshopOrders = e3.record("sheet_workshop_orders", DictType(StringType, WorkshopOrder), {
+ *     initial: new Map([
+ *         ["WO-2201", { name: "WO-2201 · Kitchen, oak", customer: "Quillfeather Interiors", due: some(new Date("2026-10-23T00:00:00Z")), status: "RELEASED", ops: [
+ *             { activity: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), end: some(new Date("2026-10-13T00:00:00Z")), qty: some(48.0),
+ *               machines: { from: [variant("identified", { key: "S101" })], to: [variant("identified", { key: "E201" })] }, notes: "Oak veneered board", created_by: "planner" },
+ *             { activity: "Edge banding", start: some(new Date("2026-10-14T00:00:00Z")), end: some(new Date("2026-10-15T00:00:00Z")), qty: some(120.0),
+ *               machines: { from: [variant("identified", { key: "E201" })], to: [variant("identified", { key: "R301" })] }, notes: "", created_by: "planner" },
+ *             { activity: "CNC routing", start: some(new Date("2026-10-15T00:00:00Z")), end: some(new Date("2026-10-17T00:00:00Z")), qty: some(48.0),
+ *               machines: { from: [variant("identified", { key: "R301" })], to: [variant("identified", { key: "A701" })] }, notes: "Hinge cups and handle slots", created_by: "planner" },
+ *             { activity: "Assembly", start: none, end: none, qty: some(12.0),
+ *               machines: { from: [], to: [variant("identified", { key: "A701" })] }, notes: "Twelve carcasses", created_by: "planner" },
+ *             { activity: "Spray finish", start: none, end: none, qty: some(24.0),
+ *               machines: { from: [], to: [variant("identified", { key: "F401" })] }, notes: "Matt lacquer", created_by: "planner" },
+ *         ] }],
+ *         ["WO-2202", { name: "WO-2202 · Wardrobes, ash", customer: "Marrowby Lettings", due: some(new Date("2026-10-30T00:00:00Z")), status: "PLANNED", ops: [
+ *             { activity: "Panel cutting", start: some(new Date("2026-10-13T00:00:00Z")), end: some(new Date("2026-10-14T00:00:00Z")), qty: some(36.0),
+ *               machines: { from: [variant("identified", { key: "S102" })], to: [variant("identified", { key: "E202" })] }, notes: "", created_by: "planner" },
+ *             { activity: "Edge banding", start: none, end: none, qty: some(90.0),
+ *               machines: { from: [variant("identified", { key: "E202" })], to: [] }, notes: "", created_by: "planner" },
+ *             { activity: "Drilling", start: none, end: none, qty: some(36.0),
+ *               machines: { from: [], to: [variant("identified", { key: "R302" })] }, notes: "Hinge and shelf pins", created_by: "planner" },
+ *             { activity: "Assembly", start: none, end: none, qty: some(6.0),
+ *               machines: { from: [], to: [variant("identified", { key: "A702" })] }, notes: "", created_by: "planner" },
+ *         ] }],
+ *         ["WO-2203", { name: "WO-2203 · Vanity unit, walnut", customer: "Tallowmere Homes", due: some(new Date("2026-11-02T00:00:00Z")), status: "PLANNED", ops: [
+ *             { activity: "Panel cutting", start: none, end: none, qty: some(12.0),
+ *               machines: { from: [], to: [variant("identified", { key: "S101" })] }, notes: "", created_by: "planner" },
+ *             { activity: "CNC routing", start: none, end: none, qty: some(12.0),
+ *               machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] }, notes: "Basin cut-out", created_by: "planner" },
+ *             { activity: "Spray finish", start: none, end: none, qty: some(4.0),
+ *               machines: { from: [], to: [variant("identified", { key: "F402" })] }, notes: "", created_by: "planner" },
+ *             { activity: "Assembly", start: none, end: none, qty: some(2.0),
+ *               machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+ *         ] }],
+ *         ["WO-2204", { name: "WO-2204 · Shelving, birch", customer: "Pebblecombe School", due: some(new Date("2026-10-20T00:00:00Z")), status: "ON HOLD", ops: [
+ *             { activity: "Panel cutting", start: none, end: none, qty: some(60.0),
+ *               machines: { from: [], to: [variant("counted", { n: 2n, key: "beam saw" })] }, notes: "Awaiting board delivery", created_by: "planner" },
+ *             { activity: "Edge banding", start: none, end: none, qty: some(150.0),
+ *               machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+ *             { activity: "Sanding", start: none, end: none, qty: some(60.0),
+ *               machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+ *         ] }],
+ *         ["WO-2205", { name: "WO-2205 · Office fit-out, maple", customer: "", due: none, status: "PLANNED", ops: [
+ *             { activity: "Panel cutting", start: none, end: none, qty: some(80.0),
+ *               machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+ *             { activity: "CNC routing", start: none, end: none, qty: some(40.0),
+ *               machines: { from: [], to: [] }, notes: "Cable ports", created_by: "planner" },
+ *             { activity: "Assembly", start: none, end: none, qty: some(10.0),
+ *               machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+ *             { activity: "Wrapping", start: none, end: none, qty: some(10.0),
+ *               machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+ *             { activity: "Delivery", start: none, end: none, qty: some(2.0),
+ *               machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+ *         ] }],
+ *         ["WO-2206", { name: "WO-2206 · Kitchen, painted", customer: "Orrisdale Cottages", due: some(new Date("2026-11-06T00:00:00Z")), status: "PLANNED", ops: [
+ *             { activity: "Panel cutting", start: none, end: none, qty: some(30.0),
+ *               machines: { from: [], to: [variant("identified", { key: "S103" })] }, notes: "", created_by: "planner" },
+ *             { activity: "Edge banding", start: none, end: none, qty: some(70.0),
+ *               machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] }, notes: "", created_by: "planner" },
+ *             { activity: "Spray finish", start: none, end: none, qty: some(18.0),
+ *               machines: { from: [], to: [variant("identified", { key: "F401" })] }, notes: "Primer, then two coats", created_by: "planner" },
+ *             { activity: "Assembly", start: none, end: none, qty: some(8.0),
+ *               machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+ *             { activity: "Wrapping", start: none, end: none, qty: some(8.0),
+ *               machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+ *             { activity: "Delivery", start: none, end: none, qty: some(1.0),
+ *               machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+ *         ] }],
+ *     ]),
+ *     indexes: (index) => ({
+ *         // The orders by status and by customer: what the rail narrows them by, each choice one index's runs.
+ *         sheet_workshop_orders_by_status: index.on(["status"]),
+ *         sheet_workshop_orders_by_customer: index.on(["customer"]),
+ *     }),
+ *     mutations: (mutation) => ({
+ *         // The orders' patch door — every Save commits through it.
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * export const WorkshopOperationTemplate = StructType({ name: StringType, group: StringType, activity: StringType, machines: Sheet.Types.Link });
- * export const sheetWorkshopOperationTemplates = e3.record("sheet_workshop_operation_templates", DictType(StringType, WorkshopOperationTemplate), new Map([
- *     ["assemble", { name: "Assembly", group: "Operations", activity: "Assembly", machines: { from: [], to: [] } }],
- *     ["cut", { name: "Panel cutting", group: "Operations", activity: "Panel cutting", machines: { from: [], to: [variant("counted", { n: 1n, key: "beam saw" })] } }],
- *     ["deliver", { name: "Delivery", group: "Dispatch", activity: "Delivery", machines: { from: [], to: [] } }],
- *     ["edge", { name: "Edge banding", group: "Operations", activity: "Edge banding", machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] } }],
- *     ["route", { name: "CNC routing", group: "Operations", activity: "CNC routing", machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] } }],
- *     ["sand", { name: "Sanding", group: "Operations", activity: "Sanding", machines: { from: [], to: [] } }],
- *     ["spray", { name: "Spray finish", group: "Operations", activity: "Spray finish", machines: { from: [], to: [variant("counted", { n: 1n, key: "spray booth" })] } }],
- *     ["wrap", { name: "Wrapping", group: "Dispatch", activity: "Wrapping", machines: { from: [], to: [] } }],
- * ]));
- * export const sheetWorkshopOperationTemplatesByGroup = e3.recordIndex("sheet_workshop_operation_templates_by_group", sheetWorkshopOperationTemplates, { on: ["group"] });
+ * export const sheetWorkshopOperationTemplates = e3.record("sheet_workshop_operation_templates", DictType(StringType, WorkshopOperationTemplate), {
+ *     initial: new Map([
+ *         ["assemble", { name: "Assembly", group: "Operations", activity: "Assembly", machines: { from: [], to: [] } }],
+ *         ["cut", { name: "Panel cutting", group: "Operations", activity: "Panel cutting", machines: { from: [], to: [variant("counted", { n: 1n, key: "beam saw" })] } }],
+ *         ["deliver", { name: "Delivery", group: "Dispatch", activity: "Delivery", machines: { from: [], to: [] } }],
+ *         ["edge", { name: "Edge banding", group: "Operations", activity: "Edge banding", machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] } }],
+ *         ["route", { name: "CNC routing", group: "Operations", activity: "CNC routing", machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] } }],
+ *         ["sand", { name: "Sanding", group: "Operations", activity: "Sanding", machines: { from: [], to: [] } }],
+ *         ["spray", { name: "Spray finish", group: "Operations", activity: "Spray finish", machines: { from: [], to: [variant("counted", { n: 1n, key: "spray booth" })] } }],
+ *         ["wrap", { name: "Wrapping", group: "Dispatch", activity: "Wrapping", machines: { from: [], to: [] } }],
+ *     ]),
+ *     indexes: (index) => ({
+ *         // The operation templates by their group: what the rail narrows them by.
+ *         sheet_workshop_operation_templates_by_group: index.on(["group"]),
+ *     }),
+ * });
  * export const WorkshopOrderTemplate = StructType({ name: StringType, group: StringType, ops: ArrayType(WorkshopOperation) });
- * export const sheetWorkshopOrderTemplates = e3.record("sheet_workshop_order_templates", DictType(StringType, WorkshopOrderTemplate), new Map([
- *     ["kitchen", { name: "Kitchen order", group: "Orders", ops: [
- *         { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *         { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *         { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *         { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *     ] }],
- *     ["vanity", { name: "Vanity unit", group: "Orders", ops: [
- *         { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *         { activity: "CNC routing",   start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *         { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *         { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *     ] }],
- *     ["wardrobe", { name: "Wardrobe order", group: "Orders", ops: [
- *         { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *         { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *         { activity: "Drilling",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *         { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
- *     ] }],
- * ]));
- * export const sheetWorkshopOrderTemplatesByGroup = e3.recordIndex("sheet_workshop_order_templates_by_group", sheetWorkshopOrderTemplates, { on: ["group"] });
+ * export const sheetWorkshopOrderTemplates = e3.record("sheet_workshop_order_templates", DictType(StringType, WorkshopOrderTemplate), {
+ *     initial: new Map([
+ *         ["kitchen", { name: "Kitchen order", group: "Orders", ops: [
+ *             { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *             { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *             { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *             { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *         ] }],
+ *         ["vanity", { name: "Vanity unit", group: "Orders", ops: [
+ *             { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *             { activity: "CNC routing",   start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *             { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *             { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *         ] }],
+ *         ["wardrobe", { name: "Wardrobe order", group: "Orders", ops: [
+ *             { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *             { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *             { activity: "Drilling",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *             { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+ *         ] }],
+ *     ]),
+ *     indexes: (index) => ({
+ *         // The order templates by their group: what the rail narrows them by.
+ *         sheet_workshop_order_templates_by_group: index.on(["group"]),
+ *     }),
+ * });
  * const workshopRecommend = East.asyncPlatform(
  *     "sheet_workshop_recommend",
  *     [Sheet.Types.DraftContext(WorkshopOrder, "ops", WorkshopActivity)],
@@ -456,7 +480,7 @@ export interface SheetDriverValue {
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const orders     = $.let(Record.bind(sheetWorkshopOrders, [sheetWorkshopOrdersPatch]));
+ *         const orders     = $.let(Record.bind(sheetWorkshopOrders));
  *         const machines   = $.let(Record.bind(sheetWorkshopMachines, []));
  *         const activities = $.let(Data.bind(sheetWorkshopActivities));
  *         const operationTemplates = $.let(Data.bind(sheetWorkshopOperationTemplates));
@@ -483,18 +507,18 @@ export interface SheetDriverValue {
  *         // One rail over three records: the orders — the sheet's rows — and each templates record, its own source.
  *         const slice = $.let(Slice.bindRecords("sheet.workshop", {
  *             rows: {
- *                 source: Data.bindPaged(sheetWorkshopOrders, { indexes: [sheetWorkshopOrdersByStatus, sheetWorkshopOrdersByCustomer] }),
+ *                 source: Data.bindPaged(sheetWorkshopOrders, { indexes: ["sheet_workshop_orders_by_status", "sheet_workshop_orders_by_customer"] }),
  *                 label: "Orders",
  *                 fields: { status: { label: "Status", hints: ["PLANNED", "RELEASED", "ON HOLD"] }, customer: { label: "Customer" } },
  *                 search: ["customer"],
  *             },
  *             rowTemplates: {
- *                 source: Data.bindPaged(sheetWorkshopOperationTemplates, { indexes: [sheetWorkshopOperationTemplatesByGroup] }),
+ *                 source: Data.bindPaged(sheetWorkshopOperationTemplates, { indexes: ["sheet_workshop_operation_templates_by_group"] }),
  *                 label: "Operation templates",
  *                 fields: { group: { label: "Group", hints: ["Operations", "Dispatch"] } },
  *             },
  *             groupTemplates: {
- *                 source: Data.bindPaged(sheetWorkshopOrderTemplates, { indexes: [sheetWorkshopOrderTemplatesByGroup] }),
+ *                 source: Data.bindPaged(sheetWorkshopOrderTemplates, { indexes: ["sheet_workshop_order_templates_by_group"] }),
  *                 label: "Order templates",
  *                 fields: { group: { label: "Group", hints: ["Orders"] } },
  *             },

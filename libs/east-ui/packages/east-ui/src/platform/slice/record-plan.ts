@@ -116,7 +116,7 @@ function areaRefusal(indexes: readonly Index[], where: ReadonlyMap<string, Choic
     }
     const on = beside.length === 0 ? "" : `on: [${beside.map(field => JSON.stringify(field)).join(", ")}], `;
     return `A read by area${beside.length === 0 ? "" : ` beside ${named(beside)}`} needs an area index led by ` +
-        `${beside.length === 0 ? "no field" : `exactly ${named(beside)}`} — e3.recordIndex.area(name, record, { ${on}x, y, … }), ` +
+        `${beside.length === 0 ? "no field" : `exactly ${named(beside)}`} — index.area({ ${on}x, y, … }) among the record's indexes, ` +
         `listed in Data.bindPaged's indexes` + (areas.length === 0 ? "; this binding lists none"
             : `; ${named(areas.map(index => index.name))} ${areas.length === 1 ? "is" : "are"} led by other fields`);
 }

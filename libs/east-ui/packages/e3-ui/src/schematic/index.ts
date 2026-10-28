@@ -277,7 +277,7 @@ const MEMBERS = {
  *   is refused when the surface is built. A slot names the kind in the
  *   payload, and the source of the slice that narrows it.
  * - **Editable or read only by its binding** (§1, rule 4): a kind bound with
- *   its patch door, `Record.bind(record, [e3.mutation.patch(record)])`, is
+ *   its patch door, `Record.bind(record), its record declaring patch: mutation.patch()`, is
  *   editable; one bound `Data.bind(record)`, or `Data.bindPaged(record)` read
  *   through its source, is read only. `readOnly` makes every kind so.
  * - **Its details** (`Schematic.details`): a record keyed as its kind is,
@@ -312,14 +312,24 @@ const MEMBERS = {
  * import e3 from "@elaraai/e3";
  *
  * export const FloorRack = StructType({ name: StringType, x: FloatType, y: FloatType, w: FloatType, h: FloatType, model: StringType, kw: FloatType, capacity: FloatType });
- * export const schematicFloorRacks = e3.record("schematic_floor_racks", DictType(StringType, FloorRack), new Map([
- *     ["A01", { name: "A01", x: 2.4, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 5.2, capacity: 8.0 }],
- *     ["A02", { name: "A02", x: 6.0, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 7.4, capacity: 8.0 }],
- *     ["A03", { name: "A03", x: 9.6, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 3.9, capacity: 8.0 }],
- *     ["A04", { name: "A04", x: 13.2, y: 2.9, w: 3.2, h: 1.2, model: "48U · 12 kW", kw: 9.6, capacity: 12.0 }],
- *     ["B01", { name: "B01", x: 2.4, y: 8.6, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 6.1, capacity: 8.0 }],
- *     ["B02", { name: "B02", x: 6.0, y: 8.6, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 2.8, capacity: 8.0 }],
- * ]));
+ * export const schematicFloorRacks = e3.record("schematic_floor_racks", DictType(StringType, FloorRack), {
+ *     initial: new Map([
+ *         ["A01", { name: "A01", x: 2.4, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 5.2, capacity: 8.0 }],
+ *         ["A02", { name: "A02", x: 6.0, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 7.4, capacity: 8.0 }],
+ *         ["A03", { name: "A03", x: 9.6, y: 2.9, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 3.9, capacity: 8.0 }],
+ *         ["A04", { name: "A04", x: 13.2, y: 2.9, w: 3.2, h: 1.2, model: "48U · 12 kW", kw: 9.6, capacity: 12.0 }],
+ *         ["B01", { name: "B01", x: 2.4, y: 8.6, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 6.1, capacity: 8.0 }],
+ *         ["B02", { name: "B02", x: 6.0, y: 8.6, w: 3.2, h: 1.2, model: "42U · 8 kW", kw: 2.8, capacity: 8.0 }],
+ *     ]),
+ *     indexes: (index) => ({
+ *         // The racks by their model: what the binding matrix's source reads them through, built and never run.
+ *         schematic_floor_racks_by_model: index.on(["model"]),
+ *     }),
+ *     mutations: (mutation) => ({
+ *         // The floor's racks' patch door: the handover's Save, and another session's moves of a rack, which the floor redraws.
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  *
  * const schematicFloor = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {

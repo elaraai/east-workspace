@@ -98,16 +98,16 @@ export function kilnYard(options: { readonly locked?: "bins" | "days" } = {}): E
     const lockedBins = options.locked === "bins", lockedDays = options.locked === "days";
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         // The bins a test needs, the yard's own or its locked ones, each read a day at a time through its interval index.
-        const bins = $.let(lockedBins ? Record.bind(ex.kilnLockedBins, [ex.kilnLockedBinsPatch]) : Record.bind(ex.kilnBins, [ex.kilnBinsPatch]));
+        const bins = $.let(lockedBins ? Record.bind(ex.kilnLockedBins, ["patch"]) : Record.bind(ex.kilnBins, ["patch"]));
         const entries = $.let(lockedBins ? Data.bindPaged(ex.kilnLockedBins) : Data.bindPaged(ex.kilnBins));
-        const days = $.let(lockedDays ? Record.bind(ex.yardLockedDays, [ex.yardLockedDaysPatch]) : Record.bind(ex.yardDays, [ex.yardDaysPatch]));
+        const days = $.let(lockedDays ? Record.bind(ex.yardLockedDays, ["patch"]) : Record.bind(ex.yardDays, ["patch"]));
         const yard = $.let(Data.bind(ex.kilns));
         const loads = $.let(Data.bind(ex.arrivals));
         const bays = $.let(Data.bind(ex.yardBays));
         // The day's bins through the slice's bin source: their interval index, its range the board's own navigation.
         const slice = $.let(lockedBins
-            ? Slice.bindRecords("test.kilnYard", { bin: { source: Data.bindPaged(ex.kilnLockedBins, { indexes: [ex.kilnLockedBinsByTime] }), range: "at" } })
-            : Slice.bindRecords("test.kilnYard", { bin: { source: Data.bindPaged(ex.kilnBins, { indexes: [ex.kilnBinsByTime] }), range: "at" } }));
+            ? Slice.bindRecords("test.kilnYard", { bin: { source: Data.bindPaged(ex.kilnLockedBins, { indexes: ["kiln_locked_bins_by_time"] }), range: "at" } })
+            : Slice.bindRecords("test.kilnYard", { bin: { source: Data.bindPaged(ex.kilnBins, { indexes: ["kiln_bins_by_time"] }), range: "at" } }));
         const fit = $.let(Func.bind(ex.yardFit));
         return Allocation({
             id: "kilnYard", title: "Kiln loading", fit, slice: { slice }, inspector: true,
@@ -141,7 +141,7 @@ export function kilnYard(options: { readonly locked?: "bins" | "days" } = {}): E
  */
 export function smallestYard(): Example {
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const bins = $.let(Record.bind(ex.kilnBins, [ex.kilnBinsPatch]));
+        const bins = $.let(Record.bind(ex.kilnBins, ["patch"]));
         const yard = $.let(Data.bind(ex.kilns));
         const loads = $.let(Data.bind(ex.arrivals));
         const bays = $.let(Data.bind(ex.yardBays));

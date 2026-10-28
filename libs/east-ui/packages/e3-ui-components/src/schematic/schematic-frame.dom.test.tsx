@@ -212,7 +212,7 @@ const HEARD_KEY = "schematic.frame.heard";
 const twoRuns = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const racks = $.let(Data.bind(ex.schematicFloorRacks));
     const frames = $.let(Data.bind(ex.schematicFrames));
-    const fibre = $.let(Record.bind(ex.schematicFibre, [ex.schematicFibrePatch]));
+    const fibre = $.let(Record.bind(ex.schematicFibre, ["patch"]));
     const heard = $.let(State.bind([StringType], HEARD_KEY, ""));
     const canConnect = $.const(East.function([Schematic.Types.Candidate], OptionType(StringType), ($2, candidate) => {
         $2(heard.write(East.print(candidate)));

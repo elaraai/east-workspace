@@ -38,7 +38,7 @@ Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out *
 
 /** The jobs as `sheetBasic` declares them, given the inspector pane. */
 const jobsPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     return Sheet.Payload({ record: jobs, name: "jobs", inspector: true, columns: {
         task:  Sheet.column.text(ex.SheetJob, { header: "Task", width: "240px" }),
         start: Sheet.column.date(ex.SheetJob, { header: "Start", width: "96px" }),
@@ -53,7 +53,7 @@ const jobsPayload = East.function([], SheetPayloadType, ($) => {
  * no column at all.
  */
 const doublingPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     const inspector = $.const(East.function([ex.SheetJob, FunctionType([ex.SheetJob], NullType)], UIComponentType, ($2, row, update) => {
         const double = $2.const(East.function([], NullType, ($3) => {
             const qty = $3.let(row.qty.match({ none: () => 0.0, some: (_$, q) => q }));
@@ -74,7 +74,7 @@ const doublingPayload = East.function([], SheetPayloadType, ($) => {
  * them, the notes offered every one.
  */
 const selectsPayload = East.function([], SheetPayloadType, ($) => {
-    const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
+    const orders = $.let(Record.bind(ex.sheetWorkshopOrders, ["patch"]));
     const words = $.let(["Panel cutting", "Edge banding", "Assembly", "Oak veneered board"], ArrayType(StringType));
     const firstTwo = $.const(East.function([Sheet.Types.DraftContext(ex.WorkshopOrder, "ops")], OptionType(ArrayType(StringType)), ($2, _ctx) => {
         const two = $2.const(some(["Panel cutting", "Edge banding"]), OptionType(ArrayType(StringType)));
@@ -95,7 +95,7 @@ const selectsPayload = East.function([], SheetPayloadType, ($) => {
  * doubled — the field read only, the cell what it shows.
  */
 const customPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     const parse = $.const(East.function([StringType, Sheet.Types.DraftContext(ex.SheetJob)], OptionType(StringType), (_$2, text, _ctx) => some(East.str`${text.trim()}!`)));
     const print = $.const(East.function([StringType], StringType, (_$2, task) => task));
     return Sheet.Payload({ record: jobs, name: "custom", inspector: true, columns: {

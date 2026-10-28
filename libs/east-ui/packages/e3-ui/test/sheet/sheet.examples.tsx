@@ -64,31 +64,39 @@ import e3 from "@elaraai/e3";
 /** A job — what it is, when it starts and how many. */
 export const SheetJob = StructType({ task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });
 /** The jobs, keyed J-0001, J-0002, …: the record's entries are the sheet's rows. */
-export const sheetJobs = e3.record("sheet_jobs", DictType(StringType, SheetJob), new Map([
-    ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
-    ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
-    ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
-    ["J-0004", { task: "Spray finish", start: none, qty: none }],
-]));
-/** The jobs' patch door — every Save commits through it. */
-export const sheetJobsPatch = e3.mutation.patch(sheetJobs);
+export const sheetJobs = e3.record("sheet_jobs", DictType(StringType, SheetJob), {
+    initial: new Map([
+        ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
+        ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
+        ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
+        ["J-0004", { task: "Spray finish", start: none, qty: none }],
+    ]),
+    mutations: (mutation) => ({
+        // The jobs' patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
 
 /** The jobs again, as the edge bander's week holds them: a Save over them is refused for a reason the record gives. */
-export const sheetBookedJobs = e3.record("sheet_booked_jobs", DictType(StringType, SheetJob), new Map([
-    ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
-    ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
-    ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
-    ["J-0004", { task: "Spray finish", start: none, qty: none }],
-]));
-/** The booked jobs' patch door: it commits a patch unless a job it leaves bands both edges — the edge bander is booked that week. */
-export const sheetBookedJobsPatch = e3.mutation.reduce("patch", sheetBookedJobs, East.function(
-    [DictType(StringType, SheetJob), PatchType(DictType(StringType, SheetJob))], DictType(StringType, SheetJob), ($, jobs, patch) => {
-        const next = $.let(East.applyPatch(jobs, patch));
-        $.for(next, ($2, job) => {
-            $2.if(job.task.endsWith("both edges"), ($3) => { $3.error("the edge bander is booked that week"); });
-        });
-        return next;
-    }));
+export const sheetBookedJobs = e3.record("sheet_booked_jobs", DictType(StringType, SheetJob), {
+    initial: new Map([
+        ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
+        ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
+        ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
+        ["J-0004", { task: "Spray finish", start: none, qty: none }],
+    ]),
+    mutations: (mutation) => ({
+        // The booked jobs' patch door: it commits a patch unless a job it leaves bands both edges — the edge bander is booked that week.
+        patch: mutation.reduce(East.function(
+            [DictType(StringType, SheetJob), PatchType(DictType(StringType, SheetJob))], DictType(StringType, SheetJob), ($, jobs, patch) => {
+                const next = $.let(East.applyPatch(jobs, patch));
+                $.for(next, ($2, job) => {
+                    $2.if(job.task.endsWith("both edges"), ($3) => { $3.error("the edge bander is booked that week"); });
+                });
+                return next;
+            })),
+    }),
+});
 
 /**
  * The smallest sheet (§3.1) — the jobs an e3 record holds, in its frame: one
@@ -101,7 +109,7 @@ export const sheetBasic = example({
     description: "The smallest sheet — an e3 record's entries as its rows, in key order, under three typed columns, edited as drafts and saved as one commit through the record's patch door, in its frame with no pane",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const jobs = $.let(Record.bind(sheetJobs, [sheetJobsPatch]));
+            const jobs = $.let(Record.bind(sheetJobs));
             return (
                 <Box height="560px">
                     <Sheet
@@ -128,15 +136,19 @@ export const VariantsJob = StructType({ id: StringType, start: OptionType(DateTi
 /** A plan — its jobs, in the planner's order. */
 export const VariantsPlan = StructType({ jobs: ArrayType(VariantsJob) });
 /** The plans — the configurator's sheet edits the week's jobs. */
-export const sheetVariantsPlans = e3.record("sheet_variants_plans", DictType(StringType, VariantsPlan), new Map([
-    ["week", { jobs: [
-        { id: "j1", start: some(new Date("2026-02-16T00:00:00Z")), task: "Routing", qty: some(1200.0), notes: "Nest the C-18 panels" },
-        { id: "j2", start: some(new Date("2026-03-09T00:00:00Z")), task: "Spraying", qty: some(250.0), notes: "" },
-        { id: "j3", start: none, task: "Wrapping", qty: none, notes: "" },
-    ] }],
-]));
-/** The record's patch door — every Save commits through it. */
-export const sheetVariantsPlansPatch = e3.mutation.patch(sheetVariantsPlans);
+export const sheetVariantsPlans = e3.record("sheet_variants_plans", DictType(StringType, VariantsPlan), {
+    initial: new Map([
+        ["week", { jobs: [
+            { id: "j1", start: some(new Date("2026-02-16T00:00:00Z")), task: "Routing", qty: some(1200.0), notes: "Nest the C-18 panels" },
+            { id: "j2", start: some(new Date("2026-03-09T00:00:00Z")), task: "Spraying", qty: some(250.0), notes: "" },
+            { id: "j3", start: none, task: "Wrapping", qty: none, notes: "" },
+        ] }],
+    ]),
+    mutations: (mutation) => ({
+        // The record's patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
 
 /**
  * THE Sheet configurator — ONE live sheet in its frame; every axis is an
@@ -156,7 +168,7 @@ export const sheetVariants = example({
         <Reactive>{$ => {
             const Ctx = Sheet.Types.DraftContext(VariantsJob);
             // The jobs, read from an e3 record bound with its patch door.
-            const plans = $.let(Record.bind(sheetVariantsPlans, [sheetVariantsPlansPatch]));
+            const plans = $.let(Record.bind(sheetVariantsPlans));
             const rows = $.let(plans.read().get("week").jobs);
             const onApply = $.const(Record.onApply(plans, {
                 entry: "week",
@@ -299,15 +311,18 @@ export const generateStressJobs = East.function([IntegerType], ArrayType(StressJ
 });
 
 /** The jobs, keyed by their id — two thousand made by {@link generateStressJobs}: what the stress sheet pages and its rail narrows (#1345). */
-export const sheetStressJobs = e3.record("sheet_stress_jobs", DictType(StringType, StressJob),
-    East.compile(East.function([IntegerType], DictType(StringType, StressJob), ($, count) => {
+export const sheetStressJobs = e3.record("sheet_stress_jobs", DictType(StringType, StressJob), {
+    initial: East.compile(East.function([IntegerType], DictType(StringType, StressJob), ($, count) => {
         const generate = $.const(generateStressJobs);
         return generate(count).toDict((_$, job) => job.id, (_$, job) => job);
-    }), [])(2000n));
-/** The jobs by activity, by status and by their notes: what the rail narrows them by, each choice one index's runs. */
-export const sheetStressByActivity = e3.recordIndex("sheet_stress_by_activity", sheetStressJobs, { on: ["activity"] });
-export const sheetStressByStatus = e3.recordIndex("sheet_stress_by_status", sheetStressJobs, { on: ["status"] });
-export const sheetStressByNotes = e3.recordIndex("sheet_stress_by_notes", sheetStressJobs, { on: ["notes"] });
+    }), [])(2000n),
+    indexes: (index) => ({
+        // The jobs by activity, by status and by their notes: what the rail narrows them by, each choice one index's runs.
+        sheet_stress_by_activity: index.on(["activity"]),
+        sheet_stress_by_status: index.on(["status"]),
+        sheet_stress_by_notes: index.on(["notes"]),
+    }),
+});
 
 /**
  * Stress (§3.8) — two thousand jobs of an e3 record, read only, every row
@@ -321,7 +336,7 @@ export const sheetStressByNotes = e3.recordIndex("sheet_stress_by_notes", sheetS
  * open, kept per viewer through a `State` bind handle. It is given no pane.
  */
 export const sheetStress = example({
-    keywords: ["Sheet", "stress", "virtualization", "2000", "rows", "performance", "readOnly", "slice", "Slice.bindRecords", "rows", "Data.bindPaged", "recordIndex", "record", "search", "filter", "lens", "views", "RecordView", "State.bind", "activeView", "set", "register", "concat", "footer", "paged", "Reactive", "State"],
+    keywords: ["Sheet", "stress", "virtualization", "2000", "rows", "performance", "readOnly", "slice", "Slice.bindRecords", "rows", "Data.bindPaged", "indexes", "record", "search", "filter", "lens", "views", "RecordView", "State.bind", "activeView", "set", "register", "concat", "footer", "paged", "Reactive", "State"],
     description: "Two thousand jobs of an e3 record, read only and virtualised in the sheet's frame, in the record's order, the rail's narrowing — by activity, by status and by a prefix of their notes, each through the record's index — drawn over them as the lens, a filtered spreadsheet showing only the jobs it keeps, with saved views kept per viewer, each every source's narrowing",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -333,7 +348,7 @@ export const sheetStress = example({
             // One rail over the jobs: the sheet's rows are the record's, its `rows` source's narrowing drawn over them as the lens.
             const slice = $.let(Slice.bindRecords("sheet_stress", {
                 rows: {
-                    source: Data.bindPaged(sheetStressJobs, { indexes: [sheetStressByActivity, sheetStressByStatus, sheetStressByNotes] }),
+                    source: Data.bindPaged(sheetStressJobs, { indexes: ["sheet_stress_by_activity", "sheet_stress_by_status", "sheet_stress_by_notes"] }),
                     fields: {
                         activity: { label: "Activity", hints: ["Routing", "Spraying", "Wrapping", "Set-up", "Maintenance"] },
                         status:   { label: "Status", hints: ["PLANNED", "RELEASED", "COMPLETE"] },
@@ -400,7 +415,7 @@ export const sheetLibrary = example({
     description: "A sheet whose library pane lists a tab of the author's own — the tasks a job takes, grouped by stage, a card dropped on a job setting its task — beside the columns",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const jobs = $.let(Record.bind(sheetJobs, [sheetJobsPatch]));
+            const jobs = $.let(Record.bind(sheetJobs));
             const tasks = $.let([
                 { name: "Panel cutting", stage: "Cutting" },
                 { name: "Edge banding",  stage: "Cutting" },
@@ -479,136 +494,152 @@ export const sheetWorkshopActivities = e3.input("sheet_workshop_activities", Arr
     { name: "Delivery", uom: "loads", days: 1n, rate: 1.0, family: "", sides: variant("from", null) },
 ]));
 /** The machines, keyed by code — the work centres' register. */
-export const sheetWorkshopMachines = e3.record("sheet_workshop_machines", DictType(StringType, WorkshopMachine), new Map([
-    ["S101", { family: "beam saw", bay: "Bay 1" }],
-    ["S102", { family: "beam saw", bay: "Bay 1" }],
-    ["S103", { family: "beam saw", bay: "Bay 1" }],
-    ["E201", { family: "edge bander", bay: "Bay 2" }],
-    ["E202", { family: "edge bander", bay: "Bay 2" }],
-    ["R301", { family: "CNC router", bay: "Bay 3" }],
-    ["R302", { family: "CNC router", bay: "Bay 3" }],
-    ["R303", { family: "CNC router", bay: "Bay 3" }],
-    ["F401", { family: "spray booth", bay: "Bay 4" }],
-    ["F402", { family: "spray booth", bay: "Bay 4" }],
-    ["A701", { family: "assembly bench", bay: "Bay 7" }],
-    ["A702", { family: "assembly bench", bay: "Bay 7" }],
-]));
+export const sheetWorkshopMachines = e3.record("sheet_workshop_machines", DictType(StringType, WorkshopMachine), {
+    initial: new Map([
+        ["S101", { family: "beam saw", bay: "Bay 1" }],
+        ["S102", { family: "beam saw", bay: "Bay 1" }],
+        ["S103", { family: "beam saw", bay: "Bay 1" }],
+        ["E201", { family: "edge bander", bay: "Bay 2" }],
+        ["E202", { family: "edge bander", bay: "Bay 2" }],
+        ["R301", { family: "CNC router", bay: "Bay 3" }],
+        ["R302", { family: "CNC router", bay: "Bay 3" }],
+        ["R303", { family: "CNC router", bay: "Bay 3" }],
+        ["F401", { family: "spray booth", bay: "Bay 4" }],
+        ["F402", { family: "spray booth", bay: "Bay 4" }],
+        ["A701", { family: "assembly bench", bay: "Bay 7" }],
+        ["A702", { family: "assembly bench", bay: "Bay 7" }],
+    ]),
+});
 /** The orders, keyed by order number: each a group, its operations its lines. */
-export const sheetWorkshopOrders = e3.record("sheet_workshop_orders", DictType(StringType, WorkshopOrder), new Map([
-    ["WO-2201", { name: "WO-2201 · Kitchen, oak", customer: "Quillfeather Interiors", due: some(new Date("2026-10-23T00:00:00Z")), status: "RELEASED", ops: [
-        { activity: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), end: some(new Date("2026-10-13T00:00:00Z")), qty: some(48.0),
-          machines: { from: [variant("identified", { key: "S101" })], to: [variant("identified", { key: "E201" })] }, notes: "Oak veneered board", created_by: "planner" },
-        { activity: "Edge banding", start: some(new Date("2026-10-14T00:00:00Z")), end: some(new Date("2026-10-15T00:00:00Z")), qty: some(120.0),
-          machines: { from: [variant("identified", { key: "E201" })], to: [variant("identified", { key: "R301" })] }, notes: "", created_by: "planner" },
-        { activity: "CNC routing", start: some(new Date("2026-10-15T00:00:00Z")), end: some(new Date("2026-10-17T00:00:00Z")), qty: some(48.0),
-          machines: { from: [variant("identified", { key: "R301" })], to: [variant("identified", { key: "A701" })] }, notes: "Hinge cups and handle slots", created_by: "planner" },
-        { activity: "Assembly", start: none, end: none, qty: some(12.0),
-          machines: { from: [], to: [variant("identified", { key: "A701" })] }, notes: "Twelve carcasses", created_by: "planner" },
-        { activity: "Spray finish", start: none, end: none, qty: some(24.0),
-          machines: { from: [], to: [variant("identified", { key: "F401" })] }, notes: "Matt lacquer", created_by: "planner" },
-    ] }],
-    ["WO-2202", { name: "WO-2202 · Wardrobes, ash", customer: "Marrowby Lettings", due: some(new Date("2026-10-30T00:00:00Z")), status: "PLANNED", ops: [
-        { activity: "Panel cutting", start: some(new Date("2026-10-13T00:00:00Z")), end: some(new Date("2026-10-14T00:00:00Z")), qty: some(36.0),
-          machines: { from: [variant("identified", { key: "S102" })], to: [variant("identified", { key: "E202" })] }, notes: "", created_by: "planner" },
-        { activity: "Edge banding", start: none, end: none, qty: some(90.0),
-          machines: { from: [variant("identified", { key: "E202" })], to: [] }, notes: "", created_by: "planner" },
-        { activity: "Drilling", start: none, end: none, qty: some(36.0),
-          machines: { from: [], to: [variant("identified", { key: "R302" })] }, notes: "Hinge and shelf pins", created_by: "planner" },
-        { activity: "Assembly", start: none, end: none, qty: some(6.0),
-          machines: { from: [], to: [variant("identified", { key: "A702" })] }, notes: "", created_by: "planner" },
-    ] }],
-    ["WO-2203", { name: "WO-2203 · Vanity unit, walnut", customer: "Tallowmere Homes", due: some(new Date("2026-11-02T00:00:00Z")), status: "PLANNED", ops: [
-        { activity: "Panel cutting", start: none, end: none, qty: some(12.0),
-          machines: { from: [], to: [variant("identified", { key: "S101" })] }, notes: "", created_by: "planner" },
-        { activity: "CNC routing", start: none, end: none, qty: some(12.0),
-          machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] }, notes: "Basin cut-out", created_by: "planner" },
-        { activity: "Spray finish", start: none, end: none, qty: some(4.0),
-          machines: { from: [], to: [variant("identified", { key: "F402" })] }, notes: "", created_by: "planner" },
-        { activity: "Assembly", start: none, end: none, qty: some(2.0),
-          machines: { from: [], to: [] }, notes: "", created_by: "planner" },
-    ] }],
-    ["WO-2204", { name: "WO-2204 · Shelving, birch", customer: "Pebblecombe School", due: some(new Date("2026-10-20T00:00:00Z")), status: "ON HOLD", ops: [
-        { activity: "Panel cutting", start: none, end: none, qty: some(60.0),
-          machines: { from: [], to: [variant("counted", { n: 2n, key: "beam saw" })] }, notes: "Awaiting board delivery", created_by: "planner" },
-        { activity: "Edge banding", start: none, end: none, qty: some(150.0),
-          machines: { from: [], to: [] }, notes: "", created_by: "planner" },
-        { activity: "Sanding", start: none, end: none, qty: some(60.0),
-          machines: { from: [], to: [] }, notes: "", created_by: "planner" },
-    ] }],
-    ["WO-2205", { name: "WO-2205 · Office fit-out, maple", customer: "", due: none, status: "PLANNED", ops: [
-        { activity: "Panel cutting", start: none, end: none, qty: some(80.0),
-          machines: { from: [], to: [] }, notes: "", created_by: "planner" },
-        { activity: "CNC routing", start: none, end: none, qty: some(40.0),
-          machines: { from: [], to: [] }, notes: "Cable ports", created_by: "planner" },
-        { activity: "Assembly", start: none, end: none, qty: some(10.0),
-          machines: { from: [], to: [] }, notes: "", created_by: "planner" },
-        { activity: "Wrapping", start: none, end: none, qty: some(10.0),
-          machines: { from: [], to: [] }, notes: "", created_by: "planner" },
-        { activity: "Delivery", start: none, end: none, qty: some(2.0),
-          machines: { from: [], to: [] }, notes: "", created_by: "planner" },
-    ] }],
-    ["WO-2206", { name: "WO-2206 · Kitchen, painted", customer: "Orrisdale Cottages", due: some(new Date("2026-11-06T00:00:00Z")), status: "PLANNED", ops: [
-        { activity: "Panel cutting", start: none, end: none, qty: some(30.0),
-          machines: { from: [], to: [variant("identified", { key: "S103" })] }, notes: "", created_by: "planner" },
-        { activity: "Edge banding", start: none, end: none, qty: some(70.0),
-          machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] }, notes: "", created_by: "planner" },
-        { activity: "Spray finish", start: none, end: none, qty: some(18.0),
-          machines: { from: [], to: [variant("identified", { key: "F401" })] }, notes: "Primer, then two coats", created_by: "planner" },
-        { activity: "Assembly", start: none, end: none, qty: some(8.0),
-          machines: { from: [], to: [] }, notes: "", created_by: "planner" },
-        { activity: "Wrapping", start: none, end: none, qty: some(8.0),
-          machines: { from: [], to: [] }, notes: "", created_by: "planner" },
-        { activity: "Delivery", start: none, end: none, qty: some(1.0),
-          machines: { from: [], to: [] }, notes: "", created_by: "planner" },
-    ] }],
-]));
-/** The orders' patch door — every Save commits through it. */
-export const sheetWorkshopOrdersPatch = e3.mutation.patch(sheetWorkshopOrders);
-/** The orders by status and by customer: what the rail narrows them by, each choice one index's runs. */
-export const sheetWorkshopOrdersByStatus = e3.recordIndex("sheet_workshop_orders_by_status", sheetWorkshopOrders, { on: ["status"] });
-export const sheetWorkshopOrdersByCustomer = e3.recordIndex("sheet_workshop_orders_by_customer", sheetWorkshopOrders, { on: ["customer"] });
+export const sheetWorkshopOrders = e3.record("sheet_workshop_orders", DictType(StringType, WorkshopOrder), {
+    initial: new Map([
+        ["WO-2201", { name: "WO-2201 · Kitchen, oak", customer: "Quillfeather Interiors", due: some(new Date("2026-10-23T00:00:00Z")), status: "RELEASED", ops: [
+            { activity: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), end: some(new Date("2026-10-13T00:00:00Z")), qty: some(48.0),
+              machines: { from: [variant("identified", { key: "S101" })], to: [variant("identified", { key: "E201" })] }, notes: "Oak veneered board", created_by: "planner" },
+            { activity: "Edge banding", start: some(new Date("2026-10-14T00:00:00Z")), end: some(new Date("2026-10-15T00:00:00Z")), qty: some(120.0),
+              machines: { from: [variant("identified", { key: "E201" })], to: [variant("identified", { key: "R301" })] }, notes: "", created_by: "planner" },
+            { activity: "CNC routing", start: some(new Date("2026-10-15T00:00:00Z")), end: some(new Date("2026-10-17T00:00:00Z")), qty: some(48.0),
+              machines: { from: [variant("identified", { key: "R301" })], to: [variant("identified", { key: "A701" })] }, notes: "Hinge cups and handle slots", created_by: "planner" },
+            { activity: "Assembly", start: none, end: none, qty: some(12.0),
+              machines: { from: [], to: [variant("identified", { key: "A701" })] }, notes: "Twelve carcasses", created_by: "planner" },
+            { activity: "Spray finish", start: none, end: none, qty: some(24.0),
+              machines: { from: [], to: [variant("identified", { key: "F401" })] }, notes: "Matt lacquer", created_by: "planner" },
+        ] }],
+        ["WO-2202", { name: "WO-2202 · Wardrobes, ash", customer: "Marrowby Lettings", due: some(new Date("2026-10-30T00:00:00Z")), status: "PLANNED", ops: [
+            { activity: "Panel cutting", start: some(new Date("2026-10-13T00:00:00Z")), end: some(new Date("2026-10-14T00:00:00Z")), qty: some(36.0),
+              machines: { from: [variant("identified", { key: "S102" })], to: [variant("identified", { key: "E202" })] }, notes: "", created_by: "planner" },
+            { activity: "Edge banding", start: none, end: none, qty: some(90.0),
+              machines: { from: [variant("identified", { key: "E202" })], to: [] }, notes: "", created_by: "planner" },
+            { activity: "Drilling", start: none, end: none, qty: some(36.0),
+              machines: { from: [], to: [variant("identified", { key: "R302" })] }, notes: "Hinge and shelf pins", created_by: "planner" },
+            { activity: "Assembly", start: none, end: none, qty: some(6.0),
+              machines: { from: [], to: [variant("identified", { key: "A702" })] }, notes: "", created_by: "planner" },
+        ] }],
+        ["WO-2203", { name: "WO-2203 · Vanity unit, walnut", customer: "Tallowmere Homes", due: some(new Date("2026-11-02T00:00:00Z")), status: "PLANNED", ops: [
+            { activity: "Panel cutting", start: none, end: none, qty: some(12.0),
+              machines: { from: [], to: [variant("identified", { key: "S101" })] }, notes: "", created_by: "planner" },
+            { activity: "CNC routing", start: none, end: none, qty: some(12.0),
+              machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] }, notes: "Basin cut-out", created_by: "planner" },
+            { activity: "Spray finish", start: none, end: none, qty: some(4.0),
+              machines: { from: [], to: [variant("identified", { key: "F402" })] }, notes: "", created_by: "planner" },
+            { activity: "Assembly", start: none, end: none, qty: some(2.0),
+              machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+        ] }],
+        ["WO-2204", { name: "WO-2204 · Shelving, birch", customer: "Pebblecombe School", due: some(new Date("2026-10-20T00:00:00Z")), status: "ON HOLD", ops: [
+            { activity: "Panel cutting", start: none, end: none, qty: some(60.0),
+              machines: { from: [], to: [variant("counted", { n: 2n, key: "beam saw" })] }, notes: "Awaiting board delivery", created_by: "planner" },
+            { activity: "Edge banding", start: none, end: none, qty: some(150.0),
+              machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+            { activity: "Sanding", start: none, end: none, qty: some(60.0),
+              machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+        ] }],
+        ["WO-2205", { name: "WO-2205 · Office fit-out, maple", customer: "", due: none, status: "PLANNED", ops: [
+            { activity: "Panel cutting", start: none, end: none, qty: some(80.0),
+              machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+            { activity: "CNC routing", start: none, end: none, qty: some(40.0),
+              machines: { from: [], to: [] }, notes: "Cable ports", created_by: "planner" },
+            { activity: "Assembly", start: none, end: none, qty: some(10.0),
+              machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+            { activity: "Wrapping", start: none, end: none, qty: some(10.0),
+              machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+            { activity: "Delivery", start: none, end: none, qty: some(2.0),
+              machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+        ] }],
+        ["WO-2206", { name: "WO-2206 · Kitchen, painted", customer: "Orrisdale Cottages", due: some(new Date("2026-11-06T00:00:00Z")), status: "PLANNED", ops: [
+            { activity: "Panel cutting", start: none, end: none, qty: some(30.0),
+              machines: { from: [], to: [variant("identified", { key: "S103" })] }, notes: "", created_by: "planner" },
+            { activity: "Edge banding", start: none, end: none, qty: some(70.0),
+              machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] }, notes: "", created_by: "planner" },
+            { activity: "Spray finish", start: none, end: none, qty: some(18.0),
+              machines: { from: [], to: [variant("identified", { key: "F401" })] }, notes: "Primer, then two coats", created_by: "planner" },
+            { activity: "Assembly", start: none, end: none, qty: some(8.0),
+              machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+            { activity: "Wrapping", start: none, end: none, qty: some(8.0),
+              machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+            { activity: "Delivery", start: none, end: none, qty: some(1.0),
+              machines: { from: [], to: [] }, notes: "", created_by: "planner" },
+        ] }],
+    ]),
+    indexes: (index) => ({
+        // The orders by status and by customer: what the rail narrows them by, each choice one index's runs.
+        sheet_workshop_orders_by_status: index.on(["status"]),
+        sheet_workshop_orders_by_customer: index.on(["customer"]),
+    }),
+    mutations: (mutation) => ({
+        // The orders' patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
 
 /** An operation template — the Rows tab's card, the group it sits under, and the activity and work centres it drops. */
 export const WorkshopOperationTemplate = StructType({ name: StringType, group: StringType, activity: StringType, machines: Sheet.Types.Link });
 /** The operation templates, keyed by their key: a record of their own, the rail's `rowTemplates` source (#1345). */
-export const sheetWorkshopOperationTemplates = e3.record("sheet_workshop_operation_templates", DictType(StringType, WorkshopOperationTemplate), new Map([
-    ["assemble", { name: "Assembly", group: "Operations", activity: "Assembly", machines: { from: [], to: [] } }],
-    ["cut", { name: "Panel cutting", group: "Operations", activity: "Panel cutting", machines: { from: [], to: [variant("counted", { n: 1n, key: "beam saw" })] } }],
-    ["deliver", { name: "Delivery", group: "Dispatch", activity: "Delivery", machines: { from: [], to: [] } }],
-    ["edge", { name: "Edge banding", group: "Operations", activity: "Edge banding", machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] } }],
-    ["route", { name: "CNC routing", group: "Operations", activity: "CNC routing", machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] } }],
-    ["sand", { name: "Sanding", group: "Operations", activity: "Sanding", machines: { from: [], to: [] } }],
-    ["spray", { name: "Spray finish", group: "Operations", activity: "Spray finish", machines: { from: [], to: [variant("counted", { n: 1n, key: "spray booth" })] } }],
-    ["wrap", { name: "Wrapping", group: "Dispatch", activity: "Wrapping", machines: { from: [], to: [] } }],
-]));
-/** The operation templates by their group: what the rail narrows them by. */
-export const sheetWorkshopOperationTemplatesByGroup = e3.recordIndex("sheet_workshop_operation_templates_by_group", sheetWorkshopOperationTemplates, { on: ["group"] });
+export const sheetWorkshopOperationTemplates = e3.record("sheet_workshop_operation_templates", DictType(StringType, WorkshopOperationTemplate), {
+    initial: new Map([
+        ["assemble", { name: "Assembly", group: "Operations", activity: "Assembly", machines: { from: [], to: [] } }],
+        ["cut", { name: "Panel cutting", group: "Operations", activity: "Panel cutting", machines: { from: [], to: [variant("counted", { n: 1n, key: "beam saw" })] } }],
+        ["deliver", { name: "Delivery", group: "Dispatch", activity: "Delivery", machines: { from: [], to: [] } }],
+        ["edge", { name: "Edge banding", group: "Operations", activity: "Edge banding", machines: { from: [], to: [variant("counted", { n: 1n, key: "edge bander" })] } }],
+        ["route", { name: "CNC routing", group: "Operations", activity: "CNC routing", machines: { from: [], to: [variant("counted", { n: 1n, key: "CNC router" })] } }],
+        ["sand", { name: "Sanding", group: "Operations", activity: "Sanding", machines: { from: [], to: [] } }],
+        ["spray", { name: "Spray finish", group: "Operations", activity: "Spray finish", machines: { from: [], to: [variant("counted", { n: 1n, key: "spray booth" })] } }],
+        ["wrap", { name: "Wrapping", group: "Dispatch", activity: "Wrapping", machines: { from: [], to: [] } }],
+    ]),
+    indexes: (index) => ({
+        // The operation templates by their group: what the rail narrows them by.
+        sheet_workshop_operation_templates_by_group: index.on(["group"]),
+    }),
+});
 
 /** An order template — the Rows tab's card, the group it sits under, and the operations each kind of order starts with. */
 export const WorkshopOrderTemplate = StructType({ name: StringType, group: StringType, ops: ArrayType(WorkshopOperation) });
 /** The order templates, keyed by their key: a record of their own, the rail's `groupTemplates` source (#1345). */
-export const sheetWorkshopOrderTemplates = e3.record("sheet_workshop_order_templates", DictType(StringType, WorkshopOrderTemplate), new Map([
-    ["kitchen", { name: "Kitchen order", group: "Orders", ops: [
-        { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-        { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-        { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-        { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-    ] }],
-    ["vanity", { name: "Vanity unit", group: "Orders", ops: [
-        { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-        { activity: "CNC routing",   start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-        { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-        { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-    ] }],
-    ["wardrobe", { name: "Wardrobe order", group: "Orders", ops: [
-        { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-        { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-        { activity: "Drilling",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-        { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
-    ] }],
-]));
-/** The order templates by their group: what the rail narrows them by. */
-export const sheetWorkshopOrderTemplatesByGroup = e3.recordIndex("sheet_workshop_order_templates_by_group", sheetWorkshopOrderTemplates, { on: ["group"] });
+export const sheetWorkshopOrderTemplates = e3.record("sheet_workshop_order_templates", DictType(StringType, WorkshopOrderTemplate), {
+    initial: new Map([
+        ["kitchen", { name: "Kitchen order", group: "Orders", ops: [
+            { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+            { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+            { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+            { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+        ] }],
+        ["vanity", { name: "Vanity unit", group: "Orders", ops: [
+            { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+            { activity: "CNC routing",   start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+            { activity: "Spray finish",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+            { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+        ] }],
+        ["wardrobe", { name: "Wardrobe order", group: "Orders", ops: [
+            { activity: "Panel cutting", start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+            { activity: "Edge banding",  start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+            { activity: "Drilling",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+            { activity: "Assembly",      start: none, end: none, qty: none, machines: { from: [], to: [] }, notes: "", created_by: "" },
+        ] }],
+    ]),
+    indexes: (index) => ({
+        // The order templates by their group: what the rail narrows them by.
+        sheet_workshop_order_templates_by_group: index.on(["group"]),
+    }),
+});
 
 /** The model behind the workshop's async proposer — an e3 function, a service, a notebook; the sheet needs only its types. */
 const workshopRecommend = East.asyncPlatform(
@@ -643,11 +674,11 @@ const workshopRecommend = East.asyncPlatform(
  * and the order with no customer is the batch's issue.
  */
 export const sheetWorkshop = example({
-    keywords: ["Sheet", "BuilderFrame", "record", "Record", "Record.onApply", "group", "driver", "register", "members", "concat", "aliases", "meta", "parent", "Dict", "fold", "duplicate", "link", "multiple", "sides", "locks", "arity", "check", "exists", "uom", "Format", "templates", "Sheet.templates", "library", "Sheet.library", "Sheet.library.tab", "drop", "inspector", "fields", "Sheet.field", "readonly", "views", "RecordView", "slice", "Slice.bindRecords", "Data.bindPaged", "recordIndex", "search", "filter", "copilot", "fill", "provider", "derive", "history", "sequence", "default", "phrase", "capacity", "propose", "proposer", "suggest", "learned", "follower", "asyncFunction", "asyncPlatform", "ready", "newGroup", "newRow", "footer", "joinery"],
+    keywords: ["Sheet", "BuilderFrame", "record", "Record", "Record.onApply", "group", "driver", "register", "members", "concat", "aliases", "meta", "parent", "Dict", "fold", "duplicate", "link", "multiple", "sides", "locks", "arity", "check", "exists", "uom", "Format", "templates", "Sheet.templates", "library", "Sheet.library", "Sheet.library.tab", "drop", "inspector", "fields", "Sheet.field", "readonly", "views", "RecordView", "slice", "Slice.bindRecords", "Data.bindPaged", "indexes", "search", "filter", "copilot", "fill", "provider", "derive", "history", "sequence", "default", "phrase", "capacity", "propose", "proposer", "suggest", "learned", "follower", "asyncFunction", "asyncPlatform", "ready", "newGroup", "newRow", "footer", "joinery"],
     description: "The flagship sheet — the workshop's orders as groups and their operations as lines; an activity driver giving units, durations and live halves; one work-centre register joined from a machines record (Dict), the bays (aliases) and the families (folded), its link grammar counting, locking, implying and checking machines; the copilot's fills (derive, history, sequence, default, phrase, capacity) and proposers (a pattern, a learned follower, an async model); an order check; one rail over the orders and the operation and order templates records, each its own source; a library of the templates, the statuses (dropped on an order to set its status) and the columns; an inspector pane showing every field; views kept per viewer; and a footer",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const orders     = $.let(Record.bind(sheetWorkshopOrders, [sheetWorkshopOrdersPatch]));
+            const orders     = $.let(Record.bind(sheetWorkshopOrders));
             const machines   = $.let(Record.bind(sheetWorkshopMachines, []));
             const activities = $.let(Data.bind(sheetWorkshopActivities));
             const operationTemplates = $.let(Data.bind(sheetWorkshopOperationTemplates));
@@ -674,18 +705,18 @@ export const sheetWorkshop = example({
             // One rail over three records: the orders — the sheet's rows — and each templates record, its own source.
             const slice = $.let(Slice.bindRecords("sheet.workshop", {
                 rows: {
-                    source: Data.bindPaged(sheetWorkshopOrders, { indexes: [sheetWorkshopOrdersByStatus, sheetWorkshopOrdersByCustomer] }),
+                    source: Data.bindPaged(sheetWorkshopOrders, { indexes: ["sheet_workshop_orders_by_status", "sheet_workshop_orders_by_customer"] }),
                     label: "Orders",
                     fields: { status: { label: "Status", hints: ["PLANNED", "RELEASED", "ON HOLD"] }, customer: { label: "Customer" } },
                     search: ["customer"],
                 },
                 rowTemplates: {
-                    source: Data.bindPaged(sheetWorkshopOperationTemplates, { indexes: [sheetWorkshopOperationTemplatesByGroup] }),
+                    source: Data.bindPaged(sheetWorkshopOperationTemplates, { indexes: ["sheet_workshop_operation_templates_by_group"] }),
                     label: "Operation templates",
                     fields: { group: { label: "Group", hints: ["Operations", "Dispatch"] } },
                 },
                 groupTemplates: {
-                    source: Data.bindPaged(sheetWorkshopOrderTemplates, { indexes: [sheetWorkshopOrderTemplatesByGroup] }),
+                    source: Data.bindPaged(sheetWorkshopOrderTemplates, { indexes: ["sheet_workshop_order_templates_by_group"] }),
                     label: "Order templates",
                     fields: { group: { label: "Group", hints: ["Orders"] } },
                 },
@@ -973,29 +1004,33 @@ export const WeekRow = StructType({
 /** One week's plan — when it starts, and its rows in the planner's order. */
 export const WeekPlan = StructType({ starts: DateTimeType, rows: ArrayType(WeekRow) });
 /** The plans, one per week, keyed 2026-W42, 2026-W43, … */
-export const sheetWeekPlans = e3.record("sheet_week_plans", DictType(StringType, WeekPlan), new Map([
-    ["2026-W42", { starts: new Date("2026-10-12T00:00:00Z"), rows: [
-        { id: "w42-1", task: "Cut the kitchen carcasses", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0), setups: some(2n), site: "Machine shop",
-          status: "PLANNED", code: "", level: variant("day", null), started: none,
-          machines: { from: [], to: [variant("range", { from: "S101", to: "S103" })] } },
-        { id: "w42-2", task: "Band the carcass edges", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0), setups: some(1n), site: "Machine shop",
-          status: "RELEASED", code: "WO-2201", level: variant("day", null), started: some(new Date("2026-10-13T07:30:00Z")),
-          machines: { from: [], to: [variant("identified", { key: "E201" })] } },
-        { id: "w42-3", task: "Route the door panels", start: none, qty: some(24.0), setups: none, site: "Bench room",
-          status: "PLANNED", code: "", level: variant("week", null), started: none,
-          machines: { from: [], to: [] } },
-    ] }],
-    ["2026-W43", { starts: new Date("2026-10-19T00:00:00Z"), rows: [
-        { id: "w43-1", task: "Assemble the wardrobes", start: some(new Date("2026-10-19T00:00:00Z")), qty: some(6.0), setups: none, site: "Fitting shop",
-          status: "PLANNED", code: "", level: variant("day", null), started: none,
-          machines: { from: [], to: [variant("identified", { key: "A701" })] } },
-        { id: "w43-2", task: "Spray the vanity doors", start: none, qty: some(4.0), setups: none, site: "Spray shop",
-          status: "PLANNED", code: "", level: variant("time", null), started: none,
-          machines: { from: [], to: [] } },
-    ] }],
-]));
-/** The plans' patch door — every Save commits through it. */
-export const sheetWeekPlansPatch = e3.mutation.patch(sheetWeekPlans);
+export const sheetWeekPlans = e3.record("sheet_week_plans", DictType(StringType, WeekPlan), {
+    initial: new Map([
+        ["2026-W42", { starts: new Date("2026-10-12T00:00:00Z"), rows: [
+            { id: "w42-1", task: "Cut the kitchen carcasses", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0), setups: some(2n), site: "Machine shop",
+              status: "PLANNED", code: "", level: variant("day", null), started: none,
+              machines: { from: [], to: [variant("range", { from: "S101", to: "S103" })] } },
+            { id: "w42-2", task: "Band the carcass edges", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0), setups: some(1n), site: "Machine shop",
+              status: "RELEASED", code: "WO-2201", level: variant("day", null), started: some(new Date("2026-10-13T07:30:00Z")),
+              machines: { from: [], to: [variant("identified", { key: "E201" })] } },
+            { id: "w42-3", task: "Route the door panels", start: none, qty: some(24.0), setups: none, site: "Bench room",
+              status: "PLANNED", code: "", level: variant("week", null), started: none,
+              machines: { from: [], to: [] } },
+        ] }],
+        ["2026-W43", { starts: new Date("2026-10-19T00:00:00Z"), rows: [
+            { id: "w43-1", task: "Assemble the wardrobes", start: some(new Date("2026-10-19T00:00:00Z")), qty: some(6.0), setups: none, site: "Fitting shop",
+              status: "PLANNED", code: "", level: variant("day", null), started: none,
+              machines: { from: [], to: [variant("identified", { key: "A701" })] } },
+            { id: "w43-2", task: "Spray the vanity doors", start: none, qty: some(4.0), setups: none, site: "Spray shop",
+              status: "PLANNED", code: "", level: variant("time", null), started: none,
+              machines: { from: [], to: [] } },
+        ] }],
+    ]),
+    mutations: (mutation) => ({
+        // The plans' patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
 
 /**
  * One entry's rows (§3.4) — the week the viewer picks, its rows in the
@@ -1018,7 +1053,7 @@ export const sheetWeeks = example({
     description: "A sheet over one entry's rows — the week the viewer picks, its rows in the planner's order, each week its own drafts until Save or Discard — with every column kind and its rules (a date at each row's level with its actual, an integer, a reference, an enum narrowed by an options rule with a detail, a stamped code owning its row, a set of machines in ranges), a row rule, a journal of every gesture, ids minted by a counter, and its own Details in the inspector pane, a row's quantity on a slider written back as one transaction",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const plans = $.let(Record.bind(sheetWeekPlans, [sheetWeekPlansPatch]));
+            const plans = $.let(Record.bind(sheetWeekPlans));
             // The week the viewer picked, the journal and the id counter: a viewer's own state.
             const week = $.let(State.bind([StringType], "sheet.weeks.week", "2026-W42"));
             const log = $.let(State.bind([ArrayType(StringType)], "sheet.weeks.journal", []));
@@ -1139,51 +1174,63 @@ export const Batch = StructType({ id: StringType, name: StringType, steps: Array
 /** One day's batches, in the planner's order. */
 export const BatchDay = StructType({ batches: ArrayType(Batch) });
 /** The days, keyed by date. */
-export const sheetBatchDays = e3.record("sheet_batch_days", DictType(StringType, BatchDay), new Map([
-    ["2026-10-12", { batches: [
-        { id: "B-101", name: "Doors, oak", steps: [
-            { task: "Cut doors", qty: some(12.0), parts: [
-                { id: "B-101-1", code: "CUT", name: "Cut the door blanks", materials: ["Oak veneered board × 6"], station: some("S101") },
-            ], bookings: [variant("labour", { team: "Cutting", people: 1n, hours: 3.0 })] },
-            { task: "Band doors", qty: some(48.0), parts: [], bookings: [variant("equipment", { resource: "Edge bander E201" })] },
-            { task: "Spray doors", qty: some(12.0), parts: [
-                { id: "B-101-3", code: "SPR", name: "Seal and lacquer", materials: ["Sealer", "Matt lacquer"], station: none },
-            ], bookings: [] },
-        ] },
-        { id: "B-102", name: "Carcasses, birch", steps: [
-            { task: "Cut carcasses", qty: some(8.0), parts: [], bookings: [] },
-            { task: "Drill carcasses", qty: some(8.0), parts: [], bookings: [variant("labour", { team: "Machining", people: 2n, hours: 2.5 })] },
-        ] },
-        { id: "B-103", name: "Shelves, ash", steps: [
-            { task: "Cut shelves", qty: some(20.0), parts: [], bookings: [] },
-            { task: "Sand shelves", qty: some(20.0), parts: [], bookings: [] },
-        ] },
-    ] }],
-]));
-/** The days' patch door — every Save commits through it. */
-export const sheetBatchDaysPatch = e3.mutation.patch(sheetBatchDays);
+export const sheetBatchDays = e3.record("sheet_batch_days", DictType(StringType, BatchDay), {
+    initial: new Map([
+        ["2026-10-12", { batches: [
+            { id: "B-101", name: "Doors, oak", steps: [
+                { task: "Cut doors", qty: some(12.0), parts: [
+                    { id: "B-101-1", code: "CUT", name: "Cut the door blanks", materials: ["Oak veneered board × 6"], station: some("S101") },
+                ], bookings: [variant("labour", { team: "Cutting", people: 1n, hours: 3.0 })] },
+                { task: "Band doors", qty: some(48.0), parts: [], bookings: [variant("equipment", { resource: "Edge bander E201" })] },
+                { task: "Spray doors", qty: some(12.0), parts: [
+                    { id: "B-101-3", code: "SPR", name: "Seal and lacquer", materials: ["Sealer", "Matt lacquer"], station: none },
+                ], bookings: [] },
+            ] },
+            { id: "B-102", name: "Carcasses, birch", steps: [
+                { task: "Cut carcasses", qty: some(8.0), parts: [], bookings: [] },
+                { task: "Drill carcasses", qty: some(8.0), parts: [], bookings: [variant("labour", { team: "Machining", people: 2n, hours: 2.5 })] },
+            ] },
+            { id: "B-103", name: "Shelves, ash", steps: [
+                { task: "Cut shelves", qty: some(20.0), parts: [], bookings: [] },
+                { task: "Sand shelves", qty: some(20.0), parts: [], bookings: [] },
+            ] },
+        ] }],
+    ]),
+    mutations: (mutation) => ({
+        // The days' patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
 
 /** A step template — the Rows tab's card, the group it sits under, and the task of the step it drops. */
 export const BatchStepTemplate = StructType({ name: StringType, group: StringType, task: StringType });
 /** The step templates, keyed by their key: a record of their own, the rail's `rowTemplates` source (#1345). */
-export const sheetBatchStepTemplates = e3.record("sheet_batch_step_templates", DictType(StringType, BatchStepTemplate), new Map([
-    ["sand", { name: "Sand", group: "Steps", task: "Sand" }],
-    ["seal", { name: "Seal", group: "Steps", task: "Seal" }],
-]));
-/** The step templates by their group: what the rail narrows them by. */
-export const sheetBatchStepTemplatesByGroup = e3.recordIndex("sheet_batch_step_templates_by_group", sheetBatchStepTemplates, { on: ["group"] });
+export const sheetBatchStepTemplates = e3.record("sheet_batch_step_templates", DictType(StringType, BatchStepTemplate), {
+    initial: new Map([
+        ["sand", { name: "Sand", group: "Steps", task: "Sand" }],
+        ["seal", { name: "Seal", group: "Steps", task: "Seal" }],
+    ]),
+    indexes: (index) => ({
+        // The step templates by their group: what the rail narrows them by.
+        sheet_batch_step_templates_by_group: index.on(["group"]),
+    }),
+});
 /** A batch template — the Rows tab's card, the group it sits under, the batch's name and the steps it starts with. */
 export const BatchTemplate = StructType({ name: StringType, group: StringType, batch: StringType, steps: ArrayType(BatchStep) });
 /** The batch templates, keyed by their key: a record of their own, the rail's `groupTemplates` source (#1345). */
-export const sheetBatchTemplates = e3.record("sheet_batch_templates", DictType(StringType, BatchTemplate), new Map([
-    ["finishing", { name: "Finishing batch", group: "Batches", batch: "Finishing", steps: [
-        { task: "Sand", qty: none, parts: [], bookings: [] },
-        { task: "Seal", qty: none, parts: [], bookings: [] },
-        { task: "Spray", qty: none, parts: [], bookings: [] },
-    ] }],
-]));
-/** The batch templates by their group: what the rail narrows them by. */
-export const sheetBatchTemplatesByGroup = e3.recordIndex("sheet_batch_templates_by_group", sheetBatchTemplates, { on: ["group"] });
+export const sheetBatchTemplates = e3.record("sheet_batch_templates", DictType(StringType, BatchTemplate), {
+    initial: new Map([
+        ["finishing", { name: "Finishing batch", group: "Batches", batch: "Finishing", steps: [
+            { task: "Sand", qty: none, parts: [], bookings: [] },
+            { task: "Seal", qty: none, parts: [], bookings: [] },
+            { task: "Spray", qty: none, parts: [], bookings: [] },
+        ] }],
+    ]),
+    indexes: (index) => ({
+        // The batch templates by their group: what the rail narrows them by.
+        sheet_batch_templates_by_group: index.on(["group"]),
+    }),
+});
 
 /**
  * One day's batches, in the planner's order (#1187, SB39, SB40, SB44) — a
@@ -1203,21 +1250,21 @@ export const sheetBatchTemplatesByGroup = e3.recordIndex("sheet_batch_templates_
  * their group.
  */
 export const sheetBatches = example({
-    keywords: ["Sheet", "BuilderFrame", "drag", "drop", "move", "grip", "seam", "templates", "Sheet.templates", "slice", "Slice.bindRecords", "Data.bindPaged", "recordIndex", "group", "grouped", "entry", "order", "Sheet.library.rows", "children", "newGroup", "newRow", "Patch", "defaults", "completeness", "fold", "undo", "redo", "ready", "subRows", "subRow", "sub rows", "SubRow", "Facet", "chips", "facets", "lead", "detail", "noun", "variant", "match", "read-only", "inspector", "Sheet.field", "hidden"],
+    keywords: ["Sheet", "BuilderFrame", "drag", "drop", "move", "grip", "seam", "templates", "Sheet.templates", "slice", "Slice.bindRecords", "Data.bindPaged", "indexes", "group", "grouped", "entry", "order", "Sheet.library.rows", "children", "newGroup", "newRow", "Patch", "defaults", "completeness", "fold", "undo", "redo", "ready", "subRows", "subRow", "sub rows", "SubRow", "Facet", "chips", "facets", "lead", "detail", "noun", "variant", "match", "read-only", "inspector", "Sheet.field", "hidden"],
     description: "A sheet over one day's batches in the planner's order — templates dragged from the library onto a seam, steps and whole batches moved to another seam by their grips, a batch named before Save, new steps and batches from their defaults, and each step's parts and bookings as read-only sub rows under it, declared per array field like columns, beside a library and an inspector pane; its step and batch templates two records, each a source of one rail",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const days = $.let(Record.bind(sheetBatchDays, [sheetBatchDaysPatch]));
+            const days = $.let(Record.bind(sheetBatchDays));
             const stepTemplates = $.let(Data.bind(sheetBatchStepTemplates));
             const batchTemplates = $.let(Data.bind(sheetBatchTemplates));
             // One rail over the templates records, each its own source: they narrow the Rows tab's cards.
             const slice = $.let(Slice.bindRecords("sheet.batches", {
                 rowTemplates: {
-                    source: Data.bindPaged(sheetBatchStepTemplates, { indexes: [sheetBatchStepTemplatesByGroup] }),
+                    source: Data.bindPaged(sheetBatchStepTemplates, { indexes: ["sheet_batch_step_templates_by_group"] }),
                     label: "Step templates", fields: { group: { label: "Group", hints: ["Steps"] } },
                 },
                 groupTemplates: {
-                    source: Data.bindPaged(sheetBatchTemplates, { indexes: [sheetBatchTemplatesByGroup] }),
+                    source: Data.bindPaged(sheetBatchTemplates, { indexes: ["sheet_batch_templates_by_group"] }),
                     label: "Batch templates", fields: { group: { label: "Group", hints: ["Batches"] } },
                 },
             }));
@@ -1289,21 +1336,25 @@ export const LooseEntry = Sheet.Types.Entry(LoosePackage, "tasks");
 /** A week's work — its entries, in the planner's order. */
 export const LooseWork = StructType({ entries: ArrayType(LooseEntry) });
 /** The work, one entry per week. */
-export const sheetLooseWork = e3.record("sheet_loose_work", DictType(StringType, LooseWork), new Map([
-    ["2026-W42", { entries: [
-        variant("row", { id: "brief", task: "Check the drawings", qty: none, notes: "Before any cutting" }),
-        variant("group", { id: "doors", name: "Kitchen doors", tasks: [
-            { id: "doors-1", task: "Cut door blanks", qty: some(24.0), notes: "Oak veneered board" },
-            { id: "doors-2", task: "Inspect the blanks", qty: some(4.0), notes: "Before finishing" },
-        ] }),
-        variant("row", { id: "handover", task: "Hand over to finishing", qty: none, notes: "" }),
-        variant("group", { id: "finish", name: "Door finishing", tasks: [
-            { id: "finish-1", task: "Spray the doors", qty: some(24.0), notes: "Matt lacquer" },
-        ] }),
-    ] }],
-]));
-/** The work's patch door — every Save commits through it. */
-export const sheetLooseWorkPatch = e3.mutation.patch(sheetLooseWork);
+export const sheetLooseWork = e3.record("sheet_loose_work", DictType(StringType, LooseWork), {
+    initial: new Map([
+        ["2026-W42", { entries: [
+            variant("row", { id: "brief", task: "Check the drawings", qty: none, notes: "Before any cutting" }),
+            variant("group", { id: "doors", name: "Kitchen doors", tasks: [
+                { id: "doors-1", task: "Cut door blanks", qty: some(24.0), notes: "Oak veneered board" },
+                { id: "doors-2", task: "Inspect the blanks", qty: some(4.0), notes: "Before finishing" },
+            ] }),
+            variant("row", { id: "handover", task: "Hand over to finishing", qty: none, notes: "" }),
+            variant("group", { id: "finish", name: "Door finishing", tasks: [
+                { id: "finish-1", task: "Spray the doors", qty: some(24.0), notes: "Matt lacquer" },
+            ] }),
+        ] }],
+    ]),
+    mutations: (mutation) => ({
+        // The work's patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
 
 /**
  * Loose rows between the groups (#846) — the week's entries are
@@ -1321,7 +1372,7 @@ export const sheetLoose = example({
     description: "A sheet over one week's entries — work packages and loose tasks: a loose task is a plain row numbered in the packages' sequence, inserted at the seam above a package or beside another loose task, and moved between the entries by its grip",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const work = $.let(Record.bind(sheetLooseWork, [sheetLooseWorkPatch]));
+            const work = $.let(Record.bind(sheetLooseWork));
             const newTask = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(LooseTask), () => Sheet.patch(LooseTask, { qty: none, notes: "" })));
             const newPackage = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(LoosePackage), () => Sheet.patch(LoosePackage, { tasks: [] })));
             return (
@@ -1362,7 +1413,7 @@ export const sheetPaged = example({
     description: "A sheet over a large record, read a window at a time in key order — Data.bindPaged over the same record its Save commits to — whose edits add rows (gutter seams, the selection strip, Alt+Insert) and never remove one",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const jobs = $.let(Record.bind(sheetJobs, [sheetJobsPatch]));
+            const jobs = $.let(Record.bind(sheetJobs));
             const page = $.let(Data.bindPaged(sheetJobs));
             return (
                 <Box height="560px">
@@ -1412,32 +1463,36 @@ export const MachineUpkeep = StructType({
     serial:        StringType,                 // a stamped column: read only
 });
 /** The machines' upkeep, keyed by machine code. */
-export const sheetMachineUpkeep = e3.record("sheet_machine_upkeep", DictType(StringType, MachineUpkeep), new Map([
-    ["S101", { name: "Beam saw", bay: "Bay 1", hours: 1240n, family: variant("beam_saw", null), wear: some(35.5), crew: some("Cutting crew"),
-        tickets: new Set(["Panel saw ticket", "Dust extraction"]),
-        checks: [{ text: "Blade sharpened", done: true }, { text: "Fence squared", done: true }, { text: "Extraction cleaned", done: false }],
-        supplier: { name: "Kestrelmoor Saw Works", phone: "01632 960 118" },
-        in_service: true, guard_checked: some(true),
-        serviced: new Date("2026-09-28T07:30:00Z"), next_service: some(new Date("2026-11-09T07:30:00Z")), serial: "BS-4410-0193" }],
-    ["E201", { name: "Edge bander", bay: "Bay 2", hours: 860n, family: variant("edge_bander", null), wear: none, crew: none,
-        tickets: new Set<string>(), checks: [], supplier: { name: "", phone: "" },
-        in_service: true, guard_checked: none,
-        serviced: new Date("2026-08-17T06:00:00Z"), next_service: none, serial: "EB-2207-0457" }],
-    ["R301", { name: "CNC router", bay: "Bay 3", hours: 2210n, family: variant("cnc_router", null), wear: some(62.0), crew: some("Machining crew"),
-        tickets: new Set(["Router ticket"]),
-        checks: [{ text: "Spindle greased", done: true }, { text: "Bed vacuum tested", done: false }],
-        supplier: { name: "Brindlecote Tooling", phone: "01632 960 342" },
-        in_service: false, guard_checked: some(false),
-        serviced: new Date("2026-07-06T13:15:00Z"), next_service: none, serial: "CR-5120-0088" }],
-    ["F401", { name: "Spray booth", bay: "Bay 4", hours: 540n, family: variant("spray_booth", null), wear: none, crew: some("Finishing crew"),
-        tickets: new Set(["Spray ticket", "First aid"]),
-        checks: [{ text: "Filters changed", done: true }],
-        supplier: { name: "Fennimarsh Coatings", phone: "01632 960 775" },
-        in_service: true, guard_checked: some(true),
-        serviced: new Date("2026-10-01T08:00:00Z"), next_service: some(new Date("2026-12-01T08:00:00Z")), serial: "SB-0391-0017" }],
-]));
-/** The upkeep's patch door — every Save commits through it. */
-export const sheetMachineUpkeepPatch = e3.mutation.patch(sheetMachineUpkeep);
+export const sheetMachineUpkeep = e3.record("sheet_machine_upkeep", DictType(StringType, MachineUpkeep), {
+    initial: new Map([
+        ["S101", { name: "Beam saw", bay: "Bay 1", hours: 1240n, family: variant("beam_saw", null), wear: some(35.5), crew: some("Cutting crew"),
+            tickets: new Set(["Panel saw ticket", "Dust extraction"]),
+            checks: [{ text: "Blade sharpened", done: true }, { text: "Fence squared", done: true }, { text: "Extraction cleaned", done: false }],
+            supplier: { name: "Kestrelmoor Saw Works", phone: "01632 960 118" },
+            in_service: true, guard_checked: some(true),
+            serviced: new Date("2026-09-28T07:30:00Z"), next_service: some(new Date("2026-11-09T07:30:00Z")), serial: "BS-4410-0193" }],
+        ["E201", { name: "Edge bander", bay: "Bay 2", hours: 860n, family: variant("edge_bander", null), wear: none, crew: none,
+            tickets: new Set<string>(), checks: [], supplier: { name: "", phone: "" },
+            in_service: true, guard_checked: none,
+            serviced: new Date("2026-08-17T06:00:00Z"), next_service: none, serial: "EB-2207-0457" }],
+        ["R301", { name: "CNC router", bay: "Bay 3", hours: 2210n, family: variant("cnc_router", null), wear: some(62.0), crew: some("Machining crew"),
+            tickets: new Set(["Router ticket"]),
+            checks: [{ text: "Spindle greased", done: true }, { text: "Bed vacuum tested", done: false }],
+            supplier: { name: "Brindlecote Tooling", phone: "01632 960 342" },
+            in_service: false, guard_checked: some(false),
+            serviced: new Date("2026-07-06T13:15:00Z"), next_service: none, serial: "CR-5120-0088" }],
+        ["F401", { name: "Spray booth", bay: "Bay 4", hours: 540n, family: variant("spray_booth", null), wear: none, crew: some("Finishing crew"),
+            tickets: new Set(["Spray ticket", "First aid"]),
+            checks: [{ text: "Filters changed", done: true }],
+            supplier: { name: "Fennimarsh Coatings", phone: "01632 960 775" },
+            in_service: true, guard_checked: some(true),
+            serviced: new Date("2026-10-01T08:00:00Z"), next_service: some(new Date("2026-12-01T08:00:00Z")), serial: "SB-0391-0017" }],
+    ]),
+    mutations: (mutation) => ({
+        // The upkeep's patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
 
 /**
  * The inspector's every field kind (#1220) — the workshop's machines' upkeep,
@@ -1459,7 +1514,7 @@ export const sheetUpkeep = example({
     description: "A sheet whose inspector pane edits one field of every kind over the workshop's machines' upkeep — a number with its unit and bounds, a select of a variant's cases, a reference, a text emptied to none, tags, a checklist, a nested struct's fields under its name, a checkbox, a date and a time, Options set and cleared, and a stamped code read only — the hinted fields leading, with a row rule's issue",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            const upkeep = $.let(Record.bind(sheetMachineUpkeep, [sheetMachineUpkeepPatch]));
+            const upkeep = $.let(Record.bind(sheetMachineUpkeep));
             const bays = $.let(["Bay 1", "Bay 2", "Bay 3", "Bay 4", "Bay 7"], ArrayType(StringType));
             // A machine out of service needs its next service booked.
             const readyMachine = $.const(East.function([Sheet.Types.Draft(MachineUpkeep), Sheet.Types.DraftContext(MachineUpkeep)], Sheet.Types.Readiness, ($, row) => {

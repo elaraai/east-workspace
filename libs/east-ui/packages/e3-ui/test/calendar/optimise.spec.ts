@@ -32,7 +32,7 @@ const byString = compareFor(StringType);
 function payload(change: Readonly<Record<string, unknown>> = {}): void {
     East.function([], CalendarPayloadType, ($) => {
         const machines = $.let(Record.bind(base.calendarMachines, []));
-        const jobs = $.let(Record.bind(base.calendarJobs, [base.calendarJobsPatch]));
+        const jobs = $.let(Record.bind(base.calendarJobs));
         return createCalendarPayload({
             resources: { machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) },
             events: { job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" } }) },

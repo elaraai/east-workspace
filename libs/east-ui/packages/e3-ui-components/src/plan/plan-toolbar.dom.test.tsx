@@ -149,7 +149,7 @@ async function railParts(): Promise<ChromeParts> {
     ]));
     const rail = await bindRail(() => Slice.bindRecords("plan.toolbar.ladder", {
         dated: {
-            source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt, records.planDatedRowsByOwnerAt, records.planDatedRowsByHallAt] }),
+            source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at", "plan_dated_rows_by_owner_at", "plan_dated_rows_by_hall_at"] }),
             fields: { owner: { label: "Owner", hints: ["Team A", "Team B"] }, hall: { label: "Hall", hints: ["Hall 1"] }, at: { label: "Dates" } },
             range: "at", search: [], initial: { at: { from: W27, to: W39 } },
         },
@@ -406,11 +406,11 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         // The orders by their whole days and the vans by theirs, each holding the window `[1, 9)`.
         const rail = await bindRail(() => Slice.bindRecords("plan.toolbar.number", {
             orders: {
-                source: Data.bindPaged(records.planDayOrders, { indexes: [records.planDayOrdersByDay] }),
+                source: Data.bindPaged(records.planDayOrders, { indexes: ["plan_day_orders_by_day"] }),
                 fields: { day: { label: "Day" } }, range: "day", initial: { day: { from: 1n, to: 9n } },
             },
             vans: {
-                source: Data.bindPaged(records.planDayVans, { indexes: [records.planDayVansByDay] }),
+                source: Data.bindPaged(records.planDayVans, { indexes: ["plan_day_vans_by_day"] }),
                 fields: { day: { label: "Day" } }, range: "day", initial: { day: { from: 1.0, to: 9.0 } },
             },
         }), ["fields"]);
@@ -432,7 +432,7 @@ describe("the Plan's toolbar items (#952, #1193, #1344)", () => {
         // The canvas's rows' source, its range naming their dates — which holds no window: the rows never follow the dates.
         const rail = await bindRail(() => Slice.bindRecords("plan.toolbar.own", {
             rows: {
-                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+                source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
                 fields: { at: { label: "Dates" } }, range: "at",
             },
         }), ["fields"]);

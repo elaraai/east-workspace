@@ -8,10 +8,7 @@ import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui";
 import * as e3 from "@elaraai/e3";
 import { WarehouseDuty, WarehouseWeek, warehouseDuties, warehousePreviousStart, warehouseWeeks } from "./warehouse.js";
-import {
-    rosterStaff as warehouseStaff, rosterActivities, rosterActivitiesByGroup, rosterAgencies, rosterCover, rosterCoverPatch, rosterPositions,
-    rosterShiftTimes, rosterStaffFit, rosterSuggestions, rosterTeams,
-} from "./roster.examples.js";
+import { rosterStaff as warehouseStaff, rosterActivities, rosterAgencies, rosterCover, rosterPositions, rosterShiftTimes, rosterStaffFit, rosterSuggestions, rosterTeams } from "./roster.examples.js";
 
 const stringOrder = compareFor(StringType);
 const WEEK = 7 * 86_400_000;
@@ -53,37 +50,51 @@ function weekSeed() {
     return weeks;
 }
 
-export const indexedRosterDuties = e3.record("indexed_roster_duties", DictType(StringType, WarehouseDuty), dutySeed());
-export const indexedRosterDutiesPatch = e3.mutation.patch(indexedRosterDuties);
-/** The year's duties by their times: what the Roster's slice reads a week of them through. */
-export const indexedRosterDutiesByTime = e3.recordIndex.interval("indexed_roster_duties_by_time", indexedRosterDuties, { from: "start", to: "end" });
-export const indexedRosterWeeks = e3.record("indexed_roster_weeks", DictType(DateTimeType, WarehouseWeek), weekSeed());
-export const indexedRosterWeeksPatch = e3.mutation.patch(indexedRosterWeeks);
-export const indexedRosterStaff = e3.record("indexed_roster_staff", warehouseStaff.type, staffSeed());
+export const indexedRosterDuties = e3.record("indexed_roster_duties", DictType(StringType, WarehouseDuty), {
+    initial: dutySeed(),
+    indexes: (index) => ({
+        // The year's duties by their times: what the Roster's slice reads a week of them through.
+        indexed_roster_duties_by_time: index.interval({ from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+export const indexedRosterWeeks = e3.record("indexed_roster_weeks", DictType(DateTimeType, WarehouseWeek), {
+    initial: weekSeed(),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+export const indexedRosterStaff = e3.record("indexed_roster_staff", warehouseStaff.type, {
+    initial: staffSeed(),
+    indexes: (index) => ({
+        staff_by_name: index.on(["name"]),
+        staff_by_team_name: index.on(["team", "name"]),
+        staff_by_trainer: index.on(["trainer"]),
+        staff_by_skill: index.on(["skills"]),
+        staff_by_position: index.on(["position"]),
+        staff_by_agency: index.on(["agency"]),
+    }),
+});
 
-export const rosterStaffByName = e3.recordIndex("staff_by_name", indexedRosterStaff, { on: ["name"] });
-export const rosterStaffByTeam = e3.recordIndex("staff_by_team_name", indexedRosterStaff, { on: ["team", "name"] });
-export const rosterStaffByTrainer = e3.recordIndex("staff_by_trainer", indexedRosterStaff, { on: ["trainer"] });
-export const rosterStaffBySkill = e3.recordIndex("staff_by_skill", indexedRosterStaff, { on: ["skills"] });
-export const rosterStaffByPosition = e3.recordIndex("staff_by_position", indexedRosterStaff, { on: ["position"] });
-export const rosterStaffByAgency = e3.recordIndex("staff_by_agency", indexedRosterStaff, { on: ["agency"] });
 
 export const rosterRecordIndexes = example({
     description: "500 staff and a year of duties. The week's duties are read through the slice's duty source — an interval index over their times — and the rota's weeks by key, so no record is read whole; indexed staff narrowing keeps full-staff coverage and rules, and a Find fix asks the warehouse's greedy fit over every person, whatever the rail shows. Hidden duty edits Save by their own keys.",
     keywords: ["Roster", "Schedule.events", "Schedule.periods", "Slice", "Slice.bindRecords", "Roster.activities", "Func.bind", "fit", "Find", "records", "indexes", "interval", "paging", "history"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const rota = $.let(Record.bind(indexedRosterDuties, [indexedRosterDutiesPatch]));
+        const rota = $.let(Record.bind(indexedRosterDuties));
         const entries = $.let(Data.bindPaged(indexedRosterDuties));
-        const byTime = $.let(Data.bindPaged(indexedRosterDuties, { indexes: [indexedRosterDutiesByTime] }));
-        const weeks = $.let(Record.bind(indexedRosterWeeks, [indexedRosterWeeksPatch]));
+        const byTime = $.let(Data.bindPaged(indexedRosterDuties, { indexes: ["indexed_roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(indexedRosterWeeks));
         const weekEntries = $.let(Data.bindPaged(indexedRosterWeeks));
-        const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+        const cover = $.let(Record.bind(rosterCover));
         // Complete staff is the calculation context; visibility is a separate indexed query.
         const staff = $.let(Data.bind(indexedRosterStaff));
         const acts = $.let(Data.bind(rosterActivities));
         // One rail over the week's duties, the staff, opening on Inbound, and the activities (#1342).
-        const people = $.let(Data.bindPaged(indexedRosterStaff, { indexes: [rosterStaffByName, rosterStaffByTeam, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill] }));
-        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const people = $.let(Data.bindPaged(indexedRosterStaff, { indexes: ["staff_by_name", "staff_by_team_name", "staff_by_position", "staff_by_trainer", "staff_by_agency", "staff_by_skill"] }));
+        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.rosterRecordIndexes", {
             duty: { source: byTime, range: "start" },
             people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"], initial: { team: ["inbound"] },
@@ -129,18 +140,18 @@ export const rosterRecordIndexesMobile = example({
     description: "Phone roster over the same year of duties, with the shared indexed staff controls and explicit actions; weekly drafts survive filtering.",
     keywords: ["Roster", "Schedule.events", "Schedule.periods", "Slice", "Slice.bindRecords", "Roster.activities", "records", "indexes", "interval", "paging", "mobile"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const rota = $.let(Record.bind(indexedRosterDuties, [indexedRosterDutiesPatch]));
+        const rota = $.let(Record.bind(indexedRosterDuties));
         const entries = $.let(Data.bindPaged(indexedRosterDuties));
-        const byTime = $.let(Data.bindPaged(indexedRosterDuties, { indexes: [indexedRosterDutiesByTime] }));
-        const weeks = $.let(Record.bind(indexedRosterWeeks, [indexedRosterWeeksPatch]));
+        const byTime = $.let(Data.bindPaged(indexedRosterDuties, { indexes: ["indexed_roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(indexedRosterWeeks));
         const weekEntries = $.let(Data.bindPaged(indexedRosterWeeks));
-        const cover = $.let(Record.bind(rosterCover, [rosterCoverPatch]));
+        const cover = $.let(Record.bind(rosterCover));
         // Complete staff is the calculation context; visibility is a separate indexed query.
         const staff = $.let(Data.bind(indexedRosterStaff));
         const acts = $.let(Data.bind(rosterActivities));
         // One rail over the week's duties, the staff, opening on Inbound, and the activities (#1342).
-        const people = $.let(Data.bindPaged(indexedRosterStaff, { indexes: [rosterStaffByName, rosterStaffByTeam, rosterStaffByPosition, rosterStaffByTrainer, rosterStaffByAgency, rosterStaffBySkill] }));
-        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: [rosterActivitiesByGroup] }));
+        const people = $.let(Data.bindPaged(indexedRosterStaff, { indexes: ["staff_by_name", "staff_by_team_name", "staff_by_position", "staff_by_trainer", "staff_by_agency", "staff_by_skill"] }));
+        const activities = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
         const slice = $.let(Slice.bindRecords("ex.rosterRecordIndexesMobile", {
             duty: { source: byTime, range: "start" },
             people: { source: people, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"], initial: { team: ["inbound"] },

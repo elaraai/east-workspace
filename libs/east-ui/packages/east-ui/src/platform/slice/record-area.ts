@@ -5,8 +5,8 @@
 
 /**
  * Queries for e3's generated area index (#1385): a loose quadtree laid along a
- * Z-order curve (XZ-ordering), whose keys e3's `e3.recordIndex.area` files each
- * row under once. The twin of `record-interval.ts`.
+ * Z-order curve (XZ-ordering), whose keys e3 files each row under once
+ * (`index.area`). The twin of `record-interval.ts`.
  *
  * The index's domain is the square `[−cell·2²⁷, cell·2²⁷)` world units in 29
  * levels, a level-L cell `s_L = cell · 2^(28−L)` wide. A row is filed at the

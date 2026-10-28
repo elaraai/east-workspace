@@ -193,15 +193,15 @@ const HIDDEN = "schematic.narrowing.hidden";
  * whole, the Backlog and the Index in its library, and the inspector.
  */
 const hiddenFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
     const frames = $.let(Data.bind(ex.schematicFrames));
     const pdus = $.let(Data.bind(ex.schematicPdus));
     const areas = $.let(Data.bind(ex.schematicAreas));
-    const fibre = $.let(Record.bind(ex.schematicFibre, [ex.schematicFibrePatch]));
-    const feeds = $.let(Record.bind(ex.schematicFeeds, [ex.schematicFeedsPatch]));
+    const fibre = $.let(Record.bind(ex.schematicFibre, ["patch"]));
+    const feeds = $.let(Record.bind(ex.schematicFeeds, ["patch"]));
     const slice = $.let(Slice.bindRecords(HIDDEN, {
-        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByOwner] }), fields: { owner: { label: "Owner" } } },
+        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner"] }), fields: { owner: { label: "Owner" } } },
     }));
     const ends = { rack: "racks", frame: "network" } as const;
     return Schematic({
@@ -283,7 +283,7 @@ test("dimmed, the racks a choice leaves out draw as context — faded, greyed, t
     // Every rack read: the record's own entries, read once — never through the owner index, which no choice narrows yet.
     const read = rackReads();
     expect(read.length).toBeGreaterThan(0);
-    expect(read.filter((index) => index === ex.schematicRacksByOwner.name)).toEqual([]);
+    expect(read.filter((index) => index === "schematic_racks_by_owner")).toEqual([]);
     await narrow(RACKS, choose("owner", "Harbour Labs"));
     await waitFor(() => expect(card(container, "racks", "A03")?.hasAttribute("data-context")).toBe(true));
     // Northwind Media's and Elmway College's racks: context, greyed, faded to the look's 0.35; Harbour Labs' as themselves.
@@ -295,8 +295,8 @@ test("dimmed, the racks a choice leaves out draw as context — faded, greyed, t
     // Context counts nowhere: Harbour Labs' racks, their runs and the frames' cross-connect, and feed A.
     expect(drawingCounts(container)).toEqual({ racks: "2", network: "3", cooling: "3", pdus: "2", zones: "5", links: "4", nets: "1" });
     // The choice read the narrowing's keys through the owner index, and no rack again.
-    await waitFor(() => expect(rackReads().some((index) => index === ex.schematicRacksByOwner.name)).toBe(true));
-    expect(rackReads().filter((index) => index !== ex.schematicRacksByOwner.name)).toEqual(read);
+    await waitFor(() => expect(rackReads().some((index) => index === "schematic_racks_by_owner")).toBe(true));
+    expect(rackReads().filter((index) => index !== "schematic_racks_by_owner")).toEqual(read);
     // A tap on A03's card selects nothing: it is context. A01's selects it.
     await tap(canvas, CAM, 9.6, 2.9);
     await settle();
@@ -347,7 +347,7 @@ test("dimmed, a draft the narrowing leaves out draws where its draft has it, as 
 
 /** Whether a request reads the racks through their owner index: a choice's read of them. */
 const throughOwner = (request: { readonly dataset: string | undefined; readonly query: URLSearchParams }) =>
-    request.dataset === RACKS_DATASET && request.query.get("index") === ex.schematicRacksByOwner.name;
+    request.dataset === RACKS_DATASET && request.query.get("index") === "schematic_racks_by_owner";
 
 /** Whether each of Details' fieldsets of edits is off, as it is while its record takes no edit. */
 const editsOff = (c: HTMLElement) => [...inspector(c).querySelectorAll<HTMLFieldSetElement>("[data-inspector-edits]")].map((edits) => edits.disabled);
@@ -435,10 +435,10 @@ const RINGED = "schematic.narrowing.ringed";
 
 /** The data centre's racks read through their source, dimmed, each match ringed by a halo and flown to as the narrowing changes. */
 const ringedFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
     const slice = $.let(Slice.bindRecords(RINGED, {
-        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByOwner] }), fields: { owner: { label: "Owner" } } },
+        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner"] }), fields: { owner: { label: "Owner" } } },
     }));
     return Schematic({
         id: "ringed",

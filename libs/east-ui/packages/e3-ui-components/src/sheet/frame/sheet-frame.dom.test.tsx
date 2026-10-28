@@ -34,12 +34,12 @@ const WORDS = formatters("en-US");
 
 /** Builds a sheet's payload over the jobs record, as `<Sheet>` does — both panes, named `jobs` — and mounts it as given. */
 const jobsPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     return Sheet.Payload({ record: jobs, columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) },
         library: [Sheet.library.rows(), Sheet.library.columns()], inspector: true, name: "jobs" });
 });
 const missingWeek = East.function([], SheetPayloadType, ($) => {
-    const plans = $.let(Record.bind(ex.sheetWeekPlans, [ex.sheetWeekPlansPatch]));
+    const plans = $.let(Record.bind(ex.sheetWeekPlans, ["patch"]));
     return Sheet.Payload({ record: plans, entry: { key: "2026-W50", rows: "rows", id: "id" }, columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) } });
 });
 

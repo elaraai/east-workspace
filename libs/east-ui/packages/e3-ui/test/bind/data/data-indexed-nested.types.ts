@@ -55,7 +55,7 @@ const partsOf = <S,>(_source: S) => ({
 /** An item's times from `start` to `end`, as a binding carries them. */
 type Span = { from: StructType<{ start: NullType }>; to: StructType<{ end: NullType }> };
 
-const machines = Data.bindPaged(ex.nestedMachines, { indexes: [ex.machinesBySiteStatus, ex.machinesInTime] });
+const machines = Data.bindPaged(ex.nestedMachines, { indexes: ["machines_by_site_status", "machines_in_time"] });
 type Machines = Parts<typeof machines>;
 
 // A page's projection is the machine's own row type: each collection empty, never joined.
@@ -72,14 +72,14 @@ same<Machines["N"], NestedPart<StructType<{
 }>, "machines_in_time", "week", "month">>();
 
 // A measure's readings, and the rollup its ledger keeps their subtotals by: each fold a struct of its aggregates.
-partsOf(Data.bindPaged(ex.nestedLedgers, { indexes: [ex.ledgersByName, ex.ledgersInTime] })).nested<NestedPart<StructType<{
+partsOf(Data.bindPaged(ex.nestedLedgers, { indexes: ["ledgers_by_name", "ledgers_in_time"] })).nested<NestedPart<StructType<{
     measures: StructType<{ rows: StructType<{
         readings: StructType<{ values: StructType<{ rollup: StructType<{ sum: StructType<{ sum: NullType }> }> }> }>;
     }> }>;
 }>, "ledgers_in_time", "week", "month">>();
 
 // A part's jobs, filed under every part above it too, and the parts beneath it.
-partsOf(Data.bindPaged(ex.nestedAssemblies, { indexes: [ex.assembliesByName, ex.assembliesInTime] })).nested<NestedPart<StructType<{
+partsOf(Data.bindPaged(ex.nestedAssemblies, { indexes: ["assemblies_by_name", "assemblies_in_time"] })).nested<NestedPart<StructType<{
     parts: StructType<{ rows: StructType<{
         jobs: StructType<{ items: StructType<{ from: StructType<{ start: NullType }>; to: StructType<{ end: NullType }>; rollup: NullType }> }>;
         parts: StructType<{ recursive: NullType }>;
@@ -169,14 +169,14 @@ const notes = [span(Machine, {
     decisions: Plan.items("notes", { at: "at" }, () => ({ applied: false })),
 })];
 refusalsOf(notes, machines).are<
-    'Plan: a series reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it e3.recordIndex.series.items({ at: "at" })'>();
+    'Plan: a series reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it index.nested.items({ at: "at" })'>();
 const alarmValues = [Plan.series.heat(Machine, {
     key: "alarms", title: "Alarms", label: (m) => m.name, cells: Plan.heatCells(Plan.values("alarms", () => ({ value: some(1.0) }))),
 })];
 refusalsOf(alarmValues, machines).are<
     'Plan: a series reads "alarms" as values, and "machines_in_time" declares it items({ at: "at" }) — read it with Plan.items("alarms", { at: "at" }, draw)'>();
 
-const ledgers = Data.bindPaged(ex.nestedLedgers, { indexes: [ex.ledgersByName, ex.ledgersInTime] });
+const ledgers = Data.bindPaged(ex.nestedLedgers, { indexes: ["ledgers_by_name", "ledgers_in_time"] });
 /** The ledgers, a group subtotalling its measures' readings by the cells' fold and the strip's aggregate. */
 const subtotalled = <const F extends "sum" | "mean", const A extends "sum" | "mean">(fold: F, aggregate: A) => [Plan.series.group(ex.NestedLedger, {
     key: "ledgers", title: "Ledgers", label: (l) => l.name, summaryAggregate: aggregate,
@@ -186,21 +186,25 @@ const subtotalled = <const F extends "sum" | "mean", const A extends "sum" | "me
 })];
 refusalsOf(subtotalled("sum", "sum"), ledgers).are<never>();
 refusalsOf(subtotalled("mean", "mean"), ledgers).are<
-    'Plan: a series subtotals "measures.readings" by mean, and "ledgers_in_time" keeps it by sum — add the rollup: e3.recordIndex.series.values({ rollup: ["sum", "mean"] }), or subtotal it by sum'>();
+    'Plan: a series subtotals "measures.readings" by mean, and "ledgers_in_time" keeps it by sum — add the rollup: index.nested.values({ rollup: ["sum", "mean"] }), or subtotal it by sum'>();
 
 /** A part of a work: its jobs, and more parts beneath it. */
 const WorkPart = RecursiveType((self) => StructType({ name: StringType, jobs: DictType(StringType, ex.NestedJob), parts: DictType(StringType, self) }));
 /** A work: its parts. */
 const Work = StructType({ name: StringType, parts: DictType(StringType, WorkPart) });
-const works = e3.record("types_works", DictType(StringType, Work), new Map());
-const worksByName = e3.recordIndex("works_by_name", works, { on: ["name"] });
-/** Its parts' jobs, filed under no parent. */
-const worksInTime = e3.recordIndex.series("works_in_time", works, {
-    collections: { parts: e3.recordIndex.series.rows({ jobs: e3.recordIndex.series.items({ from: "start", to: "end" }), parts: e3.recordIndex.series.recursive() }) },
-    tile: "week",
+const works = e3.record("types_works", DictType(StringType, Work), {
+    initial: new Map(),
+    indexes: (index) => ({
+        works_by_name: index.on(["name"]),
+        // Its parts' jobs, filed under no parent.
+        works_in_time: index.nested({
+            collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: "start", to: "end" }), parts: index.nested.recursive() }) },
+            tile: "week",
+        }),
+    }),
 });
-const worksBinding = Data.bindPaged(works, { indexes: [worksByName, worksInTime] });
-const assemblies = Data.bindPaged(ex.nestedAssemblies, { indexes: [ex.assembliesByName, ex.assembliesInTime] });
+const worksBinding = Data.bindPaged(works, { indexes: ["works_by_name", "works_in_time"] });
+const assemblies = Data.bindPaged(ex.nestedAssemblies, { indexes: ["assemblies_by_name", "assemblies_in_time"] });
 // A group of each row's parts, a tree rolling its runs up into each parent's bands.
 const assemblyTree = [Plan.series.group(ex.NestedAssembly, {
     key: "assemblies", title: "Assemblies", label: (a) => a.name,
@@ -218,7 +222,7 @@ const workTree = [Plan.series.group(Work, {
 })];
 refusalsOf(assemblyTree, assemblies).are<never>();
 refusalsOf(workTree, worksBinding).are<
-    'Plan: a series rolls its children\'s runs of "parts.jobs" up, and "works_in_time" files them under no parent — declare it e3.recordIndex.series.items({ from: "start", to: "end" }, { rollup: true })'>();
+    'Plan: a series rolls its children\'s runs of "parts.jobs" up, and "works_in_time" files them under no parent — declare it index.nested.items({ from: "start", to: "end" }, { rollup: true })'>();
 
 /**
  * Each refusal fails to compile where the series list is written, given as
@@ -267,7 +271,7 @@ export function refusedThroughLet($: BlockBuilder<NullType>): void {
     const held = $.let(machines);
     const slice = $.let(Slice.bindRecords("machines", { rows: { source: held, fields: { site: { label: "Site" } } } }));
     refusalsOf(notes, held).are<
-        'Plan: a series reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it e3.recordIndex.series.items({ at: "at" })'>();
+        'Plan: a series reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it index.nested.items({ at: "at" })'>();
     refusalsOf(filed, { slice }).are<never>();
     Plan({ axis, data: held, series: filed });
     // @ts-expect-error -- a collection the index does not declare, through $.let

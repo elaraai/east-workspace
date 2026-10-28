@@ -52,7 +52,7 @@ const JOB_COLUMNS = {
 describe("the payload (SB12)", () => {
     test("the smallest sheet's payload is SheetPayloadType: the sheet whole, its templates, its panes, the record's history", () => {
         inBlock(($) => {
-            const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+            const jobs = $.let(Record.bind(ex.sheetJobs));
             const payload = Sheet.Payload({ record: jobs, columns: JOB_COLUMNS });
             assert.ok(isTypeEqual(typeOf(payload), SheetPayloadType));
         });
@@ -69,7 +69,7 @@ describe("the payload (SB12)", () => {
         // Type-level: the build never runs. An overload that accepted these would fail the build on its unused directive.
         const never = (): void => {
             inBlock(($) => {
-                const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+                const jobs = $.let(Record.bind(ex.sheetJobs));
                 // @ts-expect-error — the columns are over the week's row, and the record holds jobs
                 return Sheet({ record: jobs, columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) } });
             });
@@ -125,20 +125,20 @@ const overJobs = (props: ($: BlockBuilder<typeof SheetPayloadType>) => Record<st
 describe("its rows' two sources (#1216)", () => {
     test("over a record: its entries, a window of them, one entry's rows, its groups, and groups with loose rows between them", () => {
         inBlock(($) => {
-            const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+            const jobs = $.let(Record.bind(ex.sheetJobs));
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({ record: jobs, columns: JOB_COLUMNS })), SheetPayloadType), "the entries");
             const page = $.let(Data.bindPaged(ex.sheetJobs));
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({ record: jobs, window: page, columns: JOB_COLUMNS })), SheetPayloadType), "a window of them");
-            const plans = $.let(Record.bind(ex.sheetWeekPlans, [ex.sheetWeekPlansPatch]));
+            const plans = $.let(Record.bind(ex.sheetWeekPlans));
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({
                 record: plans, entry: { key: "2026-W42", rows: "rows", id: "id" }, columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) },
             })), SheetPayloadType), "one entry's rows");
-            const days = $.let(Record.bind(ex.sheetBatchDays, [ex.sheetBatchDaysPatch]));
+            const days = $.let(Record.bind(ex.sheetBatchDays));
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({
                 record: days, entry: { key: "2026-10-12", rows: "batches", id: "id" },
                 group: Sheet.group(ex.Batch, "steps", { title: "name" }), columns: { task: Sheet.column.text(ex.BatchStep, { header: "Step" }) },
             })), SheetPayloadType), "one entry's groups");
-            const work = $.let(Record.bind(ex.sheetLooseWork, [ex.sheetLooseWorkPatch]));
+            const work = $.let(Record.bind(ex.sheetLooseWork));
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({
                 record: work, entry: { key: "2026-W42", rows: "entries", id: "id" },
                 group: Sheet.group(ex.LoosePackage, "tasks", { title: "name" }), columns: { task: Sheet.column.text(ex.LooseTask, { header: "Task" }) },
@@ -148,7 +148,7 @@ describe("its rows' two sources (#1216)", () => {
 
     test("over a record's entries as groups: the record's entries are the groups, in key order", () => {
         inBlock(($) => {
-            const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
+            const orders = $.let(Record.bind(ex.sheetWorkshopOrders));
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({
                 record: orders, group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),
                 columns: { notes: Sheet.column.text(ex.WorkshopOperation, { header: "Notes" }) },
@@ -462,29 +462,37 @@ type Column = ValueTypeOf<typeof Sheet.Types.Column>;
 const LooseTask = StructType({ id: StringType, task: StringType });
 const LoosePackage = StructType({ id: StringType, name: StringType, tasks: ArrayType(LooseTask) });
 const LooseWeek = StructType({ entries: ArrayType(Sheet.Types.Entry(LoosePackage, "tasks")) });
-const looseWork = e3.record("sheet_spec_loose", DictType(StringType, LooseWeek), new Map([
-    ["w", { entries: [
-        variant("row", { id: "brief", task: "Check the drawings" }),
-        variant("group", { id: "doors", name: "Kitchen doors", tasks: [{ id: "doors-1", task: "Cut door blanks" }] }),
-    ] }],
-]));
-const looseWorkPatch = e3.mutation.patch(looseWork);
+const looseWork = e3.record("sheet_spec_loose", DictType(StringType, LooseWeek), {
+    initial: new Map([
+        ["w", { entries: [
+            variant("row", { id: "brief", task: "Check the drawings" }),
+            variant("group", { id: "doors", name: "Kitchen doors", tasks: [{ id: "doors-1", task: "Cut door blanks" }] }),
+        ] }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 // The narrowing (#1345): a templates record of the jobs, with an index for
 // its rail field, and the stress sheet's jobs — a `rows` source.
 const JobTemplate = StructType({ name: StringType, group: StringType, task: StringType });
-const jobTemplates = e3.record("sheet_spec_job_templates", DictType(StringType, JobTemplate), new Map([
-    ["cut", { name: "Cut", group: "Cutting", task: "Panel cutting" }],
-]));
-const jobTemplatesByGroup = e3.recordIndex("sheet_spec_job_templates_by_group", jobTemplates, { on: ["group"] });
+const jobTemplates = e3.record("sheet_spec_job_templates", DictType(StringType, JobTemplate), {
+    initial: new Map([
+        ["cut", { name: "Cut", group: "Cutting", task: "Panel cutting" }],
+    ]),
+    indexes: (index) => ({
+        sheet_spec_job_templates_by_group: index.on(["group"]),
+    }),
+});
 const STRESS_COLUMNS = { activity: Sheet.column.text(ex.StressJob, { header: "Activity" }) };
 /** The stress jobs, paged through an index: a `rows` source. */
-const stressSource = () => Data.bindPaged(ex.sheetStressJobs, { indexes: [ex.sheetStressByActivity] });
+const stressSource = () => Data.bindPaged(ex.sheetStressJobs, { indexes: ["sheet_stress_by_activity"] });
 /** `slice={{ slice }}` over the stress jobs' `rows` source alone. */
 const stressSlice = () => ({ slice: { slice: Slice.bindRecords("spec.stress", { rows: { source: stressSource() } }) } });
 /** `slice={{ slice }}` over the job templates, under each name given. */
 const templatesSlice = (...names: string[]) => ({
-    slice: Slice.bindRecords("spec.templates", Object.fromEntries(names.map((name) => [name, { source: Data.bindPaged(jobTemplates, { indexes: [jobTemplatesByGroup] }) }])) as never),
+    slice: Slice.bindRecords("spec.templates", Object.fromEntries(names.map((name) => [name, { source: Data.bindPaged(jobTemplates, { indexes: ["sheet_spec_job_templates_by_group"] }) }])) as never),
 });
 /** The tag over the jobs as an array, with `props` beside its rows and columns. */
 const overData = (props: ($: BlockBuilder<NullType>) => Record<string, unknown>) =>
@@ -529,7 +537,7 @@ describe("grouped checks and loose rows (#1214)", () => {
 
     test("a sheet takes one entry's groups with loose rows between them, Sheet.Types.Entry(P, \"lines\"): the tag types the form, and its payload builds", () => {
         inBlock(($) => {
-            const work = $.let(Record.bind(looseWork, [looseWorkPatch]));
+            const work = $.let(Record.bind(looseWork));
             // Through the tag, typed: the entry's rows hold groups and loose rows, its id a field of both.
             Sheet({
                 record: work, entry: { key: "w", rows: "entries", id: "id" },
@@ -547,13 +555,17 @@ describe("grouped checks and loose rows (#1214)", () => {
 });
 
 describe("refusals (SB7), each naming the prop and the remedy", () => {
-    const counter = e3.record("sheet_spec_counter", IntegerType, 0n);
-    const bump = e3.mutation.reduce("bump", counter, East.function([IntegerType], IntegerType, (_$, n) => n.add(1n)));
+    const counter = e3.record("sheet_spec_counter", IntegerType, {
+        initial: 0n,
+        mutations: (mutation) => ({
+            bump: mutation.reduce(East.function([IntegerType], IntegerType, (_$, n) => n.add(1n))),
+        }),
+    });
     const sheet = (props: Record<string, unknown>) => (Sheet as unknown as (p: Record<string, unknown>) => unknown)(props);
 
     test("rows from both `record` and `data`, from neither, and `entry` or `window` without a record", () => {
         assert.throws(() => inBlock(($) => sheet({
-            record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), data: $.const(JOBS, Jobs), columns: JOB_COLUMNS,
+            record: $.let(Record.bind(ex.sheetJobs)), data: $.const(JOBS, Jobs), columns: JOB_COLUMNS,
         })), /takes its rows from `record` or from `data`, never both/);
         assert.throws(() => sheet({ columns: DATA_COLUMNS }),
             /needs its rows — `record`, an e3 record bound with its patch mutation, `data`: an array, a bind handle or a paged source, or the `rows` source of `slice`/);
@@ -564,7 +576,7 @@ describe("refusals (SB7), each naming the prop and the remedy", () => {
     });
 
     test("a record that is not a Dict, and one bound without its patch door", () => {
-        assert.throws(() => inBlock(($) => sheet({ record: $.let(Record.bind(counter, [bump])), columns: JOB_COLUMNS })),
+        assert.throws(() => inBlock(($) => sheet({ record: $.let(Record.bind(counter)), columns: JOB_COLUMNS })),
             /`record` must be a Dict — its entries, or one entry's rows, are the sheet's rows/);
         assert.throws(() => inBlock(($) => sheet({ record: $.let(Record.bind(ex.sheetJobs, [])), columns: JOB_COLUMNS })),
             /"patch" is not bound as this record's patch door/);
@@ -572,23 +584,23 @@ describe("refusals (SB7), each naming the prop and the remedy", () => {
 
     test("`window` with `entry`, and a window over another record's collection", () => {
         assert.throws(() => inBlock(($) => sheet({
-            record: $.let(Record.bind(ex.sheetWeekPlans, [ex.sheetWeekPlansPatch])),
+            record: $.let(Record.bind(ex.sheetWeekPlans)),
             entry: { key: "2026-W42", rows: "rows", id: "id" }, window: $.let(Data.bindPaged(ex.sheetWeekPlans)),
             columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) },
         })), /`window` pages the record's entries, and with `entry` the rows are one entry's field, read whole/);
         assert.throws(() => inBlock(($) => sheet({
-            record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), window: $.let(Data.bindPaged(ex.sheetWeekPlans)), columns: JOB_COLUMNS,
+            record: $.let(Record.bind(ex.sheetJobs)), window: $.let(Data.bindPaged(ex.sheetWeekPlans)), columns: JOB_COLUMNS,
         })), /`window` must page the record's entries — Data.bindPaged\(record\) over the same record/);
     });
 
     test("a record's own Apply, identity and name: `onApply` and `onUpdate` write data back, and `id` names data's identity — `name` names the sheet", () => {
         for (const prop of ["onApply", "onUpdate"]) {
             assert.throws(() => inBlock(($) => sheet({
-                record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), columns: JOB_COLUMNS, [prop]: none,
+                record: $.let(Record.bind(ex.sheetJobs)), columns: JOB_COLUMNS, [prop]: none,
             })), new RegExp(`\`${prop}\` writes \`data\` back — a sheet over \`record\` commits through the record's patch mutation`));
         }
         assert.throws(() => inBlock(($) => sheet({
-            record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), columns: JOB_COLUMNS, id: "jobs",
+            record: $.let(Record.bind(ex.sheetJobs)), columns: JOB_COLUMNS, id: "jobs",
         })), /`id` names the identity field of `data`'s rows — a record's rows are identified by their key, or by `entry.id`; to name the sheet, pass `name`/);
     });
 
@@ -631,11 +643,11 @@ describe("refusals (SB7), each naming the prop and the remedy", () => {
 
     test("a views handle of anything but Array<Sheet.Types.RecordView>, and `onViewsChange`, which the handle replaces", () => {
         assert.throws(() => inBlock(($) => sheet({
-            record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), columns: JOB_COLUMNS,
+            record: $.let(Record.bind(ex.sheetJobs)), columns: JOB_COLUMNS,
             views: $.let(State.bind([StringType], "sheet.spec.views", "")),
         })), /`views` must be a bind handle of Array<Sheet.Types.RecordView> — each view every source's narrowing, by name/);
         inBlock(($) => sheet({
-            record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])), columns: JOB_COLUMNS,
+            record: $.let(Record.bind(ex.sheetJobs)), columns: JOB_COLUMNS,
             views: $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet.spec.views", [])),
         }));
         assert.throws(() => overJobs(() => ({ onViewsChange: none })), /`views` is a bind handle .* it takes no `onViewsChange`/);
@@ -658,7 +670,7 @@ describe("refusals (SB7), each naming the prop and the remedy", () => {
     });
 
     test("the `rows` source gives the rows (#1345): `record`, `data`, `window` and `entry` beside it are refused, each naming the change", () => {
-        assert.throws(() => overStress(($) => ({ ...stressSlice(), record: $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch])) })),
+        assert.throws(() => overStress(($) => ({ ...stressSlice(), record: $.let(Record.bind(ex.sheetJobs)) })),
             /`slice`'s `rows` source gives the rows, paged from it — commit them with onApply=\{Record.onApply\(record, \{ keyed: true \}\)\} rather than `record`/);
         assert.throws(() => overStress(($) => ({ ...stressSlice(), data: $.const(JOBS, Jobs) })),
             /`data=\{Slice.rows\(slice\)\}` is gone — the sheet reads its rows from `slice`'s `rows` source: slice=\{\{ slice \}\}/);
@@ -674,9 +686,9 @@ describe("its narrowing (#1345)", () => {
 
     test("the `rows` source's rows are the sheet's, flat and grouped: the payload builds over them, its columns over their type", () => {
         inBlock(($) => {
-            const orders = $.let(Record.bind(ex.sheetWorkshopOrders, [ex.sheetWorkshopOrdersPatch]));
+            const orders = $.let(Record.bind(ex.sheetWorkshopOrders));
             const grouped = Sheet.Payload({
-                slice: { slice: Slice.bindRecords("spec.orders", { rows: { source: Data.bindPaged(ex.sheetWorkshopOrders, { indexes: [ex.sheetWorkshopOrdersByStatus] }) } }) },
+                slice: { slice: Slice.bindRecords("spec.orders", { rows: { source: Data.bindPaged(ex.sheetWorkshopOrders, { indexes: ["sheet_workshop_orders_by_status"] }) } }) },
                 group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),
                 columns: { notes: Sheet.column.text(ex.WorkshopOperation, { header: "Notes" }) },
                 onApply: Record.onApply(orders, { keyed: true }),

@@ -286,7 +286,7 @@ describe("several indexes on a source", () => {
         await waitFor(() => expect(tabs(c)).toEqual(["Arrivals 27", "Resources 4 of 33"]));
         await tab(c, "Resources");
         expect([...keys(c, "resources")].sort()).toEqual(["K-106", "K-107", "K-109", "K-110"]);
-        expect(h.requests("page", "records.kilns").some(r => r.query.get("index") === ex.kilnsByGroupMax.name)).toBe(true);
+        expect(h.requests("page", "records.kilns").some(r => r.query.get("index") === "kilns_by_group_max")).toBe(true);
     });
 
     test("a kiln's name, searched by its start on its own index: `K-2` shows Hall B's nine", async () => {
@@ -294,7 +294,7 @@ describe("several indexes on a source", () => {
         await write(store, "allocationKilnYard", "kilns", new Map<string, Choice>([["name", variant("prefix", "K-2")]]));
         await waitFor(() => expect(resourceCount(c)).toBe(9));
         await waitFor(() => expect(tabs(c)).toEqual(["Arrivals 27", "Resources 9 of 33"]));
-        expect(h.requests(undefined, "records.kilns").some(r => r.query.get("index") === ex.kilnsByName.name)).toBe(true);
+        expect(h.requests(undefined, "records.kilns").some(r => r.query.get("index") === "kilns_by_name")).toBe(true);
     });
 
     test("a max with no group first: bounds typed, its editor names the field to choose first — the one its index takes before it — and Apply is off", async () => {

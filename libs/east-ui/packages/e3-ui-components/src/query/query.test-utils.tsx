@@ -297,7 +297,7 @@ export function queryHarness(): QueryHarness {
         mountBuilder: (options: BuilderOptions = {}) => {
             const opening = options.query === undefined ? {} : { query: options.query };
             const builder = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-                const saved = $.let(Record.bind(ex.queries, [ex.queriesPatch]));
+                const saved = $.let(Record.bind(ex.queries, ["patch"]));
                 const orders = $.let(Data.bindPaged(ex.orders));
                 const customers = $.let(Data.bind(ex.customers));
                 return Query.Builder({ queries: saved, datasets: { orders, customers }, ...opening });
@@ -307,7 +307,7 @@ export function queryHarness(): QueryHarness {
         mountHistory: (options: BuilderOptions = {}) => {
             const opening = options.query === undefined ? {} : { query: options.query };
             const builder = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-                const saved = $.let(Record.bind(ex.historyQueries, [ex.historyQueriesPatch]));
+                const saved = $.let(Record.bind(ex.historyQueries, ["patch"]));
                 const history = $.let(Data.bindPaged(ex.historyTask));
                 const accounts = $.let(Data.bindPaged(ex.accountsTask));
                 const credit = $.let(Data.bindPaged(ex.creditTask));
@@ -320,7 +320,7 @@ export function queryHarness(): QueryHarness {
             const named = options.id === undefined ? {} : { id: options.id };
             const withBuilder = options.builder === true;
             const library = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-                const saved = $.let(Record.bind(ex.queries, [ex.queriesPatch]));
+                const saved = $.let(Record.bind(ex.queries, ["patch"]));
                 const orders = $.let(Data.bindPaged(ex.orders));
                 const customers = $.let(Data.bind(ex.customers));
                 const told = $.let(State.bind([StringType], TOLD, "nothing"));

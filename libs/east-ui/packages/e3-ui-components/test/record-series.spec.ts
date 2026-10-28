@@ -42,7 +42,7 @@ type Job = ValueTypeOf<typeof ex.IndexedJob>;
 type Totals = ValueTypeOf<typeof RecordSummaryTotalsType>;
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 const source = Data.bindPaged(jobs, {
-    indexes: [ex.jobsByTime, ex.jobsByStateTime, ex.jobsByPressWeek, ex.jobsByStatePressWeek, ex.jobsByPressMonth],
+    indexes: ["jobs_by_time", "jobs_by_state_time", "jobs_by_press_week", "jobs_by_state_press_week", "jobs_by_press_month"],
 });
 const sliced = bindRecord("test.jobs", source, { fields: { state: { hints: ["late", "planned", "running"] }, start: {} }, range: "start" });
 const program = East.function([], Expr.type(sliced), $ => $.return(sliced));

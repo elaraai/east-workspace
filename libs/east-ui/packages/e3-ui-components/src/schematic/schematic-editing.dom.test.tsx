@@ -492,9 +492,9 @@ test("Del on a rack deletes it with every run and feed leg naming it, one step U
 
 /** The floor's racks beside fibre runs whose patch door refuses every change, with the inspector: what a Save over both is answered. */
 const frozenFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const frames = $.let(Data.bind(ex.schematicFrames));
-    const fibre = $.let(Record.bind(ex.schematicFrozenFibre, [ex.schematicFrozenFibrePatch]));
+    const fibre = $.let(Record.bind(ex.schematicFrozenFibre, ["patch"]));
     const ends = { field: "from", of: { rack: "racks", frame: "network" } } as const;
     return Schematic({
         id: "frozen",
@@ -534,7 +534,7 @@ test("a record whose door refuses its Save keeps its drafts, in a banner saying 
 
 /** The data centre's racks, bound with their patch door, in a Schematic read only. */
 const readOnlyRacks = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     return Schematic({
         id: "readOnly",
         readOnly: true,
@@ -562,10 +562,10 @@ test("a drawing bound read only — or a Schematic read only — takes no gestur
 
 /** The data centre's racks read through their source of the rail, a narrowed-out rack hidden — as it is by default (§10.3). */
 const narrowedRacks = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
     const slice = $.let(Slice.bindRecords("schematic.editing.narrowed", {
-        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByOwner] }), fields: { owner: { label: "Owner" } } },
+        racks: { source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner"] }), fields: { owner: { label: "Owner" } } },
     }));
     return Schematic({
         id: "narrowed",

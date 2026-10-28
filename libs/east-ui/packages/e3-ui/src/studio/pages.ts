@@ -11,8 +11,12 @@
  * with one write, a patch:
  *
  * ```ts
- * export const pages      = e3.record("pages", Studio.Types.Pages, new Map());
- * export const pagesPatch = e3.mutation.patch(pages);
+ * export const pages = e3.record("pages", Studio.Types.Pages, {
+ *     initial: new Map(),
+ *     mutations: (mutation) => ({
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * ```
  *
  * Save, publish, revert, a new page and save-as-template are each one patch
@@ -159,7 +163,8 @@ export type StudioEntryType = typeof StudioEntryType;
 
 /**
  * The pages record's type — every page and template, by key. A solution
- * declares its record with it: `e3.record("pages", Studio.Types.Pages, new Map())`.
+ * declares its record with it: `e3.record("pages", Studio.Types.Pages, {
+ * initial: new Map(), mutations: … })`, its one mutation a patch.
  */
 export const StudioPagesType = DictType(StudioKeyType, StudioEntryType);
 
@@ -176,7 +181,7 @@ export type StudioPagesPatchType = typeof StudioPagesPatchType;
  * The pages record, bound with its patch — what the builder and the page
  * library read and write through: the bound record's `read`, its `history`,
  * and its patch write awaited. Their factories take these from
- * `Record.bind(pages, [pagesPatch])`.
+ * `Record.bind(pages)`.
  *
  * @property read - The record's current state
  * @property history - Its commit chain, newest first — who changed a page last, for a conflict's words

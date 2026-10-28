@@ -253,7 +253,7 @@ const RecordsType = OptionType(ScheduleResourceRecordsType);
  * import e3 from "@elaraai/e3";
  *
  * const PressType = StructType({ name: StringType, hall: StringType });
- * const presses = e3.record("presses", DictType(StringType, PressType), new Map());
+ * const presses = e3.record("presses", DictType(StringType, PressType), { initial: new Map() });
  *
  * // Inside a builder's Reactive body: a row per press, its hall under its name.
  * const press = Schedule.resources(Record.bind(presses, []).read(), {

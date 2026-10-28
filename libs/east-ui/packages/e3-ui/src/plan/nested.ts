@@ -173,13 +173,13 @@ type LastField<P extends string> = P extends `${string}.${infer Rest}` ? LastFie
 
 /** A collection a series reads that the index does not declare. */
 type NotDeclared<Use, Place extends string, Name extends string> =
-    `Plan: a series reads "${Place}", and the rows source's nested series index "${Name}" does not declare it — declare it e3.recordIndex.series.${Use extends { readonly items: infer T } ? `items(${TimesCode<T>})` : Use extends { readonly values: unknown } ? "values()" : Use extends { readonly rows: unknown } ? "rows({ … })" : "recursive()"}`;
+    `Plan: a series reads "${Place}", and the rows source's nested series index "${Name}" does not declare it — declare it index.nested.${Use extends { readonly items: infer T } ? `items(${TimesCode<T>})` : Use extends { readonly values: unknown } ? "values()" : Use extends { readonly rows: unknown } ? "rows({ … })" : "recursive()"}`;
 
 /** Items a series reads: their kind, their times, and whether it rolls them up into each parent. */
 type ItemsRefusal<Use, T, D, Place extends string, Name extends string> =
     D extends { kind: "items"; times: infer DT; rollup: infer DR }
         ? (TimesRefusal<T, DT, Place, Name> | (Use extends { readonly rollup: true } ? (DR extends true ? never
-            : `Plan: a series rolls its children's runs of "${Place}" up, and "${Name}" files them under no parent — declare it e3.recordIndex.series.items(${TimesCode<DT>}, { rollup: true })`) : never))
+            : `Plan: a series rolls its children's runs of "${Place}" up, and "${Name}" files them under no parent — declare it index.nested.items(${TimesCode<DT>}, { rollup: true })`) : never))
     : `Plan: a series reads "${Place}" as items, and "${Name}" declares it ${DeclarationCode<D>} — ${D extends { kind: "values" } ? `read it with Plan.values("${LastField<Place>}", draw)` : "read it as it is declared"}`;
 
 /** Items read by other times than the index files them by. */
@@ -193,7 +193,7 @@ type ValuesRefusal<V, D, Place extends string, Name extends string> =
     D extends { kind: "values"; rollups: infer R }
         ? V extends { readonly rollup: infer U }
             ? ([R] extends [never]
-                ? `Plan: a series subtotals "${Place}" by ${RollupWords<U>}, and "${Name}" keeps no subtotals of it — declare it e3.recordIndex.series.values({ rollup: ${RollupCode<U>} })`
+                ? `Plan: a series subtotals "${Place}" by ${RollupWords<U>}, and "${Name}" keeps no subtotals of it — declare it index.nested.values({ rollup: ${RollupCode<U>} })`
                 : [U] extends [R] ? never
                 // A count is the index's count, whatever its values fold to.
                 : U extends { readonly aggregate: "count" } ? ([Extract<R, { readonly aggregate: "count" }>] extends [never] ? RollupKept<R, U, Place, Name> : never)
@@ -205,7 +205,7 @@ type ValuesRefusal<V, D, Place extends string, Name extends string> =
 
 /** A subtotal by a rollup the index does not keep, a message for each rollup it keeps. */
 type RollupKept<R, U, Place extends string, Name extends string> = R extends unknown
-    ? `Plan: a series subtotals "${Place}" by ${RollupWords<U>}, and "${Name}" keeps it by ${RollupWords<R>} — add the rollup: e3.recordIndex.series.values({ rollup: [${RollupCode<R>}, ${RollupCode<U>}] }), or subtotal it by ${RollupWords<R>}`
+    ? `Plan: a series subtotals "${Place}" by ${RollupWords<U>}, and "${Name}" keeps it by ${RollupWords<R>} — add the rollup: index.nested.values({ rollup: [${RollupCode<R>}, ${RollupCode<U>}] }), or subtotal it by ${RollupWords<R>}`
     : never;
 
 /** One collection a series reads, held to how the index declares it; `never` where it reads it as declared. */

@@ -122,7 +122,7 @@ import {
 
 /**
  * A record bound with its patch mutation, as a kind reads it — what
- * `Record.bind(record, [e3.mutation.patch(record)])` returns for a `Dict`.
+ * `Record.bind(record), its record declaring patch: mutation.patch()` returns for a `Dict`.
  *
  * @typeParam K - The record's key type
  * @typeParam R - Its row type
@@ -625,7 +625,7 @@ const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
  * @typeParam E - The end field
  * @typeParam F - The resource field, when the kind has one
  * @typeParam SF - The status field, when the kind has one
- * @param record - The record, `Record.bind(record, [e3.mutation.patch(record)])`; a `Dict` of row structs
+ * @param record - The record, `Record.bind(record), its record declaring patch: mutation.patch()`; a `Dict` of row structs
  * @param config - The kind's options: its name and icon, the fields a gesture writes, its status, backlog, form, templates, check and windows, and Plan's
  * @returns The kind, for a builder's `events`
  * @throws {Error} Naming the option: a record that is not a `Dict` of structs or is not bound with its patch mutation; a
@@ -657,11 +657,15 @@ const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
  *     person: OptionType(StringType),
  *     status: VariantType({ tentative: NullType, confirmed: NullType }),
  * });
- * const shifts = e3.record("shifts", DictType(StringType, ShiftType), new Map());
- * const shiftsPatch = e3.mutation.patch(shifts);
+ * const shifts = e3.record("shifts", DictType(StringType, ShiftType), {
+ *     initial: new Map(),
+ *     mutations: (mutation) => ({
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  *
  * // Inside a builder's Reactive body: shifts on people, their status shown.
- * const shift = Schedule.events(Record.bind(shifts, [shiftsPatch]), {
+ * const shift = Schedule.events(Record.bind(shifts), {
  *     name: "Shift", icon: "user-clock",
  *     title: "title", start: "start", end: "end",
  *     resource: { field: "person", of: "people" },
@@ -688,7 +692,7 @@ export function scheduleEvents<
  * @typeParam A - The instant's field
  * @typeParam F - The resource field, when the kind has one
  * @typeParam SF - The status field, when the kind has one
- * @param record - The record, `Record.bind(record, [e3.mutation.patch(record)])`; a `Dict` of row structs
+ * @param record - The record, `Record.bind(record), its record declaring patch: mutation.patch()`; a `Dict` of row structs
  * @param config - The kind's options, with `at` in place of `start` and `end`
  * @returns The kind, for a builder's `events`
  * @throws {Error} Naming the option, as the span form does
@@ -715,7 +719,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     const read = handleType.type === "Struct" ? (handleType.fields as Record<string, EastType>)["read"] : undefined;
     if (handleType.type !== "Struct" || read === undefined || read.type !== "Function"
         || (handleType.fields as Record<string, EastType>)["binding"] === undefined) {
-        throw new Error(`${where}: \`record\` is a record bound with its patch mutation — Record.bind(record, [e3.mutation.patch(record)])`);
+        throw new Error(`${where}: \`record\` is a record bound with its patch mutation — Record.bind(record), its record declaring patch: mutation.patch()`);
     }
     const recordType = read.output as EastType;
     if (recordType.type !== "Dict" || (recordType.value as EastType).type !== "Struct") {

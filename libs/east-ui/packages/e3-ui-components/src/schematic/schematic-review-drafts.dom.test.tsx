@@ -55,12 +55,12 @@ const RACKS_DATASET = `records.${ex.schematicRacks.name}`;
  * as `schematic-area-library.dom.test.tsx`'s floor, with the inspector.
  */
 const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
     const areas = $.let(Data.bind(ex.schematicAreas));
     const slice = $.let(Slice.bindRecords(FLOOR, {
         racks: {
-            source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByArea, ex.schematicRacksByOwnerArea, ex.schematicRacksByName] }),
+            source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_area", "schematic_racks_by_owner_area", "schematic_racks_by_name"] }),
             search: ["name"],
             fields: { name: { label: "Rack" }, owner: { label: "Owner", hints: ["Harbour Labs", "Northwind Media", "Elmway College"] } },
         },
@@ -82,12 +82,12 @@ const floor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
 
 /** The floor, a narrowed-out rack drawn as context (`narrowed="dim"`): as {@link floor} otherwise. */
 const dimFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
     const areas = $.let(Data.bind(ex.schematicAreas));
     const slice = $.let(Slice.bindRecords(FLOOR, {
         racks: {
-            source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByArea, ex.schematicRacksByOwnerArea, ex.schematicRacksByName] }),
+            source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_area", "schematic_racks_by_owner_area", "schematic_racks_by_name"] }),
             search: ["name"],
             fields: { name: { label: "Rack" }, owner: { label: "Owner", hints: ["Harbour Labs", "Northwind Media", "Elmway College"] } },
         },
@@ -110,17 +110,17 @@ const dimFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
 
 /** The floor with the racks' templates, its Templates tab beside the Index: as {@link floor} otherwise, a rack a template makes among its racks. */
 const templatesFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
     const rackTemplates = $.let(Data.bind(ex.schematicRackTemplates));
     const areas = $.let(Data.bind(ex.schematicAreas));
     const slice = $.let(Slice.bindRecords(FLOOR, {
         racks: {
-            source: Data.bindPaged(ex.schematicRacks, { indexes: [ex.schematicRacksByArea, ex.schematicRacksByOwnerArea, ex.schematicRacksByName] }),
+            source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_area", "schematic_racks_by_owner_area", "schematic_racks_by_name"] }),
             search: ["name"],
             fields: { name: { label: "Rack" }, owner: { label: "Owner", hints: ["Harbour Labs", "Northwind Media", "Elmway College"] } },
         },
-        rackTemplates: { source: Data.bindPaged(ex.schematicRackTemplates, { indexes: [ex.schematicRackTemplatesByGroup] }), fields: { group: { label: "Group", hints: ["Racks", "Half racks"] } } },
+        rackTemplates: { source: Data.bindPaged(ex.schematicRackTemplates, { indexes: ["schematic_rack_templates_by_group"] }), fields: { group: { label: "Group", hints: ["Racks", "Half racks"] } } },
     }));
     return Schematic({
         id: "reviewDraftsTemplates",
@@ -167,7 +167,7 @@ async function open(example: { fn: { toIR(): unknown } } = floor) {
 }
 
 /** The racks' searches through the area index the window reads through: one a window. */
-const windowSearches = () => h.requests("find", RACKS_DATASET).filter((request) => request.query.get("index") === ex.schematicRacksByArea.name).length;
+const windowSearches = () => h.requests("find", RACKS_DATASET).filter((request) => request.query.get("index") === "schematic_racks_by_area").length;
 
 type Where = ValueTypeOf<typeof RecordSliceStateType>["where"];
 
@@ -482,12 +482,12 @@ const RUNS = "schematic.review.runs";
  * door, with the inspector: a narrowed-out run hidden, the default.
  */
 const runsFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const racks = $.let(Record.bind(ex.schematicRacks, [ex.schematicRacksPatch]));
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const frames = $.let(Data.bind(ex.schematicFrames));
-    const fibre = $.let(Record.bind(ex.schematicFibre, [ex.schematicFibrePatch]));
+    const fibre = $.let(Record.bind(ex.schematicFibre, ["patch"]));
     const fibreEntries = $.let(Data.bindPaged(ex.schematicFibre));
     const slice = $.let(Slice.bindRecords(RUNS, {
-        fibre: { source: Data.bindPaged(ex.schematicFibre, { indexes: [ex.schematicFibreBySystem] }), fields: { system: { label: "System", hints: ["network", "power"] } } },
+        fibre: { source: Data.bindPaged(ex.schematicFibre, { indexes: ["schematic_fibre_by_system"] }), fields: { system: { label: "System", hints: ["network", "power"] } } },
     }));
     const ends = { field: "from", of: { rack: "racks", frame: "network" } } as const;
     return Schematic({

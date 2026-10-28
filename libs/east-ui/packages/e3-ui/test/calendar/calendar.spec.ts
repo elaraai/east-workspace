@@ -28,7 +28,7 @@ describe("Calendar's thin e3-ui contract", () => {
     });
     test("bound templates reject initial values from a different event row at build time", () => {
         assert.throws(() => East.function([], CalendarPayloadType, $ => {
-            const jobs = $.let(Record.bind(ex.calendarJobs, [ex.calendarJobsPatch]));
+            const jobs = $.let(Record.bind(ex.calendarJobs));
             const presets = $.let(Record.bind(ex.calendarServiceTemplates, []));
             return createCalendarPayload({ events: { job: Calendar.events(jobs, {
                 name: "Jobs", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },
@@ -39,11 +39,11 @@ describe("Calendar's thin e3-ui contract", () => {
     });
     test("bad working hours and duplicate library tabs fail while building, naming the problem", () => {
         assert.throws(() => East.function([], CalendarPayloadType, $ => {
-            const jobs = $.let(Record.bind(ex.calendarJobs, [ex.calendarJobsPatch]));
+            const jobs = $.let(Record.bind(ex.calendarJobs));
             return createCalendarPayload({ events: { job: Calendar.events(jobs, { name: "Jobs", icon: "industry", title: "title", start: "start", end: "end" }) }, hours: { from: 22n, to: 6n } });
         }), /hours/);
         assert.throws(() => East.function([], CalendarPayloadType, $ => {
-            const jobs = $.let(Record.bind(ex.calendarJobs, [ex.calendarJobsPatch]));
+            const jobs = $.let(Record.bind(ex.calendarJobs));
             return createCalendarPayload({ events: { job: Calendar.events(jobs, { name: "Jobs", icon: "industry", title: "title", start: "start", end: "end" }) }, library: [Calendar.library.backlog(), Calendar.library.backlog()] });
         }), /backlog.*twice/);
     });
@@ -53,13 +53,13 @@ describe("Calendar's thin e3-ui contract", () => {
 function build(props: (sources: { jobs: unknown; machines: unknown; templates: unknown }) => Record<string, unknown>, kind: Record<string, unknown> = {}) {
     return East.function([], CalendarPayloadType, $ => {
         const machines = $.let(Record.bind(ex.calendarMachines, []));
-        const jobs = $.let(Record.bind(ex.calendarJobs, [ex.calendarJobsPatch]));
+        const jobs = $.let(Record.bind(ex.calendarJobs));
         const templates = $.let(Record.bind(ex.calendarJobTemplates, []));
         const entries = $.let(Data.bindPaged(ex.calendarJobs));
         const sources = {
-            jobs: $.let(Data.bindPaged(ex.calendarJobs, { indexes: [ex.calendarJobsByTime, ex.calendarJobsByStatusTime] })),
-            machines: $.let(Data.bindPaged(ex.calendarMachines, { indexes: [ex.calendarMachinesByArea] })),
-            templates: $.let(Data.bindPaged(ex.calendarJobTemplates, { indexes: [ex.calendarJobTemplatesByGroup] })),
+            jobs: $.let(Data.bindPaged(ex.calendarJobs, { indexes: ["calendar_jobs_by_time", "calendar_jobs_by_status_time"] })),
+            machines: $.let(Data.bindPaged(ex.calendarMachines, { indexes: ["calendar_machines_by_area"] })),
+            templates: $.let(Data.bindPaged(ex.calendarJobTemplates, { indexes: ["calendar_job_templates_by_group"] })),
         };
         return createCalendarPayload({
             resources: { machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) },
@@ -115,9 +115,9 @@ describe("Calendar's narrowing is one Slice.bindRecords (#1343)", () => {
         // A record's list naming no source.
         assert.throws(() => East.function([], CalendarPayloadType, $ => {
             const machines = $.let(Record.bind(ex.calendarMachines, []));
-            const jobs = $.let(Record.bind(ex.calendarJobs, [ex.calendarJobsPatch]));
+            const jobs = $.let(Record.bind(ex.calendarJobs));
             const templates = $.let(Record.bind(ex.calendarJobTemplates, []));
-            const index = $.let(Data.bindPaged(ex.calendarJobTemplates, { indexes: [ex.calendarJobTemplatesByGroup] }));
+            const index = $.let(Data.bindPaged(ex.calendarJobTemplates, { indexes: ["calendar_job_templates_by_group"] }));
             return createCalendarPayload({ slice: { slice: EastUI.Slice.bindRecords("spec.calendar", { jobTemplates: { source: index } }) },
                 resources: { machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) },
                 events: { job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" },

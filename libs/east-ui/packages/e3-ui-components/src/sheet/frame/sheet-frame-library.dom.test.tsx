@@ -41,7 +41,7 @@ const TASK = { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) };
 
 /** The jobs sheet with a library of the templates, the crews — an author's tab whose card dropped on a job names its task — and the columns. */
 const crewsPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     const crews = $.let(CREWS, ArrayType(Crew));
     return Sheet.Payload({ record: jobs, columns: TASK, name: "crews", library: [
         Sheet.library.rows(),
@@ -52,18 +52,18 @@ const crewsPayload = East.function([], SheetPayloadType, ($) => {
 });
 /** The jobs sheet with a library of the columns alone. */
 const columnsPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     return Sheet.Payload({ record: jobs, columns: TASK, name: "crews", library: [Sheet.library.columns()] });
 });
 /** The jobs sheet over two columns, its library the Rows tab alone: no Columns tab. */
 const noColumnsTabPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     return Sheet.Payload({ record: jobs, name: "plain", library: [Sheet.library.rows()],
         columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }), start: Sheet.column.date(ex.SheetJob, { header: "Start" }) } });
 });
 /** The jobs sheet with an author's tab with no rows, listed first, then no templates and the columns. */
 const emptyPayload = East.function([], SheetPayloadType, ($) => {
-    const jobs = $.let(Record.bind(ex.sheetJobs, [ex.sheetJobsPatch]));
+    const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
     const crews = $.let([], ArrayType(Crew));
     return Sheet.Payload({ record: jobs, columns: TASK, name: "crews", library: [
         Sheet.library.tab(crews, { name: "Crews", key: c => c.code, label: c => c.name }), Sheet.library.rows(), Sheet.library.columns(),

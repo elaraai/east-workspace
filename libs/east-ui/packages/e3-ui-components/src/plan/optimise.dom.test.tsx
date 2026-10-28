@@ -246,10 +246,10 @@ const time = printFor(DateTimeType);
  */
 const windowed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Record.bind(events.planPrintPresses, []));
-    const jobs = $.const(Record.bind(events.planPrintJobs, [events.planPrintJobsPatch]));
+    const jobs = $.const(Record.bind(events.planPrintJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(events.planPrintJobs));
     const slice = $.const(Slice.bindRecords("optimise.windowed", {
-        job: { source: Data.bindPaged(events.planPrintJobs, { indexes: [events.planPrintJobsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: { source: Data.bindPaged(events.planPrintJobs, { indexes: ["plan_print_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     const optimise = $.const(Func.bind(opt.placeJobs));
     return Plan({
@@ -278,9 +278,9 @@ const windowOver = (dataset: string, index: string, start: (day: Date) => string
     return first !== undefined && "from" in first && first.from?.at(-1) === start(day);
 };
 /** The jobs' window from a day: their start an Option, which a job waiting in the backlog holds none of. */
-const windowFrom = windowOver(JOBS, events.planPrintJobsByTime.name, (day) => maybeTime(some(day)));
+const windowFrom = windowOver(JOBS, "plan_print_jobs_by_time", (day) => maybeTime(some(day)));
 /** The shifts' window from a day. */
-const shiftsFrom = windowOver(SHIFTS, events.planPrintShiftsByTime.name, time);
+const shiftsFrom = windowOver(SHIFTS, "plan_print_shifts_by_time", time);
 /** A job's row, read by its key: the key sought among the record's own entries. */
 const jobByKey = (request: E3Request): boolean => request.kind === "find" && request.dataset === JOBS && request.query.get("index") === null
     && request.searches.some((search) => "key" in search);
@@ -291,7 +291,7 @@ const jobRowPage = (request: E3Request): boolean => request.kind === "page" && r
 const readsJobRow = (request: E3Request): boolean => jobByKey(request) || jobRowPage(request);
 /** A batch of the jobs' searches through their interval index: a window of them, read whole. */
 const windowSearches = (request: E3Request): boolean => request.kind === "find" && request.dataset === JOBS
-    && request.query.get("index") === events.planPrintJobsByTime.name;
+    && request.query.get("index") === "plan_print_jobs_by_time";
 /** The requests made of the jobs' record since the request log held `from`. */
 const jobsSince = (from: number): E3Request[] => h.requests().slice(from).filter((request) => request.dataset === JOBS);
 /** The toolbar's step to the next day. */
@@ -444,13 +444,13 @@ describe("the landing, over jobs read a window at a time (#1343)", () => {
 const twoKinds = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Record.bind(events.planPrintPresses, []));
     const crews = $.const(Record.bind(events.planPrintCrews, []));
-    const jobs = $.const(Record.bind(events.planPrintJobs, [events.planPrintJobsPatch]));
-    const shifts = $.const(Record.bind(events.planPrintShifts, [events.planPrintShiftsPatch]));
+    const jobs = $.const(Record.bind(events.planPrintJobs, ["patch"]));
+    const shifts = $.const(Record.bind(events.planPrintShifts, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(events.planPrintJobs));
     const shiftEntries = $.const(Data.bindPaged(events.planPrintShifts));
     const slice = $.const(Slice.bindRecords("optimise.two-kinds", {
-        job: { source: Data.bindPaged(events.planPrintJobs, { indexes: [events.planPrintJobsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
-        shift: { source: Data.bindPaged(events.planPrintShifts, { indexes: [events.planPrintShiftsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: { source: Data.bindPaged(events.planPrintJobs, { indexes: ["plan_print_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
+        shift: { source: Data.bindPaged(events.planPrintShifts, { indexes: ["plan_print_shifts_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     return Plan({
         axis: Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") }, resolution: "day", now: new Date("2026-10-14T09:00:00Z") }),

@@ -50,7 +50,7 @@ const TASKS = `records.${plans.planSliceJobs.name}`;
  * `[order, level, tile]` to the same order and level at the run's end.
  */
 const cellsSearched = (from: number) => h.requests().slice(from)
-    .filter((r) => r.dataset === OPERATIONS && r.kind === "find" && r.query.get("index") === records.planOperationsByWorkWeek.name)
+    .filter((r) => r.dataset === OPERATIONS && r.kind === "find" && r.query.get("index") === "plan_operations_by_work_week")
     .flatMap((r) => r.searches.map((search) => ("from" in search && "to" in search ? `${search.from?.join(" ")} .. ${search.to?.join(" ")}` : JSON.stringify(search))));
 
 /** The keys of the rows the canvas draws, in order. */

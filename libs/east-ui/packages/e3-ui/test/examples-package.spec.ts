@@ -103,8 +103,12 @@ describe("the examples' package step", () => {
     test("packages each area with its modules' definitions and what its examples bind of another area's, and nothing else of it", () => {
         const input = count(1n);
         const unread = e3.input("unread", FloatType, variant("value", 1.0));
-        const rows = e3.record("rows", DictType(StringType, IntegerType), new Map());
-        const patch = e3.mutation.patch(rows);
+        const rows = e3.record("rows", DictType(StringType, IntegerType), {
+            initial: new Map(),
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+        });
         const halve = e3.function("halve", East.function([FloatType], FloatType, (_$, x) => x.divide(2.0)));
         // Reads the count and the rows, and calls halve.
         const readsSource = example({
@@ -120,8 +124,8 @@ describe("the examples' package step", () => {
             returns: 1n,
         });
         const packages = examplesAreaPackages([
-            // The source area declares everything; its patch on the record is declared beside it.
-            exampleModule("source/declares", { countInput: input, unreadInput: unread, rowsRecord: rows, rowsPatch: patch, halveFn: halve }),
+            // The source area declares everything, the record with its patch.
+            exampleModule("source/declares", { countInput: input, unreadInput: unread, rowsRecord: rows, halveFn: halve }),
             // The reading area declares nothing.
             exampleModule("reader/reads", { readsSource }),
         ]);

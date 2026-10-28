@@ -47,11 +47,8 @@ const MACHINES_BY_NUMBER = new SortedMap([
 
 const Shifts = sx.scheduleShifts.type;
 const shiftsRecord = sx.scheduleShifts;
-const shiftsPatch = sx.scheduleShiftsPatch;
 const jobsRecord = sx.scheduleJobs;
-const jobsPatch = sx.scheduleJobsPatch;
 const inspectionsRecord = sx.scheduleInspections;
-const inspectionsPatch = sx.scheduleInspectionsPatch;
 
 // ============================================================================
 // Schedule.resources
@@ -131,7 +128,7 @@ describe("Schedule.check — across a builder's slots", () => {
     /** Run `build` inside a bound block, as a builder's props are written. */
     function inBlock(build: (shifts: ExprType<EastType>) => void): void {
         East.function([], NullType, ($) => {
-            build($.let(Record.bind(shiftsRecord, [shiftsPatch])) as never);
+            build($.let(Record.bind(shiftsRecord, ["patch"])) as never);
         });
     }
     const people = (rows: ExprType<EastType>) => Schedule.resources(rows as never, { name: "People", icon: "user", label: (p: ExprType<typeof PersonType>) => p.name } as never);
@@ -166,7 +163,7 @@ describe("Schedule.events — what it refuses at build", () => {
     function shiftsWith(options: object, record: unknown = shiftsRecord): void {
         East.function([], NullType, ($) => {
             const def = record as typeof shiftsRecord;
-            const bound = $.let(Record.bind(def, [e3.mutation.patch(def)]));
+            const bound = $.let(Record.bind(def, ["patch"]));
             Schedule.events(bound as never, { name: "Shift", icon: "user-clock", title: "title", start: "start", end: "end", ...options } as never);
         });
     }
@@ -175,7 +172,7 @@ describe("Schedule.events — what it refuses at build", () => {
         assert.throws(() => East.function([], NullType, ($) => {
             Schedule.events($.const(new SortedMap<string, ValueTypeOf<typeof sx.ScheduleShift>>([], compareFor(StringType)), Shifts) as never, { name: "Shift", icon: "i", title: "title", start: "start", end: "end" } as never);
         }), /`record` is a record bound with its patch mutation/);
-        assert.throws(() => shiftsWith({}, e3.record("schedule_spec_counts", DictType(StringType, IntegerType), new Map())),
+        assert.throws(() => shiftsWith({}, e3.record("schedule_spec_counts", DictType(StringType, IntegerType), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) })),
             /an event kind's record holds its events by key, each a struct — a Dict of row structs, and this one holds/);
     });
 
@@ -183,7 +180,7 @@ describe("Schedule.events — what it refuses at build", () => {
         assert.throws(() => shiftsWith({ title: "crew" }), /`title` names a String field — "crew" holds \.Integer/);
         assert.throws(() => shiftsWith({ start: "title" }), /`start` names a DateTime field, or an Option of one — "title" holds \.String/);
         assert.throws(() => shiftsWith({ end: "nope" }), /`end` names "nope", a field the row does not have/);
-        assert.throws(() => shiftsWith({}, e3.record("schedule_spec_mixed", DictType(StringType, StructType({ title: StringType, start: DateTimeType, end: OptionType(DateTimeType) })), new Map())),
+        assert.throws(() => shiftsWith({}, e3.record("schedule_spec_mixed", DictType(StringType, StructType({ title: StringType, start: DateTimeType, end: OptionType(DateTimeType) })), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) })),
             /`start` and `end` are both DateTime fields, or both Options of one/);
     });
 
@@ -191,13 +188,13 @@ describe("Schedule.events — what it refuses at build", () => {
         assert.throws(() => shiftsWith({ resource: { field: "crew", of: "people" } }), /`resource\.field` names a field holding a resource's key — a String, a variant of String cases, or an Option of either — and "crew" holds \.Integer/);
         assert.throws(() => shiftsWith({ resource: { field: "person", of: { a: "people" } } }), /`resource\.of` names the resource slot "person" holds keys of/);
         const inspections = (of: object) => East.function([], NullType, ($) => {
-            const bound = $.let(Record.bind(inspectionsRecord, [inspectionsPatch]));
+            const bound = $.let(Record.bind(inspectionsRecord, ["patch"]));
             Schedule.events(bound as never, { name: "Inspection", icon: "i", title: "title", start: "start", end: "end", resource: { field: "target", of } } as never);
         });
         assert.throws(() => inspections({ site: "sites" }), /`resource\.of` names a resource slot for each of "target"'s cases \(machine, site\) — and it names site/);
         assert.throws(() => inspections({ site: "places", machine: "places" }), /`resource\.of` names each resource slot once/);
         assert.throws(() => East.function([], NullType, ($) => {
-            const bound = $.let(Record.bind(inspectionsRecord, [inspectionsPatch]));
+            const bound = $.let(Record.bind(inspectionsRecord, ["patch"]));
             Schedule.events(bound as never, { name: "Inspection", icon: "i", title: "title", start: "start", end: "end", resource: { field: "target", of: "sites" } } as never);
         }), /"target" is a variant — `resource\.of` names a resource slot per case/);
     });
@@ -212,7 +209,7 @@ describe("Schedule.events — what it refuses at build", () => {
         const template = { key: "day", name: "Day", duration: variant("hours", 8), values: { title: "Day", status: variant("tentative", null), crew: 1n, skills: new Set(), handover: [] } };
         assert.throws(() => shiftsWith({ templates: [template, template] }), /template "day" is declared twice/);
         assert.throws(() => East.function([], NullType, ($) => {
-            const bound = $.let(Record.bind(shiftsRecord, [shiftsPatch]));
+            const bound = $.let(Record.bind(shiftsRecord, ["patch"]));
             const whole = $.let(Data.bindPaged(shiftsRecord));
             Schedule.events(bound as never, { name: "Shift", icon: "i", title: "title", start: "start", end: "end", window: whole } as never);
         }), /`window` reads the record through a day index keyed by Schedule\.days/);
@@ -221,7 +218,7 @@ describe("Schedule.events — what it refuses at build", () => {
 
     test("a form hint for a field the row does not have, and a record bound without its patch door", () => {
         assert.throws(() => shiftsWith({ fields: { nope: Schedule.field.text({}) } }), /a hint names "nope", a field the struct does not have/);
-        const shifts = e3.record("schedule_spec_unbound", Shifts, new Map());
+        const shifts = e3.record("schedule_spec_unbound", Shifts, { initial: new Map() });
         assert.throws(() => East.function([], NullType, ($) => {
             Schedule.events($.let(Record.bind(shifts, [])) as never, { name: "Shift", icon: "i", title: "title", start: "start", end: "end" } as never);
         }), /"patch" is not bound as this record's patch door/);
@@ -234,8 +231,8 @@ describe("Schedule.events — what it refuses at build", () => {
 
 /** Never run: each line below must fail to compile, or the build fails on the unused directive. */
 export function scheduleTypeChecks(): void {
-    const bound = Record.bind(shiftsRecord, [shiftsPatch]);
-    const boundJobs = Record.bind(jobsRecord, [jobsPatch]);
+    const bound = Record.bind(shiftsRecord, ["patch"]);
+    const boundJobs = Record.bind(jobsRecord, ["patch"]);
     // @ts-expect-error — `start` is a DateTime field, and "title" is a String one
     Schedule.events(bound, { name: "Shift", icon: "i", title: "title", start: "title", end: "end" });
     // @ts-expect-error — `title` is a String field, and "crew" is an Integer one

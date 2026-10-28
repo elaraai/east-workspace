@@ -53,7 +53,7 @@ const MachineCollections = StructType({
     stops: StructType({ items: StructType(Span) }),
 });
 
-const machines = () => Data.bindPaged(ex.nestedMachines, { indexes: [ex.machinesBySiteStatus, ex.machinesInTime] });
+const machines = () => Data.bindPaged(ex.nestedMachines, { indexes: ["machines_by_site_status", "machines_in_time"] });
 
 describe("Data.bindPaged beside a nested series index", () => {
     test("pages the lean rows through the other indexes: its projection the row, never joined, the nested index no index of the rail", () => {
@@ -66,7 +66,7 @@ describe("Data.bindPaged beside a nested series index", () => {
         assert.equal(handle.defaultIndex, "machines_by_site_status", "the unfiltered view pages the machines through it");
         const keys = ((((typeOf(source).fields.page as FunctionType).output as VariantType).cases.some as ArrayType<StructType>).value.fields.ik as VariantType).cases;
         assert.deepEqual(Object.keys(keys).sort(), ["machines_by_site_status", "machines_in_time", "primary"]);
-        assert.ok(isTypeEqual(keys.machines_in_time!, ex.machinesInTime.keyType), "a cell of the nested index searched by e3's own key");
+        assert.ok(isTypeEqual(keys.machines_in_time!, ex.nestedMachines.indexes.machines_in_time.keyType), "a cell of the nested index searched by e3's own key");
     });
 
     test("carries each collection's declaration as structure, and the index's name, tile and summary as its value", () => {
@@ -85,54 +85,54 @@ describe("Data.bindPaged beside a nested series index", () => {
     });
 
     test("carries child rows' collections and their rollups, each fold a struct of its aggregates, and a recursive field and a rollup of items", () => {
-        const ledgers = Data.bindPaged(ex.nestedLedgers, { indexes: [ex.ledgersByName, ex.ledgersInTime] });
+        const ledgers = Data.bindPaged(ex.nestedLedgers, { indexes: ["ledgers_by_name", "ledgers_in_time"] });
         const Readings = StructType({ values: StructType({ rollup: StructType({ sum: StructType({ sum: LEAF }) }) }) });
         assert.ok(isTypeEqual(typeOf(ledgers).fields.nested!,
             NestedPartType(StructType({ measures: StructType({ rows: StructType({ readings: Readings }) }) }), StructType({ ledgers_in_time: LEAF }), WEEK, MONTH)));
-        const assemblies = Data.bindPaged(ex.nestedAssemblies, { indexes: [ex.assembliesByName, ex.assembliesInTime] });
+        const assemblies = Data.bindPaged(ex.nestedAssemblies, { indexes: ["assemblies_by_name", "assemblies_in_time"] });
         const Jobs = StructType({ items: StructType({ ...Span, rollup: LEAF }) });
         assert.ok(isTypeEqual(typeOf(assemblies).fields.nested!,
             NestedPartType(StructType({ parts: StructType({ rows: StructType({ jobs: Jobs, parts: StructType({ recursive: LEAF }) }) }) }), StructType({ assemblies_in_time: LEAF }), WEEK, MONTH)));
     });
 
     test("binds an index carrying a value of its own apart, joined as any other, and the record's rows whole", () => {
-        const apart = Data.bindPaged(ex.nestedMachines, { indexes: [ex.machinesByName] });
+        const apart = Data.bindPaged(ex.nestedMachines, { indexes: ["machines_by_name"] });
         assert.ok(isTypeEqual(entryOf(apart).projection, StringType), "its own value");
         assert.equal(handleOf(apart).joined, true);
         assert.ok(isTypeEqual(typeOf(apart).fields.nested!, NestedPartType(StructType({}), StructType({}), StructType({}), StructType({}))), "no nested part");
         assert.ok(equalFor(typeOf(apart).fields.nested!)(handleOf(apart).nested, none), "none");
-        assert.doesNotThrow(() => Data.bindPaged(ex.nestedMachines, { index: ex.machinesByName }));
+        assert.doesNotThrow(() => Data.bindPaged(ex.nestedMachines, { index: "machines_by_name" }));
         assert.doesNotThrow(() => Data.bindPaged(ex.nestedMachines));
     });
 
     test("refuses, in its words, an index carrying lean rows without the nested index, join, a value of its own beside it, and no index paging the rows", () => {
-        assert.throws(() => Data.bindPaged(ex.nestedMachines, { indexes: [ex.machinesBySiteStatus] }), {
+        assert.throws(() => Data.bindPaged(ex.nestedMachines, { indexes: ["machines_by_site_status"] }), {
             message: "Data.bindPaged: record 'nested_machines' has a nested series index, 'machines_in_time', and 'machines_by_site_status' carries " +
                 "each row without the collections it declares — list 'machines_in_time' beside it",
         });
-        assert.throws(() => Data.bindPaged(ex.nestedMachines, { indexes: [ex.machinesBySiteStatus, ex.machinesInTime], join: true }), {
+        assert.throws(() => Data.bindPaged(ex.nestedMachines, { indexes: ["machines_by_site_status", "machines_in_time"], join: true }), {
             message: "Data.bindPaged: 'machines_in_time' is listed, so the other indexes carry each row without its collections and a page joins " +
                 "none — leave join out: a join would read each row whole",
         });
-        assert.throws(() => Data.bindPaged(ex.nestedMachines, { indexes: [ex.machinesBySiteStatus, ex.machinesByName, ex.machinesInTime] }), {
+        assert.throws(() => Data.bindPaged(ex.nestedMachines, { indexes: ["machines_by_site_status", "machines_by_name", "machines_in_time"] }), {
             message: "Data.bindPaged: 'machines_by_name' carries a value of its own beside 'machines_in_time', whose record's other indexes carry " +
                 "each row without its collections — leave its value out, or bind it apart",
         });
-        assert.throws(() => Data.bindPaged(ex.nestedMachines, { indexes: [ex.machinesBySiteStatus, ex.machinesInTime, ex.machinesInTime] }),
+        assert.throws(() => Data.bindPaged(ex.nestedMachines, { indexes: ["machines_by_site_status", "machines_in_time", "machines_in_time"] }),
             { message: "Data.bindPaged: repeated index 'machines_in_time'" });
-        assert.throws(() => Data.bindPaged(ex.nestedMachines, { indexes: [ex.machinesInTime] }), {
+        assert.throws(() => Data.bindPaged(ex.nestedMachines, { indexes: ["machines_in_time"] }), {
             message: "Data.bindPaged: 'machines_in_time' is listed, and no index listed beside it pages the rows of 'nested_machines' — a page reads " +
-                "each row through an index carrying it without its collections: list one, e3.recordIndex(name, nested_machines, { on: [field, …] })",
+                "each row through an index carrying it without its collections: list one, index.on([field, …]) among the record's indexes",
         });
     });
 
     test("refuses one index read alone where it carries lean rows, or is the nested index", () => {
-        assert.throws(() => Data.bindPaged(ex.nestedMachines, { index: ex.machinesBySiteStatus }), {
+        assert.throws(() => Data.bindPaged(ex.nestedMachines, { index: "machines_by_site_status" }), {
             message: "Data.bindPaged: record 'nested_machines' has a nested series index, 'machines_in_time', and 'machines_by_site_status' carries " +
                 "each row without the collections it declares — bind them together: " +
-                "Data.bindPaged(nested_machines, { indexes: [machines_by_site_status, machines_in_time] })",
+                'Data.bindPaged(nested_machines, { indexes: ["machines_by_site_status", "machines_in_time"] })',
         });
-        assert.throws(() => Data.bindPaged(ex.nestedMachines, { index: ex.machinesInTime }), {
+        assert.throws(() => Data.bindPaged(ex.nestedMachines, { index: "machines_in_time" }), {
             message: "Data.bindPaged: 'machines_in_time' is a nested series index, whose entries are items, totals and subtotals: a reader reads its " +
                 "cells — list it in Data.bindPaged(nested_machines, { indexes })",
         });
@@ -140,7 +140,7 @@ describe("Data.bindPaged beside a nested series index", () => {
 
     test("a UI binding it declares the nested index among what it reads, before and after decoding", () => {
         const ui = East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            $(Data.bindPaged(ex.nestedMachines, { indexes: [ex.machinesBySiteStatus, ex.machinesInTime] }));
+            $(Data.bindPaged(ex.nestedMachines, { indexes: ["machines_by_site_status", "machines_in_time"] }));
             return Text.Root("Machines");
         })));
         const ir = ui.toIR().ir;

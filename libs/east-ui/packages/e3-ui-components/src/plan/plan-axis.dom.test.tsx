@@ -245,14 +245,14 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
     /** The rail over the vans — leaving on day 1 and day 12 — their `FLOAT` days the window, `[1, 9)`. */
     const vansRail = (key: string, affordances: readonly RecordSliceAffordance[]): Promise<Rail> => bindRail(() => Slice.bindRecords(key, {
         vans: {
-            source: Data.bindPaged(records.planDayVans, { indexes: [records.planDayVansByDay] }),
+            source: Data.bindPaged(records.planDayVans, { indexes: ["plan_day_vans_by_day"] }),
             fields: { day: { label: "Day" } }, range: "day", initial: { day: { from: 1.0, to: 9.0 } },
         },
     }), affordances);
     /** The rail over the orders — one a day, day 1 to day 12 — their `INTEGER` days the window, `[1, 9)`. */
     const ordersRail = (key: string): Promise<Rail> => bindRail(() => Slice.bindRecords(key, {
         orders: {
-            source: Data.bindPaged(records.planDayOrders, { indexes: [records.planDayOrdersByDay] }),
+            source: Data.bindPaged(records.planDayOrders, { indexes: ["plan_day_orders_by_day"] }),
             fields: { day: { label: "Day" } }, range: "day", initial: { day: { from: 1n, to: 9n } },
         },
     }), []);
@@ -335,7 +335,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         // arm to speak, so the strip does not mount and a pan writes nothing.
         const rail = await bindRail(() => Slice.bindRecords("plan.631.ordinal", {
             dated: {
-                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+                source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
                 fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
             },
         }), ["brush"]);

@@ -467,7 +467,7 @@ test("a narrowing choosing a field named `area` or `__area` beside a read by are
 
 test("a read by area it cannot plan is refused, naming why", () => {
     assert.throws(() => plan([["status", values('"held"')]], windowOf(view)),
-        /beside 'status' needs an area index led by exactly 'status' — e3\.recordIndex\.area\(name, record, \{ on: \["status"\], x, y, … \}\).*'racks_by_area', 'racks_by_hall_area', 'racks_by_tag_area', 'zones_by_area' are led by other fields/);
+        /beside 'status' needs an area index led by exactly 'status' — index\.area\(\{ on: \["status"\], x, y, … \}\) among the record's indexes.*'racks_by_area', 'racks_by_hall_area', 'racks_by_tag_area', 'zones_by_area' are led by other fields/);
     assert.throws(() => planRecordSlice([indexes[0]!], new Map(), "primary", windowOf(view), PRINTERS),
         /needs an area index led by no field .*; this binding lists none/);
     assert.throws(() => plan([["hall", variant("prefix", "H")]], windowOf(view)), /takes exact choices beside it, and 'hall' holds a range or a prefix/);

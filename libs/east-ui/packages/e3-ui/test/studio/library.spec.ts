@@ -151,11 +151,15 @@ describeEast("<Studio.Library> — what it shows (#997)", (test) => {
 
 describe("<Studio.Library> — the surface (#997)", () => {
     test("R4: its manifest holds the record it writes, and what its components read", () => {
-        const pages = e3.record("library_pages", StudioPagesType, new SortedMap<Key, Entry>([], compareFor(StudioKeyType)));
-        const pagesPatch = e3.mutation.patch(pages);
+        const pages = e3.record("library_pages", StudioPagesType, {
+            initial: new SortedMap<Key, Entry>([], compareFor(StudioKeyType)),
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+        });
         const surface = ui("library_surface", [], East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const components = $.let([revenueTrend, kpiRail]);
-            const record = $.let(Record.bind(pages, [pagesPatch]));
+            const record = $.let(Record.bind(pages));
             return Studio.Library({ pages: record, components, project: "ops" });
         }))));
         const manifest = surface.role.value!;

@@ -360,7 +360,7 @@ describe("Plan paged source (P-c)", () => {
             [`r${String(i).padStart(3, "0")}`, { at: W27, owner: "Team A", hall: i % 2 === 0 ? "Hall A" : "Hall B" }])));
         const rail = await bindRail(() => Slice.bindRecords("plan.paged.chrome", {
             rows: {
-                source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByHallAt] }),
+                source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_hall_at"] }),
                 fields: { hall: { label: "Hall", hints: ["Hall A", "Hall B"] } }, search: [],
             },
         }), ["fields", "summary"]);

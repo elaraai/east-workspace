@@ -76,7 +76,7 @@ const LAST = new Date("2026-11-02T00:00:00Z");
 /** The presses and their jobs, the jobs' overlaps warned of. */
 const warnedByPress = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis,
@@ -93,7 +93,7 @@ const warnedByPress = { fn: East.function([], UIComponentType, (_$) => Reactive.
 /** The same, the jobs' overlaps allowed: they run in parallel. */
 const allowedByPress = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis,
@@ -110,7 +110,7 @@ const allowedByPress = { fn: East.function([], UIComponentType, (_$) => Reactive
 /** The jobs drawn three more ways — as chips, as tiles and as marks — each way a kind of its own that warns of its overlaps. */
 const drawnThreeWays = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis,

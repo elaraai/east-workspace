@@ -16,8 +16,12 @@
  * from `Query.value`, the queries it ships, checked:
  *
  * ```ts
- * export const queries      = e3.record("queries", Query.Types.Saved, new Map());
- * export const queriesPatch = e3.mutation.patch(queries);
+ * export const queries = e3.record("queries", Query.Types.Saved, {
+ *     initial: new Map(),
+ *     mutations: (mutation) => ({
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * ```
  *
  * The types never depend on the data sources, so a deploy that adds or
@@ -142,7 +146,8 @@ export type SavedQueryType = typeof SavedQueryType;
 
 /**
  * The saved queries record's type — every saved query, by name. A solution
- * declares its record with it: `e3.record("queries", Query.Types.Saved, new Map())`.
+ * declares its record with it: `e3.record("queries", Query.Types.Saved, {
+ * initial: new Map(), mutations: … })`, its one mutation a patch.
  */
 export const SavedQueriesType = DictType(StringType, SavedQueryType);
 

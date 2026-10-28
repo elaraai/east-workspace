@@ -38,23 +38,31 @@ function calendarSeed(): Map<string, ValueTypeOf<typeof IndexedCalendarEvent>> {
     }
     return rows;
 }
-export const indexedCalendarEvents = e3.record("indexed_calendar_events", DictType(StringType, IndexedCalendarEvent), calendarSeed());
-export const indexedCalendarPatch = e3.mutation.patch(indexedCalendarEvents);
-export const indexedCalendarByTime = e3.recordIndex.interval("calendar_by_time", indexedCalendarEvents, { from: "start", to: "end" });
-export const indexedCalendarByStatus = e3.recordIndex.interval("calendar_by_status_time", indexedCalendarEvents, { on: ["status"], from: "start", to: "end" });
-export const indexedCalendarByMachine = e3.recordIndex.interval("calendar_by_machine_time", indexedCalendarEvents, { on: ["machine"], from: "start", to: "end" });
-export const indexedCalendarMachines = e3.record("indexed_calendar_machines", DictType(StringType, StructType({ name: StringType })), new Map([
-    ["press-a", { name: "Press A" }], ["press-b", { name: "Press B" }],
-]));
+export const indexedCalendarEvents = e3.record("indexed_calendar_events", DictType(StringType, IndexedCalendarEvent), {
+    initial: calendarSeed(),
+    indexes: (index) => ({
+        calendar_by_time: index.interval({ from: "start", to: "end" }),
+        calendar_by_status_time: index.interval({ on: ["status"], from: "start", to: "end" }),
+        calendar_by_machine_time: index.interval({ on: ["machine"], from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+export const indexedCalendarMachines = e3.record("indexed_calendar_machines", DictType(StringType, StructType({ name: StringType })), {
+    initial: new Map([
+        ["press-a", { name: "Press A" }], ["press-b", { name: "Press B" }],
+    ]),
+});
 
 export const calendarRecordIndexes = example({
     description: "12,000 events across a year, narrowed through interval indexes. The opening days demonstrate carry-in and year-long events; navigate to other dates for the larger production schedule. Filters and navigation share Slice, and drafts save by original key.",
     keywords: ["Calendar", "Slice", "Slice.bindRecords", "interval", "overlap", "records", "paging"],
     inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const events = $.let(Record.bind(indexedCalendarEvents, [indexedCalendarPatch]));
+        const events = $.let(Record.bind(indexedCalendarEvents));
         const entries = $.let(Data.bindPaged(indexedCalendarEvents));
-        const indexed = $.let(Data.bindPaged(indexedCalendarEvents, { indexes: [indexedCalendarByTime, indexedCalendarByStatus, indexedCalendarByMachine] }));
+        const indexed = $.let(Data.bindPaged(indexedCalendarEvents, { indexes: ["calendar_by_time", "calendar_by_status_time", "calendar_by_machine_time"] }));
         // The rail's one source, named after the kind it narrows (#1343): its interval indexes keep every overlapping event.
         const slice = $.let(Slice.bindRecords("ex.calendarRecordIndexes", {
             job: { source: indexed, icon: { prefix: "fas", name: "print" },
@@ -82,9 +90,9 @@ export const calendarRecordIndexesMobile = example({
     keywords: ["Calendar", "Slice", "Slice.bindRecords", "interval", "mobile", "agenda"],
     inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const events = $.let(Record.bind(indexedCalendarEvents, [indexedCalendarPatch]));
+        const events = $.let(Record.bind(indexedCalendarEvents));
         const entries = $.let(Data.bindPaged(indexedCalendarEvents));
-        const indexed = $.let(Data.bindPaged(indexedCalendarEvents, { indexes: [indexedCalendarByTime, indexedCalendarByStatus, indexedCalendarByMachine] }));
+        const indexed = $.let(Data.bindPaged(indexedCalendarEvents, { indexes: ["calendar_by_time", "calendar_by_status_time", "calendar_by_machine_time"] }));
         // The rail's one source, named after the kind it narrows (#1343): its interval indexes keep every overlapping event.
         const slice = $.let(Slice.bindRecords("ex.calendarRecordIndexesMobile", {
             job: { source: indexed, icon: { prefix: "fas", name: "print" },

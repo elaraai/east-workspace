@@ -818,7 +818,7 @@ describe("the Backlog never blinks (#1398, ruled 25 Oct 2026)", () => {
         StateRuntime.initializeStore(new UIStore());
         const states = watchBacklogTab();
         // Every unscheduled event's count — the start Unset alone, through the time index — held until the rest has landed.
-        const whole = h.e3.hold(request => readsBacklog(request) && request.query.get("index") === ex.indexedCalendarByTime.name);
+        const whole = h.e3.hold(request => readsBacklog(request) && request.query.get("index") === "calendar_by_time");
         try {
             const { container } = await h.mount(ex.calendarRecordIndexes, { storageKey: "backlog-cold" });
             await settle();

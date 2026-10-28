@@ -99,18 +99,21 @@ export const generateTargetHorizon = East.function([IntegerType], ArrayType(Targ
  * flagship's Deliveries tab lists, the rail's `deliveries` source narrowing
  * them by hall and risk, its range the canvas's window (#1344).
  */
-export const planTargetDeliveries = e3.record("plan_target_deliveries", DictType(StringType, TargetHorizonRow),
-    East.compile(East.function([IntegerType], DictType(StringType, TargetHorizonRow), ($, count) => {
+export const planTargetDeliveries = e3.record("plan_target_deliveries", DictType(StringType, TargetHorizonRow), {
+    initial: East.compile(East.function([IntegerType], DictType(StringType, TargetHorizonRow), ($, count) => {
         const generate = $.const(generateTargetHorizon);
         return generate(count).toDict((_$2, delivery) => delivery.key, (_$2, delivery) => delivery);
-    }), [])(36n));
+    }), [])(36n),
+    indexes: (index) => ({
+        // The deliveries through their indexes, each ending at the delivery's instant, so every narrowing — a hall, a
+        // risk, both — holds the window too.
+        plan_target_deliveries_by_at: index.on(["at"]),
+        plan_target_deliveries_by_risk_at: index.on(["risk", "at"]),
+        plan_target_deliveries_by_hall_at: index.on(["hall", "at"]),
+        plan_target_deliveries_by_hall_risk_at: index.on(["hall", "risk", "at"]),
+    }),
+});
 
-// The deliveries through their indexes, each ending at the delivery's instant, so every narrowing — a hall, a
-// risk, both — holds the window too.
-export const planTargetDeliveriesByAt = e3.recordIndex("plan_target_deliveries_by_at", planTargetDeliveries, { on: ["at"] });
-export const planTargetDeliveriesByRiskAt = e3.recordIndex("plan_target_deliveries_by_risk_at", planTargetDeliveries, { on: ["risk", "at"] });
-export const planTargetDeliveriesByHallAt = e3.recordIndex("plan_target_deliveries_by_hall_at", planTargetDeliveries, { on: ["hall", "at"] });
-export const planTargetDeliveriesByHallRiskAt = e3.recordIndex("plan_target_deliveries_by_hall_risk_at", planTargetDeliveries, { on: ["hall", "risk", "at"] });
 
 /** A job on a press, under its id — the RAW record an ops dataset stores: its
  *  phase and optional job ticket, its window, optional sheets, lifecycle state
@@ -470,7 +473,7 @@ export const planTargetState = example({
         "span", "run", "group", "groups", "strip", "section", "heat", "buckets", "cards", "chip", "events", "mark", "chart",
         "table", "views", "rows", "layers", "rollup", "union", "byStatus", "bands", "footer", "milestone",
         "decision", "exception", "pinned", "port", "hovercard", "popover", "hover",
-        "slice", "Slice.bindRecords", "source", "Data.bindPaged", "recordIndex", "presets", "brush", "horizon", "toolbar", "affordances", "summary", "#1344",
+        "slice", "Slice.bindRecords", "source", "Data.bindPaged", "indexes", "presets", "brush", "horizon", "toolbar", "affordances", "summary", "#1344",
         "expand", "expandRender", "expandGutter", "keep", "dim", "off", "collapse", "context strip",
         "resolver", "data-driven", "accessor", "raw", "target state", "flagship",
         "layout", "row id", "Plan.ref", "Plan.sectionRef", "links", "link", "focus", "quantity", "Plan.quantity", "unit",
@@ -812,7 +815,7 @@ export const planTargetState = example({
             // presets narrow the deliveries and keep the window.
             const slice = $.let(Slice.bindRecords("ex.plan.target", {
                 deliveries: {
-                    source: Data.bindPaged(planTargetDeliveries, { indexes: [planTargetDeliveriesByAt, planTargetDeliveriesByRiskAt, planTargetDeliveriesByHallAt, planTargetDeliveriesByHallRiskAt] }),
+                    source: Data.bindPaged(planTargetDeliveries, { indexes: ["plan_target_deliveries_by_at", "plan_target_deliveries_by_risk_at", "plan_target_deliveries_by_hall_at", "plan_target_deliveries_by_hall_risk_at"] }),
                     label: "Deliveries", icon: { prefix: "fas", name: "truck" },
                     fields: {
                         hall: { label: "Hall", hints: ["Hall 1", "Hall 2"] },
@@ -1514,23 +1517,27 @@ export const MeasureWeek = StructType({ week: DateTimeType, label: StringType })
  * the library's Weeks tab lists, the rail's `weeks` source holding the
  * canvas's window in its range (#1344).
  */
-export const planMeasureWeeks = e3.record("plan_measure_weeks", DictType(StringType, MeasureWeek), new Map([
-    ["W23", { week: new Date("2026-06-01T00:00:00Z"), label: "W23 · 1 Jun" }],
-    ["W24", { week: new Date("2026-06-08T00:00:00Z"), label: "W24 · 8 Jun" }],
-    ["W25", { week: new Date("2026-06-15T00:00:00Z"), label: "W25 · 15 Jun" }],
-    ["W26", { week: new Date("2026-06-22T00:00:00Z"), label: "W26 · 22 Jun" }],
-    ["W27", { week: new Date("2026-06-29T00:00:00Z"), label: "W27 · 29 Jun" }],
-    ["W28", { week: new Date("2026-07-06T00:00:00Z"), label: "W28 · 6 Jul" }],
-    ["W29", { week: new Date("2026-07-13T00:00:00Z"), label: "W29 · 13 Jul" }],
-    ["W30", { week: new Date("2026-07-20T00:00:00Z"), label: "W30 · 20 Jul" }],
-    ["W31", { week: new Date("2026-07-27T00:00:00Z"), label: "W31 · 27 Jul" }],
-    ["W32", { week: new Date("2026-08-03T00:00:00Z"), label: "W32 · 3 Aug" }],
-    ["W33", { week: new Date("2026-08-10T00:00:00Z"), label: "W33 · 10 Aug" }],
-    ["W34", { week: new Date("2026-08-17T00:00:00Z"), label: "W34 · 17 Aug" }],
-]));
+export const planMeasureWeeks = e3.record("plan_measure_weeks", DictType(StringType, MeasureWeek), {
+    initial: new Map([
+        ["W23", { week: new Date("2026-06-01T00:00:00Z"), label: "W23 · 1 Jun" }],
+        ["W24", { week: new Date("2026-06-08T00:00:00Z"), label: "W24 · 8 Jun" }],
+        ["W25", { week: new Date("2026-06-15T00:00:00Z"), label: "W25 · 15 Jun" }],
+        ["W26", { week: new Date("2026-06-22T00:00:00Z"), label: "W26 · 22 Jun" }],
+        ["W27", { week: new Date("2026-06-29T00:00:00Z"), label: "W27 · 29 Jun" }],
+        ["W28", { week: new Date("2026-07-06T00:00:00Z"), label: "W28 · 6 Jul" }],
+        ["W29", { week: new Date("2026-07-13T00:00:00Z"), label: "W29 · 13 Jul" }],
+        ["W30", { week: new Date("2026-07-20T00:00:00Z"), label: "W30 · 20 Jul" }],
+        ["W31", { week: new Date("2026-07-27T00:00:00Z"), label: "W31 · 27 Jul" }],
+        ["W32", { week: new Date("2026-08-03T00:00:00Z"), label: "W32 · 3 Aug" }],
+        ["W33", { week: new Date("2026-08-10T00:00:00Z"), label: "W33 · 10 Aug" }],
+        ["W34", { week: new Date("2026-08-17T00:00:00Z"), label: "W34 · 17 Aug" }],
+    ]),
+    indexes: (index) => ({
+        // The weeks by their first instant: what the window narrows them through.
+        plan_measure_weeks_by_week: index.on(["week"]),
+    }),
+});
 
-/** The weeks by their first instant: what the window narrows them through. */
-export const planMeasureWeeksByWeek = e3.recordIndex("plan_measure_weeks_by_week", planMeasureWeeks, { on: ["week"] });
 
 /**
  * Measure rows — the chart, heat and table grammars over weekly readings, and
@@ -1574,7 +1581,7 @@ export const planMeasures = example({
         "em-dash", "neg", "tableSeries", "split", "horizontal", "vertical", "multi-value", "multi-cell", "two-line",
         "strong", "muted", "rollup", "mirror", "position", "fold", "temporal fold", "resolution", "week", "month",
         "rebucket", "bucket", "max", "last", "count", "default", "override", "layer", "Plan.layer", "column",
-        "line", "Slice", "Slice.bindRecords", "source", "Data.bindPaged", "recordIndex", "toolbar", "range", "brush", "section", "match", "gutter",
+        "line", "Slice", "Slice.bindRecords", "source", "Data.bindPaged", "indexes", "toolbar", "range", "brush", "section", "match", "gutter",
         "raw", "readings", "Reactive", "Data.bind", "bound", "e3.input", "e3.record", "library", "Plan.library.tab", "#824", "#1258", "#1344",
     ],
     description: "Measure rows over weekly readings bound from e3, at MONTH to start — chart rows (a line with its breach, an area, stacked columns, a scatter, every annotation, and a fixed dual-axis composition with its band and swatches), heat rows (colour depth under a hall averaging its presses on its scale with the no-data hatch, weight bars with a planned tail, status segments) and table rows (subtotals at every depth, footer emphasis with a negative and the em-dash, multi-value positions in every split × gutter combination); each row folds a month's weeks by what its values mean, or by its override (peak load by max, a running total and the paper stock by last, the dual chart's columns by mean), the toolbar's resolution segment switches MONTH and WEEK, and one Slice.bindRecords rail's weeks source, which the Weeks tab lists, holds the window the horizon brush moves",
@@ -1828,7 +1835,7 @@ export const planMeasures = example({
             // resolution, MONTH to start; the Weeks tab lists the weeks in it.
             const slice = $.let(Slice.bindRecords("ex.plan.measures", {
                 weeks: {
-                    source: Data.bindPaged(planMeasureWeeks, { indexes: [planMeasureWeeksByWeek] }),
+                    source: Data.bindPaged(planMeasureWeeks, { indexes: ["plan_measure_weeks_by_week"] }),
                     label: "Weeks", fields: { week: { label: "Week", format: { date: "MMM D" } } }, range: "week",
                 },
             }));
@@ -1899,39 +1906,43 @@ const fortnightly = (readings: number[]): SortedMap<Date, number> => atInstants(
  * an entry holding its two presses, H3-P11 already running four jobs, so one
  * more is refused.
  */
-export const planDropOps = e3.record("plan_drop_ops", DictType(StringType, DropOpsRow), new Map([
-    ["util",  { ...DROP_EMPTY, series: "util", label: "Util %", readings: fortnightly([46.0, 58.0, 66.0, 72.0, 84.0, 96.0]) }],
-    ["p03",   { ...DROP_EMPTY, series: "press", label: "H1-P03",
-                jobs: new Map([["j4642", { label: "RUN · J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("in-progress", null) }]]) }],
-    ["p04",   { ...DROP_EMPTY, series: "press", label: "H1-P04",
-                jobs: new Map([["j4624", { label: "RUN · J-4624", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("confirmed", null) }]]) }],
-    ["load",  { ...DROP_EMPTY, series: "load", label: "H2 load", readings: fortnightly([46.0, 58.0, 66.0, 72.0, 84.0, 96.0]) }],
-    ["van1",  { ...DROP_EMPTY, series: "van", label: "Van 1",
-                allocs: new Map([["a1", { at: new Date("2026-07-13T00:00:00Z"), state: variant("confirmed", null) }]]) }],
-    ["desp",  { ...DROP_EMPTY, series: "table", label: "Delivered · k",
-                nums: atInstants([[new Date("2026-07-06T00:00:00Z"), 128.0], [new Date("2026-07-27T00:00:00Z"), -96.0]]) }],
-    ["crewA", { ...DROP_EMPTY, series: "crew", label: "Crew A",
-                shifts: new Map([["s1", { from: new Date("2026-06-29T00:00:00Z"), to: new Date("2026-07-13T00:00:00Z"), label: "80h", state: variant("confirmed", null) }]]) }],
-    ["ms",    { ...DROP_EMPTY, series: "strm", label: "Milestones",
-                marks: new Map([["k", { at: new Date("2026-07-13T00:00:00Z"), kind: variant("milestone", null), label: some("KICKOFF") }]]) }],
-    // A HALL, holding its presses: a gesture on one of them drafts the hall,
-    // the entry they ride in. H3-P11 already runs four jobs.
-    ["hall3", { ...DROP_EMPTY, series: "hall", label: "Hall 3",
-                presses: new Map([
-                    ["H3-P11", { jobs: new Map([
-                        ["j4897", { label: "RUN · J-4897", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-13T00:00:00Z"), state: variant("confirmed", null) }],
-                        ["j4903", { label: "RUN · J-4903", start: new Date("2026-07-20T00:00:00Z"), end: new Date("2026-08-17T00:00:00Z"), state: variant("confirmed", null) }],
-                        ["j4911", { label: "RUN · J-4911", start: new Date("2026-08-17T00:00:00Z"), end: new Date("2026-08-31T00:00:00Z"), state: variant("proposed", variant("recommended", null)) }],
-                        ["j4918", { label: "RUN · J-4918", start: new Date("2026-08-31T00:00:00Z"), end: new Date("2026-09-14T00:00:00Z"), state: variant("proposed", variant("recommended", null)) }],
+export const planDropOps = e3.record("plan_drop_ops", DictType(StringType, DropOpsRow), {
+    initial: new Map([
+        ["util",  { ...DROP_EMPTY, series: "util", label: "Util %", readings: fortnightly([46.0, 58.0, 66.0, 72.0, 84.0, 96.0]) }],
+        ["p03",   { ...DROP_EMPTY, series: "press", label: "H1-P03",
+                    jobs: new Map([["j4642", { label: "RUN · J-4642", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("in-progress", null) }]]) }],
+        ["p04",   { ...DROP_EMPTY, series: "press", label: "H1-P04",
+                    jobs: new Map([["j4624", { label: "RUN · J-4624", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("confirmed", null) }]]) }],
+        ["load",  { ...DROP_EMPTY, series: "load", label: "H2 load", readings: fortnightly([46.0, 58.0, 66.0, 72.0, 84.0, 96.0]) }],
+        ["van1",  { ...DROP_EMPTY, series: "van", label: "Van 1",
+                    allocs: new Map([["a1", { at: new Date("2026-07-13T00:00:00Z"), state: variant("confirmed", null) }]]) }],
+        ["desp",  { ...DROP_EMPTY, series: "table", label: "Delivered · k",
+                    nums: atInstants([[new Date("2026-07-06T00:00:00Z"), 128.0], [new Date("2026-07-27T00:00:00Z"), -96.0]]) }],
+        ["crewA", { ...DROP_EMPTY, series: "crew", label: "Crew A",
+                    shifts: new Map([["s1", { from: new Date("2026-06-29T00:00:00Z"), to: new Date("2026-07-13T00:00:00Z"), label: "80h", state: variant("confirmed", null) }]]) }],
+        ["ms",    { ...DROP_EMPTY, series: "strm", label: "Milestones",
+                    marks: new Map([["k", { at: new Date("2026-07-13T00:00:00Z"), kind: variant("milestone", null), label: some("KICKOFF") }]]) }],
+        // A HALL, holding its presses: a gesture on one of them drafts the hall,
+        // the entry they ride in. H3-P11 already runs four jobs.
+        ["hall3", { ...DROP_EMPTY, series: "hall", label: "Hall 3",
+                    presses: new Map([
+                        ["H3-P11", { jobs: new Map([
+                            ["j4897", { label: "RUN · J-4897", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-13T00:00:00Z"), state: variant("confirmed", null) }],
+                            ["j4903", { label: "RUN · J-4903", start: new Date("2026-07-20T00:00:00Z"), end: new Date("2026-08-17T00:00:00Z"), state: variant("confirmed", null) }],
+                            ["j4911", { label: "RUN · J-4911", start: new Date("2026-08-17T00:00:00Z"), end: new Date("2026-08-31T00:00:00Z"), state: variant("proposed", variant("recommended", null)) }],
+                            ["j4918", { label: "RUN · J-4918", start: new Date("2026-08-31T00:00:00Z"), end: new Date("2026-09-14T00:00:00Z"), state: variant("proposed", variant("recommended", null)) }],
+                        ]) }],
+                        ["H3-P12", { jobs: new Map([
+                            ["j4925", { label: "RUN · J-4925", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("confirmed", null) }],
+                        ]) }],
                     ]) }],
-                    ["H3-P12", { jobs: new Map([
-                        ["j4925", { label: "RUN · J-4925", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("confirmed", null) }],
-                    ]) }],
-                ]) }],
-]));
+    ]),
+    mutations: (mutation) => ({
+        // The ops record's patch door — every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
 
-/** The ops record's patch door — every Save commits through it. */
-export const planDropOpsPatch = e3.mutation.patch(planDropOps);
 
 /** A card in the palette — a thing a row of its family takes. */
 export const DropCard = StructType({ name: StringType, family: StringType, note: StringType });
@@ -2028,7 +2039,7 @@ export const planRowDrop = example({
             // The source is a RECORD: the canvas pages it, and each Save is
             // one commit through its patch door.
             const ops = $.let(Data.bindPaged(planDropOps));
-            const record = $.let(Record.bind(planDropOps, [planDropOpsPatch]));
+            const record = $.let(Record.bind(planDropOps));
             // The palette the cards come from, by key.
             const cards = $.let(Data.bind(planDropCards));
             const palette = $.let(cards.read());
@@ -2266,15 +2277,18 @@ export const generateNumberHorizon = East.function([IntegerType], ArrayType(Numb
  * number axis's Orders tab lists, the rail's `orders` source narrowing them by
  * hall, its integer range the canvas's window (#1344).
  */
-export const planNumberOrders = e3.record("plan_number_orders", DictType(StringType, NumberHorizonRow),
-    East.compile(East.function([IntegerType], DictType(StringType, NumberHorizonRow), ($, count) => {
+export const planNumberOrders = e3.record("plan_number_orders", DictType(StringType, NumberHorizonRow), {
+    initial: East.compile(East.function([IntegerType], DictType(StringType, NumberHorizonRow), ($, count) => {
         const generate = $.const(generateNumberHorizon);
         return generate(count).toDict((_$2, order) => order.key, (_$2, order) => order);
-    }), [])(24n));
+    }), [])(24n),
+    indexes: (index) => ({
+        // The orders by their day, alone and after their hall: a hall's narrowing holds the window too.
+        plan_number_orders_by_day: index.on(["day"]),
+        plan_number_orders_by_hall_day: index.on(["hall", "day"]),
+    }),
+});
 
-// The orders by their day, alone and after their hall: a hall's narrowing holds the window too.
-export const planNumberOrdersByDay = e3.recordIndex("plan_number_orders_by_day", planNumberOrders, { on: ["day"] });
-export const planNumberOrdersByHallDay = e3.recordIndex("plan_number_orders_by_hall_day", planNumberOrders, { on: ["hall", "day"] });
 
 /** A van drop, under its id — its day (a plain number), lane and lifecycle state. */
 export const NumberAlloc = StructType({ day: FloatType, lane: StringType, state: EventStateType });
@@ -2370,7 +2384,7 @@ export const planNumberAxis = example({
         "Plan", "axis", "number", "numeric", "step", "Plan.axis.number", "Plan.items", "Plan.values", "instant",
         "day", "AM", "PM", "lanes", "buckets", "Planner", "plannerPoint", "brush", "integer", "range", "half-open",
         "format", "now", "typed axis", "#631", "raw", "Data.bind", "bound", "e3.input", "e3.record",
-        "Slice.bindRecords", "source", "Data.bindPaged", "recordIndex", "library", "Plan.library.tab", "#1344",
+        "Slice.bindRecords", "source", "Data.bindPaged", "indexes", "library", "Plan.library.tab", "#1344",
     ],
     description: "The number axis over rows bound from e3 — day 1..8 at step 1 with AM/PM lanes (the retired Planner's plannerPoint), every row kind on the numeric scale; one Slice.bindRecords rail whose orders source narrows the Orders tab by hall and holds the window, the horizon brush over its integer range",
     fn: East.function([], UIComponentType, (_$) => {
@@ -2437,7 +2451,7 @@ export const planNumberAxis = example({
             // half-open range — the eight days `[1, 9)`.
             const slice = $.let(Slice.bindRecords("ex.plan.number", {
                 orders: {
-                    source: Data.bindPaged(planNumberOrders, { indexes: [planNumberOrdersByDay, planNumberOrdersByHallDay] }),
+                    source: Data.bindPaged(planNumberOrders, { indexes: ["plan_number_orders_by_day", "plan_number_orders_by_hall_day"] }),
                     label: "Orders", icon: { prefix: "fas", name: "box" },
                     fields: { hall: { label: "Hall", hints: ["Hall 1", "Hall 2"] }, day: { label: "Day" } },
                     range: "day", search: [],
@@ -2632,20 +2646,24 @@ export const planOrdinalAxis = example({
 export const SliceJob = StructType({ task: StringType, owner: StringType, start: DateTimeType, end: DateTimeType });
 
 /** The plan's tasks, by name — a record of their own, the rows the slice's `rows` source narrows (#1344). */
-export const planSliceJobs = e3.record("plan_slice_jobs", DictType(StringType, SliceJob), new Map([
-    ["Planning",    { task: "Planning",    owner: "Team A", start: new Date("2024-01-01T00:00:00Z"), end: new Date("2024-01-15T00:00:00Z") }],
-    ["Design",      { task: "Design",      owner: "Team B", start: new Date("2024-01-10T00:00:00Z"), end: new Date("2024-02-01T00:00:00Z") }],
-    ["Development", { task: "Development", owner: "Team C", start: new Date("2024-01-20T00:00:00Z"), end: new Date("2024-03-15T00:00:00Z") }],
-    ["Testing",     { task: "Testing",     owner: "Team A", start: new Date("2024-03-01T00:00:00Z"), end: new Date("2024-03-30T00:00:00Z") }],
-]));
+export const planSliceJobs = e3.record("plan_slice_jobs", DictType(StringType, SliceJob), {
+    initial: new Map([
+        ["Planning",    { task: "Planning",    owner: "Team A", start: new Date("2024-01-01T00:00:00Z"), end: new Date("2024-01-15T00:00:00Z") }],
+        ["Design",      { task: "Design",      owner: "Team B", start: new Date("2024-01-10T00:00:00Z"), end: new Date("2024-02-01T00:00:00Z") }],
+        ["Development", { task: "Development", owner: "Team C", start: new Date("2024-01-20T00:00:00Z"), end: new Date("2024-03-15T00:00:00Z") }],
+        ["Testing",     { task: "Testing",     owner: "Team A", start: new Date("2024-03-01T00:00:00Z"), end: new Date("2024-03-30T00:00:00Z") }],
+    ]),
+    indexes: (index) => ({
+        // The tasks over the interval each runs, alone and after its owner: a range of dates the rail chooses reads every task
+        // overlapping it once, an owner's beside it too.
+        plan_slice_jobs_by_time: index.interval({ from: "start", to: "end" }),
+        plan_slice_jobs_by_owner_time: index.interval({ on: ["owner"], from: "start", to: "end" }),
+    }),
+});
 
-// The tasks over the interval each runs, alone and after its owner: a range of dates the rail chooses reads every task
-// overlapping it once, an owner's beside it too.
-export const planSliceJobsByTime = e3.recordIndex.interval("plan_slice_jobs_by_time", planSliceJobs, { from: "start", to: "end" });
-export const planSliceJobsByOwnerTime = e3.recordIndex.interval("plan_slice_jobs_by_owner_time", planSliceJobs, { on: ["owner"], from: "start", to: "end" });
 
 export const slicePlanChrome = example({
-    keywords: ["Slice", "Slice.bindRecords", "rows", "Plan", "slice", "rail", "filter", "range", "brush", "timeline", "Data.bindPaged", "recordIndex", "interval", "e3.record", "#1344"],
+    keywords: ["Slice", "Slice.bindRecords", "rows", "Plan", "slice", "rail", "filter", "range", "brush", "timeline", "Data.bindPaged", "indexes", "interval", "e3.record", "#1344"],
     description: "Ops plan — a Plan narrowed through one Slice.bindRecords rail over tasks bound from e3: its `rows` source gives the canvas its rows, paged through the tasks' interval index and narrowed by owner and by their dates — fields of the rail the viewer sets — while the window is the canvas's own: the toolbar's dates and the horizon brush move it, and never decide which tasks are listed",
     fn: East.function([], UIComponentType, (_$) => {
         return (
@@ -2654,7 +2672,7 @@ export const slicePlanChrome = example({
                 // the rail, the viewer's to set: the dates on screen never narrow the tasks.
                 const slice = $.let(Slice.bindRecords("ex.slice.plan.chrome", {
                     rows: {
-                        source: Data.bindPaged(planSliceJobs, { indexes: [planSliceJobsByTime, planSliceJobsByOwnerTime] }),
+                        source: Data.bindPaged(planSliceJobs, { indexes: ["plan_slice_jobs_by_time", "plan_slice_jobs_by_owner_time"] }),
                         label: "Tasks",
                         fields: { owner: { label: "Owner", hints: ["Team A", "Team B", "Team C"] }, start: { label: "Start" } },
                         search: [],

@@ -89,7 +89,7 @@ const nameOf = (id: PlanRowId) => id.value.path.join("/");
 async function windowSlice(key: string, source: "dated" | "rows" = "dated") {
     const rail = await bindRail(() => Slice.bindRecords(key, {
         [source]: {
-            source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+            source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
             fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
         },
     }), []);

@@ -194,7 +194,7 @@ export const SheetComponent = EastUI.component("Sheet", SheetPayloadType, { opti
 
 /**
  * A record bound with its patch mutation, as the sheet reads it — what
- * `Record.bind(record, [e3.mutation.patch(record)])` returns for a `Dict`.
+ * `Record.bind(record), its record declaring patch: mutation.patch()` returns for a `Dict`.
  *
  * @typeParam K - The record's key type
  * @typeParam V - The record's entry type

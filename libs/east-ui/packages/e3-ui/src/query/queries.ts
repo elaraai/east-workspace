@@ -53,7 +53,7 @@ export type SavedQueriesPatchType = typeof SavedQueriesPatchType;
  * The saved queries record, bound with its patch — what the builder and the
  * query library read and write through: the bound record's `read`, its
  * `history`, and its patch write awaited. Their factories take these from
- * `Record.bind(queries, [queriesPatch])`, as Studio's take the pages record.
+ * `Record.bind(queries)`, as Studio's take the pages record.
  *
  * @property read - The record's current state
  * @property history - Its commit chain, newest first — who changed a query last, for a conflict's words
@@ -72,7 +72,7 @@ export type QueriesHandleType = typeof QueriesHandleType;
 
 /**
  * The saved queries record as the builder's and the library's factories take
- * it — a `Record.bind(queries, [queriesPatch])` handle, whose `read`,
+ * it — a `Record.bind(queries)` handle, whose `read`,
  * `history` and patch write they pass on ({@link QueriesHandleType}).
  */
 export type QueriesHandle = ExprType<StructType<{

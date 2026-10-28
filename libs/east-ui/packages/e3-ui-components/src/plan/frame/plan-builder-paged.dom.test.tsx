@@ -63,7 +63,7 @@ import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
 import * as events from "@elaraai/e3-ui/examples/plan/plan-events";
-import { PrintJob, PrintStock, planLinkStock, planPrintJobTemplates, planPrintJobTemplatesByGroup } from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PrintJob, PrintStock, planLinkStock, planPrintJobTemplates } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
@@ -108,9 +108,9 @@ function servedOf(request: E3Request): Served | undefined {
     if (request.dataset === TEMPLATES) return "templates";
     if (request.dataset !== JOBS) return undefined;
     if (index === undefined) return "entries";
-    if (index === ex.planWindowJobsByTime.name) return "interval";
-    if (index === ex.planWindowJobsByDay.name) return "days";
-    if (index === ex.planWindowJobsUnscheduled.name) return "backlog";
+    if (index === "plan_window_jobs_by_time") return "interval";
+    if (index === "plan_window_jobs_by_day") return "days";
+    if (index === "plan_window_jobs_unscheduled") return "backlog";
     return undefined;
 }
 
@@ -187,11 +187,11 @@ async function writeJob(key: string, change: Partial<Job>) {
  */
 const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.windows.dom", {
         job: {
-            source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }),
+            source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
             fields: { start: { label: "Dates" } }, range: "start",
         },
     }));
@@ -226,10 +226,10 @@ const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
  */
 const jobsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.windows.jobs.dom", {
-        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }),
@@ -565,15 +565,15 @@ const Customer = StructType({ name: StringType });
  */
 const editedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const jobTemplates = $.const(Data.bind(planPrintJobTemplates));
     const slice = $.const(Slice.bindRecords("plan.windows.edited", {
         job: {
-            source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }),
+            source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
             range: "start",
         },
-        jobTemplates: { source: Data.bindPaged(planPrintJobTemplates, { indexes: [planPrintJobTemplatesByGroup] }) },
+        jobTemplates: { source: Data.bindPaged(planPrintJobTemplates, { indexes: ["plan_print_job_templates_by_group"] }) },
     }));
     const customers = $.const(new Map([["harbour-arts", { name: "Harbour Arts Society" }]]), DictType(StringType, Customer));
     return Plan({

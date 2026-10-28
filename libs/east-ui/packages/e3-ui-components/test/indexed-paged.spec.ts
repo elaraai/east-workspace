@@ -44,10 +44,10 @@ const h = e3Spec({ "bind/data/data": ex, "bind/data/data-nested": nx });
 
 const people = ex.indexedPeople;
 const Person = ex.IndexedPerson;
-const binding = Data.bindPaged(people, { indexes: [ex.peopleByName, ex.peopleBySkill] });
+const binding = Data.bindPaged(people, { indexes: ["by_name", "by_skill"] });
 const Binding = Expr.type(binding);
 const program = East.function([], Binding, $ => $.return(binding));
-const coverBinding = Data.bindPaged(people, { indexes: [ex.peopleByName, ex.peopleBySkill], join: false });
+const coverBinding = Data.bindPaged(people, { indexes: ["by_name", "by_skill"], join: false });
 const coverProgram = East.function([], Expr.type(coverBinding), $ => $.return(coverBinding));
 const stringEqual = equalFor(StringType);
 const revisionEqual = equalFor(OptionType(StringType));
@@ -198,7 +198,7 @@ test("record Slice binds typed controls, reads each narrowing when its rows are 
     const create = East.compile(sliceProgram, implementations);
     const handle = create();
     assert.equal(handle.sourceId, people.name, "editing identity is the primary record, independent of index selection");
-    const otherSource = Data.bindPaged(people, { indexes: [ex.peopleByName] });
+    const otherSource = Data.bindPaged(people, { indexes: ["by_name"] });
     const otherSlice = bindRecord("test.names", otherSource, { search: "name" });
     const otherHandle = East.compile(East.function([], Expr.type(otherSlice), () => otherSlice), implementations)();
     assert.equal(otherHandle.sourceId, handle.sourceId, "different index lists share the record's save gate");
@@ -293,7 +293,7 @@ function _recordTypeRefusals() {
 test("interval Slice pages and counts overlapping original records once, including carry-in and optional backlog", async () => {
     const events = ex.indexedIntervals;
     const rows = await h.read(events);
-    const source = Data.bindPaged(events, { indexes: [ex.intervalsByStart, ex.intervalsByStatusTime, ex.intervalsByTime] });
+    const source = Data.bindPaged(events, { indexes: ["by_start", "by_status_time", "by_time"] });
     const from = new Date("2026-10-02T00:00:00Z");
     const to = new Date("2026-10-03T00:00:00Z");
     const sliced = bindRecord("test.intervals", source, { range: "start", initial: { status: ["Ready"], start: { from, to } } });
@@ -335,7 +335,7 @@ test("interval Slice pages and counts overlapping original records once, includi
 test("a window over an area index reads the racks whose box meets it from the index alone, each with its row, once (#1385)", async () => {
     const racks = ex.indexedRacks;
     const stored = await h.read(racks);
-    const source = Data.bindPaged(racks, { indexes: [ex.racksByArea, ex.racksByHallArea, ex.racksByHall] });
+    const source = Data.bindPaged(racks, { indexes: ["racks_by_area", "racks_by_hall_area", "racks_by_hall"] });
     const sliced = bindRecord("test.racks", source, { fields: { hall: { label: "Hall", hints: ["A", "B"] } } });
     const program = East.function([], Expr.type(sliced), $ => $.return(sliced));
     const { runtime } = newRuntime();
@@ -382,7 +382,7 @@ test("a window over an area index reads the racks whose box meets it from the in
 test("a row's fields named `area`, `__area`, `tile` and `__tile` are each offered, chosen and counted on e3, and `area` and `__area` beside a window read through the area index they lead (#1432)", async () => {
     const racks = ex.namedRacks;
     const source = Data.bindPaged(racks, {
-        indexes: [ex.namedByArea, ex.namedByUnderArea, ex.namedByTile, ex.namedByUnderTile, ex.namedByPlace, ex.namedByAreaPlace],
+        indexes: ["named_by_area", "named_by_under_area", "named_by_tile", "named_by_under_tile", "named_by_place", "named_by_area_place"],
     });
     const sliced = bindRecord("test.named", source, {
         fields: { area: { hints: ["A1", "A2"] }, __area: { hints: ["B", "C"] }, tile: { hints: ["T1", "T2"] }, __tile: { hints: ["U1", "U2"] } },
@@ -419,7 +419,7 @@ test("a row's fields named `area`, `__area`, `tile` and `__tile` are each offere
 test("a window's details are read by the runs its area index's cells are — the keys read by e3, none sent — pinned to both records, and read again as either moves (#1393)", async () => {
     const racks = ex.indexedRacks;
     const loads = ex.indexedRackLoads;
-    const source = Data.bindPaged(racks, { indexes: [ex.racksByArea, ex.racksByHallArea, ex.racksByHall] });
+    const source = Data.bindPaged(racks, { indexes: ["racks_by_area", "racks_by_hall_area", "racks_by_hall"] });
     const sliced = bindRecord("test.racks.details", source, { fields: { hall: { label: "Hall", hints: ["A", "B"] } } });
     const program = East.function([], Expr.type(sliced), $ => $.return(sliced));
     const loadsBinding = Data.bindPaged(loads);
@@ -507,7 +507,7 @@ test("a record Slice places its narrowing's rows in the record, and asks which o
     const within = h.requests("within", `records.${people.name}`);
     assert.deepEqual(within.map(request => [request.method, request.query.get("hash")]), [["POST", R1]]);
     const body = JSON.parse(new TextDecoder().decode(within[0]!.body)) as { index: string; keys: string[] };
-    assert.equal(body.index, ex.peopleBySkill.name);
+    assert.equal(body.index, "by_skill");
     assert.equal(body.keys.length, 3);
     assert.deepEqual(pagesOf(people).filter(request => !request.query.has("index")), [], "no page of the record's own rows");
     // Asked again, both answer from what the runtime holds.
@@ -547,7 +547,7 @@ test("which of a page's rows a narrowing holds, asked again at every read while 
 
 test("a window over an interval index is two requests — its searches in one, the runs they select in one — and its count's readers re-fire once (#1351)", async () => {
     const events = ex.indexedIntervals;
-    const source = Data.bindPaged(events, { indexes: [ex.intervalsByStart, ex.intervalsByStatusTime, ex.intervalsByTime] });
+    const source = Data.bindPaged(events, { indexes: ["by_start", "by_status_time", "by_time"] });
     const from = new Date("2026-10-02T00:00:00Z");
     const to = new Date("2026-10-03T00:00:00Z");
     const sliced = bindRecord("test.intervals.batched", source, { range: "start", initial: { status: ["Ready"], start: { from, to } } });
@@ -566,13 +566,13 @@ test("a window over an interval index is two requests — its searches in one, t
     assert.equal(fired, 1, "the count's reader re-fires once, as every search lands together");
     const searches = findsOf(events);
     assert.deepEqual(searches.map(request => [request.method, request.query.get("index"), request.query.get("hash")]),
-        [["POST", ex.intervalsByStatusTime.name, R1]], "one request for the window's searches");
+        [["POST", "by_status_time", R1]], "one request for the window's searches");
     assert.ok(searches[0]!.searches.length > 50, "the start range and the carry-in ranges at each span");
     assert.deepEqual(handle.count(), some(4n));
     const rows = await h.ready(() => handle.data.page(0n, 4n));
     assert.deepEqual(rows.map(row => row.key).sort(compareFor(StringType)), ["carry", "inside", "instant-at-from", "span"]);
     assert.deepEqual(h.requests("runs", `records.${events.name}`).map(request => [request.method, request.query.get("index"), request.query.get("hash")]),
-        [["POST", ex.intervalsByStatusTime.name, R1]], "one request for the runs the searches select");
+        [["POST", "by_status_time", R1]], "one request for the runs the searches select");
     assert.deepEqual([pagesOf(events).length, findsOf(events).length], [0, 1], "no run is paged, and no search asked, on its own");
     runtime.clear();
 });
@@ -581,7 +581,7 @@ test("a window over an interval index is two requests — its searches in one, t
 
 const machines = nx.nestedMachines;
 type Machine = ValueTypeOf<typeof nx.NestedMachine>;
-const machinesBinding = Data.bindPaged(machines, { indexes: [nx.machinesBySiteStatus, nx.machinesInTime] });
+const machinesBinding = Data.bindPaged(machines, { indexes: ["machines_by_site_status", "machines_in_time"] });
 const machinesProgram = East.function([], Expr.type(machinesBinding), $ => $.return(machinesBinding));
 const keyOrder = compareFor(StringType);
 const instantOrder = compareFor(DateTimeType);
@@ -619,11 +619,11 @@ test("beside a nested series index, a window of two hundred machines through ano
     const stored = await h.read(machines);
     const { runtime } = newRuntime();
     const handle = East.compile(machinesProgram, platform(runtime))();
-    assert.deepEqual([handle.joined, handle.defaultIndex], [false, nx.machinesBySiteStatus.name], "never joined; the unfiltered view pages the machines");
-    const window = await h.ready(() => handle.page(nx.machinesBySiteStatus.name, 0n, 200n));
+    assert.deepEqual([handle.joined, handle.defaultIndex], [false, "machines_by_site_status"], "never joined; the unfiltered view pages the machines");
+    const window = await h.ready(() => handle.page("machines_by_site_status", 0n, 200n));
     assert.equal(window.length, nx.MACHINE_COUNT);
     assert.deepEqual(pagesOf(machines).map(request => [request.query.get("index"), request.query.has("join"), request.query.get("limit")]),
-        [[nx.machinesBySiteStatus.name, false, "200"]], "one request through the index, joining none");
+        [["machines_by_site_status", false, "200"]], "one request through the index, joining none");
     const ordered = [...stored].sort(([ka, a], [kb, b]) => keyOrder(a.site, b.site) || keyOrder(a.status, b.status) || keyOrder(ka, kb)).map(([key]) => key);
     assert.deepEqual(window.map(entry => entry.key), ordered, "in the index's order: by site, then state");
     for (const entry of window) {
@@ -632,7 +632,7 @@ test("beside a nested series index, a window of two hundred machines through ano
         assert.ok(entry.row.type === "some" && machineEqual(entry.row.value, lean), `${entry.key} carries its lean row as its row`);
     }
     assert.equal(await h.ready(() => handle.total("primary")), 200n, "counted through the index paging the machines");
-    assert.ok(pagesOf(machines).every(request => request.query.get("index") === nx.machinesBySiteStatus.name && !request.query.has("join")),
+    assert.ok(pagesOf(machines).every(request => request.query.get("index") === "machines_by_site_status" && !request.query.has("join")),
         "no page of the record's own rows");
     runtime.clear();
 });
@@ -645,48 +645,48 @@ test("the nested index's cells — a block of machines' jobs at a level, a ledge
     const R1 = await h.ready(() => handle.revision());
     // Five machines' jobs in the week, a range a machine: each one's 8- and 30-hour jobs; its 40-day one is filed at the quarter.
     const block = ["M-000", "M-001", "M-002", "M-003", "M-004"];
-    const found = await h.ready(() => reads.seekAll(nx.machinesInTime.name,
+    const found = await h.ready(() => reads.seekAll("machines_in_time",
         block.map(row => nestedRange(["jobs"], row, [], variant("items", null), "week", WEEK, NEXT_WEEK))));
-    const entries = await h.ready(() => reads.runsAll(nx.machinesInTime.name, found));
+    const entries = await h.ready(() => reads.runsAll("machines_in_time", found));
     const expected = block.flatMap(row => [...stored.get(row)!.jobs].filter(([id]) => !id.endsWith("-c")).map(([id, job]) => ({ row, id, job })));
-    const entryEqual = equalFor(OptionType(nx.machinesInTime.valueType));
+    const entryEqual = equalFor(OptionType(nx.nestedMachines.indexes.machines_in_time.valueType));
     assert.deepEqual(entries.map(entry => entry.key), expected.map(({ row }) => row));
     for (const [i, { id, job }] of expected.entries()) {
         const entry = entries[i]!;
         const value = entry.value!;
-        assert.ok(isValueOf(value, OptionType(nx.machinesInTime.valueType)) && entryEqual(value as Parameters<typeof entryEqual>[0], some(variant("item", variant("jobs", job)))), `${id} carried whole`);
+        assert.ok(isValueOf(value, OptionType(nx.nestedMachines.indexes.machines_in_time.valueType)) && entryEqual(value as Parameters<typeof entryEqual>[0], some(variant("item", variant("jobs", job)))), `${id} carried whole`);
         assert.deepEqual(entry.row, none, `${id} names its machine, and carries no row`);
     }
     assert.deepEqual(h.requests("find", `records.${machines.name}`).map(request => [request.method, request.query.get("index"), request.query.get("hash"), request.searches.length]),
-        [["POST", nx.machinesInTime.name, R1, block.length]], "every search in one request");
+        [["POST", "machines_in_time", R1, block.length]], "every search in one request");
     assert.deepEqual(h.requests("runs", `records.${machines.name}`).map(request => [request.method, request.query.get("index"), request.query.has("join")]),
-        [["POST", nx.machinesInTime.name, false]], "the runs they select in one more, joining none");
+        [["POST", "machines_in_time", false]], "the runs they select in one more, joining none");
     assert.equal(pagesOf(machines).length, 0, "nothing paged");
     // A ledger's subtotals of its measures' readings over two weeks: each week, the sum of each measure's sum.
-    const ledgers = Data.bindPaged(nx.nestedLedgers, { indexes: [nx.ledgersByName, nx.ledgersInTime] });
+    const ledgers = Data.bindPaged(nx.nestedLedgers, { indexes: ["ledgers_by_name", "ledgers_in_time"] });
     const ledgerReads = recordSliceBatchesOf(East.compile(East.function([], Expr.type(ledgers), $ => $.return(ledgers)), platform(runtime))())!;
     const SUM = variant("subtotals", { fold: variant("sum", null), aggregate: variant("sum", null) });
     const weeks = [WEEK, NEXT_WEEK];
-    const sought = await h.ready(() => ledgerReads.seekAll(nx.ledgersInTime.name,
+    const sought = await h.ready(() => ledgerReads.seekAll("ledgers_in_time",
         [nestedRange(["measures", "readings"], "L-1", [], SUM, "week", WEEK, new Date(NEXT_WEEK.getTime() + 7 * DAY_MS))]));
-    const subtotals = await h.ready(() => ledgerReads.runsAll(nx.ledgersInTime.name, sought));
+    const subtotals = await h.ready(() => ledgerReads.runsAll("ledgers_in_time", sought));
     const ledger = (await h.read(nx.nestedLedgers)).get("L-1")!;
     const sums = weeks.map(week => [...ledger.measures.values()].reduce((sum, measure) => sum + [...measure.readings]
         .filter(([at]) => instantOrder(at, week) >= 0 && at.getTime() < week.getTime() + 7 * DAY_MS).reduce((own, [, reading]) => own + reading, 0), 0));
-    const subtotalEqual = equalFor(OptionType(nx.ledgersInTime.valueType));
+    const subtotalEqual = equalFor(OptionType(nx.nestedLedgers.indexes.ledgers_in_time.valueType));
     assert.equal(subtotals.length, weeks.length, "a subtotal a week");
     for (const [i, entry] of subtotals.entries()) {
         const value = entry.value!;
-        assert.ok(isValueOf(value, OptionType(nx.ledgersInTime.valueType)) && subtotalEqual(value as Parameters<typeof subtotalEqual>[0], some(variant("subtotal", sums[i]!))),
+        assert.ok(isValueOf(value, OptionType(nx.nestedLedgers.indexes.ledgers_in_time.valueType)) && subtotalEqual(value as Parameters<typeof subtotalEqual>[0], some(variant("subtotal", sums[i]!))),
             `the week of ${printInstant(weeks[i]!)}: the measures' sums' sum, ${sums[i]}`);
     }
     // A part's subtree: the jobs of the parts beneath the frame, each by its path below it.
-    const assemblies = Data.bindPaged(nx.nestedAssemblies, { indexes: [nx.assembliesByName, nx.assembliesInTime] });
+    const assemblies = Data.bindPaged(nx.nestedAssemblies, { indexes: ["assemblies_by_name", "assemblies_in_time"] });
     const assemblyReads = recordSliceBatchesOf(East.compile(East.function([], Expr.type(assemblies), $ => $.return(assemblies)), platform(runtime))())!;
-    const beneath = await h.ready(() => assemblyReads.seekAll(nx.assembliesInTime.name,
+    const beneath = await h.ready(() => assemblyReads.seekAll("assemblies_in_time",
         [nestedRange(["parts", "jobs"], "A-1", ["frame"], variant("subtree", null), "week", WEEK, NEXT_WEEK)]));
-    const subtree = await h.ready(() => assemblyReads.runsAll(nx.assembliesInTime.name, beneath));
-    const printKey = printFor(nx.assembliesInTime.keyType);
+    const subtree = await h.ready(() => assemblyReads.runsAll("assemblies_in_time", beneath));
+    const printKey = printFor(nx.nestedAssemblies.indexes.assemblies_in_time.keyType);
     assert.deepEqual(subtree.map(entry => printKey(entry.ik.value as never)), [
         subtreeKey(["motor"], "wind"), subtreeKey(["motor", "rotor"], "turn"),
     ].map(key => printKey(key as never)), "the motor's job and the rotor's, under the frame, by their paths beneath it");
@@ -709,11 +709,11 @@ test("a machine is read whole by its key beside a nested series index, and the n
     const rows = await h.ready(() => reads.rowsAll(["M-007", "M-404"]));
     assert.ok(rows[0]!.type === "some" && machineEqual(rows[0]!.value as Machine, stored.get("M-007")!), "M-007 whole, its collections with it");
     assert.equal(rows[1]!.type, "none", "a key the record does not hold");
-    const refusal = { message: `Data.bindPaged: '${nx.machinesInTime.name}' is a nested series index, whose entries are items, totals and subtotals: a reader reads its cells` };
-    assert.throws(() => handle.page(nx.machinesInTime.name, 0n, 10n), refusal);
-    assert.throws(() => handle.total(nx.machinesInTime.name), refusal);
-    assert.throws(() => reads.placeAll(nx.machinesInTime.name, [{ found: true, row: 0n, count: 1n }]), refusal);
-    assert.throws(() => reads.withinAll(nx.machinesInTime.name, [{ found: true, row: 0n, count: 1n }], []), refusal);
+    const refusal = { message: `Data.bindPaged: '${"machines_in_time"}' is a nested series index, whose entries are items, totals and subtotals: a reader reads its cells` };
+    assert.throws(() => handle.page("machines_in_time", 0n, 10n), refusal);
+    assert.throws(() => handle.total("machines_in_time"), refusal);
+    assert.throws(() => reads.placeAll("machines_in_time", [{ found: true, row: 0n, count: 1n }]), refusal);
+    assert.throws(() => reads.withinAll("machines_in_time", [{ found: true, row: 0n, count: 1n }], []), refusal);
     assert.equal(pagesOf(machines).length, 0, "nothing paged");
     runtime.clear();
 });
@@ -729,7 +729,7 @@ test("a record Slice over the machines carries its binding's index metadata and 
     const indexesEqual = equalFor(Expr.type(machinesBinding).fields.indexes);
     assert.ok(nestedEqual(handle.nested, binding.nested), "the nested part, as the binding gives it");
     assert.ok(indexesEqual(handle.indexes, binding.indexes), "each index's metadata, as the binding gives it");
-    assert.deepEqual(handle.config.indexes.map(index => index.name), [nx.machinesBySiteStatus.name], "the rail plans through no part of the nested index");
+    assert.deepEqual(handle.config.indexes.map(index => index.name), ["machines_by_site_status"], "the rail plans through no part of the nested index");
     const decoded = decodeBeast2For(Sliced, { platform: slicePlatform(runtime) })(encodeBeast2For(Sliced)(handle));
     assert.ok(nestedEqual(decoded.nested, binding.nested) && indexesEqual(decoded.indexes, binding.indexes), "carried through encode and decode");
     const rows = await h.ready(() => handle.data.page(0n, 3n));
@@ -749,7 +749,7 @@ test("a component given the binding as its rows pages its unfiltered view: lean 
     const ordered = [...stored].sort(([ka, a], [kb, b]) => keyOrder(a.site, b.site) || keyOrder(a.status, b.status) || keyOrder(ka, kb)).map(([key]) => key);
     assert.deepEqual(window.map(entry => entry.key), ordered.slice(0, 4), "the default index's order");
     for (const entry of window) assert.ok(entry.row.type === "some" && machineEqual(entry.row.value, leanOf(stored.get(entry.key)!)), `${entry.key} lean`);
-    assert.deepEqual(pagesOf(machines).map(request => [request.query.get("index"), request.query.has("join")]), [[nx.machinesBySiteStatus.name, false]]);
+    assert.deepEqual(pagesOf(machines).map(request => [request.query.get("index"), request.query.has("join")]), [["machines_by_site_status", false]]);
     runtime.clear();
 });
 

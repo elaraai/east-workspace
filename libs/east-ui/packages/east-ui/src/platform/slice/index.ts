@@ -1392,9 +1392,9 @@ export const Slice = {
      *
      * ```ts
      * const slice = $.let(Slice.bindRecords("view.yard", {
-     *     lanes:     { source: Data.bindPaged(bays, { indexes: [baysByArea] }), label: "Bays", icon: { prefix: "fas", name: "warehouse" },
+     *     lanes:     { source: Data.bindPaged(bays, { indexes: ["bays_by_area"] }), label: "Bays", icon: { prefix: "fas", name: "warehouse" },
      *                  fields: { area: { label: "Area" } } },
-     *     resources: { source: Data.bindPaged(kilns, { indexes: [kilnsByGroup] }), fields: { group: { label: "Kiln group" } } },
+     *     resources: { source: Data.bindPaged(kilns, { indexes: ["kilns_by_group"] }), fields: { group: { label: "Kiln group" } } },
      * }, { presets: [{ id: "north", name: "North", where: { lanes: { area: ["North"] } } }] }));
      * ```
      */

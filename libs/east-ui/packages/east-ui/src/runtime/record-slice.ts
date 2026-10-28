@@ -532,7 +532,7 @@ export class RecordSliceController {
         // A prefix searches a plain index's key: a generated one names its leading values as one `on` (#1432).
         const index = recordPlanIndex(this.config.indexes.filter(candidate => !recordIndexGenerated(candidate)), proposal);
         if (index === undefined) {
-            throw new Error(`Searching '${field}' reads a plain index led by it — e3.recordIndex("by_${field}", record, { on: ["${field}"] }), listed in Data.bindPaged's indexes`);
+            throw new Error(`Searching '${field}' reads a plain index led by it — by_${field}: index.on(["${field}"]) among the record's indexes, listed in Data.bindPaged's indexes`);
         }
         const position = index.fields.indexOf(field);
         const leading = new Map([...proposal].filter(([name]) => index.fields.indexOf(name) < position));

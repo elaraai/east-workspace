@@ -37,7 +37,7 @@
  * exactly; what else it chooses is the reader's to ask of the events it draws
  * (`within`).
  *
- * The tiles are e3's, to the millisecond (`e3.recordIndex.series`): a day and
+ * The tiles are e3's, to the millisecond (`index.series`): a day and
  * an ISO week counted in whole milliseconds from the epoch and from the Monday
  * before it, so an instant before 1970 is tiled as one after it; a month, a
  * quarter and a year by the UTC calendar.

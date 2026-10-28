@@ -48,15 +48,17 @@ const PRESSES = new SortedMap<string, Press>([
 const CREWS = new SortedMap([["c1", { name: "Crew 1", hall: "Hall 1" }]], compareFor(StringType));
 
 // Never read: what a paged read of the resources, and an index over them, are refused or built over.
-const pressesRecord = e3.record("plan_spec_presses", Presses, new Map());
-const crewsRecord = e3.record("plan_spec_crews", Crews, new Map());
+const pressesRecord = e3.record("plan_spec_presses", Presses, {
+    initial: new Map(),
+    indexes: (index) => ({
+        plan_spec_presses_by_hall: index.key(East.function([StringType, PressType], StringType, (_$, _key, press) => press.hall)),
+    }),
+});
+const crewsRecord = e3.record("plan_spec_crews", Crews, { initial: new Map() });
 const StopType = sx.SchedulePrintStop;
 const jobsRecord = sx.schedulePrintJobs;
 const stopsRecord = sx.schedulePrintStops;
 const shiftsRecord = sx.schedulePrintShifts;
-const jobsPatch = sx.schedulePrintJobsPatch;
-const stopsPatch = sx.schedulePrintStopsPatch;
-const shiftsPatch = sx.schedulePrintShiftsPatch;
 
 /** A stop's own inspector: its title, and a button that marks it checked through its writer. */
 const stopInspector = East.function([StopType, FunctionType([StopType], NullType)], UIComponentType, ($, stop, update) => {
@@ -151,7 +153,7 @@ describe("Schedule.events — Plan's options refused at build (PB6)", () => {
     function kindOver(record: unknown, options: object): void {
         East.function([], NullType, ($) => {
             const def = record as typeof jobsRecord;
-            const bound = $.let(Record.bind(def, [e3.mutation.patch(def)]));
+            const bound = $.let(Record.bind(def, ["patch"]));
             Schedule.events(bound as never, { name: "Kind", icon: "i", title: "title", ...options } as never);
         });
     }
@@ -237,11 +239,8 @@ describe("Schedule.resources — Plan's options refused at build (PB7)", () => {
             const window = $.let(Data.bindPaged(crewsRecord));
             Schedule.resources(rows, { name: "Presses", icon: "print", label: (p: { name: unknown }) => p.name, window } as never);
         }), /Schedule\.resources: "Presses": `window` is gone — a kind pages when its resources are a paged read: Schedule\.resources\(Data\.bindPaged\(record\), \{ … \}\) in place of Schedule\.resources\(rows, \{ window: Data\.bindPaged\(record\) \}\)$/);
-        const byHall = e3.recordIndex("plan_spec_presses_by_hall", pressesRecord, {
-            key: East.function([StringType, PressType], StringType, (_$, _key, press) => press.hall),
-        });
         assert.throws(() => East.function([], NullType, ($) => {
-            const halls = $.let(Data.bindPaged(pressesRecord, { index: byHall, join: true }));
+            const halls = $.let(Data.bindPaged(pressesRecord, { index: "plan_spec_presses_by_hall", join: true }));
             Schedule.resources(halls as never, { name: "Presses", icon: "print", label: (p: { name: unknown }) => p.name } as never);
         }), /Schedule\.resources: "Presses": a paged kind reads its resources' own entries a window at a time — Data\.bindPaged\(record\) over the resources' record, a Dict — and this read serves an index's window, \.Array/);
     });
@@ -253,9 +252,9 @@ describe("Schedule.resources — Plan's options refused at build (PB7)", () => {
 
 /** Never run: each line marked below must fail to compile, or the build fails on the unused directive. */
 export function planScheduleTypeChecks(): void {
-    const jobs = Record.bind(jobsRecord, [jobsPatch]);
-    const stops = Record.bind(stopsRecord, [stopsPatch]);
-    const shifts = Record.bind(shiftsRecord, [shiftsPatch]);
+    const jobs = Record.bind(jobsRecord, ["patch"]);
+    const stops = Record.bind(stopsRecord, ["patch"]);
+    const shifts = Record.bind(shiftsRecord, ["patch"]);
     const presses = Record.bind(pressesRecord, []).read();
     // Spec §3.3's kinds compile as written.
     Schedule.events(jobs, {

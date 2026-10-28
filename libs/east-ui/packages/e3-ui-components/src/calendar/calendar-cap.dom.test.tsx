@@ -59,8 +59,8 @@ const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
 /** The jobs' record, as e3's requests name it. */
 const JOBS = pathText(ex.planWindowJobs.path as TreePath);
 /** The jobs' interval index and their summary, each press's busy share by month. */
-const BY_TIME = ex.planWindowJobsByTime;
-const SUMMARY = ex.planWindowJobsByPressMonth;
+const BY_TIME = ex.planWindowJobs.indexes.plan_window_jobs_by_time;
+const SUMMARY = ex.planWindowJobs.indexes.plan_window_jobs_by_press_month;
 
 /** Whether a request reads the jobs through one of their indexes. */
 const through = (index: { readonly name: string }) => (request: E3Request) =>
@@ -125,10 +125,10 @@ afterEach(() => {
 /** The jobs on the presses read whole, narrowed through the rail's `job` source over their interval index and their summary, on the timeline at Week. */
 const summaryCalendar = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const entries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("calendar.cap.summary.dom", {
-        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [BY_TIME, SUMMARY] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_month"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     return Calendar({
         slice: { slice },
@@ -149,10 +149,10 @@ const summaryCalendar = { fn: East.function([], UIComponentType, (_$) => Reactiv
 /** The same, the `job` source over the jobs' interval index alone: no summary to shade them. */
 const intervalCalendar = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const entries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("calendar.cap.interval.dom", {
-        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [BY_TIME] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     return Calendar({
         slice: { slice },
@@ -172,7 +172,7 @@ const intervalCalendar = { fn: East.function([], UIComponentType, (_$) => Reacti
 /** The jobs read whole: no rail, the record bound alone. */
 const wholeCalendar = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     return Calendar({
         resources: { presses: Calendar.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
         events: {

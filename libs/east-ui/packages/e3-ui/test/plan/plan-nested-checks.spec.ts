@@ -26,9 +26,9 @@ type PlanSeriesValue = BrandedSeries<"time">;
 type Resolution = "hour" | "day" | "week" | "month" | "auto";
 
 const Machine = ex.NestedMachine;
-const machines = () => Data.bindPaged(ex.nestedMachines, { indexes: [ex.machinesBySiteStatus, ex.machinesInTime] });
-const ledgers = () => Data.bindPaged(ex.nestedLedgers, { indexes: [ex.ledgersByName, ex.ledgersInTime] });
-const assemblies = () => Data.bindPaged(ex.nestedAssemblies, { indexes: [ex.assembliesByName, ex.assembliesInTime] });
+const machines = () => Data.bindPaged(ex.nestedMachines, { indexes: ["machines_by_site_status", "machines_in_time"] });
+const ledgers = () => Data.bindPaged(ex.nestedLedgers, { indexes: ["ledgers_by_name", "ledgers_in_time"] });
+const assemblies = () => Data.bindPaged(ex.nestedAssemblies, { indexes: ["assemblies_by_name", "assemblies_in_time"] });
 
 /** A week axis over October 2026, offering the resolutions given. */
 const axisOf = (resolutions: readonly Resolution[]) => Plan.axis({
@@ -107,7 +107,7 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
             decisions: Plan.items("notes", { at: "at" }, () => ({ applied: false })),
         })], machines,
         'Plan: series "presses" reads "notes", and the rows source\'s nested series index "machines_in_time" does not declare it — declare it: ' +
-            'collections: { notes: e3.recordIndex.series.items({ at: "at" }) }');
+            'collections: { notes: index.nested.items({ at: "at" }) }');
         refusedBoth([Plan.series.span(Machine, {
             key: "presses", title: "Presses", label: (m) => m.name,
             runs: Plan.items("jobs", { from: "planned_start", to: "planned_end" }, (job) => ({ label: job.product, state: "confirmed" })),
@@ -153,7 +153,7 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
     test("refuses a subtotal by a rollup the index does not keep, of values drawn as another number, and at a resolution finer than its tile", () => {
         refusedBoth(ledgerGroup("mean", "mean"), ledgers,
             'Plan: series "readings" subtotals "measures.readings" by mean, and "ledgers_in_time" keeps it by sum — add the rollup: ' +
-            'e3.recordIndex.series.values({ rollup: ["sum", "mean"] }), or subtotal it by sum');
+            'index.nested.values({ rollup: ["sum", "mean"] }), or subtotal it by sum');
         refusedBoth(ledgerGroup("sum", "sum", true), ledgers,
             'Plan: series "readings" subtotals "measures.readings", and its cells draw another number than each value of it — e3 keeps the ' +
             "subtotals of the values as stored: draw value: some(v), and show it another way through format");
@@ -175,11 +175,15 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
         })], assemblies);
         const WorkPart = RecursiveType((self) => StructType({ name: StringType, jobs: DictType(StringType, ex.NestedJob), parts: DictType(StringType, self) }));
         const Work = StructType({ name: StringType, parts: DictType(StringType, WorkPart) });
-        const works = e3.record("checks_works", DictType(StringType, Work), new SortedMap(undefined, compareFor(StringType)));
-        const worksByName = e3.recordIndex("checks_works_by_name", works, { on: ["name"] });
-        const worksInTime = e3.recordIndex.series("checks_works_in_time", works, {
-            collections: { parts: e3.recordIndex.series.rows({ jobs: e3.recordIndex.series.items({ from: "start", to: "end" }), parts: e3.recordIndex.series.recursive() }) },
-            tile: "week", summary: "month",
+        const works = e3.record("checks_works", DictType(StringType, Work), {
+            initial: new SortedMap(undefined, compareFor(StringType)),
+            indexes: (index) => ({
+                checks_works_by_name: index.on(["name"]),
+                checks_works_in_time: index.nested({
+                    collections: { parts: index.nested.rows({ jobs: index.nested.items({ from: "start", to: "end" }), parts: index.nested.recursive() }) },
+                    tile: "week", summary: "month",
+                }),
+            }),
         });
         refusedBoth([Plan.series.group(Work, {
             key: "works", title: "Works", label: (w) => w.name,
@@ -187,9 +191,9 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
                 key: "parts", title: "Parts", label: (p) => p.name, children: "parts", rollup: "union",
                 runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: "confirmed" })),
             })]),
-        })], () => Data.bindPaged(works, { indexes: [worksByName, worksInTime] }),
+        })], () => Data.bindPaged(works, { indexes: ["checks_works_by_name", "checks_works_in_time"] }),
         'Plan: series "parts" rolls its children\'s runs up by union, and "checks_works_in_time" files "parts.jobs" under no parent — declare it ' +
-            'e3.recordIndex.series.items({ from: "start", to: "end" }, { rollup: true })');
+            'index.nested.items({ from: "start", to: "end" }, { rollup: true })');
     });
 
     /** The machines' jobs by their times. */
@@ -199,25 +203,33 @@ describe("A Plan over paged rows, held to their nested series index as it is bui
     })];
 
     test("refuses a function mapping a collection, a read by name where the rows source lists no nested series index, and an index keeping no totals", () => {
-        const plain = e3.record("checks_plain_machines", ex.NestedMachines, new SortedMap(undefined, compareFor(StringType)));
-        const plainByName = e3.recordIndex("checks_plain_by_name", plain, { on: ["name"] });
+        const plain = e3.record("checks_plain_machines", ex.NestedMachines, {
+            initial: new SortedMap(undefined, compareFor(StringType)),
+            indexes: (index) => ({
+                checks_plain_by_name: index.on(["name"]),
+            }),
+        });
         refusedBoth([Plan.series.span(Machine, {
             key: "presses", title: "Presses", label: (m) => m.name,
             runs: (m) => m.jobs.toArray((_$, job, id) => Plan.run({ key: id, start: job.start, end: job.end, label: job.product, state: variant("confirmed", null) })),
-        })], () => Data.bindPaged(plain, { indexes: [plainByName] }),
+        })], () => Data.bindPaged(plain, { indexes: ["checks_plain_by_name"] }),
         'Plan: series "presses" reads "jobs" in a function (runs), and its rows are paged — a row\'s collections are read a cell at a time: give ' +
-            'runs as Plan.items("jobs", { from, to }, (item) => ({ … })), and declare e3.recordIndex.series(name, record, { collections: { jobs: ' +
-            "e3.recordIndex.series.items({ from, to }) }, tile, summary }) and list it in Data.bindPaged(record, { indexes })");
-        refusedBoth(jobsSpan(), () => Data.bindPaged(plain, { indexes: [plainByName] }),
+            'runs as Plan.items("jobs", { from, to }, (item) => ({ … })), and declare index.nested({ collections: { jobs: ' +
+            "index.nested.items({ from, to }) }, tile, summary }) and list it in Data.bindPaged(record, { indexes })");
+        refusedBoth(jobsSpan(), () => Data.bindPaged(plain, { indexes: ["checks_plain_by_name"] }),
             'Plan: series "presses" reads "jobs" a cell at a time, and the rows source lists no nested series index — declare ' +
-            'e3.recordIndex.series(name, record, { collections: { jobs: e3.recordIndex.series.items({ from: "start", to: "end" }) }, tile, summary }) ' +
+            'index.nested({ collections: { jobs: index.nested.items({ from: "start", to: "end" }) }, tile, summary }) ' +
             "and list it in Data.bindPaged(record, { indexes })");
-        const untotalled = e3.record("checks_untotalled", ex.NestedMachines, new SortedMap(undefined, compareFor(StringType)));
-        const untotalledByName = e3.recordIndex("checks_untotalled_by_name", untotalled, { on: ["name"] });
-        const untotalledInTime = e3.recordIndex.series("checks_untotalled_in_time", untotalled, {
-            collections: { jobs: e3.recordIndex.series.items({ from: "start", to: "end" }) }, tile: "week",
+        const untotalled = e3.record("checks_untotalled", ex.NestedMachines, {
+            initial: new SortedMap(undefined, compareFor(StringType)),
+            indexes: (index) => ({
+                checks_untotalled_by_name: index.on(["name"]),
+                checks_untotalled_in_time: index.nested({
+                    collections: { jobs: index.nested.items({ from: "start", to: "end" }) }, tile: "week",
+                }),
+            }),
         });
-        refusedBoth(jobsSpan(), () => Data.bindPaged(untotalled, { indexes: [untotalledByName, untotalledInTime] }),
+        refusedBoth(jobsSpan(), () => Data.bindPaged(untotalled, { indexes: ["checks_untotalled_by_name", "checks_untotalled_in_time"] }),
             'Plan: "checks_untotalled_in_time" keeps no totals — the Plan draws a view\'s items while they number 10,000 or fewer, and the ' +
             'totals\' shading past that: declare summary: "month"');
     });

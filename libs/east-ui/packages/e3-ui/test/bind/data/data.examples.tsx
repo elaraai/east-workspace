@@ -162,39 +162,40 @@ export const WorkQueueKey = StructType({ status: StringType, due: DateTimeType }
  * workspace holds, and deploy builds its index over it. The ids run in the
  * order the orders were raised, which is nothing like the order they are due.
  */
-export const workOrders = e3.record('work_orders', DictType(StringType, WorkOrderRow), new Map([
-    ["WO-1001", { site: "North", title: "Replace kiln 2 burner",       crew: "Mech A", status: "planned", due: new Date("2026-10-19T00:00:00Z") }],
-    ["WO-1002", { site: "North", title: "Calibrate belt scale 4",      crew: "Inst",   status: "late",    due: new Date("2026-09-15T00:00:00Z") }],
-    ["WO-1003", { site: "South", title: "Reline crusher jaw",          crew: "Mech B", status: "open",    due: new Date("2026-09-25T00:00:00Z") }],
-    ["WO-1004", { site: "South", title: "Grease stacker bearings",     crew: "Mech B", status: "open",    due: new Date("2026-09-24T00:00:00Z") }],
-    ["WO-1005", { site: "Port",  title: "Inspect shiploader boom",     crew: "Struct", status: "late",    due: new Date("2026-09-18T00:00:00Z") }],
-    ["WO-1006", { site: "North", title: "Swap conveyor 7 idlers",      crew: "Mech A", status: "open",    due: new Date("2026-09-29T00:00:00Z") }],
-    ["WO-1007", { site: "Port",  title: "Test dust suppression pumps", crew: "Elec",   status: "planned", due: new Date("2026-10-06T00:00:00Z") }],
-    ["WO-1008", { site: "South", title: "Replace screen deck panels",  crew: "Mech B", status: "late",    due: new Date("2026-09-11T00:00:00Z") }],
-    ["WO-1009", { site: "North", title: "Thermal scan MCC room",       crew: "Elec",   status: "open",    due: new Date("2026-09-26T00:00:00Z") }],
-    ["WO-1010", { site: "Port",  title: "Rebuild reclaimer gearbox",   crew: "Mech A", status: "planned", due: new Date("2026-10-26T00:00:00Z") }],
-    ["WO-1011", { site: "South", title: "Align apron feeder",          crew: "Mech B", status: "open",    due: new Date("2026-10-01T00:00:00Z") }],
-    ["WO-1012", { site: "North", title: "Service compressor 2",        crew: "Mech A", status: "late",    due: new Date("2026-09-21T00:00:00Z") }],
-    ["WO-1013", { site: "Port",  title: "Weld chute liner",            crew: "Struct", status: "open",    due: new Date("2026-09-30T00:00:00Z") }],
-    ["WO-1014", { site: "South", title: "Replace pump 3 impeller",     crew: "Mech B", status: "planned", due: new Date("2026-10-09T00:00:00Z") }],
-    ["WO-1015", { site: "North", title: "Relamp stockpile towers",     crew: "Elec",   status: "planned", due: new Date("2026-10-13T00:00:00Z") }],
-    ["WO-1016", { site: "Port",  title: "Tension berth 2 belt",        crew: "Mech A", status: "open",    due: new Date("2026-09-24T00:00:00Z") }],
-    ["WO-1017", { site: "South", title: "Inspect tailings line",       crew: "Struct", status: "late",    due: new Date("2026-09-22T00:00:00Z") }],
-    ["WO-1018", { site: "North", title: "Change kiln 1 seals",         crew: "Mech A", status: "planned", due: new Date("2026-11-02T00:00:00Z") }],
-]));
-
-/**
- * The dispatch queue — every work order under `{status, due}`, carrying its
- * title so the queue renders from index pages alone and never reads an
- * order's row.
- */
-export const workQueue = e3.recordIndex('by_status', workOrders, {
-    key:   East.function([StringType, WorkOrderRow], WorkQueueKey, ($, _id, order) => ({ status: order.status, due: order.due })),
-    value: East.function([StringType, WorkOrderRow], StringType, ($, _id, order) => order.title),
+export const workOrders = e3.record('work_orders', DictType(StringType, WorkOrderRow), {
+    initial: new Map([
+        ["WO-1001", { site: "North", title: "Replace kiln 2 burner",       crew: "Mech A", status: "planned", due: new Date("2026-10-19T00:00:00Z") }],
+        ["WO-1002", { site: "North", title: "Calibrate belt scale 4",      crew: "Inst",   status: "late",    due: new Date("2026-09-15T00:00:00Z") }],
+        ["WO-1003", { site: "South", title: "Reline crusher jaw",          crew: "Mech B", status: "open",    due: new Date("2026-09-25T00:00:00Z") }],
+        ["WO-1004", { site: "South", title: "Grease stacker bearings",     crew: "Mech B", status: "open",    due: new Date("2026-09-24T00:00:00Z") }],
+        ["WO-1005", { site: "Port",  title: "Inspect shiploader boom",     crew: "Struct", status: "late",    due: new Date("2026-09-18T00:00:00Z") }],
+        ["WO-1006", { site: "North", title: "Swap conveyor 7 idlers",      crew: "Mech A", status: "open",    due: new Date("2026-09-29T00:00:00Z") }],
+        ["WO-1007", { site: "Port",  title: "Test dust suppression pumps", crew: "Elec",   status: "planned", due: new Date("2026-10-06T00:00:00Z") }],
+        ["WO-1008", { site: "South", title: "Replace screen deck panels",  crew: "Mech B", status: "late",    due: new Date("2026-09-11T00:00:00Z") }],
+        ["WO-1009", { site: "North", title: "Thermal scan MCC room",       crew: "Elec",   status: "open",    due: new Date("2026-09-26T00:00:00Z") }],
+        ["WO-1010", { site: "Port",  title: "Rebuild reclaimer gearbox",   crew: "Mech A", status: "planned", due: new Date("2026-10-26T00:00:00Z") }],
+        ["WO-1011", { site: "South", title: "Align apron feeder",          crew: "Mech B", status: "open",    due: new Date("2026-10-01T00:00:00Z") }],
+        ["WO-1012", { site: "North", title: "Service compressor 2",        crew: "Mech A", status: "late",    due: new Date("2026-09-21T00:00:00Z") }],
+        ["WO-1013", { site: "Port",  title: "Weld chute liner",            crew: "Struct", status: "open",    due: new Date("2026-09-30T00:00:00Z") }],
+        ["WO-1014", { site: "South", title: "Replace pump 3 impeller",     crew: "Mech B", status: "planned", due: new Date("2026-10-09T00:00:00Z") }],
+        ["WO-1015", { site: "North", title: "Relamp stockpile towers",     crew: "Elec",   status: "planned", due: new Date("2026-10-13T00:00:00Z") }],
+        ["WO-1016", { site: "Port",  title: "Tension berth 2 belt",        crew: "Mech A", status: "open",    due: new Date("2026-09-24T00:00:00Z") }],
+        ["WO-1017", { site: "South", title: "Inspect tailings line",       crew: "Struct", status: "late",    due: new Date("2026-09-22T00:00:00Z") }],
+        ["WO-1018", { site: "North", title: "Change kiln 1 seals",         crew: "Mech A", status: "planned", due: new Date("2026-11-02T00:00:00Z") }],
+    ]),
+    indexes: (index) => ({
+        // The dispatch queue — every work order under `{status, due}`, carrying its
+        // title so the queue renders from index pages alone and never reads an
+        // order's row.
+        by_status: index.key(East.function([StringType, WorkOrderRow], WorkQueueKey, ($, _id, order) => ({ status: order.status, due: order.due })), { value: East.function([StringType, WorkOrderRow], StringType, ($, _id, order) => order.title) }),
+    }),
+    mutations: (mutation) => ({
+        // The work orders' patch door: another session's change to an order commits through it, and moves the queue with it.
+        patch: mutation.patch(),
+    }),
 });
 
-/** The work orders' patch door: another session's change to an order commits through it, and moves the queue with it. */
-export const workOrdersPatch = e3.mutation.patch(workOrders);
+
 
 export const dataBindFloat = example({
     keywords: ["Data", "bind", "Reactive", "Float", "dataset", "read"],
@@ -449,15 +450,15 @@ export const dataBindPagedRevision = example({
 
 export const dataBindPagedIndex = example({
     keywords: [
-        "Data", "bindPaged", "index", "recordIndex", "record", "secondary index", "queue", "ordered",
+        "Data", "bindPaged", "index", "indexes", "record", "secondary index", "queue", "ordered",
         "window", "covering", "projection", "ik", "key", "value", "row", "join", "Table", "paged", "by_status",
     ],
-    description: "Read a record THROUGH one of its indexes — `Data.bindPaged(workOrders, { index: workQueue })` serves the INDEX's pages in the index's own order, so the dispatch queue arrives late-first and by due date within each status, whatever the work orders' ids are. Each row is `{ ik, key, value, row }`: the index key, the order's id, and the title the index covers — so the Table renders from index pages alone and reads no order's row (`join: true` would fill `row` from the record too)",
+    description: "Read a record THROUGH one of its indexes — `Data.bindPaged(workOrders, { index: \"by_status\" })` serves the INDEX's pages in the index's own order, so the dispatch queue arrives late-first and by due date within each status, whatever the work orders' ids are. Each row is `{ ik, key, value, row }`: the index key, the order's id, and the title the index covers — so the Table renders from index pages alone and reads no order's row (`join: true` would fill `row` from the record too)",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
-            // Pass the index DECLARATION, not its name: the window's type —
-            // its key and what it covers — comes from it.
-            const queue = $.let(Data.bindPaged(workOrders, { index: workQueue }));
+            // Name one of the record's indexes: the window's type — its key
+            // and what it covers — comes from the index's declaration.
+            const queue = $.let(Data.bindPaged(workOrders, { index: "by_status" }));
             return <Table data={queue} columns={{
                 ik:    { header: "Due", value: (ik) => East.str`${ik.status} · ${ik.due.printFormatted("ddd D MMM")}` },
                 value: { header: "Work order" },
@@ -753,7 +754,7 @@ export const previewCountsView = ui('preview_counts_view', [previewCountsInput],
 /** A ui task over the work orders, their queue read a window at a time beside the commits of their record, which is never read whole. */
 export const previewOrdersView = ui('preview_orders_view', [], East.function([], UIComponentType, (_$) => (
     <Reactive>{$ => {
-        const orders = $.let(Data.bindPaged(workOrders, { index: workQueue }));
+        const orders = $.let(Data.bindPaged(workOrders, { index: "by_status" }));
         const record = $.let(Record.bind(workOrders, []));
         const commits = $.let(record.history().match({
             some: (_$2, history) => history.size(),
@@ -778,14 +779,20 @@ export const previewOrdersView = ui('preview_orders_view', [], East.function([],
 /** A person and the skills they hold: a Set field, which an index lists once under each skill. */
 export const IndexedPerson = StructType({ name: StringType, skills: SetType(StringType) });
 /** People by key: Ada and Amy share skill `b`, and Abe holds none, so the skills index lists him nowhere. */
-export const indexedPeople = e3.record('indexed_people', DictType(StringType, IndexedPerson), new Map([
-    ["p1", { name: "Ada", skills: new Set(["a", "b"]) }],
-    ["p2", { name: "Abe", skills: new Set<string>() }],
-    ["p3", { name: "Amy", skills: new Set(["b"]) }],
-]));
-export const indexedPeoplePatch = e3.mutation.patch(indexedPeople);
-export const peopleByName = e3.recordIndex('by_name', indexedPeople, { on: ["name"] });
-export const peopleBySkill = e3.recordIndex('by_skill', indexedPeople, { on: ["skills"] });
+export const indexedPeople = e3.record('indexed_people', DictType(StringType, IndexedPerson), {
+    initial: new Map([
+        ["p1", { name: "Ada", skills: new Set(["a", "b"]) }],
+        ["p2", { name: "Abe", skills: new Set<string>() }],
+        ["p3", { name: "Amy", skills: new Set(["b"]) }],
+    ]),
+    indexes: (index) => ({
+        by_name: index.on(["name"]),
+        by_skill: index.on(["skills"]),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 /** An event of a status over a span of time: no end is an instant, and no start the backlog. */
 export const IntervalEvent = StructType({ status: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
@@ -795,22 +802,28 @@ export const IntervalEvent = StructType({ status: StringType, start: OptionType(
  * it ends, an instant at each of its bounds, one cancelled and one in the
  * backlog — what an overlap with `[2 Oct, 3 Oct)` takes and what it leaves.
  */
-export const indexedIntervals = e3.record('indexed_intervals', DictType(StringType, IntervalEvent), new Map([
-    ["backlog",         { status: "Ready",     start: none, end: none }],
-    ["carry",           { status: "Ready",     start: some(new Date("2026-10-01T22:00:00Z")), end: some(new Date("2026-10-02T06:00:00Z")) }],
-    ["span",            { status: "Ready",     start: some(new Date("2025-01-01T00:00:00Z")), end: some(new Date("2027-01-01T00:00:00Z")) }],
-    ["inside",          { status: "Ready",     start: some(new Date("2026-10-02T10:00:00Z")), end: some(new Date("2026-10-02T11:00:00Z")) }],
-    ["ends-at-from",    { status: "Ready",     start: some(new Date("2026-10-01T12:00:00Z")), end: some(new Date("2026-10-02T00:00:00Z")) }],
-    ["starts-at-to",    { status: "Ready",     start: some(new Date("2026-10-03T00:00:00Z")), end: some(new Date("2026-10-03T01:00:00Z")) }],
-    ["instant-at-from", { status: "Ready",     start: some(new Date("2026-10-02T00:00:00Z")), end: none }],
-    ["instant-at-to",   { status: "Ready",     start: some(new Date("2026-10-03T00:00:00Z")), end: none }],
-    ["cancelled",       { status: "Cancelled", start: some(new Date("2026-01-01T00:00:00Z")), end: some(new Date("2027-01-01T00:00:00Z")) }],
-]));
-export const indexedIntervalsPatch = e3.mutation.patch(indexedIntervals);
-// The start alone is listed first: a declared overlap must never be read as a start range because its index came first.
-export const intervalsByStart = e3.recordIndex('by_start', indexedIntervals, { on: ["start"] });
-export const intervalsByStatusTime = e3.recordIndex.interval('by_status_time', indexedIntervals, { on: ["status"], from: "start", to: "end" });
-export const intervalsByTime = e3.recordIndex.interval('by_time', indexedIntervals, { from: "start", to: "end" });
+export const indexedIntervals = e3.record('indexed_intervals', DictType(StringType, IntervalEvent), {
+    initial: new Map([
+        ["backlog",         { status: "Ready",     start: none, end: none }],
+        ["carry",           { status: "Ready",     start: some(new Date("2026-10-01T22:00:00Z")), end: some(new Date("2026-10-02T06:00:00Z")) }],
+        ["span",            { status: "Ready",     start: some(new Date("2025-01-01T00:00:00Z")), end: some(new Date("2027-01-01T00:00:00Z")) }],
+        ["inside",          { status: "Ready",     start: some(new Date("2026-10-02T10:00:00Z")), end: some(new Date("2026-10-02T11:00:00Z")) }],
+        ["ends-at-from",    { status: "Ready",     start: some(new Date("2026-10-01T12:00:00Z")), end: some(new Date("2026-10-02T00:00:00Z")) }],
+        ["starts-at-to",    { status: "Ready",     start: some(new Date("2026-10-03T00:00:00Z")), end: some(new Date("2026-10-03T01:00:00Z")) }],
+        ["instant-at-from", { status: "Ready",     start: some(new Date("2026-10-02T00:00:00Z")), end: none }],
+        ["instant-at-to",   { status: "Ready",     start: some(new Date("2026-10-03T00:00:00Z")), end: none }],
+        ["cancelled",       { status: "Cancelled", start: some(new Date("2026-01-01T00:00:00Z")), end: some(new Date("2027-01-01T00:00:00Z")) }],
+    ]),
+    indexes: (index) => ({
+        // The start alone is listed first: a declared overlap must never be read as a start range because its index came first.
+        by_start: index.on(["start"]),
+        by_status_time: index.interval({ on: ["status"], from: "start", to: "end" }),
+        by_time: index.interval({ from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 /** A rack on a data centre floor, in metres: its hall, where it stands — by its centre — if anywhere yet, and its footprint. */
 export const IndexedRack = StructType({ hall: StringType, x: OptionType(FloatType), y: OptionType(FloatType), w: FloatType, h: FloatType });
@@ -819,19 +832,25 @@ export const IndexedRack = StructType({ hall: StringType, x: OptionType(FloatTyp
  * aisle, one in hall B far down the floor, and one in hall A not yet placed —
  * what a window over the row takes, what its margin takes, and what it leaves.
  */
-export const indexedRacks = e3.record('indexed_racks', DictType(StringType, IndexedRack), new Map([
-    ["r1",       { hall: "A", x: some(1.0),  y: some(1.0),  w: 0.6, h: 1.2 }],
-    ["r2",       { hall: "A", x: some(2.0),  y: some(1.0),  w: 0.6, h: 1.2 }],
-    ["r3",       { hall: "A", x: some(3.0),  y: some(1.0),  w: 0.6, h: 1.2 }],
-    ["r4",       { hall: "B", x: some(2.0),  y: some(3.5),  w: 0.6, h: 1.2 }],
-    ["far",      { hall: "B", x: some(40.0), y: some(40.0), w: 0.6, h: 1.2 }],
-    ["unplaced", { hall: "A", x: none,       y: none,       w: 0.6, h: 1.2 }],
-]));
-export const indexedRacksPatch = e3.mutation.patch(indexedRacks);
-// The window whatever the rail chooses, and beside it a choice of halls and the window in one read; both carry their rows.
-export const racksByArea = e3.recordIndex.area('racks_by_area', indexedRacks, { x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 });
-export const racksByHallArea = e3.recordIndex.area('racks_by_hall_area', indexedRacks, { on: ["hall"], x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 });
-export const racksByHall = e3.recordIndex('racks_by_hall', indexedRacks, { on: ["hall"] });
+export const indexedRacks = e3.record('indexed_racks', DictType(StringType, IndexedRack), {
+    initial: new Map([
+        ["r1",       { hall: "A", x: some(1.0),  y: some(1.0),  w: 0.6, h: 1.2 }],
+        ["r2",       { hall: "A", x: some(2.0),  y: some(1.0),  w: 0.6, h: 1.2 }],
+        ["r3",       { hall: "A", x: some(3.0),  y: some(1.0),  w: 0.6, h: 1.2 }],
+        ["r4",       { hall: "B", x: some(2.0),  y: some(3.5),  w: 0.6, h: 1.2 }],
+        ["far",      { hall: "B", x: some(40.0), y: some(40.0), w: 0.6, h: 1.2 }],
+        ["unplaced", { hall: "A", x: none,       y: none,       w: 0.6, h: 1.2 }],
+    ]),
+    indexes: (index) => ({
+        // The window whatever the rail chooses, and beside it a choice of halls and the window in one read; both carry their rows.
+        racks_by_area: index.area({ x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 }),
+        racks_by_hall_area: index.area({ on: ["hall"], x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 }),
+        racks_by_hall: index.on(["hall"]),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 /**
  * A rack whose fields are named as e3's own parts of a generated key once were
@@ -847,21 +866,27 @@ export const NamedRack = StructType({
  * corner, one far down it — one by C and one in A2 inside it, and one in A1 by
  * B not yet placed.
  */
-export const namedRacks = e3.record('named_racks', DictType(StringType, NamedRack), new Map([
-    ["n1",       { area: "A1", __area: "B", tile: "T1", __tile: "U1", x: some(1.0),   y: some(1.0) }],
-    ["n2",       { area: "A1", __area: "B", tile: "T2", __tile: "U1", x: some(100.0), y: some(100.0) }],
-    ["n3",       { area: "A1", __area: "C", tile: "T1", __tile: "U2", x: some(1.5),   y: some(1.5) }],
-    ["n4",       { area: "A2", __area: "B", tile: "T1", __tile: "U2", x: some(2.0),   y: some(2.0) }],
-    ["unplaced", { area: "A1", __area: "B", tile: "T2", __tile: "U1", x: none,        y: none }],
-]));
-export const namedRacksPatch = e3.mutation.patch(namedRacks);
-// Each field leads a plain index; the window is read whatever the rail chooses, or beside a choice of `area` and `__area`.
-export const namedByArea = e3.recordIndex('named_by_area', namedRacks, { on: ["area"] });
-export const namedByUnderArea = e3.recordIndex('named_by_under_area', namedRacks, { on: ["__area"] });
-export const namedByTile = e3.recordIndex('named_by_tile', namedRacks, { on: ["tile"] });
-export const namedByUnderTile = e3.recordIndex('named_by_under_tile', namedRacks, { on: ["__tile"] });
-export const namedByPlace = e3.recordIndex.area('named_by_place', namedRacks, { x: "x", y: "y", cell: 1 });
-export const namedByAreaPlace = e3.recordIndex.area('named_by_area_place', namedRacks, { on: ["area", "__area"], x: "x", y: "y", cell: 1 });
+export const namedRacks = e3.record('named_racks', DictType(StringType, NamedRack), {
+    initial: new Map([
+        ["n1",       { area: "A1", __area: "B", tile: "T1", __tile: "U1", x: some(1.0),   y: some(1.0) }],
+        ["n2",       { area: "A1", __area: "B", tile: "T2", __tile: "U1", x: some(100.0), y: some(100.0) }],
+        ["n3",       { area: "A1", __area: "C", tile: "T1", __tile: "U2", x: some(1.5),   y: some(1.5) }],
+        ["n4",       { area: "A2", __area: "B", tile: "T1", __tile: "U2", x: some(2.0),   y: some(2.0) }],
+        ["unplaced", { area: "A1", __area: "B", tile: "T2", __tile: "U1", x: none,        y: none }],
+    ]),
+    indexes: (index) => ({
+        // Each field leads a plain index; the window is read whatever the rail chooses, or beside a choice of `area` and `__area`.
+        named_by_area: index.on(["area"]),
+        named_by_under_area: index.on(["__area"]),
+        named_by_tile: index.on(["tile"]),
+        named_by_under_tile: index.on(["__tile"]),
+        named_by_place: index.area({ x: "x", y: "y", cell: 1 }),
+        named_by_area_place: index.area({ on: ["area", "__area"], x: "x", y: "y", cell: 1 }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 /** A rack's load: what its card's figure and its dot draw. */
 export const IndexedRackLoad = StructType({ kw: FloatType, alarm: StringType });
@@ -872,14 +897,18 @@ export const IndexedRackLoad = StructType({ kw: FloatType, alarm: StringType });
  * racks read their details by, through the runs the area index files them in
  * (#1393).
  */
-export const indexedRackLoads = e3.record('indexed_rack_loads', DictType(StringType, IndexedRackLoad), new Map([
-    ["far",    { kw: 1.0,  alarm: "ok" }],
-    ["gone",   { kw: 2.0,  alarm: "ok" }],
-    ["r1",     { kw: 4.2,  alarm: "ok" }],
-    ["r2",     { kw: 9.9,  alarm: "warm" }],
-    ["r4",     { kw: 11.1, alarm: "hot" }],
-]));
-export const indexedRackLoadsPatch = e3.mutation.patch(indexedRackLoads);
+export const indexedRackLoads = e3.record('indexed_rack_loads', DictType(StringType, IndexedRackLoad), {
+    initial: new Map([
+        ["far",    { kw: 1.0,  alarm: "ok" }],
+        ["gone",   { kw: 2.0,  alarm: "ok" }],
+        ["r1",     { kw: 4.2,  alarm: "ok" }],
+        ["r2",     { kw: 9.9,  alarm: "warm" }],
+        ["r4",     { kw: 11.1, alarm: "hot" }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 /** A print job: the press it runs on, if any yet, its state, and when it runs, if it is scheduled. */
 export const IndexedJob = StructType({ press: OptionType(StringType), state: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
@@ -890,61 +919,59 @@ export const IndexedJob = StructType({ press: OptionType(StringType), state: Str
  * one in the backlog — what a cell of some presses in a week holds, and what a
  * month's totals count (#1039).
  */
-export const indexedJobs = e3.record('indexed_jobs', DictType(StringType, IndexedJob), new Map([
-    ["carry",   { press: some("P-1"), state: "running", start: some(new Date("2026-10-02T20:00:00Z")), end: some(new Date("2026-10-05T04:00:00Z")) }],
-    ["across",  { press: some("P-1"), state: "planned", start: some(new Date("2026-10-11T18:00:00Z")), end: some(new Date("2026-10-12T06:00:00Z")) }],
-    ["month",   { press: some("P-2"), state: "planned", start: some(new Date("2026-10-01T00:00:00Z")), end: some(new Date("2026-11-01T00:00:00Z")) }],
-    ["inside",  { press: some("P-2"), state: "running", start: some(new Date("2026-10-06T08:00:00Z")), end: some(new Date("2026-10-06T16:00:00Z")) }],
-    ["late",    { press: some("P-3"), state: "late",    start: some(new Date("2026-10-07T09:00:00Z")), end: some(new Date("2026-10-07T12:00:00Z")) }],
-    ["instant", { press: some("P-3"), state: "late",    start: some(new Date("2026-10-05T00:00:00Z")), end: none }],
-    ["unpressed", { press: none,      state: "planned", start: some(new Date("2026-10-06T00:00:00Z")), end: some(new Date("2026-10-06T02:00:00Z")) }],
-    ["backlog", { press: some("P-1"), state: "planned", start: none, end: none }],
-]));
-export const indexedJobsPatch = e3.mutation.patch(indexedJobs);
-// The jobs a window overlaps, by state or not; their cells, some presses in a week, by state or not; and their totals,
-// a press in a month.
-export const jobsByTime = e3.recordIndex.interval('jobs_by_time', indexedJobs, { from: "start", to: "end" });
-export const jobsByStateTime = e3.recordIndex.interval('jobs_by_state_time', indexedJobs, { on: ["state"], from: "start", to: "end" });
-export const jobsByPressWeek = e3.recordIndex.series('jobs_by_press_week', indexedJobs, { key: "press", from: "start", to: "end", tile: "week" });
-export const jobsByStatePressWeek = e3.recordIndex.series('jobs_by_state_press_week', indexedJobs, { on: ["state"], key: "press", from: "start", to: "end", tile: "week" });
-export const jobsByPressMonth = e3.recordIndex.summary('jobs_by_press_month', indexedJobs, { key: "press", from: "start", to: "end", tile: "month" });
+export const indexedJobs = e3.record('indexed_jobs', DictType(StringType, IndexedJob), {
+    initial: new Map([
+        ["carry",   { press: some("P-1"), state: "running", start: some(new Date("2026-10-02T20:00:00Z")), end: some(new Date("2026-10-05T04:00:00Z")) }],
+        ["across",  { press: some("P-1"), state: "planned", start: some(new Date("2026-10-11T18:00:00Z")), end: some(new Date("2026-10-12T06:00:00Z")) }],
+        ["month",   { press: some("P-2"), state: "planned", start: some(new Date("2026-10-01T00:00:00Z")), end: some(new Date("2026-11-01T00:00:00Z")) }],
+        ["inside",  { press: some("P-2"), state: "running", start: some(new Date("2026-10-06T08:00:00Z")), end: some(new Date("2026-10-06T16:00:00Z")) }],
+        ["late",    { press: some("P-3"), state: "late",    start: some(new Date("2026-10-07T09:00:00Z")), end: some(new Date("2026-10-07T12:00:00Z")) }],
+        ["instant", { press: some("P-3"), state: "late",    start: some(new Date("2026-10-05T00:00:00Z")), end: none }],
+        ["unpressed", { press: none,      state: "planned", start: some(new Date("2026-10-06T00:00:00Z")), end: some(new Date("2026-10-06T02:00:00Z")) }],
+        ["backlog", { press: some("P-1"), state: "planned", start: none, end: none }],
+    ]),
+    indexes: (index) => ({
+        // The jobs a window overlaps, by state or not; their cells, some presses in a week, by state or not; and their totals,
+        // a press in a month.
+        jobs_by_time: index.interval({ from: "start", to: "end" }),
+        jobs_by_state_time: index.interval({ on: ["state"], from: "start", to: "end" }),
+        jobs_by_press_week: index.series({ key: "press", from: "start", to: "end", tile: "week" }),
+        jobs_by_state_press_week: index.series({ on: ["state"], key: "press", from: "start", to: "end", tile: "week" }),
+        jobs_by_press_month: index.summary({ key: "press", from: "start", to: "end", tile: "month" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 /** A step of a flow: its lane, and who owns it, if anyone. */
 export const ComputedStep = StructType({ lane: StringType, owner: OptionType(StringType) });
 /** A flow: what it is, and its steps. */
 export const ComputedFlow = StructType({ description: StringType, states: ArrayType(ComputedStep) });
 /** Flows whose indexes are computed from their steps: `a` has two steps in one lane, `c` a step no one owns, and `d` none at all. */
-export const computedFlows = e3.record('computed_flows', DictType(StringType, ComputedFlow), new Map([
-    ["a", { description: "Inbound", states: [{ lane: "load", owner: some("team-a") }, { lane: "load", owner: some("team-a") }, { lane: "review", owner: none }] }],
-    ["b", { description: "Inbound", states: [{ lane: "load", owner: some("team-b") }] }],
-    ["c", { description: "Returns", states: [{ lane: "review", owner: none }] }],
-    ["d", { description: "Empty",   states: [] }],
-]));
-export const computedFlowsPatch = e3.mutation.patch(computedFlows);
-export const computedByDescription = e3.recordIndex('description', computedFlows, { on: ["description"] });
-export const computedByStateCount = e3.recordIndex('state_count', computedFlows, {
-    key: East.function([StringType, ComputedFlow], StructType({ stateCount: IntegerType }), (_$, _id, flow) => ({ stateCount: flow.states.size() })),
-});
-export const computedByDescriptionCount = e3.recordIndex('description_count', computedFlows, {
-    key: East.function([StringType, ComputedFlow], StructType({ description: StringType, stateCount: IntegerType }),
-        (_$, _id, flow) => ({ description: flow.description, stateCount: flow.states.size() })),
-});
-export const computedByLane = e3.recordIndex('lane', computedFlows, {
-    keys: East.function([StringType, ComputedFlow], SetType(StructType({ lane: StringType })),
-        (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ lane: state.lane }))),
-});
-export const computedByOwner = e3.recordIndex('owner', computedFlows, {
-    keys: East.function([StringType, ComputedFlow], SetType(StructType({ owner: OptionType(StringType) })),
-        (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ owner: state.owner }))),
-});
-// Scalar computed keys, each a field by its index's name.
-export const computedByLabel = e3.recordIndex('label', computedFlows, {
-    key: East.function([StringType, ComputedFlow], StringType, (_$, _id, flow) => flow.description),
-});
-export const computedBySize = e3.recordIndex('size', computedFlows, {
-    key: East.function([StringType, ComputedFlow], IntegerType, (_$, _id, flow) => flow.states.size()),
-});
-export const computedByDecisionOwner = e3.recordIndex('decisionOwner', computedFlows, {
-    keys: East.function([StringType, ComputedFlow], SetType(OptionType(StringType)),
-        (_$, _id, flow) => flow.states.toSet((_$2, state) => state.owner)),
+export const computedFlows = e3.record('computed_flows', DictType(StringType, ComputedFlow), {
+    initial: new Map([
+        ["a", { description: "Inbound", states: [{ lane: "load", owner: some("team-a") }, { lane: "load", owner: some("team-a") }, { lane: "review", owner: none }] }],
+        ["b", { description: "Inbound", states: [{ lane: "load", owner: some("team-b") }] }],
+        ["c", { description: "Returns", states: [{ lane: "review", owner: none }] }],
+        ["d", { description: "Empty",   states: [] }],
+    ]),
+    indexes: (index) => ({
+        description: index.on(["description"]),
+        state_count: index.key(East.function([StringType, ComputedFlow], StructType({ stateCount: IntegerType }), (_$, _id, flow) => ({ stateCount: flow.states.size() }))),
+        description_count: index.key(East.function([StringType, ComputedFlow], StructType({ description: StringType, stateCount: IntegerType }),
+            (_$, _id, flow) => ({ description: flow.description, stateCount: flow.states.size() }))),
+        lane: index.keys(East.function([StringType, ComputedFlow], SetType(StructType({ lane: StringType })),
+            (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ lane: state.lane })))),
+        owner: index.keys(East.function([StringType, ComputedFlow], SetType(StructType({ owner: OptionType(StringType) })),
+            (_$, _id, flow) => flow.states.toSet((_$2, state) => ({ owner: state.owner })))),
+        // Scalar computed keys, each a field by its index's name.
+        label: index.key(East.function([StringType, ComputedFlow], StringType, (_$, _id, flow) => flow.description)),
+        size: index.key(East.function([StringType, ComputedFlow], IntegerType, (_$, _id, flow) => flow.states.size())),
+        decisionOwner: index.keys(East.function([StringType, ComputedFlow], SetType(OptionType(StringType)),
+            (_$, _id, flow) => flow.states.toSet((_$2, state) => state.owner))),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
 });

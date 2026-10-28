@@ -224,7 +224,7 @@ export function schematicAreaIndexes(indexes: readonly Index[], box: BoxFields, 
             || !booleanEqual(area.centre, centre)) {
             throw new Error(`${where}: the area index '${index.name}' boxes each row by { ${boxText(area, area.centre)} }, and the kind's roles place it by ` +
                 `{ ${boxText(box, centre)} } — an area index the kind is read by boxes each row as its roles place it: declare it ` +
-                `e3.recordIndex.area(name, record, { ${boxText(box, centre)}, cell })`);
+                `index.area({ ${boxText(box, centre)}, cell })`);
         }
     }
     // An area index's fields are its leading fields alone, its key's `on` (#1432).
@@ -232,7 +232,7 @@ export function schematicAreaIndexes(indexes: readonly Index[], box: BoxFields, 
     if (unled === undefined) {
         const named = areas.map((index) => `'${index.name}'`).join(", ");
         throw new Error(`${where}: a kind read by area reads its window through an area index led by no field, whatever the rail chooses, and ` +
-            `${named} ${areas.length === 1 ? "is" : "are"} led by fields — declare e3.recordIndex.area(name, record, { ${boxText(box, centre)}, cell }) ` +
+            `${named} ${areas.length === 1 ? "is" : "are"} led by fields — declare index.area({ ${boxText(box, centre)}, cell }) ` +
             "beside it, and list it in Data.bindPaged's indexes");
     }
     return { unled, led: areas.filter((index) => index.fields.length > 0) };

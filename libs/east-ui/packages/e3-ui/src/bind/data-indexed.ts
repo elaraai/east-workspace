@@ -138,26 +138,41 @@ type IndexKeys<K extends EastType, I extends FieldIndexes<EastType>> = VariantTy
 } & { [D in I[number] as D["name"]]: D["keyType"] }>;
 
 /**
- * Bind a record with the field indexes its Slice may use.
+ * Bind a record with the field indexes its Slice may use, by their names.
  *
- * @typeParam T - Record state type.
- * @typeParam I - The supplied field-index declarations.
- * @property indexes - Nonempty list of this record's field or computed indexes.
- * A computed scalar uses its index name as the field; Struct keys supply their
- * own field names. A computed `keys` index must have one logical field so
- * exact membership includes each primary row once. Types come from the index.
- * The indexes carry one projection, or each the whole row or nothing (D29): an
- * area index (`e3.recordIndex.area`) and a series index (`e3.recordIndex.series`,
+ * @typeParam N - The indexes' names, each one the record declares
+ * @property indexes - Nonempty list of the names of this record's field or
+ * computed indexes, as its declaration names them. A computed scalar uses its
+ * index name as the field; Struct keys supply their own field names. A computed
+ * `keys` index must have one logical field so exact membership includes each
+ * primary row once. Types come from the index the record declares under each
+ * name. The indexes carry one projection, or each the whole row or nothing
+ * (D29): an area index (`index.area`) and a series index (`index.series`,
  * #1039) carry their rows, and are read without a join, beside indexes that
- * carry nothing, read with one. A summary index (`e3.recordIndex.summary`)
- * carries its totals, whatever the others carry, and is never joined: its
- * entries name no row.
+ * carry nothing, read with one. A summary index (`index.summary`) carries its
+ * totals, whatever the others carry, and is never joined: its entries name no
+ * row.
  * @property join - Include record rows (default true). False requires a covering
  * index without Set fields so the unfiltered view still has one entry per row.
  * An index that carries the whole row is read without a join either way.
  */
-export interface BindPagedIndexesOptions<T extends EastType, I extends FieldIndexes<T>> {
-    /** Index declarations, retaining their literal names and fields. */
+export interface BindPagedIndexesOptions<N extends readonly string[]> {
+    /** The indexes' names, each one the record declares, in the rail's order. */
+    indexes: N;
+    /** Include each entry's record row; true unless explicitly disabled. */
+    join?: boolean;
+}
+
+/**
+ * A record's indexes as a binding takes them: their declarations, looked up
+ * by name in the record's own.
+ *
+ * @typeParam T - Record state type.
+ * @typeParam I - The declarations, retaining their literal names and fields.
+ * @internal
+ */
+export interface IndexedBinding<T extends EastType, I extends FieldIndexes<T>> {
+    /** The declarations, in the rail's order. */
     indexes: I;
     /** Include each entry's record row; true unless explicitly disabled. */
     join?: boolean;
@@ -263,7 +278,7 @@ function bindingProjection(indexes: FieldIndexes<EastType>): EastType {
  * @internal
  */
 export function bindDataIndexed<T extends EastType, const I extends FieldIndexes<T>>(
-    record: RecordDef<T>, options: BindPagedIndexesOptions<T, I>,
+    record: RecordDef<T>, options: IndexedBinding<T, I>,
 ): IndexedPagedValue<T, I> {
     const type = record.type;
     if (type.type !== "Dict" || type.value.type !== "Struct") {
@@ -334,7 +349,7 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
     if (!joined && !singleEntryIndex) {
         if (nested !== undefined) {
             throw new Error(`Data.bindPaged: '${nested.name}' is listed, and no index listed beside it pages the rows of '${record.name}' — a page reads each ` +
-                `row through an index carrying it without its collections: list one, e3.recordIndex(name, ${record.name}, { on: [field, …] })`);
+                `row through an index carrying it without its collections: list one, index.on([field, …]) among the record's indexes`);
         }
         throw new Error("Data.bindPaged with join: false needs an index without Set fields for its unfiltered view; add a one-entry-per-row field index or use join: true");
     }

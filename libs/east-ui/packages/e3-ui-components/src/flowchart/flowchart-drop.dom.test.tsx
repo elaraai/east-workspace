@@ -139,8 +139,8 @@ function depot<T extends EastType>($: BlockBuilder<T>) {
     const notes = $.const(NOTES, ArrayType(NoteRow));
     const names = $.const(NAMES, ArrayType(NameRow));
     const slice = $.let(Slice.bindRecords("flowchart.drop", {
-        steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: [ex.stepsByKind] }) },
-        moves: { source: Data.bindPaged(ex.moveTemplates, { indexes: [ex.movesByKind] }) },
+        steps: { source: Data.bindPaged(ex.stepTemplates, { indexes: ["flowchart_steps_by_kind"] }) },
+        moves: { source: Data.bindPaged(ex.moveTemplates, { indexes: ["flowchart_moves_by_kind"] }) },
     }));
     return {
         flow: "Sort",

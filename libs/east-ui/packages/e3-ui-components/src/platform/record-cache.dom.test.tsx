@@ -4,7 +4,7 @@
  * @vitest-environment jsdom
  *
  * A record Slice's bounded caches on e3 itself (#1375): the work orders, grown to thousands through their patch door,
- * bound with their dispatch queue (`Data.bindPaged(workOrders, { indexes: [workQueue] })`) and narrowed by status —
+ * bound with their dispatch queue (`Data.bindPaged(workOrders, { indexes: ["by_status"] })`) and narrowed by status —
  * the record Slice, the paging runtime and the editing session reading, paging and saving through e3, a page at a time.
  * What a test counts it reads from the request log.
  */
@@ -43,8 +43,8 @@ const encodeOrders = encodeBeast2For(Orders);
 
 /** The work orders bound with their dispatch queue and narrowed by status, as a record Slice binds them; and the Apply that commits a batch of them through their patch door. */
 const program = East.function([], undefined, ($) => {
-    const orders = $.let(Data.bindPaged(ex.workOrders, { indexes: [ex.workQueue] }));
-    const record = $.let(Record.bind(ex.workOrders, [ex.workOrdersPatch]));
+    const orders = $.let(Data.bindPaged(ex.workOrders, { indexes: ["by_status"] }));
+    const record = $.let(Record.bind(ex.workOrders, ["patch"]));
     return {
         slice: bindRecord("record-cache.orders", orders, { fields: { status: { label: "Status", hints: ["late", "open", "planned"] } } }),
         apply: Record.onApply(record, { keyed: true }),

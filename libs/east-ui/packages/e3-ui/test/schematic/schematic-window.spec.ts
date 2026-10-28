@@ -100,7 +100,7 @@ hostTest("past the record slice's bound on landed searches across its choices, a
 
 hostTest("a kind read by area with no area index led by no field is refused, naming the index to declare (SC34)", () => {
     assert.throws(() => schematicAreaIndexes([byModel!, byHallArea!], roles, "items", "Schematic.items: \"Rack\""),
-        /^Error: Schematic\.items: "Rack": a kind read by area reads its window through an area index led by no field, whatever the rail chooses, and 'racks_by_hall_area' is led by fields — declare e3\.recordIndex\.area\(name, record, \{ x: "x", y: "y", width: "w", height: "h", at: "centre", cell \}\) beside it, and list it in Data\.bindPaged's indexes$/);
+        /^Error: Schematic\.items: "Rack": a kind read by area reads its window through an area index led by no field, whatever the rail chooses, and 'racks_by_hall_area' is led by fields — declare index\.area\(\{ x: "x", y: "y", width: "w", height: "h", at: "centre", cell \}\) beside it, and list it in Data\.bindPaged's indexes$/);
 });
 
 hostTest("an area index whose box isn't the kind's roles is refused as it reads, naming both (SC34)", () => {

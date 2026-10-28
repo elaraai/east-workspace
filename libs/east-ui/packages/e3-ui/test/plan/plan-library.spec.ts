@@ -46,7 +46,7 @@ function pressesOf($: BlockBuilder<never>) {
 
 /** The jobs over the presses, bound inside a block, their unscheduled ones in the backlog. */
 function jobsOf($: BlockBuilder<never>) {
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs));
     return Schedule.events(jobs, {
         name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
         resource: { field: "press", of: "presses" },
@@ -122,7 +122,7 @@ describe("the library's refusals (PB61, PB62)", () => {
             name: "Customers", label: (c) => c.name, drop: (c) => Schedule.patch(ex.PrintCustomer, { name: c.name }),
         })])), /^Plan: the "Customers" tab's `drop` returns a patch over no event kind's row type — build it with Schedule\.patch\(RowType, \{ … \}\) over the row type of the kind its cards land on \(job\)$/);
         assert.match(refusal(($) => {
-            const rush = $.let(Record.bind(ex.planLinkJobs, [ex.planLinkJobsPatch]));
+            const rush = $.let(Record.bind(ex.planLinkJobs));
             return Plan.Payload({
                 axis, resources: { presses: pressesOf($) },
                 events: {

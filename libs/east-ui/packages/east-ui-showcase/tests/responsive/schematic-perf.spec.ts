@@ -208,9 +208,9 @@ async function fillFloor(page: Page): Promise<void> {
     const racks = East.compile(ex.generateRacks, []);
     const loads = East.compile(ex.generateLoads, []);
     const racksType = ex.schematicStressRacks.type, loadsType = ex.schematicStressRackLoads.type;
-    await mutateE3(page, WORKSPACE, ex.schematicStressRacks.name, ex.schematicStressRacksPatch.name,
+    await mutateE3(page, WORKSPACE, ex.schematicStressRacks.name, "patch",
         [encodeBeast2For(PatchType(racksType))(diffFor(racksType)(racks(SEEDED), racks(FLOOR)))]);
-    await mutateE3(page, WORKSPACE, ex.schematicStressRackLoads.name, ex.schematicStressRackLoadsPatch.name,
+    await mutateE3(page, WORKSPACE, ex.schematicStressRackLoads.name, "patch",
         [encodeBeast2For(PatchType(loadsType))(diffFor(loadsType)(loads(SEEDED), loads(FLOOR)))]);
 }
 

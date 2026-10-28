@@ -45,7 +45,7 @@ const whereEqual = equalFor(RecordSliceWhereType);
 
 /** The `rows` source as the example declares it: the rail's fields over the work orders' indexes. */
 const ROWS = {
-    source: Data.bindPaged(ex.indexedWorkOrders, { indexes: [ex.indexedWorkByStatusDue, ex.indexedWorkByDue, ex.indexedWorkByJob, ex.indexedWorkByQuantity, ex.indexedWorkByUrgent, ex.indexedWorkByTag] }),
+    source: Data.bindPaged(ex.indexedWorkOrders, { indexes: ["by_status_due", "by_due", "by_job", "by_quantity", "by_urgent", "by_tag"] }),
     fields: { status: { label: "Status", hints: ["Ready", "Scheduled", "Done"] }, due: { label: "Due" }, job: { label: "Job" }, quantity: { label: "Quantity" }, urgent: { label: "Urgent" }, tags: { label: "Tag", hints: ["Production", "Dispatch"] } },
     range: "due", search: ["job"], initial: { status: ["Ready"] },
 } as const;
@@ -263,7 +263,7 @@ test("until e3 has said which filters hide a row, its line says the filters do, 
 /** The `rows` source with no index by due alone: a Due choice stands only after a Status choice, on the index by status and due. */
 const ROWS_DUE_FOLLOWS = {
     ...ROWS,
-    source: Data.bindPaged(ex.indexedWorkOrders, { indexes: [ex.indexedWorkByStatusDue, ex.indexedWorkByJob, ex.indexedWorkByQuantity, ex.indexedWorkByUrgent, ex.indexedWorkByTag] }),
+    source: Data.bindPaged(ex.indexedWorkOrders, { indexes: ["by_status_due", "by_job", "by_quantity", "by_urgent", "by_tag"] }),
 } as const;
 /** That source's rail, bound under its key as the sheet binds it. */
 const followsRail = East.compile(East.function([], RecordSlicesChromeType, ($) => $.return(recordSlicesChrome({
@@ -272,7 +272,7 @@ const followsRail = East.compile(East.function([], RecordSlicesChromeType, ($) =
 const followsRows = () => followsRail().slice.parts[0]!.slice;
 /** The work orders' sheet over that source. */
 const dueFollows = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const record = $.let(Record.bind(ex.indexedWorkOrders, [ex.indexedWorkPatch]));
+    const record = $.let(Record.bind(ex.indexedWorkOrders, ["patch"]));
     const slice = $.let(Slice.bindRecords("test.sheetHiddenPick.dueFollows", { rows: ROWS_DUE_FOLLOWS }));
     return Sheet({
         name: "dueFollows", slice: { slice }, onApply: Record.onApply(record, { keyed: true }), edits: { insertRows: false },
@@ -326,7 +326,7 @@ test("a choice that stands only after another — Due, with no index of its own 
 
 /** The work orders' sheet as the example declares it, given the inspector pane: its Issues tab, where an issue is gone to. */
 const inspected = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const record = $.let(Record.bind(ex.indexedWorkOrders, [ex.indexedWorkPatch]));
+    const record = $.let(Record.bind(ex.indexedWorkOrders, ["patch"]));
     const slice = $.let(Slice.bindRecords("ex.sheetRecordIndexes", { rows: ROWS }, PRESETS));
     return Sheet({
         name: "inspected", slice: { slice }, inspector: true, onApply: Record.onApply(record, { keyed: true }), edits: { insertRows: false },

@@ -75,9 +75,9 @@ const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
 /** The jobs' record, as e3's requests name it. */
 const JOBS = pathText(ex.planWindowJobs.path as TreePath);
 /** The jobs' series index, their summary and their interval index. */
-const SERIES = ex.planWindowJobsByPressWeek;
-const SUMMARY = ex.planWindowJobsByPressMonth;
-const BY_TIME = ex.planWindowJobsByTime;
+const SERIES = ex.planWindowJobs.indexes.plan_window_jobs_by_press_week;
+const SUMMARY = ex.planWindowJobs.indexes.plan_window_jobs_by_press_month;
+const BY_TIME = ex.planWindowJobs.indexes.plan_window_jobs_by_time;
 
 /** Whether a request reads the jobs through one of their indexes. */
 const through = (index: { readonly name: string }) => (request: E3Request) =>
@@ -123,11 +123,11 @@ afterEach(() => {
  */
 const seriesPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.series.dom", {
         job: {
-            source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }),
+            source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
             fields: { start: { label: "Dates" } }, range: "start",
         },
     }));
@@ -156,11 +156,11 @@ const seriesPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Roo
  */
 const stockPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.series.stock.dom", {
         job: {
-            source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByStockTime, ex.planWindowJobsByStockPressWeek, ex.planWindowJobsByStockPressMonth] }),
+            source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_stock_time", "plan_window_jobs_by_stock_press_week", "plan_window_jobs_by_stock_press_month"] }),
             fields: { start: { label: "Dates" }, stock: { label: "Stock" } }, range: "start", initial: { stock: ["coated"] },
         },
     }));
@@ -190,7 +190,7 @@ const stockPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
  */
 const wholePlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
         inspector: true,
@@ -216,10 +216,10 @@ const wholePlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
  */
 const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.series.windows.dom", {
-        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime] }), fields: { start: { label: "Dates" } }, range: "start" },
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: NOW }),
@@ -246,17 +246,17 @@ const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
  */
 const checkedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
-    const checks = $.const(Record.bind(ex.planBenchJobs, [ex.planBenchJobsPatch]));
+    const checks = $.const(Record.bind(ex.planBenchJobs, ["patch"]));
     const checkEntries = $.const(Data.bindPaged(ex.planBenchJobs));
     const slice = $.const(Slice.bindRecords("plan.series.checked.dom", {
         job: {
-            source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }),
+            source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
             fields: { start: { label: "Dates" } }, range: "start",
         },
         check: {
-            source: Data.bindPaged(ex.planBenchJobs, { indexes: [ex.planBenchJobsByTime, ex.planBenchJobsByPressWeek, ex.planBenchJobsByPressMonth] }),
+            source: Data.bindPaged(ex.planBenchJobs, { indexes: ["plan_bench_jobs_by_time", "plan_bench_jobs_by_press_week", "plan_bench_jobs_by_press_month"] }),
             fields: { start: { label: "Dates" } }, range: "start",
         },
     }));
@@ -285,11 +285,11 @@ const checkedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
 /** The series Plan with a link from the brochure run on Press 1001 to the magazine run on Press 1460, which no cell in view holds. */
 const linkedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
     const slice = $.const(Slice.bindRecords("plan.series.linked.dom", {
         job: {
-            source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }),
+            source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
             fields: { start: { label: "Dates" } }, range: "start",
         },
     }));
@@ -766,8 +766,8 @@ describe("past the budget (#1039)", () => {
 // ============================================================================
 
 describe("a series and a summary index led by a field (#1432)", () => {
-    const BY_STOCK = ex.planWindowJobsByStockPressWeek;
-    const BY_STOCK_TOTALS = ex.planWindowJobsByStockPressMonth;
+    const BY_STOCK = ex.planWindowJobs.indexes.plan_window_jobs_by_stock_press_week;
+    const BY_STOCK_TOTALS = ex.planWindowJobs.indexes.plan_window_jobs_by_stock_press_month;
     const withins = () => h.requests().filter((request) => request.dataset === JOBS && request.kind === "within");
 
     test("the stock chosen, its cells are read through the series it leads and it is asked of no event; past the budget, at a month, the summary it leads shades", async () => {

@@ -98,7 +98,7 @@ function fieldOf(row: unknown, name: string): ExprType<EastType> {
  * Declares the app's targets (see the module docs).
  *
  * @typeParam R - The app's target row type
- * @param record - The app's record of targets, `Record.bind(record, [e3.mutation.patch(record)])`: a `Dict` keyed by String
+ * @param record - The app's record of targets, `Record.bind(record), its record declaring patch: mutation.patch()`: a `Dict` keyed by String
  * @param config - The fields its roles name, the app's own form, and its read by key
  * @returns The targets, for the Roster's `targets`
  * @throws {Error} Naming the option: a record not bound with its patch mutation, not keyed by String, or whose rows are no
@@ -112,11 +112,15 @@ function fieldOf(row: unknown, name: string): ExprType<EastType> {
  * import e3 from "@elaraai/e3";
  *
  * const Cover = StructType({ day: DateTimeType, team: StringType, shift: StringType, heads: IntegerType, hours: DictType(StringType, FloatType) });
- * const cover = e3.record("cover", DictType(StringType, Cover), new Map());
- * const coverPatch = e3.mutation.patch(cover);
+ * const cover = e3.record("cover", DictType(StringType, Cover), {
+ *     initial: new Map(),
+ *     mutations: (mutation) => ({
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  *
  * // Inside the Roster's Reactive body: a target per slot, over the app's own rows.
- * const targets = Roster.targets(Record.bind(cover, [coverPatch]), { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" });
+ * const targets = Roster.targets(Record.bind(cover), { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" });
  * ```
  */
 export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle<StringType, R>, config: RosterTargetsConfig<R>): RosterTargets {
@@ -128,7 +132,7 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
     const read = handleType.type === "Struct" ? (handleType.fields as Record<string, EastType>)["read"] : undefined;
     if (handleType.type !== "Struct" || read === undefined || read.type !== "Function"
         || (handleType.fields as Record<string, EastType>)["binding"] === undefined) {
-        throw new Error(`${where}: \`record\` is the app's record of targets, bound with its patch mutation — Record.bind(record, [e3.mutation.patch(record)])`);
+        throw new Error(`${where}: \`record\` is the app's record of targets, bound with its patch mutation — Record.bind(record), its record declaring patch: mutation.patch()`);
     }
     const recordType = read.output as EastType;
     if (recordType.type !== "Dict" || !isTypeEqual(recordType.key as EastType, StringType)) {

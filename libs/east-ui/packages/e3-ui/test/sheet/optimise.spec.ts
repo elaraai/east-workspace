@@ -48,7 +48,7 @@ function refusal(build: ($: BlockBuilder<NullType>) => unknown): string {
 
 /** A sheet over the work orders' record, with the props given beside its rows and columns. */
 function overRecord($: BlockBuilder<NullType>, change: Readonly<Record<string, unknown>> = {}): unknown {
-    const orders = $.let(Record.bind(ex.optimiseWorkOrders, [ex.optimiseWorkOrdersPatch]));
+    const orders = $.let(Record.bind(ex.optimiseWorkOrders));
     return Sheet.Payload({ record: orders, columns: COLUMNS, ...change } as never);
 }
 /** A sheet over the orders as an array, identified by their reference, with the props given beside them. */
@@ -85,10 +85,14 @@ describe("`optimise` (§4): Func.bind of an e3.function from OptimiseRequest(R, 
         assert.match(refusal(($) => overRecord($, { optimise: Func.bind(otherRows) })),
             /^Sheet: `optimise` is bound over rows \.Struct \[.*grade.*\], and the sheet's rows are \.Struct \[.*quantity.*\] — bind an optimiser over Sheet\.Types\.OptimiseRequest of the sheet's row type$/);
         // A record keyed by Integer: its rows are keyed so, and an optimiser over String keys is refused naming the keys.
-        const numbered = e3.record("optimise_spec_numbered_orders", DictType(IntegerType, ex.OptimiseWorkOrder), new Map());
-        const numberedPatch = e3.mutation.patch(numbered);
+        const numbered = e3.record("optimise_spec_numbered_orders", DictType(IntegerType, ex.OptimiseWorkOrder), {
+            initial: new Map(),
+            mutations: (mutation) => ({
+                patch: mutation.patch(),
+            }),
+        });
         assert.match(refusal(($) => {
-            const orders = $.let(Record.bind(numbered, [numberedPatch]));
+            const orders = $.let(Record.bind(numbered));
             return Sheet.Payload({ record: orders, columns: COLUMNS, edits: { insertRows: false }, optimise: Func.bind(ex.setDueDates) } as never);
         }), /^Sheet: `optimise` is bound over rows \.Struct \[.*\], and the sheet's rows are \.Struct \[.*\], \.Integer — bind an optimiser over Sheet\.Types\.OptimiseRequest of the sheet's row type$/);
         const byNumber = e3.function("sheet_optimise_spec_by_number", East.function([Sheet.Types.OptimiseRequest(ex.OptimiseWorkOrder, IntegerType)], Sheet.Types.OptimiseResult(ex.OptimiseWorkOrder, IntegerType), (_$, req) => ({ rows: req.rows })));

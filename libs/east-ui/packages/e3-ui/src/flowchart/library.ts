@@ -356,40 +356,44 @@ export type FlowchartTemplateRows<T extends EastType> = SubtypeExprOrValue<DictT
  * import { Flowchart, Record } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const depotFlows = e3.record("flowchart_depot_flows", Flowchart.Types.Flows, Flowchart.values({
- *     "Inbound parcels": {
- *         description: "From the trailer to the van",
- *         lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }],
- *         states: [
- *             { key: "ARV", label: "Arrived", lane: "intake" },
- *             { key: "SCN", label: "Scanned", lane: "intake" },
- *             { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
- *             { key: "LDD", label: "Loaded", lane: "load" },
- *         ],
- *         links: [
- *             { from: "ARV", to: "SCN" },
- *             { from: "SCN", to: "CH*", trigger: "route" },
- *             { from: "CH*", to: "LDD" },
- *             { from: "SCN", to: "SCN", kind: "observed" },
- *         ],
- *         triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
- *     },
- *     "Returns": {
- *         description: "From the counter back to the sender",
- *         lanes: [{ key: "counter", label: "Counter" }, { key: "check", label: "Check" }, { key: "out", label: "Out" }],
- *         states: [
- *             { key: "RCV", label: "Received", lane: "counter" },
- *             { key: "INS", label: "Inspected", lane: "check" },
- *             { key: "RSD", label: "Resent", lane: "out" },
- *         ],
- *         links: [{ from: "RCV", to: "INS" }, { from: "INS", to: "RSD" }, { from: "INS", to: "BIN", kind: "observed" }],
- *     },
- * }));
- * export const depotFlowsPatch = e3.mutation.patch(depotFlows);
+ * export const depotFlows = e3.record("flowchart_depot_flows", Flowchart.Types.Flows, {
+ *     initial: Flowchart.values({
+ *         "Inbound parcels": {
+ *             description: "From the trailer to the van",
+ *             lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }],
+ *             states: [
+ *                 { key: "ARV", label: "Arrived", lane: "intake" },
+ *                 { key: "SCN", label: "Scanned", lane: "intake" },
+ *                 { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
+ *                 { key: "LDD", label: "Loaded", lane: "load" },
+ *             ],
+ *             links: [
+ *                 { from: "ARV", to: "SCN" },
+ *                 { from: "SCN", to: "CH*", trigger: "route" },
+ *                 { from: "CH*", to: "LDD" },
+ *                 { from: "SCN", to: "SCN", kind: "observed" },
+ *             ],
+ *             triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
+ *         },
+ *         "Returns": {
+ *             description: "From the counter back to the sender",
+ *             lanes: [{ key: "counter", label: "Counter" }, { key: "check", label: "Check" }, { key: "out", label: "Out" }],
+ *             states: [
+ *                 { key: "RCV", label: "Received", lane: "counter" },
+ *                 { key: "INS", label: "Inspected", lane: "check" },
+ *                 { key: "RSD", label: "Resent", lane: "out" },
+ *             ],
+ *             links: [{ from: "RCV", to: "INS" }, { from: "INS", to: "RSD" }, { from: "INS", to: "BIN", kind: "observed" }],
+ *         },
+ *     }),
+ *     mutations: (mutation) => ({
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  *
  * const flowchart = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
+ *         const flows = $.let(Record.bind(depotFlows));
  *         return (
  *             <Box height="500px">
  *                 <Flowchart record={flows} flow="Inbound parcels" library={[Flowchart.library.flows()]} />
@@ -437,73 +441,93 @@ export function libraryFlows(): FlowchartFlowsTab {
  * import { Data, Flowchart, Record } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const depotFlows = e3.record("flowchart_depot_flows", Flowchart.Types.Flows, Flowchart.values({
- *     "Inbound parcels": {
- *         description: "From the trailer to the van",
- *         lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }],
- *         states: [
- *             { key: "ARV", label: "Arrived", lane: "intake" },
- *             { key: "SCN", label: "Scanned", lane: "intake" },
- *             { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
- *             { key: "LDD", label: "Loaded", lane: "load" },
- *         ],
- *         links: [
- *             { from: "ARV", to: "SCN" },
- *             { from: "SCN", to: "CH*", trigger: "route" },
- *             { from: "CH*", to: "LDD" },
- *             { from: "SCN", to: "SCN", kind: "observed" },
- *         ],
- *         triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
- *     },
- *     "Returns": {
- *         description: "From the counter back to the sender",
- *         lanes: [{ key: "counter", label: "Counter" }, { key: "check", label: "Check" }, { key: "out", label: "Out" }],
- *         states: [
- *             { key: "RCV", label: "Received", lane: "counter" },
- *             { key: "INS", label: "Inspected", lane: "check" },
- *             { key: "RSD", label: "Resent", lane: "out" },
- *         ],
- *         links: [{ from: "RCV", to: "INS" }, { from: "INS", to: "RSD" }, { from: "INS", to: "BIN", kind: "observed" }],
- *     },
- * }));
- * export const depotFlowsPatch = e3.mutation.patch(depotFlows);
+ * export const depotFlows = e3.record("flowchart_depot_flows", Flowchart.Types.Flows, {
+ *     initial: Flowchart.values({
+ *         "Inbound parcels": {
+ *             description: "From the trailer to the van",
+ *             lanes: [{ key: "intake", label: "Intake" }, { key: "sort", label: "Sort" }, { key: "load", label: "Load" }],
+ *             states: [
+ *                 { key: "ARV", label: "Arrived", lane: "intake" },
+ *                 { key: "SCN", label: "Scanned", lane: "intake" },
+ *                 { key: "CH*", label: "Sort chutes", lane: "sort", members: 12n },
+ *                 { key: "LDD", label: "Loaded", lane: "load" },
+ *             ],
+ *             links: [
+ *                 { from: "ARV", to: "SCN" },
+ *                 { from: "SCN", to: "CH*", trigger: "route" },
+ *                 { from: "CH*", to: "LDD" },
+ *                 { from: "SCN", to: "SCN", kind: "observed" },
+ *             ],
+ *             triggers: [{ key: "route", label: "route", owner: "sort-planner" }],
+ *         },
+ *         "Returns": {
+ *             description: "From the counter back to the sender",
+ *             lanes: [{ key: "counter", label: "Counter" }, { key: "check", label: "Check" }, { key: "out", label: "Out" }],
+ *             states: [
+ *                 { key: "RCV", label: "Received", lane: "counter" },
+ *                 { key: "INS", label: "Inspected", lane: "check" },
+ *                 { key: "RSD", label: "Resent", lane: "out" },
+ *             ],
+ *             links: [{ from: "RCV", to: "INS" }, { from: "INS", to: "RSD" }, { from: "INS", to: "BIN", kind: "observed" }],
+ *         },
+ *     }),
+ *     mutations: (mutation) => ({
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * export const StepTemplate = StructType({ name: StringType, kind: StringType, slots: OptionType(IntegerType) });
- * export const stepTemplates = e3.record("flowchart_step_templates", DictType(StringType, StepTemplate), new Map([
- *     ["ARV", { name: "Arrived", kind: "Intake", slots: none }],
- *     ["SCN", { name: "Scanned", kind: "Intake", slots: none }],
- *     ["CH*", { name: "Sort chutes", kind: "Sort", slots: some(12n) }],
- *     ["HLD", { name: "Held", kind: "Hold", slots: none }],
- *     ["LDD", { name: "Loaded", kind: "Load", slots: none }],
- * ]));
- * export const stepsByKind = e3.recordIndex("flowchart_steps_by_kind", stepTemplates, { on: ["kind"] });
+ * export const stepTemplates = e3.record("flowchart_step_templates", DictType(StringType, StepTemplate), {
+ *     initial: new Map([
+ *         ["ARV", { name: "Arrived", kind: "Intake", slots: none }],
+ *         ["SCN", { name: "Scanned", kind: "Intake", slots: none }],
+ *         ["CH*", { name: "Sort chutes", kind: "Sort", slots: some(12n) }],
+ *         ["HLD", { name: "Held", kind: "Hold", slots: none }],
+ *         ["LDD", { name: "Loaded", kind: "Load", slots: none }],
+ *     ]),
+ *     indexes: (index) => ({
+ *         flowchart_steps_by_kind: index.on(["kind"]),
+ *     }),
+ *     mutations: (mutation) => ({
+ *         // The step types' patch door: what another writer adds a step type through, the Steps tab's cards following.
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * export const MoveTemplate = StructType({ kind: Flowchart.Types.Kind, decision: OptionType(StringType), note: StringType });
- * export const moveTemplates = e3.record("flowchart_move_templates", DictType(StringType, MoveTemplate), new Map([
- *     ["Observed", { kind: variant("observed", null), decision: none, note: "Mined from the scans" }],
- *     ["Planned", { kind: variant("planned", null), decision: none, note: "The designed path" }],
- *     ["Routed", { kind: variant("planned", null), decision: some("route"), note: "Governed by the route decision" }],
- * ]));
- * export const movesByKind = e3.recordIndex("flowchart_moves_by_kind", moveTemplates, { on: ["kind"] });
+ * export const moveTemplates = e3.record("flowchart_move_templates", DictType(StringType, MoveTemplate), {
+ *     initial: new Map([
+ *         ["Observed", { kind: variant("observed", null), decision: none, note: "Mined from the scans" }],
+ *         ["Planned", { kind: variant("planned", null), decision: none, note: "The designed path" }],
+ *         ["Routed", { kind: variant("planned", null), decision: some("route"), note: "Governed by the route decision" }],
+ *     ]),
+ *     indexes: (index) => ({
+ *         flowchart_moves_by_kind: index.on(["kind"]),
+ *     }),
+ * });
  * export const DecisionOwner = StructType({ name: StringType, desk: StringType });
- * export const decisionOwners = e3.record("flowchart_decision_owners", DictType(StringType, DecisionOwner), new Map([
- *     ["sort-planner", { name: "Sort planner", desk: "Sort hall" }],
- *     ["customs-desk", { name: "Customs desk", desk: "Hold bay" }],
- * ]));
- * export const ownersByDesk = e3.recordIndex("flowchart_owners_by_desk", decisionOwners, { on: ["desk"] });
+ * export const decisionOwners = e3.record("flowchart_decision_owners", DictType(StringType, DecisionOwner), {
+ *     initial: new Map([
+ *         ["sort-planner", { name: "Sort planner", desk: "Sort hall" }],
+ *         ["customs-desk", { name: "Customs desk", desk: "Hold bay" }],
+ *     ]),
+ *     indexes: (index) => ({
+ *         flowchart_owners_by_desk: index.on(["desk"]),
+ *     }),
+ * });
  *
  * const flowchart = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const flows = $.let(Record.bind(depotFlows, [depotFlowsPatch]));
+ *         const flows = $.let(Record.bind(depotFlows));
  *         // What a tab reads whole binds with Data.bind, which keeps it loaded beside its pages.
  *         const steps = $.let(Data.bind(stepTemplates));
  *         const moves = $.let(Data.bind(moveTemplates));
  *         const owners = $.let(Data.bind(decisionOwners));
  *         // One rail over the library's records, a source each (#1346): each tab follows the source it names.
  *         const slice = $.let(Slice.bindRecords("flowchart.depot", {
- *             steps: { source: Data.bindPaged(stepTemplates, { indexes: [stepsByKind] }), label: "Steps", icon: { prefix: "fas", name: "box" },
+ *             steps: { source: Data.bindPaged(stepTemplates, { indexes: ["flowchart_steps_by_kind"] }), label: "Steps", icon: { prefix: "fas", name: "box" },
  *                 fields: { kind: { label: "Step kind", hints: ["Intake", "Sort", "Hold", "Load"] } } },
- *             moves: { source: Data.bindPaged(moveTemplates, { indexes: [movesByKind] }), label: "Transitions", icon: { prefix: "fas", name: "arrow-right" },
+ *             moves: { source: Data.bindPaged(moveTemplates, { indexes: ["flowchart_moves_by_kind"] }), label: "Transitions", icon: { prefix: "fas", name: "arrow-right" },
  *                 fields: { kind: { label: "Transition kind" } } },
- *             owners: { source: Data.bindPaged(decisionOwners, { indexes: [ownersByDesk] }), label: "Owners", icon: { prefix: "fas", name: "user-tie" },
+ *             owners: { source: Data.bindPaged(decisionOwners, { indexes: ["flowchart_owners_by_desk"] }), label: "Owners", icon: { prefix: "fas", name: "user-tie" },
  *                 fields: { desk: { label: "Desk", hints: ["Sort hall", "Hold bay"] } } },
  *         }));
  *         return (

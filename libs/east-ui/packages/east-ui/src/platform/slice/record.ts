@@ -168,13 +168,13 @@ function literal(schema: RecordSliceFieldSchema, input: unknown): string {
  * Each index's metadata names the row fields it is led by and its kind
  * (#1432): a plain index's fields, a generated index's `on`; e3's own parts
  * are the kind's, never a field of the rail, so a row field may be named
- * anything. An area index (`e3.recordIndex.area`) offers its leading fields; a
+ * anything. An area index (`index.area`) offers its leading fields; a
  * read by area gives its `window` — or the unplaced clause — beside the
  * narrowing, in the read `pageWhere` and `countWhere` take, and the plan reads
  * it through an area index whose leading fields the narrowing fills exactly
  * (#1385). An interval index offers its leading fields and its start.
  *
- * A series or a summary index (`e3.recordIndex.series`, `.summary`) offers no
+ * A series or a summary index (`index.series`, `index.summary`) offers no
  * field at all: it is listed for a reader of its cells (#1039), and its
  * metadata says how it files the record's events.
  *
@@ -257,7 +257,7 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     const schemas = new Map<string, RecordSliceFieldSchema>();
     const fields: ValueTypeOf<RecordSliceFieldType>[] = offered.map(field => {
         if (!indexedFields.has(field) || fieldTypes[field] === undefined) {
-            throw new Error(`Slice.bindRecord: narrowing by '${field}' needs an index on it — e3.recordIndex("by_${field}", record, { on: ["${field}"] }), listed in Data.bindPaged's indexes`);
+            throw new Error(`Slice.bindRecord: narrowing by '${field}' needs an index on it — by_${field}: index.on(["${field}"]) among the record's indexes, listed in Data.bindPaged's indexes`);
         }
         const schema = recordSliceFieldSchema(fieldTypes[field]!, field);
         schemas.set(field, schema);

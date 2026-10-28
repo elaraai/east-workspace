@@ -341,57 +341,72 @@ export { type SheetColumnMeta, type SheetRuleCellMeta, describeColumn, describeG
  * export const BatchStep = StructType({ task: StringType, qty: OptionType(FloatType), parts: ArrayType(BatchPart), bookings: ArrayType(BatchBooking) });
  * export const Batch = StructType({ id: StringType, name: StringType, steps: ArrayType(BatchStep) });
  * export const BatchDay = StructType({ batches: ArrayType(Batch) });
- * export const sheetBatchDays = e3.record("sheet_batch_days", DictType(StringType, BatchDay), new Map([
- *     ["2026-10-12", { batches: [
- *         { id: "B-101", name: "Doors, oak", steps: [
- *             { task: "Cut doors", qty: some(12.0), parts: [
- *                 { id: "B-101-1", code: "CUT", name: "Cut the door blanks", materials: ["Oak veneered board × 6"], station: some("S101") },
- *             ], bookings: [variant("labour", { team: "Cutting", people: 1n, hours: 3.0 })] },
- *             { task: "Band doors", qty: some(48.0), parts: [], bookings: [variant("equipment", { resource: "Edge bander E201" })] },
- *             { task: "Spray doors", qty: some(12.0), parts: [
- *                 { id: "B-101-3", code: "SPR", name: "Seal and lacquer", materials: ["Sealer", "Matt lacquer"], station: none },
- *             ], bookings: [] },
- *         ] },
- *         { id: "B-102", name: "Carcasses, birch", steps: [
- *             { task: "Cut carcasses", qty: some(8.0), parts: [], bookings: [] },
- *             { task: "Drill carcasses", qty: some(8.0), parts: [], bookings: [variant("labour", { team: "Machining", people: 2n, hours: 2.5 })] },
- *         ] },
- *         { id: "B-103", name: "Shelves, ash", steps: [
- *             { task: "Cut shelves", qty: some(20.0), parts: [], bookings: [] },
- *             { task: "Sand shelves", qty: some(20.0), parts: [], bookings: [] },
- *         ] },
- *     ] }],
- * ]));
- * export const sheetBatchDaysPatch = e3.mutation.patch(sheetBatchDays);
+ * export const sheetBatchDays = e3.record("sheet_batch_days", DictType(StringType, BatchDay), {
+ *     initial: new Map([
+ *         ["2026-10-12", { batches: [
+ *             { id: "B-101", name: "Doors, oak", steps: [
+ *                 { task: "Cut doors", qty: some(12.0), parts: [
+ *                     { id: "B-101-1", code: "CUT", name: "Cut the door blanks", materials: ["Oak veneered board × 6"], station: some("S101") },
+ *                 ], bookings: [variant("labour", { team: "Cutting", people: 1n, hours: 3.0 })] },
+ *                 { task: "Band doors", qty: some(48.0), parts: [], bookings: [variant("equipment", { resource: "Edge bander E201" })] },
+ *                 { task: "Spray doors", qty: some(12.0), parts: [
+ *                     { id: "B-101-3", code: "SPR", name: "Seal and lacquer", materials: ["Sealer", "Matt lacquer"], station: none },
+ *                 ], bookings: [] },
+ *             ] },
+ *             { id: "B-102", name: "Carcasses, birch", steps: [
+ *                 { task: "Cut carcasses", qty: some(8.0), parts: [], bookings: [] },
+ *                 { task: "Drill carcasses", qty: some(8.0), parts: [], bookings: [variant("labour", { team: "Machining", people: 2n, hours: 2.5 })] },
+ *             ] },
+ *             { id: "B-103", name: "Shelves, ash", steps: [
+ *                 { task: "Cut shelves", qty: some(20.0), parts: [], bookings: [] },
+ *                 { task: "Sand shelves", qty: some(20.0), parts: [], bookings: [] },
+ *             ] },
+ *         ] }],
+ *     ]),
+ *     mutations: (mutation) => ({
+ *         // The days' patch door — every Save commits through it.
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * export const BatchStepTemplate = StructType({ name: StringType, group: StringType, task: StringType });
- * export const sheetBatchStepTemplates = e3.record("sheet_batch_step_templates", DictType(StringType, BatchStepTemplate), new Map([
- *     ["sand", { name: "Sand", group: "Steps", task: "Sand" }],
- *     ["seal", { name: "Seal", group: "Steps", task: "Seal" }],
- * ]));
- * export const sheetBatchStepTemplatesByGroup = e3.recordIndex("sheet_batch_step_templates_by_group", sheetBatchStepTemplates, { on: ["group"] });
+ * export const sheetBatchStepTemplates = e3.record("sheet_batch_step_templates", DictType(StringType, BatchStepTemplate), {
+ *     initial: new Map([
+ *         ["sand", { name: "Sand", group: "Steps", task: "Sand" }],
+ *         ["seal", { name: "Seal", group: "Steps", task: "Seal" }],
+ *     ]),
+ *     indexes: (index) => ({
+ *         // The step templates by their group: what the rail narrows them by.
+ *         sheet_batch_step_templates_by_group: index.on(["group"]),
+ *     }),
+ * });
  * export const BatchTemplate = StructType({ name: StringType, group: StringType, batch: StringType, steps: ArrayType(BatchStep) });
- * export const sheetBatchTemplates = e3.record("sheet_batch_templates", DictType(StringType, BatchTemplate), new Map([
- *     ["finishing", { name: "Finishing batch", group: "Batches", batch: "Finishing", steps: [
- *         { task: "Sand", qty: none, parts: [], bookings: [] },
- *         { task: "Seal", qty: none, parts: [], bookings: [] },
- *         { task: "Spray", qty: none, parts: [], bookings: [] },
- *     ] }],
- * ]));
- * export const sheetBatchTemplatesByGroup = e3.recordIndex("sheet_batch_templates_by_group", sheetBatchTemplates, { on: ["group"] });
+ * export const sheetBatchTemplates = e3.record("sheet_batch_templates", DictType(StringType, BatchTemplate), {
+ *     initial: new Map([
+ *         ["finishing", { name: "Finishing batch", group: "Batches", batch: "Finishing", steps: [
+ *             { task: "Sand", qty: none, parts: [], bookings: [] },
+ *             { task: "Seal", qty: none, parts: [], bookings: [] },
+ *             { task: "Spray", qty: none, parts: [], bookings: [] },
+ *         ] }],
+ *     ]),
+ *     indexes: (index) => ({
+ *         // The batch templates by their group: what the rail narrows them by.
+ *         sheet_batch_templates_by_group: index.on(["group"]),
+ *     }),
+ * });
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const days = $.let(Record.bind(sheetBatchDays, [sheetBatchDaysPatch]));
+ *         const days = $.let(Record.bind(sheetBatchDays));
  *         const stepTemplates = $.let(Data.bind(sheetBatchStepTemplates));
  *         const batchTemplates = $.let(Data.bind(sheetBatchTemplates));
  *         // One rail over the templates records, each its own source: they narrow the Rows tab's cards.
  *         const slice = $.let(Slice.bindRecords("sheet.batches", {
  *             rowTemplates: {
- *                 source: Data.bindPaged(sheetBatchStepTemplates, { indexes: [sheetBatchStepTemplatesByGroup] }),
+ *                 source: Data.bindPaged(sheetBatchStepTemplates, { indexes: ["sheet_batch_step_templates_by_group"] }),
  *                 label: "Step templates", fields: { group: { label: "Group", hints: ["Steps"] } },
  *             },
  *             groupTemplates: {
- *                 source: Data.bindPaged(sheetBatchTemplates, { indexes: [sheetBatchTemplatesByGroup] }),
+ *                 source: Data.bindPaged(sheetBatchTemplates, { indexes: ["sheet_batch_templates_by_group"] }),
  *                 label: "Batch templates", fields: { group: { label: "Group", hints: ["Batches"] } },
  *             },
  *         }));
@@ -885,17 +900,22 @@ const SHEET_MEMBERS = {
  * import e3 from "@elaraai/e3";
  *
  * export const SheetJob = StructType({ task: StringType, start: OptionType(DateTimeType), qty: OptionType(FloatType) });
- * export const sheetJobs = e3.record("sheet_jobs", DictType(StringType, SheetJob), new Map([
- *     ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
- *     ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
- *     ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
- *     ["J-0004", { task: "Spray finish", start: none, qty: none }],
- * ]));
- * export const sheetJobsPatch = e3.mutation.patch(sheetJobs);
+ * export const sheetJobs = e3.record("sheet_jobs", DictType(StringType, SheetJob), {
+ *     initial: new Map([
+ *         ["J-0001", { task: "Panel cutting", start: some(new Date("2026-10-12T00:00:00Z")), qty: some(48.0) }],
+ *         ["J-0002", { task: "Edge banding", start: some(new Date("2026-10-13T00:00:00Z")), qty: some(120.0) }],
+ *         ["J-0003", { task: "CNC routing", start: none, qty: some(48.0) }],
+ *         ["J-0004", { task: "Spray finish", start: none, qty: none }],
+ *     ]),
+ *     mutations: (mutation) => ({
+ *         // The jobs' patch door — every Save commits through it.
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  *
  * const sheet = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const jobs = $.let(Record.bind(sheetJobs, [sheetJobsPatch]));
+ *         const jobs = $.let(Record.bind(sheetJobs));
  *         return (
  *             <Box height="560px">
  *                 <Sheet

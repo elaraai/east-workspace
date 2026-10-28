@@ -68,8 +68,8 @@ const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
 const PRESSES = pathText(ex.planSeriesPresses.path as TreePath);
 const JOBS = pathText(ex.planWindowJobs.path as TreePath);
 /** The presses' hall index, and the jobs' series index. */
-const BY_HALL = ex.planSeriesPressesByHall;
-const SERIES = ex.planWindowJobsByPressWeek;
+const BY_HALL = ex.planSeriesPresses.indexes.plan_series_presses_by_hall;
+const SERIES = ex.planWindowJobs.indexes.plan_window_jobs_by_press_week;
 
 const text = printFor(StringType);
 
@@ -162,12 +162,12 @@ async function chooseHalls(halls: readonly string[], settled = true) {
 function hallsPlan(height?: string) {
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const presses = $.const(Data.bindPaged(ex.planSeriesPresses));
-        const jobs = $.const(Record.bind(ex.planWindowJobs, [ex.planWindowJobsPatch]));
+        const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
         const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
         const slice = $.const(Slice.bindRecords(KEY, {
-            presses: { source: Data.bindPaged(ex.planSeriesPresses, { indexes: [ex.planSeriesPressesByHall] }), fields: { hall: { label: "Hall" } } },
+            presses: { source: Data.bindPaged(ex.planSeriesPresses, { indexes: ["plan_series_presses_by_hall"] }), fields: { hall: { label: "Hall" } } },
             job: {
-                source: Data.bindPaged(ex.planWindowJobs, { indexes: [ex.planWindowJobsByTime, ex.planWindowJobsByPressWeek, ex.planWindowJobsByPressMonth] }),
+                source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
                 fields: { start: { label: "Dates" } }, range: "start",
             },
         }));

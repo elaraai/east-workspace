@@ -161,7 +161,7 @@ function FirstFrame({ drawn }: { drawn: (string | undefined)[] }) {
 /** A slice none of whose sources holds the window: the dated rows narrowed by their date, a field of the rail. */
 async function ownWindowSlice(key: string): Promise<RailChrome> {
     const rail = await bindRail(() => Slice.bindRecords(key, {
-        dated: { source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }), fields: { at: { label: "At" } } },
+        dated: { source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }), fields: { at: { label: "At" } } },
     }), ["fields"]);
     return rail.chrome;
 }
@@ -170,7 +170,7 @@ async function ownWindowSlice(key: string): Promise<RailChrome> {
 async function resolutionSlice(key: string): Promise<RailChrome> {
     const rail = await bindRail(() => Slice.bindRecords(key, {
         dated: {
-            source: Data.bindPaged(records.planDatedRows, { indexes: [records.planDatedRowsByAt] }),
+            source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
             fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
         },
     }), ["resolution"]);

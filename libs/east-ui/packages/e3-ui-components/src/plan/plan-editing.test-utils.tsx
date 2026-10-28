@@ -198,7 +198,7 @@ function compileCanvas(o: Resolved): () => PlanRootValue {
         })
         : East.function([], Plan.Types.Root, ($) => {
             // The presses' record on e3: read a window at a time, pinned, and saved through its patch door.
-            const presses = $.const(Record.bind(records.planPresses, [records.planPressesPatch]));
+            const presses = $.const(Record.bind(records.planPresses, ["patch"]));
             const source = $.const(Data.bindPaged(records.planPresses));
             const onApply = $.const(Record.onApply(presses, { keyed: true }));
             return Plan.Root({

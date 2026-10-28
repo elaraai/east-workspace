@@ -50,7 +50,7 @@ const view = East.function([], UIComponentType, (_$) => Reactive.Root(East.funct
     const racks = $.let(Data.bind(ex.schematicFloorRacks));
     const frames = $.let(Data.bind(ex.schematicFrames));
     const areas = $.let(Data.bind(ex.schematicAreas));
-    const fibre = $.let(Record.bind(ex.schematicFibre, [ex.schematicFibrePatch]));
+    const fibre = $.let(Record.bind(ex.schematicFibre, ["patch"]));
     const selected = $.let(State.bind([StringType], SELECTED_KEY, ""));
     const reports = $.let(State.bind([IntegerType], REPORTS_KEY, 0n));
     const heard = $.let(State.bind([StringType], HEARD_KEY, ""));

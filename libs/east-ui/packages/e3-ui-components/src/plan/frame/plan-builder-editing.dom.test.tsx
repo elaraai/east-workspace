@@ -174,12 +174,12 @@ const NO_JOINED: readonly EditHistoryJoined<PlanEntryRef>[] = [];
 const printKindsFn = East.function([], PlanPayloadType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const crews = $.let(Record.bind(ex.planPrintCrews, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-    const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
-    const shifts = $.let(Record.bind(ex.planPrintShifts, [ex.planPrintShiftsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
+    const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
+    const shifts = $.let(Record.bind(ex.planPrintShifts, ["patch"]));
     const stopTemplates = $.let(Data.bind(ex.planPrintStopTemplates));
     const slice = $.let(Slice.bindRecords("plan.editing.kinds", {
-        stopTemplates: { source: Data.bindPaged(ex.planPrintStopTemplates, { indexes: [ex.planPrintStopTemplatesByGroup] }) },
+        stopTemplates: { source: Data.bindPaged(ex.planPrintStopTemplates, { indexes: ["plan_print_stop_templates_by_group"] }) },
     }));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan.Payload({
@@ -678,8 +678,8 @@ describe("Save per kind (PB45–PB48)", () => {
 const lockedRoster = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const crews = $.let(Record.bind(ex.planPrintCrews, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-    const shifts = $.let(Record.bind(ex.planLockedShifts, [ex.planLockedShiftsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
+    const shifts = $.let(Record.bind(ex.planLockedShifts, ["patch"]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis, inspector: true,
@@ -707,7 +707,7 @@ const lockedRoster = { fn: East.function([], UIComponentType, (_$) => Reactive.R
 /** The jobs on the presses, sent as each gesture lands, with the inspector and the jobs' customer in its form. */
 const autoJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
     return Plan({
         axis, applyMode: "auto", inspector: true,

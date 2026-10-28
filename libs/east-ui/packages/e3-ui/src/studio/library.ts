@@ -257,14 +257,14 @@ export const StudioLibraryComponent = EastUI.component("StudioLibrary", StudioLi
 /**
  * `<Studio.Library>` options.
  *
- * @property pages - The pages record, bound with its patch mutation — `Record.bind(pages, [pagesPatch])`
+ * @property pages - The pages record, bound with its patch mutation — `Record.bind(pages)`
  * @property components - The components the surface lists — what a layout's summary names
  * @property project - The project it shows first
  * @property id - Names the builder whose open page it writes, when a surface holds two
  * @property onOpen - Told when a page opens in the builder, with its key — the host shows the builder
  */
 export interface StudioLibraryOptions {
-    /** The pages record, bound with its patch mutation — `Record.bind(pages, [pagesPatch])`. */
+    /** The pages record, bound with its patch mutation — `Record.bind(pages)`. */
     pages: StudioPagesHandle;
     /** The components the surface lists — what a layout's summary names. */
     components: SubtypeExprOrValue<ArrayType<StudioComponentType>>;
@@ -317,7 +317,7 @@ export interface StudioLibraryOptions {
  * export const library = ui("library", [], East.function([], UIComponentType, _$ => (
  *     <Reactive>{$ => {
  *         const components = $.let([kpiRail, revenueTrend, breakdownBars]);
- *         const pages      = $.let(Record.bind(d.pages, [d.pagesPatch]));
+ *         const pages      = $.let(Record.bind(d.pages));
  *         return <Studio.Library pages={pages} components={components} project="Ops console" />;
  *     }}</Reactive>
  * )));

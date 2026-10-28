@@ -1828,8 +1828,8 @@ describe("PagedRuntime — what a revision keeps of the searches batches answer 
     /** The jobs, and their series index: each job filed once by the press it is on, at the level its length fits (#1433). */
     const jobs = ex.indexedJobs;
     const JobsType = toEastTypeValue(jobs.type);
-    const SERIES: PagedSelector = { index: ex.jobsByPressWeek.name, join: false };
-    const SeriesWindowType = toEastTypeValue(indexWindowType(StringType, ex.jobsByPressWeek.keyType, ex.IndexedJob, ex.IndexedJob));
+    const SERIES: PagedSelector = { index: "jobs_by_press_week", join: false };
+    const SeriesWindowType = toEastTypeValue(indexWindowType(StringType, ex.indexedJobs.indexes.jobs_by_press_week.keyType, ex.IndexedJob, ex.IndexedJob));
     const printTile = printFor(DateTimeType);
     const printPress = printFor(OptionType(StringType));
     /** How many blocks the reader walks down: more than the windows the runtime retains. */

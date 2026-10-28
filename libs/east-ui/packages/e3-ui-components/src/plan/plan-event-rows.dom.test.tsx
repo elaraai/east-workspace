@@ -131,7 +131,7 @@ describe("the rows follow the records", () => {
     test("a read that fails leaves the rows standing and says why, once, on the footer's line with Retry — never the toolbar's chip — in the rows' words where no kind's own events failed (#1398); the next that reads clears it", async () => {
         const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+            const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
             // Each press's load: a press with none fails the rows' read.
             const loads = $.const(LOADS, DictType(StringType, ArrayType(Plan.Types.HeatCell)));
             const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
@@ -197,7 +197,7 @@ const LAST = new Date("2026-11-02T00:00:00Z");
 describe("nesting (PB14)", () => {
     test("a resource nests under the one its parent names, and a parent declared collapsed draws folded from the first frame", async () => {
         const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-            const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+            const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
             const machines = $.const(MACHINES, DictType(StringType, Machine));
             const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
             return Plan({
@@ -316,8 +316,8 @@ describe("a link's event ends", () => {
         try {
             const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
                 const presses = $.let(Record.bind(ex.planPrintPresses, []));
-                const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
-                const stops = $.let(Record.bind(ex.planPrintStops, [ex.planPrintStopsPatch]));
+                const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
+                const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
                 const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
                 return Plan({
                     axis,
@@ -384,7 +384,7 @@ const UNITS_SOURCE = { id: "units", page: COUNTED_PAGE, total: UNITS_TOTAL, seek
 describe("paged data beside event kinds", () => {
     const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         const presses = $.let(Record.bind(ex.planPrintPresses, []));
-        const jobs = $.let(Record.bind(ex.planPrintJobs, [ex.planPrintJobsPatch]));
+        const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
         const source = $.const(UNITS_SOURCE, Paged.Types.Source(Units));
         const series = $.const([
             Plan.series.span(UnitRow, {
