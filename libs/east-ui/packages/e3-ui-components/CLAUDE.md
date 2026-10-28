@@ -607,7 +607,11 @@ pending (#1360); it keeps the counts of at most 1,024 cells a revision, and a
 cell or a run a request in flight asks waits on it — at most 32 of them —
 rather than being asked again (#1039). The Sheet's lens has at
 most 16 pages in flight (`LENS_BUDGET`), reading the segments a view wants a
-turn at a time and keeping only what that view wants (#1349). The Schematic
+turn at a time and keeping only what that view wants (#1349); which of a
+page's rows its narrowing holds is worked out once a page — the record
+Slice keeps the page's entries by the page it read, and the binding their
+printed keys by the entries — so the lens, evaluating at every landing while
+a page's answer is on its way, works out no row's keys again (#1398). The Schematic
 keeps what a kind read by area's `rowsOf` made of its rows — and its details'
 — for as many as a window reads (`MAX_MADE_ROWS`, 20,000), past which the rows
 a read does not ask for go (#1393). Never raise those
@@ -1778,6 +1782,17 @@ again only as its index or `renderRow` moves, so a builder keeps `renderRow` the
 same function while what its rows show holds, and a row drawn again only as what
 it shows changes is a memo whose props hold — the People grid's rows and days,
 its week's duties indexed once by person and day, its Library's cards made once.
+A frame drawn again at each of its builder's commits — the Plan's, as a far
+jump's window and then its rows' cells land, several commits a landing — hands
+its toolbar the same items while what they show holds: the Plan's items
+(`shell/Toolbar.tsx`' `usePlanToolbarItems`) are each made again only as the
+facts it reads move, never the chrome, which is new each render — the date
+navigator's from the window's own (`PlanTimeNavigatorWindow`), the history's
+as the history's version moves (the canvas's `historyProps`), the events'
+selection read from the rows as it is asked (`selectEvents`) — and the
+library reads the plan recipe's styles made once (`useSlotStyles`), so a
+landing draws and measures nothing of the toolbar again and works out no
+recipe's styles (`plan-landing-draws.dom.test.tsx`).
 The Calendar's timeline virtualises its resources' rows in their groups, and
 their events by what the view shows of the period, one view either side. An
 event's block is a memo of what it shows (`calendar/views.tsx`' `EventBlock`,
