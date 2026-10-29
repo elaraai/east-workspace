@@ -63,8 +63,10 @@ import { leadingWindow, slicedResolution, statedWindow, zoomedWindow, type PlanW
 export function currentScale(value: PlanRootValue, hold?: PlanWindowHold): PlanScale | undefined {
     const chrome = planSlices(value);
     const parts = planWindowParts(chrome, value.axis.type, hold?.rows);
-    const window = leadingWindow(parts, value.axis.type) ?? hold?.last;
-    return resolveScale({ axis: value.axis, sliceWindow: window, sliceResolution: slicedResolution(chrome, parts) });
+    const lead = leadingWindow(parts, value.axis.type);
+    // The slice's zoom, else — the canvas holding its own window — the zoom that window was kept at (#1438).
+    const resolution = slicedResolution(chrome, parts) ?? (lead === undefined ? hold?.resolution : undefined);
+    return resolveScale({ axis: value.axis, sliceWindow: lead ?? hold?.last, sliceResolution: resolution });
 }
 
 /**

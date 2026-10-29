@@ -322,18 +322,22 @@ export function usePlanCanvas({
     // ── What survives a remount (#813) ────────────────────────────────────
     // Under the canvas's `storageKey`: the user's collapse toggles, the charts
     // they expanded, where a bounded frame's scroll rests, and the canvas's own
-    // window while no source of its slice holds one (#1344). Never the
-    // selection — a transient act, and restoring it would re-fire `onSelect`.
-    // Nor the resolution: only a bound slice can change it (the segment has
-    // nowhere to write without one — #615), and the slice keeps its own. The
-    // controller restores from it once and writes through the latest setter.
+    // window while no source of its slice holds one (#1344), with the zoom it
+    // was shown at (#1438): the slice holds the zoom, but a page's store may
+    // not outlive the page. Never the selection — a transient act, and
+    // restoring it would re-fire `onSelect`. The controller restores from it
+    // once and writes through the latest setter.
     const { state: stored, setState: setStored } = usePersistedState<PlanPersisted>(storageKey, NOT_PERSISTED);
     const [restored] = useState(() => persistedOf(stored));
     const persistTo = useRef(setStored);
     useLayoutEffect(() => { persistTo.current = setStored; });
     // The window last shown while no source of the slice holds one (#1344): the render's and the effects'. It opens on
     // the canvas's own window the last session kept while the axis allows it, so the first paint draws it there.
-    const [windowHold] = useState(() => createPlanWindowHold(restoredWindow(restored.window, hostValue, planRowSources(resources))));
+    const [windowHold] = useState(() => {
+        const window = restoredWindow(restored.window, hostValue, planRowSources(resources));
+        // The zoom it was kept at with it (#1438): the scale's until the slice holds one.
+        return createPlanWindowHold(window, window !== undefined ? restored.window?.resolution : undefined);
+    });
 
     // ── The controller — once per mount (#815) ────────────────────────────
     const [controller] = useState(() => createPlanController({

@@ -76,6 +76,9 @@ export interface PlanWindowHold {
     /** The span of what the canvas's series shown read through its rows' nested series index (#1438), `[from, to)`: what a zoom
      *  keeps the canvas's own window inside; `undefined` where none is known. */
     span: readonly [number, number] | undefined;
+    /** The zoom the canvas's own window was last kept at (#1438): the scale's while the slice holds none — a page's store
+     *  may not outlive the page, where the canvas's storage keeps the window and its zoom; `undefined` before any. */
+    resolution: string | undefined;
     /**
      * Moves the canvas's own window — no source of its slice holds one — and
      * tells its render. The window it shows already moves nothing.
@@ -100,13 +103,14 @@ export interface PlanWindowHold {
  *   back (#813); left out, no window shown yet
  * @returns The hold, showing `initial`, the `rows` source the one whose range never holds the window
  */
-export function createPlanWindowHold(initial?: readonly [number, number]): PlanWindowHold {
+export function createPlanWindowHold(initial?: readonly [number, number], resolution?: string): PlanWindowHold {
     const listeners = new Set<() => void>();
     let moves = 0;
     const hold: PlanWindowHold = {
         last: initial,
         rows: PLAN_ROW_SOURCES,
         span: undefined,
+        resolution,
         get moves() { return moves; },
         move(min, max) {
             if (hold.last !== undefined && hold.last[0] === min && hold.last[1] === max) return;
@@ -232,7 +236,9 @@ export function statedWindow(axis: PlanAxisValue): readonly [number, number] | u
  * the canvas takes it back before its first paint: only while it holds its own
  * — its slice has no source holding the window, whose state keeps it — and only
  * a window the axis still allows, on the arm it was written on and one the axis
- * lays out. Anything else leaves the axis's stated window.
+ * lays out at the zoom it was kept at — or, kept with none, the slice's —
+ * in no more buckets than the canvas draws. Anything else leaves the axis's
+ * stated window.
  *
  * @param kept - What the canvas's storage keeps of its own window
  * @param value - The root the canvas mounts with: its axis and its slice
@@ -245,7 +251,8 @@ export function restoredWindow(kept: PlanOwnWindow | undefined, value: PlanRootV
     // A canvas with no slice keeps the axis's stated window, and one whose sources hold the window shows theirs.
     if (chrome === undefined || planWindowParts(chrome, value.axis.type, rows).length > 0) return undefined;
     const window = [kept.min, kept.max] as const;
-    return resolveScale({ axis: value.axis, sliceWindow: window, sliceResolution: undefined }) === undefined ? undefined : window;
+    const scale = resolveScale({ axis: value.axis, sliceWindow: window, sliceResolution: kept.resolution ?? slicedResolution(chrome, []) });
+    return scale === undefined || scale.truncated !== undefined ? undefined : window;
 }
 
 /**
@@ -288,7 +295,8 @@ export function usePlanWindow(value: PlanRootValue, data: PlanRootValue, words: 
     if (lead !== undefined) hold.last = lead;
     const from = (lead ?? hold.last)?.[0];
     const to = (lead ?? hold.last)?.[1];
-    const resolution = slicedResolution(chrome, windowParts);
+    // The slice's zoom, else — the canvas holding its own window — the zoom that window was kept at (#1438).
+    const resolution = slicedResolution(chrome, windowParts) ?? (lead === undefined ? hold.resolution : undefined);
     // `resolveScale` owns the ladder: the sources' window — or the canvas's own — ▸ the stated window, per axis kind. The
     // rows are no input (#822), so windows landing keep one scale rather than handing every mounted row a new one (#812).
     const scale = useMemo(() => resolveScale({
