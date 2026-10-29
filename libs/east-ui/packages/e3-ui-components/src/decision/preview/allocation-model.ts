@@ -18,7 +18,10 @@
  * quantities leave once their bins' parts are counted — and its tone, and an
  * entry's breach, what the board's check and the app's say once the change is
  * made: more issues on a resource worse, a danger among them bad, fewer better.
- * Pure: the preview reads the days, and this works out what they draw.
+ * Each entry is on its resource by the resource's key — the waiting row's on
+ * that row — which is how the map past two lanes counts what each resource
+ * takes and loses. Pure: the preview reads the days, and this works out what
+ * they draw.
  *
  * @packageDocumentation
  */
@@ -44,8 +47,8 @@ const sameDate = equalFor(DateTimeType);
 const sameQuantity = equalFor(FloatType);
 const stringEqual = equalFor(StringType);
 
-/** The waiting row's lane. */
-const WAITING = printLane(variant("waiting", null));
+/** The waiting row's lane, and the resource its entries are on. */
+export const WAITING = printLane(variant("waiting", null));
 /** A bin with no parts. */
 const NO_PARTS: Bin["parts"] = new SortedMap([], compareString);
 
@@ -189,7 +192,7 @@ export function allocationCrop(input: AllocationCropInput): LanesModel | undefin
         const code = codeOf(bin);
         return {
             key: printEntry(variant("part", { bin: key, resource })), kind: "bin", title: words.part(code, quantity), what: words.what(code),
-            start: bin.at, end: endOf(bin, resource), lane, resource: lane, ...(issue === undefined ? {} : { issue }),
+            start: bin.at, end: endOf(bin, resource), lane, resource, ...(issue === undefined ? {} : { issue }),
         };
     };
 
@@ -301,7 +304,7 @@ export function allocationCrop(input: AllocationCropInput): LanesModel | undefin
         for (const job of context.resources.get(resource)?.jobs ?? []) {
             others.push({
                 key: printEntry(variant("job", { resource, label: job.label, start: job.start, end: job.end })), kind: "job", title: job.label,
-                start: job.start, end: compareDate(job.end, job.start) > 0 ? job.end : job.start, lane, resource: lane,
+                start: job.start, end: compareDate(job.end, job.start) > 0 ? job.end : job.start, lane, resource,
                 look: compareDate(job.start, day) <= 0 ? "prior" : "next",
             });
         }

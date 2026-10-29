@@ -96,8 +96,8 @@ export interface PreviewProps {
 export interface PreviewFrameProps {
     /** The target's kind: the frame's height (P2). */
     readonly kind: DecisionTarget["kind"]["type"];
-    /** How its rows are laid out: the Roster's week, lanes, a Sheet's rows, or a map's own. */
-    readonly layout: "roster" | "people" | "lanes" | "sheet" | undefined;
+    /** How its rows are laid out: the Roster's week or its map by people, lanes, a builder's map of tiles, a Sheet's rows, or a map's own. */
+    readonly layout: "roster" | "people" | "lanes" | "map" | "sheet" | undefined;
     /** Its sentence (P25). */
     readonly label: string;
     /** Whether the change no longer applies (P21). */
