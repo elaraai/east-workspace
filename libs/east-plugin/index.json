@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1272,
+    "totalEntries": 1273,
     "totalFiles": 216,
     "packages": {
       "east": 582,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 307,
-      "e3-ui": 139,
+      "e3-ui": 140,
       "e3": 18,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -41410,11 +41410,12 @@
         "import { Allocation, Calendar, Data, DecisionQueue, Record, Roster, Schedule, Sheet } from \"@elaraai/e3-ui\";",
         "import { arrivals, kilnBins, kilns, yardBays } from \"../allocation/allocation.examples.js\";",
         "import { calendarJobs, calendarMachines, calendarServices } from \"../calendar/calendar.examples.js\";",
-        "import { planEventJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
+        "import { planEventJobs, planPrintJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
         "import { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from \"../roster/roster.examples.js\";",
         "import { WarehouseDuty } from \"../roster/warehouse.js\";",
         "import { OptimiseWorkOrder, optimiseWorkOrders } from \"../sheet/optimise.examples.js\";",
-        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";"
+        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";",
+        "import { previewCases, previewVerdicts } from \"./previews.js\";"
       ],
       "languages": [
         "tsx"
@@ -41468,11 +41469,12 @@
         "import { Allocation, Calendar, Data, DecisionQueue, Record, Roster, Schedule, Sheet } from \"@elaraai/e3-ui\";",
         "import { arrivals, kilnBins, kilns, yardBays } from \"../allocation/allocation.examples.js\";",
         "import { calendarJobs, calendarMachines, calendarServices } from \"../calendar/calendar.examples.js\";",
-        "import { planEventJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
+        "import { planEventJobs, planPrintJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
         "import { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from \"../roster/roster.examples.js\";",
         "import { WarehouseDuty } from \"../roster/warehouse.js\";",
         "import { OptimiseWorkOrder, optimiseWorkOrders } from \"../sheet/optimise.examples.js\";",
-        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";"
+        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";",
+        "import { previewCases, previewVerdicts } from \"./previews.js\";"
       ],
       "languages": [
         "tsx"
@@ -41504,16 +41506,67 @@
         "import { Allocation, Calendar, Data, DecisionQueue, Record, Roster, Schedule, Sheet } from \"@elaraai/e3-ui\";",
         "import { arrivals, kilnBins, kilns, yardBays } from \"../allocation/allocation.examples.js\";",
         "import { calendarJobs, calendarMachines, calendarServices } from \"../calendar/calendar.examples.js\";",
-        "import { planEventJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
+        "import { planEventJobs, planPrintJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
         "import { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from \"../roster/roster.examples.js\";",
         "import { WarehouseDuty } from \"../roster/warehouse.js\";",
         "import { OptimiseWorkOrder, optimiseWorkOrders } from \"../sheet/optimise.examples.js\";",
-        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";"
+        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";",
+        "import { previewCases, previewVerdicts } from \"./previews.js\";"
       ],
       "languages": [
         "tsx"
       ],
       "source": "// The smallest decision queue read only (§4, R22): under `readOnly` a card opens and shows all of it — the change, Why, the figures — and takes no choice, no answer and no action; the toolbar holds no history item. The records are bound as for the editable queue, the verdicts with their patch door, which nothing writes through.\n// inputs: []\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        const cases = $.let(Data.bind(proposals));\n        const verdicts = $.let(Record.bind(proposalVerdicts));\n        const verdictEntries = $.let(Data.bindPaged(proposalVerdicts));\n        const workOrders = $.let(Record.bind(optimiseWorkOrders));\n        const priceList = $.let(Record.bind(listPrices));\n        return <Box height=\"640px\">\n            <DecisionQueue\n                id=\"proposalsReadOnly\"\n                readOnly\n                now={new Date(\"2028-03-08T15:00:00Z\")}\n                decisions={DecisionQueue.decisions(cases, {\n                    scope: p => p.site, due: p => p.deadline, unit: p => p.metric, model: p => p.run, why: p => p.rationale,\n                    title: p => p.headline, summary: p => p.brief, detail: p => p.description, value: p => p.saving,\n                    change: { from: p => p.details, of: {\n                        orders: DecisionQueue.change.sheet(workOrders, { name: \"Sheet\", icon: \"table-cells\", columns: {\n                            reference: Sheet.column.text(OptimiseWorkOrder, { header: \"Reference\" }),\n                            status: Sheet.column.text(OptimiseWorkOrder, { header: \"Status\" }),\n                            due: Sheet.column.date(OptimiseWorkOrder, { header: \"Due\" }),\n                        } }),\n                        pricing: DecisionQueue.change.record(priceList, { name: \"Pricing\", icon: \"tag\", label: r => r.region }),\n                    } },\n                })}\n                verdicts={DecisionQueue.verdicts(verdicts, {\n                    entries: verdictEntries,\n                    verdict: { field: \"verdict\", applied: \"applied\", overridden: \"overridden\", deferred: \"deferred\", handedOff: \"handedOff\" },\n                })}\n            />\n        </Box>;\n    }}</Reactive>)"
+    },
+    {
+      "id": "e3-ui:decision.examples.tsx:decisionQueuePreviews",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/decision/decision.examples.tsx",
+      "suite": "",
+      "test": "The previews gallery (§11): a case for each preview a builder draws, over the example app's records on the morning of Tuesday 20 October 2026 — the Roster's crop, three early shifts from one person to another with each one's hours before → after, and its week's map, twenty of 69 people changing; the Plan's crop, a job off a press where it overlaps a confirmed one with the now line across it, the confirmed job locked — the target reading which jobs are confirmed (`locked`) — and its day's map, five jobs onto Thursday's presses with the day it changes as a strip; the Allocation's crop, a load off the Waiting row into a kiln; the Calendar's, a machine's maintenance off the day it overlaps a job; and the Sheet's, three due dates filled from history, one a guess. Then a Plan crop for each of its other marks: a change the record moved under, stale; a job two cases place, shared; a job moved because of the change, a knock-on; and a breach, a job still overlapping another on its press. The Plan's target reads the print works' jobs through their interval index (`source`), as the Plan's own slice names it, its kind reading one job by its key through the record's entries.",
+      "keywords": [
+        "DecisionQueue",
+        "previews",
+        "gallery",
+        "crop",
+        "map",
+        "marks",
+        "locked",
+        "stale",
+        "shared",
+        "knockOn",
+        "breach",
+        "now",
+        "DecisionQueue.change.roster",
+        "DecisionQueue.change.plan",
+        "DecisionQueue.change.calendar",
+        "DecisionQueue.change.allocation",
+        "DecisionQueue.change.sheet",
+        "DecisionQueue.change.record",
+        "source",
+        "entries",
+        "Data.bind",
+        "Data.bindPaged",
+        "Record.bind"
+      ],
+      "imports": [
+        "import { BooleanType, DictType, East, FloatType, NullType, OptionType, StringType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Box, Fields, Format, Reactive, Slice, State, UIComponentType } from \"@elaraai/east-ui\";",
+        "import { Allocation, Calendar, Data, DecisionQueue, Record, Roster, Schedule, Sheet } from \"@elaraai/e3-ui\";",
+        "import { arrivals, kilnBins, kilns, yardBays } from \"../allocation/allocation.examples.js\";",
+        "import { calendarJobs, calendarMachines, calendarServices } from \"../calendar/calendar.examples.js\";",
+        "import { planEventJobs, planPrintJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
+        "import { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from \"../roster/roster.examples.js\";",
+        "import { WarehouseDuty } from \"../roster/warehouse.js\";",
+        "import { OptimiseWorkOrder, optimiseWorkOrders } from \"../sheet/optimise.examples.js\";",
+        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";",
+        "import { previewCases, previewVerdicts } from \"./previews.js\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// The previews gallery (§11): a case for each preview a builder draws, over the example app's records on the morning of Tuesday 20 October 2026 — the Roster's crop, three early shifts from one person to another with each one's hours before → after, and its week's map, twenty of 69 people changing; the Plan's crop, a job off a press where it overlaps a confirmed one with the now line across it, the confirmed job locked — the target reading which jobs are confirmed (`locked`) — and its day's map, five jobs onto Thursday's presses with the day it changes as a strip; the Allocation's crop, a load off the Waiting row into a kiln; the Calendar's, a machine's maintenance off the day it overlaps a job; and the Sheet's, three due dates filled from history, one a guess. Then a Plan crop for each of its other marks: a change the record moved under, stale; a job two cases place, shared; a job moved because of the change, a knock-on; and a breach, a job still overlapping another on its press. The Plan's target reads the print works' jobs through their interval index (`source`), as the Plan's own slice names it, its kind reading one job by its key through the record's entries.\n// inputs: []\nEast.function([], UIComponentType, _$ => <Reactive>{$ => {\n        // The gallery's cases, read whole, and the verdicts the queue writes.\n        const cases = $.let(Data.bind(previewCases));\n        const verdicts = $.let(Record.bind(previewVerdicts));\n        const verdictEntries = $.let(Data.bindPaged(previewVerdicts));\n\n        // The Roster's, as `rosterOptimise` gives them, and the warehouse's pay.\n        const duties = $.let(Record.bind(rosterDuties));\n        const dutyEntries = $.let(Data.bindPaged(rosterDuties));\n        const dutyWeek = $.let(Data.bindPaged(rosterDuties, { indexes: [\"roster_duties_by_time\"] }));\n        const staff = $.let(Data.bind(rosterStaff));\n        const firms = $.let(Data.bind(rosterAgencies));\n        const times = $.let(Data.bind(rosterShiftTimes));\n        const teams = $.let(Data.bind(rosterTeams));\n        const rateRows = $.let(Data.bind(rosterPayRates));\n        const rates = $.const(rateRows.read());\n        const duty = Schedule.events(duties, {\n            name: \"Duty\", icon: \"user-clock\", entries: dutyEntries,\n            start: \"start\", end: \"end\", resource: { field: \"who\", of: { staff: \"people\", agency: \"agencies\" } },\n            shift: \"shift\", group: \"team\", position: \"role\", activity: \"task\",\n            hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),\n        });\n        const people = Schedule.resources(staff.read(), { name: \"People\", icon: \"user\", label: p => p.name, group: p => p.team, contract: p => p.contract });\n        const agencies = Schedule.resources(firms.read(), { name: \"Agencies\", icon: \"building\", label: a => a.name });\n        const shifts = Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order, color: s => s.colour });\n        const groups = Roster.groups(teams.read(), { label: t => t.label, order: t => t.order });\n        // The warehouse's pay in its own codes: ordinary time to the contract, OT1 past it, an agency's hours at its rate.\n        const pay = $.const(East.function([Roster.Types.PayRequest(WarehouseDuty)], Roster.Types.Pay, ($2, req) => {\n            const out = $2.let(new Map(), Roster.Types.Pay);\n            const zero = $2.const(0.0, FloatType);\n            const agency = $2.let(true, BooleanType);\n            const contract = $2.let(0.0, FloatType);\n            $2.match(req.who, { person: ($3, key) => {\n                $3.if(req.context.people.has(key), ($4) => {\n                    const person = $4.const(req.context.people.get(key));\n                    $4.assign(agency, person.agency);\n                    $4.assign(contract, person.contract);\n                });\n            } });\n            const worked = $2.let(0.0, FloatType);\n            const ordered = $2.const(req.duties.toArray(($3, row, key) => ({ key, duty: row })).sort(($3, d) => d.duty.start));\n            $2.for(ordered, ($3, d) => {\n                const costs = $3.let(new Map(), DictType(StringType, FloatType));\n                $3.if(agency, ($4) => {\n                    $4(costs.insert(\"AGENCY\", d.duty.hours.multiply(rates.get(\"AGENCY\", () => 0.0))));\n                }).else(($4) => {\n                    const ordinary = $4.const(East.max(East.min(d.duty.hours, contract.subtract(worked)), zero));\n                    const over = $4.const(d.duty.hours.subtract(ordinary));\n                    $4(costs.insert(\"ORD\", ordinary.multiply(rates.get(\"ORD\", () => 0.0))));\n                    $4.if(East.greater(over, 0.0), ($5) => { $5(costs.insert(\"OT1\", over.multiply(rates.get(\"OT1\", () => 0.0)))); });\n                });\n                $3.assign(worked, worked.add(d.duty.hours));\n                $3(out.insert(d.key, costs));\n            });\n            return out;\n        }));\n\n        // The Plan's, as `planPrintWorks` gives them: the print works' jobs on its presses, read through the jobs'\n        // interval index, one job by its key through the record's own entries.\n        const jobs = $.let(Record.bind(planPrintJobs));\n        const jobEntries = $.let(Data.bindPaged(planPrintJobs));\n        const jobTimes = $.let(Data.bindPaged(planPrintJobs, { indexes: [\"plan_print_jobs_by_time\"] }));\n        const presses = $.let(Data.bind(planPrintPresses));\n        const job = Schedule.events(jobs, { name: \"Print job\", icon: \"file-lines\", entries: jobEntries, title: \"title\", start: \"start\", end: \"end\",\n            resource: { field: \"press\", of: \"presses\" }, state: \"state\" });\n        const pressRows = Schedule.resources(presses.read(), { name: \"Presses\", icon: \"print\", label: p => p.name, group: p => p.hall });\n\n        // The Calendar's, as `calendarOptimise` gives them; the Allocation's, as `allocationOptimise` does.\n        const machineJobs = $.let(Record.bind(calendarJobs));\n        const machines = $.let(Data.bind(calendarMachines));\n        const machineJob = Calendar.events(machineJobs, { name: \"Production\", icon: \"industry\", title: \"title\", start: \"start\", end: \"end\",\n            resource: { field: \"machine\", of: \"machines\" } });\n        const services = $.let(Record.bind(calendarServices));\n        const service = Calendar.events(services, { name: \"Maintenance\", icon: \"screwdriver-wrench\", title: \"title\", start: \"start\", end: \"end\",\n            resource: { field: \"machine\", of: \"machines\" } });\n        const machineRows = Calendar.resources(machines.read(), { name: \"Machines\", icon: \"gears\", label: m => m.name });\n        const bins = $.let(Record.bind(kilnBins));\n        const binEntries = $.let(Data.bindPaged(kilnBins));\n        const yardDayBins = $.let(Data.bindPaged(kilnBins, { indexes: [\"kiln_bins_by_time\"] }));\n        const bays = $.let(Data.bind(yardBays));\n        const kilnList = $.let(Data.bind(kilns));\n        const loads = $.let(Data.bind(arrivals));\n        const bin = Schedule.events(bins, { name: \"Bin\", icon: \"box\", entries: binEntries, at: \"at\", resource: { field: \"bay\", of: \"bays\" },\n            arrival: \"load\", quantity: { field: \"m3\", unit: \"m³\" }, parts: { field: \"kilns\", of: \"kilns\" }, hold: \"dryFor\", kind: \"spec\" });\n        const bayRows = Schedule.resources(bays.read(), { name: \"Bays\", icon: \"warehouse\", label: b => b.name, offset: b => b.offset });\n        const kilnRows = Schedule.resources(kilnList.read(), { name: \"Kilns\", icon: \"fire\", label: k => k.name, group: k => k.group,\n            min: k => k.min, max: k => k.max, hold: k => variant(\"days\", k.days), jobs: k => k.charges });\n        const loadRows = Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant(\"days\", l.dryingDays),\n            kind: l => some(l.spec), due: l => some(l.due), window: l => some({ from: l.from, to: l.to }) });\n\n        // The Sheet's work orders, as `sheetOptimise` binds them, and the price list.\n        const workOrders = $.let(Record.bind(optimiseWorkOrders));\n        const priceList = $.let(Record.bind(listPrices));\n\n        // Where each kind of decision draws: a target for each tag of the options' change. The Plan's reads the jobs\n        // through their source and holds a confirmed job locked: the Locked mark.\n        const rotaChange = DecisionQueue.change.roster({ name: \"Roster\", icon: \"users\",\n            events: { duty }, resources: { people, agencies }, shifts, groups, week: { start: \"sunday\" }, source: dutyWeek });\n        const rotaCostChange = DecisionQueue.change.roster({ name: \"Roster\", icon: \"users\", map: \"cost\", pay, currency: \"USD\",\n            events: { duty }, resources: { people, agencies }, shifts, groups, week: { start: \"sunday\" }, source: dutyWeek });\n        const printChange = DecisionQueue.change.plan({ name: \"Plan\", icon: \"bars-progress\", events: { job }, resources: { presses: pressRows },\n            source: jobTimes, locked: j => j.state.hasTag(\"confirmed\") });\n        const workshopChange = DecisionQueue.change.calendar({ name: \"Calendar\", icon: \"calendar-days\",\n            events: { job: machineJob, service }, event: \"service\", resources: { machines: machineRows } });\n        const yardChange = DecisionQueue.change.allocation({ name: \"Allocation\", icon: \"fire-flame-curved\",\n            events: { bin }, resources: { bays: bayRows, kilns: kilnRows }, arrivals: loadRows, source: yardDayBins });\n        const orderChange = DecisionQueue.change.sheet(workOrders, { name: \"Sheet\", icon: \"table-cells\", columns: {\n            reference: Sheet.column.text(OptimiseWorkOrder, { header: \"Reference\", width: \"96px\" }),\n            status: Sheet.column.text(OptimiseWorkOrder, { header: \"Status\" }),\n            due: Sheet.column.date(OptimiseWorkOrder, { header: \"Due\", width: \"96px\" }),\n        } });\n        const pricingChange = DecisionQueue.change.record(priceList, { name: \"Pricing\", icon: \"tag\", label: r => r.region,\n            fields: { price: Fields.number({ label: \"List price\", unit: \"$ / unit\", min: 10.0, max: 12.5, step: 0.05, help: \"In 5¢ steps\" }) } });\n\n        return <Box height=\"760px\">\n            <DecisionQueue\n                id=\"previewsQueue\"\n                now={new Date(\"2026-10-20T09:14:00Z\")}\n                decisions={DecisionQueue.decisions(cases, {\n                    scope: c => c.scope, due: c => c.due, routine: c => c.routine, unit: c => c.unit, model: c => c.model,\n                    why: c => c.why, ifWrong: c => c.ifWrong, recommended: c => c.recommended,\n                    // Money in dollars, a count as it is.\n                    format: c => c.money.ifElse(() => some(Format.Currency({ currency: \"USD\", compact: \"short\" })), () => none),\n                    options: { from: c => c.options, label: o => o.label, title: o => o.title, summary: o => o.summary,\n                        detail: o => o.detail, note: o => o.note, value: o => o.value, confidence: o => o.confidence,\n                        question: o => o.question, warn: o => o.warn, refused: o => o.refused, knockOn: o => o.knockOn,\n                        guesses: o => o.guesses,\n                        change: { from: o => o.change, of: {\n                            rota: rotaChange, rotaCost: rotaCostChange, print: printChange, workshop: workshopChange,\n                            yard: yardChange, orders: orderChange, pricing: pricingChange,\n                        } } },\n                })}\n                verdicts={DecisionQueue.verdicts(verdicts, {\n                    entries: verdictEntries,\n                    verdict: { field: \"verdict\", applied: \"applied\", overridden: \"overridden\", deferred: \"deferred\", handedOff: \"handedOff\" },\n                    option: \"option\",\n                    answer: { field: \"answer\", yes: \"yes\", no: \"no\", unsure: \"unsure\" },\n                    reason: { field: \"reason\", context: \"context\", data: \"data\", priorities: \"priorities\", other: \"other\" },\n                    note: \"note\",\n                })}\n            />\n        </Box>;\n    }}</Reactive>)"
     },
     {
       "id": "e3-ui:experiment.examples.tsx:experimentSurface",
