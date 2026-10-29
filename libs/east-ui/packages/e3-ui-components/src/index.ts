@@ -14,7 +14,8 @@ import './platform/paged-runtime.js';     // → registerPlatformImplementation(
 import './platform/func-runtime.js';      // → registerPlatformImplementation(FuncPlatform)
 import './ontology/index.js';             // → implementUIComponent(Ontology.Component, EastChakraOntology)
 import './experiment/index.js';           // → implementUIComponent(Experiment.Component, EastChakraExperiment)
-import './studio/builder.js';            // → implementUIComponent(StudioBuilderComponent, EastChakraStudioBuilder)
+import './decision/index.js';             // → implementUIComponent(DecisionQueueComponent, EastChakraDecisionQueue)
+import './studio/builder.js';             // → implementUIComponent(StudioBuilderComponent, EastChakraStudioBuilder)
 import './studio/library.js';             // → implementUIComponent(StudioLibraryComponent, EastChakraStudioLibrary)
 import './studio/page.js';                // → implementUIComponent(StudioPageComponent, EastChakraStudioPage)
 import './query/builder.js';              // → implementUIComponent(QueryBuilderComponent, EastChakraQueryBuilder)
@@ -50,6 +51,9 @@ export {
 export { EastChakraOntology, type EastChakraOntologyProps } from './ontology/index.js';
 // Experiment renderer — registers itself against the Experiment extension on import.
 export { EastChakraExperiment, type EastChakraExperimentProps } from './experiment/index.js';
+
+// Decision queue renderer — registers itself against the DecisionQueue extension on import.
+export { EastChakraDecisionQueue, type EastChakraDecisionQueueProps, type DecisionQueueValue } from './decision/index.js';
 
 // Studio renderers — each registers itself against its extension on import: the builder,
 // the page library and one page — and the Studio's words.

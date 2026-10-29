@@ -123,6 +123,9 @@ export const buttonRecipe = defineRecipe({
                  * "slightly different curve". The tint cue avoids that. */
                 _hover:  { background: "bg.subtle" },
                 _active: { background: "bg.muted", transform: "scale(0.98)" },
+                /* A toggle held on — `aria-pressed`: the panel it opens is
+                 * open (the DecisionQueue's Override… and Modify, #1447). */
+                _pressed: { background: "bg.subtle" },
             },
             ghost: {
                 colorPalette: "gray",

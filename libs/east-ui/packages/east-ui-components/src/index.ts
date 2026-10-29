@@ -296,6 +296,10 @@ export {
     toChakraTextarea,
     type TextareaValue,
     type EastChakraTextareaProps,
+    // RadioGroup
+    EastChakraRadioGroup,
+    type RadioGroupValue,
+    type EastChakraRadioGroupProps,
     // TagsInput
     EastChakraTagsInput,
     toChakraTagsInput,
