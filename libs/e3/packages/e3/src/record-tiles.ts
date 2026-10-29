@@ -28,7 +28,7 @@
  *
  * @packageDocumentation
  */
-import { ArrayType, DateTimeType, East, IntegerType, OptionType, StringType, StructType, variant } from '@elaraai/east';
+import { ArrayType, DateTimeType, East, FunctionType, IntegerType, OptionType, StringType, StructType, variant } from '@elaraai/east';
 import { RecordLevelType } from '@elaraai/e3-types';
 
 /** A tile's length: a day, an ISO week, a calendar month, a quarter or a year. */
@@ -146,10 +146,55 @@ export const tileNext = East.function([RecordLevelType, DateTimeType], DateTimeT
   });
 });
 
+/**
+ * `(level, at) → a tile's start`: the type of {@link tileStart} and {@link
+ * tileNext}, which a function given either takes.
+ */
+export const TileStepFnType = FunctionType([RecordLevelType, DateTimeType], DateTimeType);
+
 /** `(level) → its name`, as a refusal names a tile. */
 const levelName = East.function([RecordLevelType], StringType, (_$, level) => level.match({
   day: () => 'day', week: () => 'week', month: () => 'month', quarter: () => 'quarter', year: () => 'year',
 }));
+
+/**
+ * The tiles of a level an event touches, and its share of each ({@link
+ * tileShares}), given the functions that step through the tiles: a program
+ * binding {@link tileStart} and {@link tileNext} once hands them to each
+ * function that calls either.
+ *
+ * `(level, start, end, what, first, next) → each tile it touches, in order,
+ * and the milliseconds of it the event covers`
+ *
+ * Throws an East runtime error when the event touches more than
+ * {@link MAX_EVENT_TILES} tiles, naming `what`, its span and the tile.
+ */
+const tileSharesOver = East.function(
+  [RecordLevelType, DateTimeType, DateTimeType, StringType, TileStepFnType, TileStepFnType], ArrayType(TileShareType),
+  ($, level, start, end, what, first, next) => {
+    const shares = $.let([], ArrayType(TileShareType));
+    const from = $.let(start.toEpochMilliseconds());
+    const to = $.let(end.toEpochMilliseconds());
+    const at = $.let(first(level, start));
+    // An instant: the tile holding it, none of it covered.
+    $.if(to.lessEqual(from), ($) => {
+      $(shares.pushLast({ tile: at, ms: 0n }));
+      $.return(shares);
+    });
+    $.while(at.toEpochMilliseconds().less(to), ($) => {
+      $.if(shares.size().greaterEqual(MAX_EVENT_TILES), ($) => {
+        const name = $.const(levelName);
+        $.error(East.str`${what}, from ${East.print(start)} to ${East.print(end)}, touches more than ${MAX_TILES_TEXT} ${name(level)}${TOO_MANY_TILES}`);
+      });
+      const after = $.let(next(level, at));
+      const lo = $.let(at.toEpochMilliseconds().greater(from).ifElse(() => at.toEpochMilliseconds(), () => from));
+      const hi = $.let(after.toEpochMilliseconds().less(to).ifElse(() => after.toEpochMilliseconds(), () => to));
+      $(shares.pushLast({ tile: at, ms: hi.subtract(lo) }));
+      $.assign(at, after);
+    });
+    return shares;
+  },
+);
 
 /**
  * The tiles of a level an event touches, and its share of each (see the
@@ -165,27 +210,7 @@ const levelName = East.function([RecordLevelType], StringType, (_$, level) => le
 export const tileShares = East.function([RecordLevelType, DateTimeType, DateTimeType, StringType], ArrayType(TileShareType), ($, level, start, end, what) => {
   const first = $.const(tileStart);
   const next = $.const(tileNext);
-  const shares = $.let([], ArrayType(TileShareType));
-  const from = $.let(start.toEpochMilliseconds());
-  const to = $.let(end.toEpochMilliseconds());
-  const at = $.let(first(level, start));
-  // An instant: the tile holding it, none of it covered.
-  $.if(to.lessEqual(from), ($) => {
-    $(shares.pushLast({ tile: at, ms: 0n }));
-    $.return(shares);
-  });
-  $.while(at.toEpochMilliseconds().less(to), ($) => {
-    $.if(shares.size().greaterEqual(MAX_EVENT_TILES), ($) => {
-      const name = $.const(levelName);
-      $.error(East.str`${what}, from ${East.print(start)} to ${East.print(end)}, touches more than ${MAX_TILES_TEXT} ${name(level)}${TOO_MANY_TILES}`);
-    });
-    const after = $.let(next(level, at));
-    const lo = $.let(at.toEpochMilliseconds().greater(from).ifElse(() => at.toEpochMilliseconds(), () => from));
-    const hi = $.let(after.toEpochMilliseconds().less(to).ifElse(() => after.toEpochMilliseconds(), () => to));
-    $(shares.pushLast({ tile: at, ms: hi.subtract(lo) }));
-    $.assign(at, after);
-  });
-  return shares;
+  return tileSharesOver(level, start, end, what, first, next);
 });
 
 /**
@@ -208,60 +233,73 @@ const shortestMs = East.function([RecordLevelType], IntegerType, (_$, level) => 
 const LEVELS = [variant('day', null), variant('week', null), variant('month', null), variant('quarter', null), variant('year', null)];
 
 /**
- * Where a series index files an event (see the module docs): once, at the
- * finest level from the index's tile up whose shortest tile
+ * Where a series index files an event (see the module docs), given the
+ * functions that step through the tiles ({@link tileSharesOver}'s): once, at
+ * the finest level from the index's tile up whose shortest tile
  * ({@link SHORTEST_MS}) holds its length, under the tile of that level holding
  * its start; past a year, under each year it touches.
  *
- * `(tile, start, end, what) → each place it is filed, in order`: an instant —
- * `end` at or before `start` — at `tile`. `what` names the event in a refusal,
- * as {@link tileShares}' does.
+ * `(tile, start, end, what, startOf, nextOf) → each place it is filed, in
+ * order`: an instant — `end` at or before `start` — at `tile`. `what` names
+ * the event in a refusal, as {@link tileShares}' does.
  *
  * Throws an East runtime error when an event longer than a year touches more
  * than {@link MAX_EVENT_TILES} years, naming `what` and its span.
  */
-export const eventFilings = East.function([RecordLevelType, DateTimeType, DateTimeType, StringType], ArrayType(TileFilingType), ($, tile, start, end, what) => {
-  const startOf = $.const(tileStart);
-  const nextOf = $.const(tileNext);
-  const shortest = $.const(shortestMs);
-  const levels = $.const(LEVELS, ArrayType(RecordLevelType));
-  const length = $.let(end.toEpochMilliseconds().subtract(start.toEpochMilliseconds()));
-  const filed = $.let([], ArrayType(TileFilingType));
-  // The levels from the index's tile up, the first whose shortest tile holds the event.
-  const reached = $.let(false);
-  $.for(levels, ($, level) => {
-    $.if(East.equal(level, tile), ($) => { $.assign(reached, true); });
-    $.if(reached.and(() => filed.size().equal(0n)).and(() => length.lessEqual(shortest(level))), ($) => {
-      $(filed.pushLast({ level, tile: startOf(level, start) }));
-    });
-  });
-  // Longer than a year: each year it touches, as many as MAX_EVENT_TILES.
-  $.if(filed.size().equal(0n), ($) => {
-    const year = $.const(variant('year', null), RecordLevelType);
-    const at = $.let(startOf(year, start));
-    $.while(at.toEpochMilliseconds().less(end.toEpochMilliseconds()), ($) => {
-      $.if(filed.size().greaterEqual(MAX_EVENT_TILES), ($) => {
-        $.error(East.str`${what}, from ${East.print(start)} to ${East.print(end)}, ${TOO_MANY_YEARS}`);
+const eventFilingsOver = East.function(
+  [RecordLevelType, DateTimeType, DateTimeType, StringType, TileStepFnType, TileStepFnType], ArrayType(TileFilingType),
+  ($, tile, start, end, what, startOf, nextOf) => {
+    const shortest = $.const(shortestMs);
+    const levels = $.const(LEVELS, ArrayType(RecordLevelType));
+    const length = $.let(end.toEpochMilliseconds().subtract(start.toEpochMilliseconds()));
+    const filed = $.let([], ArrayType(TileFilingType));
+    // The levels from the index's tile up, the first whose shortest tile holds the event.
+    const reached = $.let(false);
+    $.for(levels, ($, level) => {
+      $.if(East.equal(level, tile), ($) => { $.assign(reached, true); });
+      $.if(reached.and(() => filed.size().equal(0n)).and(() => length.lessEqual(shortest(level))), ($) => {
+        $(filed.pushLast({ level, tile: startOf(level, start) }));
       });
-      $(filed.pushLast({ level: year, tile: at }));
-      $.assign(at, nextOf(year, at));
     });
-  });
-  return filed;
-});
+    // Longer than a year: each year it touches, as many as MAX_EVENT_TILES.
+    $.if(filed.size().equal(0n), ($) => {
+      const year = $.const(variant('year', null), RecordLevelType);
+      const at = $.let(startOf(year, start));
+      $.while(at.toEpochMilliseconds().less(end.toEpochMilliseconds()), ($) => {
+        $.if(filed.size().greaterEqual(MAX_EVENT_TILES), ($) => {
+          $.error(East.str`${what}, from ${East.print(start)} to ${East.print(end)}, ${TOO_MANY_YEARS}`);
+        });
+        $(filed.pushLast({ level: year, tile: at }));
+        $.assign(at, nextOf(year, at));
+      });
+    });
+    return filed;
+  },
+);
 
 /**
- * The places an event is filed (`eventFilings`) — a series index's, a nested one's item's: none for an event
- * with no start; one with no end is an instant.
+ * Where a series index files an event: {@link eventFilingsOver}, its tiles
+ * stepped through by {@link tileStart} and {@link tileNext}.
  *
  * `(tile, start, end, what) → each place it is filed, in order`
  */
-export const placedFilings = East.function(
-  [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType], ArrayType(TileFilingType),
-  ($, tile, start, end, what) => {
-    const file = $.const(eventFilings);
+export const eventFilings = East.function([RecordLevelType, DateTimeType, DateTimeType, StringType], ArrayType(TileFilingType), ($, tile, start, end, what) => {
+  const startOf = $.const(tileStart);
+  const nextOf = $.const(tileNext);
+  return eventFilingsOver(tile, start, end, what, startOf, nextOf);
+});
+
+/**
+ * The places an event is filed ({@link eventFilingsOver}) — a series index's, a nested one's item's: none for an
+ * event with no start; one with no end is an instant.
+ *
+ * `(tile, start, end, what, startOf, nextOf) → each place it is filed, in order`
+ */
+export const placedFilingsOver = East.function(
+  [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType, TileStepFnType, TileStepFnType], ArrayType(TileFilingType),
+  ($, tile, start, end, what, startOf, nextOf) => {
     $.match(start, {
-      some: ($, from) => { $.return(file(tile, from, end.unwrap('some', () => from), what)); },
+      some: ($, from) => { $.return(eventFilingsOver(tile, from, end.unwrap('some', () => from), what, startOf, nextOf)); },
       none: () => {},
     });
     return [];
@@ -269,19 +307,51 @@ export const placedFilings = East.function(
 );
 
 /**
- * The tiles an event touches, and its share of each (`tileShares`) — a summary's, a nested index's totals': none for an
- * event with no start; one with no end is an instant.
+ * The places an event is filed — a series index's, a nested one's item's: none
+ * for an event with no start; one with no end is an instant ({@link
+ * placedFilingsOver}, stepping by {@link tileStart} and {@link tileNext}).
+ *
+ * `(tile, start, end, what) → each place it is filed, in order`
+ */
+export const placedFilings = East.function(
+  [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType], ArrayType(TileFilingType),
+  ($, tile, start, end, what) => {
+    const startOf = $.const(tileStart);
+    const nextOf = $.const(tileNext);
+    return placedFilingsOver(tile, start, end, what, startOf, nextOf);
+  },
+);
+
+/**
+ * The tiles an event touches, and its share of each ({@link tileSharesOver}) — a summary's, a nested index's totals':
+ * none for an event with no start; one with no end is an instant.
+ *
+ * `(tile, start, end, what, first, next) → each tile it touches, in order, and the milliseconds of it the event covers`
+ */
+export const placedSharesOver = East.function(
+  [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType, TileStepFnType, TileStepFnType], ArrayType(TileShareType),
+  ($, tile, start, end, what, first, next) => {
+    $.match(start, {
+      some: ($, from) => { $.return(tileSharesOver(tile, from, end.unwrap('some', () => from), what, first, next)); },
+      none: () => {},
+    });
+    return [];
+  },
+);
+
+/**
+ * The tiles an event touches, and its share of each — a summary's, a nested
+ * index's totals': none for an event with no start; one with no end is an
+ * instant ({@link placedSharesOver}, stepping by {@link tileStart} and {@link
+ * tileNext}).
  *
  * `(tile, start, end, what) → each tile it touches, in order, and the milliseconds of it the event covers`
  */
 export const placedShares = East.function(
   [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType], ArrayType(TileShareType),
   ($, tile, start, end, what) => {
-    const share = $.const(tileShares);
-    $.match(start, {
-      some: ($, from) => { $.return(share(tile, from, end.unwrap('some', () => from), what)); },
-      none: () => {},
-    });
-    return [];
+    const first = $.const(tileStart);
+    const next = $.const(tileNext);
+    return placedSharesOver(tile, start, end, what, first, next);
   },
 );

@@ -17,10 +17,11 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
-  ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, RecursiveType, SortedMap, StringType,
-  StructType, VariantType, compareFor, encodeBeast2PagedFor, equalFor, isTypeEqual, parseFor, printFor, printType, variant,
-  type EastType, type ValueTypeOf,
+  ArrayType, DateTimeType, DictType, East, FloatType, IRType, IntegerType, OptionType, RecursiveType, SortedMap, StringType,
+  StructType, VariantType, compareFor, encodeBeast2For, encodeBeast2PagedFor, equalFor, isTypeEqual, parseFor, printFor, printType,
+  variant, walkIR, type EastType, type IR, type ValueTypeOf,
 } from '@elaraai/east';
 import { NestedEntryKeyType, NestedEntryType, RecordNestedDeclType } from '@elaraai/e3-types';
 import { record } from './record.js';
@@ -28,10 +29,11 @@ import type { NestedSeriesIndexSpec } from './record-index.js';
 import type { IndexBuilder } from './record-builders.js';
 import { items, recursive, rows, values } from './record-nested.js';
 import { buildMutationProgram, builtIndex, indexBuildProgram } from './record-programs.js';
-import { functionAt } from './record-guards.js';
+import { bundleOf, functionAt } from './record-guards.js';
 import { package_ } from './package.js';
 import { NestedPatchedType } from './record-nested-programs.js';
 import { patchTypeOf } from './record-patches.js';
+import { placedFilingsOver, placedSharesOver } from './record-tiles.js';
 import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
 /**
@@ -1058,5 +1060,119 @@ describe('index.nested — a write by its patch', () => {
     const index = machinesInTime(machines());
     const jobs = { 'j-1': job(OCT_2, OCT_2_NIGHT) };
     assertCompared(index, byPatch(index, 'M-7', parsed(Machine, machine(jobs)), parsed(Machine, machine(jobs, {}, 'down'))), '{:}', '{:}');
+  });
+});
+
+// ── Its programs ─────────────────────────────────────────────────────────────
+
+const encodeIR = encodeBeast2For(IRType);
+
+/**
+ * A function's IR in a canonical form: every location id zeroed, and every
+ * variable and loop label renamed by its first appearance, so one function is
+ * alike wherever a program writes it, whatever was built before it.
+ */
+function canonicalIR(ir: IR): IR {
+  const names = new Map<string, string>();
+  const labels = new Map<string, string>();
+  const renamed = (seen: Map<string, string>, prefix: string, held: unknown): unknown => {
+    if (held === null || typeof held !== 'object') return held;
+    const named = held as Record<string, unknown>;
+    const name = named['name'];
+    if (typeof name !== 'string') return held;
+    if (!seen.has(name)) seen.set(name, `${prefix}${seen.size}`);
+    return { ...named, name: seen.get(name) };
+  };
+  const walk = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(walk);
+    if (node === null || typeof node !== 'object') return node;
+    const proto = Object.getPrototypeOf(node);
+    if (proto !== Object.prototype && proto !== null) return node;
+    const out: Record<string, unknown> = {};
+    for (const [field, value] of Object.entries(node)) {
+      out[field] = field === 'loc_id' ? 0n
+        : (field === 'type' && typeof value === 'object') || field === 'type_parameters' ? value
+          : field === 'label' ? renamed(labels, 'l', walk(value))
+            : walk(value);
+    }
+    if (out['type'] === 'Variable') out['value'] = renamed(names, 'v', out['value']);
+    return out;
+  };
+  return walk(ir) as IR;
+}
+
+/** A function's fingerprint: the SHA-256 of its IR in canonical form, hex. */
+function fingerprint(ir: IR): string {
+  return createHash('sha256').update(encodeIR(canonicalIR(ir))).digest('hex');
+}
+
+/** How many nodes an IR holds. */
+function nodesOf(ir: IR): number {
+  let nodes = 0;
+  walkIR(ir, () => { nodes += 1; });
+  return nodes;
+}
+
+/** A nested series index's programs, each's IR: a row's entries, a write's by its patch, the fill, the lean row and the span. */
+function programsOf(index: RecordIndexDef): Readonly<Record<'entries' | 'byPatch' | 'fill' | 'lean' | 'span', IR>> {
+  const nested = index.nested!;
+  return {
+    entries: bundleOf(index.keyFn).ir, byPatch: bundleOf(nested.byPatch).ir, fill: bundleOf(nested.fill).ir, lean: bundleOf(nested.lean).ir,
+    span: bundleOf(nested.span.keyFn).ir,
+  };
+}
+
+/** The functions of 50 nodes or more a program writes more than once, in words. */
+function repeated(program: IR): string[] {
+  const seen = new Map<string, { nodes: number; copies: number }>();
+  walkIR(program, (node) => {
+    if (node.type !== 'Function') return;
+    const nodes = nodesOf(node);
+    if (nodes < 50) return;
+    const key = fingerprint(node);
+    const at = seen.get(key) ?? { nodes, copies: 0 };
+    at.copies += 1;
+    seen.set(key, at);
+  });
+  return [...seen.values()].filter((at) => at.copies > 1).map((at) => `${at.copies} copies of a function of ${at.nodes} nodes`);
+}
+
+/** How many times a program writes a function. */
+function copiesIn(program: IR, fn: { toIR(): { ir: IR } }): number {
+  const key = fingerprint(fn.toIR().ir);
+  let copies = 0;
+  walkIR(program, (node) => {
+    if (node.type === 'Function' && fingerprint(node) === key) copies += 1;
+  });
+  return copies;
+}
+
+describe('index.nested — its programs', () => {
+  it('write each function once: none of 50 nodes or more twice in a row\'s entries, a write\'s, the fill, the lean row or the span', () => {
+    const declared: ReadonlyArray<readonly [string, RecordIndexDef]> = [
+      ['machines', machinesInTime(machines())],
+      ['halls', hallsInTime(halls())],
+      ['assemblies', assembliesInTime(assemblies())],
+      ['ledgers', ledgersInTime(ledgers())],
+    ];
+    for (const [name, index] of declared) {
+      for (const [program, fn] of Object.entries(programsOf(index))) {
+        assert.deepEqual(repeated(fn), [], `the ${name}' ${program}`);
+      }
+    }
+  });
+
+  it('hold each function their collections call once, and none they do not: no sharing out without a summary or items, no filing in a span', () => {
+    const machinesPrograms = programsOf(machinesInTime(machines()));
+    for (const program of ['entries', 'byPatch'] as const) {
+      assert.equal(copiesIn(machinesPrograms[program], placedFilingsOver), 1, `the machines' ${program} file their five collections by one function`);
+      assert.equal(copiesIn(machinesPrograms[program], placedSharesOver), 1, `the machines' ${program} share their three of items out by one`);
+    }
+    assert.equal(copiesIn(machinesPrograms.span, placedSharesOver), 1, 'the machines\' span shares their items out over the months');
+    assert.equal(copiesIn(machinesPrograms.span, placedFilingsOver), 0, 'the machines\' span files nothing');
+    const ledgersPrograms = programsOf(ledgersInTime(ledgers()));
+    for (const program of ['entries', 'byPatch', 'span'] as const) {
+      assert.equal(copiesIn(ledgersPrograms[program], placedSharesOver), 0, `the ledgers' ${program}: values, and no summary, so nothing shared out`);
+    }
   });
 });

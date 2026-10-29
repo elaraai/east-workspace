@@ -32,18 +32,22 @@
  * — leaves the row to be compared whole.
  *
  * The functions here are typed East over fixed shapes, or factories of one
- * from a declaration's types, which a row's entries chain together. A node is
- * read and rebuilt, and an item placed in its place's variants, by the names
- * a declaration gives, through East's own builders for names held as values
+ * from a declaration's types. A program holds once each function its parts
+ * share, however many collections call it: it binds the tiles' steps, filing
+ * and sharing an item out, and the totals' and subtotals' functions in its kit
+ * ({@link programKit}), which every part is given, and each group's part binds
+ * the group's walk once for its collections ({@link groupEntries}). A node is
+ * read and rebuilt, and an item placed in its place's variants, by the names a
+ * declaration gives, through East's own builders for names held as values
  * (`East.field`, `East.withField`, `East.inCase`), which check each name
  * against its type as the program is built.
  *
  * @packageDocumentation
  */
 import {
-  ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType,
-  VariantType, none, printType, some, variant,
-  type EastType, type Expr, type FunctionExpr, type VariantExpr,
+  ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType,
+  StructType, VariantType, none, printType, some, variant,
+  type CallableFunctionExpr, type EastType, type Expr, type FunctionExpr, type VariantExpr,
 } from '@elaraai/east';
 import {
   NestedEntryKeyType, NestedEntryType, NestedSpanKeyType, RecordLevelType, RecordNestedItemType, RecordNestedPathType, RecordNestedRunType,
@@ -56,7 +60,10 @@ import {
 } from './record-guards.js';
 import { fieldReader } from './record-keys.js';
 import { patchTypeOf } from './record-patches.js';
-import { RECORD_TILES, TileShareType, checkTile, placedFilings, placedShares, tileNext, tileStart, type RecordTile } from './record-tiles.js';
+import {
+  RECORD_TILES, TileFilingType, TileShareType, TileStepFnType, checkTile, placedFilingsOver, placedSharesOver, tileNext, tileStart,
+  type RecordTile,
+} from './record-tiles.js';
 import { summaryMerge } from './record-series.js';
 import type { RecordDef, RecordIndexDef } from './types.js';
 import type { FunctionRunner } from './runner.js';
@@ -126,24 +133,28 @@ const sharedTotals = East.function([ArrayType(TileShareType)], DictType(DateTime
     (_$, totals, share) => ({ count: totals.count.add(1n), ms: totals.ms.add(share.ms), values: totals.values }),
   ));
 
-/** `(instants, level) → Dict<tile, Totals>`: values' totals in each summary tile, an instant covering none of it: how many. */
-const instantTotals = East.function([SetType(DateTimeType), RecordLevelType], DictType(DateTimeType, RecordNestedTotalsType), ($, instants, level) => {
-  const startOf = $.const(tileStart);
-  return instants.groupReduce(
+/**
+ * `(instants, level, startOf) → Dict<tile, Totals>`: values' totals in each
+ * summary tile, an instant covering none of it: how many.
+ */
+const instantTotals = East.function(
+  [SetType(DateTimeType), RecordLevelType, TileStepFnType], DictType(DateTimeType, RecordNestedTotalsType),
+  (_$, instants, level, startOf) => instants.groupReduce(
     (_$, at) => startOf(level, at),
     ($) => $.const(NO_TOTALS, RecordNestedTotalsType),
     (_$, totals) => ({ count: totals.count.add(1n), ms: totals.ms, values: totals.values }),
-  );
-});
+  ),
+);
 
 /**
- * `(values, level) → Dict<tile, Totals>`: Float values' totals in each summary
- * tile — how many, and their sum, the least, the greatest and the value at the
- * latest instant, taken in key order, so every runtime adds them alike.
+ * `(values, level, startOf) → Dict<tile, Totals>`: Float values' totals in
+ * each summary tile — how many, and their sum, the least, the greatest and the
+ * value at the latest instant, taken in key order, so every runtime adds them
+ * alike.
  */
-const valueTotals = East.function([DictType(DateTimeType, FloatType), RecordLevelType], DictType(DateTimeType, RecordNestedTotalsType), ($, values, level) => {
-  const startOf = $.const(tileStart);
-  return values.groupReduce(
+const valueTotals = East.function(
+  [DictType(DateTimeType, FloatType), RecordLevelType, TileStepFnType], DictType(DateTimeType, RecordNestedTotalsType),
+  (_$, values, level, startOf) => values.groupReduce(
     (_$, _value, at) => startOf(level, at),
     ($) => $.const(NO_TOTALS, RecordNestedTotalsType),
     (_$, totals, value) => ({
@@ -154,8 +165,8 @@ const valueTotals = East.function([DictType(DateTimeType, FloatType), RecordLeve
         some: (_$, was) => ({ sum: was.sum.add(value), min: East.min(was.min, value), max: East.max(was.max, value), last: value }),
       })),
     }),
-  );
-});
+  ),
+);
 
 /** `(Dict<DateTime, Integer>) → Dict<DateTime, Float>`: Integer values as their totals and subtotals take them. */
 const integersAsFloats = East.function([DictType(DateTimeType, IntegerType)], DictType(DateTimeType, FloatType), (_$, values) =>
@@ -183,9 +194,8 @@ const WithinType = VariantType({ all: NullType, only: SpanType });
 /** The epoch: either end of no tiles' span. */
 const EPOCH = new Date(0);
 
-/** `(tiles, level) → Within`: a write's tiles of a level, and their span. */
-const tilesWithin = East.function([SetType(DateTimeType), RecordLevelType], WithinType, ($, tiles, level) => {
-  const after = $.const(tileNext);
+/** `(tiles, level, nextOf) → Within`: a write's tiles of a level, and their span. */
+const tilesWithin = East.function([SetType(DateTimeType), RecordLevelType, TileStepFnType], WithinType, ($, tiles, level, after) => {
   const starts = $.let(tiles.toArray((_$, start) => start));
   $.if(East.equal(starts.size(), 0n), ($) => {
     $.return(variant('only', { tiles, from: EPOCH, to: EPOCH }));
@@ -215,11 +225,9 @@ const sharesWithin = East.function([ArrayType(TileShareType), WithinType], Array
     only: (_$, span) => shares.filter((_$, share) => span.tiles.has(share.tile)),
   }));
 
-/** `(span, level, at) → Boolean`: whether a value's instant is in one of a write's tiles. */
-const inSpan = East.function([SpanType, RecordLevelType, DateTimeType], BooleanType, ($, span, level, at) => {
-  const startOf = $.const(tileStart);
-  return East.greaterEqual(at, span.from).and(() => East.less(at, span.to)).and(() => span.tiles.has(startOf(level, at)));
-});
+/** `(span, level, at, startOf) → Boolean`: whether a value's instant is in one of a write's tiles. */
+const inSpan = East.function([SpanType, RecordLevelType, DateTimeType, TileStepFnType], BooleanType, (_$, span, level, at, startOf) =>
+  East.greaterEqual(at, span.from).and(() => East.less(at, span.to)).and(() => span.tiles.has(startOf(level, at))));
 
 // ── The tiles subtotals are worked out at ─────────────────────────────────────
 
@@ -231,25 +239,29 @@ const inSpan = East.function([SpanType, RecordLevelType, DateTimeType], BooleanT
  */
 const SubtotalTilesType = VariantType({ all: NullType, only: DictType(RecordLevelType, SpanType) });
 
-/** `(instants, levels) → SubtotalTiles`: the tiles of each level some values' instants fall in. */
-const subtotalTiles = East.function([SetType(DateTimeType), ArrayType(RecordLevelType)], SubtotalTilesType, ($, instants, levels) => {
-  const startOf = $.const(tileStart);
-  const within = $.const(tilesWithin);
-  return variant('only', levels.toDict(
-    (_$, level) => level,
-    (_$, level) => within(instants.toSet((_$, at) => startOf(level, at)), level).unwrap('only'),
-  ));
-});
+/** `(instants, levels, startOf, nextOf) → SubtotalTiles`: the tiles of each level some values' instants fall in. */
+const subtotalTiles = East.function(
+  [SetType(DateTimeType), ArrayType(RecordLevelType), TileStepFnType, TileStepFnType], SubtotalTilesType,
+  ($, instants, levels, startOf, nextOf) => {
+    const within = $.const(tilesWithin);
+    return variant('only', levels.toDict(
+      (_$, level) => level,
+      (_$, level) => within(instants.toSet((_$, at) => startOf(level, at)), level, nextOf).unwrap('only'),
+    ));
+  },
+);
 
-/** `(own, level, tiles) → own`: a node's own values in the tiles of a level its subtotals are worked out at. */
-const valuesAt = East.function([DictType(DateTimeType, FloatType), RecordLevelType, SubtotalTilesType], DictType(DateTimeType, FloatType),
-  ($, own, level, tiles) => {
+/** `(own, level, tiles, startOf) → own`: a node's own values in the tiles of a level its subtotals are worked out at. */
+const valuesAt = East.function(
+  [DictType(DateTimeType, FloatType), RecordLevelType, SubtotalTilesType, TileStepFnType], DictType(DateTimeType, FloatType),
+  ($, own, level, tiles, startOf) => {
     const kept = $.const(inSpan);
     return tiles.match({
       all: () => own,
-      only: (_$, spans) => own.filter((_$, _value, at) => kept(spans.get(level), level, at)),
+      only: (_$, spans) => own.filter((_$, _value, at) => kept(spans.get(level), level, at, startOf)),
     });
-  });
+  },
+);
 
 // ── Parents' subtotals: composed bottom-up ────────────────────────────────────
 
@@ -271,10 +283,10 @@ const FoldedType = StructType({ sum: FloatType, n: IntegerType, min: FloatType, 
 /** What a parent's children draw in a tile come to, before a rollup's aggregate picks one. */
 const GatheredType = StructType({ sum: FloatType, n: IntegerType, min: FloatType, max: FloatType });
 
-/** `(own, level) → Dict<tile, Folded>`: a node's own values a tile of a level at a time, in key order. */
-const foldedTiles = East.function([DictType(DateTimeType, FloatType), RecordLevelType], DictType(DateTimeType, FoldedType), ($, own, level) => {
-  const startOf = $.const(tileStart);
-  return own.groupReduce(
+/** `(own, level, startOf) → Dict<tile, Folded>`: a node's own values a tile of a level at a time, in key order. */
+const foldedTiles = East.function(
+  [DictType(DateTimeType, FloatType), RecordLevelType, TileStepFnType], DictType(DateTimeType, FoldedType),
+  (_$, own, level, startOf) => own.groupReduce(
     (_$, _value, at) => startOf(level, at),
     ($) => $.const({ sum: 0.0, n: 0n, min: 0.0, max: 0.0, last: 0.0 }, FoldedType),
     (_$, folded, value) => ({
@@ -284,8 +296,8 @@ const foldedTiles = East.function([DictType(DateTimeType, FloatType), RecordLeve
       max: East.equal(folded.n, 0n).ifElse(() => value, () => East.max(folded.max, value)),
       last: value,
     }),
-  );
-});
+  ),
+);
 
 /** `(folded, rollup) → Float`: a node's own values in a tile, folded by a rollup's fold. */
 const foldedBy = East.function([FoldedType, RecordRollupType], FloatType, (_$, folded, rollup) =>
@@ -309,17 +321,18 @@ const ownDraw = East.function([FoldedType, RecordRollupType], FloatType, ($, fol
 });
 
 /**
- * `(own, rollups, levels, tiles) → Dict<DrawKey, Float>`: what a node holding
- * values draws, by each rollup, at each level, in each tile its values touch
- * of those asked for.
+ * `(own, rollups, levels, tiles, startOf) → Dict<DrawKey, Float>`: what a
+ * node holding values draws, by each rollup, at each level, in each tile its
+ * values touch of those asked for.
  */
 const ownDraws = East.function(
-  [DictType(DateTimeType, FloatType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType], DictType(DrawKeyType, FloatType),
-  ($, own, rollups, levels, at) => {
+  [DictType(DateTimeType, FloatType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
+  DictType(DrawKeyType, FloatType),
+  ($, own, rollups, levels, at, startOf) => {
     const tiles = $.const(foldedTiles);
     const within = $.const(valuesAt);
     const draw = $.const(ownDraw);
-    return levels.flattenToDict((_$, level) => tiles(within(own, level, at), level).flattenToDict((_$, folded, tile) =>
+    return levels.flattenToDict((_$, level) => tiles(within(own, level, at, startOf), level, startOf).flattenToDict((_$, folded, tile) =>
       rollups.toDict((_$, rollup) => ({ rollup, level, tile }), (_$, rollup) => draw(folded, rollup))));
   },
 );
@@ -352,22 +365,23 @@ const childDraws = East.function([ArrayType(ComposedType)], DictType(DrawKeyType
 });
 
 /**
- * `(node, children, rollups, levels, tiles) → Composed`: a node's result, at
- * the tiles asked for. One holding values of its own draws them, and keeps no
- * subtotal; one holding none draws its children's, and keeps what it draws,
- * where it draws, as its subtotals. Either way, it carries every subtotal
- * beneath it on to its parent.
+ * `(node, children, rollups, levels, tiles, startOf) → Composed`: a node's
+ * result, at the tiles asked for. One holding values of its own draws them,
+ * and keeps no subtotal; one holding none draws its children's, and keeps what
+ * it draws, where it draws, as its subtotals. Either way, it carries every
+ * subtotal beneath it on to its parent.
  */
 const composed = East.function(
-  [SubtotalNodeType, ArrayType(ComposedType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType], ComposedType,
-  ($, node, children, rollups, levels, tiles) => {
+  [SubtotalNodeType, ArrayType(ComposedType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
+  ComposedType,
+  ($, node, children, rollups, levels, tiles, startOf) => {
     const own = $.const(ownDraws);
     const gathered = $.const(childDraws);
     const path = $.const(pathOf);
     const beneath = $.let(children.flatMap((_$, child) => child.subtotals.toArray((_$, value, key) => ({ key, value })))
       .toDict((_$, subtotal) => subtotal.key, (_$, subtotal) => subtotal.value));
     $.if(East.greater(node.own.size(), 0n), ($) => {
-      $.return({ draws: own(node.own, rollups, levels, tiles), subtotals: beneath });
+      $.return({ draws: own(node.own, rollups, levels, tiles, startOf), subtotals: beneath });
     });
     const draws = $.let(gathered(children));
     const here = $.let(path(node.key.path));
@@ -380,18 +394,19 @@ const composed = East.function(
 );
 
 /**
- * `(nodes, rollups, levels, tiles) → Dict<SubtotalKey, Float>`: every
- * parent's subtotals of a collection of values at the tiles asked for,
+ * `(nodes, rollups, levels, tiles, startOf) → Dict<SubtotalKey, Float>`:
+ * every parent's subtotals of a collection of values at the tiles asked for,
  * composed bottom-up by `toTree` over the nodes from the row down to the
  * collection, each node's result carried to its parent. A tile no
  * descendant's value touches has none.
  */
 const subtotalsOf = East.function(
-  [ArrayType(SubtotalNodeType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType], DictType(SubtotalKeyType, FloatType),
-  ($, nodes, rollups, levels, tiles) => {
+  [ArrayType(SubtotalNodeType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
+  DictType(SubtotalKeyType, FloatType),
+  ($, nodes, rollups, levels, tiles, startOf) => {
     const compose = $.const(composed);
     const roots = $.let(nodes.toTree(ComposedType, (_$, node) => node.key, (_$, node) => node.parent,
-      (_$, node, _i, children) => compose(node, children, rollups, levels, tiles)));
+      (_$, node, _i, children) => compose(node, children, rollups, levels, tiles, startOf)));
     return roots.flatMap((_$, root) => root.subtotals.toArray((_$, value, key) => ({ key, value })))
       .toDict((_$, subtotal) => subtotal.key, (_$, subtotal) => subtotal.value);
   },
@@ -433,21 +448,8 @@ interface NestedTypes {
 /** A row's entries before a write and after it. */
 type ChangedType = StructType<{ before: EntriesType; after: EntriesType }>;
 
-/** A row's entries of one part of the index: `(K, V) → Dict<IK, P>`. */
+/** A row's entries: `(K, V) → Dict<IK, P>`. */
 type RowEntries = FunctionExpr<[EastType, EastType], EntriesType>;
-
-/** A row's totals of one part of the index, at the tiles they are worked out at: `(K, V, Within) → Dict<IK, P>`. */
-type TiledEntries = FunctionExpr<[EastType, EastType, typeof WithinType], EntriesType>;
-
-/** The summary tiles a row's items touch: `(K, V) → Set<DateTime>`. */
-type RowTiles = FunctionExpr<[EastType, EastType], SetType<DateTimeType>>;
-
-/**
- * A part of a write's entries: `(K, V, V, V, V) → { before, after }`, given
- * the row before and after, and the row before and after holding only what
- * the write's patch touched.
- */
-type WriteEntries = FunctionExpr<[EastType, EastType, EastType, EastType, EastType], ChangedType>;
 
 /** A group's nodes from a row: `(V) → Array<NodeAt>`. */
 type NodesOf = FunctionExpr<[EastType], ArrayType<ReturnType<typeof NodeAtType>>>;
@@ -640,6 +642,134 @@ function groupNodes(decl: NestedDeclaration, rowType: EastType): readonly NodesO
     }));
   }
   return nodes;
+}
+
+/** A group's nodes from a row, as a function a part is given: `(V) → Array<NodeAt>`. */
+function WalkType(rowType: EastType, group: NestedGroup) {
+  return FunctionType([rowType], ArrayType(NodeAtType(group.type)));
+}
+
+// ── A program's kit ───────────────────────────────────────────────────────────
+
+/** `(keys) → Path`: {@link pathOf}'s type. */
+const PathFnType = FunctionType([KeysType], RecordNestedPathType);
+
+/** `(tile, start, end, what, startOf, nextOf) → Array<TileFiling>`: {@link placedFilingsOver}'s type. */
+const FileFnType = FunctionType(
+  [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType, TileStepFnType, TileStepFnType], ArrayType(TileFilingType));
+
+/** `(tile, start, end, what, startOf, nextOf) → Array<TileShare>`: {@link placedSharesOver}'s type. */
+const ShareFnType = FunctionType(
+  [RecordLevelType, OptionType(DateTimeType), OptionType(DateTimeType), StringType, TileStepFnType, TileStepFnType], ArrayType(TileShareType));
+
+/** `(shares) → Dict<tile, Totals>`: {@link sharedTotals}' type. */
+const TotalledFnType = FunctionType([ArrayType(TileShareType)], DictType(DateTimeType, RecordNestedTotalsType));
+
+/** `(instants, level, startOf) → Dict<tile, Totals>`: {@link instantTotals}' type. */
+const CountedFnType = FunctionType([SetType(DateTimeType), RecordLevelType, TileStepFnType], DictType(DateTimeType, RecordNestedTotalsType));
+
+/** `(values, level, startOf) → Dict<tile, Totals>`: {@link valueTotals}' type. */
+const SummedFnType = FunctionType(
+  [DictType(DateTimeType, FloatType), RecordLevelType, TileStepFnType], DictType(DateTimeType, RecordNestedTotalsType));
+
+/** `(span, level, at, startOf) → Boolean`: {@link inSpan}'s type. */
+const KeptFnType = FunctionType([SpanType, RecordLevelType, DateTimeType, TileStepFnType], BooleanType);
+
+/** `(tiles, level, nextOf) → Within`: {@link tilesWithin}'s type. */
+const WithinFnType = FunctionType([SetType(DateTimeType), RecordLevelType, TileStepFnType], WithinType);
+
+/** `(instants, levels, startOf, nextOf) → SubtotalTiles`: {@link subtotalTiles}' type. */
+const LevelsWithinFnType = FunctionType([SetType(DateTimeType), ArrayType(RecordLevelType), TileStepFnType, TileStepFnType], SubtotalTilesType);
+
+/** `(nodes, rollups, levels, tiles, startOf) → Dict<SubtotalKey, Float>`: {@link subtotalsOf}' type. */
+const SubtotalsFnType = FunctionType(
+  [ArrayType(SubtotalNodeType), ArrayType(RecordRollupType), ArrayType(RecordLevelType), SubtotalTilesType, TileStepFnType],
+  DictType(SubtotalKeyType, FloatType));
+
+/**
+ * A program's kit: the functions its parts call, bound once in the program's
+ * body and handed to every part ({@link programKit}), so a program holds each
+ * once, however many of its parts call it. A function stepping through the
+ * tiles is given the kit's `startOf` and `nextOf` by its caller.
+ */
+const KitType = StructType({
+  /** {@link tileStart} */
+  startOf: TileStepFnType,
+  /** {@link tileNext} */
+  nextOf: TileStepFnType,
+  /** {@link pathOf} */
+  path: PathFnType,
+  /** Where an item is filed: {@link placedFilingsOver} */
+  file: FileFnType,
+  /** An item's shares of the tiles it touches: {@link placedSharesOver} */
+  share: ShareFnType,
+  /** {@link sharedTotals} */
+  totalled: TotalledFnType,
+  /** {@link instantTotals} */
+  counted: CountedFnType,
+  /** {@link valueTotals} */
+  summed: SummedFnType,
+  /** {@link inSpan} */
+  kept: KeptFnType,
+  /** {@link tilesWithin} */
+  within: WithinFnType,
+  /** {@link subtotalTiles} */
+  levelsWithin: LevelsWithinFnType,
+  /** {@link subtotalsOf} */
+  subtotals: SubtotalsFnType,
+});
+type KitType = typeof KitType;
+
+/** A function of a program's kit only some parts call, by its name: every part calls the tiles' steps and a path's. */
+type KitName = 'file' | 'share' | 'totalled' | 'counted' | 'summed' | 'kept' | 'within' | 'levelsWithin' | 'subtotals';
+
+/** Each function of a kit only some parts call, as they call it. */
+const KIT_CALLED = {
+  file: placedFilingsOver, share: placedSharesOver, totalled: sharedTotals, counted: instantTotals, summed: valueTotals, kept: inSpan,
+  within: tilesWithin, levelsWithin: subtotalTiles, subtotals: subtotalsOf,
+};
+
+/**
+ * Each function of a kit only some parts call, as a kit holds it where none of
+ * its program's parts calls it: one of its type making nothing, so a program
+ * holds only the functions its parts call.
+ */
+const KIT_UNCALLED = {
+  file: East.function(FileFnType.inputs, FileFnType.output, () => []),
+  share: East.function(ShareFnType.inputs, ShareFnType.output, () => []),
+  totalled: East.function(TotalledFnType.inputs, TotalledFnType.output, () => new Map()),
+  counted: East.function(CountedFnType.inputs, CountedFnType.output, () => new Map()),
+  summed: East.function(SummedFnType.inputs, SummedFnType.output, () => new Map()),
+  kept: East.function(KeptFnType.inputs, KeptFnType.output, () => false),
+  within: East.function(WithinFnType.inputs, WithinFnType.output, () => variant('all', null)),
+  levelsWithin: East.function(LevelsWithinFnType.inputs, LevelsWithinFnType.output, () => variant('all', null)),
+  subtotals: East.function(SubtotalsFnType.inputs, SubtotalsFnType.output, () => new Map()),
+};
+
+/**
+ * A program's kit ({@link KitType}): `() → Kit`, each function its parts call
+ * bound once — the tiles' steps and a path's always, each other the parts
+ * name, and in place of each they do not, one making nothing.
+ *
+ * @param calls - What the program's parts call of the kit, beside the tiles' steps and a path's
+ * @returns The kit
+ */
+function programKit(calls: ReadonlySet<KitName>): CallableFunctionExpr<[], KitType> {
+  const kit = {
+    startOf: tileStart,
+    nextOf: tileNext,
+    path: pathOf,
+    file: calls.has('file') ? KIT_CALLED.file : KIT_UNCALLED.file,
+    share: calls.has('share') ? KIT_CALLED.share : KIT_UNCALLED.share,
+    totalled: calls.has('totalled') ? KIT_CALLED.totalled : KIT_UNCALLED.totalled,
+    counted: calls.has('counted') ? KIT_CALLED.counted : KIT_UNCALLED.counted,
+    summed: calls.has('summed') ? KIT_CALLED.summed : KIT_UNCALLED.summed,
+    kept: calls.has('kept') ? KIT_CALLED.kept : KIT_UNCALLED.kept,
+    within: calls.has('within') ? KIT_CALLED.within : KIT_UNCALLED.within,
+    levelsWithin: calls.has('levelsWithin') ? KIT_CALLED.levelsWithin : KIT_UNCALLED.levelsWithin,
+    subtotals: calls.has('subtotals') ? KIT_CALLED.subtotals : KIT_UNCALLED.subtotals,
+  };
+  return East.function([], KitType, () => kit);
 }
 
 // ── What a write's patch touches ──────────────────────────────────────────────
@@ -905,15 +1035,208 @@ function rowWalk(decl: NestedDeclaration): NodeWalk {
   return walks[0]!;
 }
 
-// ── A collection's entries ────────────────────────────────────────────────────
+// ── A collection's parts ──────────────────────────────────────────────────────
 
 /** A collection's words in a refusal: the row's key, its place, and the item's key, printed. */
 function whatWords(collection: NestedCollection): string {
   return collection.place.join(' ');
 }
 
-/** Things people drag, filed: `(K, V) → Dict<IK, P>`, each item once (or once a year past a year), at the level its length fits, under its node. */
-function itemEntries(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, nodesOf: NodesOf): RowEntries {
+/** A node's items' shares of the summary tiles they touch. */
+const NodeSharesType = StructType({ path: KeysType, shares: ArrayType(TileShareType) });
+
+/** No items or values: a tile's totals before any is counted. */
+const NO_SPAN_TOTALS = { count: 0n, ms: 0n };
+
+/** The tile a nested series index's span counts by: a Plan's horizon spans whole months. */
+const SPAN_TILE: RecordTile = 'month';
+
+/** A row's months, by collection: `Dict<{ collection, tile }, Totals>`. */
+const SpanTotalsType = DictType(NestedSpanKeyType, RecordSummaryTotalsType);
+type SpanTotalsType = typeof SpanTotalsType;
+
+/** A group's nodes from a row, as a part is given them: `(V) → Array<NodeAt>`. */
+type WalkFnType = ReturnType<typeof WalkType>;
+
+/** A group's collections' entries of a row, a program's part of them: `(K, V, Kit) → Dict<IK, P>`. */
+type EntriesPart = CallableFunctionExpr<[EastType, EastType, KitType], EntriesType>;
+
+/**
+ * What a write changes of a group's collections' entries, by its patch, a
+ * program's part of it: `(K, V, V, V, V, Kit) → { before, after }`, given the
+ * row before and after, and the row before and after holding only what the
+ * write's patch touched.
+ */
+type PatchedPart = CallableFunctionExpr<[EastType, EastType, EastType, EastType, EastType, KitType], ChangedType>;
+
+/** A group's collections' months of a row, a program's part of the index's span: `(K, V, Kit) → Dict<{ collection, tile }, Totals>`. */
+type SpanPart = CallableFunctionExpr<[EastType, EastType, KitType], SpanTotalsType>;
+
+/** A collection's entries of a row, given its group's nodes: `(K, V, Nodes, Kit) → Dict<IK, P>`. */
+type NodesEntries = CallableFunctionExpr<[EastType, EastType, WalkFnType, KitType], EntriesType>;
+
+/** Things people drag's entries from their shares: `(K, Array<{ path, shares }>, Kit) → Dict<IK, P>`. */
+type SharedEntries = CallableFunctionExpr<[EastType, ArrayType<typeof NodeSharesType>, KitType], EntriesType>;
+
+/** Each node's items' shares of the tiles asked for: `(K, V, Within, Nodes, Kit) → Array<{ path, shares }>`. */
+type NodesShares = CallableFunctionExpr<[EastType, EastType, typeof WithinType, WalkFnType, KitType], ArrayType<typeof NodeSharesType>>;
+
+/** A collection of values' totals at the tiles asked for: `(K, V, Within, Nodes, Kit) → Dict<IK, P>`. */
+type WithinEntries = CallableFunctionExpr<[EastType, EastType, typeof WithinType, WalkFnType, KitType], EntriesType>;
+
+/**
+ * What a write changes of a collection's entries, by its patch — or moves of
+ * its totals and subtotals — given its group's nodes: `(K, V, V, V, V, Nodes,
+ * Kit) → { before, after }`, given what a {@link PatchedPart} is.
+ */
+type NodesChanged = CallableFunctionExpr<[EastType, EastType, EastType, EastType, EastType, WalkFnType, KitType], ChangedType>;
+
+/** A collection's months of a row, for the index's span, given its group's nodes: `(K, V, Nodes, Kit) → Dict<{ collection, tile }, Totals>`. */
+type NodesSpan = CallableFunctionExpr<[EastType, EastType, WalkFnType, KitType], SpanTotalsType>;
+
+/** Every node from the row down to a collection of values' group: `(V, Nodes) → Array<SubtotalNode>`. */
+type Gathered = CallableFunctionExpr<[EastType, WalkFnType], ArrayType<typeof SubtotalNodeType>>;
+
+/** Every parent's subtotals of a collection of values: `(K, Array<SubtotalNode>, SubtotalTiles, Kit) → Dict<IK, P>`. */
+type SubtotalEntries = CallableFunctionExpr<[EastType, ArrayType<typeof SubtotalNodeType>, typeof SubtotalTilesType, KitType], EntriesType>;
+
+/** `(K, V, Nodes, Kit) → Dict<IK, P>`: parts' entries, one after another, each a function calling the parts before it. */
+function nodesUnion(types: NestedTypes, nodesType: WalkFnType, parts: readonly NodesEntries[]): NodesEntries {
+  const [first, ...rest] = parts;
+  if (first === undefined) return East.function([types.keyType, types.rowType, nodesType, KitType], types.entries, () => new Map());
+  return rest.reduce<NodesEntries>((before, part) => East.function([types.keyType, types.rowType, nodesType, KitType], types.entries,
+    ($, key, row, nodes, kit) => {
+      const all = $.let(before(key, row, nodes, kit));
+      $(all.unionInPlace(part(key, row, nodes, kit)));
+      return all;
+    }), first);
+}
+
+/** `(K, shares, Kit) → Dict<IK, P>`: two parts' entries from the same shares, one's then the other's. */
+function sharedBoth(types: NestedTypes, first: SharedEntries, second: SharedEntries): SharedEntries {
+  return East.function([types.keyType, ArrayType(NodeSharesType), KitType], types.entries, ($, key, shared, kit) => {
+    const all = $.let(first(key, shared, kit));
+    $(all.unionInPlace(second(key, shared, kit)));
+    return all;
+  });
+}
+
+/** `(K, V, V, V, V, Nodes, Kit) → { before, after }`: what parts change, one after another, each a function calling the parts before it. */
+function changedUnion(types: NestedTypes, nodesType: WalkFnType, parts: readonly NodesChanged[]): NodesChanged {
+  const { keyType, rowType, changed } = types;
+  const [first, ...rest] = parts;
+  if (first === undefined) {
+    return East.function([keyType, rowType, rowType, rowType, rowType, nodesType, KitType], changed, () => ({ before: new Map(), after: new Map() }));
+  }
+  return rest.reduce<NodesChanged>((before, part) => East.function([keyType, rowType, rowType, rowType, rowType, nodesType, KitType], changed,
+    ($, key, held, next, heldTouched, nextTouched, nodes, kit) => {
+      const all = $.let(before(key, held, next, heldTouched, nextTouched, nodes, kit));
+      const more = $.let(part(key, held, next, heldTouched, nextTouched, nodes, kit));
+      $(all.before.unionInPlace(more.before));
+      $(all.after.unionInPlace(more.after));
+      return all;
+    }), first);
+}
+
+/** `(K, V, Nodes, Kit) → Dict<{ collection, tile }, Totals>`: parts' months, one after another, each a function calling the parts before it. */
+function spanNodesUnion(types: NestedTypes, nodesType: WalkFnType, parts: readonly NodesSpan[]): NodesSpan {
+  const [first, ...rest] = parts;
+  if (first === undefined) return East.function([types.keyType, types.rowType, nodesType, KitType], SpanTotalsType, () => new Map());
+  return rest.reduce<NodesSpan>((before, part) => East.function([types.keyType, types.rowType, nodesType, KitType], SpanTotalsType,
+    ($, key, row, nodes, kit) => {
+      const all = $.let(before(key, row, nodes, kit));
+      $(all.unionInPlace(part(key, row, nodes, kit)));
+      return all;
+    }), first);
+}
+
+/**
+ * A group's collections' entries of a row ({@link EntriesPart}): the group's
+ * walk bound once, and given to each collection's.
+ *
+ * @param types - The index's types
+ * @param nodes - The group's walk
+ * @param entries - Its collections' entries, given the walk
+ * @returns The part
+ */
+function groupEntries(types: NestedTypes, nodes: NodesOf, entries: NodesEntries): EntriesPart {
+  return East.function([types.keyType, types.rowType, KitType], types.entries, ($, key, row, kit) => {
+    const walk = $.const(nodes);
+    return entries(key, row, walk, kit);
+  });
+}
+
+/**
+ * A group's collections' part of a write's entries, by its patch ({@link
+ * PatchedPart}): the group's walk bound once, and given to each collection's.
+ *
+ * @param types - The index's types
+ * @param nodes - The group's walk
+ * @param changed - Its collections' parts, given the walk
+ * @returns The part
+ */
+function groupPatched(types: NestedTypes, nodes: NodesOf, changed: NodesChanged): PatchedPart {
+  const { keyType, rowType } = types;
+  return East.function([keyType, rowType, rowType, rowType, rowType, KitType], types.changed, ($, key, held, next, heldTouched, nextTouched, kit) => {
+    const walk = $.const(nodes);
+    return changed(key, held, next, heldTouched, nextTouched, walk, kit);
+  });
+}
+
+/**
+ * A group's collections' months of a row, for the index's span ({@link
+ * SpanPart}): the group's walk bound once, and given to each collection's.
+ *
+ * @param types - The index's types
+ * @param nodes - The group's walk
+ * @param span - Its collections' months, given the walk
+ * @returns The part
+ */
+function groupSpan(types: NestedTypes, nodes: NodesOf, span: NodesSpan): SpanPart {
+  return East.function([types.keyType, types.rowType, KitType], SpanTotalsType, ($, key, row, kit) => {
+    const walk = $.const(nodes);
+    return span(key, row, walk, kit);
+  });
+}
+
+/**
+ * What a write changes of a collection's entries, by its patch, given its
+ * group's nodes ({@link NodesChanged}): the entries of the items or values it
+ * touched, before and after, and, where it touched any, what it moves of the
+ * collection's totals and subtotals.
+ *
+ * @param types - The index's types
+ * @param nodesType - The group's walk's type
+ * @param filed - The collection's items or values filed, given the walk
+ * @param moved - What a write moves of its totals and subtotals; none where it keeps neither
+ * @returns The collection's part
+ */
+function patchedWith(types: NestedTypes, nodesType: WalkFnType, filed: NodesEntries, moved: NodesChanged | undefined): NodesChanged {
+  const { keyType, rowType, changed } = types;
+  if (moved === undefined) {
+    return East.function([keyType, rowType, rowType, rowType, rowType, nodesType, KitType], changed,
+      ($, key, _held, _next, heldTouched, nextTouched, nodes, kit) => {
+        const filing = $.const(filed);
+        return { before: filing(key, heldTouched, nodes, kit), after: filing(key, nextTouched, nodes, kit) };
+      });
+  }
+  return East.function([keyType, rowType, rowType, rowType, rowType, nodesType, KitType], changed,
+    ($, key, held, next, heldTouched, nextTouched, nodes, kit) => {
+      const filing = $.const(filed);
+      const before = $.let(filing(key, heldTouched, nodes, kit));
+      const after = $.let(filing(key, nextTouched, nodes, kit));
+      // Nothing of the collection touched: none of its totals or subtotals moves.
+      $.if(East.greater(before.size(), 0n).or(() => East.greater(after.size(), 0n)), ($) => {
+        const more = $.let(moved(key, held, next, heldTouched, nextTouched, nodes, kit));
+        $(before.unionInPlace(more.before));
+        $(after.unionInPlace(more.after));
+      });
+      return { before, after };
+    });
+}
+
+/** Things people drag, filed: `(K, V, Nodes, Kit) → Dict<IK, P>`, each item once (or once a year past a year), at the level its length fits, under its node. */
+function itemEntries(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, nodesType: WalkFnType): NodesEntries {
   const group = decl.groups[collection.group]!;
   const { keyType, rowType, entryKey, entries, tile } = types;
   const holding = fieldOf(group.type, collection.field, DictType(StringType, collection.itemType));
@@ -921,20 +1244,21 @@ function itemEntries(decl: NestedDeclaration, types: NestedTypes, collection: Ne
   const readEnd = fieldReader(StringType, collection.itemType, { option: collection.end });
   const place = placedItem(decl, collection, collection.itemType, types.entryValue);
   const words = whatWords(collection);
-  return East.function([keyType, rowType], entries, ($, key, row) => {
-    const nodes = $.const(nodesOf);
+  return East.function([keyType, rowType, nodesType, KitType], entries, ($, key, row, nodes, kit) => {
+    const startOf = $.const(kit.startOf);
+    const nextOf = $.const(kit.nextOf);
+    const file = $.const(kit.file);
+    const path = $.const(kit.path);
     const held = $.const(holding);
-    const startOf = $.const(readStart);
-    const endOf = $.const(readEnd);
-    const file = $.const(placedFilings);
+    const begins = $.const(readStart);
+    const ends = $.const(readEnd);
     const into = $.const(place);
-    const path = $.const(pathOf);
     const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
     return nodes(row).flattenToDict(($, node) => {
       const here = $.let(path(node.path));
       return held(node.node).flattenToDict(($, item, id) => {
         const value = $.let(into(item));
-        return file(tile, startOf(id, item), endOf(id, item), East.str`${East.print(key)} ${words} ${East.print(id)}`).toDict(
+        return file(tile, begins(id, item), ends(id, item), East.str`${East.print(key)} ${words} ${East.print(id)}`, startOf, nextOf).toDict(
           (_$, filing) => East.value({
             collection: collectionPath, row: key, path: here, run: variant('items', null), level: filing.level, tile: filing.tile,
             item: variant('id', id),
@@ -947,12 +1271,12 @@ function itemEntries(decl: NestedDeclaration, types: NestedTypes, collection: Ne
 }
 
 /**
- * Things people drag rolled up, filed under every ancestor too: `(K, V) →
- * Dict<IK, P>`, in the run `subtree` of the row and of each node on the way,
- * at the level and tile of the item's own filing, the keys from the ancestor
- * down naming the item.
+ * Things people drag rolled up, filed under every ancestor too: `(K, V,
+ * Nodes, Kit) → Dict<IK, P>`, in the run `subtree` of the row and of each node
+ * on the way, at the level and tile of the item's own filing, the keys from
+ * the ancestor down naming the item.
  */
-function itemSubtreeEntries(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, nodesOf: NodesOf): RowEntries {
+function itemSubtreeEntries(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, nodesType: WalkFnType): NodesEntries {
   const group = decl.groups[collection.group]!;
   const { keyType, rowType, entryKey, entries, tile } = types;
   const holding = fieldOf(group.type, collection.field, DictType(StringType, collection.itemType));
@@ -960,18 +1284,19 @@ function itemSubtreeEntries(decl: NestedDeclaration, types: NestedTypes, collect
   const readEnd = fieldReader(StringType, collection.itemType, { option: collection.end });
   const place = placedItem(decl, collection, collection.itemType, types.entryValue);
   const words = whatWords(collection);
-  return East.function([keyType, rowType], entries, ($, key, row) => {
-    const nodes = $.const(nodesOf);
+  return East.function([keyType, rowType, nodesType, KitType], entries, ($, key, row, nodes, kit) => {
+    const startOf = $.const(kit.startOf);
+    const nextOf = $.const(kit.nextOf);
+    const file = $.const(kit.file);
+    const path = $.const(kit.path);
     const held = $.const(holding);
-    const startOf = $.const(readStart);
-    const endOf = $.const(readEnd);
-    const file = $.const(placedFilings);
+    const begins = $.const(readStart);
+    const ends = $.const(readEnd);
     const into = $.const(place);
-    const path = $.const(pathOf);
     const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
     return nodes(row).flattenToDict(($, node) => held(node.node).flattenToDict(($, item, id) => {
       const value = $.let(into(item));
-      const filings = $.let(file(tile, startOf(id, item), endOf(id, item), East.str`${East.print(key)} ${words} ${East.print(id)}`));
+      const filings = $.let(file(tile, begins(id, item), ends(id, item), East.str`${East.print(key)} ${words} ${East.print(id)}`, startOf, nextOf));
       return East.Array.range(0n, node.path.size()).flattenToDict(($, depth) => {
         const ancestor = $.let(path(node.path.slice(0n, depth)));
         const under = $.let(variant('under', { path: path(node.path.slice(depth, node.path.size())), id }));
@@ -987,36 +1312,40 @@ function itemSubtreeEntries(decl: NestedDeclaration, types: NestedTypes, collect
   });
 }
 
-/** A node's items' shares of the summary tiles they touch. */
-const NodeSharesType = StructType({ path: KeysType, shares: ArrayType(TileShareType) });
+/** Things people drag, filed ({@link itemEntries}), and, rolled up, under every ancestor too ({@link itemSubtreeEntries}). */
+function itemsFiled(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, nodesType: WalkFnType): NodesEntries {
+  const own = itemEntries(decl, types, collection, nodesType);
+  return collection.rollup ? nodesUnion(types, nodesType, [own, itemSubtreeEntries(decl, types, collection, nodesType)]) : own;
+}
 
 /**
- * Each node's items' shares of the summary tiles they touch: `(K, V, Within)
- * → Array<{ path, shares }>`, of the tiles asked for — an item that cannot
- * touch them not shared out at all — an item with no start touching none.
+ * Each node's items' shares of the tiles of a level they touch ({@link
+ * NodesShares}), of the tiles asked for — an item that cannot touch them not
+ * shared out at all — an item with no start touching none.
  */
-function itemShares(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, summary: RecordLevel, nodesOf: NodesOf) {
+function itemShares(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, nodesType: WalkFnType, level: RecordLevel): NodesShares {
   const group = decl.groups[collection.group]!;
   const holding = fieldOf(group.type, collection.field, DictType(StringType, collection.itemType));
   const readStart = fieldReader(StringType, collection.itemType, { option: collection.start });
   const readEnd = fieldReader(StringType, collection.itemType, { option: collection.end });
   const words = whatWords(collection);
-  return East.function([types.keyType, types.rowType, WithinType], ArrayType(NodeSharesType), ($, key, row, within) => {
-    const nodes = $.const(nodesOf);
+  return East.function([types.keyType, types.rowType, WithinType, nodesType, KitType], ArrayType(NodeSharesType), ($, key, row, within, nodes, kit) => {
+    const startOf = $.const(kit.startOf);
+    const nextOf = $.const(kit.nextOf);
+    const share = $.const(kit.share);
     const held = $.const(holding);
-    const startOf = $.const(readStart);
-    const endOf = $.const(readEnd);
-    const share = $.const(placedShares);
+    const begins = $.const(readStart);
+    const ends = $.const(readEnd);
     const may = $.const(reaches);
     const kept = $.const(sharesWithin);
     return nodes(row).map((_$, node) => ({
       path: node.path,
       shares: held(node.node).flattenToArray(($, item, id) => {
-        const start = $.let(startOf(id, item));
-        const end = $.let(endOf(id, item));
+        const start = $.let(begins(id, item));
+        const end = $.let(ends(id, item));
         const shares = $.let([], ArrayType(TileShareType));
         $.if(may(within, start, end), ($) => {
-          $.assign(shares, kept(share(summary, start, end, East.str`${East.print(key)} ${words} ${East.print(id)}`), within));
+          $.assign(shares, kept(share(level, start, end, East.str`${East.print(key)} ${words} ${East.print(id)}`, startOf, nextOf), within));
         });
         return shares;
       }),
@@ -1024,52 +1353,14 @@ function itemShares(decl: NestedDeclaration, types: NestedTypes, collection: Nes
   });
 }
 
-/** A row's summary tiles, each with how many of its items or values are in it and the milliseconds its items cover. */
-type RowTileTotals = FunctionExpr<[EastType, EastType], DictType<DateTimeType, typeof RecordSummaryTotalsType>>;
-
-/** No items or values: a tile's totals before any is counted. */
-const NO_SPAN_TOTALS = { count: 0n, ms: 0n };
-
-/**
- * The summary tiles a row's things people drag touch, each with how many of
- * them touch it and the milliseconds of it they cover: `(K, V) → Dict<DateTime,
- * Totals>`, an item across a tile's end counted in each tile it touches.
- */
-function itemTileTotals(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, summary: RecordLevel, nodesOf: NodesOf): RowTileTotals {
-  const sharesOf = itemShares(decl, types, collection, summary, nodesOf);
-  return East.function([types.keyType, types.rowType], DictType(DateTimeType, RecordSummaryTotalsType), ($, key, row) => {
-    const shared = $.const(sharesOf);
-    return shared(key, row, variant('all', null)).flatMap((_$, node) => node.shares).groupReduce(
-      (_$, share) => share.tile,
-      ($) => $.const(NO_SPAN_TOTALS, RecordSummaryTotalsType),
-      (_$, totals, share) => ({ count: totals.count.add(1n), ms: totals.ms.add(share.ms) }),
-    );
-  });
-}
-
-/** The summary tiles a row's things people drag touch: `(K, V) → Set<DateTime>`. */
-function itemTiles(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, summary: RecordLevel, nodesOf: NodesOf): RowTiles {
-  const sharesOf = itemShares(decl, types, collection, summary, nodesOf);
-  return East.function([types.keyType, types.rowType], SetType(DateTimeType), ($, key, row) => {
-    const shared = $.const(sharesOf);
-    return shared(key, row, variant('all', null)).flattenToSet((_$, node) => node.shares.toSet((_$, share) => share.tile));
-  });
-}
-
-/**
- * Things people drag, totalled: `(K, V, Within) → Dict<IK, P>`, each node's
- * items' count and milliseconds in each summary tile they touch, of the tiles
- * asked for.
- */
-function itemTotals(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, summary: RecordLevel, nodesOf: NodesOf): TiledEntries {
-  const { keyType, rowType, entryKey, entryValue, entries } = types;
-  const sharesOf = itemShares(decl, types, collection, summary, nodesOf);
-  return East.function([keyType, rowType, WithinType], entries, ($, key, row, within) => {
-    const shared = $.const(sharesOf);
-    const totalled = $.const(sharedTotals);
-    const path = $.const(pathOf);
+/** Things people drag, totalled from their shares ({@link SharedEntries}): each node's items' count and milliseconds in each summary tile they touch. */
+function itemTotals(types: NestedTypes, collection: NestedItems, summary: RecordLevel): SharedEntries {
+  const { keyType, entryKey, entryValue, entries } = types;
+  return East.function([keyType, ArrayType(NodeSharesType), KitType], entries, ($, key, shared, kit) => {
+    const totalled = $.const(kit.totalled);
+    const path = $.const(kit.path);
     const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
-    return shared(key, row, within).flattenToDict(($, node) => {
+    return shared.flattenToDict(($, node) => {
       const here = $.let(path(node.path));
       return totalled(node.shares).toDict(
         (_$, _totals, tile) => East.value({
@@ -1082,20 +1373,17 @@ function itemTotals(decl: NestedDeclaration, types: NestedTypes, collection: Nes
 }
 
 /**
- * Things people drag rolled up, each ancestor's totals of its subtree's items:
- * `(K, V, Within) → Dict<IK, P>`, in the run `subtreeTotals`, of the tiles
- * asked for.
+ * Things people drag rolled up, each ancestor's totals of its subtree's items,
+ * from their shares ({@link SharedEntries}): in the run `subtreeTotals`.
  */
-function itemSubtreeTotals(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, summary: RecordLevel, nodesOf: NodesOf): TiledEntries {
-  const { keyType, rowType, entryKey, entryValue, entries } = types;
-  const sharesOf = itemShares(decl, types, collection, summary, nodesOf);
-  return East.function([keyType, rowType, WithinType], entries, ($, key, row, within) => {
-    const shared = $.const(sharesOf);
-    const totalled = $.const(sharedTotals);
-    const path = $.const(pathOf);
+function itemSubtreeTotals(types: NestedTypes, collection: NestedItems, summary: RecordLevel): SharedEntries {
+  const { keyType, entryKey, entryValue, entries } = types;
+  return East.function([keyType, ArrayType(NodeSharesType), KitType], entries, ($, key, shared, kit) => {
+    const totalled = $.const(kit.totalled);
+    const path = $.const(kit.path);
     const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
     // Every node's shares, under each of its ancestors: the row, and each node on the way.
-    const beneath = $.let(shared(key, row, within).flatMap((_$, node) => East.Array.range(0n, node.path.size()).flatMap((_$, depth) =>
+    const beneath = $.let(shared.flatMap((_$, node) => East.Array.range(0n, node.path.size()).flatMap((_$, depth) =>
       node.shares.map((_$, share) => ({ ancestor: path(node.path.slice(0n, depth)), share })))));
     return beneath.groupToArrays((_$, at) => at.ancestor, (_$, at) => at.share).flattenToDict((_$, shares, ancestor) =>
       totalled(shares).toDict(
@@ -1108,26 +1396,76 @@ function itemSubtreeTotals(decl: NestedDeclaration, types: NestedTypes, collecti
   });
 }
 
-/** A collection of values, filed: `(K, V) → Dict<IK, P>`, each value at its instant, at the index's tile. */
-function valueEntries(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesOf: NodesOf): RowEntries {
+/** Things people drag's totals from their shares ({@link itemTotals}), and, rolled up, each ancestor's ({@link itemSubtreeTotals}). */
+function itemsTotalled(types: NestedTypes, collection: NestedItems, summary: RecordLevel): SharedEntries {
+  const own = itemTotals(types, collection, summary);
+  return collection.rollup ? sharedBoth(types, own, itemSubtreeTotals(types, collection, summary)) : own;
+}
+
+/** `(K, V, Nodes, Kit) → Dict<IK, P>`: things people drag's totals at every summary tile — their shares, totalled. */
+function itemsTotalledAll(types: NestedTypes, nodesType: WalkFnType, shares: NodesShares, totals: SharedEntries): NodesEntries {
+  return East.function([types.keyType, types.rowType, nodesType, KitType], types.entries, (_$, key, row, nodes, kit) =>
+    totals(key, shares(key, row, variant('all', null), nodes, kit), kit));
+}
+
+/**
+ * What a write moves of things people drag's totals ({@link NodesChanged}): the
+ * totals of the summary tiles the items it touched touch, of the row before
+ * and after.
+ */
+function itemsMoved(types: NestedTypes, nodesType: WalkFnType, summary: RecordLevel, shares: NodesShares, totals: SharedEntries): NodesChanged {
+  const { keyType, rowType, changed } = types;
+  return East.function([keyType, rowType, rowType, rowType, rowType, nodesType, KitType], changed,
+    ($, key, held, next, heldTouched, nextTouched, nodes, kit) => {
+      const shared = $.const(shares);
+      const totalled = $.const(totals);
+      const within = $.const(kit.within);
+      const nextOf = $.const(kit.nextOf);
+      // The summary tiles the items the patch names touch, before it and after.
+      const touched = $.let(shared(key, heldTouched, variant('all', null), nodes, kit).concat(shared(key, nextTouched, variant('all', null), nodes, kit)));
+      const at = $.let(within(touched.flattenToSet((_$, node) => node.shares.toSet((_$, share) => share.tile)), summary, nextOf));
+      return { before: totalled(key, shared(key, held, at, nodes, kit), kit), after: totalled(key, shared(key, next, at, nodes, kit), kit) };
+    });
+}
+
+/**
+ * The months a row's things people drag touch, each with how many of them
+ * touch it and the milliseconds of it they cover ({@link SpanPart}), an item
+ * across a month's end counted in each.
+ */
+function itemsSpan(types: NestedTypes, collection: NestedItems, nodesType: WalkFnType, shares: NodesShares): NodesSpan {
+  return East.function([types.keyType, types.rowType, nodesType, KitType], SpanTotalsType, ($, key, row, nodes, kit) => {
+    const path = $.const(kit.path);
+    const at = $.let(path(East.value([...collection.place], KeysType)));
+    return shares(key, row, variant('all', null), nodes, kit).flatMap((_$, node) => node.shares).groupReduce(
+      (_$, share) => ({ collection: at, tile: share.tile }),
+      ($) => $.const(NO_SPAN_TOTALS, RecordSummaryTotalsType),
+      (_$, totals, share) => ({ count: totals.count.add(1n), ms: totals.ms.add(share.ms) }),
+    );
+  });
+}
+
+/** A collection of values, filed: `(K, V, Nodes, Kit) → Dict<IK, P>`, each value at its instant, at the index's tile. */
+function valueEntries(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesType: WalkFnType): NodesEntries {
   const group = decl.groups[collection.group]!;
   const { keyType, rowType, entryKey, entries, tile } = types;
   const holding = fieldOf(group.type, collection.field, DictType(DateTimeType, collection.valueType));
   const place = placedItem(decl, collection, collection.valueType, types.entryValue);
   const words = whatWords(collection);
-  return East.function([keyType, rowType], entries, ($, key, row) => {
-    const nodes = $.const(nodesOf);
+  return East.function([keyType, rowType, nodesType, KitType], entries, ($, key, row, nodes, kit) => {
+    const startOf = $.const(kit.startOf);
+    const nextOf = $.const(kit.nextOf);
+    const file = $.const(kit.file);
+    const path = $.const(kit.path);
     const held = $.const(holding);
-    const file = $.const(placedFilings);
     const into = $.const(place);
-    const path = $.const(pathOf);
     const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
     return nodes(row).flattenToDict(($, node) => {
       const here = $.let(path(node.path));
       return held(node.node).flattenToDict(($, value, at) => {
         const instant = $.let(some(at), OptionType(DateTimeType));
         const placed = $.let(into(value));
-        return file(tile, instant, instant, East.str`${East.print(key)} ${words} ${East.print(at)}`).toDict(
+        return file(tile, instant, instant, East.str`${East.print(key)} ${words} ${East.print(at)}`, startOf, nextOf).toDict(
           (_$, filing) => East.value({
             collection: collectionPath, row: key, path: here, run: variant('items', null), level: filing.level, tile: filing.tile,
             item: variant('at', at),
@@ -1140,43 +1478,54 @@ function valueEntries(decl: NestedDeclaration, types: NestedTypes, collection: N
 }
 
 /**
- * A collection of values, totalled: `(K, V, Within) → Dict<IK, P>`, each
- * node's values in each summary tile, of the tiles asked for: how many, and,
- * for numbers, their sum, the least, the greatest and the latest.
+ * A node's values' totals in each tile of a level: `(values, level, Kit) →
+ * Dict<tile, Totals>` — numbers' carry their values ({@link valueTotals});
+ * any other's count them ({@link instantTotals}).
  */
-function valueTotalsOf(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, summary: RecordLevel, nodesOf: NodesOf): TiledEntries {
+function valuesTotalled(collection: NestedValues) {
+  const valuesType = DictType(DateTimeType, collection.valueType);
+  const totalsType = DictType(DateTimeType, RecordNestedTotalsType);
+  if (collection.numeric === undefined) {
+    return East.function([valuesType, RecordLevelType, KitType], totalsType, ($, values, level, kit) => {
+      const startOf = $.const(kit.startOf);
+      const counted = $.const(kit.counted);
+      return counted(values.keys(), level, startOf);
+    });
+  }
+  const asFloats = floatsOf(collection.valueType, collection.numeric);
+  return East.function([valuesType, RecordLevelType, KitType], totalsType, ($, values, level, kit) => {
+    const startOf = $.const(kit.startOf);
+    const floats = $.const(asFloats);
+    const summed = $.const(kit.summed);
+    return summed(floats(values), level, startOf);
+  });
+}
+
+/**
+ * A collection of values, totalled ({@link WithinEntries}): each node's
+ * values in each summary tile, of the tiles asked for: how many, and, for
+ * numbers, their sum, the least, the greatest and the latest.
+ */
+function valueTotalsOf(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesType: WalkFnType, summary: RecordLevel): WithinEntries {
   const group = decl.groups[collection.group]!;
   const { keyType, rowType, entryKey, entryValue, entries } = types;
   const holding = fieldOf(group.type, collection.field, DictType(DateTimeType, collection.valueType));
-  const valuesType = DictType(DateTimeType, collection.valueType);
-  const totalsType = DictType(DateTimeType, RecordNestedTotalsType);
-  // Numbers' totals carry their values; any other's count them.
-  const asFloats = collection.numeric === undefined ? undefined : floatsOf(collection.valueType, collection.numeric);
-  const totalsOf = asFloats === undefined
-    ? East.function([valuesType, RecordLevelType], totalsType, ($, values, level) => {
-      const counted = $.const(instantTotals);
-      return counted(values.keys(), level);
-    })
-    : East.function([valuesType, RecordLevelType], totalsType, ($, values, level) => {
-      const floats = $.const(asFloats);
-      const summed = $.const(valueTotals);
-      return summed(floats(values), level);
-    });
-  return East.function([keyType, rowType, WithinType], entries, ($, key, row, within) => {
-    const nodes = $.const(nodesOf);
+  const totalsOf = valuesTotalled(collection);
+  return East.function([keyType, rowType, WithinType, nodesType, KitType], entries, ($, key, row, within, nodes, kit) => {
+    const startOf = $.const(kit.startOf);
+    const kept = $.const(kit.kept);
+    const path = $.const(kit.path);
     const held = $.const(holding);
     const totalled = $.const(totalsOf);
-    const kept = $.const(inSpan);
-    const path = $.const(pathOf);
     const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
     return nodes(row).flattenToDict(($, node) => {
       const here = $.let(path(node.path));
       const values = $.let(held(node.node));
       const counted = $.let(within.match({
         all: () => values,
-        only: (_$, span) => values.filter((_$, _value, at) => kept(span, summary, at)),
+        only: (_$, span) => values.filter((_$, _value, at) => kept(span, summary, at, startOf)),
       }));
-      return totalled(counted, summary).toDict(
+      return totalled(counted, summary, kit).toDict(
         (_$, _totals, tile) => East.value({
           collection: collectionPath, row: key, path: here, run: variant('totals', null), level: summary, tile, item: variant('none', null),
         }, entryKey),
@@ -1186,88 +1535,79 @@ function valueTotalsOf(decl: NestedDeclaration, types: NestedTypes, collection: 
   });
 }
 
+/** `(K, V, Nodes, Kit) → Dict<IK, P>`: a collection of values' totals at every summary tile. */
+function valuesTotalledAll(types: NestedTypes, nodesType: WalkFnType, totals: WithinEntries): NodesEntries {
+  return East.function([types.keyType, types.rowType, nodesType, KitType], types.entries, (_$, key, row, nodes, kit) =>
+    totals(key, row, variant('all', null), nodes, kit));
+}
+
 /**
- * The summary tiles a row's values are in, each with how many are in it: `(K,
- * V) → Dict<DateTime, Totals>`, a value covering no milliseconds.
+ * What a write moves of a collection of values' totals ({@link NodesChanged}): the
+ * totals of the summary tiles the values it touched are in, of the row before
+ * and after.
  */
-function valueTileTotals(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, summary: RecordLevel, nodesOf: NodesOf): RowTileTotals {
+function valuesMoved(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesType: WalkFnType, summary: RecordLevel, totals: WithinEntries): NodesChanged {
   const group = decl.groups[collection.group]!;
+  const { keyType, rowType, changed } = types;
   const holding = fieldOf(group.type, collection.field, DictType(DateTimeType, collection.valueType));
-  return East.function([types.keyType, types.rowType], DictType(DateTimeType, RecordSummaryTotalsType), ($, _key, row) => {
-    const nodes = $.const(nodesOf);
-    const held = $.const(holding);
-    const startOf = $.const(tileStart);
-    return nodes(row).flatMap((_$, node) => held(node.node).toArray((_$, _value, at) => startOf(summary, at))).groupReduce(
-      (_$, tile) => tile,
-      ($) => $.const(NO_SPAN_TOTALS, RecordSummaryTotalsType),
-      (_$, totals) => ({ count: totals.count.add(1n), ms: totals.ms }),
-    );
-  });
+  return East.function([keyType, rowType, rowType, rowType, rowType, nodesType, KitType], changed,
+    ($, key, held, next, heldTouched, nextTouched, nodes, kit) => {
+      const startOf = $.const(kit.startOf);
+      const nextOf = $.const(kit.nextOf);
+      const within = $.const(kit.within);
+      const holds = $.const(holding);
+      const totalled = $.const(totals);
+      // The summary tiles the values the patch names are in, before it and after.
+      const touched = $.let(nodes(heldTouched).concat(nodes(nextTouched)).flattenToSet((_$, node) =>
+        holds(node.node).toSet((_$, _value, at) => startOf(summary, at))));
+      const at = $.let(within(touched, summary, nextOf));
+      return { before: totalled(key, held, at, nodes, kit), after: totalled(key, next, at, nodes, kit) };
+    });
 }
 
-/** The summary tiles a row's values are in: `(K, V) → Set<DateTime>`. */
-function valueTiles(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, summary: RecordLevel, nodesOf: NodesOf): RowTiles {
+/**
+ * Every node from the row down to a collection of values' group ({@link
+ * Gathered}): each group's above it, holding none of its values, then its own
+ * group's, holding its values as Floats.
+ */
+function valuesGathered(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesOf: readonly NodesOf[], numeric: 'Float' | 'Integer'): Gathered {
+  const { rowType } = types;
   const group = decl.groups[collection.group]!;
-  const holding = fieldOf(group.type, collection.field, DictType(DateTimeType, collection.valueType));
-  return East.function([types.keyType, types.rowType], SetType(DateTimeType), ($, _key, row) => {
-    const nodes = $.const(nodesOf);
-    const held = $.const(holding);
-    const startOf = $.const(tileStart);
-    return nodes(row).flattenToSet((_$, node) => held(node.node).toSet((_$, _value, at) => startOf(summary, at)));
-  });
-}
-
-/**
- * A collection of values rolled up: its parents' subtotals, at the tiles they
- * are worked out at; the instants a row's values are at; and whether a write
- * moves only the subtotals of the tiles its values are at.
- */
-interface SubtotalParts {
-  /** `(K, V, SubtotalTiles) → Dict<IK, P>`: every parent's subtotals, at the tiles asked for. */
-  readonly entries: FunctionExpr<[EastType, EastType, typeof SubtotalTilesType], EntriesType>;
-  /** `(K, V) → Set<DateTime>`: the instants a row's values are at. */
-  readonly instants: RowTiles;
-  /**
-   * Whether a write moves only the subtotals of the tiles its values are at:
-   * where no node holding the collection's values is a parent of another —
-   * every node but a recursive tree's. In a tree, a node given its first
-   * value keeps subtotals at no tile, and one losing its last begins to at
-   * every tile.
-   */
-  readonly local: boolean;
-}
-
-/**
- * A collection of values rolled up, its parents' subtotals ({@link
- * SubtotalParts}): every node from the row down to the collection's group
- * gathered — the collection's own values, as Floats, on its group's nodes —
- * and composed bottom-up ({@link subtotalsOf}) at the tiles asked for.
- */
-function valueSubtotals(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesOf: readonly NodesOf[]): SubtotalParts {
-  const { keyType, rowType, entryKey, entryValue, entries, levels } = types;
-  const numeric = collection.numeric!;
-  // The nodes of each group from the row down, the collection's group's holding its values.
-  const gathered = chainTo(decl, collection.group).reduce<FunctionExpr<[EastType], ArrayType<typeof SubtotalNodeType>>>((before, group) => {
-    const nodes = nodesOf[group.index]!;
-    const ownGroup = BigInt(group.index);
-    const own = group.index === collection.group ? valuesAsFloats(group.type, collection, numeric) : noValues(group.type);
+  // The nodes of each group above the collection's, from the row down.
+  const above = chainTo(decl, collection.group).slice(0, -1).reduce<FunctionExpr<[EastType], ArrayType<typeof SubtotalNodeType>>>((before, at) => {
+    const nodes = nodesOf[at.index]!;
+    const atGroup = BigInt(at.index);
+    const none = noValues(at.type);
     return East.function([rowType], ArrayType(SubtotalNodeType), ($, row) => {
       const earlier = $.const(before);
       const these = $.const(nodes);
-      const values = $.const(own);
+      const values = $.const(none);
       return earlier(row).concat(these(row).map((_$, node) => ({
-        key: { path: node.path, group: ownGroup }, parent: node.parent, own: values(node.node),
+        key: { path: node.path, group: atGroup }, parent: node.parent, own: values(node.node),
       })));
     });
   }, East.function([rowType], ArrayType(SubtotalNodeType), () => []));
-  const subtotals = East.function([keyType, rowType, SubtotalTilesType], entries, ($, key, row, tiles) => {
-    const nodes = $.const(gathered);
-    const compose = $.const(subtotalsOf);
-    const path = $.const(pathOf);
+  const own = valuesAsFloats(group.type, collection, numeric);
+  const ownGroup = BigInt(group.index);
+  const nodesType = WalkType(rowType, group);
+  return East.function([rowType, nodesType], ArrayType(SubtotalNodeType), ($, row, nodes) => {
+    const earlier = $.const(above);
+    const values = $.const(own);
+    return earlier(row).concat(nodes(row).map((_$, node) => ({ key: { path: node.path, group: ownGroup }, parent: node.parent, own: values(node.node) })));
+  });
+}
+
+/** A collection of values rolled up, every parent's subtotals at the tiles asked for ({@link SubtotalEntries}), composed bottom-up ({@link subtotalsOf}). */
+function valueSubtotals(types: NestedTypes, collection: NestedValues): SubtotalEntries {
+  const { keyType, entryKey, entryValue, entries, levels } = types;
+  return East.function([keyType, ArrayType(SubtotalNodeType), SubtotalTilesType, KitType], entries, ($, key, nodes, tiles, kit) => {
+    const startOf = $.const(kit.startOf);
+    const compose = $.const(kit.subtotals);
+    const path = $.const(kit.path);
     const collectionPath = $.let(path(East.value([...collection.place], KeysType)));
     const rollups = $.let([...collection.rollups], ArrayType(RecordRollupType));
     const tiers = $.let([...levels], ArrayType(RecordLevelType));
-    return compose(nodes(row), rollups, tiers, tiles).toDict(
+    return compose(nodes, rollups, tiers, tiles, startOf).toDict(
       (_$, _value, subtotal) => East.value({
         collection: collectionPath, row: key, path: subtotal.path, run: variant('subtotals', subtotal.rollup),
         level: subtotal.level, tile: subtotal.tile, item: variant('none', null),
@@ -1275,177 +1615,232 @@ function valueSubtotals(decl: NestedDeclaration, types: NestedTypes, collection:
       (_$, value) => East.value(variant('subtotal', value), entryValue),
     );
   });
-  const instants = East.function([keyType, rowType], SetType(DateTimeType), ($, _key, row) => {
-    const nodes = $.const(gathered);
-    return nodes(row).flattenToSet((_$, node) => node.own.keys());
-  });
-  return { entries: subtotals, instants, local: decl.groups[collection.group]!.through === undefined };
 }
 
-// ── A collection's parts, chained ─────────────────────────────────────────────
-
-/** One collection's parts of a row's entries. */
-interface CollectionParts {
-  /** Its items or values filed, and, rolled up, its items under every ancestor too. */
-  readonly items: RowEntries;
-  /** Where a summary is declared: its totals, and the summary tiles a row's items touch. */
-  readonly totals: { readonly entries: TiledEntries; readonly tiles: RowTiles } | undefined;
-  /** Where its values roll up: every parent's subtotals. */
-  readonly subtotals: SubtotalParts | undefined;
-}
-
-/** `(K, V) → Dict<IK, P>`: parts' entries, one after another, each a function calling the parts before it. */
-function rowUnion(types: NestedTypes, parts: readonly RowEntries[]): FunctionExpr<[EastType, EastType], EntriesType> {
-  const [first, ...rest] = parts;
-  if (first === undefined) return East.function([types.keyType, types.rowType], types.entries, () => new Map());
-  return rest.reduce<FunctionExpr<[EastType, EastType], EntriesType>>((before, part) => East.function([types.keyType, types.rowType], types.entries, ($, key, row) => {
-    const earlier = $.const(before);
-    const own = $.const(part);
-    const all = $.let(earlier(key, row));
-    $(all.unionInPlace(own(key, row)));
-    return all;
-  }), first);
-}
-
-/** `(K, V, Within) → Dict<IK, P>`: parts' totals, one after another. */
-function tiledUnion(types: NestedTypes, parts: readonly TiledEntries[]): FunctionExpr<[EastType, EastType, typeof WithinType], EntriesType> {
-  const [first, ...rest] = parts;
-  if (first === undefined) return East.function([types.keyType, types.rowType, WithinType], types.entries, () => new Map());
-  return rest.reduce<FunctionExpr<[EastType, EastType, typeof WithinType], EntriesType>>((before, part) => East.function([types.keyType, types.rowType, WithinType], types.entries, ($, key, row, within) => {
-    const earlier = $.const(before);
-    const own = $.const(part);
-    const all = $.let(earlier(key, row, within));
-    $(all.unionInPlace(own(key, row, within)));
-    return all;
-  }), first);
-}
-
-/** `(K, V, V, V, V) → { before, after }`: parts of a write's entries, one after another. */
-function writeUnion(types: NestedTypes, parts: readonly WriteEntries[]): FunctionExpr<[EastType, EastType, EastType, EastType, EastType], ChangedType> {
-  const { keyType, rowType, changed } = types;
-  const [first, ...rest] = parts;
-  if (first === undefined) {
-    return East.function([keyType, rowType, rowType, rowType, rowType], changed, () => ({ before: new Map(), after: new Map() }));
-  }
-  return rest.reduce<FunctionExpr<[EastType, EastType, EastType, EastType, EastType], ChangedType>>((before, part) => East.function(
-    [keyType, rowType, rowType, rowType, rowType], changed, ($, key, held, next, heldTouched, nextTouched) => {
-      const earlier = $.const(before);
-      const own = $.const(part);
-      const all = $.let(earlier(key, held, next, heldTouched, nextTouched));
-      const these = $.let(own(key, held, next, heldTouched, nextTouched));
-      $(all.before.unionInPlace(these.before));
-      $(all.after.unionInPlace(these.after));
-      return all;
-    },
-  ), first);
+/** `(K, V, Nodes, Kit) → Dict<IK, P>`: a collection of values rolled up, every parent's subtotals at every tile. */
+function valuesSubtotalledAll(types: NestedTypes, nodesType: WalkFnType, gathered: Gathered, subtotals: SubtotalEntries): NodesEntries {
+  return East.function([types.keyType, types.rowType, nodesType, KitType], types.entries, (_$, key, row, nodes, kit) =>
+    subtotals(key, gathered(row, nodes), variant('all', null), kit));
 }
 
 /**
- * A collection's parts of a row's entries: its items or values filed — rolled
- * up, under every ancestor too — and, where a summary is declared, its totals;
- * where its values roll up, every parent's subtotals.
+ * What a write moves of a collection of values' subtotals ({@link NodesChanged}):
+ * every parent's subtotals of the tiles at each level the values it touched
+ * are at, of the row before and after — where no node holding the
+ * collection's values is a parent of another; in a recursive tree, every
+ * subtotal, for a node given its first value keeps subtotals at no tile, and
+ * one losing its last begins to at every tile.
+ */
+function valuesSubtotalsMoved(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesType: WalkFnType, gathered: Gathered, subtotals: SubtotalEntries): NodesChanged {
+  const { keyType, rowType, changed, levels } = types;
+  if (decl.groups[collection.group]!.through !== undefined) {
+    return East.function([keyType, rowType, rowType, rowType, rowType, nodesType, KitType], changed,
+      ($, key, held, next, _heldTouched, _nextTouched, nodes, kit) => {
+        const gather = $.const(gathered);
+        const composed = $.const(subtotals);
+        return { before: composed(key, gather(held, nodes), variant('all', null), kit), after: composed(key, gather(next, nodes), variant('all', null), kit) };
+      });
+  }
+  return East.function([keyType, rowType, rowType, rowType, rowType, nodesType, KitType], changed,
+    ($, key, held, next, heldTouched, nextTouched, nodes, kit) => {
+      const startOf = $.const(kit.startOf);
+      const nextOf = $.const(kit.nextOf);
+      const levelsWithin = $.const(kit.levelsWithin);
+      const gather = $.const(gathered);
+      const composed = $.const(subtotals);
+      const tiers = $.let([...levels], ArrayType(RecordLevelType));
+      // The tiles at each level the values the patch names are at, before it and after.
+      const touched = $.let(gather(heldTouched, nodes).concat(gather(nextTouched, nodes)).flattenToSet((_$, node) => node.own.keys()));
+      const at = $.let(levelsWithin(touched, tiers, startOf, nextOf));
+      return { before: composed(key, gather(held, nodes), at, kit), after: composed(key, gather(next, nodes), at, kit) };
+    });
+}
+
+/** The months a row's values are in, each with how many are in it ({@link SpanPart}), a value covering no milliseconds. */
+function valuesSpan(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, nodesType: WalkFnType): NodesSpan {
+  const group = decl.groups[collection.group]!;
+  const holding = fieldOf(group.type, collection.field, DictType(DateTimeType, collection.valueType));
+  const month = levelOf(SPAN_TILE);
+  return East.function([types.keyType, types.rowType, nodesType, KitType], SpanTotalsType, ($, _key, row, nodes, kit) => {
+    const startOf = $.const(kit.startOf);
+    const path = $.const(kit.path);
+    const held = $.const(holding);
+    const at = $.let(path(East.value([...collection.place], KeysType)));
+    return nodes(row).flatMap((_$, node) => held(node.node).toArray((_$, _value, instant) => startOf(month, instant))).groupReduce(
+      (_$, tile) => ({ collection: at, tile }),
+      ($) => $.const(NO_SPAN_TOTALS, RecordSummaryTotalsType),
+      (_$, totals) => ({ count: totals.count.add(1n), ms: totals.ms }),
+    );
+  });
+}
+
+/**
+ * A collection's entries of a row, given its group's nodes ({@link
+ * NodesEntries}): its items or values filed — rolled up, under every ancestor
+ * too — and, where a summary is declared, its totals; where its values roll
+ * up, every parent's subtotals.
  *
  * @param decl - The checked declaration
  * @param types - The index's types
  * @param collection - The collection
  * @param nodesOf - Each group's nodes from a row
- * @returns Its parts
+ * @returns Its entries
  */
-function collectionParts(decl: NestedDeclaration, types: NestedTypes, collection: NestedCollection, nodesOf: readonly NodesOf[]): CollectionParts {
-  const nodes = nodesOf[collection.group]!;
+function collectionEntries(decl: NestedDeclaration, types: NestedTypes, collection: NestedCollection, nodesOf: readonly NodesOf[]): NodesEntries {
+  const nodesType = WalkType(types.rowType, decl.groups[collection.group]!);
   const { summary } = types;
   if (collection.kind === 'items') {
-    return {
-      items: rowUnion(types, [
-        itemEntries(decl, types, collection, nodes),
-        ...(collection.rollup ? [itemSubtreeEntries(decl, types, collection, nodes)] : []),
-      ]),
-      totals: summary === undefined ? undefined : {
-        entries: tiledUnion(types, [
-          itemTotals(decl, types, collection, summary, nodes),
-          ...(collection.rollup ? [itemSubtreeTotals(decl, types, collection, summary, nodes)] : []),
-        ]),
-        tiles: itemTiles(decl, types, collection, summary, nodes),
-      },
-      subtotals: undefined,
-    };
+    const filed = itemsFiled(decl, types, collection, nodesType);
+    if (summary === undefined) return filed;
+    return nodesUnion(types, nodesType, [
+      filed, itemsTotalledAll(types, nodesType, itemShares(decl, types, collection, nodesType, summary), itemsTotalled(types, collection, summary)),
+    ]);
   }
-  return {
-    items: valueEntries(decl, types, collection, nodes),
-    totals: summary === undefined ? undefined : {
-      entries: valueTotalsOf(decl, types, collection, summary, nodes),
-      tiles: valueTiles(decl, types, collection, summary, nodes),
-    },
-    subtotals: collection.rollups.length === 0 ? undefined : valueSubtotals(decl, types, collection, nodesOf),
-  };
-}
-
-/** A collection's entries of a row, its totals at every tile: `(K, V) → Dict<IK, P>`. */
-function wholeEntries(types: NestedTypes, parts: CollectionParts): FunctionExpr<[EastType, EastType], EntriesType> {
-  const { totals, subtotals } = parts;
-  return rowUnion(types, [
-    parts.items,
-    ...(totals === undefined ? [] : [East.function([types.keyType, types.rowType], types.entries, ($, key, row) => {
-      const totalled = $.const(totals.entries);
-      return totalled(key, row, variant('all', null));
-    })]),
-    ...(subtotals === undefined ? [] : [East.function([types.keyType, types.rowType], types.entries, ($, key, row) => {
-      const composed = $.const(subtotals.entries);
-      return composed(key, row, variant('all', null));
-    })]),
-  ]);
+  const totals = summary === undefined ? [] : [valuesTotalledAll(types, nodesType, valueTotalsOf(decl, types, collection, nodesType, summary))];
+  const subtotals = collection.numeric === undefined || collection.rollups.length === 0 ? [] : [valuesSubtotalledAll(
+    types, nodesType, valuesGathered(decl, types, collection, nodesOf, collection.numeric), valueSubtotals(types, collection))];
+  return nodesUnion(types, nodesType, [valueEntries(decl, types, collection, nodesType), ...totals, ...subtotals]);
 }
 
 /**
- * A collection's entries a write changes, by its patch ({@link WriteEntries}):
- * the entries of the items it touched, before and after, and, where it touched
- * any, the totals of the summary tiles they touch and every parent's subtotals
- * of the tiles at each level they touch — every subtotal, in a recursive tree
- * ({@link SubtotalParts}' `local`) — of the row before and after.
+ * A collection's part of a write's entries, by its patch, given its group's
+ * nodes ({@link NodesChanged}): the entries of the items or values it touched,
+ * before and after, and, where it touched any, the totals of the summary tiles
+ * they touch and every parent's subtotals of the tiles at each level they
+ * touch — every subtotal, in a recursive tree — of the row before and after.
  *
+ * @param decl - The checked declaration
  * @param types - The index's types
- * @param parts - The collection's parts
- * @returns Its part of a write's entries
+ * @param collection - The collection
+ * @param nodesOf - Each group's nodes from a row
+ * @returns Its part
  */
-function patchedParts(types: NestedTypes, parts: CollectionParts): WriteEntries {
-  const { keyType, rowType, changed, summary } = types;
-  const { totals, subtotals } = parts;
-  const moved = writeUnion(types, [
-    ...(totals === undefined || summary === undefined ? [] : [East.function(
-      [keyType, rowType, rowType, rowType, rowType], changed, ($, key, held, next, heldTouched, nextTouched) => {
-        const tilesOf = $.const(totals.tiles);
-        const totalled = $.const(totals.entries);
-        const within = $.const(tilesWithin);
-        const at = $.let(within(tilesOf(key, heldTouched).union(tilesOf(key, nextTouched)), summary));
-        return { before: totalled(key, held, at), after: totalled(key, next, at) };
-      },
-    )]),
-    ...(subtotals === undefined ? [] : [subtotals.local
-      ? East.function([keyType, rowType, rowType, rowType, rowType], changed, ($, key, held, next, heldTouched, nextTouched) => {
-        const composed = $.const(subtotals.entries);
-        const instantsOf = $.const(subtotals.instants);
-        const tilesOf = $.const(subtotalTiles);
-        const levels = $.let([...types.levels], ArrayType(RecordLevelType));
-        const at = $.let(tilesOf(instantsOf(key, heldTouched).union(instantsOf(key, nextTouched)), levels));
-        return { before: composed(key, held, at), after: composed(key, next, at) };
-      })
-      : East.function([keyType, rowType, rowType, rowType, rowType], changed, ($, key, held, next) => {
-        const composed = $.const(subtotals.entries);
-        return { before: composed(key, held, variant('all', null)), after: composed(key, next, variant('all', null)) };
-      })]),
-  ]);
-  return East.function([keyType, rowType, rowType, rowType, rowType], changed, ($, key, held, next, heldTouched, nextTouched) => {
-    const filed = $.const(parts.items);
-    const others = $.const(moved);
-    const before = $.let(filed(key, heldTouched));
-    const after = $.let(filed(key, nextTouched));
-    // Nothing of the collection touched: none of its totals or subtotals moves.
-    $.if(East.greater(before.size(), 0n).or(() => East.greater(after.size(), 0n)), ($) => {
-      const more = $.let(others(key, held, next, heldTouched, nextTouched));
-      $(before.unionInPlace(more.before));
-      $(after.unionInPlace(more.after));
-    });
-    return { before, after };
+function collectionPatched(decl: NestedDeclaration, types: NestedTypes, collection: NestedCollection, nodesOf: readonly NodesOf[]): NodesChanged {
+  const nodesType = WalkType(types.rowType, decl.groups[collection.group]!);
+  const { summary } = types;
+  if (collection.kind === 'items') {
+    const filed = itemsFiled(decl, types, collection, nodesType);
+    if (summary === undefined) return patchedWith(types, nodesType, filed, undefined);
+    const moved = itemsMoved(types, nodesType, summary, itemShares(decl, types, collection, nodesType, summary), itemsTotalled(types, collection, summary));
+    return patchedWith(types, nodesType, filed, moved);
+  }
+  const moved = [
+    ...(summary === undefined ? [] : [valuesMoved(decl, types, collection, nodesType, summary, valueTotalsOf(decl, types, collection, nodesType, summary))]),
+    ...(collection.numeric === undefined || collection.rollups.length === 0 ? [] : [valuesSubtotalsMoved(
+      decl, types, collection, nodesType, valuesGathered(decl, types, collection, nodesOf, collection.numeric), valueSubtotals(types, collection))]),
+  ];
+  return patchedWith(types, nodesType, valueEntries(decl, types, collection, nodesType), moved.length === 0 ? undefined : changedUnion(types, nodesType, moved));
+}
+
+/** A collection's months of a row, for the index's span, given its group's nodes ({@link NodesSpan}). */
+function collectionSpan(decl: NestedDeclaration, types: NestedTypes, collection: NestedCollection): NodesSpan {
+  const nodesType = WalkType(types.rowType, decl.groups[collection.group]!);
+  if (collection.kind === 'items') return itemsSpan(types, collection, nodesType, itemShares(decl, types, collection, nodesType, levelOf(SPAN_TILE)));
+  return valuesSpan(decl, types, collection, nodesType);
+}
+
+/** The groups holding a collection: a program's parts are theirs, each binding its group's walk once for its collections. */
+function groupsHolding(decl: NestedDeclaration): readonly NestedGroup[] {
+  return decl.groups.filter((group) => group.collections.length > 0);
+}
+
+/**
+ * What a collection's part of a program calls of the kit ({@link KitType})
+ * beside the tiles' steps and a path's: filing, and where a summary is
+ * declared, its totals' — sharing items out, or counting or summing values —
+ * and its parents' subtotals where its values roll up; a write's, too, the
+ * tiles it touches; a span's, sharing items out.
+ *
+ * @param decl - The checked declaration
+ * @param types - The index's types
+ * @param collection - The collection
+ * @param program - The program
+ * @returns What it calls
+ */
+function kitCalls(decl: NestedDeclaration, types: NestedTypes, collection: NestedCollection, program: 'entries' | 'byPatch' | 'span'): readonly KitName[] {
+  if (program === 'span') return collection.kind === 'items' ? ['share'] : [];
+  const calls: KitName[] = ['file'];
+  if (types.summary !== undefined) {
+    if (collection.kind === 'items') calls.push('share', 'totalled');
+    else calls.push('kept', collection.numeric === undefined ? 'counted' : 'summed');
+    if (program === 'byPatch') calls.push('within');
+  }
+  if (collection.kind === 'values' && collection.numeric !== undefined && collection.rollups.length > 0) {
+    calls.push('subtotals');
+    if (program === 'byPatch' && decl.groups[collection.group]!.through === undefined) calls.push('levelsWithin');
+  }
+  return calls;
+}
+
+// ── The programs ──────────────────────────────────────────────────────────────
+
+/** `(K, V, Kit) → Dict<IK, P>`: parts' entries, one after another, each a function calling the parts before it. */
+function entriesUnion(types: NestedTypes, parts: readonly EntriesPart[]): EntriesPart {
+  const [first, ...rest] = parts;
+  if (first === undefined) return East.function([types.keyType, types.rowType, KitType], types.entries, () => new Map());
+  return rest.reduce<EntriesPart>((before, part) => East.function([types.keyType, types.rowType, KitType], types.entries, ($, key, row, kit) => {
+    const all = $.let(before(key, row, kit));
+    $(all.unionInPlace(part(key, row, kit)));
+    return all;
+  }), first);
+}
+
+/** `(K, V, V, V, V, Kit) → { before, after }`: parts of a write's entries, one after another, each a function calling the parts before it. */
+function patchedUnion(types: NestedTypes, parts: readonly PatchedPart[]): PatchedPart {
+  const { keyType, rowType, changed } = types;
+  const [first, ...rest] = parts;
+  if (first === undefined) {
+    return East.function([keyType, rowType, rowType, rowType, rowType, KitType], changed, () => ({ before: new Map(), after: new Map() }));
+  }
+  return rest.reduce<PatchedPart>((before, part) => East.function(
+    [keyType, rowType, rowType, rowType, rowType, KitType], changed, ($, key, held, next, heldTouched, nextTouched, kit) => {
+      const all = $.let(before(key, held, next, heldTouched, nextTouched, kit));
+      const more = $.let(part(key, held, next, heldTouched, nextTouched, kit));
+      $(all.before.unionInPlace(more.before));
+      $(all.after.unionInPlace(more.after));
+      return all;
+    },
+  ), first);
+}
+
+/** `(K, V, Kit) → Dict<{ collection, tile }, Totals>`: parts of the span, one after another, each a function calling the parts before it. */
+function spanUnion(types: NestedTypes, parts: readonly SpanPart[]): SpanPart {
+  const [first, ...rest] = parts;
+  if (first === undefined) return East.function([types.keyType, types.rowType, KitType], SpanTotalsType, () => new Map());
+  return rest.reduce<SpanPart>((before, part) => East.function([types.keyType, types.rowType, KitType], SpanTotalsType, ($, key, row, kit) => {
+    const all = $.let(before(key, row, kit));
+    $(all.unionInPlace(part(key, row, kit)));
+    return all;
+  }), first);
+}
+
+/** The types a nested series index's programs are built over ({@link NestedTypes}). */
+function nestedTypes(decl: NestedDeclaration, keyType: EastType, rowType: EastType, tile: RecordTile, summary: RecordTile | undefined): NestedTypes {
+  const entryKey = NestedEntryKeyType(keyType);
+  const entryValue = NestedEntryType(decl.places);
+  const entries = DictType(entryKey, entryValue);
+  return {
+    keyType, rowType, entryKey, entryValue, entries,
+    changed: StructType({ before: entries, after: entries }),
+    tile: levelOf(tile),
+    summary: summary === undefined ? undefined : levelOf(summary),
+    levels: RECORD_TILES.slice(RECORD_TILES.indexOf(tile)).map(levelOf),
+  };
+}
+
+/** A program's kit, holding each function its collections' parts call ({@link kitCalls}). */
+function kitOf(decl: NestedDeclaration, types: NestedTypes, program: 'entries' | 'byPatch' | 'span'): CallableFunctionExpr<[], KitType> {
+  return programKit(new Set(decl.collections.flatMap((collection) => kitCalls(decl, types, collection, program))));
+}
+
+/** A row's entries: `(K, V) → Dict<IK, P>`, each group's part's, over a kit binding once each function they call. */
+function entriesProgram(decl: NestedDeclaration, types: NestedTypes, nodesOf: readonly NodesOf[]): RowEntries {
+  const kit = kitOf(decl, types, 'entries');
+  const parts = entriesUnion(types, groupsHolding(decl).map((group) => groupEntries(types, nodesOf[group.index]!, nodesUnion(
+    types, WalkType(types.rowType, group), group.collections.map((collection) => collectionEntries(decl, types, collection, nodesOf))))));
+  return East.function([types.keyType, types.rowType], types.entries, ($, key, row) => {
+    const tools = $.const(kit());
+    return parts(key, row, tools);
   });
 }
 
@@ -1466,23 +1861,25 @@ export function NestedPatchedType<E extends EastType>(entries: E) {
  * A write's entries of a row, by its patch: `(K, V, V, Patch) → Patched`,
  * given the row before and after and the patch between them — the row walked
  * by the patch ({@link rowWalk}), and each collection's entries what it
- * touched moves, before and after ({@link patchedParts}); `whole` where a
- * replace on the way leaves the row to be compared whole.
+ * touched moves, before and after ({@link collectionPatched}), over a kit
+ * binding once each function they call; `whole` where a replace on the way
+ * leaves the row to be compared whole.
  *
  * @param decl - The checked declaration
  * @param types - The index's types
- * @param parts - Each collection's parts
+ * @param nodesOf - Each group's nodes from a row
  * @returns The function
  */
-function nestedByPatch(decl: NestedDeclaration, types: NestedTypes, parts: readonly CollectionParts[]) {
+function nestedByPatch(decl: NestedDeclaration, types: NestedTypes, nodesOf: readonly NodesOf[]) {
   const { keyType, rowType, entries } = types;
   const walk = rowWalk(decl);
-  const collections = writeUnion(types, parts.map((part) => patchedParts(types, part)));
+  const kit = kitOf(decl, types, 'byPatch');
+  const parts = patchedUnion(types, groupsHolding(decl).map((group) => groupPatched(types, nodesOf[group.index]!, changedUnion(
+    types, WalkType(rowType, group), group.collections.map((collection) => collectionPatched(decl, types, collection, nodesOf))))));
   const patchType = patchTypeOf(rowType);
   const patchedType = NestedPatchedType(entries);
   return East.function([keyType, rowType, rowType, patchType], patchedType, ($, key, held, next, patch) => {
     const touched = $.const(walk);
-    const changes = $.const(collections);
     $.match(touched(held, next, patch), {
       replaced: ($) => {
         $.return(variant('whole', null));
@@ -1491,7 +1888,8 @@ function nestedByPatch(decl: NestedDeclaration, types: NestedTypes, parts: reado
         $.return(variant('changed', { before: new Map(), after: new Map() }));
       },
       touched: ($, rows) => {
-        $.return(variant('changed', changes(key, held, next, rows.held, rows.next)));
+        const tools = $.const(kit());
+        $.return(variant('changed', parts(key, held, next, rows.held, rows.next, tools)));
       },
     });
     return variant('whole', null);
@@ -1499,11 +1897,12 @@ function nestedByPatch(decl: NestedDeclaration, types: NestedTypes, parts: reado
 }
 
 /**
- * A row's entries: `(K, V) → Dict<IK, P>`, each part's — every collection's
+ * A row's entries: `(K, V) → Dict<IK, P>`, each collection's part's — its
  * items or values filed, its totals where a summary is declared, its subtree
  * filing where it rolls items up, and its parents' subtotals where it rolls
- * values up — one after another, each a function calling the parts before it.
- * And a write's, by its patch ({@link nestedByPatch}), from the same parts.
+ * values up — one after another, over a kit binding once each function they
+ * call ({@link programKit}). And a write's, by its patch ({@link
+ * nestedByPatch}).
  *
  * @param decl - The checked declaration
  * @param keyType - The record's key type
@@ -1520,33 +1919,17 @@ export function nestedEntries(
   readonly entryKey: EastType;
   readonly entryValue: EastType;
 } {
-  const entryKey = NestedEntryKeyType(keyType);
-  const entryValue = NestedEntryType(decl.places);
-  const entries = DictType(entryKey, entryValue);
-  const types: NestedTypes = {
-    keyType, rowType, entryKey, entryValue, entries,
-    changed: StructType({ before: entries, after: entries }),
-    tile: levelOf(tile),
-    summary: summary === undefined ? undefined : levelOf(summary),
-    levels: RECORD_TILES.slice(RECORD_TILES.indexOf(tile)).map(levelOf),
-  };
+  const types = nestedTypes(decl, keyType, rowType, tile, summary);
   const nodesOf = groupNodes(decl, rowType);
-  const parts = decl.collections.map((collection) => collectionParts(decl, types, collection, nodesOf));
   return {
-    entries: rowUnion(types, parts.map((part) => wholeEntries(types, part))),
-    byPatch: nestedByPatch(decl, types, parts),
-    entryKey,
-    entryValue,
+    entries: entriesProgram(decl, types, nodesOf),
+    byPatch: nestedByPatch(decl, types, nodesOf),
+    entryKey: types.entryKey,
+    entryValue: types.entryValue,
   };
 }
 
 // ── Its span (#1438) ───────────────────────────────────────────────────────────
-
-/** The tile a nested series index's span counts by: a Plan's horizon spans whole months. */
-const SPAN_TILE: RecordTile = 'month';
-
-/** A row's months, by collection: `Dict<{ collection, tile }, Totals>`. */
-type SpanTotalsType = DictType<typeof NestedSpanKeyType, typeof RecordSummaryTotalsType>;
 
 /**
  * A nested series index's span of a row (#1438): `(K, V) → Dict<{ collection,
@@ -1565,37 +1948,15 @@ type SpanTotalsType = DictType<typeof NestedSpanKeyType, typeof RecordSummaryTot
  * @returns A row's months, by collection
  */
 export function nestedSpan(decl: NestedDeclaration, keyType: EastType, rowType: EastType, tile: RecordTile): FunctionExpr<[EastType, EastType], SpanTotalsType> {
-  const entryKey = NestedEntryKeyType(keyType);
-  const entryValue = NestedEntryType(decl.places);
-  const entries = DictType(entryKey, entryValue);
-  const month = levelOf(SPAN_TILE);
-  const types: NestedTypes = {
-    keyType, rowType, entryKey, entryValue, entries,
-    changed: StructType({ before: entries, after: entries }),
-    tile: levelOf(tile),
-    summary: month,
-    levels: RECORD_TILES.slice(RECORD_TILES.indexOf(tile)).map(levelOf),
-  };
-  const spanType: SpanTotalsType = DictType(NestedSpanKeyType, RecordSummaryTotalsType);
+  const types = nestedTypes(decl, keyType, rowType, tile, undefined);
   const nodesOf = groupNodes(decl, rowType);
-  const parts = decl.collections.map((collection) => {
-    const nodes = nodesOf[collection.group]!;
-    const touched = collection.kind === 'items' ? itemTileTotals(decl, types, collection, month, nodes) : valueTileTotals(decl, types, collection, month, nodes);
-    const place = [...collection.place];
-    return East.function([keyType, rowType], spanType, ($, key, row) => {
-      const totalsOf = $.const(touched);
-      const path = $.const(pathOf);
-      const at = $.let(path(East.value(place, KeysType)));
-      return totalsOf(key, row).toDict((_$, _totals, tile) => ({ collection: at, tile }), (_$, totals) => totals);
-    });
+  const kit = kitOf(decl, types, 'span');
+  const parts = spanUnion(types, groupsHolding(decl).map((group) => groupSpan(types, nodesOf[group.index]!, spanNodesUnion(
+    types, WalkType(rowType, group), group.collections.map((collection) => collectionSpan(decl, types, collection))))));
+  return East.function([keyType, rowType], SpanTotalsType, ($, key, row) => {
+    const tools = $.const(kit());
+    return parts(key, row, tools);
   });
-  return parts.reduce<FunctionExpr<[EastType, EastType], SpanTotalsType>>((before, part) => East.function([keyType, rowType], spanType, ($, key, row) => {
-    const earlier = $.const(before);
-    const own = $.const(part);
-    const all = $.let(earlier(key, row));
-    $(all.unionInPlace(own(key, row)));
-    return all;
-  }), East.function([keyType, rowType], spanType, () => new Map()));
 }
 
 /**
