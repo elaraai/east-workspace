@@ -46,7 +46,7 @@ import { decisionTarget, decisionTargetRole, type DecisionQueueTarget, type Deci
 import { DecisionTargetKindType } from "./types.js";
 
 /** How a refusal names the binding a target's record takes. */
-const PATCH_DOOR = "Record.bind(record, [e3.mutation.patch(record)])";
+const PATCH_DOOR = "Record.bind(record), its record declaring patch: mutation.patch()";
 
 // ============================================================================
 // What the builders' targets share
@@ -125,7 +125,7 @@ function patchedKind(where: string, events: EventKinds, event: unknown): readonl
     const slots = Object.keys(events);
     if (slots.length === 0) {
         throw new Error(`${where}: \`events\` holds the event kinds, as the builder takes them — at least one, the kind the tags patch: ` +
-            "events: { job: Schedule.events(Record.bind(jobs, [jobsPatch]), { … }) }");
+            "events: { job: Schedule.events(Record.bind(jobs), { … }) }");
     }
     if (event === undefined) {
         if (slots.length > 1) {
@@ -170,11 +170,11 @@ type RosterTaken = "resources" | "shifts" | "groups" | "positions" | "activities
  * @typeParam R - The duty row type
  */
 export interface DecisionRosterTargetConfig<K extends EastType, R extends StructType> extends Pick<RosterProps<R>, RosterTaken>, DecisionTargetNames {
-    /** The duty kind, as `<Roster>` takes it — `{ duty: Schedule.events(Record.bind(duties, [dutiesPatch]), { start, end, resource, shift, group, … }) }` — its record the one the tags patch. */
+    /** The duty kind, as `<Roster>` takes it — `{ duty: Schedule.events(Record.bind(duties), { start, end, resource, shift, group, … }) }` — its record the one the tags patch. */
     events: RosterProps<R>["events"] & Readonly<Record<string, ScheduleEventKind<K, R>>>;
     /** How the map reads: a row per person (`"people"`, the default), or a row per pay code (`"cost"`), which takes `pay` (P7). */
     map?: "people" | "cost";
-    /** The duties read through an interval index from their start to their end, `Data.bindPaged(duties, { indexes: [byTime] })` — the read the Roster's slice names for its duty kind; without it, the duties as the kind is bound. */
+    /** The duties read through an interval index from their start to their end, `Data.bindPaged(duties, { indexes: ["by_time"] })` — the read the Roster's slice names for its duty kind; without it, the duties as the kind is bound. */
     source?: unknown;
     /** Whether a duty is locked: the Locked mark. */
     locked?: LockedRole<K, R>;
@@ -211,7 +211,7 @@ export function decisionQueueRosterTarget<K extends EastType, R extends StructTy
     const kinds = Object.entries(given.events ?? {});
     if (kinds.length !== 1) {
         throw new Error(kinds.length === 0
-            ? `${where}: \`events\` holds the duty kind, as <Roster> takes it — events: { duty: Schedule.events(Record.bind(duties, [dutiesPatch]), { start, end, resource, shift, group }) }`
+            ? `${where}: \`events\` holds the duty kind, as <Roster> takes it — events: { duty: Schedule.events(Record.bind(duties), { start, end, resource, shift, group }) }`
             : `${where}: \`events\` holds one kind, the duties, as <Roster> takes it — and it holds ${kinds.length} (${kinds.map(([slot]) => slot).join(", ")})`);
     }
     const [slot, kind] = kinds[0]!;
@@ -250,11 +250,11 @@ export function decisionQueueRosterTarget<K extends EastType, R extends StructTy
  */
 export interface DecisionPlanTargetConfig<E extends NonNullable<PlanProps["events"]>, V extends keyof E & string>
     extends Pick<PlanProps, "resources">, DecisionTargetNames {
-    /** The event kinds, as `<Plan>` takes them — `{ job: Schedule.events(Record.bind(jobs, [jobsPatch]), { … }) }`: the kind the tags patch, and any drawn as context. */
+    /** The event kinds, as `<Plan>` takes them — `{ job: Schedule.events(Record.bind(jobs), { … }) }`: the kind the tags patch, and any drawn as context. */
     events: E;
     /** The slot of the kind the tags patch, a key of `events`: needed with more than one, the others drawn as context. */
     event?: V;
-    /** The kind's events read through an interval index from their start to their end, `Data.bindPaged(jobs, { indexes: [byTime] })` — the read the Plan's slice names for the kind; without it, its events as the kind is bound. */
+    /** The kind's events read through an interval index from their start to their end, `Data.bindPaged(jobs, { indexes: ["by_time"] })` — the read the Plan's slice names for the kind; without it, its events as the kind is bound. */
     source?: unknown;
     /** Whether an event of the kind is locked: the Locked mark. */
     locked?: LockedRole<KindKey<E[V]>, KindRow<E[V]>>;
@@ -330,11 +330,11 @@ export function decisionQueuePlanTarget<E extends NonNullable<PlanProps["events"
  */
 export interface DecisionCalendarTargetConfig<E extends CalendarProps["events"], V extends keyof E & string>
     extends Pick<CalendarProps, "resources" | "week">, DecisionTargetNames {
-    /** The event kinds, as `<Calendar>` takes them — `{ job: Calendar.events(Record.bind(jobs, [jobsPatch]), { … }) }`: the kind the tags patch, and any drawn as context. */
+    /** The event kinds, as `<Calendar>` takes them — `{ job: Calendar.events(Record.bind(jobs), { … }) }`: the kind the tags patch, and any drawn as context. */
     events: E;
     /** The slot of the kind the tags patch, a key of `events`: needed with more than one, the others drawn as context. */
     event?: V;
-    /** The kind's events read through an interval index from their start to their end, `Data.bindPaged(jobs, { indexes: [byTime] })` — the read the Calendar's slice names for the kind; without it, its events as the kind is bound. */
+    /** The kind's events read through an interval index from their start to their end, `Data.bindPaged(jobs, { indexes: ["by_time"] })` — the read the Calendar's slice names for the kind; without it, its events as the kind is bound. */
     source?: unknown;
 }
 
@@ -414,9 +414,9 @@ type AllocationTaken = "resources" | "rules" | "check" | "labels" | "every";
  */
 export interface DecisionAllocationTargetConfig<K extends EastType, R extends StructType>
     extends Pick<AllocationProps<R>, AllocationTaken>, Partial<Pick<AllocationProps<R>, "arrivals">>, DecisionTargetNames {
-    /** The bin kind, as `<Allocation>` takes it — `{ bin: Schedule.events(Record.bind(bins, [binsPatch]), { at, resource, arrival, quantity, parts, hold }) }` — its record the one the tags patch. */
+    /** The bin kind, as `<Allocation>` takes it — `{ bin: Schedule.events(Record.bind(bins), { at, resource, arrival, quantity, parts, hold }) }` — its record the one the tags patch. */
     events: AllocationProps<R>["events"] & Readonly<Record<string, ScheduleEventKind<K, R>>>;
-    /** The bins read through an interval index from `at` to `at`, `Data.bindPaged(bins, { indexes: [byTime] })` — the read the Allocation's slice names for its bin kind; without it, the bins as the kind is bound. */
+    /** The bins read through an interval index from `at` to `at`, `Data.bindPaged(bins, { indexes: ["by_time"] })` — the read the Allocation's slice names for its bin kind; without it, the bins as the kind is bound. */
     source?: unknown;
 }
 
@@ -501,7 +501,7 @@ export interface DecisionSheetTargetConfig<R extends StructType> extends Decisio
  *
  * @typeParam K - The record's key type
  * @typeParam R - The record's row type, from the binding
- * @param binding - The record, `Record.bind(record, [e3.mutation.patch(record)])`, as `<Sheet record>` takes it
+ * @param binding - The record, `Record.bind(record), its record declaring patch: mutation.patch()`, as `<Sheet record>` takes it
  * @param config - Its names, the columns, and `entries` to read the touched rows by key
  * @returns The target, for the change role's `of`
  * @throws {Error} Naming what to give: a record bound read only or without its patch door, rows that are no structs,
@@ -510,7 +510,7 @@ export interface DecisionSheetTargetConfig<R extends StructType> extends Decisio
  *
  * @example
  * ```tsx
- * const workOrders = $.let(Record.bind(optimiseWorkOrders, [optimiseWorkOrdersPatch]));
+ * const workOrders = $.let(Record.bind(optimiseWorkOrders));
  * const orderChange = DecisionQueue.change.sheet(workOrders, { name: "Sheet", icon: "table-cells", columns: {
  *     reference: Sheet.column.text(OptimiseWorkOrder, { header: "Reference" }),
  *     due: Sheet.column.date(OptimiseWorkOrder, { header: "Due" }),

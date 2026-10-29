@@ -342,18 +342,33 @@ const proposeCases = East.function([OpsCasesType, OpsCasesType, SetType(StringTy
 });
 
 /** The price list, a record no builder draws, written through its patch door. */
-export const listPrices = e3.record("list_prices", DictType(StringType, ListPrice), listPriceRows);
-export const listPricesPatch = e3.mutation.patch(listPrices);
+export const listPrices = e3.record("list_prices", DictType(StringType, ListPrice), {
+    initial: listPriceRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
-// The models' cases: the app's record, filled by its own mutation — e3's tasks read records and never write them.
-export const opsCases = e3.record("ops_cases", OpsCasesType, opsCaseRows);
-export const opsCasesPropose = e3.mutation.reduce("ops_propose", opsCases, proposeCases);
-export const opsCasesByArea = e3.recordIndex("ops_cases_by_area", opsCases, { on: ["area"] });
-export const opsCasesByScope = e3.recordIndex("ops_cases_by_scope", opsCases, { on: ["scope"] });
+/** The models' cases: the app's record, filled by its own mutation — e3's tasks read records and never write them. */
+export const opsCases = e3.record("ops_cases", OpsCasesType, {
+    initial: opsCaseRows,
+    indexes: (index) => ({
+        // The app's own fields, which the rail narrows the cases by.
+        ops_cases_by_area: index.on(["area"]),
+        ops_cases_by_scope: index.on(["scope"]),
+    }),
+    mutations: (mutation) => ({
+        ops_propose: mutation.reduce(proposeCases),
+    }),
+});
 
-// The people's verdicts: the record the queue writes.
-export const opsVerdicts = e3.record("ops_verdicts", DictType(StringType, OpsVerdict), new Map());
-export const opsVerdictsPatch = e3.mutation.patch(opsVerdicts);
+/** The people's verdicts: the record the queue writes, through its patch door. */
+export const opsVerdicts = e3.record("ops_verdicts", DictType(StringType, OpsVerdict), {
+    initial: new Map(),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
 
 // ============================================================================
 // The smallest queue's (§3.2)
@@ -387,7 +402,17 @@ export const proposalRows: SortedMap<string, ValueTypeOf<typeof Proposal>> = new
     }],
 ], byString);
 
-export const proposals = e3.record("proposals", DictType(StringType, Proposal), proposalRows);
-export const proposalsBySite = e3.recordIndex("proposals_by_site", proposals, { on: ["site"] });
-export const proposalVerdicts = e3.record("proposal_verdicts", DictType(StringType, OpsVerdict), new Map());
-export const proposalVerdictsPatch = e3.mutation.patch(proposalVerdicts);
+/** The model's proposals, the rail narrowing them by site. */
+export const proposals = e3.record("proposals", DictType(StringType, Proposal), {
+    initial: proposalRows,
+    indexes: (index) => ({
+        proposals_by_site: index.on(["site"]),
+    }),
+});
+/** The verdicts on them, which the queue writes through their patch door. */
+export const proposalVerdicts = e3.record("proposal_verdicts", DictType(StringType, OpsVerdict), {
+    initial: new Map(),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});

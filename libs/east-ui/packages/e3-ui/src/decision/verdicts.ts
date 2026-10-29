@@ -164,8 +164,8 @@ interface Mapped {
  * @typeParam VF - The verdict field
  * @typeParam AF - The answer field
  * @typeParam RF - The reason field
- * @param binding - The verdicts' record with its patch door, `Record.bind(record, [e3.mutation.patch(record)])`, a
- *   `Dict<String, V>` keyed by the case's key
+ * @param binding - The verdicts' record with its patch door, `Record.bind(record), its record declaring patch:
+ *   mutation.patch()`, a `Dict<String, V>` keyed by the case's key
  * @param roles - Its `entries`, and the field each part of the verdict is written to
  * @returns The verdicts, for the queue's `verdicts`
  * @throws {Error} Naming the role or the binding: a binding read only or without its patch door, or of a record of
@@ -176,7 +176,7 @@ interface Mapped {
  *
  * @example
  * ```tsx
- * DecisionQueue.verdicts(Record.bind(opsVerdicts, [opsVerdictsPatch]), {
+ * DecisionQueue.verdicts(Record.bind(opsVerdicts), {
  *     entries: Data.bindPaged(opsVerdicts),
  *     verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" },
  *     option: "option",
@@ -191,7 +191,7 @@ export function decisionQueueVerdicts(binding: unknown, input: unknown): Decisio
     const roles = (input ?? {}) as AnyRoles;
     const bound = recordBound(binding, WHERE, "the verdicts are a Dict<String, V>, each verdict a struct under its case's key");
     if (bound.form !== "record") {
-        throw new Error(`${WHERE}: the queue writes each verdict — bind the record with its patch door, Record.bind(record, [e3.mutation.patch(record)]), ` +
+        throw new Error(`${WHERE}: the queue writes each verdict — bind the record with its patch door, Record.bind(record), its record declaring patch: mutation.patch(), ` +
             "and read it by key beside it, entries: Data.bindPaged(record)");
     }
     const entries = recordEntries(bound, roles.entries, WHERE);

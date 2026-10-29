@@ -15,30 +15,23 @@
 import { BooleanType, DictType, East, FloatType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { Box, Fields, Format, Reactive, Slice, State, UIComponentType } from "@elaraai/east-ui";
 import { Allocation, Calendar, Data, DecisionQueue, Record, Roster, Schedule, Sheet } from "@elaraai/e3-ui";
-import { arrivals, kilnBins, kilnBinsByTime, kilnBinsPatch, kilns, yardBays } from "../allocation/allocation.examples.js";
-import { calendarJobs, calendarJobsPatch, calendarMachines, calendarServices, calendarServicesPatch } from "../calendar/calendar.examples.js";
-import { planEventJobs, planEventJobsPatch, planPrintPresses } from "../plan/plan-events.examples.js";
-import {
-    rosterAgencies, rosterDuties, rosterDutiesByTime, rosterDutiesPatch, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams,
-} from "../roster/roster.examples.js";
+import { arrivals, kilnBins, kilns, yardBays } from "../allocation/allocation.examples.js";
+import { calendarJobs, calendarMachines, calendarServices } from "../calendar/calendar.examples.js";
+import { planEventJobs, planPrintPresses } from "../plan/plan-events.examples.js";
+import { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from "../roster/roster.examples.js";
 import { WarehouseDuty } from "../roster/warehouse.js";
-import { OptimiseWorkOrder, optimiseWorkOrders, optimiseWorkOrdersPatch } from "../sheet/optimise.examples.js";
-import {
-    listPrices, listPricesPatch, opsCases, opsCasesByArea, opsCasesByScope, opsVerdicts, opsVerdictsPatch, proposalVerdicts,
-    proposalVerdictsPatch, proposals,
-} from "./ops.js";
+import { OptimiseWorkOrder, optimiseWorkOrders } from "../sheet/optimise.examples.js";
+import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from "./ops.js";
 
 // The example app's records (§3.1) and the records its cases change — the warehouse rota's, the print shop's, the
 // workshop's, the kiln yard's and the shop's work orders — for the renderer's specs on e3 and the showcase's package of
 // this area.
 export * from "./ops.js";
-export { arrivals, kilnBins, kilnBinsByTime, kilnBinsPatch, kilns, yardBays } from "../allocation/allocation.examples.js";
-export { calendarJobs, calendarJobsPatch, calendarMachines, calendarServices, calendarServicesPatch } from "../calendar/calendar.examples.js";
-export { planEventJobs, planEventJobsPatch, planPrintPresses } from "../plan/plan-events.examples.js";
-export {
-    rosterAgencies, rosterDuties, rosterDutiesByTime, rosterDutiesPatch, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams,
-} from "../roster/roster.examples.js";
-export { OptimiseWorkOrder, optimiseWorkOrderRows, optimiseWorkOrders, optimiseWorkOrdersPatch } from "../sheet/optimise.examples.js";
+export { arrivals, kilnBins, kilns, yardBays } from "../allocation/allocation.examples.js";
+export { calendarJobs, calendarMachines, calendarServices } from "../calendar/calendar.examples.js";
+export { planEventJobs, planPrintPresses } from "../plan/plan-events.examples.js";
+export { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from "../roster/roster.examples.js";
+export { OptimiseWorkOrder, optimiseWorkOrderRows, optimiseWorkOrders } from "../sheet/optimise.examples.js";
 
 export const decisionQueueMinimal = example({
     inputs: [],
@@ -46,11 +39,11 @@ export const decisionQueueMinimal = example({
     keywords: ["DecisionQueue", "DecisionQueue.decisions", "DecisionQueue.verdicts", "DecisionQueue.change.sheet", "DecisionQueue.change.record", "proposals", "verdicts", "Data.bind", "Data.bindPaged", "Record.bind", "Sheet.column.text", "Sheet.column.date", "now"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const cases = $.let(Data.bind(proposals));
-        const verdicts = $.let(Record.bind(proposalVerdicts, [proposalVerdictsPatch]));
+        const verdicts = $.let(Record.bind(proposalVerdicts));
         const verdictEntries = $.let(Data.bindPaged(proposalVerdicts));
         // The records the proposals change, each with its patch door.
-        const workOrders = $.let(Record.bind(optimiseWorkOrders, [optimiseWorkOrdersPatch]));
-        const priceList = $.let(Record.bind(listPrices, [listPricesPatch]));
+        const workOrders = $.let(Record.bind(optimiseWorkOrders));
+        const priceList = $.let(Record.bind(listPrices));
         return <Box height="640px">
             <DecisionQueue
                 id="proposals"
@@ -85,12 +78,12 @@ export const decisionQueueOps = example({
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // The models' cases, narrowed by the rail, and the verdicts the queue writes.
         const cases = $.let(Data.bindPaged(opsCases));
-        const indexed = $.let(Data.bindPaged(opsCases, { indexes: [opsCasesByArea, opsCasesByScope] }));
+        const indexed = $.let(Data.bindPaged(opsCases, { indexes: ["ops_cases_by_area", "ops_cases_by_scope"] }));
         const slice = $.let(Slice.bindRecords("ex.decisionQueueOps", {
             decisions: { source: indexed, icon: { prefix: "fas", name: "inbox" }, search: ["scope"],
                 fields: { area: { label: "Area", hints: ["rota", "print", "workshop", "yard", "orders", "pricing"] }, scope: { label: "Scope" } } },
         }));
-        const verdicts = $.let(Record.bind(opsVerdicts, [opsVerdictsPatch]));
+        const verdicts = $.let(Record.bind(opsVerdicts));
         const verdictEntries = $.let(Data.bindPaged(opsVerdicts));
         // The host's: the case open in the queue, which it follows.
         const open = $.let(State.bind([OptionType(StringType)], "ex.decisionQueueOps.open", none));
@@ -100,9 +93,9 @@ export const decisionQueueOps = example({
         // <Roster>, <Plan>, <Calendar>, <Allocation> and <Sheet> are handed.
 
         // The Roster's, as `rosterOptimise` gives them, and the warehouse's pay.
-        const duties = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+        const duties = $.let(Record.bind(rosterDuties));
         const dutyEntries = $.let(Data.bindPaged(rosterDuties));
-        const dutyWeek = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));
+        const dutyWeek = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
         const staff = $.let(Data.bind(rosterStaff));
         const firms = $.let(Data.bind(rosterAgencies));
         const times = $.let(Data.bind(rosterShiftTimes));
@@ -153,24 +146,24 @@ export const decisionQueueOps = example({
         }));
 
         // The Plan's, as `planOptimise` gives them.
-        const jobs = $.let(Record.bind(planEventJobs, [planEventJobsPatch]));
+        const jobs = $.let(Record.bind(planEventJobs));
         const presses = $.let(Data.bind(planPrintPresses));
         const job = Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
             resource: { field: "press", of: "presses" }, state: "state" });
         const pressRows = Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name, group: p => p.hall });
 
         // The Calendar's, as `calendarOptimise` gives them; the Allocation's, as `allocationOptimise` does.
-        const machineJobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
+        const machineJobs = $.let(Record.bind(calendarJobs));
         const machines = $.let(Data.bind(calendarMachines));
         const machineJob = Calendar.events(machineJobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end",
             resource: { field: "machine", of: "machines" } });
-        const services = $.let(Record.bind(calendarServices, [calendarServicesPatch]));
+        const services = $.let(Record.bind(calendarServices));
         const service = Calendar.events(services, { name: "Maintenance", icon: "screwdriver-wrench", title: "title", start: "start", end: "end",
             resource: { field: "machine", of: "machines" } });
         const machineRows = Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: m => m.name });
-        const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+        const bins = $.let(Record.bind(kilnBins));
         const binEntries = $.let(Data.bindPaged(kilnBins));
-        const yardDayBins = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
+        const yardDayBins = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
         const bays = $.let(Data.bind(yardBays));
         const kilnList = $.let(Data.bind(kilns));
         const loads = $.let(Data.bind(arrivals));
@@ -184,8 +177,8 @@ export const decisionQueueOps = example({
             kind: l => some(l.spec), due: l => some(l.due), window: l => some({ from: l.from, to: l.to }) });
 
         // The Sheet's work orders, as `sheetOptimise` binds them, and the price list.
-        const workOrders = $.let(Record.bind(optimiseWorkOrders, [optimiseWorkOrdersPatch]));
-        const priceList = $.let(Record.bind(listPrices, [listPricesPatch]));
+        const workOrders = $.let(Record.bind(optimiseWorkOrders));
+        const priceList = $.let(Record.bind(listPrices));
 
         // Where each kind of decision draws: a target for each tag of the options' change.
         const rotaChange = DecisionQueue.change.roster({ name: "Roster", icon: "users",
@@ -245,10 +238,10 @@ export const decisionQueueReadOnly = example({
     keywords: ["DecisionQueue", "readOnly", "read only", "DecisionQueue.decisions", "DecisionQueue.verdicts", "DecisionQueue.change.sheet", "DecisionQueue.change.record", "Data.bind", "Record.bind", "now"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const cases = $.let(Data.bind(proposals));
-        const verdicts = $.let(Record.bind(proposalVerdicts, [proposalVerdictsPatch]));
+        const verdicts = $.let(Record.bind(proposalVerdicts));
         const verdictEntries = $.let(Data.bindPaged(proposalVerdicts));
-        const workOrders = $.let(Record.bind(optimiseWorkOrders, [optimiseWorkOrdersPatch]));
-        const priceList = $.let(Record.bind(listPrices, [listPricesPatch]));
+        const workOrders = $.let(Record.bind(optimiseWorkOrders));
+        const priceList = $.let(Record.bind(listPrices));
         return <Box height="640px">
             <DecisionQueue
                 id="proposalsReadOnly"
