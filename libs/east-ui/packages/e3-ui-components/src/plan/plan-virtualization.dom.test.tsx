@@ -23,7 +23,7 @@ import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanRowId, PlanWireRow } from "./model.js";
 import { setBodyRowMountProbe } from "./rows/BodyRow.js";
 import type { PlanInstantValue } from "./instant.js";
-import { blocksSource, oneBlock, rowId, rowKey, rowSel, testKeyOf } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, keySurface, rowId, rowKey, rowSel, testKeyOf } from "./plan.test-utils.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
 
 // Every re-measure the row frame makes is counted, through its probe: the
@@ -218,7 +218,7 @@ describe("Plan heights at a constant row count (#812, #743 item 1)", () => {
         expect(deep.top).toBe(startOf(focused, deep.first));
 
         scrollFrame(container, 0);
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
+        fireEvent.keyDown(keySurface(container), { key: "Escape" });
         const rest = Array.from({ length: 61 }, () => 32);
         expect(extentOf(container)).toBe(startOf(rest, 61));
         scrollFrame(container, 1200);

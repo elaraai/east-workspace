@@ -35,7 +35,7 @@ import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import { planWindowParts } from "./root/sources.js";
-import { blocksSource, oneBlock, rowId } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, keySurface, rowId } from "./plan.test-utils.js";
 import { RAIL_MODULES, bindRail } from "./rail.test-utils.js";
 
 const h = e3Harness(RAIL_MODULES, { measure: false });
@@ -366,7 +366,7 @@ describe("the canvas's rows never follow the dates (#1344)", () => {
         expect(ticks()).toHaveLength(10);
         untouched();
         // A pan, a week on.
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "]" });
+        fireEvent.keyDown(keySurface(container), { key: "]" });
         expect(ticks()[0]).toBe("W30");
         untouched();
         // A step of the date navigator, a week on again, its weeks kept.

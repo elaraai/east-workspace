@@ -282,7 +282,7 @@ export function rangeOfWindow(kind: "datetime" | "integer" | "float", lo: number
 function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Types.Bind>; style: BrushStyle }) {
     const frameStyles = useSlotRecipe({ key: "sliceFrame" })();
     // The axis labels, in the app's locale (#850).
-    const { locale } = useFormatters();
+    const { locale, number } = useFormatters();
     const domain = boundRangeDomain(slice.key);
     if (domain === undefined || domain.max <= domain.min) return null;
 
@@ -316,16 +316,25 @@ function RailBrushStrip({ slice, style }: { slice: ValueTypeOf<typeof Slice.Type
         slice.setRange(some(rangeOfWindow(domain.kind, fromFraction(fromFrac), fromFraction(toFrac))));
     };
     const trackHeight = style.count ? 28 : 18;
+    // Its bins along the track, each its range and its count on hover (#1438).
+    const buckets = counts === undefined ? undefined : () => counts.map((count, i) => {
+        const from = i / counts.length;
+        const to = (i + 1) / counts.length;
+        return { from, to, count, label: `${axisLabel(from)} – ${axisLabel(to)} · ${number(count)}` };
+    });
 
     return (
         <Box css={frameStyles.brushStack}>
             <BrushStrip
-                counts={counts}
+                buckets={buckets}
                 window={winValid ? { from: winFrom, to: winTo } : undefined}
                 height={trackHeight}
-                barHeight={trackHeight - 9}
+                barHeight={trackHeight - 4}
                 onCommit={commit}
                 onClear={() => slice.setRange(none)}
+                // A key moves a bin's width, Shift ten.
+                step={(f, n) => f + n / style.buckets}
+                valueText={axisLabel}
             />
             {/* formatted scale beneath the track (#190) — min · ⅓ · ⅔ · max */}
             {style.axis && (

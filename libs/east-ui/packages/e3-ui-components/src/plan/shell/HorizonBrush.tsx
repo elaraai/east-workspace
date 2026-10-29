@@ -232,7 +232,6 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
                 gesture, and only strip gestures can ever settle one. */}
             <Box css={styles.brushTrack} onPointerDownCapture={() => dispatch({ t: "brush.down" })}>
                 <BrushStrip
-                    counts={undefined}
                     window={winTo > winFrom ? { from: winFrom, to: winTo } : undefined}
                     nowFrac={nowFrac !== undefined && nowFrac >= 0 && nowFrac <= 1 ? nowFrac : undefined}
                     // The strip and its tallest bar are the canvas geometry

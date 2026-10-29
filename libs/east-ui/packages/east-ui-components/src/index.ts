@@ -544,6 +544,7 @@ export {
     type ContainerBreakpointThresholds,
     useContainerBreakpoint,
     useContainerBelow,
+    useContainerWidth,
     useCoarsePointer,
     useHoverCapable,
 } from "./contracts/index.js";

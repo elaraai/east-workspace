@@ -27,7 +27,7 @@ import { e3Harness, settle } from "../e3-web-mount.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
-import { blocksSource, oneBlock, rowId, rowSel } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, keySurface, rowId, rowSel } from "./plan.test-utils.js";
 import { RAIL_MODULES, bindRail, type Rail } from "./rail.test-utils.js";
 
 e3Harness(RAIL_MODULES, { measure: false });
@@ -298,7 +298,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             axis: numberAxis, slice: some(rail.chrome),
         }), "plan-631-keys");
-        const surface = container.querySelector('[tabindex="0"]')!;
+        const surface = keySurface(container);
         fireEvent.keyDown(surface, { key: "]" });
         expect(window()).toEqual({ kind: "float", min: 2, max: 10 });
         // Each pan starts from the window READ BACK — whole steps, so a
@@ -323,7 +323,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         }), "plan-949-integer");
         // `[1, 9)` is eight columns — the source's range IS the grid.
         expect(ticks(container)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "]" });
+        fireEvent.keyDown(keySurface(container), { key: "]" });
         expect(window()).toEqual({ kind: "integer", min: 2, max: 10 });
         expect(part.read().where.get("day")).toEqual(variant("range", { from: "2", to: "10" }));
         expect(ticks(container)).toEqual(["2", "3", "4", "5", "6", "7", "8", "9"]);
@@ -349,7 +349,7 @@ describe("Plan typed axis (#631) — chrome per kind", () => {
         expect(screen.getByText("NOW")).toBeTruthy();
         expect(container.querySelector("[data-slot='horizon']")).toBeNull();
         expect(container.querySelector("[data-brush-track]")).toBeNull();
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "]" });
+        fireEvent.keyDown(keySurface(container), { key: "]" });
         expect(recordSliceWindow(part)).toEqual({ kind: "datetime", min: W27.getTime(), max: W39.getTime() });
         expect(ticks(container)[0]).toBe("PREPRESS");
     });

@@ -32,7 +32,7 @@ import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import type { PlanWireRow } from "./model.js";
 import type { PlanInstantValue } from "./instant.js";
 import type { PlanElementRefValue } from "./context.js";
-import { blocksSource, oneBlock, rowId, rowSel } from "./plan.test-utils.js";
+import { blocksSource, oneBlock, keySurface, rowId, rowSel } from "./plan.test-utils.js";
 import { RAIL_MODULES, bindRail, type Rail } from "./rail.test-utils.js";
 
 e3Harness(RAIL_MODULES, { measure: false });
@@ -139,7 +139,7 @@ describe("Plan selection + esc ladder", () => {
         expect(row().hasAttribute("data-selected")).toBe(true);
         fireEvent.click(row());
         expect(row().hasAttribute("data-selected")).toBe(true);
-        const surface = container.querySelector('[tabindex="0"]')!;
+        const surface = keySurface(container);
         fireEvent.keyDown(surface, { key: "Escape" });
         expect(row().hasAttribute("data-selected")).toBe(false);
     });
@@ -285,7 +285,7 @@ describe("Plan keyboard rungs (#569)", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))], {
             slice: some(rail.chrome),
         }), "plan-kbd-pan");
-        const surface = container.querySelector('[tabindex="0"]')!;
+        const surface = keySurface(container);
         const range = () => { const w = recordSliceWindow(part)!; return { from: new Date(w.min), to: new Date(w.max) }; };
 
         // A record's range is half-open, as the window is (#1344) — and read
@@ -306,7 +306,7 @@ describe("Plan keyboard rungs (#569)", () => {
 
     test("without a slice the pan rungs idle — the declared window is not writable", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]), "plan-kbd-unbound");
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "[" });
+        fireEvent.keyDown(keySurface(container), { key: "[" });
         expect(screen.getByText("W27")).toBeTruthy();
         expect(screen.queryByText("W26")).toBeNull();
     });
@@ -314,9 +314,9 @@ describe("Plan keyboard rungs (#569)", () => {
     test("g cycles the grain — the reducer arm is finally reachable", () => {
         const { container } = renderPlan(planRoot([planRow("m1", spanKind([]))]), "plan-kbd-grain");
         expect(screen.getAllByText("RESOURCE").length).toBeGreaterThan(0);
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "g" });
+        fireEvent.keyDown(keySurface(container), { key: "g" });
         expect(screen.getAllByText("GROUP").length).toBeGreaterThan(0);
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "g" });
+        fireEvent.keyDown(keySurface(container), { key: "g" });
         expect(screen.getAllByText("RESOURCE").length).toBeGreaterThan(0);
     });
 });
@@ -417,7 +417,7 @@ describe("Plan interaction fixes (#615)", () => {
         fireEvent.pointerUp(track, { clientX: 302, pointerId: 1 });
 
         // ONE Escape clears the selection — nothing ate it.
-        fireEvent.keyDown(container.querySelector('[tabindex="0"]')!, { key: "Escape" });
+        fireEvent.keyDown(keySurface(container), { key: "Escape" });
         expect(container.querySelector(rowSel("m1"))!.hasAttribute("data-selected")).toBe(false);
     });
 
