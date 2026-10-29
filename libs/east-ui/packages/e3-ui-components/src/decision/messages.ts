@@ -35,6 +35,18 @@ export type PreviewClauseWords =
     | { readonly kind: "reschedule"; readonly who: string; readonly what: string; readonly when: string; readonly toWhat: string; readonly toWhen: string }
     | { readonly kind: "change"; readonly who: string; readonly what: string; readonly when: string };
 
+/**
+ * One clause of a lanes preview's sentence, worded: an event's title, the lanes' names and its times the builder's —
+ * moved to another lane, along its own, added, taken off or changed — and what it overlapped where it was, which the
+ * change clears.
+ */
+export type PreviewEventWords =
+    | { readonly kind: "move"; readonly what: string; readonly from: string; readonly to: string; readonly start: string; readonly end: string; readonly overlapped: string | undefined }
+    | { readonly kind: "reschedule"; readonly what: string; readonly on: string; readonly start: string; readonly end: string; readonly overlapped: string | undefined }
+    | { readonly kind: "add"; readonly what: string; readonly on: string; readonly start: string; readonly end: string }
+    | { readonly kind: "remove"; readonly what: string; readonly from: string }
+    | { readonly kind: "change"; readonly what: string; readonly on: string };
+
 /** A preview's entry, worded for its title: its shift and day, and how the change marks it. */
 export interface PreviewTileWords {
     /** Its shift, or what it is. */
@@ -179,6 +191,16 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     previewTile: (p: PreviewTileWords) => string;
     /** The `+N` chip of the other cases changing an entry (P18) — `+2`. */
     previewShared: (p: { n: string }) => string;
+    /** One clause of a lanes preview's sentence (P25) — `Loyalty cards leaves Press B2, where it overlapped Market posters, and runs on Press A1 from 11:30 to 14:30`. */
+    previewEvent: (p: PreviewEventWords) => string;
+    /** A lane's booked share of the window, before → after, or as it stands (P24) — `78 → 44%`, `44%`. */
+    previewShare: (p: { before: string; after: string; same: boolean }) => string;
+    /** When an entry runs, in its title — `11:30–14:30`. */
+    previewSpan: (p: { start: string; end: string }) => string;
+    /** The entry an entry overlaps once the change is made, in its title (P15) — `overlaps Market posters`. */
+    previewOverlap: (p: { with: string }) => string;
+    /** The lane of the events on no resource — `Unassigned`. */
+    previewUnassigned: () => string;
     /** A batch step's label in the history — `Apply 3 routine cases`. */
     batchStep: (p: { n: string }) => string;
     /** A verdict step's label in the history — `Apply: Move 3 night shifts`. */
@@ -296,6 +318,19 @@ export const decisionQueueMessages: DecisionQueueMessages = {
         shared === undefined ? undefined : `${shared.n} other ${shared.one ? "case changes" : "cases change"} it too`,
     ].filter(part => part !== undefined).join(" · "),
     previewShared: ({ n }) => `+${n}`,
+    previewEvent: (p) => {
+        switch (p.kind) {
+            case "move": return `${p.what} leaves ${p.from}${p.overlapped === undefined ? "" : `, where it overlapped ${p.overlapped},`} and runs on ${p.to} from ${p.start} to ${p.end}`;
+            case "reschedule": return `${p.what} on ${p.on}${p.overlapped === undefined ? "" : `, where it overlapped ${p.overlapped},`} moves to ${p.start}–${p.end}`;
+            case "add": return `${p.what} runs on ${p.on} from ${p.start} to ${p.end}`;
+            case "remove": return `${p.what} leaves ${p.from}`;
+            case "change": return `${p.what} on ${p.on} changes`;
+        }
+    },
+    previewShare: ({ before, after, same }) => (same ? after : `${before} → ${after}`),
+    previewSpan: ({ start, end }) => `${start}–${end}`,
+    previewOverlap: (p) => `overlaps ${p.with}`,
+    previewUnassigned: () => "Unassigned",
     batchStep: ({ n }) => `Apply ${n} routine cases`,
     verdictStep: ({ verdict, title }) => `${VERDICTS[verdict]}: ${title}`,
 };

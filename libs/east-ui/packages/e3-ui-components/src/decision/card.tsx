@@ -303,7 +303,7 @@ export const DecisionCard = memo(function DecisionCard({
                 <Box css={styles.headTitle}><Figured text={title} /></Box>
                 {target !== undefined && option !== undefined && (
                     <DecisionPreview c={c} view={view} target={target} record={record} rows={rows} changed={changed} schedule={schedule} shared={shared}
-                        words={words} />
+                        words={words} now={now} />
                 )}
                 <Box css={styles.chipLine}>
                     <Box as="span" css={styles.proposal}>{m.chip({ modified: view.modified })}</Box>
