@@ -28,6 +28,20 @@ import type { CardView, ChangedRow, RowsState } from "../state.js";
 /** A flag attribute: present while `on`. */
 export const flag = (on: boolean): "" | undefined => (on ? "" : undefined);
 
+/** The most entries a preview's sentence names (P25): past them, it counts them, or names none. */
+export const NAMED = 3;
+
+/**
+ * What a stale preview's sentence names (P21, P25): what the change touches, while few.
+ *
+ * @param names - What it touches, each once
+ * @param words - The queue's words
+ * @returns The names in running text; `undefined` for none, or for more than {@link NAMED}
+ */
+export function staleNames(names: readonly string[], words: DecisionQueueWords): string | undefined {
+    return names.length === 0 || names.length > NAMED ? undefined : words.m.previewList({ items: names });
+}
+
 /**
  * A changed row as the change, edited, leaves it (P1): kept as it stands, the viewer's edit, else the proposal.
  *

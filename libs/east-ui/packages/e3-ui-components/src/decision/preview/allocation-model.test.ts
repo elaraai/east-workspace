@@ -111,7 +111,7 @@ describe("allocationCrop", () => {
         // It waited over its window.
         const ghost = model.rows[1]!.bars[0]!;
         expect([ghost.title, ghost.op, ghost.start, ghost.end, ghost.to?.name]).toEqual(["E-1", "from", on(-1), on(2), "R-1"]);
-        expect(model.clauses).toEqual([{ kind: "move", what: "E-1", from: "Waiting", to: "R-1", verb: "held", start: on(0, 14, 15), end: on(9), overlapped: undefined }]);
+        expect(model.clauses).toEqual([{ kind: "move", what: "E-1", from: "Waiting", to: "R-1", verb: "held", start: on(0, 14, 15), end: on(9), overlapped: undefined, knock: false }]);
         // For the map: R-1 takes the bin the waiting row loses, at its new time.
         expect(tallyOf(model)).toEqual([["R-1", 1, 0, 0], [WAITING, 0, 0, 1]]);
         expect(landingsOf(model)).toEqual([["E-1", on(0, 14, 15), false]]);
@@ -136,7 +136,7 @@ describe("allocationCrop", () => {
         expect([model.window.from, model.window.to]).toEqual([on(0), on(8)]);
         expect(model.rows[0]!.bars.map(bar => [bar.title, bar.op, bar.to?.name])).toEqual([["E-2 · 4 m³", "from", "R-1"]]);
         expect(barsOf(model, 1)).toEqual([["E-2 · 4 m³", "add", undefined, undefined]]);
-        expect(model.clauses).toEqual([{ kind: "move", what: "E-2", from: "R-2", to: "R-1", verb: "held", start: on(0, 6, 15), end: on(7), overlapped: undefined }]);
+        expect(model.clauses).toEqual([{ kind: "move", what: "E-2", from: "R-2", to: "R-1", verb: "held", start: on(0, 6, 15), end: on(7), overlapped: undefined, knock: false }]);
         expect(tallyOf(model)).toEqual([["R-1", 1, 0, 0], ["R-2", 0, 0, 1]]);
         expect(landingsOf(model)).toEqual([["E-2", on(0, 6, 15), false]]);
     });
@@ -147,7 +147,7 @@ describe("allocationCrop", () => {
         expect(rowsOf(model)).toEqual([["R-1", 4, 0, undefined], ["Waiting", 0, 4, "worse"]]);
         expect(model.rows[0]!.bars.map(bar => [bar.title, bar.op, bar.to?.name])).toEqual([["J-1", undefined, undefined], ["E-2 · 4 m³", "from", "Waiting"]]);
         expect(model.rows[1]!.bars.map(bar => [bar.title, bar.op, bar.start, bar.end])).toEqual([["E-2", "add", on(0), on(1)]]);
-        expect(model.clauses).toEqual([{ kind: "move", what: "E-2", from: "R-1", to: "Waiting", verb: "waits", start: on(0), end: on(1), overlapped: undefined }]);
+        expect(model.clauses).toEqual([{ kind: "move", what: "E-2", from: "R-1", to: "Waiting", verb: "waits", start: on(0), end: on(1), overlapped: undefined, knock: false }]);
     });
 
     test("a reservation the change adds is held for its resource's own hold, named as the board names it", () => {
@@ -182,7 +182,7 @@ describe("allocationCrop", () => {
         expect([model.tally.size, model.landings]).toEqual([0, []]);
     });
 
-    test("bins on two days: each resource's lane names its day", () => {
+    test("bins on two days: each resource's lane names its day; the bin, under its new day's minimum, breaches it", () => {
         const later = bin(on(1, 6, 15), "E-2", 4, 7, [["R-2", 4]]);
         const model = crop([{ key: "c1", before: IN_R2, after: later }], [], [], {
             days: [
@@ -192,7 +192,8 @@ describe("allocationCrop", () => {
         });
         const r2 = (day: Date) => m.previewWhere({ resource: "R-2", day: printDay(day) });
         expect(model.rows.map(row => row.name)).toEqual([r2(on(0)), r2(on(1))]);
-        expect(model.clauses).toEqual([{ kind: "move", what: "E-2", from: r2(on(0)), to: r2(on(1)), verb: "held", start: on(1, 6, 15), end: on(8), overlapped: undefined }]);
+        expect(model.clauses).toEqual([{ kind: "move", what: "E-2", from: r2(on(0)), to: r2(on(1)), verb: "held", start: on(1, 6, 15), end: on(8), overlapped: undefined, knock: false,
+            breach: { kind: "issue", text: "4 m³ · min 10 · 6 short · a warning, Save still works" } }]);
     });
 
     test("past two lanes, the board's map: every resource a tile, the waiting row none — the resource that takes both bins lit, the one it moves off a ghost — and a tick at each bin's new time", () => {
@@ -218,7 +219,7 @@ describe("the crop's words", () => {
         expect(m.previewEvent({ kind: "move", what: "E-2", from: "R-1", to: "Waiting", verb: "waits", start: "Tue 11 00:00", end: "Wed 12 00:00", overlapped: undefined }))
             .toBe("E-2 leaves R-1 and waits from Tue 11 00:00 to Wed 12 00:00");
         expect(m.previewEvent({ kind: "add", what: "A reservation", on: "R-1", verb: "held", start: "09:00", end: "17:00" })).toBe("A reservation is held in R-1 from 09:00 to 17:00");
-        expect(m.previewEvent({ kind: "add", what: "J-1042", on: "Press A1", verb: "runs", start: "11:30", end: "15:30" })).toBe("J-1042 runs on Press A1 from 11:30 to 15:30");
+        expect(m.previewEvent({ kind: "add", what: "Loyalty cards", on: "Press A1", verb: "runs", start: "11:30", end: "15:30" })).toBe("Loyalty cards runs on Press A1 from 11:30 to 15:30");
         expect(m.previewLoad({ before: "0", after: "8 m³", same: false })).toBe("0 → 8 m³");
         expect(m.previewLoad({ before: "8", after: "8 m³", same: true })).toBe("8 m³");
         expect(m.previewBin({ code: "E-1", quantity: "8 m³" })).toBe("E-1 · 8 m³");

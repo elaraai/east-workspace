@@ -42,6 +42,10 @@ import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/decision/decision";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { decisionQueueMessages as m } from "./messages.js";
+import {
+    action, card, chipLine, entries, head, heads, history, marked, measure, openCard, optionOf, press, preview, previewRow, previewRows, ruler, sections,
+    sheetCells, sheetHead, sheetName, tile, tiles,
+} from "./preview.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "decision/decision": ex }, { main: "data-decision-main" });
@@ -63,71 +67,8 @@ const MON_13 = new Date("2028-03-13T00:00:00Z");
 const TUE_14 = new Date("2028-03-14T00:00:00Z");
 const WED_15 = new Date("2028-03-15T00:00:00Z");
 
-/** The cases whose cards the list draws, in its order. */
-const heads = (container: HTMLElement) => [...container.querySelectorAll("[data-decision-head]")].map(el => el.getAttribute("data-decision-head"));
-/** A case's card's head. */
-const head = (container: HTMLElement, key: string) => container.querySelector<HTMLElement>(`[data-decision-head="${key}"]`)!;
-/** A case's card. */
-const card = (container: HTMLElement, key: string) => container.querySelector<HTMLElement>(`[data-decision-card="${key}"]`)!;
-/** The open card's case's key; `undefined` while none is open. */
-const openCard = (container: HTMLElement) => container.querySelector("[data-decision-card][data-open]")?.getAttribute("data-decision-card") ?? undefined;
-/** Each section's head as it reads: its label, its count and its total. */
-const sections = (container: HTMLElement) => [...container.querySelectorAll("[data-decision-section]")].map(el =>
-    [el.getAttribute("data-decision-section"), [...el.children].map(part => part.textContent).filter(text => text !== "").join(" | ")]);
-/** A case's preview: the one image in its card's head. */
-const preview = (container: HTMLElement, key: string) => head(container, key).querySelector<HTMLElement>("[data-decision-preview]")!;
-/** A preview's rows, by the name each heads. */
-const previewRows = (frame: HTMLElement) => [...frame.querySelectorAll<HTMLElement>("[data-preview-row]")].map(row => row.getAttribute("data-preview-row"));
-/** A preview's row by the name it heads. */
-const previewRow = (frame: HTMLElement, name: string) => frame.querySelector<HTMLElement>(`[data-preview-row="${name}"]`)!;
-/** A row's measure, as it reads, and the tone it is drawn in: `undefined` for neither better nor worse. */
-function measure(row: HTMLElement, text: string): string | undefined {
-    return within(row).getByText(text).getAttribute("data-tone") ?? undefined;
-}
-/** A duty's tile in a row, as the change marks it: its mark, its fill and its title. */
-function tile(row: HTMLElement, key: string) {
-    const el = row.querySelector<HTMLElement>(`[data-preview-tile="${key}"]`);
-    return el === null ? undefined : { op: el.getAttribute("data-op") ?? undefined, fill: el.getAttribute("data-fill") ?? undefined, title: el.getAttribute("title") };
-}
-/** Every entry of a key a row draws — a moved event's ghost and where it lands — as the change marks each. */
-const tiles = (row: HTMLElement, key: string) => [...row.querySelectorAll<HTMLElement>(`[data-preview-tile="${key}"]`)].map(el =>
-    ({ op: el.getAttribute("data-op") ?? undefined, fill: el.getAttribute("data-fill") ?? undefined, title: el.getAttribute("title") }));
-/** Every entry a lanes row draws, in its order: its mark, how the board draws it — a resource's job before or after the day — and its title. */
-const entries = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>("[data-preview-tile]")].map(el =>
-    ({ op: el.getAttribute("data-op") ?? undefined, look: el.getAttribute("data-look") ?? undefined, title: el.getAttribute("title") }));
-/** The duties a row draws that the change marks. */
-const marked = (row: HTMLElement) => [...row.querySelectorAll("[data-preview-tile][data-op]")].map(el => el.getAttribute("data-preview-tile"));
-/** A Sheet crop's head: its columns' heads. */
-const sheetHead = (frame: HTMLElement) => [...frame.firstElementChild!.children].map(el => el.textContent);
-/** A Sheet crop's row's name: its mark and its title. */
-function sheetName(row: HTMLElement) {
-    const el = row.querySelector<HTMLElement>("[data-preview-name]")!;
-    return { op: el.getAttribute("data-op") ?? undefined, title: el.getAttribute("title") };
-}
-/** A Sheet crop's row's cells, as the change marks each: its column, its value, its mark and fill, its title and its guess's. */
-const sheetCells = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>("[data-preview-cell]")].map(el => ({
-    column: el.getAttribute("data-preview-cell"), value: el.querySelector("[data-value]")?.textContent, op: el.getAttribute("data-op") ?? undefined,
-    fill: el.getAttribute("data-fill") ?? undefined, title: el.getAttribute("title"),
-    guess: el.querySelector("[data-preview-guess]")?.getAttribute("title") ?? undefined,
-}));
-/** A lanes crop's ruler: the times it labels. */
-const ruler = (frame: HTMLElement) => [...frame.querySelectorAll("[data-preview-ruler] span")].map(el => el.textContent).filter(text => text !== "");
-/** One of a card's options, by the start of its name: its label. */
-const optionOf = (container: HTMLElement, key: string, label: RegExp) => within(card(container, key)).getByRole("option", { name: label });
-/** A card's chip line: `Proposed` or `Modified`, and the summary — the head's part after the preview. */
-const chipLine = (container: HTMLElement, key: string) => head(container, key).children[3] as HTMLElement;
-/** One of a card's actions. */
-const action = (container: HTMLElement, key: string, name: string) => within(card(container, key)).getByRole("button", { name });
-/** One of the history item's buttons. */
-const history = (container: HTMLElement, name: string) => within(slot(container, "toolbar")).getByRole<HTMLButtonElement>("button", { name });
 /** The mutations a test's Saves sent, by the record each wrote, in order. */
 const mutated = () => h.requests("mutate").map(request => request.record).sort();
-
-/** Presses a control, and lets what it records and sends settle. */
-async function press(el: Element) {
-    await act(async () => { fireEvent.click(el); });
-    await settle();
-}
 
 /** Mounts the full queue, and waits until its cards show and the open one's preview has drawn its rows. */
 async function open() {
@@ -334,12 +275,13 @@ test("the yard case's preview is the Allocation's crop: LD-2235 booked into K-30
     expect(frame().querySelector("[data-preview-now]")).toBeNull();
 });
 
-test("choosing the yard case's K-403 on Wed draws LD-2235 booked there on Wed 12, short of the kiln's 10 m³ minimum: its bin flagged with the board's warning, the kiln's load worse, and the chip reads Modified (P15, P17, P24, R15)", async () => {
+test("choosing the yard case's K-403 on Wed draws LD-2235 booked there on Wed 12, short of the kiln's 10 m³ minimum: its bin flagged with the board's warning, which the sentence names, the kiln's load worse, and the chip reads Modified (P15, P17, P24, P25, R15)", async () => {
     const { container } = await open();
     await press(head(container, "yard-ld2235"));
     await press(optionOf(container, "yard-ld2235", /^K-403 on Wed/u));
     const frame = () => preview(container, "yard-ld2235");
-    await waitFor(() => expect(frame().getAttribute("aria-label")).toBe("LD-2235 leaves Waiting and is held in K-403 from Wed 12 07:15 to Fri 21 00:00"));
+    await waitFor(() => expect(frame().getAttribute("aria-label"))
+        .toBe("LD-2235 leaves Waiting and is held in K-403 from Wed 12 07:15 to Fri 21 00:00, which the check flags: 8 m³ · min 10 · 2 short · a warning, Save still works"));
     expect(previewRows(frame())).toEqual(["K-403", "Waiting"]);
     const kiln = previewRow(frame(), "K-403");
     expect(measure(kiln, "0 → 8 m³")).toBe("worse");

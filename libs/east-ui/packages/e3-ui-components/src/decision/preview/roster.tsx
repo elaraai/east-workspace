@@ -32,7 +32,7 @@ import {
 import { DAY, weekStart } from "../../shared/schedule/window.js";
 import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
 import type { DecisionQueueWords } from "../messages.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, flag, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
+import { NAMED, PreviewFailed, PreviewFrame, PreviewPending, flag, guessedOf, leftBy, sharedOf, staleNames, type PreviewProps } from "./frame.js";
 import { WEEK_DAYS, firstStart, rosterPreview, type RosterPreviewModel, type RosterPreviewRow, type RosterPreviewTile } from "./roster-model.js";
 
 /** A Roster target's kind, decoded. */
@@ -162,7 +162,7 @@ export function RosterPreview({ c, view, target, kind, record, rows, changed, sc
     }
     const model = got.model;
     const map = model.rows.length > CROP_PEOPLE;
-    const label = sentence(model, words, guessedOf(view.option?.guesses, changed), map);
+    const label = sentence(model, words, guessedOf(view.option?.guesses, changed), map, stale);
     return map
         ? <PeopleMap model={model} label={label} stale={stale} words={words} styles={styles} roles={roles} roster={roster} />
         : <Crop model={model} label={label} stale={stale} words={words} styles={styles} roles={roles} roster={roster} />;
@@ -173,9 +173,14 @@ function dayOf(model: RosterPreviewModel, day: number): Date {
     return new Date(model.start.getTime() + day * DAY);
 }
 
-/** The preview's sentence (P25): what moves where, a map's count ahead of it, and the rows the model guessed. */
-function sentence(model: RosterPreviewModel, words: DecisionQueueWords, guessed: readonly string[], map: boolean): string {
+/**
+ * The preview's sentence (P25): what moves where — a map's, how many of the staff change, how many of them gain or
+ * change shifts and who loses them — and the rows the model guessed; stale, whose shifts the change touched (P21).
+ */
+function sentence(model: RosterPreviewModel, words: DecisionQueueWords, guessed: readonly string[], map: boolean, stale: boolean): string {
     const { m } = words;
+    const named = (rows: readonly RosterPreviewRow[]) => m.previewList({ items: rows.map(row => row.name) });
+    if (stale) return m.previewStale({ names: staleNames(model.rows.map(row => row.name), words), whose: true });
     const when = (day: number) => words.weekday(dayOf(model, day));
     const days = (list: readonly number[]) => m.previewList({ items: list.map(when) });
     const clauses = model.clauses.map(clause => {
@@ -187,11 +192,19 @@ function sentence(model: RosterPreviewModel, words: DecisionQueueWords, guessed:
             case "change": return m.previewClause({ kind: "change", who: clause.who, what: clause.shift, when: when(clause.day) });
         }
     });
-    if (clauses.length === 0) return m.previewUnchanged({ names: m.previewList({ items: model.rows.map(row => row.name) }) });
+    if (clauses.length === 0) return m.previewUnchanged({ names: named(model.rows) });
+    const guess = guessed.length === 0 ? undefined : { keys: m.previewList({ items: guessed }), n: guessed.length };
+    if (!map) return m.previewSentence({ clauses, guessed: guess });
+    // A map counts who changes (P5): those the change leaves fewer duties lose shifts, named while few; the rest gain or change theirs.
+    const lose = model.rows.filter(row => row.duties.after < row.duties.before);
+    const gain = model.rows.length - lose.length;
     return m.previewSentence({
-        clauses,
-        people: map ? { n: words.number(model.rows.length), of: words.number(model.people) } : undefined,
-        guessed: guessed.length === 0 ? undefined : { keys: m.previewList({ items: guessed }), n: guessed.length },
+        clauses: [m.previewShifts({
+            gain: gain === 0 ? undefined : { n: words.number(gain), one: gain === 1 },
+            lose: lose.length === 0 ? undefined : lose.length > NAMED ? { n: words.number(lose.length) } : { names: named(lose), one: lose.length === 1 },
+        })],
+        people: { n: words.number(model.rows.length), of: words.number(model.people) },
+        guessed: guess,
     });
 }
 
