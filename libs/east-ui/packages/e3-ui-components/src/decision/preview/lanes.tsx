@@ -5,13 +5,14 @@
 
 /**
  * A lanes crop, drawn (`Decision Queue Spec.md` D8, P13–P20, P24, P25): the
- * Plan's — and the Calendar's and the Allocation's after it — ruler over the
+ * Plan's and the Calendar's — and the Allocation's after them — ruler over the
  * window, its ticks the window's hours, days or weeks, and a lane a resource
- * the change touches: its name and its booked share before → after in its tone
- * at its head, and on its plot the grid, the now line where the window holds
- * it, and its entries — each at its place in the lane's stack, the change's
- * marked, its ghosts dashed, its lock, its conflict and the `+N` of the other
- * cases changing it. What it draws is {@link lanesPreview}'s; the
+ * the change touches, or a day it lands on: its name and its measure before →
+ * after in its tone at its head — the Plan's booked share, the Calendar's
+ * overlaps — and on its plot the grid, the now line where the window holds it
+ * that day, and its entries — each at its place in the lane's stack, the
+ * change's marked, its ghosts dashed, its lock, its conflict and the `+N` of
+ * the other cases changing it. What it draws is {@link lanesPreview}'s; the
  * `decisionPreview` recipe draws it from the attributes and the geometry set
  * here.
  *
@@ -27,10 +28,10 @@ import type { SlotStyles } from "@elaraai/east-ui-components/internal";
 import { dayStart } from "../../shared/schedule/window.js";
 import type { DecisionQueueWords } from "../messages.js";
 import { PreviewFrame, flag } from "./frame.js";
-import { nowShare, type LaneBar, type LaneClause, type LaneRow, type LaneUnit, type LaneWindow, type LanesModel } from "./lanes-model.js";
+import { nowShare, type LaneBar, type LaneClause, type LaneMeasure, type LaneRow, type LaneUnit, type LaneWindow, type LanesModel } from "./lanes-model.js";
 
 const sameDate = equalFor(DateTimeType);
-const sameShare = equalFor(FloatType);
+const sameNumber = equalFor(FloatType);
 
 /** A place along the window, as the recipe reads it. */
 const at = (share: number): CSSProperties => ({ "--pv-at": `${share * 100}%` } as CSSProperties);
@@ -45,19 +46,38 @@ function timeText(d: Date, days: boolean, words: DecisionQueueWords): string {
     return days ? `${words.weekday(d)} ${words.time(d)}` : words.time(d);
 }
 
+/**
+ * A day, as a lanes crop words it — a day ruler's tick, a day lane's name: its weekday and its date.
+ *
+ * @param d - The day, or an instant in it
+ * @param words - The queue's words
+ * @returns The day's words — `Thu 1`
+ */
+export function dayText(d: Date, words: DecisionQueueWords): string {
+    return `${words.weekday(d)} ${words.number(d.getUTCDate())}`;
+}
+
 /** A tick's words: its hour, two places; its day and date; or its week's first day. */
 function tickText(d: Date, unit: LaneUnit, words: DecisionQueueWords): string {
     switch (unit) {
         case "hour": return words.number(d.getUTCHours()).padStart(2, words.number(0));
-        case "day": return `${words.weekday(d)} ${words.number(d.getUTCDate())}`;
+        case "day": return dayText(d, words);
         case "week": return words.monthDay(d);
     }
 }
 
-/** A lane's booked share, worded (P24): before → after, in whole percent, or as it stands where they round alike. */
-function shareText(row: LaneRow, words: DecisionQueueWords): string {
+/**
+ * A lane's measure, worded (P24): its booked share before → after, in whole percent, or as it stands where they round
+ * alike; or its overlaps so.
+ */
+function measureText(row: LaneRow, measure: LaneMeasure, words: DecisionQueueWords): string {
+    if (measure === "overlaps") {
+        return words.m.previewOverlaps({
+            before: words.number(row.before), after: words.number(row.after), n: row.after, same: sameNumber(row.before, row.after), free: row.free,
+        });
+    }
     const before = Math.round(row.before * 100), after = Math.round(row.after * 100);
-    return words.m.previewShare({ before: words.number(before), after: words.percent(row.after), same: sameShare(before, after) });
+    return words.m.previewShare({ before: words.number(before), after: words.percent(row.after), same: sameNumber(before, after) });
 }
 
 /**
@@ -99,7 +119,7 @@ export interface LanesCropProps {
     readonly label: string;
     /** Whether the change no longer applies (P21). */
     readonly stale: boolean;
-    /** The time the queue counts from: its now line, where the window holds it (P20). */
+    /** The time the queue counts from: its now line, where the window holds it — on a day lane, on its day (P20). */
     readonly now: Date;
     /** The queue's words. */
     readonly words: DecisionQueueWords;
@@ -115,7 +135,6 @@ export interface LanesCropProps {
  */
 export function LanesCrop({ kind, model, label, stale, now, words, styles }: LanesCropProps) {
     const days = manyDays(model.window);
-    const nowAt = nowShare(model.window, now);
     return (
         <PreviewFrame kind={kind} layout="lanes" label={label} stale={stale} styles={styles}>
             <Box css={styles.lanes}>
@@ -129,19 +148,23 @@ export function LanesCrop({ kind, model, label, stale, now, words, styles }: Lan
                         ))}
                     </Box>
                 </Box>
-                {model.rows.map(row => (
-                    <Box key={row.key} css={styles.row} style={{ "--pv-lanes": `${row.lanes}` } as CSSProperties} data-preview-row={row.name}>
-                        <Box css={styles.rowHead}>
-                            <Box as="span" css={styles.rowName} title={row.name}>{row.name}</Box>
-                            <Box as="span" css={styles.measure} data-tone={row.tone}>{shareText(row, words)}</Box>
+                {model.rows.map(row => {
+                    // A day lane's events are drawn its day earlier, so now is too.
+                    const nowAt = nowShare(model.window, new Date(now.getTime() - row.origin));
+                    return (
+                        <Box key={row.key} css={styles.row} style={{ "--pv-lanes": `${row.lanes}` } as CSSProperties} data-preview-row={row.name}>
+                            <Box css={styles.rowHead}>
+                                <Box as="span" css={styles.rowName} title={row.name}>{row.name}</Box>
+                                <Box as="span" css={styles.measure} data-tone={row.tone}>{measureText(row, model.measure, words)}</Box>
+                            </Box>
+                            <Box css={styles.plot}>
+                                {model.grid.map(line => <Box as="span" key={line} css={styles.gridLine} style={at(line)} />)}
+                                {nowAt !== undefined && <Box as="span" css={styles.now} style={at(nowAt)} data-preview-now="" />}
+                                {row.bars.map(bar => <Bar key={`${bar.key}.${bar.op ?? ""}`} bar={bar} days={days} words={words} styles={styles} />)}
+                            </Box>
                         </Box>
-                        <Box css={styles.plot}>
-                            {model.grid.map(line => <Box as="span" key={line} css={styles.gridLine} style={at(line)} />)}
-                            {nowAt !== undefined && <Box as="span" css={styles.now} style={at(nowAt)} data-preview-now="" />}
-                            {row.bars.map(bar => <Bar key={`${bar.key}.${bar.op ?? ""}`} bar={bar} days={days} words={words} styles={styles} />)}
-                        </Box>
-                    </Box>
-                ))}
+                    );
+                })}
             </Box>
         </PreviewFrame>
     );

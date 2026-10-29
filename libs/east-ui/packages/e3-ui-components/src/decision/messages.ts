@@ -195,6 +195,13 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     previewEvent: (p: PreviewEventWords) => string;
     /** A lane's booked share of the window, before → after, or as it stands (P24) — `78 → 44%`, `44%`. */
     previewShare: (p: { before: string; after: string; same: boolean }) => string;
+    /**
+     * A day lane's overlaps, before → after, or as they stand (P24): `n` how many, `free` whether nothing stands on it —
+     * `overlap 1 → 0`, `1 overlap`, `no overlap`, `free`.
+     */
+    previewOverlaps: (p: { before: string; after: string; n: number; same: boolean; free: boolean }) => string;
+    /** Where an event stands on a day lane, where the change moves it onto another resource — `Press 2 on Sat 3`. */
+    previewWhere: (p: { resource: string; day: string }) => string;
     /** When an entry runs, in its title — `11:30–14:30`. */
     previewSpan: (p: { start: string; end: string }) => string;
     /** The entry an entry overlaps once the change is made, in its title (P15) — `overlaps Market posters`. */
@@ -328,6 +335,9 @@ export const decisionQueueMessages: DecisionQueueMessages = {
         }
     },
     previewShare: ({ before, after, same }) => (same ? after : `${before} → ${after}`),
+    previewOverlaps: ({ before, after, n, same, free }) => (!same ? `overlap ${before} → ${after}`
+        : free ? "free" : n === 0 ? "no overlap" : n === 1 ? `${after} overlap` : `${after} overlaps`),
+    previewWhere: ({ resource, day }) => `${resource} on ${day}`,
     previewSpan: ({ start, end }) => `${start}–${end}`,
     previewOverlap: (p) => `overlaps ${p.with}`,
     previewUnassigned: () => "Unassigned",
