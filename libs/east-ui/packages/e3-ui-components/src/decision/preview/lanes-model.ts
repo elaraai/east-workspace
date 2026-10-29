@@ -21,8 +21,12 @@
  * which its preview works out. What overlaps is the builders' own
  * (`scheduleOverlaps`): events pair within each kind that warns on a Plan
  * (PB51), across every kind that warns on a Calendar; an Allocation's entries
- * pair with none, its check's issues their breaches. Pure: the preview reads
- * the events, and this works out what they draw.
+ * pair with none, its check's issues their breaches. Past two lanes the crop
+ * gives way to its kind's map (P5, `map-model.ts`), which reads what the change
+ * does to each resource — the events it lands there and takes off there — and
+ * the new time it gives each event it moves or adds, for the map's when strip
+ * (P12). Pure: the preview reads the events, and this works out what they
+ * draw.
  *
  * @packageDocumentation
  */
@@ -42,6 +46,8 @@ const PAD = 2 * HOUR;
 const HOUR_STEPS = [1, 2, 3, 4, 6, 12];
 /** The most steps an hour ruler cuts its window into. */
 const MOST_STEPS = 3;
+/** The most steps a when strip's grid cuts its window into (P12). */
+const WHEN_STEPS = 4;
 /** The most days a day ruler takes, a tick a day: past them, a tick a week. */
 const MOST_DAYS = 7;
 /** The least an entry draws, and packs at: a share of the window, so an instant is drawn. */
@@ -76,7 +82,10 @@ export interface LaneEvent {
     readonly end: Date;
     /** Its lane: on a Plan the resource it is on, printed, or {@link UNASSIGNED}; on a Calendar its day. */
     readonly lane: string;
-    /** The resource it is on, printed, or {@link UNASSIGNED}. */
+    /**
+     * The resource it is on, as its preview keys it — a Plan's or a Calendar's printed, an Allocation's by its key, or the
+     * waiting row — or {@link UNASSIGNED}: what a map's tally counts it under.
+     */
     readonly resource: string;
     /** It, as its builder draws it: what its overlaps are worked out from — none for an entry that pairs with none. */
     readonly item?: ScheduleItemValue;
@@ -116,10 +125,10 @@ export interface LaneWindow {
     readonly step: number;
 }
 
-/** A window of whole hours, its ruler stepping by the first of {@link HOUR_STEPS} that cuts it in {@link MOST_STEPS} or fewer. */
-function hourly(from: number, to: number): LaneWindow {
+/** A window of whole hours, its ruler stepping by the first of {@link HOUR_STEPS} that cuts it in `most` steps or fewer. */
+function hourly(from: number, to: number, most = MOST_STEPS): LaneWindow {
     const hours = (to - from) / HOUR;
-    const step = HOUR_STEPS.find(s => hours / s <= MOST_STEPS) ?? HOUR_STEPS[HOUR_STEPS.length - 1]!;
+    const step = HOUR_STEPS.find(s => hours / s <= most) ?? HOUR_STEPS[HOUR_STEPS.length - 1]!;
     return { from: new Date(from), to: new Date(to), unit: "hour", step: step * HOUR };
 }
 
@@ -144,6 +153,18 @@ export function laneWindow(events: Iterable<{ readonly start: Date; readonly end
     const dayFrom = Math.floor(from / DAY) * DAY, dayTo = Math.ceil(to / DAY) * DAY;
     const days = (dayTo - dayFrom) / DAY;
     return { from: new Date(dayFrom), to: new Date(dayTo), unit: days <= MOST_DAYS ? "day" : "week", step: (days <= MOST_DAYS ? 1 : 7) * DAY };
+}
+
+/**
+ * A map's when strip's window (P12): whole hours from two before the first new time the change gives an event to two
+ * after the last, its grid cut in four or fewer steps; whole days past a day, as {@link laneWindow} takes them.
+ *
+ * @param times - The new times
+ * @returns The window and its grid's step; `undefined` for no time
+ */
+export function whenWindow(times: readonly Date[]): LaneWindow | undefined {
+    const w = laneWindow(times.map(t => ({ start: t, end: t })));
+    return w === undefined || w.unit !== "hour" ? w : hourly(w.from.getTime(), w.to.getTime(), WHEN_STEPS);
 }
 
 /**
@@ -320,6 +341,30 @@ export type LaneClause =
     | { readonly kind: "remove"; readonly what: string; readonly from: string }
     | { readonly kind: "change"; readonly what: string; readonly on: string };
 
+/** What the change does to one resource, for a map (P5): the events it lands there and those it takes off. */
+export interface LaneTally {
+    /** How many of its events stand there once it is made, but those it knocks on. */
+    readonly takes: number;
+    /** How many of the events it knocks on stand there once it is made (P16). */
+    readonly knocks: number;
+    /** How many of its events it takes off there: moved to another resource, or removed. */
+    readonly loses: number;
+    /** What the first of the events standing there breaks once it is made (P15). */
+    readonly breach: LaneBreach | undefined;
+}
+
+/** A new time the change gives an event, for a map's when strip (P12): the event moved, along its own lane or to another, or added. */
+export interface LaneLanding {
+    /** The event's key. */
+    readonly key: string;
+    /** What the sentence names it by. */
+    readonly what: string;
+    /** When it starts once the change is made. */
+    readonly start: Date;
+    /** Whether the change adds it. */
+    readonly added: boolean;
+}
+
 /** What a lanes crop draws. */
 export interface LanesModel {
     /** Its window. */
@@ -336,6 +381,10 @@ export interface LanesModel {
     readonly rows: readonly LaneRow[];
     /** What moves where, for the sentence. */
     readonly clauses: readonly LaneClause[];
+    /** What the change does to each resource its events stand on, by the resource as its events name it; empty while nothing is marked. */
+    readonly tally: ReadonlyMap<string, LaneTally>;
+    /** The new times it gives the events it moves or adds, in the order they start; none while nothing is marked. */
+    readonly landings: readonly LaneLanding[];
 }
 
 /** What {@link lanesPreview} works from. */
@@ -486,6 +535,9 @@ function shareTone(was: { share: number; double: number }, now: { share: number;
     return now.double > 0 || pastNow > 0 ? "worse" : undefined;
 }
 
+/** A resource's tally, as {@link lanesPreview} counts it. */
+type Tallied = { -readonly [K in keyof LaneTally]: LaneTally[K] };
+
 /** Overlaps' tone (P24): more is worse, fewer better, as many worse only while there are some. */
 function overlapsTone(was: number, now: number): PreviewTone {
     if (now > was) return "worse";
@@ -589,8 +641,17 @@ export function lanesPreview(input: LanesInput): LanesModel {
     });
 
     const clauses: LaneClause[] = [];
+    const tally = new Map<string, Tallied>();
+    const landings: LaneLanding[] = [];
     if (marked) {
         const verb = (lane: string): LaneVerb => input.verbOf?.(lane) ?? "runs";
+        const tallyOf = (resource: string): Tallied => {
+            const held = tally.get(resource);
+            if (held !== undefined) return held;
+            const made: Tallied = { takes: 0, knocks: 0, loses: 0, breach: undefined };
+            tally.set(resource, made);
+            return made;
+        };
         for (const key of touched) {
             const b = before.get(key), a = after.get(key);
             if (b !== undefined && a !== undefined) {
@@ -602,8 +663,18 @@ export function lanesPreview(input: LanesInput): LanesModel {
                 } else clauses.push({ kind: "change", what, on: where(a) });
             } else if (b !== undefined) clauses.push({ kind: "remove", what: b.what ?? b.title, from: where(b) });
             else if (a !== undefined) clauses.push({ kind: "add", what: a.what ?? a.title, on: where(a), verb: verb(a.lane), start: a.start, end: a.end });
+            // What it does to each resource, and the new time it gives the event, for a map.
+            if (a !== undefined) {
+                const held = tallyOf(a.resource);
+                if (input.knockOn(key)) held.knocks += 1;
+                else held.takes += 1;
+                held.breach ??= breachOf(a);
+                if (b === undefined || !samePlace(b, a)) landings.push({ key, what: a.what ?? a.title, start: a.start, added: b === undefined });
+            }
+            if (b !== undefined && (a === undefined || !stringEqual(b.resource, a.resource))) tallyOf(b.resource).loses += 1;
         }
+        landings.sort((x, y) => compareDate(x.start, y.start) || compareString(x.key, y.key));
     }
     const { ticks, grid } = laneTicks(w);
-    return { window: w, ticks, grid, measure, unit: load?.unit ?? "", rows, clauses };
+    return { window: w, ticks, grid, measure, unit: load?.unit ?? "", rows, clauses, tally, landings };
 }

@@ -12,15 +12,19 @@
  * e3-ui's own, compiled: the resources a change's bins land on and the waiting
  * row they leave or go back to, each lane's load before → after in its tone,
  * the resources' other bins and jobs as they stand, a breach the board's check
- * says, and the sentence's clauses.
+ * says, and the sentence's clauses; and past two lanes the board's map, from
+ * what the crop counts each resource takes and loses.
  */
 
 import { describe, expect, test } from "vitest";
 import { DateTimeType, NullType, SortedMap, StringType, compareFor, equalFor, none, printFor, some, toEastTypeValue, variant } from "@elaraai/east";
+import { formatters } from "@elaraai/east-ui-components";
 import { allocationDomain, allocationWords, type ArrivalRow, type Bin, type Context, type Day, type ResourceRow } from "../../allocation/model.js";
-import { decisionQueueMessages as m } from "../messages.js";
-import { allocationCrop, type AllocationCropBin, type AllocationCropInput, type AllocationCropPlan } from "./allocation-model.js";
+import { decisionQueueMessages as m, type DecisionQueueWords } from "../messages.js";
+import { WAITING, allocationCrop, type AllocationCropBin, type AllocationCropInput, type AllocationCropPlan } from "./allocation-model.js";
+import { mapSentence } from "./lanes.js";
 import type { LanesModel } from "./lanes-model.js";
+import { CROP_LANES, lanesMap } from "./map-model.js";
 
 const byString = compareFor(StringType);
 const stringEqual = equalFor(StringType);
@@ -83,6 +87,10 @@ const crop = (bins: readonly AllocationCropBin[], before: [string, Bin][], after
 const rowsOf = (model: LanesModel) => model.rows.map(row => [row.name, row.before, row.after, row.tone]);
 /** A lane's entries: each one's title, how the change marks it, how a job is drawn, and what it breaks. */
 const barsOf = (model: LanesModel, i: number) => model.rows[i]!.bars.map(bar => [bar.title, bar.op, bar.look, bar.breach]);
+/** What the change does to each resource, for the map: what it takes, knocks on and loses there. */
+const tallyOf = (model: LanesModel) => [...model.tally].map(([resource, t]) => [resource, t.takes, t.knocks, t.loses]);
+/** The new times it gives its bins, for the map's when strip: what each is, when it starts and whether it is added. */
+const landingsOf = (model: LanesModel) => model.landings.map(landing => [landing.what, landing.start, landing.added]);
 
 describe("allocationCrop", () => {
     test("an arrival the change puts on a resource leaves the waiting row — one entry moving there — each lane's load before → after; the resource's jobs as the board draws them", () => {
@@ -104,6 +112,9 @@ describe("allocationCrop", () => {
         const ghost = model.rows[1]!.bars[0]!;
         expect([ghost.title, ghost.op, ghost.start, ghost.end, ghost.to?.name]).toEqual(["E-1", "from", on(-1), on(2), "R-1"]);
         expect(model.clauses).toEqual([{ kind: "move", what: "E-1", from: "Waiting", to: "R-1", verb: "held", start: on(0, 14, 15), end: on(9), overlapped: undefined }]);
+        // For the map: R-1 takes the bin the waiting row loses, at its new time.
+        expect(tallyOf(model)).toEqual([["R-1", 1, 0, 0], [WAITING, 0, 0, 1]]);
+        expect(landingsOf(model)).toEqual([["E-1", on(0, 14, 15), false]]);
     });
 
     test("what the board's check says once the change is made: a resource over its maximum is bad, its new part breaches it, the bin beside it stands as it does", () => {
@@ -126,6 +137,8 @@ describe("allocationCrop", () => {
         expect(model.rows[0]!.bars.map(bar => [bar.title, bar.op, bar.to?.name])).toEqual([["E-2 · 4 m³", "from", "R-1"]]);
         expect(barsOf(model, 1)).toEqual([["E-2 · 4 m³", "add", undefined, undefined]]);
         expect(model.clauses).toEqual([{ kind: "move", what: "E-2", from: "R-2", to: "R-1", verb: "held", start: on(0, 6, 15), end: on(7), overlapped: undefined }]);
+        expect(tallyOf(model)).toEqual([["R-1", 1, 0, 0], ["R-2", 0, 0, 1]]);
+        expect(landingsOf(model)).toEqual([["E-2", on(0, 6, 15), false]]);
     });
 
     test("a part the change takes off with nowhere to go goes back to the waiting row, over the day its bin stands on, the arrival having no window", () => {
@@ -154,6 +167,10 @@ describe("allocationCrop", () => {
         expect(model.clauses).toEqual([{ kind: "change", what: "E-2", on: "R-2" }]);
         const knocked = crop([{ key: "c1", before: IN_R2, after: more }], [["c1", IN_R2]], [["c1", more]], { knockOn: key => stringEqual(key, "c1") });
         expect(knocked.rows[0]!.bars.map(bar => [bar.op, bar.knock])).toEqual([[undefined, true]]);
+        // Changed in place, it gives no new time; knocked on, the map counts it apart, its breach the bin's.
+        expect([tallyOf(model), model.landings]).toEqual([[["R-2", 1, 0, 0]], []]);
+        expect(tallyOf(knocked)).toEqual([["R-2", 0, 1, 0]]);
+        expect(knocked.tally.get("R-2")?.breach).toEqual({ kind: "issue", text: "1 m³ unallocated · L-1 06:15" });
     });
 
     test("nothing marked (P4): the waiting arrival as it stands, the resource the recommendation lands it on beside it as it stands, no clause", () => {
@@ -162,6 +179,7 @@ describe("allocationCrop", () => {
         expect(barsOf(model, 0)).toEqual([["J-1", undefined, "prior", undefined], ["planned", undefined, "next", undefined]]);
         expect(barsOf(model, 1)).toEqual([["E-1", undefined, undefined, undefined]]);
         expect(model.clauses).toEqual([]);
+        expect([model.tally.size, model.landings]).toEqual([0, []]);
     });
 
     test("bins on two days: each resource's lane names its day", () => {
@@ -175,6 +193,21 @@ describe("allocationCrop", () => {
         const r2 = (day: Date) => m.previewWhere({ resource: "R-2", day: printDay(day) });
         expect(model.rows.map(row => row.name)).toEqual([r2(on(0)), r2(on(1))]);
         expect(model.clauses).toEqual([{ kind: "move", what: "E-2", from: r2(on(0)), to: r2(on(1)), verb: "held", start: on(1, 6, 15), end: on(8), overlapped: undefined }]);
+    });
+
+    test("past two lanes, the board's map: every resource a tile, the waiting row none — the resource that takes both bins lit, the one it moves off a ghost — and a tick at each bin's new time", () => {
+        const moved = bin(on(0, 6, 15), "E-2", 4, 7, [["R-1", 4]]);
+        const model = crop([{ key: "n1", before: undefined, after: BOOKED }, { key: "c1", before: IN_R2, after: moved }], [["c1", IN_R2]], [["c1", moved], ["n1", BOOKED]]);
+        expect(rowsOf(model).map(row => row[0])).toEqual(["R-1", "R-2", "Waiting"]);
+        expect(model.rows.length).toBeGreaterThan(CROP_LANES);
+        const map = lanesMap(model, RESOURCES.map(r => ({ key: r.key, name: r.label, group: "Resources" })), true);
+        expect(map.rows.map(row => [row.group, row.tiles.map(tile => [tile.label, tile.op, tile.takes, tile.loses])])).toEqual([["Resources", [["1", "chg", 2, 0], ["2", "from", 0, 1]]]]);
+        expect([map.changed, map.of, map.most, map.freed]).toEqual([2, 2, { name: "R-1", n: 2 }, [{ name: "R-2", loses: 1 }]]);
+        // 04:00 to 17:00, a grid line every four hours.
+        expect([map.when?.window.from, map.when?.window.to, map.when?.grid]).toEqual([on(0, 4), on(0, 17), [4 / 13, 8 / 13]]);
+        expect(map.when?.ticks.map(tick => [tick.landing.what, tick.at])).toEqual([["E-2", 2.25 / 13], ["E-1", 10.25 / 13]]);
+        const words: DecisionQueueWords = { ...formatters("en-US"), m };
+        expect(mapSentence({ model: map, nouns: { event: "load", events: "loads", resources: "resources" } }, [], words)).toBe("2 of 2 resources change; R-1 takes 2 loads, R-2 loses its load");
     });
 });
 

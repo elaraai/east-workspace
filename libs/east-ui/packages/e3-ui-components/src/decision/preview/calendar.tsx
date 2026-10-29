@@ -16,29 +16,34 @@
  * within the builders' cap — the queue's drafts of the target's record in
  * place. Where the change moves an event onto another resource, the sentence
  * names the resource beside the day, as the Calendar names it. What it draws
- * is {@link lanesPreview}'s.
+ * is {@link lanesPreview}'s. Past two days it draws the Calendar's map (P5):
+ * every resource of the kinds the change's events are on, under its kind's
+ * name — of the kind read a window at a time, those the change touches.
  *
  * @packageDocumentation
  */
 
 import { useCallback } from "react";
-import { StringType, equalFor, none, some, type option } from "@elaraai/east";
+import { StringType, equalFor, none, printFor, some, type option } from "@elaraai/east";
+import { ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { scheduleWithinCap } from "../../shared/schedule/cells.js";
 import { EMPTY_SCHEDULE_DRAFTS } from "../../shared/schedule/editing.js";
 import type { ScheduleItemValue } from "../../shared/schedule/overlaps.js";
+import { kindPlural } from "../../shared/schedule/words.js";
 import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
 import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
-import { LanesCrop, dayText, lanesSentence } from "./lanes.js";
+import { LanesCrop, LanesMap, dayText, lanesSentence, mapSentence, type PreviewMap } from "./lanes.js";
 import { UNASSIGNED, laneDay, laneDayKey, laneDayWindow, laneEvent, lanesPreview, type LaneEvent, type LanesModel } from "./lanes-model.js";
+import { CROP_LANES, lanesMap, type MapResource } from "./map-model.js";
 
 /** A Calendar target's kind, decoded. */
 type CalendarKind = Extract<DecisionTarget["kind"], { type: "calendar" }>["value"];
 /** The resource an event is on. */
 type ResourceRef = Extract<ScheduleItemValue["resource"], { type: "some" }>["value"];
 
-/** What the preview's read gives: the lanes, a read in flight, or nothing it touches with a time. */
-type CalendarRead = { readonly state: "ready"; readonly model: LanesModel } | { readonly state: "pending" } | { readonly state: "empty" };
+/** What the preview's read gives: the lanes — and past two, the map — a read in flight, or nothing it touches with a time. */
+type CalendarRead = { readonly state: "ready"; readonly model: LanesModel; readonly map: PreviewMap | undefined } | { readonly state: "pending" } | { readonly state: "empty" };
 
 /** How many lanes the placeholder draws while the rows are read. */
 const PENDING_LANES = 2;
@@ -47,6 +52,7 @@ const EMPTY: CalendarRead = { state: "empty" };
 /** The range an event read from its own row is read over: given its row, the kind reads no window. */
 const EPOCH = new Date(0);
 const stringEqual = equalFor(StringType);
+const printResource = printFor(ScheduleResourceRefType);
 const NOT_LOCKED = (): boolean => false;
 
 /**
@@ -189,26 +195,55 @@ export function CalendarPreview({ c, view, target, kind, record, rows, changed, 
         };
         const knockOn = option?.knockOn;
         const locked = target.locked.type === "some" ? target.locked.value : NOT_LOCKED;
+        const model = lanesPreview({
+            window, context, before, after, marked,
+            lands: landed.map(e => e.lane),
+            knockOn: key => knockOn?.has(key) === true,
+            locked: key => {
+                const bytes = bytesOf.get(key);
+                return bytes !== undefined && locked(bytes, key);
+            },
+            shared: key => sharedOf(shared, record.key, key),
+            overlaps: slot => kind.events.find(k => stringEqual(k.key, slot))?.overlaps.type === "warn",
+            pairs: "all",
+            measure: "overlaps",
+            nameOf: dayName,
+            whereOf: e => (moving
+                ? m.previewWhere({ resource: stringEqual(e.resource, UNASSIGNED) ? m.previewUnassigned() : names.get(e.resource) ?? e.resource, day: dayName(e.lane) })
+                : dayName(e.lane)),
+            originOf: lane => days.get(lane) ?? 0,
+        });
+        if (model.rows.length <= CROP_LANES) return { state: "ready", model, map: undefined };
+        // The map (D7, P5): every resource of the kinds the change's events are on, in their kinds' order, under its kind's
+        // name — of the kind read a window at a time, whose rows are none, those the change touches, by their names.
+        const on = new Set<string>();
+        for (const ref of refs.values()) if (ref !== undefined) on.add(ref.kind);
+        const resources: MapResource[] = [];
+        let complete = true;
+        const kinds = kind.resources.filter(r => on.has(r.key));
+        for (const r of kinds) {
+            if (kind.paged.type === "some" && stringEqual(kind.paged.value.kind, r.key)) {
+                complete = false;
+                for (const [printed, ref] of refs) {
+                    if (ref === undefined || !stringEqual(ref.kind, r.key)) continue;
+                    const name = resourceName(kind, ref);
+                    if (name === undefined) return PENDING;
+                    resources.push({ key: printed, name, group: r.name });
+                }
+            } else {
+                for (const row of r.rows) resources.push({ key: printResource({ kind: r.key, key: row.key }), name: row.label, group: r.name });
+            }
+        }
+        const lower = (name: string) => name.toLocaleLowerCase(words.locale);
         return {
-            state: "ready",
-            model: lanesPreview({
-                window, context, before, after, marked,
-                lands: landed.map(e => e.lane),
-                knockOn: key => knockOn?.has(key) === true,
-                locked: key => {
-                    const bytes = bytesOf.get(key);
-                    return bytes !== undefined && locked(bytes, key);
+            state: "ready", model,
+            map: {
+                model: lanesMap(model, resources, complete),
+                nouns: {
+                    event: lower(events.name), events: kindPlural(lower(events.name)),
+                    resources: kinds.length === 1 ? kindPlural(lower(kinds[0]!.name)) : m.previewResources(),
                 },
-                shared: key => sharedOf(shared, record.key, key),
-                overlaps: slot => kind.events.find(k => stringEqual(k.key, slot))?.overlaps.type === "warn",
-                pairs: "all",
-                measure: "overlaps",
-                nameOf: dayName,
-                whereOf: e => (moving
-                    ? m.previewWhere({ resource: stringEqual(e.resource, UNASSIGNED) ? m.previewUnassigned() : names.get(e.resource) ?? e.resource, day: dayName(e.lane) })
-                    : dayName(e.lane)),
-                originOf: lane => days.get(lane) ?? 0,
-            }),
+            },
         };
     }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind, shared, words]);
     const { result } = useTrackedEvaluation(read);
@@ -220,6 +255,11 @@ export function CalendarPreview({ c, view, target, kind, record, rows, changed, 
     const got = result.value;
     if (got.state === "pending") return <PreviewPending kind="calendar" layout="lanes" rows={PENDING_LANES} words={words} styles={styles} />;
     if (got.state === "empty") return <PreviewFrame kind="calendar" layout="lanes" label={option?.detail ?? ""} stale={stale} styles={styles} />;
-    const label = lanesSentence(got.model, guessedOf(option?.guesses, changed), words);
-    return <LanesCrop kind="calendar" model={got.model} label={label} stale={stale} now={now} words={words} styles={styles} />;
+    const guessed = guessedOf(option?.guesses, changed);
+    // A map's sentence counts what changes; with nothing marked, it names the days the recommendation lands on (P4).
+    if (got.map !== undefined) {
+        const label = got.model.clauses.length === 0 ? lanesSentence(got.model, guessed, words) : mapSentence(got.map, guessed, words);
+        return <LanesMap kind="calendar" map={got.map} label={label} stale={stale} words={words} styles={styles} />;
+    }
+    return <LanesCrop kind="calendar" model={got.model} label={lanesSentence(got.model, guessed, words)} stale={stale} now={now} words={words} styles={styles} />;
 }
