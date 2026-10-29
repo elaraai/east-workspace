@@ -5,11 +5,12 @@
 
 /**
  * What every preview shares (`Decision Queue Spec.md` P1, P2, P18, P21, P23,
- * P25): its frame — one image, its sentence its name, at its kind's height,
- * dashed while stale — its rows not read yet, the shared placeholder shapes
- * in its final layout after its own reveal clock, and a read that failed,
- * said once; and the other cases' changes of an entry, counted for its `+N`.
- * The `decisionPreview` recipe draws them from the attributes they set.
+ * P25, P26): its frame — one image, its sentence its name, at its kind's
+ * height, dashed while stale — its rows not read yet, the shared placeholder
+ * shapes in its final layout after its own reveal clock, and a read that
+ * failed, said once; the rows as the change, edited, leaves them and those the
+ * model guessed; and the other cases' changes of an entry, counted for its
+ * `+N`. The `decisionPreview` recipe draws them from the attributes they set.
  *
  * @packageDocumentation
  */
@@ -18,6 +19,7 @@ import type { ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { LoadingFailedLine, LoadingReveal, PlaceholderShape, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { ScheduleEditing } from "../../shared/schedule/editing.js";
+import { bytesOf } from "../choices.js";
 import type { DecisionRecord, DecisionTarget } from "../editing.js";
 import type { DecisionCase } from "../layout.js";
 import type { DecisionQueueWords } from "../messages.js";
@@ -25,6 +27,29 @@ import type { CardView, ChangedRow, RowsState } from "../state.js";
 
 /** A flag attribute: present while `on`. */
 export const flag = (on: boolean): "" | undefined => (on ? "" : undefined);
+
+/**
+ * A changed row as the change, edited, leaves it (P1): kept as it stands, the viewer's edit, else the proposal.
+ *
+ * @param row - The changed row
+ * @returns Its bytes as the change leaves it; `undefined` for a row it removes
+ */
+export function leftBy(row: ChangedRow): Uint8Array | undefined {
+    if (row.edit === undefined) return row.proposed;
+    return "keep" in row.edit ? row.standing : bytesOf(row.edit.row);
+}
+
+/**
+ * The changed rows the option's `guesses` names (P26): what the sentence names as guessed.
+ *
+ * @param guesses - The option's guesses, by the changed row's key
+ * @param changed - The changed rows
+ * @returns Their keys, in the change's order
+ */
+export function guessedOf(guesses: ReadonlyMap<string, number> | undefined, changed: readonly ChangedRow[]): string[] {
+    if (guesses === undefined || guesses.size === 0) return [];
+    return changed.filter(row => guesses.has(row.key)).map(row => row.key);
+}
 
 /** How many waiting cases' chosen options change each row (P18): by the record's key, then the row's. */
 export type SharedRows = ReadonlyMap<string, ReadonlyMap<string, number>>;
@@ -63,6 +88,8 @@ export interface PreviewProps {
     readonly words: DecisionQueueWords;
     /** The `decisionPreview` recipe's styles. */
     readonly styles: SlotStyles;
+    /** The time the queue counts from: a crop of time draws its now line where its window holds it (P20). */
+    readonly now: Date;
 }
 
 /** Props of {@link PreviewFrame}. */
@@ -100,26 +127,42 @@ export function PreviewFrame({ kind, layout, label, stale, busy, styles, childre
 
 /**
  * A preview whose rows are read still (P23): its frame and head at once, the shared placeholder shapes in its rows —
- * a name and its measure, a chip a cell — shown after its own reveal clock, so a quick read never flashes.
+ * a name and its measure, then a chip a cell, or a lane's plot washed — shown after its own reveal clock, so a quick
+ * read never flashes.
  *
- * @param props - Its kind and layout, how many rows and cells it draws, and the queue's words
+ * @param props - Its kind and layout, how many rows it draws and, in a layout of cells, how many cells a row; and the queue's words
  * @returns The placeholder
  */
-export function PreviewPending({ kind, layout, rows, cells, words, styles }: Pick<PreviewFrameProps, "kind" | "layout" | "styles"> & {
-    readonly rows: number; readonly cells: number; readonly words: DecisionQueueWords;
+export function PreviewPending({ kind, layout, rows, cells = 0, words, styles }: Pick<PreviewFrameProps, "kind" | "layout" | "styles"> & {
+    readonly rows: number; readonly cells?: number | undefined; readonly words: DecisionQueueWords;
 }) {
+    const heads = (row: number) => <Box css={styles.rowHead}><PlaceholderShape kind="label2" index={row} /></Box>;
     return (
         <LoadingReveal waiting>
             <PreviewFrame kind={kind} layout={layout} label={words.m.applyOff({ why: "reading" })} stale={false} busy styles={styles}>
-                <Box css={styles.header} aria-hidden="true" />
-                {Array.from({ length: rows }, (_, row) => (
-                    <Box key={row} css={styles.row} aria-hidden="true" data-preview-pending="">
-                        <Box css={styles.rowHead}><PlaceholderShape kind="label2" index={row} /></Box>
-                        {Array.from({ length: cells }, (_, cell) => (
-                            <Box key={cell} css={styles.cell}><PlaceholderShape kind="chip" index={row * cells + cell} /></Box>
+                {layout === "lanes" ? (
+                    <Box css={styles.lanes}>
+                        <Box css={styles.ruler} aria-hidden="true"><span /><Box css={styles.rulerPlot} /></Box>
+                        {Array.from({ length: rows }, (_, row) => (
+                            <Box key={row} css={styles.row} aria-hidden="true" data-preview-pending="">
+                                {heads(row)}
+                                <Box css={styles.plot}><PlaceholderShape kind="wash" index={row} /></Box>
+                            </Box>
                         ))}
                     </Box>
-                ))}
+                ) : (
+                    <>
+                        <Box css={styles.header} aria-hidden="true" />
+                        {Array.from({ length: rows }, (_, row) => (
+                            <Box key={row} css={styles.row} aria-hidden="true" data-preview-pending="">
+                                {heads(row)}
+                                {Array.from({ length: cells }, (_, cell) => (
+                                    <Box key={cell} css={styles.cell}><PlaceholderShape kind="chip" index={row * cells + cell} /></Box>
+                                ))}
+                            </Box>
+                        ))}
+                    </>
+                )}
             </PreviewFrame>
         </LoadingReveal>
     );

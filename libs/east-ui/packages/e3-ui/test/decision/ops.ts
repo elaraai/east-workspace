@@ -21,7 +21,7 @@ import {
 import e3 from "@elaraai/e3";
 import { KilnBin } from "../allocation/kiln-yard.js";
 import { CalendarJob } from "../calendar/calendar.examples.js";
-import { PrintJob } from "../plan/plan-events.examples.js";
+import { PrintJob, planEventJobs } from "../plan/plan-events.examples.js";
 import { WarehouseDuty, warehouseDuties } from "../roster/warehouse.js";
 import { OptimiseWorkOrder, optimiseWorkOrderRows } from "../sheet/optimise.examples.js";
 
@@ -132,6 +132,18 @@ function dutiesPatch(changes: readonly (readonly [string, DutyRow | undefined])[
     const after = new SortedMap(changes.flatMap(([key, row]) => (row === undefined ? [] : [[key, row] as const])), byString);
     return diffDuties(before, after);
 }
+/** A print job of the shop's. */
+type JobRow = ValueTypeOf<typeof PrintJob>;
+/** The jobs' patch, as a model diffs the rows it touches. */
+const diffJobs = diffFor(DictType(StringType, PrintJob));
+/** The print works' jobs, as the shop's record holds them. */
+const printJobs = planEventJobs.default!;
+/** The jobs' patch changing one job to the row it becomes, from the row as the shop's record holds it: the patch of that row alone. */
+function jobsPatch(key: string, row: JobRow) {
+    return diffJobs(new SortedMap([[key, printJobs.get(key)!]], byString), new SortedMap([[key, row]], byString));
+}
+/** J-3007's loyalty cards on Press B2, 10:00–13:00 on the 20th: two hours over J-3006's market posters there. */
+const loyaltyCards = printJobs.get("J-3007")!;
 /** J. Tansy's Friday late, 14:00–22:00: the week's fifth shift of theirs, 4 h past their 38. */
 const tansyFriday = warehouseDuties.get("s234")!;
 /** Thursday's agency request on the late picking shift, whose fields a request for Saturday's takes. */
@@ -153,7 +165,8 @@ function option(row: Pick<ValueTypeOf<typeof OpsOption>, "label" | "title" | "su
 
 /**
  * The cases the models left: who takes J. Tansy's Friday late, and a request for Saturday's open late — routine — on
- * the warehouse's rota; a price for the Coast region; and the shop's ready work orders.
+ * the warehouse's rota; where the print works' J-3007 runs, overlapping J-3006 on Press B2; a price for the Coast
+ * region; and the shop's ready work orders.
  */
 export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new SortedMap<string, ValueTypeOf<typeof OpsCase>>([
     ["rota-tansy", {
@@ -188,6 +201,27 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
             ["1-request", option({ label: "Request", title: "Request an agency late on Saturday", summary: "Agency · Sat 14–22",
                 detail: "Northside Staffing covers Saturday 14–22.", value: 1_200,
                 change: variant("rota", dutiesPatch([["s319", { ...thursdayRequest, start: saturdayLate, end: saturdayLateEnd }]])) })],
+        ], byString),
+    }],
+    ["print-j3007", {
+        area: "print", scope: "Print works · Hall B", due: some(new Date("2028-03-08T14:25:00Z")), routine: false, unit: "uplift", money: true,
+        model: "press-sched-v2 · run #118",
+        why: "J-3006 runs on Press B2 until 12:00, so J-3007 overlaps it for two hours. Press A1 is free from 11:00 and carries the same stock.",
+        ifWrong: some(-1_800), recommended: "1-a1",
+        options: new SortedMap([
+            ["1-a1", option({ label: "Press A1", title: "Move job J-3007 from Press B2 to Press A1", summary: "A1 · 11:30–14:30",
+                detail: "J-3007 runs on A1 11:30–14:30, clearing the 2h overlap on B2.", note: some("same stock, no wash-up"), value: 6_200,
+                confidence: some(0.9),
+                change: variant("print", jobsPatch("J-3007", { ...loyaltyCards, press: some("a1"),
+                    start: some(new Date("2026-10-20T11:30:00Z")), end: some(new Date("2026-10-20T14:30:00Z")) })) })],
+            ["2-delay", option({ label: "12:00 on B2", title: "Start job J-3007 at 12:00 on Press B2", summary: "B2 · 12:00–15:00",
+                detail: "J-3007 runs on B2 12:00–15:00, 2h before the 17:00 van.", note: some("clears the overlap · ends 15:00"), value: 4_100,
+                confidence: some(0.8),
+                change: variant("print", jobsPatch("J-3007", { ...loyaltyCards,
+                    start: some(new Date("2026-10-20T12:00:00Z")), end: some(new Date("2026-10-20T15:00:00Z")) })) })],
+            ["3-a2", option({ label: "Press A2", title: "Move job J-3007 from Press B2 to Press A2", summary: "A2 · 10:00–13:00",
+                detail: "J-3007 runs on A2 10:00–13:00.", value: 0, refused: some("takes no board stock"),
+                change: variant("print", jobsPatch("J-3007", { ...loyaltyCards, press: some("a2") })) })],
         ], byString),
     }],
     ["price-coast", {

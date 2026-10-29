@@ -16,8 +16,11 @@
  * - root: the frame — `role="img"`, 1px `--rule`, `--r-sm`, `--paper`, at its target's height (`data-kind`, P2): 120
  *   for a builder's and the zones', 116 for a projection, 112 otherwise; dashed `--rule-strong` while stale
  *   (`data-stale`, P21). Its layout (`data-layout`: `roster`, `lanes`, `sheet`) lays out its rows; its kind sets the
- *   lanes' measures — the lane head's width (`--pv-lw`: the Plan's 72, the Allocation's 88, the Calendar's 96), a bar's
- *   height (the Plan's and the Calendar's 18, a bin's 24) and the gaps between stacked bars.
+ *   lanes' measures — the lane head's least width (`--pv-lw`: the Plan's 72, the Allocation's 88, the Calendar's 96), a
+ *   bar's height (the Plan's and the Calendar's 18, a bin's 24) and the gaps between stacked bars.
+ * - lanes: the lanes' grid — its ruler and its lanes share its two columns, the head's and the plot's: the head as wide
+ *   as its longest name and measure need, never under its kind's least nor over 144 or 40% of the frame
+ *   (`--pv-lw-max`), past which a name ends in an ellipsis.
  * - header, headerCell: the crop's head row, 24 tall over `--rule-strong` — the Roster's days (the weekday's letter
  *   `--ink-4` and its date `--ink-2`, mono `--fs-label-xs` 600) or a Sheet's column heads (upper case, tracked 0.14em).
  * - row, rowHead, rowName, measure: a crop's row — the Roster's 36, a Sheet's 28, a lane as tall as its stacked bars
@@ -129,7 +132,7 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
         "root",
         "header", "headerCell", "row", "rowHead", "rowName", "measure",
         "cell", "tile", "off",
-        "ruler", "rulerPlot", "tick", "plot", "gridLine", "now", "bar", "barText", "icon", "shared",
+        "lanes", "ruler", "rulerPlot", "tick", "plot", "gridLine", "now", "bar", "barText", "icon", "shared",
         "map", "mapRow", "mapLabel", "mapTiles", "mapTile",
         "when", "whenLabel", "whenStrip", "whenTick",
         "people", "peopleRow", "peopleDay", "peopleName", "mark",
@@ -152,6 +155,7 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
             color: "fg",
             overflow: "hidden",
             "--pv-lw": "72px",
+            "--pv-lw-max": "min(144px, 40%)",
             "--pv-bar-h": "18px",
             "--pv-bar-gap": "3px",
             "--pv-lane-pad": "5px",
@@ -209,10 +213,17 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
             ...RULE,
             "&:last-child": { borderBottomWidth: 0 },
             "[data-layout=roster] &": { gridTemplateColumns: "84px repeat(7, minmax(0, 1fr))", height: "36px" },
-            "[data-layout=lanes] &": { gridTemplateColumns: "var(--pv-lw) minmax(0, 1fr)", height: LANE_HEIGHT },
+            "[data-layout=lanes] &": { gridColumn: "1 / -1", gridTemplateColumns: "subgrid", height: LANE_HEIGHT },
             "[data-layout=sheet] &": { gridTemplateColumns: "72px repeat(var(--pv-columns, 1), minmax(0, 1fr))", height: "28px" },
         },
-        rowHead: { display: "grid", alignContent: "center", gap: "2px", minWidth: 0, padding: "0 8px 0 12px" },
+        rowHead: {
+            display: "grid",
+            alignContent: "center",
+            gap: "2px",
+            minWidth: 0,
+            padding: "0 8px 0 12px",
+            "[data-layout=lanes] &": { minWidth: "var(--pv-lw)" },
+        },
         rowName: {
             ...ELLIPSIS,
             justifySelf: "start",
@@ -243,10 +254,11 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
         off: { cursor: "default" },
 
         // ── The lanes: the Plan's, the Calendar's and the Allocation's crop ──
+        lanes: { display: "grid", gridTemplateColumns: "fit-content(var(--pv-lw-max)) minmax(0, 1fr)", alignContent: "start", minWidth: 0 },
         ruler: {
             display: "grid",
-            gridTemplateColumns: "var(--pv-lw) minmax(0, 1fr)",
-            flexShrink: 0,
+            gridColumn: "1 / -1",
+            gridTemplateColumns: "subgrid",
             height: "20px",
             boxSizing: "border-box",
             borderBottomWidth: "1px",

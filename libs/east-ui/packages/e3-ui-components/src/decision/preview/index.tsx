@@ -8,8 +8,9 @@
  * card, between its title and its chip line, on the closed and the open card
  * alike, drawn from the chosen option's change as edited — by its target's
  * kind, at its builder's own sizes, from its builder's own recipe and
- * arithmetic: the Roster's week (`roster.tsx`). Its frame, its placeholders
- * and its failure are every kind's (`frame.tsx`).
+ * arithmetic: the Roster's week (`roster.tsx`), the Plan's lanes (`plan.tsx`,
+ * drawn by `lanes.tsx`). Its frame, its placeholders and its failure are every
+ * kind's (`frame.tsx`).
  *
  * @packageDocumentation
  */
@@ -17,6 +18,7 @@
 import { memo } from "react";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { PreviewFrame, type PreviewProps } from "./frame.js";
+import { PlanPreview } from "./plan.js";
 import { RosterPreview } from "./roster.js";
 
 export { flag, sharedOf, type SharedRows } from "./frame.js";
@@ -36,6 +38,8 @@ export const DecisionPreview = memo(function DecisionPreview(props: DecisionPrev
     switch (kind.type) {
         case "roster":
             return <RosterPreview {...props} kind={kind.value} styles={styles} />;
+        case "plan":
+            return <PlanPreview {...props} kind={kind.value} styles={styles} />;
         default:
             return <PreviewFrame kind={kind.type} layout={undefined} label={props.view.option?.detail ?? ""} stale={props.rows === "stale"} styles={styles} />;
     }
