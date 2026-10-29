@@ -18,7 +18,7 @@
 import { editingMessages, type EditingMessages, type Formatters } from "@elaraai/east-ui-components";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import type { DecisionSection } from "./layout.js";
-import type { LaneVerb } from "./preview/lanes-model.js";
+import type { LaneBreach, LaneVerb } from "./preview/lanes-model.js";
 
 /** What a person decided, as the queue words it: the verdict's case. */
 export type DecisionVerdictWord = "applied" | "overridden" | "deferred" | "handedOff";
@@ -39,14 +39,26 @@ export type PreviewClauseWords =
 /**
  * One clause of a lanes preview's sentence, worded: an event's title, the lanes' names and its times the builder's —
  * moved to another lane, along its own, added, taken off or changed — what it overlapped where it was, which the change
- * clears, and what it does where it moves or is added: runs there, is held in a resource, or waits.
+ * clears, what it does where it moves or is added — runs there, is held in a resource, or waits — and what it breaks
+ * there once the change is made (P15): the entry it overlaps, or the words of the app's check.
  */
 export type PreviewEventWords =
-    | { readonly kind: "move"; readonly what: string; readonly from: string; readonly to: string; readonly verb: LaneVerb; readonly start: string; readonly end: string; readonly overlapped: string | undefined }
-    | { readonly kind: "reschedule"; readonly what: string; readonly on: string; readonly start: string; readonly end: string; readonly overlapped: string | undefined }
-    | { readonly kind: "add"; readonly what: string; readonly on: string; readonly verb: LaneVerb; readonly start: string; readonly end: string }
+    | {
+        readonly kind: "move"; readonly what: string; readonly from: string; readonly to: string; readonly verb: LaneVerb; readonly start: string; readonly end: string;
+        readonly overlapped: string | undefined; readonly breach?: LaneBreach | undefined;
+    }
+    | { readonly kind: "reschedule"; readonly what: string; readonly on: string; readonly start: string; readonly end: string; readonly overlapped: string | undefined; readonly breach?: LaneBreach | undefined }
+    | { readonly kind: "add"; readonly what: string; readonly on: string; readonly verb: LaneVerb; readonly start: string; readonly end: string; readonly breach?: LaneBreach | undefined }
     | { readonly kind: "remove"; readonly what: string; readonly from: string }
     | { readonly kind: "change"; readonly what: string; readonly on: string };
+
+/**
+ * An event the option knocks on, worded for the sentence after the change's own clauses (P16): along its lane, from when
+ * it started to when it starts; or onto another lane, and when it starts there.
+ */
+export type PreviewPushWords =
+    | { readonly what: string; readonly was: string; readonly start: string }
+    | { readonly what: string; readonly onto: string; readonly start: string };
 
 /**
  * One clause of a Sheet preview's sentence, worded: the columns' heads a change sets on its rows — none, for a change
@@ -202,14 +214,37 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     previewList: (p: { items: readonly string[] }) => string;
     /** One clause of a preview's sentence (P25): what moves where — `H. Aspen's Night shifts on Mon, Wed and Thu move to C. Clover`. */
     previewClause: (p: PreviewClauseWords) => string;
-    /** A preview's sentence (P25): its clauses, a map's count ahead of them, and the rows the model guessed after them. */
-    previewSentence: (p: { clauses: readonly string[]; people?: { n: string; of: string } | undefined; guessed?: { keys: string; n: number } | undefined }) => string;
+    /**
+     * A preview's sentence (P25): its clauses, a map's count ahead of them, the knock-ons the last pushes, the marks it
+     * names after them — an entry pinned, an entry other cases change — and the rows the model guessed.
+     */
+    previewSentence: (p: {
+        clauses: readonly string[]; people?: { n: string; of: string } | undefined; pushes?: string | undefined; marks?: readonly string[] | undefined;
+        guessed?: { keys: string; n: number } | undefined;
+    }) => string;
+    /** The knock-ons a change pushes, after its own clauses (P16, P25) — `pushes Exhibition book from 06:00 to 09:00`. */
+    previewPushes: (p: { pushes: readonly PreviewPushWords[] }) => string;
+    /** An entry the target's `locked` pins, which the change leaves as it stands (P17, P25) — `Market posters is pinned on Press B2`. */
+    previewPinned: (p: { what: string; on: string }) => string;
+    /** An entry the change touches that other cases' chosen options change too (P18, P25) — `1 other case changes Winter brochure too`. */
+    previewAlsoIn: (p: { what: string; n: string; one: boolean }) => string;
+    /**
+     * The sentence of a preview whose change no longer applies (P21, P25): the rows it touches moved after the model's
+     * run, named — the entries it changes, or `whose` shifts it changes — `Stale: the rows changed after this run; the
+     * change to Seed catalogue needs a rerun`, `…; the change to R. Wold's shifts needs a rerun`.
+     */
+    previewStale: (p: { names: string | undefined; whose?: boolean | undefined }) => string;
     /** The sentence of a preview whose option changes nothing, over the rows the recommendation lands on (P4). */
     previewUnchanged: (p: { names: string }) => string;
     /** A person's hours, before → after, or as they stand against their contract — `52 → 40h`, `52→40h`, `52h of 40`. */
     previewHours: (p: { before: string; after: string; same: boolean; contract: string | undefined; compact: boolean }) => string;
     /** An agency's requests in the week — `3 requests`. */
     previewRequests: (p: { n: string; one: boolean }) => string;
+    /**
+     * A map by people's sentence after its count (P5, P25): how many people the change gains or changes shifts for, and
+     * those it leaves fewer — named, else counted — `18 gain or change shifts, R. Wold and G. Ember lose shifts`.
+     */
+    previewShifts: (p: { gain: { n: string; one: boolean } | undefined; lose: { names: string; one: boolean } | { n: string } | undefined }) => string;
     /** A map's rows past the four it shows (P5) — `+ 16 more people`. */
     previewMorePeople: (p: { n: string }) => string;
     /** A map's count of what changes (P5) — `20 of 36`. */
@@ -322,6 +357,9 @@ const guessedText = (head: string, guessed: { keys: string; n: number } | undefi
     (guessed === undefined ? head : `${head}. ${guessed.keys} ${guessed.n === 1 ? "is a low-confidence guess" : "are low-confidence guesses"}`);
 /** What an event does where it moves or is added, in a lanes preview's sentence: `runs on Press A1`, `is held in K-305`, `waits`. */
 const doesText = (verb: LaneVerb, where: string): string => (verb === "runs" ? `runs on ${where}` : verb === "held" ? `is held in ${where}` : "waits");
+/** What an event breaks once the change is made, after its clause (P15): `, where it overlaps Menu cards`, or the check's words. */
+const breachText = (breach: LaneBreach | undefined): string => (breach === undefined ? ""
+    : breach.kind === "overlap" ? `, where it overlaps ${breach.with}` : `, which the check flags: ${breach.text}`);
 
 /** The English table — the default. */
 export const decisionQueueMessages: DecisionQueueMessages = {
@@ -389,15 +427,23 @@ export const decisionQueueMessages: DecisionQueueMessages = {
             case "change": return `${p.who}'s ${p.what} shift on ${p.when} changes`;
         }
     },
-    previewSentence: ({ clauses, people, guessed }) => {
-        const said = clauses.join("; ");
+    previewSentence: ({ clauses, people, pushes, marks, guessed }) => {
+        const said = [`${clauses.join("; ")}${pushes === undefined ? "" : ` and ${pushes}`}`, ...(marks ?? [])].join("; ");
         return guessedText(people === undefined ? said : `${people.n} of ${people.of} people change: ${said}`, guessed);
     },
+    previewPushes: ({ pushes }) => `pushes ${listOf(pushes.map(p => ("onto" in p ? `${p.what} onto ${p.onto} at ${p.start}` : `${p.what} from ${p.was} to ${p.start}`)))}`,
+    previewPinned: ({ what, on }) => `${what} is pinned on ${on}`,
+    previewAlsoIn: ({ what, n, one }) => `${n} other ${one ? "case changes" : "cases change"} ${what} too`,
+    previewStale: ({ names, whose }) => `Stale: the rows changed after this run; the change${names === undefined ? "" : whose === true ? ` to ${names}'s shifts` : ` to ${names}`} needs a rerun`,
     previewUnchanged: ({ names }) => `Nothing changes for ${names}`,
     previewHours: ({ before, after, same, contract, compact }) => (same
         ? contract === undefined ? `${after}h` : `${after}h of ${contract}`
         : compact ? `${before}→${after}h` : `${before} → ${after}h`),
     previewRequests: ({ n, one }) => (one ? `${n} request` : `${n} requests`),
+    previewShifts: ({ gain, lose }) => [
+        gain === undefined ? undefined : `${gain.n} ${gain.one ? "gains or changes" : "gain or change"} shifts`,
+        lose === undefined ? undefined : "names" in lose ? `${lose.names} ${lose.one ? "loses" : "lose"} shifts` : `${lose.n} lose shifts`,
+    ].filter((part): part is string => part !== undefined).join(", "),
     previewMorePeople: ({ n }) => `+ ${n} more people`,
     previewCount: ({ n, of }) => `${n} of ${of}`,
     previewTile: ({ what, when, op, to, knock, locked, breach, shared }) => parts(
@@ -411,9 +457,9 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     previewShared: ({ n }) => `+${n}`,
     previewEvent: (p) => {
         switch (p.kind) {
-            case "move": return `${p.what} leaves ${p.from}${p.overlapped === undefined ? "" : `, where it overlapped ${p.overlapped},`} and ${doesText(p.verb, p.to)} from ${p.start} to ${p.end}`;
-            case "reschedule": return `${p.what} on ${p.on}${p.overlapped === undefined ? "" : `, where it overlapped ${p.overlapped},`} moves to ${p.start}–${p.end}`;
-            case "add": return `${p.what} ${doesText(p.verb, p.on)} from ${p.start} to ${p.end}`;
+            case "move": return `${p.what} leaves ${p.from}${p.overlapped === undefined ? "" : `, where it overlapped ${p.overlapped},`} and ${doesText(p.verb, p.to)} from ${p.start} to ${p.end}${breachText(p.breach)}`;
+            case "reschedule": return `${p.what} on ${p.on}${p.overlapped === undefined ? "" : `, where it overlapped ${p.overlapped},`} moves to ${p.start}–${p.end}${breachText(p.breach)}`;
+            case "add": return `${p.what} ${doesText(p.verb, p.on)} from ${p.start} to ${p.end}${breachText(p.breach)}`;
             case "remove": return `${p.what} leaves ${p.from}`;
             case "change": return `${p.what} on ${p.on} changes`;
         }

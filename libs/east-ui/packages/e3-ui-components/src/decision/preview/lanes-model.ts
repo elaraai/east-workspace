@@ -350,15 +350,32 @@ export interface LaneRow {
 }
 
 /**
- * One clause of the preview's sentence (P25): an event moved to another lane, along its own, added, taken off or changed —
- * moved or added, in its new lane's verb.
+ * One clause of the preview's sentence (P25): an event moved to another lane, along its own — from when it started —
+ * added, taken off or changed; moved or added, in its new lane's verb and with what it breaks once the change is made
+ * (P15); and whether the option knocks it on (P16), which the sentence says after the change's own clauses.
  */
 export type LaneClause =
-    | { readonly kind: "move"; readonly what: string; readonly from: string; readonly to: string; readonly verb: LaneVerb; readonly start: Date; readonly end: Date; readonly overlapped: string | undefined }
-    | { readonly kind: "reschedule"; readonly what: string; readonly on: string; readonly start: Date; readonly end: Date; readonly overlapped: string | undefined }
-    | { readonly kind: "add"; readonly what: string; readonly on: string; readonly verb: LaneVerb; readonly start: Date; readonly end: Date }
+    | {
+        readonly kind: "move"; readonly what: string; readonly from: string; readonly to: string; readonly verb: LaneVerb; readonly start: Date; readonly end: Date;
+        readonly overlapped: string | undefined; readonly breach: LaneBreach | undefined; readonly knock: boolean;
+    }
+    | {
+        readonly kind: "reschedule"; readonly what: string; readonly on: string; readonly was: Date; readonly start: Date; readonly end: Date;
+        readonly overlapped: string | undefined; readonly breach: LaneBreach | undefined; readonly knock: boolean;
+    }
+    | { readonly kind: "add"; readonly what: string; readonly on: string; readonly verb: LaneVerb; readonly start: Date; readonly end: Date; readonly breach: LaneBreach | undefined }
     | { readonly kind: "remove"; readonly what: string; readonly from: string }
     | { readonly kind: "change"; readonly what: string; readonly on: string };
+
+/** An event the sentence names beside what moves (P17, P18, P25): what it is, and where it stands or how many other cases change it. */
+export interface LaneNamed {
+    /** What the sentence names it by. */
+    readonly what: string;
+    /** Where it stands, by its lane's name, for one the target's `locked` pins. */
+    readonly on: string;
+    /** How many other cases change it, for one the change touches. */
+    readonly n: number;
+}
 
 /** What the change does to one resource, for a map (P5): the events it lands there and those it takes off. */
 export interface LaneTally {
@@ -400,6 +417,10 @@ export interface LanesModel {
     readonly rows: readonly LaneRow[];
     /** What moves where, for the sentence. */
     readonly clauses: readonly LaneClause[];
+    /** The events on the lanes the target's `locked` pins and the change leaves as they stand (P17), for the sentence; none while nothing is marked. */
+    readonly pinned: readonly LaneNamed[];
+    /** The events the change touches that other cases' chosen options change too (P18), for the sentence; none while nothing is marked. */
+    readonly shared: readonly LaneNamed[];
     /** What the change does to each resource its events stand on, by the resource as its events name it; empty while nothing is marked. */
     readonly tally: ReadonlyMap<string, LaneTally>;
     /** The new times it gives the events it moves or adds, in the order they start; none while nothing is marked. */
@@ -657,6 +678,8 @@ export function lanesPreview(input: LanesInput): LanesModel {
     });
 
     const clauses: LaneClause[] = [];
+    const pinned: LaneNamed[] = [];
+    const shared: LaneNamed[] = [];
     const tally = new Map<string, Tallied>();
     const landings: LaneLanding[] = [];
     if (marked) {
@@ -668,17 +691,28 @@ export function lanesPreview(input: LanesInput): LanesModel {
             tally.set(resource, made);
             return made;
         };
+        // The pinned events the crop draws as they stand, each once — one a lane a day draws on two days is one event (P17).
+        const pins: LaneEvent[] = [];
+        for (const e of context) {
+            if (e.locked !== true || !lanes.some(lane => stringEqual(lane, e.lane)) || pins.some(held => sameEvent(held, e))) continue;
+            pins.push(e);
+            pinned.push({ what: e.what ?? e.title, on: where(e), n: 0 });
+        }
         for (const key of touched) {
             const b = before.get(key), a = after.get(key);
+            const knock = input.knockOn(key);
             if (b !== undefined && a !== undefined) {
                 const what = a.what ?? a.title;
                 if (moved(b, a)) {
-                    clauses.push({ kind: "move", what, from: where(b), to: where(a), verb: verb(a.lane), start: a.start, end: a.end, overlapped: cleared(b, a) });
+                    clauses.push({ kind: "move", what, from: where(b), to: where(a), verb: verb(a.lane), start: a.start, end: a.end, overlapped: cleared(b, a), breach: breachOf(a), knock });
                 } else if (!samePlace(b, a)) {
-                    clauses.push({ kind: "reschedule", what, on: where(a), start: a.start, end: a.end, overlapped: cleared(b, a) });
+                    clauses.push({ kind: "reschedule", what, on: where(a), was: b.start, start: a.start, end: a.end, overlapped: cleared(b, a), breach: breachOf(a), knock });
                 } else clauses.push({ kind: "change", what, on: where(a) });
             } else if (b !== undefined) clauses.push({ kind: "remove", what: b.what ?? b.title, from: where(b) });
-            else if (a !== undefined) clauses.push({ kind: "add", what: a.what ?? a.title, on: where(a), verb: verb(a.lane), start: a.start, end: a.end });
+            else if (a !== undefined) clauses.push({ kind: "add", what: a.what ?? a.title, on: where(a), verb: verb(a.lane), start: a.start, end: a.end, breach: breachOf(a) });
+            // The other cases changing it (P18).
+            const n = input.shared(key), named = a ?? b;
+            if (n > 0 && named !== undefined) shared.push({ what: named.what ?? named.title, on: where(named), n });
             // What it does to each resource, and the new time it gives the event, for a map.
             if (a !== undefined) {
                 const held = tallyOf(a.resource);
@@ -692,5 +726,5 @@ export function lanesPreview(input: LanesInput): LanesModel {
         landings.sort((x, y) => compareDate(x.start, y.start) || compareString(x.key, y.key));
     }
     const { ticks, grid } = laneTicks(w);
-    return { window: w, ticks, grid, measure, unit: load?.unit ?? "", rows, clauses, tally, landings };
+    return { window: w, ticks, grid, measure, unit: load?.unit ?? "", rows, clauses, pinned, shared, tally, landings };
 }

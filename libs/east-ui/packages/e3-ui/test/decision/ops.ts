@@ -8,22 +8,23 @@
  * — the repo's own example records — whose models propose changes to each.
  * Its cases are one record, every kind of decision in it: an option's change
  * is a variant, its tag the kind of decision and its value a patch of the
- * record that kind changes, built with East's own diff of the rows it touches.
- * Its verdicts are another record, which the queue writes; the price list is a
- * record no builder draws. Beside them, the smallest queue's: a record of the
- * model's proposals, each one decision with no alternatives, and its
- * verdicts. Every name and figure is generated.
+ * record that kind changes, built with East's own diff of the rows it touches
+ * (`changes.ts`). Its verdicts are another record, which the queue writes; the
+ * price list is a record no builder draws. Beside them, the smallest queue's:
+ * a record of the model's proposals, each one decision with no alternatives,
+ * and its verdicts. Every name and figure is generated.
  */
 import {
-    BooleanType, DateTimeType, DictType, East, FloatType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet, StringType, StructType,
-    VariantType, compareFor, diffFor, none, some, variant, type ValueTypeOf,
+    BooleanType, DateTimeType, DictType, East, FloatType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
+    VariantType, diffFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { KilnBin, yardArrivals } from "../allocation/kiln-yard.js";
+import { KilnBin } from "../allocation/kiln-yard.js";
 import { CalendarService, calendarServices } from "../calendar/calendar.examples.js";
 import { PrintJob, planEventJobs } from "../plan/plan-events.examples.js";
 import { WarehouseDuty, warehouseDuties } from "../roster/warehouse.js";
-import { OptimiseWorkOrder, optimiseWorkOrderRows } from "../sheet/optimise.examples.js";
+import { OptimiseWorkOrder } from "../sheet/optimise.examples.js";
+import { binPatch, byString, dutiesPatch, jobsPatch, ld2235Bin, option, ordersPatch, servicesPatch } from "./changes.js";
 
 // ============================================================================
 // The app's records (§3.1)
@@ -87,13 +88,10 @@ export const OpsVerdict = StructType({
     note: OptionType(StringType),
 });
 
-const byString = compareFor(StringType);
 /** The price list's rows, by region. */
 type PriceRow = ValueTypeOf<typeof ListPrice>;
 /** The price list's patch, as a model diffs the rows it touches. */
 const diffPrices = diffFor(DictType(StringType, ListPrice));
-/** The work orders' patch, as a model diffs the rows it touches. */
-const diffOrders = diffFor(DictType(StringType, OptimiseWorkOrder));
 /** When this quarter's prices took effect. */
 const pricesFrom = new Date("2028-01-01T00:00:00Z");
 
@@ -110,73 +108,12 @@ function pricesPatch(key: string, price: number, demand: number) {
     const row = listPriceRows.get(key)!;
     return diffPrices(new SortedMap([[key, row]], byString), new SortedMap([[key, { ...row, price, demand }]], byString));
 }
-/** The work orders' patch scheduling ready orders, each due on its date: the patch of those rows alone. */
-function ordersPatch(dues: readonly (readonly [string, Date])[]) {
-    const before = new SortedMap(dues.map(([key]) => [key, optimiseWorkOrderRows.get(key)!] as const), byString);
-    const after = new SortedMap(dues.map(([key, due]) => [key, { ...optimiseWorkOrderRows.get(key)!, status: "Scheduled", due: some(due) }] as const), byString);
-    return diffOrders(before, after);
-}
-/** A duty of the warehouse's rota. */
-type DutyRow = ValueTypeOf<typeof WarehouseDuty>;
-/** The duties' patch, as a model diffs the rows it touches. */
-const diffDuties = diffFor(DictType(StringType, WarehouseDuty));
-/**
- * The duties' patch changing the duties given — each to the row it becomes, `undefined` where the model removes it —
- * from the rows as the rota holds them: the patch of those rows alone, a key the rota has not a new duty.
- */
-function dutiesPatch(changes: readonly (readonly [string, DutyRow | undefined])[]) {
-    const before = new SortedMap(changes.flatMap(([key]) => {
-        const row = warehouseDuties.get(key);
-        return row === undefined ? [] : [[key, row] as const];
-    }), byString);
-    const after = new SortedMap(changes.flatMap(([key, row]) => (row === undefined ? [] : [[key, row] as const])), byString);
-    return diffDuties(before, after);
-}
-/** A print job of the shop's. */
-type JobRow = ValueTypeOf<typeof PrintJob>;
-/** The jobs' patch, as a model diffs the rows it touches. */
-const diffJobs = diffFor(DictType(StringType, PrintJob));
 /** The print works' jobs, as the shop's record holds them. */
 const printJobs = planEventJobs.default!;
-/** The jobs' patch changing one job to the row it becomes, from the row as the shop's record holds it: the patch of that row alone. */
-function jobsPatch(key: string, row: JobRow) {
-    return diffJobs(new SortedMap([[key, printJobs.get(key)!]], byString), new SortedMap([[key, row]], byString));
-}
 /** J-3007's loyalty cards on Press B2, 10:00–13:00 on the 20th: two hours over J-3006's market posters there. */
 const loyaltyCards = printJobs.get("J-3007")!;
-/** A maintenance visit of the workshop's. */
-type ServiceRow = ValueTypeOf<typeof CalendarService>;
-/** The maintenance's patch, as a model diffs the rows it touches. */
-const diffServices = diffFor(DictType(StringType, CalendarService));
-/** The workshop's maintenance, as its record holds it. */
-const workshopServices = calendarServices.default!;
-/** The maintenance's patch changing one visit to the row it becomes, from the row as the record holds it: the patch of that row alone. */
-function servicesPatch(key: string, row: ServiceRow) {
-    return diffServices(new SortedMap([[key, workshopServices.get(key)!]], byString), new SortedMap([[key, row]], byString));
-}
 /** Press 1's preventive maintenance, 09:00–11:00 on Thursday the 1st: an hour over the mounting brackets' run there. */
-const pressOneService = workshopServices.get("service1")!;
-/** A bin of the kiln yard's. */
-type BinRow = ValueTypeOf<typeof KilnBin>;
-/** The bins' patch, as a model diffs the rows it touches. */
-const diffBins = diffFor(DictType(StringType, KilnBin));
-/** The bins' patch booking a new bin under the key given: the patch of that row alone. */
-function binPatch(key: string, row: BinRow) {
-    return diffBins(new SortedMap<string, BinRow>([], byString), new SortedMap([[key, row]], byString));
-}
-/** LD-2235, waiting on the yard: 8 m³ of MC10, grade P1, dried 9 days, due Tue 11 May 2027 and taken from the 10th to the 13th. */
-const ld2235 = yardArrivals.get("LD-2235")!;
-/**
- * LD-2235's bin as the board books one: in bay B-1 at the time given, the whole load in the one kiln given, held the
- * days it dries; the yard's own fields its load's, as the kiln yard's `values` give a booked bin them.
- */
-function ld2235Bin(kiln: string, at: Date): BinRow {
-    return {
-        bay: "B-1", at, load: some(ld2235.code), m3: ld2235.m3, spec: some(ld2235.spec), dryFor: variant("days", ld2235.dryingDays),
-        kilns: new SortedMap([[kiln, ld2235.m3]], byString), specBooked: ld2235.spec, specMeasured: ld2235.spec,
-        gradeBooked: ld2235.grade.substring(0, 1), gradeMeasured: ld2235.grade, instruction: ld2235.instruction,
-    };
-}
+const pressOneService = calendarServices.default!.get("service1")!;
 /** Bay B-1's free slots: Tue 11 May 2027 at 14:15, after its 13:15 bin, and Wed 12 at 07:15, after its 06:15. */
 const tue11 = new Date("2027-05-11T14:15:00Z");
 const wed12 = new Date("2027-05-12T07:15:00Z");
@@ -190,14 +127,6 @@ const saturdayLateEnd = new Date("2028-03-11T22:00:00Z");
 const mon13 = new Date("2028-03-13T00:00:00Z");
 const tue14 = new Date("2028-03-14T00:00:00Z");
 const wed15 = new Date("2028-03-15T00:00:00Z");
-/** An option of the app's, its optional parts left out. */
-function option(row: Pick<ValueTypeOf<typeof OpsOption>, "label" | "title" | "summary" | "detail" | "value" | "change">
-    & Partial<ValueTypeOf<typeof OpsOption>>): ValueTypeOf<typeof OpsOption> {
-    return {
-        note: none, confidence: none, question: none, warn: none, refused: none,
-        knockOn: new SortedSet<string>([], byString), guesses: new SortedMap<string, number>([], byString), ...row,
-    };
-}
 
 /**
  * The cases the models left: who takes J. Tansy's Friday late, and a request for Saturday's open late — routine — on
@@ -249,16 +178,16 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
             ["1-a1", option({ label: "Press A1", title: "Move job J-3007 from Press B2 to Press A1", summary: "A1 · 11:30–14:30",
                 detail: "J-3007 runs on A1 11:30–14:30, clearing the 2h overlap on B2.", note: some("same stock, no wash-up"), value: 6_200,
                 confidence: some(0.9),
-                change: variant("print", jobsPatch("J-3007", { ...loyaltyCards, press: some("a1"),
-                    start: some(new Date("2026-10-20T11:30:00Z")), end: some(new Date("2026-10-20T14:30:00Z")) })) })],
+                change: variant("print", jobsPatch(printJobs, [["J-3007", { ...loyaltyCards, press: some("a1"),
+                    start: some(new Date("2026-10-20T11:30:00Z")), end: some(new Date("2026-10-20T14:30:00Z")) }]])) })],
             ["2-delay", option({ label: "12:00 on B2", title: "Start job J-3007 at 12:00 on Press B2", summary: "B2 · 12:00–15:00",
                 detail: "J-3007 runs on B2 12:00–15:00, 2h before the 17:00 van.", note: some("clears the overlap · ends 15:00"), value: 4_100,
                 confidence: some(0.8),
-                change: variant("print", jobsPatch("J-3007", { ...loyaltyCards,
-                    start: some(new Date("2026-10-20T12:00:00Z")), end: some(new Date("2026-10-20T15:00:00Z")) })) })],
+                change: variant("print", jobsPatch(printJobs, [["J-3007", { ...loyaltyCards,
+                    start: some(new Date("2026-10-20T12:00:00Z")), end: some(new Date("2026-10-20T15:00:00Z")) }]])) })],
             ["3-a2", option({ label: "Press A2", title: "Move job J-3007 from Press B2 to Press A2", summary: "A2 · 10:00–13:00",
                 detail: "J-3007 runs on A2 10:00–13:00.", value: 0, refused: some("takes no board stock"),
-                change: variant("print", jobsPatch("J-3007", { ...loyaltyCards, press: some("a2") })) })],
+                change: variant("print", jobsPatch(printJobs, [["J-3007", { ...loyaltyCards, press: some("a2") }]])) })],
         ], byString),
     }],
     ["workshop-press1", {
