@@ -23,8 +23,9 @@
  *   the window, so an edge can split a bar;
  * - the now line, 1px of `brand.solid`, the track's full height;
  * - the handles: an outlined tab on each edge, in a zone 12 wide (24 on a
- *   coarse pointer) that sits outside its edge while the window is narrower
- *   than its two zones;
+ *   coarse pointer); while the window is narrower than its two zones, each
+ *   zone sits beside its edge — outside it, or against the track's end just
+ *   inside it — its tab drawn over it, so a press inside the window moves it;
  * - the hover's Tooltip, 8 above the track over the bucket under the
  *   pointer: its bucket, then its count.
  *
@@ -41,7 +42,8 @@ import { Box, Portal, Tooltip, useSlotRecipe } from "@chakra-ui/react";
 import { useDrag } from "@use-gesture/react";
 import { useCoarsePointer, useContainerWidth } from "../contracts/adaptive.js";
 import {
-    BRUSH_HANDLE_COARSE_PX, BRUSH_HANDLE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushHitTest, brushKey, brushRelease,
+    BRUSH_HANDLE_COARSE_PX, BRUSH_HANDLE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushHitTest, brushKey, brushNarrow, brushRelease,
+    brushZoneSides, type BrushZoneSide,
     type BrushBar, type BrushBucketSpan, type BrushDrag, type BrushKeyTarget,
 } from "./brush-math.js";
 
@@ -135,13 +137,13 @@ function Bars({ bars, styles, dim, clip }: { bars: readonly BrushBar[]; styles: 
     );
 }
 
-/** A handle: an outlined tab on its edge, a slider, its two grips. */
-function Handle({ styles, edge, at, pressed, name, text, onKeyDown }: {
-    styles: Styles; edge: "lo" | "hi"; at: number; pressed: boolean; name: string; text: string;
+/** A handle: an outlined tab on its edge — beside a narrow window's, over its zone — a slider, its two grips. */
+function Handle({ styles, edge, at, side, pressed, name, text, onKeyDown }: {
+    styles: Styles; edge: "lo" | "hi"; at: number; side: BrushZoneSide | undefined; pressed: boolean; name: string; text: string;
     onKeyDown: (e: KeyboardEvent<HTMLElement>) => void;
 }) {
     return (
-        <Box css={styles.zone} data-brush-zone="" data-edge={edge} left={`${at * 100}%`}>
+        <Box css={styles.zone} data-brush-zone="" data-edge={edge} data-side={side} left={`${at * 100}%`}>
             <Box css={styles.handle} data-brush-handle={edge} data-pressed={pressed ? "" : undefined}
                 role="slider" tabIndex={0} aria-label={name} aria-orientation="horizontal"
                 aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(at * 100)} aria-valuetext={text}
@@ -183,7 +185,7 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
         const x = clientX - rect.left;
         if (first) {
             const w = win !== undefined ? { lo: win.from * rect.width, hi: win.to * rect.width } : undefined;
-            const d: DragState = { mode: brushHitTest(x, w, handlePx), start: x, current: x, width: rect.width, win: w };
+            const d: DragState = { mode: brushHitTest(x, w, rect.width, handlePx), start: x, current: x, width: rect.width, win: w };
             // Seed the preview channel at the origin window, so the first
             // fire only happens once the snapped draft actually LEAVES it.
             if (win !== undefined) { d.origin = win; d.preview = win; }
@@ -251,8 +253,10 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
         : drag.mode === "resize-lo" ? (drag.current > drag.win.hi ? "hi" : "lo")
             : drag.mode === "resize-hi" ? (drag.current < drag.win.lo ? "lo" : "hi")
                 : undefined;
-    // Narrower than its two zones side by side, each zone sits outside its edge (brush-math's hit test).
-    const narrow = shown !== undefined && trackPx > 0 && (shown.to - shown.from) * trackPx < 4 * handlePx;
+    // Narrower than its two zones side by side, each zone sits beside its edge, its tab over it (brush-math's hit test).
+    const shownPx = shown !== undefined && trackPx > 0 ? { lo: shown.from * trackPx, hi: shown.to * trackPx } : undefined;
+    const narrow = shownPx !== undefined && brushNarrow(shownPx, handlePx);
+    const sides = narrow ? brushZoneSides(shownPx, trackPx, handlePx) : undefined;
 
     const read = buckets?.(trackPx);
     const list = read === undefined || read === "loading" ? [] : read;
@@ -305,14 +309,14 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
             )}
             {shown !== undefined && (
                 <>
-                    <Handle styles={styles} edge="lo" at={shown.from} pressed={pressed === "lo"} name={said.start} text={text(shown.from)}
+                    <Handle styles={styles} edge="lo" at={shown.from} side={sides?.lo} pressed={pressed === "lo"} name={said.start} text={text(shown.from)}
                         onKeyDown={keyOn("lo")} />
                     <Box css={styles.window} data-brush-window="" left={`${shown.from * 100}%`} width={`${(shown.to - shown.from) * 100}%`}
                         role="slider" tabIndex={0} aria-label={said.window} aria-orientation="horizontal"
                         aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(shown.from * 100)}
                         aria-valuetext={`${text(shown.from)} – ${text(shown.to)}`}
                         onKeyDown={keyOn("window")} />
-                    <Handle styles={styles} edge="hi" at={shown.to} pressed={pressed === "hi"} name={said.end} text={text(shown.to)}
+                    <Handle styles={styles} edge="hi" at={shown.to} side={sides?.hi} pressed={pressed === "hi"} name={said.end} text={text(shown.to)}
                         onKeyDown={keyOn("hi")} />
                 </>
             )}

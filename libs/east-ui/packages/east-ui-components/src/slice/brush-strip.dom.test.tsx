@@ -176,9 +176,16 @@ describe("the horizon brush's hover and gestures (#1438)", () => {
         expect(q("[data-brush-handle][data-pressed]")).toHaveLength(0);
     });
 
-    test("a window narrower than its two zones marks the track narrow, so each zone sits outside its edge", () => {
-        expect(strip({ window: { from: 0.5, to: 0.55 } }).track.hasAttribute("data-narrow")).toBe(true);
-        cleanup();
-        expect(strip({ window: { from: 0.5, to: 0.6 } }).track.hasAttribute("data-narrow")).toBe(false);
+    test("a window narrower than its two zones marks the track narrow and sets each zone, its tab over it, beside its edge — outside it, or against the track's end just inside it", () => {
+        const placed = (from: number, to: number) => {
+            const { q, track } = strip({ window: { from, to } });
+            const read = { narrow: track.hasAttribute("data-narrow"), sides: [...q("[data-brush-zone]")].map((zone) => zone.getAttribute("data-side")) };
+            cleanup();
+            return read;
+        };
+        expect(placed(0.5, 0.55)).toEqual({ narrow: true, sides: ["out", "out"] });
+        // 388–396px of 400: no room for the end's zone outside.
+        expect(placed(0.97, 0.99)).toEqual({ narrow: true, sides: ["out", "in"] });
+        expect(placed(0.5, 0.6)).toEqual({ narrow: false, sides: [null, null] });
     });
 });

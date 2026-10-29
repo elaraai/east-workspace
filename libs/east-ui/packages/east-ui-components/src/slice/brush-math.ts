@@ -59,23 +59,62 @@ export const BRUSH_CLICK_PX = 5;
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
+/** Where a narrow window's edge zone sits: outside its edge, or just inside it (#1438). */
+export type BrushZoneSide = "out" | "in";
+
+/**
+ * Whether a window is narrower than its two edge zones side by side, which
+ * then sit beside its edges rather than on them (#1438).
+ *
+ * @param win - The window in track px
+ * @param handlePx - Half-width of each edge zone
+ * @returns Whether it is narrow
+ */
+export function brushNarrow(win: BrushWindowPx, handlePx: number = BRUSH_HANDLE_PX): boolean {
+    return win.hi - win.lo < 4 * handlePx;
+}
+
+/**
+ * Where a narrow window's two edge zones sit, the strip drawing each tab
+ * over its zone (#1438): outside its edge, so a press inside the window moves
+ * it, unless the track's end leaves the zone no room, where it sits just
+ * inside — nothing past the track.
+ *
+ * @param win - The window in track px
+ * @param width - The track's width (px)
+ * @param handlePx - Half-width of each edge zone
+ * @returns Each edge's side
+ */
+export function brushZoneSides(win: BrushWindowPx, width: number, handlePx: number = BRUSH_HANDLE_PX): { lo: BrushZoneSide; hi: BrushZoneSide } {
+    return {
+        lo: win.lo - 2 * handlePx >= 0 ? "out" : "in",
+        hi: win.hi + 2 * handlePx <= width ? "out" : "in",
+    };
+}
+
 /**
  * Resolves which gesture a pointer-down at `x` starts against the applied
  * window. Edge hot zones win over the window interior; no window (or a
  * pointer outside it) means a fresh draw. A window narrower than its two
- * zones side by side sets each zone outside its edge, so a press inside it
- * still moves it (#1438).
+ * zones side by side sets each zone beside its edge ({@link brushZoneSides}),
+ * so a press inside it still moves it (#1438).
  *
  * @param x - Pointer-down position (track px)
  * @param win - The applied window in track px, if any
+ * @param width - The track's width (px)
  * @param handlePx - Half-width of each edge hot zone
  * @returns The drag mode the gesture runs in
  */
-export function brushHitTest(x: number, win: BrushWindowPx | undefined, handlePx: number = BRUSH_HANDLE_PX): BrushMode {
+export function brushHitTest(x: number, win: BrushWindowPx | undefined, width: number, handlePx: number = BRUSH_HANDLE_PX): BrushMode {
     if (win === undefined) return "draw";
-    if (win.hi - win.lo < 4 * handlePx) {
-        if (x >= win.lo - 2 * handlePx && x <= win.lo) return "resize-lo";
-        if (x >= win.hi && x <= win.hi + 2 * handlePx) return "resize-hi";
+    if (brushNarrow(win, handlePx)) {
+        const sides = brushZoneSides(win, width, handlePx);
+        const zone = 2 * handlePx;
+        // A zone inside the window reaches no further than its other edge.
+        const [loFrom, loTo] = sides.lo === "out" ? [win.lo - zone, win.lo] : [win.lo, Math.min(win.lo + zone, win.hi)];
+        const [hiFrom, hiTo] = sides.hi === "out" ? [win.hi, win.hi + zone] : [Math.max(win.hi - zone, win.lo), win.hi];
+        if (x >= loFrom && x <= loTo) return "resize-lo";
+        if (x >= hiFrom && x <= hiTo) return "resize-hi";
         return x > win.lo && x < win.hi ? "move" : "draw";
     }
     if (Math.abs(x - win.lo) <= handlePx) return "resize-lo";

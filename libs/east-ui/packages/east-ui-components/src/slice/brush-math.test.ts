@@ -11,7 +11,7 @@
 
 import { describe, test, expect } from "vitest";
 import {
-    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushHitTest, brushKey, brushRelease, type BrushDrag,
+    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushHitTest, brushKey, brushRelease, brushZoneSides, type BrushDrag,
 } from "./brush-math.js";
 
 const WIDTH = 400;
@@ -23,51 +23,71 @@ const drag = (partial: Partial<BrushDrag>): BrushDrag => ({
 
 describe("brushHitTest — resolves the gesture at pointer-down (#192)", () => {
     test("no applied window: everywhere is a draw", () => {
-        expect(brushHitTest(150, undefined)).toBe("draw");
-        expect(brushHitTest(0, undefined)).toBe("draw");
+        expect(brushHitTest(150, undefined, WIDTH)).toBe("draw");
+        expect(brushHitTest(0, undefined, WIDTH)).toBe("draw");
     });
 
     test("inside the window is a move; outside is a draw", () => {
-        expect(brushHitTest(150, WIN)).toBe("move");
-        expect(brushHitTest(50, WIN)).toBe("draw");
-        expect(brushHitTest(300, WIN)).toBe("draw");
+        expect(brushHitTest(150, WIN, WIDTH)).toBe("move");
+        expect(brushHitTest(50, WIN, WIDTH)).toBe("draw");
+        expect(brushHitTest(300, WIN, WIDTH)).toBe("draw");
     });
 
     test("edge hot zones win over the interior: 12px, centred on each edge, a press within 6 of it (#1438)", () => {
-        expect(brushHitTest(100, WIN)).toBe("resize-lo");
-        expect(brushHitTest(94, WIN)).toBe("resize-lo");   // outside edge
-        expect(brushHitTest(106, WIN)).toBe("resize-lo");  // inside edge
-        expect(brushHitTest(200, WIN)).toBe("resize-hi");
-        expect(brushHitTest(206, WIN)).toBe("resize-hi");
-        expect(brushHitTest(194, WIN)).toBe("resize-hi");
-        expect(brushHitTest(107, WIN)).toBe("move");
-        expect(brushHitTest(93, WIN)).toBe("draw");
+        expect(brushHitTest(100, WIN, WIDTH)).toBe("resize-lo");
+        expect(brushHitTest(94, WIN, WIDTH)).toBe("resize-lo");   // outside edge
+        expect(brushHitTest(106, WIN, WIDTH)).toBe("resize-lo");  // inside edge
+        expect(brushHitTest(200, WIN, WIDTH)).toBe("resize-hi");
+        expect(brushHitTest(206, WIN, WIDTH)).toBe("resize-hi");
+        expect(brushHitTest(194, WIN, WIDTH)).toBe("resize-hi");
+        expect(brushHitTest(107, WIN, WIDTH)).toBe("move");
+        expect(brushHitTest(93, WIN, WIDTH)).toBe("draw");
     });
 
     test("a coarse pointer's zones are 24px: a press within 12 of an edge (#1438)", () => {
-        expect(brushHitTest(88, WIN, BRUSH_HANDLE_COARSE_PX)).toBe("resize-lo");
-        expect(brushHitTest(112, WIN, BRUSH_HANDLE_COARSE_PX)).toBe("resize-lo");
-        expect(brushHitTest(113, WIN, BRUSH_HANDLE_COARSE_PX)).toBe("move");
-        expect(brushHitTest(212, WIN, BRUSH_HANDLE_COARSE_PX)).toBe("resize-hi");
-        expect(brushHitTest(213, WIN, BRUSH_HANDLE_COARSE_PX)).toBe("draw");
+        expect(brushHitTest(88, WIN, WIDTH, BRUSH_HANDLE_COARSE_PX)).toBe("resize-lo");
+        expect(brushHitTest(112, WIN, WIDTH, BRUSH_HANDLE_COARSE_PX)).toBe("resize-lo");
+        expect(brushHitTest(113, WIN, WIDTH, BRUSH_HANDLE_COARSE_PX)).toBe("move");
+        expect(brushHitTest(212, WIN, WIDTH, BRUSH_HANDLE_COARSE_PX)).toBe("resize-hi");
+        expect(brushHitTest(213, WIN, WIDTH, BRUSH_HANDLE_COARSE_PX)).toBe("draw");
     });
 
     test("a window under 24px wide sets each zone outside its edge, and a press inside it moves it (#1438)", () => {
         const narrow = { lo: 100, hi: 110 };
-        expect(brushHitTest(100, narrow)).toBe("resize-lo");
-        expect(brushHitTest(88, narrow)).toBe("resize-lo");
-        expect(brushHitTest(87, narrow)).toBe("draw");
-        expect(brushHitTest(101, narrow)).toBe("move");
-        expect(brushHitTest(109, narrow)).toBe("move");
-        expect(brushHitTest(110, narrow)).toBe("resize-hi");
-        expect(brushHitTest(122, narrow)).toBe("resize-hi");
-        expect(brushHitTest(123, narrow)).toBe("draw");
+        expect(brushHitTest(100, narrow, WIDTH)).toBe("resize-lo");
+        expect(brushHitTest(88, narrow, WIDTH)).toBe("resize-lo");
+        expect(brushHitTest(87, narrow, WIDTH)).toBe("draw");
+        expect(brushHitTest(101, narrow, WIDTH)).toBe("move");
+        expect(brushHitTest(109, narrow, WIDTH)).toBe("move");
+        expect(brushHitTest(110, narrow, WIDTH)).toBe("resize-hi");
+        expect(brushHitTest(122, narrow, WIDTH)).toBe("resize-hi");
+        expect(brushHitTest(123, narrow, WIDTH)).toBe("draw");
         // A coarse pointer's, under 48px wide, the same with its 24px zones.
         const touch = { lo: 100, hi: 140 };
-        expect(brushHitTest(76, touch, BRUSH_HANDLE_COARSE_PX)).toBe("resize-lo");
-        expect(brushHitTest(120, touch, BRUSH_HANDLE_COARSE_PX)).toBe("move");
-        expect(brushHitTest(164, touch, BRUSH_HANDLE_COARSE_PX)).toBe("resize-hi");
-        expect(brushHitTest(165, touch, BRUSH_HANDLE_COARSE_PX)).toBe("draw");
+        expect(brushHitTest(76, touch, WIDTH, BRUSH_HANDLE_COARSE_PX)).toBe("resize-lo");
+        expect(brushHitTest(120, touch, WIDTH, BRUSH_HANDLE_COARSE_PX)).toBe("move");
+        expect(brushHitTest(164, touch, WIDTH, BRUSH_HANDLE_COARSE_PX)).toBe("resize-hi");
+        expect(brushHitTest(165, touch, WIDTH, BRUSH_HANDLE_COARSE_PX)).toBe("draw");
+    });
+
+    test("a narrow window against the track's end sets that edge's zone just inside it, no further than the other edge: nothing past the track (#1438)", () => {
+        // 10px wide, 4px from the start: no room for its start's zone outside.
+        const start = { lo: 4, hi: 14 };
+        expect(brushZoneSides(start, WIDTH)).toEqual({ lo: "in", hi: "out" });
+        expect(brushHitTest(4, start, WIDTH)).toBe("resize-lo");
+        expect(brushHitTest(13, start, WIDTH)).toBe("resize-lo");
+        expect(brushHitTest(20, start, WIDTH)).toBe("resize-hi");
+        expect(brushHitTest(2, start, WIDTH)).toBe("draw");
+        expect(brushHitTest(27, start, WIDTH)).toBe("draw");
+        // 10px wide, 4px from the end: its end's zone inside, its start's outside.
+        const end = { lo: 386, hi: 396 };
+        expect(brushZoneSides(end, WIDTH)).toEqual({ lo: "out", hi: "in" });
+        expect(brushHitTest(380, end, WIDTH)).toBe("resize-lo");
+        expect(brushHitTest(387, end, WIDTH)).toBe("resize-hi");
+        expect(brushHitTest(396, end, WIDTH)).toBe("resize-hi");
+        expect(brushHitTest(398, end, WIDTH)).toBe("draw");
+        // With room on both sides, both outside.
+        expect(brushZoneSides({ lo: 100, hi: 110 }, WIDTH)).toEqual({ lo: "out", hi: "out" });
     });
 });
 

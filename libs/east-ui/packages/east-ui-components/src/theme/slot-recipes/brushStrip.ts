@@ -24,12 +24,13 @@
  *   move cursor and its focus ring, `focusInset`, and draws nothing else.
  * - **zone** — an edge's invisible resize zone, 12 wide (24 on a coarse
  *   pointer), centred on its edge, in lockstep with `brush-math`'s
- *   `BRUSH_HANDLE_PX`; a narrow window (`data-narrow` on the track) sets
- *   each outside its edge.
+ *   `BRUSH_HANDLE_PX`; a narrow window's sits beside its edge (`data-side`,
+ *   `brushZoneSides`): outside it, or against the track's end just inside.
  * - **handle** — an outlined tab, 9 wide, 2 in from the track's top and
- *   bottom, centred on its edge: `bg.surface` fill, a 1px `brand.solid`
- *   border and two 1px × 10 **grip**s in the same ink, a 1px `bg.surface`
- *   outline, so it reads on any bar. Hover `bg.canvas` with `brandPressed`
+ *   bottom, centred on its edge — beside a narrow window's, over its zone
+ *   against the edge: `bg.surface` fill, a 1px `brand.solid` border and two
+ *   1px × 10 **grip**s in the same ink, a 1px `bg.surface` outline, so it
+ *   reads on any bar. Hover `bg.canvas` with `brandPressed`
  *   ink; pressed `brandTint` with `brandPressed`; focus its ring, `focus`.
  * - **anchor** — the hovered bucket's slot, which the Tooltip stands 8 above.
  *
@@ -110,8 +111,11 @@ export const brushStripSlotRecipe = defineSlotRecipe({
             transform: "translateX(-50%)",
             cursor: "ew-resize",
             _coarse: { width: "24px" },
-            "&[data-edge='lo']": { "[data-narrow] > &": { transform: "translateX(-100%)" } },
-            "&[data-edge='hi']": { "[data-narrow] > &": { transform: "none" } },
+            // Beside a narrow window's edge: outside it, or against the track's end just inside it.
+            "&[data-side='out'][data-edge='lo']": { transform: "translateX(-100%)" },
+            "&[data-side='in'][data-edge='hi']": { transform: "translateX(-100%)" },
+            "&[data-side='out'][data-edge='hi']": { transform: "none" },
+            "&[data-side='in'][data-edge='lo']": { transform: "none" },
         },
         handle: {
             position: "absolute",
@@ -134,9 +138,11 @@ export const brushStripSlotRecipe = defineSlotRecipe({
             outlineWidth: "1px",
             outlineStyle: "solid",
             outlineColor: "bg.surface",
-            // On a narrow window its zone sits outside its edge; the tab stays on the edge.
-            "[data-narrow] > [data-edge='lo'] > &": { left: "100%" },
-            "[data-narrow] > [data-edge='hi'] > &": { left: "0" },
+            // Beside a narrow window's edge, drawn over its zone against the edge: what is drawn is what is grabbed.
+            "[data-side='out'][data-edge='lo'] > &": { left: "100%", transform: "translateX(-100%)" },
+            "[data-side='in'][data-edge='hi'] > &": { left: "100%", transform: "translateX(-100%)" },
+            "[data-side='out'][data-edge='hi'] > &": { left: "0", transform: "none" },
+            "[data-side='in'][data-edge='lo'] > &": { left: "0", transform: "none" },
             "[data-brush-zone]:hover > &": { color: "brandPressed", background: "bg.canvas" },
             "&[data-pressed]": { color: "brandPressed", background: "brandTint" },
             _focusVisible: { boxShadow: "focus" },
