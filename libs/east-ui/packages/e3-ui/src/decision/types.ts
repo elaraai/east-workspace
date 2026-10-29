@@ -267,7 +267,9 @@ export type DecisionPointType = typeof DecisionPointType;
  * @property calendar - The Calendar's event kinds and resource kinds as its payload carries them — a paged resource
  *   kind's resources a window at a time through `paged` — the week's first day, and the slot of the kind the tags patch
  * @property allocation - The Allocation's bin kind, its lanes, resources and arrivals, its slot spacing, the app's check, its rules and its nouns
- * @property sheet - The Sheet's payload over the record
+ * @property sheet - The Sheet's payload over the record, and the queue's own session over it with its read by key — whole
+ *   rows, as a record target's side holds them, which Apply drafts a change's rows into: the Sheet's own drafts a field at
+ *   a time
  * @property record - A record no builder draws: its side, its rows read whole — `none` for one read by key through
  *   `entries` — its label, its measure and the field it groups by
  * @property zones - Areas on a grid, each in a zone: their side, every area read whole, each one's zone, its place and
@@ -294,7 +296,7 @@ export const DecisionTargetKindType = VariantType({
         rules: A.AllocationRulesType,
         labels: AllocationLabelsType,
     }),
-    sheet: StructType({ sheet: SheetPayloadType }),
+    sheet: StructType({ sheet: SheetPayloadType, editing: EditingType, entries: OptionType(ScheduleEntriesType) }),
     record: StructType({
         ...RecordSideFields,
         rows: OptionType(FunctionType([], OptionType(DictType(StringType, BlobType)))),

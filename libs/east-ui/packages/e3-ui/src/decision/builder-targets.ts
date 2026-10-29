@@ -37,6 +37,7 @@ import { scheduleCheck, scheduleTitled } from "../schedule/index.js";
 import { checkSchedulePagedEventKinds, checkSchedulePagedKinds, checkedScheduleTilings } from "../schedule/cell-checks.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
+import { scheduleRecordSession } from "../schedule/session.js";
 import { checkEntries, typeText } from "../schedule/window.js";
 import type { SheetColumnSpec } from "../sheet/columns.js";
 import { createSheetPayload, type SheetRecordHandle } from "../sheet/sheet.js";
@@ -503,8 +504,9 @@ export interface DecisionSheetTargetConfig<R extends StructType> extends Decisio
  * @param binding - The record, `Record.bind(record, [e3.mutation.patch(record)])`, as `<Sheet record>` takes it
  * @param config - Its names, the columns, and `entries` to read the touched rows by key
  * @returns The target, for the change role's `of`
- * @throws {Error} Naming what to give: a record bound read only, rows that are no structs, `entries` that are no paged
- *   read of the record's own entries, and — as the queue builds the target — the columns as `<Sheet>` refuses them
+ * @throws {Error} Naming what to give: a record bound read only or without its patch door, rows that are no structs,
+ *   `entries` that are no paged read of the record's own entries, and — as the queue builds the target — the columns as
+ *   `<Sheet>` refuses them
  *
  * @example
  * ```tsx
@@ -536,11 +538,16 @@ export function decisionQueueSheetTarget<K extends EastType, R extends StructTyp
     const keyType = recordType.key as EastType;
     const rowType = recordType.value as StructType;
     const entries = given.entries === undefined ? undefined : checkEntries(given.entries, keyType, rowType, `${where}: \`entries\``);
+    // The queue's own session over the record — whole rows, as a record target's side holds it — which Apply drafts a
+    // change's rows into: the Sheet's own drafts a field at a time. Read by key through `entries`, or whole.
+    const session = asTarget(where, () => scheduleRecordSession(binding, keyType, rowType, entries).build());
     return decisionTarget(where, given, keyType, rowType, undefined, undefined, (key) => East.value(variant("sheet", {
         // The Sheet over the record, its Details the form Modify edits a row in; named for the queue's state, apart from
         // a <Sheet> beside it.
         sheet: asTarget(where, () => createSheetPayload({
             record: binding, ...(entries === undefined ? {} : { window: entries }), columns: given.columns, inspector: true, name: key,
         })),
+        editing: session.editing,
+        entries: session.entries,
     }) as never, DecisionTargetKindType) as ExprType<typeof DecisionTargetKindType>);
 }

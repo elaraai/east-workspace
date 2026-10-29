@@ -34,14 +34,17 @@
  * set: a text empty, a select or a reference with nothing chosen, any other
  * with a Set beside it (#1188). A date's input takes its editor's precision.
  * A field that differs from `baseline` — what the drafts began from — is
- * tinted. A nested struct's fields sit under its name. Read-only, every field
+ * tinted, and where the host puts a field back (`onReset`) its Reset stands
+ * at its line's end, before an Option's Set or Clear: a decision's Modify
+ * puts a field back as the proposal has it so. A nested struct's fields sit
+ * under its name. Read-only, every field
  * is printed, and tags and a checklist keep their shape without their
  * controls. A host may draw a field's control itself (`renderControl`), what
  * no input shows — the field keeps its label, key and help line.
  *
  * Every field is one column (#1220): its label, its control's line and its
- * help line, the control filling the line and an Option's Set or Clear at its
- * end, centred on it. Each input is the design system's Input size, 32px, so
+ * help line, the control filling the line and a Reset, an Option's Set or
+ * Clear at its end, centred on it. Each input is the design system's Input size, 32px, so
  * every kind lands on one line. A text, a choice or a printed value longer
  * than its box — a description, or a reference's long name, in a phone's
  * pane — ends in an ellipsis where the box cuts it, and its control carries
@@ -60,7 +63,7 @@
 import { memo, useCallback, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faXmark } from "@fortawesome/free-solid-svg-icons";
+import { faRotateLeft, faXmark } from "@fortawesome/free-solid-svg-icons";
 import {
     ArrayType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, SetType, StringType,
     SortedSet, compareFor, defaultValue, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, some, variant,
@@ -118,6 +121,13 @@ export interface FieldFormProps {
      * stable (`useCallback`): each field's memo compares it.
      */
     renderControl?: ((spec: FieldSpecValue) => ReactNode | undefined) | undefined;
+    /**
+     * Puts a field back as `baseline` holds it: a field that differs from it
+     * shows a Reset at its line's end, which hands its path here. Keep it
+     * stable (`useCallback`): each field's memo compares it. `undefined` for
+     * no Reset.
+     */
+    onReset?: ((path: readonly string[]) => void) | undefined;
 }
 
 // Each shared input's payload with nothing set: East's default for its type.
@@ -283,7 +293,7 @@ function printOf(
  * />
  * ```
  */
-export const FieldForm = memo(function FieldForm({ specs, value, baseline, options = NO_OPTIONS, onChange, readOnly = false, words, renderControl }: FieldFormProps) {
+export const FieldForm = memo(function FieldForm({ specs, value, baseline, options = NO_OPTIONS, onChange, readOnly = false, words, renderControl, onReset }: FieldFormProps) {
     const styles = useSlotRecipe({ key: "fieldForm" })() as Styles;
     const formatters = useFormatters();
     const said = useMemo((): FieldFormWords => words ?? { ...formatters, m: fieldFormMessages }, [words, formatters]);
@@ -291,7 +301,7 @@ export const FieldForm = memo(function FieldForm({ specs, value, baseline, optio
     const row = (spec: FieldSpecValue) => (
         <FieldRow key={spec.path.join("\u001f")} spec={spec} current={valueAt(value, spec.path)}
             base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
-            options={options} onChange={onChange} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} />
+            options={options} onChange={onChange} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} onReset={onReset} />
     );
     return (
         <Box css={styles.root} data-field-form="">
@@ -317,10 +327,11 @@ interface FieldRowProps {
     words: FieldFormWords;
     styles: Styles;
     renderControl: FieldFormProps["renderControl"];
+    onReset: FieldFormProps["onReset"];
 }
 
-/** One field: the shared `Field` around its control's line — its input, and an Option's Set or Clear — and a checklist's items. */
-const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl }: FieldRowProps) {
+/** One field: the shared `Field` around its control's line — its input, its Reset, and an Option's Set or Clear — and a checklist's items. */
+const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl, onReset }: FieldRowProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const iconButton = useRecipe({ key: "iconButton" });
@@ -529,12 +540,22 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
     // Beside an input that cannot show none: Set while it holds no value, and an Option's Clear while it does.
     const side = own !== undefined || printed || readOnly || editor.type === "text" || editor.type === "select" || editor.type === "reference" ? undefined
         : held === undefined ? "set" : spec.optional ? "clear" : undefined;
-    // The control's line: the control filling it — the host's own, or the input — and the Set or Clear at its end.
+    // A field that differs from its baseline, where the host puts one back: its Reset.
+    const reset = dirty && !printed && !readOnly ? onReset : undefined;
+    // The control's line: the control filling it — the host's own, or the input — and the Reset, the Set or Clear at its end.
     const line = (
         <Box css={styles.line} data-field-line="">
             <Box ref={fieldRef} css={styles.control} title={whole === undefined || whole.length === 0 ? undefined : whole}>
                 {own ?? <EastChakraComponent value={control} storageKey={`fieldForm.${key}.control`} />}
             </Box>
+            {reset !== undefined && (
+                <Box css={styles.side} data-field-side="reset">
+                    <chakra.button type="button" css={iconButton({ variant: "ghost", size: "xs" })} aria-label={m.reset({ label: spec.label })}
+                        title={m.reset({ label: spec.label })} data-field-reset="" onClick={() => reset(spec.path)}>
+                        <FontAwesomeIcon icon={faRotateLeft} />
+                    </chakra.button>
+                </Box>
+            )}
             {side !== undefined && (
                 <Box css={styles.side} data-field-side={side}>
                     {side === "set" ? (

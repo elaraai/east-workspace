@@ -13,12 +13,13 @@
  * checklist's items; the tint of a changed field; read-only, every value
  * printed. And (#1188) a field with no value yet, a date's precision, and a
  * control the host draws itself; and (#1250) a text's control titled with its
- * whole text, and a choice's with its chosen words. Every value handed back is
+ * whole text, and a choice's with its chosen words; and (#1447) a changed
+ * field's Reset, where the host puts one back. Every value handed back is
  * asserted with East's `equalFor`.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
-import { useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
@@ -565,6 +566,84 @@ describe("FieldForm — a text or a choice longer than its box (#1250)", () => {
         const ownField = (key: string) => own.container.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
         expect(titleOf(ownField, "steps")).toBeNull();
         expect(titleOf(ownField, "stock")).toBe(printFor(DictType(StringType, IntegerType))(JOB.stock));
+    });
+});
+
+describe("FieldForm — a changed field's Reset, where the host puts one back (#1447)", () => {
+    /** A draft of the job: its crew, its batch, its stock and its room changed. */
+    const DRAFT: JobValue = {
+        ...JOB, crew: 6n, batch: some(3n), stock: new SortedMap([["hinges", 10n]], STRINGS), site: { room: "Yard", floor: 1n },
+    };
+
+    /** The job's field along its path: what a Reset puts back. */
+    const jobAt = (path: readonly string[]) => path.reduce<unknown>((at, name) => (at as Record<string, unknown>)[name], JOB);
+
+    /** Mounts the form over the draft, the job its baseline, the host putting a field back as the job holds it on its Reset. */
+    function mountReset(props: { readOnly?: boolean; reset?: boolean } = {}) {
+        const resets: string[] = [];
+        function Host() {
+            const [value, setValue] = useState<JobValue>(DRAFT);
+            const onReset = useCallback((path: readonly string[]) => {
+                resets.push(path.join("."));
+                setValue((v) => setAt(v as unknown as Record<string, unknown>, path, jobAt(path)) as unknown as JobValue);
+            }, []);
+            return (
+                <FieldForm specs={SPECS} value={value} baseline={JOB} options={BENCHES} readOnly={props.readOnly}
+                    onChange={(path, next) => setValue((v) => setAt(v as unknown as Record<string, unknown>, path, next) as unknown as JobValue)}
+                    onReset={props.reset === false ? undefined : onReset} />
+            );
+        }
+        const utils = render(<ChakraProvider value={system}><I18nProvider locale={LOCALE}><Host /></I18nProvider></ChakraProvider>);
+        const fields = (holds: (el: HTMLElement) => boolean) =>
+            [...utils.container.querySelectorAll<HTMLElement>("[data-field]")].filter(holds).map((el) => el.getAttribute("data-field"));
+        const field = (key: string) => utils.container.querySelector<HTMLElement>(`[data-field="${key}"]`)!;
+        return {
+            ...utils, field, resets,
+            tinted: () => fields((el) => el.hasAttribute("data-dirty")),
+            withReset: () => fields((el) => el.querySelector("[data-field-reset]") !== null),
+            sides: (key: string) => [...field(key).querySelectorAll("[data-field-line] > [data-field-side]")].map((el) => el.getAttribute("data-field-side")),
+        };
+    }
+
+    test("a field that differs from the baseline shows its Reset at its line's end, before an Option's Clear; one printed shows none", () => {
+        const { field, tinted, withReset, sides } = mountReset();
+        expect(tinted()).toEqual(["crew", "batch", "stock", "site.room"]);
+        // The stock is printed: nothing puts it back.
+        expect(withReset()).toEqual(["crew", "batch", "site.room"]);
+        expect(sides("crew")).toEqual(["reset"]);
+        expect(sides("batch")).toEqual(["reset", "clear"]);
+        expect(sides("stock")).toEqual([]);
+        // Named for its field.
+        const reset = within(field("crew")).getByRole("button", { name: "Reset Crew" });
+        expect(reset.getAttribute("title")).toBe("Reset Crew");
+        expect(reset.querySelector("svg")).not.toBeNull();
+    });
+
+    test("Reset hands the host the field's path, a nested field's whole; put back, the field is as the baseline holds it, untinted and with no Reset", async () => {
+        const { field, resets, tinted, withReset, sides } = mountReset();
+        await act(async () => { fireEvent.click(within(field("crew")).getByRole("button", { name: "Reset Crew" })); });
+        await settle();
+        await act(async () => { fireEvent.click(within(field("site.room")).getByRole("button", { name: "Reset Room" })); });
+        await settle();
+        await act(async () => { fireEvent.click(within(field("batch")).getByRole("button", { name: "Reset Batch" })); });
+        await settle();
+        expect(resets).toEqual(["crew", "site.room", "batch"]);
+        expect(tinted()).toEqual(["stock"]);
+        expect(withReset()).toEqual([]);
+        // The batch put back to none: Set, and no Clear.
+        expect(sides("batch")).toEqual(["set"]);
+        expect((within(field("site.room")).getByRole("textbox") as HTMLInputElement).value).toBe("Workshop");
+    });
+
+    test("read only, or with no onReset, a changed field is tinted and shows no Reset", () => {
+        const readOnly = mountReset({ readOnly: true });
+        expect(readOnly.tinted()).toEqual(["crew", "batch", "stock", "site.room"]);
+        expect(readOnly.withReset()).toEqual([]);
+        cleanup();
+        const bare = mountReset({ reset: false });
+        expect(bare.tinted()).toEqual(["crew", "batch", "stock", "site.room"]);
+        expect(bare.withReset()).toEqual([]);
+        expect(bare.sides("batch")).toEqual(["clear"]);
     });
 });
 

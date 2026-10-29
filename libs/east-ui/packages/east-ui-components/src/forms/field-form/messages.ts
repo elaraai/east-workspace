@@ -5,8 +5,8 @@
 
 /**
  * The field form's own words (#1147) — what it adds around the shared inputs:
- * an Option's Set and Clear, a reference's Unassigned, a number's help line, a
- * checklist's count. A builder's message table carries them (as the Sheet's
+ * an Option's Set and Clear, a changed field's Reset, a reference's Unassigned,
+ * a number's help line, a checklist's count. A builder's message table carries them (as the Sheet's
  * carries the editing session's), so a host translates the form where it
  * translates the builder, and hands the form its words.
  *
@@ -31,6 +31,8 @@ export interface FieldFormMessages {
     set: () => string;
     /** The button that empties an Option — `Clear Crew`. */
     clear: (p: { label: string }) => string;
+    /** The button that puts a changed field back as its baseline holds it — `Reset Crew`. */
+    reset: (p: { label: string }) => string;
     /** An empty Option, printed. */
     noValue: () => string;
     /** A Boolean, printed. */
@@ -53,6 +55,7 @@ export const fieldFormMessages: FieldFormMessages = {
     notSet: () => "Not set",
     set: () => "Set",
     clear: ({ label }) => `Clear ${label}`,
+    reset: ({ label }) => `Reset ${label}`,
     noValue: () => "—",
     yesNo: ({ value }) => (value ? "Yes" : "No"),
     numberHelp: ({ min, max, unit, step }) => {
