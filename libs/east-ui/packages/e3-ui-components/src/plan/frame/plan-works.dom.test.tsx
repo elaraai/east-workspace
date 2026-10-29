@@ -183,7 +183,7 @@ describe("the works on a Plan (#1438)", () => {
         expect(drawn).toEqual([...sums].sort(([a], [b]) => a - b).map(([at, sum]) => [`time:${new Date(at).toISOString().replace("Z", "")}`, sum]));
     });
 
-    test("a value too wide for its column draws a dot in its place, its hover saying it; a column wide enough, its numerals", async () => {
+    test("a value too wide for its column draws a dot in its place, its numerals kept, hidden, for its hover to say; a column wide enough, its numerals", async () => {
         // The plot laid out at a width: the thirteen weeks across 300px are some 23px a week, narrower than a crew sum's numerals.
         let plotPx = 300;
         const was = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!;
@@ -206,14 +206,16 @@ describe("the works on a Plan (#1438)", () => {
         };
         const narrow = await crewsFirst();
         await waitFor(() => expect(narrow()?.querySelectorAll("[data-plan-cell-dot]").length ?? 0).toBeGreaterThan(0));
-        expect(narrow()!.querySelectorAll("[data-cell] [data-part]").length).toBe(0);
-        const dotted = narrow()!.querySelector("[data-plan-cell-dot]")!.closest("[data-cell]")!;
-        expect(dotted.getAttribute("aria-label")).toMatch(/[0-9]{3}/);
+        // Every cell holding a sum draws its dot, its numerals kept beside it — hidden by the dotted cell — for its hover to say.
+        const sums = [...narrow()!.querySelectorAll("[data-cell]")].filter((c) => /[0-9]/.test(c.querySelector(":scope > [data-table-parts]")?.textContent ?? ""));
+        expect(sums.length).toBeGreaterThan(0);
+        expect(sums.filter((c) => !c.hasAttribute("data-plan-dotted") || c.querySelector(":scope > [data-plan-cell-dot]") === null)).toEqual([]);
+        expect(sums[0]!.getAttribute("aria-label")).toMatch(/[0-9]{3}/);
         // 2000px: some 150px a week, each sum's numerals drawn, no dot.
         plotPx = 2000;
         const wide = await crewsFirst();
         await waitFor(() => expect(wide()?.querySelectorAll("[data-cell] [data-part]").length ?? 0).toBeGreaterThan(0));
-        expect(wide()!.querySelectorAll("[data-plan-cell-dot]").length).toBe(0);
+        expect(wide()!.querySelectorAll("[data-plan-cell-dot], [data-plan-dotted]").length).toBe(0);
     });
 
     test("a quarter on, every works in view draws jobs there: the works are sparse, and spread evenly over their years", async () => {

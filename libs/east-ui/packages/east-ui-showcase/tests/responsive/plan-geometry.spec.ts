@@ -971,10 +971,11 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
     }
 
     /** A table cell whose column cannot hold its numerals (#1438): at WEEK the measures example's weeks are narrower
-     *  than a month's sums, and each cell holding one draws a dot in its place, so a value narrower than its numerals
-     *  is still seen. The dot is drawn whole and centred in its cell at any width down to its own: in a 9px column,
-     *  a 42-week window's, the cell's padding leaves its line less room than the dot, and it must not wrap off it. */
-    test("planMeasures: a table cell whose column cannot hold its numerals draws a dot in their place, whole and centred in the cell down to the dot's own width (#1438)", async ({ page }) => {
+     *  than a month's sums, and each cell holding one draws a dot in their place, so a value narrower than its
+     *  numerals is still seen. Its numerals are kept, hidden, and its hover says them. The dot is drawn whole and
+     *  centred in its cell at any width down to its own: in a 9px column, a 42-week window's, the cell's padding
+     *  leaves its line less room than the dot, and it must not wrap off it. */
+    test("planMeasures: a table cell whose column cannot hold its numerals draws a dot in their place, its hover saying them, whole and centred in the cell down to the dot's own width (#1438)", async ({ page }) => {
         const entry = await openExample(page, "planMeasures");
         await entry.locator('[data-plan-seg="resolution"]').getByRole("radio", { name: "WEEK", exact: true }).click();
         await settled(page);
@@ -991,6 +992,14 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
             };
         });
         await expect.poll(read).toEqual({ drawn: true, inside: true, centred: true });
+        const numerals = cell.locator(":scope > [data-table-parts]");
+        await expect(numerals).toHaveCount(1);
+        const said = await numerals.evaluate((g) => [...g.children].map((p) => (p.textContent ?? "").trim()).filter((t) => t !== "").join(" · "));
+        expect(said).toMatch(/\d/);
+        await cell.hover();
+        await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveText(said);
+        await page.mouse.move(0, 0);
+        await expect(page.locator('[data-plan-overlay="tooltip"]')).toHaveCount(0);
         for (const px of [9, 4]) {
             await cell.evaluate((el: HTMLElement, w) => {
                 el.style.setProperty("width", `${w}px`, "important");

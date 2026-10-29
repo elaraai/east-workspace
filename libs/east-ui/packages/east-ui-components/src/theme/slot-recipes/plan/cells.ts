@@ -549,6 +549,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
             gap: "1px",
             lineHeight: "var(--plan-table-line-h)",
         },
+        // A dotted cell's numerals (#1438): kept for its hover to say, never drawn.
+        "[data-plan-dotted] > &": { display: "none" },
     },
     tableCellPart: {
         "&[data-tone='neg']":   { color: "{colors.status.neg}" },
@@ -556,8 +558,9 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         "&[data-strong]":       { fontWeight: "semibold", color: "fg.default" },
     },
     // A cell's value wider than its column (#1269, #1438): a dot in its place, in its numerals' ink, so a value never
-    // leaves its cell looking empty — the cell's hover says it. At the cell's centre, off its line: a 9px column's
-    // padding leaves the line less room than the dot, which would wrap off it, out of sight, as numerals do.
+    // leaves its cell looking empty — its numerals kept, hidden, and the cell's hover saying them. At the cell's
+    // centre, off its line: a 9px column's padding leaves the line less room than the dot, which would wrap off it,
+    // out of sight, as numerals do.
     tableCellDot: {
         position: "absolute",
         top: "50%",

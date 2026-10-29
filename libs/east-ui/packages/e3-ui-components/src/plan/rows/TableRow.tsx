@@ -326,9 +326,8 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                     return { text, tone, strong: s.strong, si, held: value !== undefined || cell.text.type === "some" };
                 });
                 // Numerals wider than their column draw a dot in their place where the cell holds a value (#1438).
-                const dotted = plotPx !== undefined && plotPx > 0 && printed.some((p) => p.held)
-                    && (b.x1 - b.x0) * plotPx < numeralsPx(printed.map((p) => p.text), split);
-                const dotOf = printed.find((p) => p.held);
+                const dot = plotPx !== undefined && plotPx > 0 && (b.x1 - b.x0) * plotPx < numeralsPx(printed.map((p) => p.text), split)
+                    ? printed.find((p) => p.held) : undefined;
                 return (
                     <Box key={bi} css={styles.tableCellText}
                         ref={(el: HTMLElement | null) => { if (el !== null) cellEls.current.set(cell, el); else cellEls.current.delete(cell); }}
@@ -344,6 +343,7 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                         role="button"
                         aria-label={cellName(scale, b, printed.length > 0 ? tablePartsText(printed.map((p) => p.text), words) : words.m.noValue(), words)}
                         data-split={multi ? split : undefined}
+                        data-plan-dotted={dot !== undefined ? "" : undefined}
                         left={`${b.x0 * 100}%`} width={`${(b.x1 - b.x0) * 100}%`}
                         onClick={(e) => {
                             e.stopPropagation();
@@ -368,18 +368,18 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                     >
                         {/* Its numerals, together: drawn whole, or — wider than the cell — off its line, out of
                             sight, and said by the cell's hover (#1269); never some of them. A cell holding a value its
-                            column cannot draw draws a dot in its place (#1438). */}
-                        {dotted && dotOf !== undefined
-                            ? <Box as="span" css={styles.tableCellDot} data-plan-cell-dot="" data-tone={dotOf.tone}
-                                data-strong={dotOf.strong ? "" : undefined} />
-                            : <Box as="span" css={styles.tableCellGroup} data-table-parts="" data-plan-label="">
-                                {printed.map(({ text, tone, strong, si }, i) => (
-                                    <Box key={i} as="span" css={styles.tableCellPart} data-part={si}
-                                        data-tone={tone} data-strong={strong ? "" : undefined}>
-                                        {text}
-                                    </Box>
-                                ))}
-                            </Box>}
+                            column cannot draw draws a dot in their place, its numerals kept, hidden, for the hover
+                            to say (#1438). */}
+                        <Box as="span" css={styles.tableCellGroup} data-table-parts="" data-plan-label="">
+                            {printed.map(({ text, tone, strong, si }, i) => (
+                                <Box key={i} as="span" css={styles.tableCellPart} data-part={si}
+                                    data-tone={tone} data-strong={strong ? "" : undefined}>
+                                    {text}
+                                </Box>
+                            ))}
+                        </Box>
+                        {dot !== undefined && <Box as="span" css={styles.tableCellDot} data-plan-cell-dot=""
+                            data-tone={dot.tone} data-strong={dot.strong ? "" : undefined} />}
                     </Box>
                 );
             })}
