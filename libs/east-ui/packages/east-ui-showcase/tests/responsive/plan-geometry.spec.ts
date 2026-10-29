@@ -1667,7 +1667,8 @@ async function showOnly(entry: Locator, shown: readonly string[]): Promise<void>
 
 /**
  * The nested Plan's rows as they draw (#1438): a part's own jobs at the bar's
- * height whatever its fold.
+ * height whatever its fold, and a crew's cell keeping its ring whole once a
+ * number typed into it is written.
  */
 test.describe("planNestedAll's rows (#1438)", { tag: "@desktop" }, () => {
     test("a part's own jobs draw at the bar's height folded and open, its bands at the rollup's, its row at the row's", async ({ page }) => {
@@ -1688,5 +1689,30 @@ test.describe("planNestedAll's rows (#1438)", { tag: "@desktop" }, () => {
         await part.locator('[role="rowheader"]').click();
         await expect(part).toHaveAttribute("aria-expanded", "true");
         await expect.poll(drawn, "open").toEqual(geometry);
+    });
+
+    test("a crew's cell keeps its ring whole once Enter writes the number typed into it: the field's ring, inside the cell", async ({ page }) => {
+        const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
+        await showOnly(entry, ["Crew hours"]);
+        await entry.locator(rowSel("crews", "W-10001")).locator('[role="rowheader"]').click();
+        const cell = entry.locator(`[data-plan-row*='series="crew"'] [data-typed]`).first();
+        await cell.dblclick();
+        const field = entry.locator("[data-plan-typing]");
+        const input = field.locator("input");
+        await expect(input).toBeFocused();
+        const ring = await field.evaluate((el) => getComputedStyle(el).boxShadow);
+        await input.fill("7");
+        await input.press("Enter");
+        await expect(field).toHaveCount(0);
+        await expect(cell).toBeFocused();
+        // The field's ring, drawn inside the cell, nothing outside it; and the cell lies inside its row, so the row
+        // cuts none of it.
+        const drawn = () => cell.evaluate((el) => {
+            const style = getComputedStyle(el);
+            const box = el.getBoundingClientRect();
+            const row = el.closest("[data-plan-row]")!.getBoundingClientRect();
+            return { ring: style.boxShadow, outline: style.outlineStyle, inside: box.top >= row.top - 0.5 && box.bottom <= row.bottom + 0.5 };
+        });
+        await expect.poll(drawn).toEqual({ ring, outline: "none", inside: true });
     });
 });

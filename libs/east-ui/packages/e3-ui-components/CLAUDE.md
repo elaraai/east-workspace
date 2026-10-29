@@ -1495,7 +1495,9 @@ main in a popover anchored to the cell.
   tooltip naming the resolution they take one at and the Plan's zoom showing
   them apart, where it has one.
 - **Keys.** Enter, F2, a double click or a digit opens it (a tap below 480px).
-  Enter writes; Esc cancels; a blur writes. Tab and Shift+Tab write and move
+  Enter writes, focus going back to the cell, whose ring is the input's, drawn
+  inside it (`tableCellText`: a ring outside a cell as high as its row is cut
+  by the row); Esc cancels; a blur writes. Tab and Shift+Tab write and move
   along the row; ↑ and ↓ write and move to the mounted rows above and below
   that take a number at the bucket (found in the DOM: `data-typed`). The
   number field's own stepping never sees them (a prevented key).

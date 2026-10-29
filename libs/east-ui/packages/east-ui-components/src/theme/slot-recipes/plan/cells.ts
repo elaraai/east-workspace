@@ -527,7 +527,10 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
             textTransform: "uppercase",
             color: "fg.subtle",
         },
-        ...planElementFocus,
+        // Focused, the ring its input draws while open, and the Sheet's cell: 2px of brand INSIDE the cell. A cell is
+        // its row's whole height, so a ring outside it, as other elements draw theirs, lost its top and bottom to the
+        // row (#1438).
+        _focusVisible: { outline: "none", boxShadow: "inset 0 0 0 2px {colors.brand.solid}" },
     },
     // One value position inside a table cell — tone derives per cell
     // (neg / em-dash) or from the SERIES' declaration; `strong` is the
