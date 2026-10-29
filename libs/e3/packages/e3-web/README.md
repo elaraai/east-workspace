@@ -106,7 +106,7 @@ The page and the worker speak `e3.fetch`'s protocol, a few messages over the wor
 3. the unit pool, which starts unit workers from `units`, and each repository's runner over it (`WebTaskRunner`);
 4. the orchestrator (`LocalOrchestrator`, as the local server runs it), which records a split task's own execution under the tab's session;
 5. the transfer backend (`WebTransferBackend`), which records the jobs and commits a closed tab left failed, never running them again, and forgets what is past its retention while the tab lives;
-6. the app: e3-api-server's own route factories, mounted as the local server mounts them over many repositories, beside e3-web's byte endpoints for uploads and downloads.
+6. the app: e3-api-server's own route factories, mounted as the local server mounts them over many repositories, a workspace's bundle among them (`createWorkspaceBundleRoutes`: a workspace written out as it is, and made from one, within a request), beside e3-web's byte endpoints for uploads and downloads.
 
 Every request the page's `e3.fetch` posts is answered by the app, and so is every request a unit's e3 platform functions make.
 

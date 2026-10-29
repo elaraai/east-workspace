@@ -65,6 +65,9 @@ export const PackageNotFoundErrorType = StructType({
 });
 export const PackageExistsErrorType = StructType({ packageName: StringType, version: StringType });
 export const PackageInvalidErrorType = StructType({ reason: StringType });
+/** A workspace bundle refused: it is not one, it is cut short, or it does not
+ *  hold every object its workspace names. */
+export const BundleInvalidErrorType = StructType({ reason: StringType });
 export const DatasetNotFoundErrorType = StructType({ workspace: StringType, path: StringType });
 export const TaskNotFoundErrorType = StructType({ task: StringType });
 export const ExecutionNotFoundErrorType = StructType({ task: StringType });
@@ -99,6 +102,7 @@ export const ErrorType = VariantType({
   package_not_found: PackageNotFoundErrorType,
   package_exists: PackageExistsErrorType,
   package_invalid: PackageInvalidErrorType,
+  bundle_invalid: BundleInvalidErrorType,
   dataset_not_found: DatasetNotFoundErrorType,
   task_not_found: TaskNotFoundErrorType,
   execution_not_found: ExecutionNotFoundErrorType,

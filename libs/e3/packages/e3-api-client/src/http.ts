@@ -700,11 +700,16 @@ export async function putEmpty<T extends EastType>(
 }
 
 /**
- * Decode a BEAST2 response, throwing on errors.
+ * Decode a BEAST2 response, throwing on errors: a JSON refusal with its HTTP
+ * status, and a BEAST2 one, as every client function throws them.
+ *
+ * @param response - The response
+ * @param successType - The type of the answer's value
+ * @returns The answer's value
  * @throws {ApiError} On application-level errors (including BEAST2 error responses)
  * @throws {AuthError} On 401 Unauthorized
  */
-async function decodeResponse<T extends EastType>(
+export async function decodeResponse<T extends EastType>(
   response: globalThis.Response,
   successType: T,
 ): Promise<ValueTypeOf<T>> {

@@ -345,6 +345,7 @@ export {
   PackageNotFoundErrorType,
   PackageExistsErrorType,
   PackageInvalidErrorType,
+  BundleInvalidErrorType,
   DatasetNotFoundErrorType,
   TaskNotFoundErrorType,
   ExecutionNotFoundErrorType,

@@ -19,6 +19,7 @@ import {
   allApiTests,
   cliTests,
   transferTests,
+  workspaceBundleTests,
   type TestSetup,
   type TestContext,
 } from '@elaraai/e3-api-tests';
@@ -65,6 +66,9 @@ describe('API compliance', { timeout: 600_000, concurrency: false }, () => {
 
   // Run all API test suites
   allApiTests(setup);
+
+  // The bundle routes, which the local server mounts
+  workspaceBundleTests(setup);
 
   // Run CLI test suite with credentials env
   cliTests(setup, credentialsEnv);
