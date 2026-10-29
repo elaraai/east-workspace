@@ -5,7 +5,7 @@
 
 /** Preserve index order while the existing Plan series and editing use primary keys. */
 import {
-    ArrayType, BlobType, DictType, East, IntegerType, OptionType, SetType, StringType, type EastType, type ExprType, type FunctionType, type StructType,
+    ArrayType, BlobType, DictType, East, Expr, IntegerType, OptionType, SetType, StringType, type EastType, type ExprType, type FunctionType, type StructType,
     none, some,
 } from "@elaraai/east";
 import { type ResolvedRowSource } from "@elaraai/east-ui/internal";
@@ -43,7 +43,10 @@ export function orderedPlanSource(source: Ordered) {
         const input = values as ExprType<typeof _entries>;
         return order(applySeries(series, rows(input)), keys(input));
     };
-    const editing = (input: ExprType<PlanEditingType>): ExprType<PlanEditingType> => {
+    // The canvas's editing session, its window's entry ids and its blocks put in the index's order. The session is held
+    // once: a field read of the expression itself would write the whole session out again for each field it keeps.
+    const editing = (input: ExprType<PlanEditingType>): ExprType<PlanEditingType> => Expr.block(($session) => {
+        const session = $session.const(input);
         const entryIds = East.function([IntegerType, IntegerType], OptionType(ArrayType(StringType)), ($, offset, limit) => {
             const read = $.const(window);
             const ids = $.const(keys);
@@ -52,14 +55,14 @@ export function orderedPlanSource(source: Ordered) {
         const derive = East.function([IntegerType, IntegerType, DictType(StringType, BlobType)], OptionType(PlanBlocksType), ($, offset, limit, drafts) => {
             const read = $.const(entryIds);
             const sort = $.const(order);
-            const build = $.const(input.derive);
+            const build = $.const(session.derive);
             return read(offset, limit).match({
                 some: (_$2, ids) => build(offset, limit, drafts).match({ some: (_$3, blocks) => East.value(some(sort(blocks, ids)), OptionType(PlanBlocksType)), none: () => East.value(none, OptionType(PlanBlocksType)) }),
                 none: () => East.value(none, OptionType(PlanBlocksType)),
             });
         });
-        return East.value(Object.fromEntries(Object.keys(PlanEditingType.fields).map(field => [field, field === "entryIds" ? entryIds : field === "derive" ? derive : (input as unknown as ExprType<StructType>)[field]])) as never, PlanEditingType);
-    };
+        return East.value(Object.fromEntries(Object.keys(PlanEditingType.fields).map(field => [field, field === "entryIds" ? entryIds : field === "derive" ? derive : (session as unknown as ExprType<StructType>)[field]])) as never, PlanEditingType);
+    }) as ExprType<PlanEditingType>;
     /**
      * A window's blocks over the rows' nested series index (#1438), the seam's `rows`: `(offset, limit, cells,
      * drafted, shading)` → the window's lean rows, each drafted row whole in its place, filled with the items the
