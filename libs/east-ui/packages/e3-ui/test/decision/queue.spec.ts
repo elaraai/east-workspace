@@ -27,10 +27,10 @@ import {
     createDecisionQueuePayload, type DecisionQueueProps,
 } from "@elaraai/e3-ui/internal";
 import * as yard from "../allocation/allocation.examples.js";
-import { calendarJobs, calendarJobsPatch, calendarMachines } from "../calendar/calendar.examples.js";
-import { planEventJobs, planEventJobsPatch, planPrintPresses } from "../plan/plan-events.examples.js";
-import { minimalDuties, minimalDutiesPatch, minimalShiftTimes, minimalTeams, minimalWorkers } from "../roster/roster.examples.js";
-import { OptimiseWorkOrder, optimiseWorkOrders, optimiseWorkOrdersPatch } from "../sheet/optimise.examples.js";
+import { calendarJobs, calendarMachines } from "../calendar/calendar.examples.js";
+import { planEventJobs, planPrintPresses } from "../plan/plan-events.examples.js";
+import { minimalDuties, minimalShiftTimes, minimalTeams, minimalWorkers } from "../roster/roster.examples.js";
+import { OptimiseWorkOrder, optimiseWorkOrders } from "../sheet/optimise.examples.js";
 import * as ops from "./ops.js";
 
 /** Builds in a block, as a UI's body does: what it declares is built there — and refused, if it is, as it is built. */
@@ -49,8 +49,8 @@ type P = ExprType<typeof ops.Proposal>;
 
 /** The proposals' targets (§3.2): the work orders as the Sheet draws them, and the price list, which no builder draws. */
 function proposalTargets($: BlockBuilder<NullType>) {
-    const orders = $.let(Record.bind(optimiseWorkOrders, [optimiseWorkOrdersPatch]));
-    const prices = $.let(Record.bind(ops.listPrices, [ops.listPricesPatch]));
+    const orders = $.let(Record.bind(optimiseWorkOrders));
+    const prices = $.let(Record.bind(ops.listPrices));
     return {
         orders: DecisionQueue.change.sheet(orders, { name: "Sheet", icon: "table-cells", columns: {
             reference: Sheet.column.text(OptimiseWorkOrder, { header: "Reference" }),
@@ -103,7 +103,7 @@ type VerdictRoles = ReturnType<typeof verdictRoles> & Readonly<Record<string, un
  */
 function proposalVerdicts(
     roles: (base: VerdictRoles) => object = (base) => base,
-    binding: ($: BlockBuilder<NullType>) => unknown = ($) => $.let(Record.bind(ops.proposalVerdicts, [ops.proposalVerdictsPatch])),
+    binding: ($: BlockBuilder<NullType>) => unknown = ($) => $.let(Record.bind(ops.proposalVerdicts)),
 ) {
     return inBlock(($) => {
         const rows = binding($);
@@ -119,7 +119,7 @@ function proposalVerdicts(
 function proposalQueue(change: (base: DecisionQueueProps, $: BlockBuilder<NullType>) => object = (base) => base) {
     return inBlock(($) => {
         const cases = $.let(Data.bind(ops.proposals));
-        const verdictRows = $.let(Record.bind(ops.proposalVerdicts, [ops.proposalVerdictsPatch]));
+        const verdictRows = $.let(Record.bind(ops.proposalVerdicts));
         const verdictEntries = $.let(Data.bindPaged(ops.proposalVerdicts));
         const decisions = DecisionQueue.decisions(cases, {
             scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale,
@@ -175,7 +175,7 @@ test("the queue is one tag over the app's records: Decision.bind and <DecisionJo
 
 describe("the props §13 removed, each refused naming its replacement", () => {
     const removed: readonly (readonly [string, RegExp])[] = [
-        ["handle", /DecisionQueue: `handle` is gone — the queue reads the app's cases and writes its verdicts: decisions=\{DecisionQueue\.decisions\(Data\.bind\(cases\), \{ … \}\)\} verdicts=\{DecisionQueue\.verdicts\(Record\.bind\(verdicts, \[verdictsPatch\]\), \{ entries, verdict \}\)\}/],
+        ["handle", /DecisionQueue: `handle` is gone — the queue reads the app's cases and writes its verdicts: decisions=\{DecisionQueue\.decisions\(Data\.bind\(cases\), \{ … \}\)\} verdicts=\{DecisionQueue\.verdicts\(Record\.bind\(verdicts\), \{ entries, verdict \}\)\}/],
         ["heading", /DecisionQueue: `heading` is gone — the queue fills the box its host gives it, and a heading over it is the host's own/],
         ["modify", /DecisionQueue: `modify` is gone — Modify edits a row in its target's own form/],
         ["evidence", /DecisionQueue: `evidence` is gone — the open card draws where its option's change lands, its target's preview/],
@@ -208,8 +208,8 @@ describe("the tag's own props", () => {
     test("`decisions` is DecisionQueue.decisions, and `verdicts` DecisionQueue.verdicts", () => {
         assert.throws(() => proposalQueue((base, $) => ({ ...base, decisions: $.let(Data.bind(ops.proposals)) })),
             /DecisionQueue: `decisions` is DecisionQueue\.decisions\(binding, roles\) — the app's cases, and the roles that read each part of a card from them/);
-        assert.throws(() => proposalQueue((base, $) => ({ ...base, verdicts: $.let(Record.bind(ops.proposalVerdicts, [ops.proposalVerdictsPatch])) })),
-            /DecisionQueue: `verdicts` is DecisionQueue\.verdicts\(Record\.bind\(record, \[e3\.mutation\.patch\(record\)\]\), \{ entries, verdict, … \}\) — the app's record each verdict is written to/);
+        assert.throws(() => proposalQueue((base, $) => ({ ...base, verdicts: $.let(Record.bind(ops.proposalVerdicts)) })),
+            /DecisionQueue: `verdicts` is DecisionQueue\.verdicts\(Record\.bind\(record\), \{ entries, verdict, … \}\) — the app's record each verdict is written to, declaring patch: mutation\.patch\(\)/);
     });
 
     test("`onSelect`, `readOnly` and `now` are taken as values or East expressions", () => {
@@ -220,7 +220,7 @@ describe("the tag's own props", () => {
 
 describe("the rail: one Slice.bindRecords, its `decisions` source over the cases' record (D4)", () => {
     /** The proposals by site: the rail's one source. */
-    const bySite = () => Data.bindPaged(ops.proposals, { indexes: [ops.proposalsBySite] });
+    const bySite = () => Data.bindPaged(ops.proposals, { indexes: ["proposals_by_site"] });
     /** The base's cases, bound for a read through the slice's source. */
     const paged = (base: DecisionQueueProps, $: BlockBuilder<NullType>) => {
         const cases = $.let(Data.bindPaged(ops.proposals));
@@ -275,7 +275,11 @@ describe("DecisionQueue.decisions: the cases, read only, each role an East funct
     });
 
     test("the cases are read only: a Record.bind is refused, naming Data.bind and Data.bindPaged", () => {
-        assert.throws(() => proposalCases(undefined, ($) => $.let(Record.bind(ops.proposals, [e3.mutation.patch(ops.proposals)]))),
+        // The proposals as a record declaring its patch door, which the queue never writes through.
+        const editable = e3.record("decision_spec_proposals", DictType(StringType, ops.Proposal), {
+            initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
+        assert.throws(() => proposalCases(undefined, ($) => $.let(Record.bind(editable))),
             /DecisionQueue\.decisions: the cases are read only — bind them Data\.bind\(source\) to read them whole, or Data\.bindPaged\(record\) to read them through the slice's `decisions` source: the queue writes no case, only its verdict/);
     });
 
@@ -358,7 +362,7 @@ describe("the change role: the app's variant, and a target for each of its tags 
         const Series = StructType({ forecast: ArrayType(StructType({ week: FloatType, units: FloatType })) });
         assert.throws(() => inBlock(($) => {
             const cases = $.let(Data.bind(ops.proposals));
-            const prices = $.let(Record.bind(ops.listPrices, [ops.listPricesPatch]));
+            const prices = $.let(Record.bind(ops.listPrices));
             const { orders } = proposalTargets($);
             const pricing = DecisionQueue.change.projection(prices, { name: "Demand", icon: "chart-line", option: Series,
                 points: (o) => o.forecast, x: (p) => p.week, y: (p) => p.units });
@@ -390,13 +394,13 @@ test("the roles' inference: a renamed field, a wrong return, `of` missing a tag 
             const Offer = StructType({ title: StringType, brief: StringType, value: FloatType, details: ops.ProposalDetails });
             const Choice = StructType({ site: StringType, deadline: OptionType(DateTimeType), metric: StringType, run: StringType, rationale: StringType,
                 pick: StringType, offers: DictType(StringType, Offer) });
-            const choices = $.let(Data.bind(e3.record("decision_spec_choices", DictType(StringType, Choice), new Map())));
+            const choices = $.let(Data.bind(e3.record("decision_spec_choices", DictType(StringType, Choice), { initial: new Map() })));
             $(DecisionQueue.decisions(choices, { scope: (c) => c.site, due: (c) => c.deadline, unit: (c) => c.metric, model: (c) => c.run, why: (c) => c.rationale, recommended: (c) => c.pick, options: { from: (c) => c.offers, title: (o) => o.title, summary: (o) => o.brief, detail: (o, key, c) => East.str`${key} at ${c.site}`, value: (o) => o.value, change: { from: (o) => o.details, of: { orders, pricing } } } }).build(undefined));
             // @ts-expect-error — `headline` is no field of the option
             DecisionQueue.decisions(choices, { scope: (c) => c.site, due: (c) => c.deadline, unit: (c) => c.metric, model: (c) => c.run, why: (c) => c.rationale, recommended: (c) => c.pick, options: { from: (c) => c.offers, title: (o) => o.headline, summary: (o) => o.brief, detail: (o) => o.brief, value: (o) => o.value, change: { from: (o) => o.details, of: { orders, pricing } } } });
             // @ts-expect-error — the option's `of` gives the tag `orders` no target
             DecisionQueue.decisions(choices, { scope: (c) => c.site, due: (c) => c.deadline, unit: (c) => c.metric, model: (c) => c.run, why: (c) => c.rationale, recommended: (c) => c.pick, options: { from: (c) => c.offers, title: (o) => o.title, summary: (o) => o.brief, detail: (o) => o.brief, value: (o) => o.value, change: { from: (o) => o.details, of: { pricing } } } });
-            const verdictRows = $.let(Record.bind(ops.proposalVerdicts, [ops.proposalVerdictsPatch]));
+            const verdictRows = $.let(Record.bind(ops.proposalVerdicts));
             const entries = $.let(Data.bindPaged(ops.proposalVerdicts));
             // The verdicts' roles that compile, for the ones below that must not: each a field of the verdict's row, by name.
             $(DecisionQueue.verdicts(verdictRows, { entries, verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" }, option: "option", note: "note" }).build());
@@ -423,7 +427,7 @@ describe("DecisionQueue.verdicts: the app's record the queue writes, each role a
 
     test("the record is bound with its patch door, and read by key through `entries`", () => {
         assert.throws(() => proposalVerdicts(undefined, ($) => $.let(Data.bind(ops.proposalVerdicts))),
-            /DecisionQueue\.verdicts: the queue writes each verdict — bind the record with its patch door, Record\.bind\(record, \[e3\.mutation\.patch\(record\)\]\), and read it by key beside it, entries: Data\.bindPaged\(record\)/);
+            /DecisionQueue\.verdicts: the queue writes each verdict — bind the record with its patch door, Record\.bind\(record\), its record declaring patch: mutation\.patch\(\), and read it by key beside it, entries: Data\.bindPaged\(record\)/);
         assert.throws(() => proposalVerdicts((base) => ({ ...base, entries: undefined })),
             /DecisionQueue\.verdicts: `entries` reads the verdicts by key — the keys of the cases read — never whole: give entries: Data\.bindPaged\(record\), the record's own entries/);
     });
@@ -443,9 +447,11 @@ describe("DecisionQueue.verdicts: the app's record the queue writes, each role a
 
     test("a verdict's case holds Null, or when the verdict was given", () => {
         const Odd = StructType({ verdict: VariantType({ applied: StringType, overridden: NullType, deferred: NullType, handedOff: NullType }) });
-        const odd = e3.record("decision_spec_odd_verdicts", DictType(StringType, Odd), new Map());
+        const odd = e3.record("decision_spec_odd_verdicts", DictType(StringType, Odd), {
+            initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
         assert.throws(() => inBlock(($) => {
-            const rows = $.let(Record.bind(odd, [e3.mutation.patch(odd)]));
+            const rows = $.let(Record.bind(odd));
             const entries = $.let(Data.bindPaged(odd));
             return DecisionQueue.verdicts(rows, { entries, verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" } });
         }), /DecisionQueue\.verdicts: the case "applied" holds Null or \{ at: DateTime \}, the time the verdict was given — and it holds .*String/);
@@ -470,7 +476,7 @@ describe("DecisionQueue.verdicts: the app's record the queue writes, each role a
 describe("DecisionQueue.change: a target's record is bound with its patch door (Q1, §12)", () => {
     test("a record, a Sheet's record, areas and a projection's record bound read only are refused, naming the patch door", () => {
         const readOnly = (where: string) => new RegExp(`DecisionQueue\\.change\\.${where}: the record is bound read only — Apply writes a change through its patch door: ` +
-            "bind it Record\\.bind\\(record, \\[e3\\.mutation\\.patch\\(record\\)\\]\\)");
+            "bind it Record\\.bind\\(record\\), its record declaring patch: mutation\\.patch\\(\\)");
         assert.throws(() => inBlock(($) => DecisionQueue.change.record($.let(Data.bind(ops.listPrices)) as never, { name: "Pricing", icon: "tag" })), readOnly("record"));
         assert.throws(() => inBlock(($) => DecisionQueue.change.sheet($.let(Data.bind(optimiseWorkOrders)) as never, { name: "Sheet", icon: "table-cells", columns: {} })),
             readOnly("sheet"));
@@ -481,20 +487,20 @@ describe("DecisionQueue.change: a target's record is bound with its patch door (
     test("a builder's kind bound read only is refused where the kind is declared, naming the patch door", () => {
         assert.throws(() => inBlock(($) => Schedule.events($.let(Data.bind(planEventJobs)) as never, {
             name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" },
-        } as never)), /Record\.onApply: "patch" is not bound as this record's patch door — bind the record with e3\.mutation\.patch\(record\) among its mutations/);
+        } as never)), /Record\.onApply: "patch" is not bound as this record's patch door — bind the record with patch: mutation\.patch\(\) among the mutations it declares/);
     });
 
     test("every target names its surface and its icon (D10)", () => {
-        assert.throws(() => inBlock(($) => DecisionQueue.change.record($.let(Record.bind(ops.listPrices, [ops.listPricesPatch])), { icon: "tag" } as never)),
+        assert.throws(() => inBlock(($) => DecisionQueue.change.record($.let(Record.bind(ops.listPrices)), { icon: "tag" } as never)),
             /DecisionQueue\.change\.record: `name` names the target's surface, the eyebrow's first word — name: "Roster"/);
-        assert.throws(() => inBlock(($) => DecisionQueue.change.record($.let(Record.bind(ops.listPrices, [ops.listPricesPatch])), { name: "Pricing" } as never)),
+        assert.throws(() => inBlock(($) => DecisionQueue.change.record($.let(Record.bind(ops.listPrices)), { name: "Pricing" } as never)),
             /DecisionQueue\.change\.record: `icon` names its Font Awesome solid icon — icon: "users"/);
     });
 });
 
 describe("DecisionQueue.change.record, .zones and .projection: records no builder draws (§5.3)", () => {
     /** The price list, bound with its patch door. */
-    const prices = ($: BlockBuilder<NullType>) => $.let(Record.bind(ops.listPrices, [ops.listPricesPatch]));
+    const prices = ($: BlockBuilder<NullType>) => $.let(Record.bind(ops.listPrices));
 
     test("a record's label and measure are East functions over its row; its group a String field of it, counted over the record read whole", () => {
         assert.doesNotThrow(() => inBlock(($) => DecisionQueue.change.record(prices($), { name: "Pricing", icon: "tag", label: (r) => r.region,
@@ -509,9 +515,11 @@ describe("DecisionQueue.change.record, .zones and .projection: records no builde
 
     test("areas in zones: each one's zone and place are required, and the zones are the app's list", () => {
         const Area = StructType({ zone: StringType, column: FloatType, row: FloatType, depot: BooleanType });
-        const areas = e3.record("decision_spec_areas", DictType(StringType, Area), new Map());
+        const areas = e3.record("decision_spec_areas", DictType(StringType, Area), {
+            initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
         const zones = [{ key: "fast", label: "Fast movers", color: Style.ColorToken("teal", "500") }, { key: "bulk", label: "Bulk", color: Style.ColorToken("orange", "500") }];
-        const bound = ($: BlockBuilder<NullType>) => $.let(Record.bind(areas, [e3.mutation.patch(areas)]));
+        const bound = ($: BlockBuilder<NullType>) => $.let(Record.bind(areas));
         assert.doesNotThrow(() => inBlock(($) => DecisionQueue.change.zones(bound($), { name: "Layout", icon: "map", zone: (a) => a.zone, x: (a) => a.column,
             y: (a) => a.row, depot: (a) => a.depot, zones }).build(["layout"], "spec.layout")));
         type A = ExprType<typeof Area>;
@@ -536,7 +544,7 @@ describe("DecisionQueue.change.record, .zones and .projection: records no builde
 describe("the builders' targets: each takes its builder's own props, refused as its tag refuses them (§5.3)", () => {
     /** The smallest roster's props (`rosterMinimal`), bound in the block. */
     const rosterProps = ($: BlockBuilder<NullType>) => {
-        const rota = $.let(Record.bind(minimalDuties, [minimalDutiesPatch]));
+        const rota = $.let(Record.bind(minimalDuties));
         const staff = $.let(Data.bind(minimalWorkers));
         const times = $.let(Data.bind(minimalShiftTimes));
         const groups = $.let(Data.bind(minimalTeams));
@@ -555,7 +563,7 @@ describe("the builders' targets: each takes its builder's own props, refused as 
         assert.throws(() => inBlock(($) => { const props = rosterProps($); return DecisionQueue.change.roster({ ...props, events: { ...props.events, other: props.events.duty } }); }),
             /DecisionQueue\.change\.roster: `events` holds one kind, the duties, as <Roster> takes it — and it holds 2 \(duty, other\)/);
         assert.throws(() => inBlock(($) => DecisionQueue.change.roster({ ...rosterProps($), events: {} } as never)),
-            /DecisionQueue\.change\.roster: `events` holds the duty kind, as <Roster> takes it — events: \{ duty: Schedule\.events\(Record\.bind\(duties, \[dutiesPatch\]\)/);
+            /DecisionQueue\.change\.roster: `events` holds the duty kind, as <Roster> takes it — events: \{ duty: Schedule\.events\(Record\.bind\(duties\), \{ start, end, resource, shift, group \}\) \}/);
         assert.throws(() => inBlock(($) => DecisionQueue.change.roster({ ...rosterProps($), map: "hours" } as never)),
             /DecisionQueue\.change\.roster: `map` is "people", a row per person, or "cost", a row per pay code — and it is hours/);
         assert.throws(() => inBlock(($) => DecisionQueue.change.roster({ ...rosterProps($), map: "cost" })),
@@ -567,7 +575,7 @@ describe("the builders' targets: each takes its builder's own props, refused as 
     /** The smallest Plan's kinds (`planEvents`), bound in the block. */
     const planProps = ($: BlockBuilder<NullType>) => {
         const presses = $.let(Record.bind(planPrintPresses, []));
-        const jobs = $.let(Record.bind(planEventJobs, [planEventJobsPatch]));
+        const jobs = $.let(Record.bind(planEventJobs));
         return {
             name: "Plan", icon: "bars-progress",
             resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
@@ -589,7 +597,7 @@ describe("the builders' targets: each takes its builder's own props, refused as 
     test("the Calendar's: the kind the tags patch and the week, and <Calendar>'s own refusals", () => {
         const calendarProps = ($: BlockBuilder<NullType>) => {
             const machines = $.let(Record.bind(calendarMachines, []));
-            const jobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
+            const jobs = $.let(Record.bind(calendarJobs));
             return {
                 name: "Calendar", icon: "calendar-days",
                 resources: { machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: (row) => row.name }) },
@@ -602,7 +610,7 @@ describe("the builders' targets: each takes its builder's own props, refused as 
 
     test("the Allocation's: <Allocation>'s kinds and functions, refused in its own words, named for the target", () => {
         const allocationProps = ($: BlockBuilder<NullType>) => {
-            const bins = $.let(Record.bind(yard.kilnBins, [yard.kilnBinsPatch]));
+            const bins = $.let(Record.bind(yard.kilnBins));
             const kilns = $.let(Data.bind(yard.kilns));
             const bays = $.let(Data.bind(yard.yardBays));
             return {

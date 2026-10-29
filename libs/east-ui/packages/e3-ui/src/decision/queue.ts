@@ -112,7 +112,7 @@ export interface DecisionQueueProps {
 /** The props §13 removed, each refused by name with what replaces it. */
 const REMOVED: readonly (readonly [string, string])[] = [
     ["handle", "`handle` is gone — the queue reads the app's cases and writes its verdicts: decisions={DecisionQueue.decisions(Data.bind(cases), { … })} " +
-        "verdicts={DecisionQueue.verdicts(Record.bind(verdicts, [verdictsPatch]), { entries, verdict })}"],
+        "verdicts={DecisionQueue.verdicts(Record.bind(verdicts), { entries, verdict })}"],
     ["heading", "`heading` is gone — the queue fills the box its host gives it, and a heading over it is the host's own"],
     ["modify", "`modify` is gone — Modify edits a row in its target's own form: the builder's, for a builder's target, and a record's " +
         "`fields`, `ready` and `inspector` (DecisionQueue.change.*)"],
@@ -168,8 +168,8 @@ export function createDecisionQueuePayload(props: DecisionQueueProps): ExprType<
     }
     const verdicts = given["verdicts"];
     if (!isDecisionQueueVerdicts(verdicts)) {
-        throw new Error("DecisionQueue: `verdicts` is DecisionQueue.verdicts(Record.bind(record, [e3.mutation.patch(record)]), { entries, verdict, … }) " +
-            "— the app's record each verdict is written to");
+        throw new Error("DecisionQueue: `verdicts` is DecisionQueue.verdicts(Record.bind(record), { entries, verdict, … }) — the app's record each " +
+            "verdict is written to, declaring patch: mutation.patch()");
     }
     const slice = given["slice"];
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
@@ -258,9 +258,9 @@ export interface DecisionQueueNamespace {
  * ```tsx
  * <Reactive>{$ => {
  *     const cases = $.let(Data.bind(proposals));
- *     const verdicts = $.let(Record.bind(proposalVerdicts, [proposalVerdictsPatch]));
+ *     const verdicts = $.let(Record.bind(proposalVerdicts));
  *     const verdictEntries = $.let(Data.bindPaged(proposalVerdicts));
- *     const priceList = $.let(Record.bind(listPrices, [listPricesPatch]));
+ *     const priceList = $.let(Record.bind(listPrices));
  *     return <DecisionQueue
  *         id="proposals"
  *         decisions={DecisionQueue.decisions(cases, {

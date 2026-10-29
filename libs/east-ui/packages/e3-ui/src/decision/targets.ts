@@ -254,7 +254,7 @@ function editableOf(binding: unknown, where: string): RecordBound {
     const bound = recordBound(binding, where, "a target's record holds its rows by String key, each a struct");
     if (bound.form !== "record") {
         throw new Error(`${where}: the record is bound read only — Apply writes a change through its patch door: bind it ` +
-            "Record.bind(record, [e3.mutation.patch(record)])");
+            "Record.bind(record), its record declaring patch: mutation.patch()");
     }
     return bound;
 }
@@ -299,7 +299,7 @@ export interface DecisionRecordTargetConfig<R extends StructType> extends Record
  * writes the change through the record's patch door.
  *
  * @typeParam R - The record's row type, from the binding
- * @param binding - The record, `Record.bind(record, [e3.mutation.patch(record)])`, a `Dict<String, R>`
+ * @param binding - The record, `Record.bind(record), its record declaring patch: mutation.patch()`, a `Dict<String, R>`
  * @param config - Its names, roles and form, and `entries` — `Data.bindPaged(record)` — to read the touched rows by key
  *   rather than the record whole
  * @returns The target, for the change role's `of`
@@ -309,7 +309,7 @@ export interface DecisionRecordTargetConfig<R extends StructType> extends Record
  *
  * @example
  * ```tsx
- * const priceList = $.let(Record.bind(listPrices, [listPricesPatch]));
+ * const priceList = $.let(Record.bind(listPrices));
  * const pricingChange = DecisionQueue.change.record(priceList, {
  *     name: "Pricing", icon: "tag", label: r => r.region,
  *     fields: { price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05 }) },
@@ -384,7 +384,7 @@ export interface DecisionZonesTargetConfig<R extends StructType> extends Decisio
  * builder draws zones; the record is read whole.
  *
  * @typeParam R - The record's row type, from the binding
- * @param binding - The areas, `Record.bind(record, [e3.mutation.patch(record)])`, a `Dict<String, R>`
+ * @param binding - The areas, `Record.bind(record), its record declaring patch: mutation.patch()`, a `Dict<String, R>`
  * @param config - Its names and roles, and the zones
  * @returns The target, for the change role's `of`
  * @throws {Error} Naming what to give: a record bound read only or without its patch door, a role left out, that is no
@@ -392,7 +392,7 @@ export interface DecisionZonesTargetConfig<R extends StructType> extends Decisio
  *
  * @example
  * ```tsx
- * const areas = $.let(Record.bind(yardAreas, [yardAreasPatch]));
+ * const areas = $.let(Record.bind(yardAreas));
  * const layoutChange = DecisionQueue.change.zones(areas, {
  *     name: "Layout", icon: "map", zone: a => a.zone, x: a => a.column, y: a => a.row, depot: a => a.depot,
  *     zones: [
@@ -472,7 +472,7 @@ export interface DecisionProjectionTargetConfig<O extends StructType, P extends 
  * @typeParam R - The record's row type, from the binding
  * @typeParam O - The option's row type
  * @typeParam P - A point of its series
- * @param binding - The record its tags' patches are of, `Record.bind(record, [e3.mutation.patch(record)])`
+ * @param binding - The record its tags' patches are of, `Record.bind(record), its record declaring patch: mutation.patch()`
  * @param config - Its names, the option's row type, the series' roles, the limit and the format
  * @returns The target, for the change role's `of`
  * @throws {Error} Naming what to give: a record bound read only or without its patch door, `option` no struct type,
@@ -480,7 +480,7 @@ export interface DecisionProjectionTargetConfig<O extends StructType, P extends 
  *
  * @example
  * ```tsx
- * const orders = $.let(Record.bind(stockOrders, [stockOrdersPatch]));
+ * const orders = $.let(Record.bind(stockOrders));
  * const reorderChange = DecisionQueue.change.projection(orders, {
  *     name: "Stock", icon: "chart-line", option: OpsOption,
  *     points: o => o.forecast, x: p => p.week, y: p => p.units,

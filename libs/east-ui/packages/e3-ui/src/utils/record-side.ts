@@ -5,14 +5,14 @@
 
 /**
  * A record of the app's a declaration reads and writes, bound (#1386, #1447):
- * how it is bound — `Record.bind(record, [e3.mutation.patch(record)])` to edit
- * it, `Data.bind(record)` or `Data.bindPaged(record)` to read it only — told by
- * its handle's East struct, and the side of it a declaration carries on the
- * wire: the shared editing session with its patch door, the record read by
- * key, its history, the inspector's form over its fields, its own Details, the
- * app's check and the setter a card's field writes go through. The
- * Schematic's kinds and details and the DecisionQueue's record and zones
- * targets each declare theirs through it.
+ * how it is bound — `Record.bind(record), its record declaring patch:
+ * mutation.patch()` to edit it, `Data.bind(record)` or `Data.bindPaged(record)`
+ * to read it only — told by its handle's East struct, and the side of it a
+ * declaration carries on the wire: the shared editing session with its patch
+ * door, the record read by key, its history, the inspector's form over its
+ * fields, its own Details, the app's check and the setter a card's field writes
+ * go through. The Schematic's kinds and details and the DecisionQueue's record
+ * and zones targets each declare theirs through it.
  *
  * @packageDocumentation
  */
@@ -48,7 +48,7 @@ export type RecordBinding<R extends StructType> =
     | { readonly page: (...args: never[]) => ExprType<OptionType<DictType<StringType, R>>>; readonly revision: unknown };
 
 /** The binding forms, as the refusals name them. */
-const FORMS = "Record.bind(record, [e3.mutation.patch(record)]) to edit it, or Data.bind(record) or Data.bindPaged(record) to read it only";
+const FORMS = "Record.bind(record), its record declaring patch: mutation.patch() to edit it, or Data.bind(record) or Data.bindPaged(record) to read it only";
 
 /** A declaration's record, bound: how, its handle, and its row type. */
 export interface RecordBound {
@@ -107,7 +107,7 @@ export function recordBound(record: unknown, where: string, holds: string): Reco
         checkEntries(record, StringType, rowType, `${where}: \`record\``);
     }
     if (form === "record") {
-        // The patch door: e3.mutation.patch's, the mutation named `patch` taking the record's patch.
+        // The patch door: the record's mutation.patch(), the mutation named `patch` taking the record's patch.
         const commit = fields["commit"];
         const door = commit?.type === "Struct" ? (commit.fields as Record<string, EastType>)["patch"] : undefined;
         if (door === undefined || !isTypeEqual(door, AsyncFunctionType([StringType, PatchType(recordType)], RecordOutcomeType))) {

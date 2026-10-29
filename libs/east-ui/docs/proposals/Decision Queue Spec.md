@@ -98,7 +98,7 @@ design's.
 | D3 | **The session is every editing builder's.** One history over a session per record the queue writes — the verdicts, and each record a change lands in (Q1) — each verdict one step across them; Undo · Redo · Discard · Save in the history item; ⌘Z, ⇧⌘Z and ⌘Y; Save sends each record's changes through its patch door as a request of its own; a conflict, a refusal or an unknown outcome is the session's banner, with Retry where it applies. The drafts are kept by key under the queue's `id`, whatever the narrowing, a remount or a reload, as the Roster's are. |
 | D4 | **Reading.** The cases are read complete: whole through `Data.bind`, or through the slice's `decisions` source a page at a time — at most 1,000; past that, a banner says how many the narrowing holds and to narrow. The verdicts are read by key — the keys of the cases read, through their `entries` — never whole, as the Schematic's details are read beside a kind read through its source. The queue orders and lays out what it read itself: the narrowing is the index's, the order and the sections are the queue's, as the Calendar lays out the events of its window. |
 | D5 | **Sections by when a case is due.** Overdue (due before now), Due today (before the day's end as the app's formatters print it), This week (within the next seven days), Later (after that, or no due date); each shows only with a case. The `routine` role sends a case to the Routine band at the end instead, whatever its due. |
-| D6 | **One record, every kind of decision; the tag picks where it draws.** An option's change is a variant field of the app's: its tag is the kind of decision, and each tag's value a `PatchType(DictType(K, R))` of the record that kind changes — the same value that record's `e3.mutation.patch` takes, what `East.diff` of its rows gives. The change role maps every tag to a target (`of`), as the Roster's `resource: { field, of }` maps each case of a variant field to a kind, and the target's record type must be the tag's (`isTypeEqual`): a tag with no target, or of another type, is refused at build, naming the tag, the record and both types. The records a change lands in are the app's own, the ones its builders edit; the cases are one record, never one a kind. Two tags may share a target, and two targets one record. `of` is typed from the variant `from` returns, which TypeScript infers from `from` alone: its keys are the variant's tags, every one required, and each target's record the one its tag's patch is of — checked when the code compiles and again at build. The target needs no mapping of its own: its kinds are the mapping — `Schedule.events(jobs, { start: "start", resource: { field: "press", of: "presses" } })` already says where a job's start and press are — so the queue reads a patched row as its builder reads it. A Plan's or a Calendar's target holding more than one event kind names the one its tags patch (`event: "job"`). |
+| D6 | **One record, every kind of decision; the tag picks where it draws.** An option's change is a variant field of the app's: its tag is the kind of decision, and each tag's value a `PatchType(DictType(K, R))` of the record that kind changes — the same value that record's `patch: mutation.patch()` takes, what `East.diff` of its rows gives. The change role maps every tag to a target (`of`), as the Roster's `resource: { field, of }` maps each case of a variant field to a kind, and the target's record type must be the tag's (`isTypeEqual`): a tag with no target, or of another type, is refused at build, naming the tag, the record and both types. The records a change lands in are the app's own, the ones its builders edit; the cases are one record, never one a kind. Two tags may share a target, and two targets one record. `of` is typed from the variant `from` returns, which TypeScript infers from `from` alone: its keys are the variant's tags, every one required, and each target's record the one its tag's patch is of — checked when the code compiles and again at build. The target needs no mapping of its own: its kinds are the mapping — `Schedule.events(jobs, { start: "start", resource: { field: "press", of: "presses" } })` already says where a job's start and press are — so the queue reads a patched row as its builder reads it. A Plan's or a Calendar's target holding more than one event kind names the one its tags patch (`event: "job"`). |
 | D7 | **The preview's kind comes from the change and its target.** A change landing on at most two of a builder's rows is a crop; on more, a map — the Roster's by people, or by cost where its target says `map: "cost"`; the Sheet crops its first three rows. A record with no builder shows its changed fields, or — given `measure` or `group` — its mix or its groups (§5.3, P3). Decisions that read by cost are a tag of their own, beside those that read by people. |
 | D8 | **A preview reuses its builder.** A builder's target takes the props of the builder's own tag, typed as that tag types them — `Pick<RosterProps<R>, …>`, `Pick<PlanProps<K>, …>`, `Pick<CalendarProps, …>`, `Pick<AllocationProps<R>, …>`, the Sheet's `SheetColumnSpec<R>` (§5.3) — the same consts handed to both; reads its rows through those kinds' closed builds; draws them with the builder's own slot recipes at the builder's own sizes, the proposal marked as an Optimise run's result is where it lands (the `elara` glow, the ghosts); and works out each row's measure and its breaches with the builder's own functions (the Roster's hours, rules, check and pay, the Allocation's loads and check, the Calendar's and the Plan's overlaps). |
 | D9 | **Modify is the builder's inspector.** Each changed row is edited in the form the builder's inspector shows for one row: its kind's form over its roles and its `fields` (east-ui's `Fields` hints), held by its `ready`, or the kind's own `inspector` where it gives one — the shared `FieldForm`, each input chosen by its East type. The queue declares no fields of its own. Each changed row takes Keep as it is. The edits rewrite the option's patch, so the preview follows them. |
@@ -175,8 +175,10 @@ import { OptimiseWorkOrder } from "../sheet/optimise.examples.js";         // th
 
 /** A list price, and the demand a week the model expects at it: a record no builder draws. */
 export const ListPrice = StructType({ region: StringType, price: FloatType, demand: FloatType, from: DateTimeType });
-export const listPrices = e3.record("list_prices", DictType(StringType, ListPrice), listPriceRows);
-export const listPricesPatch = e3.mutation.patch(listPrices);
+export const listPrices = e3.record("list_prices", DictType(StringType, ListPrice), {
+    initial: listPriceRows,
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
 
 /** What an option changes: its tag is the kind of decision, its value a patch of the record that kind changes. */
 export const OpsChange = VariantType({
@@ -232,14 +234,21 @@ export const OpsVerdict = StructType({
 });
 
 // The models' cases: the app's record, filled by its own mutation — e3's tasks read records and never write them.
-export const opsCases = e3.record("ops_cases", DictType(StringType, OpsCase), opsCaseRows);
-export const opsCasesPropose = e3.mutation.reduce("ops_propose", opsCases, proposeCases);  // the app's: a run's cases in, decided ones out
-export const opsCasesByArea = e3.recordIndex("ops_cases_by_area", opsCases, { on: ["area"] });
-export const opsCasesByScope = e3.recordIndex("ops_cases_by_scope", opsCases, { on: ["scope"] });
+export const opsCases = e3.record("ops_cases", DictType(StringType, OpsCase), {
+    initial: opsCaseRows,
+    indexes: (index) => ({
+        // The app's own fields, which the rail narrows the cases by.
+        ops_cases_by_area: index.on(["area"]),
+        ops_cases_by_scope: index.on(["scope"]),
+    }),
+    mutations: (mutation) => ({ ops_propose: mutation.reduce(proposeCases) }),  // the app's: a run's cases in, decided ones out
+});
 
 // The people's verdicts: the record the queue writes.
-export const opsVerdicts = e3.record("ops_verdicts", DictType(StringType, OpsVerdict), new Map());
-export const opsVerdictsPatch = e3.mutation.patch(opsVerdicts);
+export const opsVerdicts = e3.record("ops_verdicts", DictType(StringType, OpsVerdict), {
+    initial: new Map(),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
 ```
 
 A model builds a change with East's own diff of the rows it changes —
@@ -268,19 +277,21 @@ export const Proposal = StructType({
     site: StringType, deadline: OptionType(DateTimeType), metric: StringType, run: StringType, rationale: StringType,
     headline: StringType, brief: StringType, description: StringType, saving: FloatType, details: ProposalDetails,
 });
-export const proposals = e3.record("proposals", DictType(StringType, Proposal), proposalRows);
-export const proposalVerdicts = e3.record("proposal_verdicts", DictType(StringType, OpsVerdict), new Map());
-export const proposalVerdictsPatch = e3.mutation.patch(proposalVerdicts);
+export const proposals = e3.record("proposals", DictType(StringType, Proposal), { initial: proposalRows });
+export const proposalVerdicts = e3.record("proposal_verdicts", DictType(StringType, OpsVerdict), {
+    initial: new Map(),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
 ```
 
 ```tsx
 <Reactive>{$ => {
     const cases = $.let(Data.bind(proposals));
-    const verdicts = $.let(Record.bind(proposalVerdicts, [proposalVerdictsPatch]));
+    const verdicts = $.let(Record.bind(proposalVerdicts));
     const verdictEntries = $.let(Data.bindPaged(proposalVerdicts));
-    // The records the proposals change, each with its patch door.
-    const workOrders = $.let(Record.bind(optimiseWorkOrders, [optimiseWorkOrdersPatch]));
-    const priceList = $.let(Record.bind(listPrices, [listPricesPatch]));
+    // The records the proposals change, each bound with the patch door it declares.
+    const workOrders = $.let(Record.bind(optimiseWorkOrders));
+    const priceList = $.let(Record.bind(listPrices));
     return <DecisionQueue
         id="proposals"
         decisions={DecisionQueue.decisions(cases, {
@@ -325,12 +336,12 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
 <Reactive>{$ => {
     // The models' cases, narrowed by the rail, and the verdicts the queue writes.
     const cases = $.let(Data.bindPaged(opsCases));
-    const indexed = $.let(Data.bindPaged(opsCases, { indexes: [opsCasesByArea, opsCasesByScope] }));
+    const indexed = $.let(Data.bindPaged(opsCases, { indexes: ["ops_cases_by_area", "ops_cases_by_scope"] }));
     const slice = $.let(Slice.bindRecords("ops.decisions", {
         decisions: { source: indexed, icon: { prefix: "fas", name: "inbox" }, search: ["scope"],
             fields: { area: { label: "Area", hints: ["rota", "print", "workshop", "yard", "orders", "pricing"] }, scope: { label: "Scope" } } },
     }));
-    const verdicts = $.let(Record.bind(opsVerdicts, [opsVerdictsPatch]));
+    const verdicts = $.let(Record.bind(opsVerdicts));
     const verdictEntries = $.let(Data.bindPaged(opsVerdicts));
     // The host's: the case open in the queue, which it follows.
     const open = $.let(State.bind([OptionType(StringType)], "ops.open", none));
@@ -340,9 +351,9 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
     // <Roster>, <Plan>, <Calendar>, <Allocation> and <Sheet> are handed.
 
     // The Roster's, as `rosterOptimise` gives them (test/roster/optimise.examples.tsx), and the warehouse's pay.
-    const duties = $.let(Record.bind(rosterDuties, [rosterDutiesPatch]));
+    const duties = $.let(Record.bind(rosterDuties));
     const dutyEntries = $.let(Data.bindPaged(rosterDuties));
-    const dutyWeek = $.let(Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] }));
+    const dutyWeek = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
     const staff = $.let(Data.bind(rosterStaff));
     const firms = $.let(Data.bind(rosterAgencies));
     const times = $.let(Data.bind(rosterShiftTimes));
@@ -367,21 +378,21 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
     }));
 
     // The Plan's, as `planOptimise` gives them (test/plan/optimise.examples.tsx).
-    const jobs = $.let(Record.bind(planEventJobs, [planEventJobsPatch]));
+    const jobs = $.let(Record.bind(planEventJobs));
     const presses = $.let(Data.bind(planPrintPresses));
     const job = Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
         resource: { field: "press", of: "presses" }, state: "state" });
     const pressRows = Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name, group: p => p.hall });
 
     // The Calendar's, as `calendarOptimise` gives them; the Allocation's, as `allocationOptimise` does.
-    const machineJobs = $.let(Record.bind(calendarJobs, [calendarJobsPatch]));
+    const machineJobs = $.let(Record.bind(calendarJobs));
     const machines = $.let(Data.bind(calendarMachines));
     const machineJob = Calendar.events(machineJobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end",
         resource: { field: "machine", of: "machines" } });
     const machineRows = Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: m => m.name });
-    const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+    const bins = $.let(Record.bind(kilnBins));
     const binEntries = $.let(Data.bindPaged(kilnBins));
-    const yardDayBins = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
+    const yardDayBins = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
     const bays = $.let(Data.bind(yardBays));
     const kilnList = $.let(Data.bind(kilns));
     const bin = Schedule.events(bins, { name: "Bin", icon: "box", entries: binEntries, at: "at", resource: { field: "bay", of: "bays" },
@@ -391,8 +402,8 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
         min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges });
 
     // The Sheet's work orders, as `sheetOptimise` binds them, and the price list.
-    const workOrders = $.let(Record.bind(optimiseWorkOrders, [optimiseWorkOrdersPatch]));
-    const priceList = $.let(Record.bind(listPrices, [listPricesPatch]));
+    const workOrders = $.let(Record.bind(optimiseWorkOrders));
+    const priceList = $.let(Record.bind(listPrices));
 
     // Where each kind of decision draws: a target for each tag of the options' change.
     const rotaChange = DecisionQueue.change.roster({ name: "Roster", icon: "users",
@@ -558,8 +569,8 @@ own proposal:
 
 ### 5.2 `DecisionQueue.verdicts(binding, roles)`
 
-`binding` is the verdicts record with its patch door,
-`Record.bind(record, [e3.mutation.patch(record)])`, a `Dict<String, V>` keyed
+`binding` is the verdicts record with its patch door, `Record.bind(record)`,
+the record declaring `patch: mutation.patch()`, a `Dict<String, V>` keyed
 by the case's key, and `entries` a paged read of it, `Data.bindPaged(record)`,
 which reads the verdicts of the cases read by key. The queue writes only the
 fields its roles map; a new row's other fields take their type's default, as a
@@ -583,8 +594,8 @@ takes the props of the builder's own tag — the same values, typed as that tag
 types them — and its kinds carry their own form (`fields`, `ready`,
 `inspector`), which Modify uses (D9). Apply writes through the kind's own
 write (Q1), so a kind bound read only is refused at build, naming
-`Record.bind(record, [e3.mutation.patch(record)])`. Each target serves every
-tag `of` maps to it.
+`Record.bind(record)`, its record declaring `patch: mutation.patch()`. Each
+target serves every tag `of` maps to it.
 
 | Target | Takes — reused | Reads | Draws |
 |---|---|---|---|
@@ -598,7 +609,7 @@ tag `of` maps to it.
 | `DecisionQueue.change.projection(binding, { name, icon, points, x, y, limit?, format? })` | `points` an accessor over the option row giving its series, `x` and `y` accessors over a point, as `Chart.Line(rows, { x, y })` takes them; `limit` a `Chart.refLine({ y, label })` | nothing of the record: the option's own series | the plot, 84 tall; a line per option, the chosen one glowing, the option that changes nothing a dashed ghost, the others thin; the limit a dashed warn rule over its wash |
 
 `source` is an indexed source of the builder's record with an interval index
-(`Data.bindPaged(rosterDuties, { indexes: [rosterDutiesByTime] })`), the read
+(`Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] })`), the read
 a builder's slice names for the kind; without it the target reads its kind's
 record whole. `entries` is a paged read of a record with no builder,
 `Data.bindPaged(record)`, beside its `Record.bind`, as an event kind's
@@ -1050,7 +1061,7 @@ does, and what follows.
   is refused at build (D6). A change landing on rows the record no longer
   holds, or holds changed, is Stale (P21).
 - A target's kind bound read only is refused at build, naming
-  `Record.bind(record, [e3.mutation.patch(record)])` (§5.3).
+  `Record.bind(record)`, its record declaring `patch: mutation.patch()` (§5.3).
 - A case without `options` and with `recommended`, or with option roles both
   in `options` and beside the case's, is refused at build, naming D15's two
   forms.
