@@ -26,7 +26,7 @@ import {
     type EastType, type ExprType, type FunctionType, type StructType, type SubtypeExprOrValue, type TypeOf, type VariantType,
 } from "@elaraai/east";
 import type { Format } from "@elaraai/east-ui";
-import type { RecordSliceStateType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { RecordSliceReadType, type RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { scheduleAccessorOver, scheduleAccessorReturns } from "../schedule/accessor.js";
 import { optionOf, typeText } from "../schedule/window.js";
 import { schematicSourceRows, schematicWholeRows } from "../schematic/window.js";
@@ -397,12 +397,14 @@ function sourceCount(part: ExprType<StructType>): ExprType<FunctionType<[], Opti
     return East.function([], OptionType(IntegerType), ($) => {
         const source = $.const(part as unknown as ExprType<StructType<{
             read: FunctionType<[], typeof RecordSliceStateType>;
-            countWhere: FunctionType<[typeof RecordSliceWhereType], OptionType<IntegerType>>;
+            countWhere: FunctionType<[typeof RecordSliceReadType], OptionType<IntegerType>>;
         }>>);
         const read = $.const(source.read);
         const count = $.const(source.countWhere);
         const state = $.const(read());
-        return count(state.where);
+        // The rail's narrowing, as the cases' read takes it: never a read by area (#1432).
+        const taken = $.let({ where: state.where, area: none }, RecordSliceReadType);
+        return count(taken);
     });
 }
 
