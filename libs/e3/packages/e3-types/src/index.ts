@@ -209,6 +209,16 @@ export {
   type WorkspaceRecord,
 } from './workspace.js';
 
+// A workspace as it is, in one stream
+export {
+  WorkspaceBundleHeadType,
+  type WorkspaceBundleHead,
+  WorkspaceBundleEntryType,
+  type WorkspaceBundleEntry,
+  WorkspaceBundleType,
+  type WorkspaceBundle,
+} from './bundle.js';
+
 // Execution status
 export {
   StopReasonType,

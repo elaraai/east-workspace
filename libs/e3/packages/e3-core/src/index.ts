@@ -194,6 +194,17 @@ export {
   type DeploySourceProgress,
 } from './workspaces.js';
 
+// A workspace as it is, in one stream: written out, and made from
+export {
+  workspaceBundleExport,
+  workspaceBundleImport,
+  BUNDLE_PIECE_BYTES,
+  type WorkspaceBundleExportOptions,
+  type WorkspaceBundleExportResult,
+  type WorkspaceBundleImportResult,
+  type WorkspaceBundleSource,
+} from './workspace-bundle.js';
+
 // What a deploy decides for each record, index and input, and its policies for
 // records and inputs: the wire types' values, which its callbacks and its job
 // report alike
@@ -553,6 +564,7 @@ export {
   PackageNotFoundError,
   PackageInvalidError,
   PackageExistsError,
+  WorkspaceBundleInvalidError,
   ExportStoppedError,
   // Dataset
   DatasetNotFoundError,

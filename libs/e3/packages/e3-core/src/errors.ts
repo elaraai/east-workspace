@@ -293,6 +293,18 @@ export class PackageInvalidError extends E3Error {
   }
 }
 
+/**
+ * Thrown when a workspace bundle is refused: its bytes are no bundle, it is
+ * cut short, it names what its package does not have, or it leaves out an
+ * object its workspace names that the repository does not hold. An import
+ * refused writes no ref and no record, so it makes no workspace.
+ */
+export class WorkspaceBundleInvalidError extends E3Error {
+  constructor(public readonly reason: string) {
+    super(`Invalid workspace bundle: ${reason}`);
+  }
+}
+
 export class PackageExistsError extends E3Error {
   constructor(
     public readonly packageName: string,
