@@ -1642,3 +1642,51 @@ test.describe("Plan paged blocks (#823)", { tag: "@desktop" }, () => {
         expect(await frame.evaluate((el) => el.scrollTop)).toBe(first);
     });
 });
+
+/** The nested Plans' examples file (#1438). */
+const NESTED_EXAMPLES = "e3/plan/plan-nested";
+
+/**
+ * Shows only the named series of planNestedAll, from its library's Series tab:
+ * each series is a block of every works' rows, so the one shown is at the top.
+ * At the desktop's 1280px the library rests as a rail: opened over the rows,
+ * then closed by a click on the scrim it lays over them.
+ */
+async function showOnly(entry: Locator, shown: readonly string[]): Promise<void> {
+    await entry.getByRole("button", { name: "Expand Library", exact: true }).click();
+    await entry.locator('[role="tab"]', { hasText: /^Series/ }).first().click();
+    for (const title of ["Jobs", "Load", "Crew hours", "Parts"]) {
+        const toggle = entry.getByRole("button", { name: `Toggle ${title}`, exact: true });
+        const on = String(shown.includes(title));
+        if ((await toggle.getAttribute("aria-pressed")) !== on) await toggle.click();
+        await expect(toggle).toHaveAttribute("aria-pressed", on);
+    }
+    await entry.locator("[data-scrim]").click();
+    await expect(entry.locator("[data-scrim]")).toHaveCount(0);
+}
+
+/**
+ * The nested Plan's rows as they draw (#1438): a part's own jobs at the bar's
+ * height whatever its fold.
+ */
+test.describe("planNestedAll's rows (#1438)", { tag: "@desktop" }, () => {
+    test("a part's own jobs draw at the bar's height folded and open, its bands at the rollup's, its row at the row's", async ({ page }) => {
+        const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
+        await showOnly(entry, ["Parts"]);
+        await entry.locator(`[data-plan-group=${JSON.stringify(rowId("assembly", "W-10001"))}]`).click();
+        const part = entry.locator(rowSel("parts", "W-10001", "P10001.1"));
+        await expect(part.locator("[data-run]").first()).toBeVisible();
+        /** The part's row, its jobs' bars and its bands, each height as drawn. */
+        const drawn = () => part.evaluate((row) => {
+            const heights = (sel: string) => [...new Set([...row.querySelectorAll(sel)].map((el) => el.getBoundingClientRect().height))];
+            return { row: row.getBoundingClientRect().height, bars: heights("[data-run]"), bands: heights("[data-plan-band]") };
+        });
+        // The geometry's row, bar and rollup band.
+        const geometry = { row: 32, bars: [20], bands: [12] };
+        await expect(part).toHaveAttribute("aria-expanded", "false");
+        await expect.poll(drawn, "folded").toEqual(geometry);
+        await part.locator('[role="rowheader"]').click();
+        await expect(part).toHaveAttribute("aria-expanded", "true");
+        await expect.poll(drawn, "open").toEqual(geometry);
+    });
+});

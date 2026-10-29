@@ -111,11 +111,10 @@ function KindPlotContent({ v, styles, derived, hasChildren, ctx, plotHeight, cha
         case "span":
             return (
                 // Bar heights are the canvas's geometry (#817), drawn by the
-                // recipe: the density's bar, or the rollup band's height for a
-                // collapsed parent.
+                // recipe: the density's bar, a parent's folded or open — what
+                // it rolls up is its bands.
                 <SpanRow rowKey={rowKey} rowId={rowId} kind={kind.value} styles={styles} ctx={ctx} move={move}
-                    bands={derived.bands.get(rowKey) ?? []}
-                    rolled={v.collapsed && hasChildren} />
+                    bands={derived.bands.get(rowKey) ?? []} />
             );
         case "chart":
             // What the row DRAWS (#824) — its layers folded to the period

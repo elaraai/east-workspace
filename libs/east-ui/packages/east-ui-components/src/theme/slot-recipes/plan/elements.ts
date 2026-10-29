@@ -42,8 +42,9 @@ export const elementsBase = {
     // both fit whole. The bar is a wrapping row whose one line fills the box
     // inside its border, so a quantity that does not fit wraps to a second
     // line the bar clips, and the label, alone on the first, ellipsizes when
-    // it alone does not fit. Its height is the canvas's bar, or a collapsed
-    // parent's rollup bar (`data-rolled`). It is a size container, so its
+    // it alone does not fit. Its height is the canvas's bar, a parent's folded
+    // or open: what a parent rolls up is its bands (`rollBand`). It is a size
+    // container, so its
     // text's line is exactly the height inside its border as the page draws
     // it (`100cqh`) — a lifecycle look's 1.5px dash is drawn 1px at 1×.
     // A run too short for its padding draws the canvas's narrowest bar from
@@ -54,7 +55,6 @@ export const elementsBase = {
         transform: "translateY(-50%)",
         height: "var(--plan-bar-h)",
         minWidth: "var(--plan-bar-min-w)",
-        "&[data-rolled]": { height: "var(--plan-roll-bar-h)" },
         containerType: "size",
         borderRadius: "2px",
         display: "flex",

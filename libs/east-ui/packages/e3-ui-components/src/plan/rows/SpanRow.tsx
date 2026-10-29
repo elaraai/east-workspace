@@ -73,18 +73,14 @@ export interface SpanRowProps {
     /** Renderer-derived rollup bands (the IR carries only the declaration). */
     bands: readonly DerivedBand[];
     styles: Styles;
-    /** Whether its bars are a collapsed parent's, at the geometry's rollup
-     *  bar height rather than its bar's (`KindPlot` decides; the recipe
-     *  draws both). */
-    rolled: boolean;
     /** How its runs move (#825) — `undefined` when they do not. */
     move?: PlanRowMove | undefined;
 }
 
 /** One run bar — a button that moves, with its end handles, where its row takes moves (#825). */
-function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, move }: {
+function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: {
     run: RunValue; left: number; width: number; runoff: boolean;
-    rowKey: string; rowId: PlanRowId; styles: Styles; rolled: boolean; ctx: boolean | undefined;
+    rowKey: string; rowId: PlanRowId; styles: Styles; ctx: boolean | undefined;
     move: PlanRowMove | undefined;
 }) {
     const scale = usePlanScale();
@@ -122,9 +118,6 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, 
             data-fill={optimised !== undefined ? "own" : undefined}
             title={optimised?.provenance}
             data-runoff={runoff ? "" : undefined}
-            // A collapsed parent's bars are the geometry's rollup height —
-            // the recipe's, as every bar height is (#817, #1258).
-            data-rolled={rolled ? "" : undefined}
             data-run={run.key}
             data-plan-frac={left.toFixed(4)}
             // Focusable: Enter opens its popover (#816), and the
@@ -158,7 +151,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, rolled, ctx, 
 }
 
 /** The span-row plot content — bars, rollup bands, diamonds, ports. */
-export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, rolled, ctx, move }: SpanRowProps) {
+export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, ctx, move }: SpanRowProps) {
     const ctxAttr = ctx === true ? "" : undefined;
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -189,7 +182,7 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, rolled,
         <>
             {bars.map(({ run, left, width, runoff }) => (
                 <RunBar key={run.key} run={run} left={left} width={width} runoff={runoff}
-                    rowKey={rowKey} rowId={rowId} styles={styles} rolled={rolled} ctx={ctx} move={move} />
+                    rowKey={rowKey} rowId={rowId} styles={styles} ctx={ctx} move={move} />
             ))}
             {rollBands.map((band, i) => {
                 const f0 = scale.fracOf(band.from);

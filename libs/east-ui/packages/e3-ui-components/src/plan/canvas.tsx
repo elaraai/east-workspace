@@ -964,8 +964,8 @@ export function usePlanCanvas({
     // collapse or a landing window in the same render as the rows do.
     const linksFocus = view.focus?.kind === "links";
     const ribbonRows = useMemo(
-        () => (linksFocus ? ribbonBody(body.items, body.heights, index, geometry) : undefined),
-        [linksFocus, body.items, body.heights, index, geometry]);
+        () => (linksFocus ? ribbonBody(body.items, body.heights, geometry) : undefined),
+        [linksFocus, body.items, body.heights, geometry]);
     // A pinned row renders in the header, above every body row; a row of an
     // evicted paged window sits where its window does in its block's band
     // (#823) — a row never seen has no place, and its edges are not drawn.
