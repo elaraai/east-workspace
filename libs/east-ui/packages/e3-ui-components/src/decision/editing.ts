@@ -12,17 +12,23 @@
  * record through their `write`, and, for Apply, the rows the chosen option's
  * change leaves — the target's `apply` over the rows it touches as they stand,
  * drafted or stored, with Modify's edits in place — each drafted whole into
- * its record. Save sends each record's changes through its patch door as a
- * request of its own.
+ * its record. The rows a change touches are read at once: a record's stored
+ * rows by key in one request ({@link standingRows}), never a request or two
+ * a key. Save sends each record's changes through its patch door as a request
+ * of its own.
  *
  * @packageDocumentation
  */
 
 import { useMemo } from "react";
-import { BlobType, OptionType, SortedMap, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import {
+    BlobType, EastTypeType, OptionType, SortedMap, StringType, compareFor, equalFor, fromEastTypeValue, none, parseFor, some, variant,
+    type EastType, type EastTypeValue, type ValueTypeOf, type option,
+} from "@elaraai/east";
 import type { DecisionQueuePayloadType, DecisionTargetType, DecisionVerdictType } from "@elaraai/e3-ui/internal";
 import type { BatchReadiness, EditHistory } from "@elaraai/east-ui-components";
 import { wholeEntryReadiness } from "@elaraai/east-ui-components/internal";
+import { defaultPagedRuntime, pagedSourceOf, type PagedRow } from "../platform/paged-runtime.js";
 import { useScheduleEditing, type ScheduleChange, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef } from "../shared/schedule/editing.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
 import type { DecisionCase, DecisionOption } from "./layout.js";
@@ -41,6 +47,7 @@ export const VERDICTS = "decision.verdicts";
 const compareString = compareFor(StringType);
 const stringEqual = equalFor(StringType);
 const blobEqual = equalFor(OptionType(BlobType));
+const sameTypeValue = equalFor(EastTypeType);
 const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
 const NO_KINDS: Parameters<typeof useScheduleEditing>[0]["kinds"] = [];
 const READY: BatchReadiness = variant("ready", null);
@@ -175,25 +182,151 @@ export function verdictSteps(schedule: ScheduleEditing): number | undefined {
 }
 
 /**
- * A row of a record as it stands now — drafted, else stored — as its bytes:
- * read by its key through the record's `entries`, tracked, or from the
- * record's snapshot where it is read whole.
+ * The rows of a record the queue's own drafts hold — verdicts drafted before
+ * the one in hand — as their bytes, by their keys' texts: what a preview over
+ * the record's rows lays over them. Nothing is read: each is its session's.
  *
  * @param schedule - The queue's editing
  * @param record - The record
- * @param id - The row's key's text
- * @returns `none` while its read is in flight; `some(none)` for a row the record lacks; else its bytes
+ * @returns Each drafted row's bytes, in its key's order; `undefined` for a row a draft removes
  */
-export function standingRow(schedule: ScheduleEditing, record: DecisionRecord, id: string): option<option<Uint8Array>> {
+export function draftedRows(schedule: ScheduleEditing, record: DecisionRecord): ReadonlyMap<string, Uint8Array | undefined> {
     const codec = rowCodec(record.editing.entryType);
     const session = schedule.sessions.find(held => stringEqual(held.kind, record.key))?.session;
-    if (schedule.draftsOf(record.key).has(id)) {
+    const rows = new Map<string, Uint8Array | undefined>();
+    for (const id of schedule.draftsOf(record.key).keys()) {
         const drafted = draftedRow(session?.entries.get(id));
-        return some(drafted === undefined ? none : some(codec.encode(drafted.row)));
+        rows.set(id, drafted === undefined ? undefined : codec.encode(drafted.row));
     }
-    if (record.entries.type === "some") return record.entries.value.entry(id);
-    const held = schedule.held(record.key, id);
-    return some(held === undefined ? none : some(codec.encode(held)));
+    return rows;
+}
+
+/** No keys asked. */
+const NO_IDS: readonly string[] = [];
+/** No rows read. */
+const NO_BYTES: readonly (Uint8Array | undefined)[] = [];
+/** No rows asked, so none read. */
+const NO_ROWS: readonly PagedRow[] = [];
+/** A String key's text, which is the key. */
+const KEY_AS_TEXT = (id: string): unknown => id;
+
+/** What a read by key needs of a record: its name, which a failure names, and its editing, which holds its key type. */
+export type KeyedRecord = Pick<ScheduleEditingRecord, "name" | "editing">;
+
+/** Each key type's reader of a key's text, made the first time the type is seen — East decides which types are the same. */
+const keyReaders: { readonly type: EastTypeValue; readonly read: (id: string) => unknown }[] = [];
+
+/**
+ * A record's key from its text, as its paged read is asked by it: a String key's text is the key; any other key's is
+ * East's text of it, read back.
+ *
+ * @param record - The record
+ * @returns The reader
+ * @throws {Error} From the reader, for text that names no key of the record's key type
+ */
+function keyReaderOf(record: KeyedRecord): (id: string) => unknown {
+    const keyType = record.editing.keyType;
+    if (keyType.type !== "some" || keyType.value.type === "String") return KEY_AS_TEXT;
+    const known = keyReaders.find(reader => sameTypeValue(reader.type, keyType.value));
+    if (known !== undefined) return known.read;
+    const parse = parseFor(fromEastTypeValue(keyType.value) as EastType);
+    const read = (id: string): unknown => {
+        const got = parse(id);
+        if (!got.success) throw new Error(`${record.name}: the key '${id}' names no key of the record's key type`);
+        return got.value;
+    };
+    keyReaders.push({ type: keyType.value, read });
+    return read;
+}
+
+/**
+ * Rows of a record read by key through its paged read of its own entries (its
+ * `entries`' `paged`): every key in one request, the paging runtime's
+ * `rowsAll` (#1454) — never a request or two a key — each row held there
+ * after, so a later read of one by its key asks nothing. Tracked: the read
+ * landing runs the evaluation reading it again.
+ *
+ * @param record - The record: its name and its key type
+ * @param paged - The `id` of its paged read
+ * @param ids - The rows' keys' texts
+ * @returns `none` while the read is in flight; else each row as read, in the order asked — its `row` none for a key the
+ *   record does not hold
+ * @throws {Error} When the paged read is bound on no page this runtime serves, a key's text names no key, or the read failed
+ */
+export function rowsByKey(record: KeyedRecord, paged: string, ids: readonly string[]): option<readonly PagedRow[]> {
+    if (ids.length === 0) return some(NO_ROWS);
+    const source = pagedSourceOf(paged);
+    if (source === undefined) throw new Error(`${record.name}: its paged read '${paged}' is bound on no page this runtime serves`);
+    return defaultPagedRuntime.rowsAll(source, ids.map(keyReaderOf(record)));
+}
+
+/** The bytes of the rows a read by key answered, made once an answer: the paging runtime hands the same answer while it holds. */
+const answeredBytes = new WeakMap<readonly PagedRow[], readonly (Uint8Array | undefined)[]>();
+
+/**
+ * Rows of a record read by key ({@link rowsByKey}), as their bytes, in the
+ * order asked. Tracked.
+ *
+ * @param record - The record
+ * @param paged - The `id` of its paged read
+ * @param ids - The rows' keys' texts
+ * @returns `none` while the read is in flight; else each row's bytes, `undefined` for a key the record does not hold
+ * @throws {Error} When the paged read is bound on no page this runtime serves, a key's text names no key, or the read failed
+ */
+function storedRows(record: DecisionRecord, paged: string, ids: readonly string[]): option<readonly (Uint8Array | undefined)[]> {
+    const read = rowsByKey(record, paged, ids);
+    if (read.type !== "some") return none;
+    let bytes = answeredBytes.get(read.value);
+    if (bytes === undefined) {
+        const codec = rowCodec(record.editing.entryType);
+        bytes = read.value.map(row => (row.row.type === "some" ? codec.encode(row.row.value) : undefined));
+        answeredBytes.set(read.value, bytes);
+    }
+    return some(bytes);
+}
+
+/**
+ * Rows of a record as they stand now — drafted, else stored — as their
+ * bytes, by their keys' texts in the order given: a drafted row from its
+ * session; the stored ones read by key through the record's `entries`, every
+ * key in one request ({@link storedRows}) — never a request or two a key —
+ * or from the record's snapshot where it is read whole. Tracked: read inside
+ * a tracked evaluation.
+ *
+ * @param schedule - The queue's editing
+ * @param record - The record
+ * @param ids - The rows' keys' texts
+ * @returns `none` while the read is in flight; else each row's bytes by its key's text — `undefined` for a row the record lacks
+ * @throws {Error} When the record's paged read is bound on no page this runtime serves, a key's text names no key of
+ *   the record's, or the read failed
+ */
+export function standingRows(schedule: ScheduleEditing, record: DecisionRecord, ids: readonly string[]): option<ReadonlyMap<string, Uint8Array | undefined>> {
+    const codec = rowCodec(record.editing.entryType);
+    const drafts = schedule.draftsOf(record.key);
+    const session = schedule.sessions.find(held => stringEqual(held.kind, record.key))?.session;
+    const entries = record.entries;
+    // The stored rows read by key: every key the drafts do not hold, in one request.
+    const asked = entries.type === "some" ? ids.filter(id => !drafts.has(id)) : NO_IDS;
+    let stored = NO_BYTES;
+    if (asked.length > 0 && entries.type === "some") {
+        const read = storedRows(record, entries.value.paged, asked);
+        if (read.type !== "some") return none;
+        stored = read.value;
+    }
+    const rows = new Map<string, Uint8Array | undefined>();
+    let next = 0;
+    for (const id of ids) {
+        if (drafts.has(id)) {
+            const drafted = draftedRow(session?.entries.get(id));
+            rows.set(id, drafted === undefined ? undefined : codec.encode(drafted.row));
+        } else if (entries.type === "some") {
+            rows.set(id, stored[next++]);
+        } else {
+            const held = schedule.held(record.key, id);
+            rows.set(id, held === undefined ? undefined : codec.encode(held));
+        }
+    }
+    return some(rows);
 }
 
 /** What an option's change leaves: the rows it changes by key — `undefined` for one it deletes — or why it cannot be read now. */
@@ -208,9 +341,9 @@ export type EarlierRows = ReadonlyMap<string, ReadonlyMap<string, Uint8Array | u
 
 /**
  * The rows an option's change leaves (R23, P21): the target's `apply` over
- * the rows its patch touches as they stand — tracked, so a read in flight is
- * `reading` until it lands — or `stale` when the change no longer applies to
- * them. Read inside a tracked evaluation.
+ * the rows its patch touches as they stand, read at once ({@link standingRows})
+ * — tracked, so a read in flight is `reading` until it lands — or `stale` when
+ * the change no longer applies to them. Read inside a tracked evaluation.
  *
  * @param schedule - The queue's editing
  * @param target - The target its change's tag names
@@ -226,18 +359,17 @@ export function appliedRows(schedule: ScheduleEditing, target: DecisionTarget | 
     if (!schedule.available(record.key)) return { state: "reading" };
     const keys = target.touched(o.change.patch);
     const before = earlier?.get(record.key);
+    // The rows it touches as they stand, read at once — but those an earlier change of the batch leaves, which stand as it
+    // leaves them.
+    const read = standingRows(schedule, record, before === undefined ? keys : keys.filter(key => !before.has(key)));
+    if (read.type !== "some") return { state: "reading" };
     const standing = new SortedMap<string, option<Uint8Array>>([], compareString);
     const held = new Map<string, Uint8Array | undefined>();
-    let reading = false;
     for (const key of keys) {
-        // A row an earlier change of the batch leaves stands as it leaves it.
-        const left = before?.has(key) === true ? before.get(key) : undefined;
-        const row = before?.has(key) === true ? some(left === undefined ? none : some(left)) : standingRow(schedule, record, key);
-        if (row.type !== "some") { reading = true; continue; }
-        standing.set(key, row.value);
-        held.set(key, row.value.type === "some" ? row.value.value : undefined);
+        const row = before !== undefined && before.has(key) ? before.get(key) : read.value.get(key);
+        standing.set(key, row === undefined ? none : some(row));
+        held.set(key, row);
     }
-    if (reading) return { state: "reading" };
     const applied = target.apply(o.change.patch, standing);
     if (applied.type !== "some") return { state: "stale" };
     const rows = new Map<string, Uint8Array | undefined>();

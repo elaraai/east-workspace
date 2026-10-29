@@ -13,43 +13,52 @@
  * map by people, rows 16 and marks 12, four of them and the count of the
  * rest. What the change proposes takes the steady glow, what it moves off or
  * removes is a ghost, and each person's hours read before → after
- * ({@link rosterPreview}).
+ * ({@link rosterPreview}). Its map by cost (P7) is the week's pay by the app's
+ * own codes, before and after, asked of the app's pay a person at a time by the
+ * Roster's own cache: a row a code, its change a bar from zero — a saving a
+ * ghost, an added cost glowing — in the Roster's currency ({@link costPreview}).
  *
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useRef, type CSSProperties } from "react";
+import { useCallback, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLock, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
-import { BlobType, FloatType, SortedMap, StringType, equalFor } from "@elaraai/east";
+import { BlobType, FloatType, SortedMap, StringType, compareFor, equalFor } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { useSlotStyles, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import {
-    compareString, rosterContext, rosterDomain, shiftColor, shiftOf, weekWindow,
+    RosterPayCache, compareString, rosterContext, rosterDomain, shiftColor, shiftOf, weekNumber, weekWindow,
     type DraftedDuty, type RosterPayload, type StoredDuty,
 } from "../../roster/model.js";
 import { DAY, weekStart } from "../../shared/schedule/window.js";
-import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
+import { appliedRows, draftedRows, standingRows, type DecisionTarget } from "../editing.js";
+import { payFormat } from "../figures.js";
 import type { DecisionQueueWords } from "../messages.js";
+import { costPreview, type CostModel } from "./cost-model.js";
 import { NAMED, PreviewFailed, PreviewFrame, PreviewPending, flag, guessedOf, leftBy, sharedOf, staleNames, type PreviewProps } from "./frame.js";
 import { WEEK_DAYS, firstStart, rosterPreview, type RosterPreviewModel, type RosterPreviewRow, type RosterPreviewTile } from "./roster-model.js";
 
 /** A Roster target's kind, decoded. */
 type RosterKind = Extract<DecisionTarget["kind"], { type: "roster" }>["value"];
 
-/** What the preview's read gives: the model, a read in flight, or nothing it touches in a week. */
-type RosterRead = { readonly state: "ready"; readonly model: RosterPreviewModel } | { readonly state: "pending" } | { readonly state: "empty" };
+/** What the preview's read gives: the model — the map by cost's, where its target reads by cost — a read in flight, or nothing it touches in a week. */
+type RosterRead = { readonly state: "ready"; readonly model: RosterPreviewModel } | { readonly state: "cost"; readonly model: CostModel }
+    | { readonly state: "pending" } | { readonly state: "empty" };
 
 /** The most people the crop draws: past them, the map (D7). */
 const CROP_PEOPLE = 2;
 /** The most people the map draws: past them, its count (P5). */
 const MAP_PEOPLE = 4;
+/** The rows the map by cost's placeholder draws. */
+const COST_PENDING = 3;
 const PENDING: RosterRead = { state: "pending" };
 const EMPTY: RosterRead = { state: "empty" };
 const blobEqual = equalFor(BlobType);
 const sameHours = equalFor(FloatType);
 const stringEqual = equalFor(StringType);
+const compareAmount = compareFor(FloatType);
 const NOT_LOCKED = (): boolean => false;
 
 /** The duties a read gives, each kept as it was where its bytes are: a read again draws nothing again. */
@@ -84,6 +93,9 @@ export function RosterPreview({ c, view, target, kind, record, rows, changed, sc
     const domain = useMemo(() => rosterDomain(roster.duty.rowType), [roster]);
     const context = useMemo(() => rosterContext(roster), [roster]);
     const held = useRef<ReadonlyMap<string, StoredDuty> | undefined>(undefined);
+    // The map by cost's pay, a cache a side: each asks again only for the people whose duties moved.
+    const [pays] = useState(() => ({ was: new RosterPayCache(), now: new RosterPayCache() }));
+    const cost = kind.map.type === "cost";
     const option = view.option;
     const read = useCallback((): RosterRead => {
         if (rows === "reading" || rows === "failed") return PENDING;
@@ -107,10 +119,10 @@ export function RosterPreview({ c, view, target, kind, record, rows, changed, sc
             const o = theirs ? recommended : option;
             marked = stale;
             if (o === undefined || record === undefined) return EMPTY;
-            for (const key of target.touched(o.change.patch)) {
-                const got = standingRow(schedule, record, key);
-                if (got.type !== "some") return PENDING;
-                const d = duty(key, got.value.type === "some" ? got.value.value : undefined);
+            const standing = standingRows(schedule, record, target.touched(o.change.patch));
+            if (standing.type !== "some") return PENDING;
+            for (const [key, bytes] of standing.value) {
+                const d = duty(key, bytes);
                 before.set(key, d);
                 after.set(key, d);
             }
@@ -131,11 +143,15 @@ export function RosterPreview({ c, view, target, kind, record, rows, changed, sc
         // The queue's own drafts of the duty record — verdicts drafted before this one — in their place.
         const drafts = new Map<string, DraftedDuty | undefined>();
         if (record !== undefined) {
-            for (const id of schedule.draftsOf(record.key).keys()) {
-                if (before.has(id)) continue;
-                const drafted = standingRow(schedule, record, id);
-                if (drafted.type === "some") drafts.set(id, duty(id, drafted.value.type === "some" ? drafted.value.value : undefined));
-            }
+            for (const [id, bytes] of draftedRows(schedule, record)) if (!before.has(id)) drafts.set(id, duty(id, bytes));
+        }
+        if (cost) {
+            if (roster.pay.type !== "some") return EMPTY;
+            const pay = roster.pay.value;
+            return {
+                state: "cost",
+                model: costPreview({ domain, context, start, stored, drafts, before, after, pay: (week, side) => pays[side].run(domain, pay, week, start, context) }),
+            };
         }
         const knockOn = option?.knockOn;
         const locked = target.locked.type === "some" ? target.locked.value : NOT_LOCKED;
@@ -148,18 +164,23 @@ export function RosterPreview({ c, view, target, kind, record, rows, changed, sc
                 shared: key => (record === undefined ? 0 : sharedOf(shared, record.key, key)),
             }),
         };
-    }, [rows, changed, option, c.options, view.recommended, record, target, schedule, roster, domain, context, shared]);
+    }, [rows, changed, option, c.options, view.recommended, record, target, schedule, roster, domain, context, shared, cost, pays]);
     const { result } = useTrackedEvaluation(read);
     const stale = rows === "stale";
     if (rows === "failed" || !result.ok) {
         if (!result.ok) console.error(`[DecisionQueue] case ${c.key}'s preview could not read its week:`, result.error);
-        return <PreviewFailed kind="roster" layout="roster" words={words} styles={styles} />;
+        return <PreviewFailed kind="roster" layout={cost ? "cost" : "roster"} words={words} styles={styles} />;
     }
     const got = result.value;
-    if (got.state === "pending") return <PreviewPending kind="roster" layout="roster" rows={CROP_PEOPLE} cells={WEEK_DAYS} words={words} styles={styles} />;
-    if (got.state === "empty") {
-        return <PreviewFrame kind="roster" layout="roster" label={option?.detail ?? ""} stale={stale} styles={styles} />;
+    if (got.state === "pending") {
+        return cost
+            ? <PreviewPending kind="roster" layout="cost" rows={COST_PENDING} words={words} styles={styles} />
+            : <PreviewPending kind="roster" layout="roster" rows={CROP_PEOPLE} cells={WEEK_DAYS} words={words} styles={styles} />;
     }
+    if (got.state === "empty") {
+        return <PreviewFrame kind="roster" layout={cost ? "cost" : "roster"} label={option?.detail ?? ""} stale={stale} styles={styles} />;
+    }
+    if (got.state === "cost") return <CostMap model={got.model} stale={stale} words={words} styles={styles} roster={roster} />;
     const model = got.model;
     const map = model.rows.length > CROP_PEOPLE;
     const label = sentence(model, words, guessedOf(view.option?.guesses, changed), map, stale);
@@ -340,6 +361,48 @@ function PeopleMap({ model, label, stale, words, styles, roles, roster }: ViewPr
                     <Box as="span" css={styles.countText}>{more > 0 ? m.previewMorePeople({ n: words.number(more) }) : ""}</Box>
                     <Box as="span" css={styles.countFigure}>{m.previewCount({ n: words.number(model.rows.length), of: words.number(model.people) })}</Box>
                 </Box>
+            </Box>
+        </PreviewFrame>
+    );
+}
+
+/**
+ * The map by cost (P7, P24, P25): a row a pay code, its change a bar from zero on one axis either side — a saving a
+ * ghost, an added cost glowing — and its figure, signed, in the Roster's currency: better where it saves, worse where it
+ * adds.
+ */
+function CostMap({ model, stale, words, styles, roster }: {
+    readonly model: CostModel; readonly stale: boolean; readonly words: DecisionQueueWords; readonly styles: SlotStyles; readonly roster: RosterPayload;
+}) {
+    const { m } = words;
+    const format = roster.currency.type === "some" ? payFormat(roster.currency.value) : undefined;
+    const money = (amount: number, sign = false) => (format === undefined && !sign ? words.number(amount) : words.value(amount, format, sign));
+    const moved = model.rows.filter(row => !sameHours(row.change, 0));
+    const label = stale ? m.previewStale({ names: undefined })
+        : m.previewCosts({ week: words.number(weekNumber(model.start)), codes: moved.map(row => ({ code: row.code, change: money(row.change, true) })), failed: model.failed });
+    const at = (left: number, width: number) => ({ "--pv-left": `${left}%`, "--pv-width": `${width}%` }) as CSSProperties;
+    return (
+        <PreviewFrame kind="roster" layout="cost" label={label} stale={stale} styles={styles}>
+            <Box css={styles.chart}>
+                <Box css={styles.chartHead} aria-hidden="true">
+                    <Box as="span" css={styles.chartCaption}>{m.previewCaption({ caption: "payCode" })}</Box>
+                    <Box css={styles.chartTicks} data-preview-axis="x"><span>{money(-model.axis, true)}</span><span>{words.number(0)}</span><span>{money(model.axis, true)}</span></Box>
+                    <Box as="span" css={styles.chartCaption} data-align="end">{m.previewCaption({ caption: "change" })}</Box>
+                </Box>
+                {model.rows.map(row => {
+                    const same = sameHours(row.change, 0);
+                    const saving = compareAmount(row.change, 0) < 0;
+                    return (
+                        <Box key={row.code} css={styles.chartRow} data-preview-row={row.code} title={m.previewCost({ code: row.code, was: money(row.was), now: money(row.now) })}>
+                            <Box as="span" css={styles.chartName}>{row.code}</Box>
+                            <Box css={styles.chartPlot}>
+                                <Box as="span" css={styles.zero} />
+                                {!same && <Box as="span" css={styles.delta} style={at(row.left, row.width)} data-op={saving ? "from" : "add"} data-fill={saving ? undefined : "own"} />}
+                            </Box>
+                            <Box as="span" css={styles.chartFigure} data-tone={same ? "neither" : saving ? "better" : "worse"}>{same ? words.number(0) : money(row.change, true)}</Box>
+                        </Box>
+                    );
+                })}
             </Box>
         </PreviewFrame>
     );

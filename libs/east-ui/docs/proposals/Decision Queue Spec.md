@@ -161,17 +161,20 @@ row is one proposal maps the option's roles beside the case's (D15, §3.2).
 ### 3.1 The app's records
 
 The example app is a warehouse, a print shop, a kiln yard and a workshop under
-one roof — the repo's own example records — whose models propose changes to
-each. Its cases are one record, its verdicts another:
+one roof — the repo's own example records — and the supply side that stocks
+them: its stock orders, its stores' stock, its catalogue's minimum stock and
+its service rounds' areas, records no builder draws. Its models propose
+changes to each. Its cases are one record, its verdicts another:
 
 ```ts
-import { BooleanType, DateTimeType, DictType, FloatType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, DictType, FloatType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { WarehouseDuty } from "../roster/warehouse.js";                    // the warehouse rota's duties
 import { PrintJob } from "../plan/plan-events.examples.js";                // the print shop's jobs
 import { CalendarService } from "../calendar/calendar.examples.js";        // the workshop's machine maintenance
 import { KilnBin } from "../allocation/kiln-yard.js";                      // the kiln yard's bins
 import { OptimiseWorkOrder } from "../sheet/optimise.examples.js";         // the shop's work orders
+import { CatalogueItem, ForecastPoint, ServiceArea, StockOrder, StoreStock } from "./supply.js";  // the supply side's, which no builder draws
 
 /** A list price, and the demand a week the model expects at it: a record no builder draws. */
 export const ListPrice = StructType({ region: StringType, price: FloatType, demand: FloatType, from: DateTimeType });
@@ -189,6 +192,10 @@ export const OpsChange = VariantType({
     yard: PatchType(DictType(StringType, KilnBin)),              // the kiln yard's bins, as the Allocation draws them
     orders: PatchType(DictType(StringType, OptimiseWorkOrder)),  // the shop's work orders, as the Sheet draws them
     pricing: PatchType(DictType(StringType, ListPrice)),         // the price list, which no builder draws
+    restock: PatchType(DictType(StringType, StockOrder)),        // the stock orders, read by each option's own forecast
+    split: PatchType(DictType(StringType, StoreStock)),          // one item's stock across the stores, read as a mix
+    minimums: PatchType(DictType(StringType, CatalogueItem)),    // the catalogue's minimum stock, a rule across its ranges
+    rounds: PatchType(DictType(StringType, ServiceArea)),        // the service rounds' areas, each in a round
 });
 
 /** One way to decide a case: the app's own words for it, what it is worth, and its change. */
@@ -205,6 +212,7 @@ export const OpsOption = StructType({
     refused: OptionType(StringType),   // "busy 12:00–17:00 with J-3006" — a refused option says why
     knockOn: SetType(StringType),      // rows of the target moved because of the change, not by it
     guesses: DictType(StringType, FloatType), // the changed rows the model is unsure of, by key: "WO-1004" → 0.69
+    forecast: ArrayType(ForecastPoint),       // the stock on hand the option leaves, by week: what a projection draws
     change: OpsChange,
 });
 
@@ -215,7 +223,7 @@ export const OpsCase = StructType({
     due: OptionType(DateTimeType),
     routine: BooleanType,
     unit: StringType,                  // "uplift"
-    money: BooleanType,                // whether its figures are money, or a count — the orders' — which `format` reads
+    figure: VariantType({ money: NullType, count: NullType, percent: NullType }),  // what its figures are — money, a count (the orders') or a share — which `format` reads
     model: StringType,                 // "staffing-v3.2.1 · run #42"
     why: StringType,
     ifWrong: OptionType(FloatType),    // −8000
@@ -323,10 +331,12 @@ offers no answer, no override reason and no note (§5.2).
 
 ### 3.3 The full queue — every builder it lands in
 
-The same app, its cases narrowed by a rail, its seven kinds of decision
+The same app, its cases narrowed by a rail, its eleven kinds of decision
 landing in the Roster's duties — by people, and by cost — the Plan's jobs, the
-Calendar's machine maintenance, the Allocation's bins, the Sheet's work orders
-and the price list. Each builder's kinds and lists are the consts its own tag
+Calendar's machine maintenance, the Allocation's bins, the Sheet's work orders,
+the price list and the supply side's records: the stock orders as a
+projection, the stores' stock as a mix, the catalogue's minimums as groups and
+the service rounds' areas as zones. Each builder's kinds and lists are the consts its own tag
 takes in its example — declared once and handed to both, with their own
 `fields`, `ready` and `inspector`, which Modify uses (D9). The bindings are
 named for the records they bind (`duties`, `workOrders`, `priceList`); the
@@ -426,6 +436,16 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
     const workOrders = $.let(Record.bind(optimiseWorkOrders));
     const priceList = $.let(Record.bind(listPrices));
 
+    // The supply side's records, which no builder draws: the stock orders, which a projection reads by each option's
+    // own forecast; the stores' stock, read as a mix; the catalogue, its minimums a rule whose ranges are counted
+    // through its index on them, its rows read by key through its entries; and the service rounds' areas.
+    const restocks = $.let(Record.bind(stockOrders));
+    const storeUnits = $.let(Record.bind(storeStock));
+    const items = $.let(Record.bind(catalogue));
+    const itemEntries = $.let(Data.bindPaged(catalogue));
+    const itemRanges = $.let(Data.bindPaged(catalogue, { indexes: ["catalogue_by_range"] }));
+    const areas = $.let(Record.bind(serviceAreas));
+
     // Where each kind of decision draws: a target for each tag of the options' change.
     const rotaChange = DecisionQueue.change.roster({ name: "Roster", icon: "users",
         events: { duty }, resources: { people, agencies }, shifts, groups, week: { start: "sunday" }, source: dutyWeek });
@@ -447,6 +467,19 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
         fields: { price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05, help: "In 5¢ steps" }) },
         ready: r => r.price.subtract(East.Float.roundNearest(r.price, 0.05)).abs().greater(0.000001).ifElse(
             () => variant("invalid", [{ field: "price", message: "A list price moves in 5¢ steps" }]), () => variant("ready", null)) });
+    // The supply side's: a projection of each option's forecast against the minimum, the stores' stock as a mix, the
+    // catalogue's minimums by range, and the rounds' areas in their zones.
+    const restockChange = DecisionQueue.change.projection(restocks, { name: "Stock", icon: "boxes-stacked", option: OpsOption,
+        points: o => o.forecast, x: p => p.week, y: p => p.units, limit: { y: 400.0, label: "min" } });
+    const splitChange = DecisionQueue.change.record(storeUnits, { name: "Stock", icon: "truck-ramp-box", label: s => s.store, measure: s => s.units });
+    const minimumsChange = DecisionQueue.change.record(items, { name: "Catalogue", icon: "layer-group", label: i => i.name, measure: i => i.min,
+        entries: itemEntries, group: "range", source: itemRanges });
+    const roundsChange = DecisionQueue.change.zones(areas, { name: "Rounds", icon: "map-location-dot",
+        zone: a => a.round, x: a => a.column, y: a => a.row, depot: a => a.depot,
+        zones: [
+            { key: "a", label: "Round A", color: Style.ColorToken("blue", "500") },
+            { key: "b", label: "Round B", color: Style.ColorToken("purple", "500") },
+        ] });
 
     return <DecisionQueue
         id="opsQueue"
@@ -454,8 +487,12 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
         decisions={DecisionQueue.decisions(cases, {
             scope: c => c.scope, due: c => c.due, routine: c => c.routine, unit: c => c.unit, model: c => c.model,
             why: c => c.why, ifWrong: c => c.ifWrong, recommended: c => c.recommended,
-            // Money in dollars, a count as it is.
-            format: c => c.money.ifElse(() => some(Format.Currency({ currency: "USD", compact: "short" })), () => none),
+            // Money in dollars, a share as a percent, a count as it is.
+            format: c => c.figure.match({
+                money: () => some(Format.Currency({ currency: "USD", compact: "short" })),
+                count: () => none,
+                percent: () => some(Format.Percent({ maximumFractionDigits: 0n })),
+            }),
             options: { from: c => c.options, label: o => o.label, title: o => o.title, summary: o => o.summary,
                 detail: o => o.detail, note: o => o.note, value: o => o.value, confidence: o => o.confidence,
                 question: o => o.question, warn: o => o.warn, refused: o => o.refused, knockOn: o => o.knockOn,
@@ -463,6 +500,7 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
                 change: { from: o => o.change, of: {
                     rota: rotaChange, rotaCost: rotaCostChange, print: printChange, workshop: workshopChange,
                     yard: yardChange, orders: orderChange, pricing: pricingChange,
+                    restock: restockChange, split: splitChange, minimums: minimumsChange, rounds: roundsChange,
                 } } },
         })}
         verdicts={DecisionQueue.verdicts(verdicts, {
@@ -484,8 +522,8 @@ showcase places a builder, with `now` pinned to 15:00 on 8 March 2028 so their
 sections stand as the mock's do whatever the day. Their cases carry the mock's
 words and figures over the rows of the example records each case changes — the
 roster case moves a duty the warehouse rota holds, J. Tansy's Friday late — and
-each case's `money` says whether its figures print as dollars (`+$80K`) or as a
-count (`+3`).
+each case's `figure` says whether its figures print as dollars (`+$80K`), as a
+percent (`3%`) or as a count (`+3`).
 
 A record with no builder declares its form in its target, with the names an
 event kind gives them: `fields` (east-ui's `Fields` hints: `Fields.number`,
@@ -629,21 +667,27 @@ target serves every tag `of` maps to it.
 | `DecisionQueue.change.calendar({ name, icon, events, resources?, week?, event?, source? })` | `Pick<CalendarProps, "events" \| "resources" \| "week">`; `event` as the Plan's | the touched days' events on the change's resources | crop: a lane a day, bars 18, each lane head the day and its overlaps before → after (Schedule's overlaps); map: as the Plan's |
 | `DecisionQueue.change.allocation({ name, icon, events, resources, arrivals?, rules?, check?, labels?, source? })` | `Pick<AllocationProps<R>, "events" \| "resources">`, and its `arrivals`, `rules`, `check` and `labels`, optional here | the touched resources' bins over the change's days | crop: a lane a resource — with `arrivals`, a Waiting lane — bins 24 tall on the days' ruler, each head the resource and its load before → after (`Allocation.loads`), a breach by `check`; map: resources as tiles by group |
 | `DecisionQueue.change.sheet(binding, { name, icon, columns, entries? })` | `columns` a `SheetColumnSpec<R>`, built with `Sheet.column.*` as `<Sheet>` takes it | the touched rows: by key through `entries`, else from the record read whole | crop: the first three changed rows at 28, the columns the change touches after the first column; a guessed row's changed cells with the dot (P26) |
-| `DecisionQueue.change.record(binding, { name, icon, label?, fields?, ready?, inspector?, measure?, group?, locked?, entries? })` | east-ui's `Fields` hints, a `ready` and an `inspector` (`RowInspectorType`), as an event kind takes them | the touched rows: by key through `entries`, else from the record read whole; with `group`, each group's size through an index of `entries` on that field | up to two rows' changed fields (rows 54, two fields each); with `measure` and at most five rows, the mix: a row per key on a shared axis; with `group`, the groups: a row per group, at most five |
+| `DecisionQueue.change.record(binding, { name, icon, label?, fields?, ready?, inspector?, measure?, group?, source?, locked?, entries? })` | east-ui's `Fields` hints, a `ready` and an `inspector` (`RowInspectorType`), as an event kind takes them | the touched rows: by key through `entries`, else from the record read whole; with `group`, each group's rows counted through `source` — an indexed read of the record listing a plain index on that field alone — every group shown asked in one pass, and `entries` given beside it | up to two changed fields across its rows (rows 54), each value as the row's form prints it read-only; with `measure` and at most five rows, the mix: a row per key on a shared axis; with `group`, the groups: a row per group, the most rows changing first, at most five |
 | `DecisionQueue.change.zones(binding, { name, icon, zone, x, y, depot?, zones })` | its own accessors — no builder draws zones; `zones` the app's list of (label, colour token) | every area of the binding | tiles 16, twelve a row, by `x` and `y`, filled by zone; changed areas in the new zone's fill with the glow; depots as dots; the key, each zone's count before → after |
-| `DecisionQueue.change.projection(binding, { name, icon, points, x, y, limit?, format? })` | `points` an accessor over the option row giving its series, `x` and `y` accessors over a point, as `Chart.Line(rows, { x, y })` takes them; `limit` a `Chart.refLine({ y, label })` | nothing of the record: the option's own series | the plot, 84 tall; a line per option, the chosen one glowing, the option that changes nothing a dashed ghost, the others thin; the limit a dashed warn rule over its wash |
+| `DecisionQueue.change.projection(binding, { name, icon, option, points, x, y, limit?, format? })` | `option` the options' row type, `points` an accessor over it giving its series, `x` and `y` accessors over a point, as `Chart.Line(rows, { x, y })` takes them; `limit` `{ y, label }`, as `Chart.refLine` takes them | nothing of the record: the option's own series | the plot, 84 tall; a line per option, the chosen one glowing, the option that changes nothing a dashed ghost, the others thin; the limit a dashed warn rule over its wash |
 
 `source` is an indexed source of the builder's record with an interval index
 (`Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] })`), the read
 a builder's slice names for the kind; without it the target reads its kind's
-record whole. `entries` is a paged read of a record with no builder,
+record whole. A record target's `source` is such a read for its groups: an
+indexed read of the target's own record listing a plain index on the `group`
+field alone (`Data.bindPaged(catalogue, { indexes: ["catalogue_by_range"] })`),
+whose key search counts a group's rows — never the record read whole; `group`
+without it, or it without `group`, is refused, naming the index to declare.
+`entries` is a paged read of a record with no builder,
 `Data.bindPaged(record)`, beside its `Record.bind`, as an event kind's
-`entries` is: the touched rows are read by key, never the record whole.
-`locked` is an accessor over the record's row (`(row, key) => Boolean`) for
+`entries` is: the touched rows are read by key, never the record whole — the
+rows every case's change touches in one request a record, as the verdicts are
+(R1). `locked` is an accessor over the record's row (`(row, key) => Boolean`) for
 the Locked mark. A target's own roles are East functions over the row too —
 the record's `label` and `measure`, the zones' `zone`, `x` and `y`, the
-projection's `points`, `x` and `y` — but `group`, which names the field an
-index of `entries` is on, as a rail's fields do. `map` is the Roster's alone: `"people"` by default, `"cost"`
+projection's `points`, `x` and `y` — but `group`, which names the field
+`source`'s index is on, as a rail's fields do. `map` is the Roster's alone: `"people"` by default, `"cost"`
 given `pay` — refused without it, naming `pay`.
 
 Every preview the mock draws is one of these: the Roster's crop, its week map
@@ -814,8 +858,10 @@ queue's, P the previews'.
 - **R1.** The queue reads its cases complete: whole, or the slice's `decisions`
   source's narrowing a page at a time (D4), at most 1,000; past that it reads
   none and its banner says how many the narrowing holds and to narrow. It
-  reads the verdicts of the cases it read, by key. Nothing is narrowed in the
-  browser.
+  reads the verdicts of the cases it read by key, every case's in one request,
+  and the rows their changes touch by key, one request a record — through each
+  `entries`' paged read, which its read by key names (`paged`). Nothing is
+  narrowed in the browser.
 - **R2.** It orders the waiting cases by due — earliest first, none last —
   then by the recommended option's value, greatest first, compared as East
   compares them; and lays them out: Overdue, Due today, This week, Later (D4),
@@ -987,15 +1033,26 @@ off its builder's view is not drawn, and what must hold Apply is the app's
   of what changes beside them (`20 of 36`).
 - **P6. Record.** A change with no builder shows its changed fields: the
   field, the old value struck, the new value glowing; unchanged fields stay
-  plain; rows 54, up to two fields.
+  plain; rows 54, up to two fields across its rows, in the form's order. Each
+  value prints as the row's form prints it read-only (`fieldText`) — a
+  Boolean in words, a checklist its items done of all, an absent value `—` —
+  so the preview and Modify print a value alike.
 - **P7. Cost.** A Roster map whose target says `map: "cost"` reads by what it
-  costs, by the target's `pay`: a row per pay code, the change as a bar from
-  zero, savings dashed ghosts, added cost glowing; rows 17, up to five codes,
-  the axis ±5k in the target's `currency`.
+  costs, by the target's `pay`: the week the change lands in, before it and
+  after it, priced by the app's pay a person at a time and totalled by the
+  pay codes it answers with — a row per code, the codes the change moves
+  first, the change as a bar from zero, savings dashed ghosts, added cost
+  glowing; rows 17, up to five codes. The axis is symmetric about zero at the
+  round step past the largest change (`−$1K · 0 · +$1K`), in the target's
+  `currency`; each row is titled with its code's pay a week, before → after,
+  whole under 1K and compact past it (`AGENCY · $816 → $0 a week`).
 - **P8. Projection.** The measure over its horizon, a line per option: the
   chosen one glowing, the as-is one (the option whose change changes nothing)
   a dashed ghost, the others thin context lines; the limit a dashed warn rule
-  with the warn wash below it; plot 84 tall, lines 2 and 1px, wash 6%.
+  with the warn wash below it; plot 84 tall, lines 2 and 1px, wash 6%. Each
+  line is labelled at its end, or along its run where the labels would meet;
+  the x ticks are plain numbers; the y axis shows its round top, and the
+  limit its label in `--warn-text`. The sentence names the chosen line first.
 - **P9. Zones.** Areas filled by their zone, depots as dots; areas changing
   zone take the new zone's fill and the glow; the key gives each zone's count
   before → after; tiles 16, twelve a row, zones in chart accents.
@@ -1003,7 +1060,10 @@ off its builder's view is not drawn, and what must hold Apply is the app's
   glowing dot, joined by a 2px Elara line; rows 17, dots 8, up to five rows.
 - **P11. Groups.** A rule across many rows: a row per group, its track the
   group's size, the glowing part the rows that change, then the count and the
-  net change; rows 17, bars 8, up to five groups.
+  net change; rows 17, bars 8, up to five groups, the most rows changing
+  first. A group's size is counted through the target's `source`, its index
+  on the group's field — every group shown asked in one pass, never the
+  record read whole.
 - **P12. When strip.** Under a batch map, one glowing tick per change at its new
   time; strip 12, ticks 2 wide.
 - **P13. Proposed.** The entry's own fill and the steady glow — `0 0 0 1px`
@@ -1041,7 +1101,7 @@ off its builder's view is not drawn, and what must hold Apply is the app's
   in each of its changed cells, a 6px round `--warn` dot 6 before the value,
   titled `conf {confidence} · a guess` (two places); the Sheet's crop and a
   record's changed fields draw it, and the preview's sentence names the
-  guessed rows (`OP-40 is a low-confidence guess`). A key naming no changed
+  guessed rows (`WO-1007 is a low-confidence guess`). A key naming no changed
   row marks nothing.
 
 ### 9.6 Narrow hosts (owner: `decision/index.tsx`; test: responsive at 1440/1024/768/390/360 and a 294px parent)
@@ -1102,6 +1162,8 @@ does, and what follows.
 | The checklist chips (Mon · Wed · Thu, Line 1 · 2 · 3) | The shared form renderers: an input per East type, a Set as tags | The input the shared form draws for the field's type | The mock's chips are not drawn. |
 | Its own radios, inputs and textarea | The shared radio group, inputs and textarea | Those | — |
 | The options' `✓` and `×`, the empty state's `☐`, the groups' `▲` `▼` | Font Awesome solid icons everywhere | Font Awesome solid icons (D13) | — |
+| The cost map's axis fixed at ±5k, over pay codes and figures of its own | The Roster's `pay`, the app's, which prices a week's duties in its own codes | The app's own codes (`AGENCY`, `ORD`, `OT1`) and the figures its pay gives over the rota's week before and after; the axis symmetric about zero at the round step past the largest change (P7) | The figures are the app's, whatever its codes; a fixed axis would flatten a small change and clip a large one. |
+| A list price's fields printed as money (`$10.50 → $11.00`) | The shared form prints a `Fields.number` as a plain number; the hint has no currency format | Each value as the row's form prints it read-only (`10.5 → 11`, P6) | The preview and Modify print a value alike. A currency format on `Fields.number` is a follow-up; with it, both print `$10.50`. |
 | The Sheet crop's low-confidence dot, per row (`conf 0.69 · a guess`) | The Sheet has no confidence mark; a patch carries none | The option's `guesses`: the rows the model is unsure of and its confidence in each, their changed cells dotted (D16, P26) | The model says what it guessed; the dot is the preview's alone, never the Sheet's. |
 | `<DecisionPreview>` as a component of its own | — | The targets, in the change role's `of` | A component is an interface and a renderer: the queue's payload carries the targets. A preview placed on its own is a follow-up. |
 | `--elara-*` tokens awaiting the design system's sign-off | The `elara` tokens Optimise added (#1409) | Those tokens | — |
@@ -1143,7 +1205,10 @@ does, and what follows.
 
 - **UI.** The `DecisionQueue` payload is replaced, and the `DecisionJournal`
   payload (Q3) and the `Diff` payload (§13) removed: package-borne, a
-  `WIRE_MIGRATION.md` line each. No
+  `WIRE_MIGRATION.md` line each. e3-ui's read by key gains the paged read's
+  `id` (`ScheduleEntriesType`'s `paged`), by which the queue asks many rows in
+  one request, and the record target's group its `count`: package-borne, a
+  line of their own. No
   stored form of e3's changes: the cases and the verdicts are the app's own
   records.
 - **Viewer state.** The open card, the band's fold, each card's choices and
@@ -1179,8 +1244,8 @@ does, and what follows.
 - **Examples.** `decisionQueueMinimal` (§3.2: one record of proposals with no
   alternatives, two tags, a target each), `decisionQueueOps` (§3.3, over the
   warehouse's, the print shop's, the workshop's, the kiln yard's and the
-  shop's example records and a price list, seven tags, two of them on the
-  duties), `decisionQueueReadOnly`,
+  shop's example records, a price list and the supply side's records, eleven
+  tags, two of them on the duties), `decisionQueueReadOnly`,
   `decisionQueueRecordIndexes` (windowed: 20,000 cases, narrowed through the
   rail's indexes and read a page at a time, the banner past 1,000, the
   verdicts read by key, a verdict drafted on a case the rail then hides and

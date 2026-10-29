@@ -11,7 +11,9 @@
  * arithmetic: the Roster's week (`roster.tsx`), the Plan's lanes (`plan.tsx`),
  * the Calendar's a day a lane (`calendar.tsx`) and the Allocation's resources
  * and waiting row (`allocation.tsx`), each drawn by `lanes.tsx`, and the
- * Sheet's rows (`sheet.tsx`). Its frame, its placeholders and its failure are
+ * Sheet's rows (`sheet.tsx`); a record no builder draws, its fields, its mix
+ * or its groups (`record.tsx`), a projection of each option's series
+ * (`projection.tsx`) and zones (`zones.tsx`). Its frame, its placeholders and its failure are
  * every kind's (`frame.tsx`). A row Modify keeps as it is, or edits back to
  * it, is no change (R19): the preview draws what is left of the change, and a
  * change left with none as an option that changes nothing (P4).
@@ -24,10 +26,13 @@ import { useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { endsAsItStands } from "../state.js";
 import { AllocationPreview } from "./allocation.js";
 import { CalendarPreview } from "./calendar.js";
-import { PreviewFrame, type PreviewProps } from "./frame.js";
+import type { PreviewProps } from "./frame.js";
 import { PlanPreview } from "./plan.js";
+import { ProjectionPreview } from "./projection.js";
+import { RecordPreview } from "./record.js";
 import { RosterPreview } from "./roster.js";
 import { SheetPreview } from "./sheet.js";
+import { ZonesPreview } from "./zones.js";
 
 export { flag, sharedOf, type SharedRows } from "./frame.js";
 
@@ -60,7 +65,11 @@ export const DecisionPreview = memo(function DecisionPreview(given: DecisionPrev
             return <AllocationPreview {...props} kind={kind.value} styles={styles} />;
         case "sheet":
             return <SheetPreview {...props} kind={kind.value} styles={styles} />;
-        default:
-            return <PreviewFrame kind={kind.type} layout={undefined} label={props.view.option?.detail ?? ""} stale={props.rows === "stale"} styles={styles} />;
+        case "record":
+            return <RecordPreview {...props} kind={kind.value} styles={styles} />;
+        case "zones":
+            return <ZonesPreview {...props} kind={kind.value} styles={styles} />;
+        case "projection":
+            return <ProjectionPreview {...props} kind={kind.value} styles={styles} />;
     }
 });

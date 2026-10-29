@@ -87,8 +87,13 @@ export const RECEIPT_PART: RowsHoldPart = { find: row => row.querySelector("[dat
 /** How much of an opened card's body must show before the list glides on to reveal it (R11). */
 export const REVEAL_PX = 64;
 
-/** The rows' estimates before they are measured: a section's head, a card closed and open, a receipt, the band and a row of it. */
-const SECTION_PX = 36, FIRST_SECTION_PX = 32, CARD_PX = 252, OPEN_CARD_PX = 600, RECEIPT_PX = 48, ROUTINE_PX = 52, ROUTINE_ROW_PX = 40;
+/**
+ * The rows' estimates before they are measured: a section's head, and the first's, a card closed and open, a receipt,
+ * the band and a row of it. Where nothing lays the list out — a DOM test's jsdom — a test lays its rows out at them.
+ *
+ * @internal
+ */
+export const ROW_PX = { section: 36, firstSection: 32, card: 252, openCard: 600, receipt: 48, routine: 52, routineRow: 40 } as const;
 /** The list's scroll element, named for the queue's tests and its own code. */
 const LIST_PROPS = { "data-decision-list": "" } as Record<string, string>;
 /** The empty state's mark: Font Awesome's inbox. */
@@ -232,9 +237,9 @@ export const DecisionList = memo(function DecisionList(props: DecisionListProps)
         const row = rows[index];
         if (row === undefined) return 0;
         switch (row.kind) {
-            case "section": return row.first ? FIRST_SECTION_PX : SECTION_PX;
-            case "case": return receipts.has(row.c.key) ? RECEIPT_PX : open !== undefined && stringEqual(open, row.c.key) ? OPEN_CARD_PX : CARD_PX;
-            case "routine": return ROUTINE_PX + (routineOpen ? layout.routine.length * ROUTINE_ROW_PX : 0);
+            case "section": return row.first ? ROW_PX.firstSection : ROW_PX.section;
+            case "case": return receipts.has(row.c.key) ? ROW_PX.receipt : open !== undefined && stringEqual(open, row.c.key) ? ROW_PX.openCard : ROW_PX.card;
+            case "routine": return ROW_PX.routine + (routineOpen ? layout.routine.length * ROW_PX.routineRow : 0);
         }
     }, [rows, receipts, open, routineOpen, layout.routine.length]);
     // A row is drawn again only as this moves (#1398, CL9): what the rows show.

@@ -15,8 +15,9 @@
  * control the host draws itself; and (#1250) a text's control titled with its
  * whole text, and a choice's with its chosen words; and (#1473) a choice of up
  * to four cases a radio group; and (#1447) a changed field's Reset, where the
- * host puts one back. Every value handed back is asserted with East's
- * `equalFor`.
+ * host puts one back; and (#1454) a field's value printed outside the form
+ * (`fieldText`), as the form prints it read-only. Every value handed back is
+ * asserted with East's `equalFor`.
  */
 
 import { describe, test, expect, afterEach } from "vitest";
@@ -33,7 +34,7 @@ import { Fields } from "@elaraai/east-ui";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { formatters } from "../../format/index.js";
-import { FieldForm } from "./index.js";
+import { FieldForm, fieldFormMessages, fieldText } from "./index.js";
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -705,6 +706,28 @@ describe("FieldForm — a changed field's Reset, where the host puts one back (#
         expect(bare.tinted()).toEqual(["crew", "batch", "stock", "site.room"]);
         expect(bare.withReset()).toEqual([]);
         expect(bare.sides("batch")).toEqual(["clear"]);
+    });
+});
+
+describe("fieldText — a field's value printed outside the form, as the form prints it read-only (#1454)", () => {
+    test("every field the read-only form prints in its box reads the same; tags joined; an Option's none and a value not given absent", () => {
+        const { field } = mount({ readOnly: true });
+        const words = { ...formatters(LOCALE), m: fieldFormMessages };
+        const jobAt = (spec: FieldSpecValue) => spec.path.reduce<unknown>((at, name) => (at as Record<string, unknown>)[name], JOB);
+        // Tags keep their chips read-only: every other field is printed in a box.
+        const boxed = SPECS.filter((spec) => spec.editor.type !== "tags");
+        expect(boxed.length).toBe(SPECS.length - 1);
+        for (const spec of boxed) {
+            const key = spec.path.join(".");
+            expect(fieldText(spec, jobAt(spec), words, BENCHES), key).toBe((within(field(key)).getByRole("textbox") as HTMLInputElement).value);
+        }
+        const specOf = (key: string) => SPECS.find((spec) => spec.path.join(".") === key)!;
+        expect(fieldText(specOf("steps"), JOB.steps, words)).toBe("1 / 2 done");
+        expect(fieldText(specOf("finishes"), new SortedSet(["painted", "oiled"], STRINGS), words)).toBe("oiled, painted");
+        expect(fieldText(specOf("note"), none, words)).toBe("—");
+        expect(fieldText(specOf("crew"), undefined, words)).toBe("—");
+        // A key the host does not list is itself, as the form's select shows it.
+        expect(fieldText(specOf("bench"), some("B9"), words, BENCHES)).toBe("B9");
     });
 });
 

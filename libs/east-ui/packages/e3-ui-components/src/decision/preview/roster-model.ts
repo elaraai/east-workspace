@@ -23,8 +23,8 @@ import {
     type Assignment, type Context, type DraftedDuty, type PlacedDuties, type PlacedTargets, type RosterDomain, type RosterPayload, type StoredDuty, type Who,
 } from "../../roster/model.js";
 
-/** No targets: the preview reads no cover — its check is the duties' own. */
-const NO_TARGETS: PlacedTargets = { requirements: new SortedMap([], compareSlot), rows: new SortedMap([], compareSlot) };
+/** No targets: the preview reads no cover — its check is the duties' own, and its pay asks none of it. */
+export const NO_TARGETS: PlacedTargets = { requirements: new SortedMap([], compareSlot), rows: new SortedMap([], compareSlot) };
 /** The days of a week. */
 export const WEEK_DAYS = 7;
 
@@ -131,8 +131,14 @@ export interface RosterPreviewInput {
     readonly shared: (key: string) => number;
 }
 
-/** The drafts with the change's duties in place. */
-function overlay(drafts: ReadonlyMap<string, DraftedDuty | undefined>, change: ReadonlyMap<string, DraftedDuty | undefined>): Map<string, DraftedDuty | undefined> {
+/**
+ * The drafts with the change's duties in place.
+ *
+ * @param drafts - The queue's drafts of the duty record, by key: `undefined` for one removed
+ * @param change - The change's duties, before it or after it, by key
+ * @returns The drafts with the change's duties over them
+ */
+export function overlay(drafts: ReadonlyMap<string, DraftedDuty | undefined>, change: ReadonlyMap<string, DraftedDuty | undefined>): Map<string, DraftedDuty | undefined> {
     const out = new Map(drafts);
     for (const [key, duty] of change) out.set(key, duty);
     return out;

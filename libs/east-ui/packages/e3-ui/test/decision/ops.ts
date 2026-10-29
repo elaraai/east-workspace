@@ -10,12 +10,13 @@
  * is a variant, its tag the kind of decision and its value a patch of the
  * record that kind changes, built with East's own diff of the rows it touches
  * (`changes.ts`). Its verdicts are another record, which the queue writes; the
- * price list is a record no builder draws. Beside them, the smallest queue's:
+ * price list is a record no builder draws, as are the supply side's records
+ * (`supply.ts`). Beside them, the smallest queue's:
  * a record of the model's proposals, each one decision with no alternatives,
  * and its verdicts. Every name and figure is generated.
  */
 import {
-    BooleanType, DateTimeType, DictType, East, FloatType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, NullType, OptionType, PatchType, SetType, SortedMap, StringType, StructType,
     VariantType, diffFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
@@ -25,6 +26,7 @@ import { PrintJob, planEventJobs } from "../plan/plan-events.examples.js";
 import { WarehouseDuty, warehouseDuties } from "../roster/warehouse.js";
 import { OptimiseWorkOrder } from "../sheet/optimise.examples.js";
 import { binPatch, byString, dutiesPatch, jobsPatch, ld2235Bin, option, ordersPatch, servicesPatch } from "./changes.js";
+import { CatalogueItem, ForecastPoint, ServiceArea, StockOrder, StoreStock } from "./supply.js";
 
 // ============================================================================
 // The app's records (§3.1)
@@ -42,6 +44,10 @@ export const OpsChange = VariantType({
     yard: PatchType(DictType(StringType, KilnBin)),              // the kiln yard's bins, as the Allocation draws them
     orders: PatchType(DictType(StringType, OptimiseWorkOrder)),  // the shop's work orders, as the Sheet draws them
     pricing: PatchType(DictType(StringType, ListPrice)),         // the price list, which no builder draws
+    restock: PatchType(DictType(StringType, StockOrder)),        // the stock orders, read by each option's own forecast
+    split: PatchType(DictType(StringType, StoreStock)),          // one item's stock across the stores, read as a mix
+    minimums: PatchType(DictType(StringType, CatalogueItem)),    // the catalogue's minimum stock, a rule across its ranges
+    rounds: PatchType(DictType(StringType, ServiceArea)),        // the service rounds' areas, each in a round
 });
 
 /** One way to decide a case: the app's own words for it, what it is worth, and its change. */
@@ -58,6 +64,7 @@ export const OpsOption = StructType({
     refused: OptionType(StringType),
     knockOn: SetType(StringType),                    // rows of the target moved because of the change, not by it
     guesses: DictType(StringType, FloatType),        // the changed rows the model is unsure of, by key
+    forecast: ArrayType(ForecastPoint),              // the stock on hand the option leaves, by week: what a projection draws
     change: OpsChange,
 });
 
@@ -68,7 +75,7 @@ export const OpsCase = StructType({
     due: OptionType(DateTimeType),
     routine: BooleanType,
     unit: StringType,
-    money: BooleanType,                // whether its figures are money, or a count — the orders'
+    figure: VariantType({ money: NullType, count: NullType, percent: NullType }),  // what its figures are: money, a count — the orders' — or a share
     model: StringType,
     why: StringType,
     ifWrong: OptionType(FloatType),
@@ -104,7 +111,7 @@ export const listPriceRows: SortedMap<string, PriceRow> = new SortedMap<string, 
 ], byString);
 
 /** The price list's patch changing one region's price and the demand the model expects at it: the patch of that row alone. */
-function pricesPatch(key: string, price: number, demand: number) {
+export function pricesPatch(key: string, price: number, demand: number) {
     const row = listPriceRows.get(key)!;
     return diffPrices(new SortedMap([[key, row]], byString), new SortedMap([[key, { ...row, price, demand }]], byString));
 }
@@ -136,7 +143,7 @@ const wed15 = new Date("2028-03-15T00:00:00Z");
  */
 export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new SortedMap<string, ValueTypeOf<typeof OpsCase>>([
     ["rota-tansy", {
-        area: "rota", scope: "Picking · W10", due: some(new Date("2028-03-08T13:00:00Z")), routine: false, unit: "uplift", money: true,
+        area: "rota", scope: "Picking · W10", due: some(new Date("2028-03-08T13:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "staffing-v3.2.1 · run #42",
         why: "Picking demand runs 14% above plan for the next two weeks. The extra late shift sits on J. Tansy, 4h over contract; B. Pumice has 14h spare.",
         ifWrong: some(-8_000), recommended: "1-pumice",
@@ -159,7 +166,7 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
         ], byString),
     }],
     ["rota-saturday", {
-        area: "rota", scope: "Picking · W10", due: none, routine: true, unit: "uplift", money: true,
+        area: "rota", scope: "Picking · W10", due: none, routine: true, unit: "uplift", figure: variant("money", null),
         model: "roster-opt · run #204",
         why: "Saturday's late picking shift is one short of its seven; Northside Staffing can fill it.",
         ifWrong: none, recommended: "1-request",
@@ -170,7 +177,7 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
         ], byString),
     }],
     ["print-j3007", {
-        area: "print", scope: "Print works · Hall B", due: some(new Date("2028-03-08T14:25:00Z")), routine: false, unit: "uplift", money: true,
+        area: "print", scope: "Print works · Hall B", due: some(new Date("2028-03-08T14:25:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "press-sched-v2 · run #118",
         why: "J-3006 runs on Press B2 until 12:00, so J-3007 overlaps it for two hours. Press A1 is free from 11:00 and carries the same stock.",
         ifWrong: some(-1_800), recommended: "1-a1",
@@ -191,7 +198,7 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
         ], byString),
     }],
     ["workshop-press1", {
-        area: "workshop", scope: "Fabrication", due: some(new Date("2028-03-08T17:00:00Z")), routine: false, unit: "uplift", money: true,
+        area: "workshop", scope: "Fabrication", due: some(new Date("2028-03-08T17:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "fab-sched · run #12",
         why: "Press 1's preventive maintenance overlaps the mounting brackets on Thursday. Saturday morning is free on Press 1 and inside the service interval.",
         ifWrong: some(-900), recommended: "1-sat",
@@ -207,7 +214,7 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
         ], byString),
     }],
     ["yard-ld2235", {
-        area: "yard", scope: "Kiln yard", due: some(new Date("2028-03-08T16:00:00Z")), routine: false, unit: "uplift", money: true,
+        area: "yard", scope: "Kiln yard", due: some(new Date("2028-03-08T16:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "yard-fit · run #77",
         why: "K-305 is free on Tue 11 and takes 4–10 m³: LD-2235's 8 m³ dries its 9 days there before the kiln's next planned charge on Thu 20. The bulk kilns take no load under 40 m³.",
         ifWrong: some(-600), recommended: "1-k305",
@@ -227,7 +234,7 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
         ], byString),
     }],
     ["price-coast", {
-        area: "pricing", scope: "Regional list prices", due: some(new Date("2028-03-10T17:00:00Z")), routine: false, unit: "uplift / mo", money: true,
+        area: "pricing", scope: "Regional list prices", due: some(new Date("2028-03-10T17:00:00Z")), routine: false, unit: "uplift / mo", figure: variant("money", null),
         model: "demand-coast · query 2h ago",
         why: "Coast demand is less sensitive to price than other regions, at an elasticity of −0.42. Competitors sit at a median of $11.20.",
         ifWrong: some(-6_100), recommended: "1-p1100",
@@ -244,7 +251,7 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
         ], byString),
     }],
     ["orders-ready", {
-        area: "orders", scope: "Workshop orders", due: some(new Date("2028-03-08T17:00:00Z")), routine: false, unit: "orders", money: false,
+        area: "orders", scope: "Workshop orders", due: some(new Date("2028-03-08T17:00:00Z")), routine: false, unit: "orders", figure: variant("count", null),
         model: "sheet copilot · 5m ago",
         why: "Three orders are ready with no due date. The shop's next free days on their work centres give each one.",
         ifWrong: none, recommended: "1-all",

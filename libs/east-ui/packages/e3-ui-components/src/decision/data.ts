@@ -9,7 +9,8 @@
  * (#1343): the cases through the payload's `decisions` — the record read
  * whole, or the slice's `decisions` source read complete, at most 1,000, or
  * past that how many there are — and the verdicts of the cases read, by key
- * through the verdicts' `entries`, never whole. Nothing is narrowed in the
+ * through the verdicts' `entries`, every case's in one request
+ * ({@link rowsByKey}), never whole. Nothing is narrowed in the
  * browser. What it read stands until a read is whole again — a new
  * narrowing's cases, another session's case or verdict — and is handed to the
  * frame, in the queue's order, only when it moves; while a new narrowing's
@@ -26,7 +27,7 @@ import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { orderCases, type DecisionCase } from "./layout.js";
-import type { DecisionQueueValue } from "./editing.js";
+import { rowsByKey, type DecisionQueueValue } from "./editing.js";
 
 const casesEqual = equalFor(ArrayType(DecisionCaseType));
 const integerEqual = equalFor(IntegerType);
@@ -104,14 +105,12 @@ export function useDecisionData(value: DecisionQueueValue): DecisionData {
         if (got.type !== "some") return { loading: true, narrowing } as const;
         if (got.value.type === "tooMany") return { loading: false, tooMany: got.value.value, narrowing } as const;
         const cases = got.value.value;
-        let loading = false;
+        // Every case's verdict in one request.
+        const verdict = rowsByKey({ name: "Verdicts", editing: verdicts.editing }, verdicts.entries.paged, cases.map(c => c.key));
+        if (verdict.type !== "some") return { loading: true, narrowing } as const;
         const saved = new Set<string>();
-        for (const c of cases) {
-            const verdict = verdicts.entries.entry(c.key);
-            if (verdict.type !== "some") { loading = true; continue; }
-            if (verdict.value.type === "some") saved.add(c.key);
-        }
-        return { loading, cases, saved, narrowing } as const;
+        verdict.value.forEach((row, i) => { if (row.row.type === "some") saved.add(cases[i]!.key); });
+        return { loading: false, cases, saved, narrowing } as const;
     }, [decisions, verdicts, part, nonce]);
     const { result } = useTrackedEvaluation(read);
     const complete = useRef<Complete | undefined>(undefined);
