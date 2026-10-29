@@ -191,9 +191,14 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
             "& > b": { fontWeight: "semibold", color: "fg.strong" },
             // The gutter's head, or a Sheet's first column's: the frame's own edge, no rule of its own.
             "&:first-of-type": { borderLeftWidth: 0 },
-            "[data-layout=sheet] &": { justifyContent: "flex-start", padding: "0 8px", letterSpacing: "label", textTransform: "uppercase" },
-            "[data-layout=sheet] &:first-of-type": { paddingLeft: "12px" },
-            "[data-layout=sheet] &[data-align=end]": { justifyContent: "flex-end" },
+            "[data-layout=sheet] &": {
+                justifyContent: "flex-start",
+                padding: "0 8px",
+                letterSpacing: "label",
+                textTransform: "uppercase",
+                "&:first-of-type": { paddingLeft: "12px" },
+                "&[data-align=end]": { justifyContent: "flex-end" },
+            },
         },
         row: {
             display: "grid",
