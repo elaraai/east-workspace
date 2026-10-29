@@ -107,7 +107,7 @@ export const planOperationCount = e3.input("plan_operation_count", IntegerType, 
 export const planOperationsGenerated = e3.task("plan_operations_generated", [planOperationCount], generateOperations);
 /** The 50,000 work orders' operations, one an order, keyed by the operation's key: read through the indexes below, never whole. */
 export const planOperations = e3.record("plan_operations", Operations, {
-    initial: East.compile(generateOperations, [])(50000n),
+    initial: () => East.compile(generateOperations, [])(50000n),
     indexes: (index) => ({
         // The operations over the interval each runs: the canvas's window, and the rail's exact count of the operations in it.
         plan_operations_by_time: index.interval({ from: "start", to: "end" }),

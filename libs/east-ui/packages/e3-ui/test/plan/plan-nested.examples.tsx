@@ -169,11 +169,11 @@ export const planWorksGenerated = e3.task("plan_works_generated", [planWorksRows
 /**
  * The works, two hundred of them over ten years, some 90,000 items: read lean
  * a page at a time and their collections a cell at a time through their nested
- * series index, never whole. A stress run writes two thousand through the
- * patch door.
+ * series index, never whole. Made as the package is exported, never as a page
+ * loads the example. A stress run writes two thousand through the patch door.
  */
 export const planWorks = e3.record("plan_works", WorksByKey, {
-    initial: East.compile(generateWorksAll, [])(200n, 522n),
+    initial: () => East.compile(generateWorksAll, [])(200n, 522n),
     indexes: (index) => ({
         // The works by name: the rail's default order.
         plan_works_by_name: index.on(["name"]),

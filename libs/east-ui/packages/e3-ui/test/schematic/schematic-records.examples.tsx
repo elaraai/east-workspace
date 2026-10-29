@@ -82,7 +82,7 @@ export const generateLoads = East.function([IntegerType], StressLoads, ($, count
 export const schematicStressRackCount = e3.input("schematic_stress_rack_count", IntegerType, variant("value", 20000n));
 export const schematicStressRacksGenerated = e3.task("schematic_stress_racks_generated", [schematicStressRackCount], generateRacks);
 export const schematicStressRacks = e3.record("schematic_stress_racks", StressRacks, {
-    initial: East.compile(generateRacks, [])(20000n),
+    initial: () => East.compile(generateRacks, [])(20000n),
     indexes: (index) => ({
         // The window, whatever the rail chooses: every rack filed once by its box, at a 1 cm cell.
         schematic_stress_racks_by_area: index.area({
@@ -101,7 +101,7 @@ export const schematicStressRacks = e3.record("schematic_stress_racks", StressRa
     }),
 });
 export const schematicStressRackLoads = e3.record("schematic_stress_rack_loads", StressLoads, {
-    initial: East.compile(generateLoads, [])(20000n),
+    initial: () => East.compile(generateLoads, [])(20000n),
     mutations: (mutation) => ({
         // The loads' patch door: the budget run fills them through it, keyed as the racks it fills.
         patch: mutation.patch(),

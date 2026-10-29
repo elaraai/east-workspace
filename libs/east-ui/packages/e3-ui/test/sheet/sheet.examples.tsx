@@ -312,7 +312,7 @@ export const generateStressJobs = East.function([IntegerType], ArrayType(StressJ
 
 /** The jobs, keyed by their id — two thousand made by {@link generateStressJobs}: what the stress sheet pages and its rail narrows (#1345). */
 export const sheetStressJobs = e3.record("sheet_stress_jobs", DictType(StringType, StressJob), {
-    initial: East.compile(East.function([IntegerType], DictType(StringType, StressJob), ($, count) => {
+    initial: () => East.compile(East.function([IntegerType], DictType(StringType, StressJob), ($, count) => {
         const generate = $.const(generateStressJobs);
         return generate(count).toDict((_$, job) => job.id, (_$, job) => job);
     }), [])(2000n),

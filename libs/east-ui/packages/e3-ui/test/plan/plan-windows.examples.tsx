@@ -78,7 +78,7 @@ export const planWindowPresses = e3.task("plan_window_presses", [planWindowPress
  * kind's source of the slice is an index of its record.
  */
 export const planSeriesPresses = e3.record("plan_series_presses", DictType(StringType, PrintPress), {
-    initial: East.compile(generateWindowPresses, [])(2_000n),
+    initial: () => East.compile(generateWindowPresses, [])(2_000n),
     indexes: (index) => ({
         // The presses by hall (#1344): each hall's presses, in their key order — what
         // the rail's `presses` source narrows them through, and the order a Plan pages

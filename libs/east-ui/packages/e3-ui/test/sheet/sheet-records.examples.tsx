@@ -57,7 +57,7 @@ const generateWork = East.function([IntegerType], Work, ($, count) => {
 export const indexedWorkCount = e3.input("indexed_work_count", IntegerType, variant("value", 50000n));
 export const indexedWorkGenerated = e3.task("indexed_work_generated", [indexedWorkCount], generateWork);
 export const indexedWorkOrders = e3.record("indexed_work_orders", Work, {
-    initial: East.compile(generateWork, [])(50000n),
+    initial: () => East.compile(generateWork, [])(50000n),
     indexes: (index) => ({
         by_status_due: index.on(["status", "due"]),
         by_due: index.on(["due"]),

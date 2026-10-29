@@ -122,7 +122,7 @@ export const generateMachines = East.function([IntegerType], DictType(StringType
  * shades from their totals.
  */
 export const machines = e3.record("machines", DictType(StringType, Machine), {
-    initial: East.compile(generateMachines, [])(1_000n),
+    initial: () => East.compile(generateMachines, [])(1_000n),
     indexes: (index) => ({
         // The machines by site and state: the rail's, each machine without its collections.
         machines_by_site_status: index.on(["site", "status"]),
@@ -148,7 +148,7 @@ export const machines = e3.record("machines", DictType(StringType, Machine), {
 
 /** The thousand machines' first twelve, for a Plan that reads its rows whole. */
 export const machinesFew = e3.record("machines_few", DictType(StringType, Machine), {
-    initial: East.compile(generateMachines, [])(12n),
+    initial: () => East.compile(generateMachines, [])(12n),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
@@ -191,7 +191,7 @@ export const generateHalls = East.function([IntegerType], DictType(StringType, H
 
 /** Forty halls of six members, some 43,700 values: each hall's strip its members' mean, which e3 keeps. */
 export const halls = e3.record("halls", DictType(StringType, Hall), {
-    initial: East.compile(generateHalls, [])(40n),
+    initial: () => East.compile(generateHalls, [])(40n),
     indexes: (index) => ({
         // The halls by site.
         halls_by_site: index.on(["site"]),
@@ -285,7 +285,7 @@ export const generateAssemblies = East.function([IntegerType], DictType(StringTy
 
 /** Fifty assemblies, 7,800 jobs, each filed under every part above it too: a part's bands are its subtree's. */
 export const assemblies = e3.record("assemblies", DictType(StringType, Assembly), {
-    initial: East.compile(generateAssemblies, [])(50n),
+    initial: () => East.compile(generateAssemblies, [])(50n),
     indexes: (index) => ({
         // The assemblies by line.
         assemblies_by_line: index.on(["line"]),
@@ -384,7 +384,7 @@ export const generateLedgers = East.function([IntegerType], DictType(StringType,
 
 /** Twenty ledgers, some 37,400 values: each parent's subtotals kept by e3, its readings' sums and counts, its stock's last summed. */
 export const ledgers = e3.record("ledgers", DictType(StringType, Ledger), {
-    initial: East.compile(generateLedgers, [])(20n),
+    initial: () => East.compile(generateLedgers, [])(20n),
     indexes: (index) => ({
         // The ledgers by site.
         ledgers_by_site: index.on(["site"]),

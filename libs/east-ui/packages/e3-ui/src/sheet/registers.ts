@@ -126,7 +126,7 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
  *     }));
  * });
  * export const sheetStressJobs = e3.record("sheet_stress_jobs", DictType(StringType, StressJob), {
- *     initial: East.compile(East.function([IntegerType], DictType(StringType, StressJob), ($, count) => {
+ *     initial: () => East.compile(East.function([IntegerType], DictType(StringType, StressJob), ($, count) => {
  *         const generate = $.const(generateStressJobs);
  *         return generate(count).toDict((_$, job) => job.id, (_$, job) => job);
  *     }), [])(2000n),

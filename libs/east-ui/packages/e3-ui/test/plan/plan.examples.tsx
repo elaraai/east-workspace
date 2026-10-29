@@ -100,7 +100,7 @@ export const generateTargetHorizon = East.function([IntegerType], ArrayType(Targ
  * them by hall and risk, its range the canvas's window (#1344).
  */
 export const planTargetDeliveries = e3.record("plan_target_deliveries", DictType(StringType, TargetHorizonRow), {
-    initial: East.compile(East.function([IntegerType], DictType(StringType, TargetHorizonRow), ($, count) => {
+    initial: () => East.compile(East.function([IntegerType], DictType(StringType, TargetHorizonRow), ($, count) => {
         const generate = $.const(generateTargetHorizon);
         return generate(count).toDict((_$2, delivery) => delivery.key, (_$2, delivery) => delivery);
     }), [])(36n),
@@ -2278,7 +2278,7 @@ export const generateNumberHorizon = East.function([IntegerType], ArrayType(Numb
  * hall, its integer range the canvas's window (#1344).
  */
 export const planNumberOrders = e3.record("plan_number_orders", DictType(StringType, NumberHorizonRow), {
-    initial: East.compile(East.function([IntegerType], DictType(StringType, NumberHorizonRow), ($, count) => {
+    initial: () => East.compile(East.function([IntegerType], DictType(StringType, NumberHorizonRow), ($, count) => {
         const generate = $.const(generateNumberHorizon);
         return generate(count).toDict((_$2, order) => order.key, (_$2, order) => order);
     }), [])(24n),
