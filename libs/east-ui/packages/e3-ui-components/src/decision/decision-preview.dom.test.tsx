@@ -7,22 +7,25 @@
  * The DecisionQueue's previews on e3 itself (#1453, `Decision Queue Spec.md`
  * §9.5), over the full queue's example (§3.3): the models' cases read through
  * the rail's source, each option's change landing where its tag says — here
- * the warehouse rota's duties, drawn as the Roster draws them, and the print
- * works' jobs, drawn as the Plan draws them. The cases are laid out by when
- * each is due, money printed as money and the orders as a count, the routine
- * case in its band (R1–R3, R28); a card's preview stands between its title and
- * its chip line, open or closed (P1), the People week's crop of the people the
- * change lands on, their hours before → after in the tone the change gives
- * them, the duty it proposes marked where it lands and a ghost where it was,
- * every other as it stands, and one sentence naming it (P4, P13, P14, P19,
- * P24, P25); the Plan's lanes, the presses the change touches over the hours
- * around it, each its booked share before → after (P13–P16, P24, P25); the
+ * the warehouse rota's duties, drawn as the Roster draws them, the print
+ * works' jobs, drawn as the Plan draws them, and the workshop's maintenance,
+ * drawn as the Calendar draws it. The cases are laid out by when each is due,
+ * money printed as money and the orders as a count — a section of both with
+ * no total — the routine case in its band (R1–R3, R28); a card's preview
+ * stands between its title and its chip line, open or closed (P1), the People
+ * week's crop of the people the change lands on, their hours before → after in
+ * the tone the change gives them, the duty it proposes marked where it lands
+ * and a ghost where it was, every other as it stands, and one sentence naming
+ * it (P4, P13, P14, P19, P24, P25); the Plan's lanes, the presses the change
+ * touches over the hours around it, each its booked share before → after
+ * (P13–P16, P24, P25); the Calendar's, a lane a day the change lands on over
+ * the same hours, each its overlaps before → after (P13–P15, P24, P25); the
  * recommended option says so on its line (R14); choosing another option draws
- * its change, and one that changes nothing draws the people the
+ * its change, and one that changes nothing draws the people, or the days, the
  * recommendation lands on, unmarked (P4); Apply, once the question is
  * answered, writes the duty and the verdict through their doors (R16, R23,
- * R29), and the print case's the job; and the routine band's Apply all adds
- * the request it proposes (R28).
+ * R29), the print case's the job and the workshop case's the maintenance; and
+ * the routine band's Apply all adds the request it proposes (R28).
  */
 
 import { expect, test } from "vitest";
@@ -39,6 +42,7 @@ const h = e3Harness({ "decision/decision": ex }, { main: "data-decision-main" })
 const verdictEqual = equalFor(ex.OpsVerdict);
 const dutiesEqual = equalFor(ex.rosterDuties.type);
 const jobsEqual = equalFor(ex.planEventJobs.type);
+const servicesEqual = equalFor(ex.calendarServices.type);
 const compareTime = compareFor(DateTimeType);
 const byString = compareFor(StringType);
 
@@ -99,7 +103,7 @@ async function press(el: Element) {
 /** Mounts the full queue, and waits until its cards show and the open one's preview has drawn its rows. */
 async function open() {
     const ui = await h.mount(ex.decisionQueueOps);
-    await waitFor(() => expect(heads(ui.container)).toEqual(["rota-tansy", "print-j3007", "orders-ready", "price-coast"]));
+    await waitFor(() => expect(heads(ui.container)).toEqual(["rota-tansy", "print-j3007", "workshop-press1", "orders-ready", "price-coast"]));
     await waitFor(() => expect(previewRows(preview(ui.container, "rota-tansy"))).not.toEqual([]));
     return ui;
 }
@@ -119,10 +123,10 @@ async function savedVerdict(key: string, from: Date, to: Date, rest: { option: s
 
 // ── Laying out (R1–R3, R28) ─────────────────────────────────────────────────
 
-test("the models' cases by when each is due — Overdue, Due today, This week — each its count and total, money as money and the orders as a count; the routine case in its band; the first opens on its recommendation (R1–R3, R7, R14, R28)", async () => {
+test("the models' cases by when each is due — Overdue, Due today, This week — each its count and total, money as money; Due today, money beside the orders' count, no total; the routine case in its band; the first opens on its recommendation (R1–R3, R7, R14, R28)", async () => {
     const { container } = await open();
-    expect(sections(container)).toEqual([["overdue", "Overdue | 2 | +$86K"], ["today", "Due today | 1 | +3"], ["week", "This week | 1 | +$17K"]]);
-    expect(slot(container, "toolbar").querySelector("[data-decision-title] [data-decision-count]")?.textContent).toBe("4");
+    expect(sections(container)).toEqual([["overdue", "Overdue | 2 | +$86K"], ["today", "Due today | 2"], ["week", "This week | 1 | +$17K"]]);
+    expect(slot(container, "toolbar").querySelector("[data-decision-title] [data-decision-count]")?.textContent).toBe("5");
     const band = container.querySelector<HTMLElement>("[data-decision-routine]")!;
     expect(band.textContent).toContain(m.together({ total: "+$1.2K" }));
     expect(within(band).getByRole("button", { name: m.applyAll({ n: "1" }) })).toBeDefined();
@@ -233,6 +237,48 @@ test("choosing the print case's later start draws J-3007 along Press B2 to 12:00
     expect(chipLine(container, "print-j3007").textContent).toBe(`${m.chip({ modified: true })}12:00 on B2`);
 });
 
+// ── The Calendar's lanes, a day a lane (P4, P13–P15, P24, P25) ──────────────
+
+test("the workshop case's preview is the Calendar's crop, a lane a day over the same hours: Press 1's maintenance a ghost leaving Thursday, where it overlapped the mounting brackets, and proposed on Saturday; each day's overlaps before → after, Thursday's better; the hours on the ruler, and one sentence (P13–P15, P24, P25)", async () => {
+    const { container } = await open();
+    const frame = () => preview(container, "workshop-press1");
+    await waitFor(() => expect(previewRows(frame())).toEqual(["Thu 1", "Sat 3"]));
+    expect(frame().getAttribute("data-kind")).toBe("calendar");
+    expect(frame().getAttribute("data-layout")).toBe("lanes");
+    expect(frame().getAttribute("aria-label"))
+        .toBe("Preventive maintenance leaves Thu 1, where it overlapped Mounting brackets · batch 42, and runs on Sat 3 from 06:00 to 08:00");
+    // Two hours either side of the times of day the change touches, every day's lane over the same hours.
+    expect(ruler(frame())).toEqual(["04", "07", "10", "13"]);
+    const thu = previewRow(frame(), "Thu 1"), sat = previewRow(frame(), "Sat 3");
+    expect(measure(thu, "overlap 1 → 0")).toBe("better");
+    expect(measure(sat, "no overlap")).toBeUndefined();
+    expect(tiles(thu, "service1")).toEqual([{ op: "from", fill: undefined, title: "Preventive maintenance · 09:00–11:00 · moves to Sat 3" }]);
+    expect(tiles(sat, "service1")).toEqual([{ op: "add", fill: "own", title: "Preventive maintenance · 06:00–08:00 · proposed" }]);
+    // The mounting brackets stand as they are, unmarked; nothing on another machine is drawn, and nothing overlaps once
+    // the change is made.
+    expect(tiles(thu, "job1")).toEqual([{ op: undefined, fill: undefined, title: "Mounting brackets · batch 42 · 06:00–10:00" }]);
+    expect(marked(thu)).toEqual(["service1"]);
+    expect(marked(sat)).toEqual(["service1"]);
+    expect(frame().querySelectorAll("[data-preview-tile]")).toHaveLength(3);
+    expect(frame().querySelector("[data-breach]")).toBeNull();
+});
+
+test("the workshop case's Keep changes nothing: Thursday as it stands, the maintenance and the brackets overlapping, beside the Saturday the recommendation would land on, free (P4, P15, P24)", async () => {
+    const { container } = await open();
+    await press(head(container, "workshop-press1"));
+    await press(optionOf(container, "workshop-press1", /^Keep Thu 09:00/u));
+    const frame = () => preview(container, "workshop-press1");
+    await waitFor(() => expect(frame().getAttribute("aria-label")).toBe("Nothing changes for Thu 1 and Sat 3"));
+    expect(previewRows(frame())).toEqual(["Thu 1", "Sat 3"]);
+    const thu = previewRow(frame(), "Thu 1");
+    expect(measure(thu, "1 overlap")).toBe("worse");
+    expect(measure(previewRow(frame(), "Sat 3"), "free")).toBeUndefined();
+    expect(frame().querySelectorAll("[data-preview-tile][data-op]")).toHaveLength(0);
+    expect(tiles(thu, "service1")).toEqual([{ op: undefined, fill: undefined, title: "Preventive maintenance · 09:00–11:00 · overlaps Mounting brackets · batch 42" }]);
+    expect(tiles(thu, "job1")).toEqual([{ op: undefined, fill: undefined, title: "Mounting brackets · batch 42 · 06:00–10:00 · overlaps Preventive maintenance" }]);
+    expect(chipLine(container, "workshop-press1").textContent).toBe(`${m.chip({ modified: true })}Keep Thu 09:00`);
+});
+
 // ── Apply and Save (R16, R23, R29) ──────────────────────────────────────────
 
 test("the print case's Apply drafts J-3007's move and the verdict as one step, and Save writes the job to Press A1 11:30–14:30 and the verdict, a request each (R16, R29)", async () => {
@@ -250,6 +296,26 @@ test("the print case's Apply drafts J-3007's move and the verdict as one step, a
     const cards = jobs.get("J-3007")!;
     expect(jobsEqual(await h.read(ex.planEventJobs), new SortedMap([...jobs, ["J-3007", {
         ...cards, press: some("a1"), start: some(new Date("2026-10-20T11:30:00Z")), end: some(new Date("2026-10-20T14:30:00Z")),
+    }]], byString))).toBe(true);
+});
+
+test("the workshop case's Apply waits for its question; answered Yes, it drafts the maintenance's move and the verdict as one step, and Save writes the maintenance to Saturday 06:00–08:00 and the verdict, a request each (R16, R23, R29)", async () => {
+    const { container } = await open();
+    const services = await h.read(ex.calendarServices);
+    await press(head(container, "workshop-press1"));
+    const apply = () => action(container, "workshop-press1", m.action({ action: "apply" }));
+    expect(apply().getAttribute("aria-disabled")).toBe("true");
+    await press(within(card(container, "workshop-press1")).getByRole("radio", { name: m.answer({ answer: "yes" }) }));
+    await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
+    const from = new Date();
+    await press(apply());
+    expect(container.querySelector('[data-decision-receipt="workshop-press1"]')).not.toBeNull();
+    await press(history(container, editingMessages.apply()));
+    expect(mutated()).toEqual([ex.calendarServices.name, ex.opsVerdicts.name].sort());
+    await savedVerdict("workshop-press1", from, new Date(), { option: "1-sat", answer: "yes" });
+    const service = services.get("service1")!;
+    expect(servicesEqual(await h.read(ex.calendarServices), new SortedMap([...services, ["service1", {
+        ...service, start: new Date("2026-10-03T06:00:00Z"), end: new Date("2026-10-03T08:00:00Z"),
     }]], byString))).toBe(true);
 });
 

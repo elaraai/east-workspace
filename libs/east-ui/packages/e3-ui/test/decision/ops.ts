@@ -20,7 +20,7 @@ import {
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { KilnBin } from "../allocation/kiln-yard.js";
-import { CalendarJob } from "../calendar/calendar.examples.js";
+import { CalendarService, calendarServices } from "../calendar/calendar.examples.js";
 import { PrintJob, planEventJobs } from "../plan/plan-events.examples.js";
 import { WarehouseDuty, warehouseDuties } from "../roster/warehouse.js";
 import { OptimiseWorkOrder, optimiseWorkOrderRows } from "../sheet/optimise.examples.js";
@@ -37,7 +37,7 @@ export const OpsChange = VariantType({
     rota: PatchType(DictType(StringType, WarehouseDuty)),        // cover: the warehouse rota's duties, as the Roster draws them
     rotaCost: PatchType(DictType(StringType, WarehouseDuty)),    // pay: the same duties, a change read by what it costs
     print: PatchType(DictType(StringType, PrintJob)),            // the print shop's jobs, as the Plan draws them
-    workshop: PatchType(DictType(StringType, CalendarJob)),      // the workshop's machine jobs, as the Calendar draws them
+    workshop: PatchType(DictType(StringType, CalendarService)),  // the workshop's machine maintenance, as the Calendar draws it
     yard: PatchType(DictType(StringType, KilnBin)),              // the kiln yard's bins, as the Allocation draws them
     orders: PatchType(DictType(StringType, OptimiseWorkOrder)),  // the shop's work orders, as the Sheet draws them
     pricing: PatchType(DictType(StringType, ListPrice)),         // the price list, which no builder draws
@@ -144,6 +144,18 @@ function jobsPatch(key: string, row: JobRow) {
 }
 /** J-3007's loyalty cards on Press B2, 10:00–13:00 on the 20th: two hours over J-3006's market posters there. */
 const loyaltyCards = printJobs.get("J-3007")!;
+/** A maintenance visit of the workshop's. */
+type ServiceRow = ValueTypeOf<typeof CalendarService>;
+/** The maintenance's patch, as a model diffs the rows it touches. */
+const diffServices = diffFor(DictType(StringType, CalendarService));
+/** The workshop's maintenance, as its record holds it. */
+const workshopServices = calendarServices.default!;
+/** The maintenance's patch changing one visit to the row it becomes, from the row as the record holds it: the patch of that row alone. */
+function servicesPatch(key: string, row: ServiceRow) {
+    return diffServices(new SortedMap([[key, workshopServices.get(key)!]], byString), new SortedMap([[key, row]], byString));
+}
+/** Press 1's preventive maintenance, 09:00–11:00 on Thursday the 1st: an hour over the mounting brackets' run there. */
+const pressOneService = workshopServices.get("service1")!;
 /** J. Tansy's Friday late, 14:00–22:00: the week's fifth shift of theirs, 4 h past their 38. */
 const tansyFriday = warehouseDuties.get("s234")!;
 /** Thursday's agency request on the late picking shift, whose fields a request for Saturday's takes. */
@@ -165,8 +177,8 @@ function option(row: Pick<ValueTypeOf<typeof OpsOption>, "label" | "title" | "su
 
 /**
  * The cases the models left: who takes J. Tansy's Friday late, and a request for Saturday's open late — routine — on
- * the warehouse's rota; where the print works' J-3007 runs, overlapping J-3006 on Press B2; a price for the Coast
- * region; and the shop's ready work orders.
+ * the warehouse's rota; where the print works' J-3007 runs, overlapping J-3006 on Press B2; when Press 1's maintenance
+ * runs, overlapping the mounting brackets on Thursday; a price for the Coast region; and the shop's ready work orders.
  */
 export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new SortedMap<string, ValueTypeOf<typeof OpsCase>>([
     ["rota-tansy", {
@@ -222,6 +234,22 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
             ["3-a2", option({ label: "Press A2", title: "Move job J-3007 from Press B2 to Press A2", summary: "A2 · 10:00–13:00",
                 detail: "J-3007 runs on A2 10:00–13:00.", value: 0, refused: some("takes no board stock"),
                 change: variant("print", jobsPatch("J-3007", { ...loyaltyCards, press: some("a2") })) })],
+        ], byString),
+    }],
+    ["workshop-press1", {
+        area: "workshop", scope: "Fabrication", due: some(new Date("2028-03-08T17:00:00Z")), routine: false, unit: "uplift", money: true,
+        model: "fab-sched · run #12",
+        why: "Press 1's preventive maintenance overlaps the mounting brackets on Thursday. Saturday morning is free on Press 1 and inside the service interval.",
+        ifWrong: some(-900), recommended: "1-sat",
+        options: new SortedMap([
+            ["1-sat", option({ label: "Sat 06:00", title: "Move Press 1 maintenance to Sat 06:00", summary: "Press 1 · Sat 3 06:00–08:00",
+                detail: "Clears the overlap with the mounting brackets · $380 call-out.", value: 2_400, confidence: some(0.74),
+                question: some("Is A. Ash free on Saturday at 06:00?"),
+                change: variant("workshop", servicesPatch("service1", { ...pressOneService,
+                    start: new Date("2026-10-03T06:00:00Z"), end: new Date("2026-10-03T08:00:00Z") })) })],
+            ["2-keep", option({ label: "Keep Thu 09:00", title: "Keep Press 1 maintenance on Thu 09:00", summary: "no change",
+                detail: "No change to the calendar.", note: some("the overlap with the mounting brackets stays"), value: 0,
+                change: variant("workshop", servicesPatch("service1", pressOneService)) })],
         ], byString),
     }],
     ["price-coast", {
