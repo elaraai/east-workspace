@@ -313,8 +313,9 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             revision: () => revision(),
             refresh: (target) => refresh(target),
             seek: paged.seek,
-            // A Save's entries read back by key outside every narrowing, or, over rows read lean, whole (#1438).
-            readCurrent: recordSlice?.readEntry ?? (whole === undefined ? undefined : (id: string) => whole.read(id)),
+            // A Save's entries read back by key outside every narrowing: over rows read lean, whole (#1438) — a lean binding
+            // pages no row whole, so its slice's read of one would be refused — else through the slice, when it gives the rows.
+            readCurrent: whole !== undefined ? (id: string) => whole.read(id) : recordSlice?.readEntry,
         };
     }, [editing, paged, recordSlice, whole]);
 

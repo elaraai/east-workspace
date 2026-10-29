@@ -9,12 +9,14 @@
  * collections through the nested series index a cell at a time, its Plan built
  * with no refusal and every row drawn; its series picked, each switched off
  * and on from the library's Series tab; and a crew's hours typed into a week,
- * the works' sum above moving at once.
+ * the works' sum above moving at once, and saved: one commit, read back whole,
+ * nothing left pending.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { East } from "@elaraai/east";
+import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import type { TreePath } from "@elaraai/e3-types";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
@@ -43,6 +45,44 @@ function drawn(c: HTMLElement) {
 /** The kinds of request a record was read with, through its nested series index or not. */
 const kindsOf = (dataset: string, index?: string) => h.requests().filter((request) => request.dataset === dataset
     && (index === undefined || (request.query.get("index") ?? undefined) === index)).map((request) => request.kind);
+
+/**
+ * planNestedAll mounted with Jobs and Load switched off and every works unfolded, and the first crew's first week of
+ * hours in the window typed 500: its cells, and how to read them.
+ */
+async function typedCrewHours() {
+    const { container: c } = await h.mount(ex.planNestedAll);
+    await settle();
+    // Jobs and Load switched off, and every works unfolded: the first works' crews under its crew hours.
+    const pane = slot(c, "start")!;
+    fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
+    await settle();
+    for (const name of ["Jobs", "Load"]) {
+        const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+        fireEvent.click([...panel.querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!);
+        await settle();
+    }
+    await act(async () => { fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: "Expand all" })); });
+    await settle();
+    // The first crew's first week of hours in the window, as the generator made it: its works' sum that week is its alone.
+    const crews = [...East.compile(ex.generateWorks, [])(0n, 522n).crews.values()];
+    const from = new Date("2026-09-28T00:00:00Z").getTime();
+    const to = new Date("2026-12-28T00:00:00Z").getTime();
+    const [week, hours] = [...crews[0]!.hours].find(([at]) => at.getTime() >= from && at.getTime() < to)!;
+    expect(crews[1]!.hours.has(week)).toBe(false);
+    const key = instantKey(timeInstant(week));
+    const cellOf = (...path: string[]) => [...c.querySelectorAll<HTMLElement>(`${rowAt(entry(path.length === 1 ? "crews" : "crew", ...path))} [data-cell]`)]
+        .find((cell) => cell.getAttribute("data-cell") === key);
+    const printed = (cell: HTMLElement | undefined) => cell?.querySelector("[data-part='0']")?.textContent ?? "none";
+    await waitFor(() => expect(printed(cellOf("W-10001", "C-10001-1"))).toBe(String(hours)));
+    expect(printed(cellOf("W-10001"))).toBe(String(hours));
+    await act(async () => { fireEvent.doubleClick(cellOf("W-10001", "C-10001-1")!); });
+    const input = c.querySelector<HTMLInputElement>("[data-plan-typing] input")!;
+    await act(async () => { fireEvent.input(input, { target: { value: "500" } }); });
+    await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
+    await settle();
+    return { c, cellOf, printed };
+}
 
 describe("the nested series example on e3 (#1439)", () => {
     test("planNestedAll: its rows paged lean, its collections read a cell at a time through plan_works_in_time, every row drawn", async () => {
@@ -85,37 +125,18 @@ describe("the nested series example on e3 (#1439)", () => {
     });
 
     test("planNestedAll: a crew's hours typed into a week move the works' sum above at once", async () => {
-        const { container: c } = await h.mount(ex.planNestedAll);
-        await settle();
-        // Jobs and Load switched off, and every works unfolded: the first works' crews under its crew hours.
-        const pane = slot(c, "start")!;
-        fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
-        await settle();
-        for (const name of ["Jobs", "Load"]) {
-            const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
-            fireEvent.click([...panel.querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!);
-            await settle();
-        }
-        await act(async () => { fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: "Expand all" })); });
-        await settle();
-        // The first crew's first week of hours in the window, as the generator made it: its works' sum that week is its alone.
-        const crews = [...East.compile(ex.generateWorks, [])(0n, 522n).crews.values()];
-        const from = new Date("2026-09-28T00:00:00Z").getTime();
-        const to = new Date("2026-12-28T00:00:00Z").getTime();
-        const [week, hours] = [...crews[0]!.hours].find(([at]) => at.getTime() >= from && at.getTime() < to)!;
-        expect(crews[1]!.hours.has(week)).toBe(false);
-        const key = instantKey(timeInstant(week));
-        const cellOf = (...path: string[]) => [...c.querySelectorAll<HTMLElement>(`${rowAt(entry(path.length === 1 ? "crews" : "crew", ...path))} [data-cell]`)]
-            .find((cell) => cell.getAttribute("data-cell") === key);
-        const printed = (cell: HTMLElement | undefined) => cell?.querySelector("[data-part='0']")?.textContent ?? "none";
-        await waitFor(() => expect(printed(cellOf("W-10001", "C-10001-1"))).toBe(String(hours)));
-        expect(printed(cellOf("W-10001"))).toBe(String(hours));
-        await act(async () => { fireEvent.doubleClick(cellOf("W-10001", "C-10001-1")!); });
-        const input = c.querySelector<HTMLInputElement>("[data-plan-typing] input")!;
-        await act(async () => { fireEvent.input(input, { target: { value: "500" } }); });
-        await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
-        await settle();
+        const { c, cellOf, printed } = await typedCrewHours();
         await waitFor(() => expect(printed(cellOf("W-10001", "C-10001-1"))).toBe("500"));
         await waitFor(() => expect(printed(cellOf("W-10001"))).toBe("500"));
+    });
+
+    test("planNestedAll: a crew's hours typed are saved: one commit of the works record, read back with nothing pending", async () => {
+        const { c, cellOf, printed } = await typedCrewHours();
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: editingMessages.apply() })); });
+        await settle();
+        expect(h.requests("mutate", ex.planWorks.name)).toHaveLength(1);
+        await waitFor(() => expect(slot(c, "footer")!.querySelector('[data-plan-count="pending"]')?.textContent).toBe("0 pending"));
+        expect([...(slot(c, "banners")?.querySelectorAll("[data-session-banner]") ?? [])].map((banner) => banner.textContent)).toEqual([]);
+        expect(printed(cellOf("W-10001", "C-10001-1"))).toBe("500");
     });
 });
