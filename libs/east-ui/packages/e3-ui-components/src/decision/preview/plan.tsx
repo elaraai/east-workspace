@@ -12,7 +12,10 @@
  * every kind's `planItems` — tracked, so a read landing draws them, each kind
  * counted first and read only within the builders' cap — the queue's drafts of
  * the target's record in place; and a lane's name is its resource's, as the
- * Plan's gutter names it. What it draws is {@link lanesPreview}'s.
+ * Plan's gutter names it. What it draws is {@link lanesPreview}'s. Past two
+ * lanes it draws the Plan's map (P5): every resource of the kinds the change's
+ * events are on, under its row's group, else its kind's name — of a kind read
+ * a window at a time, those the change touches.
  *
  * @packageDocumentation
  */
@@ -23,10 +26,12 @@ import { ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { scheduleWithinCap } from "../../shared/schedule/cells.js";
 import { EMPTY_SCHEDULE_DRAFTS } from "../../shared/schedule/editing.js";
+import { kindPlural } from "../../shared/schedule/words.js";
 import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
 import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
-import { LanesCrop, lanesSentence } from "./lanes.js";
+import { LanesCrop, LanesMap, lanesSentence, mapSentence, type PreviewMap } from "./lanes.js";
 import { UNASSIGNED, laneEvent, laneWindow, lanesPreview, type LaneEvent, type LanesModel } from "./lanes-model.js";
+import { CROP_LANES, lanesMap, type MapResource } from "./map-model.js";
 
 /** A Plan target's kind, decoded. */
 type PlanKind = Extract<DecisionTarget["kind"], { type: "plan" }>["value"];
@@ -39,8 +44,8 @@ type PlanItem = Extract<ReturnType<PlanEventKind["planEvent"]>, { type: "some" }
 /** The resource an event is on. */
 type ResourceRef = Extract<PlanItem["resource"], { type: "some" }>["value"];
 
-/** What the preview's read gives: the lanes, a read in flight, or nothing it touches with a time. */
-type PlanRead = { readonly state: "ready"; readonly model: LanesModel } | { readonly state: "pending" } | { readonly state: "empty" };
+/** What the preview's read gives: the lanes — and past two, the map — a read in flight, or nothing it touches with a time. */
+type PlanRead = { readonly state: "ready"; readonly model: LanesModel; readonly map: PreviewMap | undefined } | { readonly state: "pending" } | { readonly state: "empty" };
 
 /** How many lanes the placeholder draws while the rows are read. */
 const PENDING_LANES = 2;
@@ -173,22 +178,50 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
         }
         const knockOn = option?.knockOn;
         const locked = target.locked.type === "some" ? target.locked.value : NOT_LOCKED;
+        const model = lanesPreview({
+            window, context, before, after, marked,
+            lands: landed.map(e => e.lane),
+            knockOn: key => knockOn?.has(key) === true,
+            locked: key => {
+                const bytes = bytesOf.get(key);
+                return bytes !== undefined && locked(bytes, key);
+            },
+            shared: key => sharedOf(shared, record.key, key),
+            overlaps: slot => kind.events.find(k => stringEqual(k.key, slot))?.overlaps.type === "warn",
+            pairs: "kind",
+            measure: "share",
+            nameOf: lane => (stringEqual(lane, UNASSIGNED) ? words.m.previewUnassigned() : names.get(lane) ?? lane),
+        });
+        if (model.rows.length <= CROP_LANES) return { state: "ready", model, map: undefined };
+        // The map (D7, P5): every resource of the kinds the change's events are on, in their kinds' order, under its row's
+        // group, else its kind's name — of a kind read a window at a time, those the change touches, by the names read.
+        const on = new Set<string>();
+        for (const item of items.values()) if (item.resource.type === "some") on.add(item.resource.value.kind);
+        const resources: MapResource[] = [];
+        let complete = true;
+        const kinds = kind.resources.filter(r => on.has(r.key));
+        for (const r of kinds) {
+            if (r.byKey.type === "some") {
+                complete = false;
+                for (const [lane, item] of items) {
+                    if (item.resource.type === "some" && stringEqual(item.resource.value.kind, r.key)) resources.push({ key: lane, name: names.get(lane) ?? item.resource.value.key, group: r.name });
+                }
+            } else {
+                for (const row of r.rows) {
+                    resources.push({ key: printResource({ kind: r.key, key: row.key }), name: row.label, group: row.group.type === "some" ? row.group.value : r.name });
+                }
+            }
+        }
+        const lower = (name: string) => name.toLocaleLowerCase(words.locale);
         return {
-            state: "ready",
-            model: lanesPreview({
-                window, context, before, after, marked,
-                lands: landed.map(e => e.lane),
-                knockOn: key => knockOn?.has(key) === true,
-                locked: key => {
-                    const bytes = bytesOf.get(key);
-                    return bytes !== undefined && locked(bytes, key);
+            state: "ready", model,
+            map: {
+                model: lanesMap(model, resources, complete),
+                nouns: {
+                    event: lower(events.name), events: kindPlural(lower(events.name)),
+                    resources: kinds.length === 1 ? kindPlural(lower(kinds[0]!.name)) : words.m.previewResources(),
                 },
-                shared: key => sharedOf(shared, record.key, key),
-                overlaps: slot => kind.events.find(k => stringEqual(k.key, slot))?.overlaps.type === "warn",
-                pairs: "kind",
-                measure: "share",
-                nameOf: lane => (stringEqual(lane, UNASSIGNED) ? words.m.previewUnassigned() : names.get(lane) ?? lane),
-            }),
+            },
         };
     }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind, shared, words]);
     const { result } = useTrackedEvaluation(read);
@@ -200,6 +233,11 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
     const got = result.value;
     if (got.state === "pending") return <PreviewPending kind="plan" layout="lanes" rows={PENDING_LANES} words={words} styles={styles} />;
     if (got.state === "empty") return <PreviewFrame kind="plan" layout="lanes" label={option?.detail ?? ""} stale={stale} styles={styles} />;
-    const label = lanesSentence(got.model, guessedOf(option?.guesses, changed), words);
-    return <LanesCrop kind="plan" model={got.model} label={label} stale={stale} now={now} words={words} styles={styles} />;
+    const guessed = guessedOf(option?.guesses, changed);
+    // A map's sentence counts what changes; with nothing marked, it names the lanes the recommendation lands on (P4).
+    if (got.map !== undefined) {
+        const label = got.model.clauses.length === 0 ? lanesSentence(got.model, guessed, words) : mapSentence(got.map, guessed, words);
+        return <LanesMap kind="plan" map={got.map} label={label} stale={stale} words={words} styles={styles} />;
+    }
+    return <LanesCrop kind="plan" model={got.model} label={lanesSentence(got.model, guessed, words)} stale={stale} now={now} words={words} styles={styles} />;
 }

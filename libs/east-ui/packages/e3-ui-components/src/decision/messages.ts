@@ -64,6 +64,16 @@ export interface PreviewSharedWords {
     readonly one: boolean;
 }
 
+/** How many events a map's tile counts, worded: the count, whether it is one, and the events' noun in its number. */
+export interface PreviewCountWords {
+    /** The count. */
+    readonly n: string;
+    /** Whether it is one. */
+    readonly one: boolean;
+    /** The events' noun, singular or plural as the count takes it — `print job`, `print jobs`. */
+    readonly noun: string;
+}
+
 /** A preview's entry, worded for its title: its shift and day, and how the change marks it. */
 export interface PreviewTileWords {
     /** Its shift, or what it is. */
@@ -236,6 +246,28 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     previewOverlap: (p: { with: string }) => string;
     /** The lane of the events on no resource — `Unassigned`. */
     previewUnassigned: () => string;
+    /**
+     * A map's sentence (P5, P25): how many of the kinds' resources the change touches — of how many, where every one is in
+     * hand — the one it lands the most events on, those it only takes events off, and the rows the model guessed: `10 of
+     * 24 presses change; Press C4 takes 4 print jobs, Press A7 and Press C8 lose theirs`.
+     */
+    previewMap: (p: {
+        n: string; one: boolean; of: string | undefined; resources: string;
+        most: { name: string; n: string; events: string } | undefined;
+        freed: { names: string; one: boolean; events: string } | undefined;
+        guessed: { keys: string; n: number } | undefined;
+    }) => string;
+    /**
+     * A map's tile's title (P25): its resource, and the events the change lands there, knocks on there and takes off
+     * there — `Press A2 · 2 print jobs change`, `Press A7 · 1 print job moves off`, `Press A1 · no change`.
+     */
+    previewMapTile: (p: { name: string; takes: PreviewCountWords | undefined; knocks: PreviewCountWords | undefined; loses: PreviewCountWords | undefined; breach: string | undefined }) => string;
+    /** A map's tile for the rest of its group (P5): what it says — `+3` — and its title, `3 more kilns`. */
+    previewMapMore: (p: { n: string; resources: string; title: boolean }) => string;
+    /** The resources of several kinds, as a map's sentence names them — `resources`. */
+    previewResources: () => string;
+    /** A when strip's tick's title (P12): the event's new time and the event — `06:00 · Loyalty cards moves here`. */
+    previewWhen: (p: { time: string; what: string; added: boolean }) => string;
     /** One clause of a Sheet preview's sentence (P25) — `Status and Due change on WO-1005, WO-1007 and WO-1008`, `WO-1010 is added`. */
     previewCells: (p: PreviewCellsWords) => string;
     /** A Sheet preview's cell its change clears, as the Sheet marks a blank — `—`. */
@@ -285,6 +317,9 @@ const sharedText = (shared: PreviewSharedWords | undefined): string | undefined 
     (shared === undefined ? undefined : `${shared.n} other ${shared.one ? "case changes" : "cases change"} it too`);
 /** A title's parts, those it has, in order. */
 const parts = (...said: readonly (string | undefined)[]): string => said.filter((part): part is string => part !== undefined).join(" · ");
+/** A sentence's tail naming the rows the model guessed (P26), after its head. */
+const guessedText = (head: string, guessed: { keys: string; n: number } | undefined): string =>
+    (guessed === undefined ? head : `${head}. ${guessed.keys} ${guessed.n === 1 ? "is a low-confidence guess" : "are low-confidence guesses"}`);
 /** What an event does where it moves or is added, in a lanes preview's sentence: `runs on Press A1`, `is held in K-305`, `waits`. */
 const doesText = (verb: LaneVerb, where: string): string => (verb === "runs" ? `runs on ${where}` : verb === "held" ? `is held in ${where}` : "waits");
 
@@ -356,8 +391,7 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     },
     previewSentence: ({ clauses, people, guessed }) => {
         const said = clauses.join("; ");
-        const head = people === undefined ? said : `${people.n} of ${people.of} people change: ${said}`;
-        return guessed === undefined ? head : `${head}. ${guessed.keys} ${guessed.n === 1 ? "is a low-confidence guess" : "are low-confidence guesses"}`;
+        return guessedText(people === undefined ? said : `${people.n} of ${people.of} people change: ${said}`, guessed);
     },
     previewUnchanged: ({ names }) => `Nothing changes for ${names}`,
     previewHours: ({ before, after, same, contract, compact }) => (same
@@ -395,6 +429,25 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     previewSpan: ({ start, end }) => `${start}–${end}`,
     previewOverlap: (p) => `overlaps ${p.with}`,
     previewUnassigned: () => "Unassigned",
+    previewMap: ({ n, one, of, resources, most, freed, guessed }) => {
+        const count = `${n} of ${of ?? "the"} ${resources} ${one ? "changes" : "change"}`;
+        const said = [
+            most === undefined ? undefined : `${most.name} takes ${most.n} ${most.events}`,
+            freed === undefined ? undefined : freed.one ? `${freed.names} loses its ${freed.events}` : `${freed.names} lose theirs`,
+        ].filter((part): part is string => part !== undefined);
+        return guessedText(said.length === 0 ? count : `${count}; ${said.join(", ")}`, guessed);
+    },
+    previewMapTile: ({ name, takes, knocks, loses, breach }) => parts(
+        name,
+        takes === undefined ? undefined : `${takes.n} ${takes.noun} ${takes.one ? "changes" : "change"}`,
+        knocks === undefined ? undefined : `${knocks.n} knocked on`,
+        loses === undefined ? undefined : `${loses.n} ${loses.noun} ${loses.one ? "moves" : "move"} off`,
+        takes === undefined && knocks === undefined && loses === undefined ? "no change" : undefined,
+        breach,
+    ),
+    previewMapMore: ({ n, resources, title }) => (title ? `${n} more ${resources}` : `+${n}`),
+    previewResources: () => "resources",
+    previewWhen: ({ time, what, added }) => `${time} · ${what} ${added ? "lands" : "moves"} here`,
     previewCells: (p) => {
         const one = p.rows.length === 1 && p.more === undefined;
         const rows = p.more === undefined ? listOf(p.rows) : `${p.rows.join(", ")} and ${p.more} more`;

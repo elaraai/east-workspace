@@ -14,7 +14,9 @@
  * with the queue's drafts of the bins' record in place, then laid out as it
  * stands and as the change leaves it, and every resource's load and the
  * checks, the board's and the app's, worked out over each as the board works
- * them out. What it draws is {@link allocationCrop}'s.
+ * them out. What it draws is {@link allocationCrop}'s. Past two lanes it
+ * draws the board's map (P5): every resource, under its group — else the
+ * board's noun for its resources — the waiting row no tile.
  *
  * @packageDocumentation
  */
@@ -23,17 +25,20 @@ import { useCallback, useMemo } from "react";
 import { DateTimeType, SortedMap, SortedSet, StringType, equalFor } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { DAY, allocationContext, allocationDomain, allocationWords, compareDate, compareString, dayStart, emptyDay, type Bin, type Issue } from "../../allocation/model.js";
+import { lower, other } from "../../allocation/nouns.js";
+import { kindPlural } from "../../shared/schedule/words.js";
 import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
 import { allocationCrop, type AllocationCropBin, type AllocationCropDay, type AllocationCropPlan } from "./allocation-model.js";
 import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
-import { LanesCrop, dayText, lanesSentence } from "./lanes.js";
+import { LanesCrop, LanesMap, dayText, lanesSentence, mapSentence, type PreviewMap } from "./lanes.js";
 import type { LanesModel } from "./lanes-model.js";
+import { CROP_LANES, lanesMap } from "./map-model.js";
 
 /** An Allocation target's kind, decoded. */
 type AllocationKind = Extract<DecisionTarget["kind"], { type: "allocation" }>["value"];
 
-/** What the preview's read gives: the lanes, a read in flight, or nothing it touches with a time. */
-type AllocationRead = { readonly state: "ready"; readonly model: LanesModel } | { readonly state: "pending" } | { readonly state: "empty" };
+/** What the preview's read gives: the lanes — and past two, the map — a read in flight, or nothing it touches with a time. */
+type AllocationRead = { readonly state: "ready"; readonly model: LanesModel; readonly map: PreviewMap | undefined } | { readonly state: "pending" } | { readonly state: "empty" };
 
 /** How many lanes the placeholder draws while the rows are read: a resource and the waiting row. */
 const PENDING_LANES = 2;
@@ -168,7 +173,16 @@ export function AllocationPreview({ c, view, target, kind, record, rows, changed
                 waiting: m.previewWaiting(),
             },
         });
-        return model === undefined ? EMPTY : { state: "ready", model };
+        if (model === undefined) return EMPTY;
+        if (model.rows.length <= CROP_LANES) return { state: "ready", model, map: undefined };
+        // The map (D7, P5): every resource of the board, by its key as the tally names it, under its group — else the
+        // board's noun for its resources, as a heading writes it; the bins and the resources in running text.
+        const resources = kind.resources.map(r => ({ key: r.key, name: r.label, group: r.group.type === "some" ? r.group.value : kind.labels.resource.other }));
+        const event = lower(kind.bin.kind.name);
+        return {
+            state: "ready", model,
+            map: { model: lanesMap(model, resources, true), nouns: { event, events: kindPlural(event), resources: other(kind.labels.resource) } },
+        };
     }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind, domain, context, shared, words]);
     const { result } = useTrackedEvaluation(read);
     const stale = rows === "stale";
@@ -179,6 +193,11 @@ export function AllocationPreview({ c, view, target, kind, record, rows, changed
     const got = result.value;
     if (got.state === "pending") return <PreviewPending kind="allocation" layout="lanes" rows={PENDING_LANES} words={words} styles={styles} />;
     if (got.state === "empty") return <PreviewFrame kind="allocation" layout="lanes" label={option?.detail ?? ""} stale={stale} styles={styles} />;
-    const label = lanesSentence(got.model, guessedOf(option?.guesses, changed), words);
-    return <LanesCrop kind="allocation" model={got.model} label={label} stale={stale} now={now} words={words} styles={styles} />;
+    const guessed = guessedOf(option?.guesses, changed);
+    // A map's sentence counts what changes; with nothing marked, it names the lanes the recommendation lands on (P4).
+    if (got.map !== undefined) {
+        const label = got.model.clauses.length === 0 ? lanesSentence(got.model, guessed, words) : mapSentence(got.map, guessed, words);
+        return <LanesMap kind="allocation" map={got.map} label={label} stale={stale} words={words} styles={styles} />;
+    }
+    return <LanesCrop kind="allocation" model={got.model} label={lanesSentence(got.model, guessed, words)} stale={stale} now={now} words={words} styles={styles} />;
 }

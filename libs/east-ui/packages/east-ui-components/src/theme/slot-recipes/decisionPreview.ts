@@ -15,7 +15,7 @@
  * Slots:
  * - root: the frame — `role="img"`, 1px `--rule`, `--r-sm`, `--paper`, at its target's height (`data-kind`, P2): 120
  *   for a builder's and the zones', 116 for a projection, 112 otherwise; dashed `--rule-strong` while stale
- *   (`data-stale`, P21). Its layout (`data-layout`: `roster`, `lanes`, `sheet`) lays out its rows; its kind sets the
+ *   (`data-stale`, P21). Its layout (`data-layout`: `roster`, `people`, `lanes`, `map`, `sheet`) lays out its rows; its kind sets the
  *   lanes' measures — the lane head's least width (`--pv-lw`: the Plan's 72, the Allocation's 88, the Calendar's 96), a
  *   bar's height (the Plan's and the Calendar's 18, a bin's 24) and the gaps between stacked bars.
  * - lanes: the lanes' grid — its ruler and its lanes share its two columns, the head's and the plot's: the head as wide
@@ -40,9 +40,9 @@
  *   (`shared`, `--paper`, 12 tall, P18).
  * - map, mapRow, mapLabel, mapTiles, mapTile: a builder's map (P5) — its resources as 22px tiles, eight a row, under
  *   their group's label; one the change touches on the dirty fill with the glow, one it moves off a ghost, the rest
- *   `--paper-3` on `--rule-strong`.
- * - when, whenLabel, whenStrip, whenTick: the when strip under a batch's map (P12): 12 tall, a 2px glowing tick at each
- *   change's new time.
+ *   `--paper-3` on `--rule-strong`; the rest of a group past a row its count (`data-more`).
+ * - when, whenLabel, whenStrip, whenTick: the when strip under a batch's map (P12): its window's words, cut with an
+ *   ellipsis past its 52, over a strip 12 tall, its grid lines and a 2px glowing tick at each change's new time.
  * - people, peopleRow, peopleDay, peopleName, mark: the Roster's map by people (P5): rows 16, its days' letters 12, a
  *   person's name and hours, and a day's mark, 12 tall, over the Roster's `mark`.
  * - count, countText, countFigure: what a map names beside its rows — `+ 16 more people` — and its count, `20 of 36`.
@@ -358,6 +358,7 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            gap: "2px",
             borderWidth: "1px",
             borderStyle: "solid",
             borderColor: "border.strong",
@@ -370,7 +371,7 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
             "&[data-op=add], &[data-op=chg]": { borderWidth: 0, color: "brandPressed" },
         },
         when: { display: "grid", gridTemplateColumns: "52px minmax(0, 1fr)", alignItems: "center", gap: "4px", paddingTop: "4px" },
-        whenLabel: { ...CAPTION, letterSpacing: "wider", lineHeight: "12px", whiteSpace: "nowrap" },
+        whenLabel: { ...CAPTION, ...ELLIPSIS, letterSpacing: "wider", lineHeight: "12px" },
         whenStrip: { position: "relative", height: "12px", boxSizing: "border-box", borderBottomWidth: "1px", borderBottomStyle: "solid", borderColor: "border.strong" },
         whenTick: { position: "absolute", top: "2px", bottom: 0, left: "var(--pv-at)", width: "2px", background: "brand.solid", boxShadow: ELARA_STEADY },
 
