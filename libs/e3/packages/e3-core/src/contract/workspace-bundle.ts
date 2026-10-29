@@ -105,8 +105,8 @@ async function entriesOf(bytes: Uint8Array): Promise<WorkspaceBundleEntry[]> {
  * Every case writes a bundle from a workspace of one backend and makes the
  * workspace in another, both of the setup's making, through the storage
  * interfaces alone. The package, `1.0.0`: `note` (String, `one`), a task over
- * it, and a record, `counts`; and another package of the same name and
- * version, whose `note` is `two`.
+ * it, and a record, `counts`, with a mutation that names no program; and
+ * another package of the same name and version, whose `note` is `two`.
  *
  * @param setup - Makes a fresh backend and a repository in it for each call
  */
@@ -122,7 +122,12 @@ export function workspaceBundleTests(setup: BackendSetup): void {
         const input = e3.input('note', StringType, variant('value', note));
         return [
           e3.task('echo', [input], East.function([StringType], StringType, ($, x) => x)),
-          e3.record('counts', IntegerType, { initial: 0n }),
+          // A record with no delta addressed by key: its mutation names no
+          // program, only its reducer
+          e3.record('counts', IntegerType, {
+            initial: 0n,
+            mutations: (mutation) => ({ bump: mutation.reduce(East.function([IntegerType], IntegerType, ($, n) => n.add(1n))) }),
+          }),
         ];
       };
       zip = join(dir, `${PKG}.zip`);

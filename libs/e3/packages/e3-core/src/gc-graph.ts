@@ -572,7 +572,10 @@ function extractChildren(
 
   if (isStructOf(t, MUTATION_OBJECT_FIELDS)) {
     const mut = value as MutationObject;
-    children.push({ hash: mut.bodyIr, kind: 'leaf' }, { hash: mut.programIr, kind: 'leaf' }); // IR is a leaf
+    children.push({ hash: mut.bodyIr, kind: 'leaf' }); // IR is a leaf
+    // A record with no delta addressed by key runs its reducer whole, and its
+    // mutations name no program.
+    if (mut.programIr !== '') children.push({ hash: mut.programIr, kind: 'leaf' });
     return children;
   }
 
