@@ -1440,6 +1440,17 @@ writes its own machines through the harness — `E3_NESTED_MACHINES`, the first
 opening, a scroll, a zoom, a heavy machine's drag and its Save; e3-web holds
 the record in the test's process, so its sizes are what the test's heap holds.
 
+### A table cell too narrow for its value (#1269, #1438)
+
+A table cell draws its numerals whole or not at all (#1269: a wrapping line
+that drops numerals wider than the column out of sight, the hover saying
+them). Where it holds a value it cannot draw, it draws a dot in its place, in
+its numerals' ink (`tableCellDot`), so a value never leaves its cell looking
+empty at a zoom too dense for it: the row measures its plot beside its cells
+(`tableCellMeasure`, `useElementWidth`), and a cell compares its column's share
+of it with its numerals' width, the table's numerals being of one width. An
+unmeasured plot — jsdom's — draws the numerals.
+
 ### Typing a number into a table cell (#1436, #1438)
 
 A table position its row says takes a typed number (`edits.values`, each

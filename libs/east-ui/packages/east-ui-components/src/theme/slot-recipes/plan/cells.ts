@@ -31,7 +31,7 @@ export const BOOKED_FILL = "{colors.brand.solid}";
 /** The slots this part styles. */
 export const cellsSlots = [
     "heatCell", "heatLabel", "weightBar", "segmentTrack", "segmentPart", "cellWash", "cell", "cellTiles",
-    "tile", "tileLabel", "tileMore", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart",
+    "tile", "tileLabel", "tileMore", "laneLabel", "markerIcon", "cardChip", "cardChipIcon", "cardChipLabel", "tableCellText", "tableCellGroup", "tableCellPart", "tableCellDot", "tableCellMeasure",
     "tableCellInput", "tableCellField", "tableCellFieldInput", "tableCellRefusal", "tableCellPopover",
 ] as const;
 
@@ -554,6 +554,27 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         "&[data-tone='neg']":   { color: "{colors.status.neg}" },
         "&[data-tone='muted']": { color: "fg.subtle" },
         "&[data-strong]":       { fontWeight: "semibold", color: "fg.default" },
+    },
+    // A cell's value wider than its column (#1269, #1438): a dot in its place, in its numerals' ink, so a value never
+    // leaves its cell looking empty — the cell's hover says it.
+    tableCellDot: {
+        width: "4px",
+        height: "4px",
+        borderRadius: "full",
+        flexShrink: 0,
+        background: "fg.muted",
+        "&[data-tone='neg']": { background: "{colors.status.neg}" },
+        "&[data-strong]":     { background: "fg.default" },
+    },
+    // What a table row measures its plot's width by, beside its cells: the plot's width, no height, never seen.
+    tableCellMeasure: {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 0,
+        visibility: "hidden",
+        pointerEvents: "none",
     },
     // ── Typing a number into a table cell (#1436, #1438) — the cell's field
     //    over its bucket's column at the row's height, the brand ring its

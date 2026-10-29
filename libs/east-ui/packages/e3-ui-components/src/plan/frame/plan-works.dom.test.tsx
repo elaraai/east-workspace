@@ -22,7 +22,7 @@
  */
 
 import { appendFileSync } from "node:fs";
-import { describe, test, expect, beforeEach, afterEach } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, onTestFinished } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { East, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -181,6 +181,39 @@ describe("the works on a Plan (#1438)", () => {
             return part === null ? [] : [[cell.getAttribute("data-cell"), Number((part.textContent ?? "").replace(/,/g, ""))] as const];
         });
         expect(drawn).toEqual([...sums].sort(([a], [b]) => a - b).map(([at, sum]) => [`time:${new Date(at).toISOString().replace("Z", "")}`, sum]));
+    });
+
+    test("a value too wide for its column draws a dot in its place, its hover saying it; a column wide enough, its numerals", async () => {
+        // The plot laid out at a width: the thirteen weeks across 300px are some 23px a week, narrower than a crew sum's numerals.
+        let plotPx = 300;
+        const was = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!;
+        Object.defineProperty(Element.prototype, "clientWidth", {
+            configurable: true, get(this: Element) { return this.hasAttribute("data-plan-measure") ? plotPx : was.get!.call(this); },
+        });
+        onTestFinished(() => { Object.defineProperty(Element.prototype, "clientWidth", was); });
+        const crewsFirst = async () => {
+            const { container } = await h.mount(ex.planNestedAll, { storageKey: `dots-${plotPx}` });
+            await settle();
+            const pane = slot(container, "start")!;
+            fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
+            await settle();
+            for (const name of ["Jobs", "Load"]) {
+                const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+                fireEvent.click([...panel.querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!);
+                await settle();
+            }
+            return () => slot(container, "main")!.querySelector(rowAt(entry("crews", "W-10001")));
+        };
+        const narrow = await crewsFirst();
+        await waitFor(() => expect(narrow()?.querySelectorAll("[data-plan-cell-dot]").length ?? 0).toBeGreaterThan(0));
+        expect(narrow()!.querySelectorAll("[data-cell] [data-part]").length).toBe(0);
+        const dotted = narrow()!.querySelector("[data-plan-cell-dot]")!.closest("[data-cell]")!;
+        expect(dotted.getAttribute("aria-label")).toMatch(/[0-9]{3}/);
+        // 2000px: some 150px a week, each sum's numerals drawn, no dot.
+        plotPx = 2000;
+        const wide = await crewsFirst();
+        await waitFor(() => expect(wide()?.querySelectorAll("[data-cell] [data-part]").length ?? 0).toBeGreaterThan(0));
+        expect(wide()!.querySelectorAll("[data-plan-cell-dot]").length).toBe(0);
     });
 
     test("a quarter on, every works in view draws jobs there: the works are sparse, and spread evenly over their years", async () => {

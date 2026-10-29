@@ -19,7 +19,10 @@
  * named by its bucket and the numerals it prints (#819) — the em-dash of a
  * missing value said as words. Its numerals are drawn together, whole, or not
  * at all where the cell is narrower than they are, its hover then saying them
- * (#1269).
+ * (#1269) — and, where it holds a value, a dot in their place, so no value
+ * leaves its cell looking empty (#1438): the row measures its plot's width
+ * beside its cells, and a cell knows its numerals' width from their length,
+ * the table's numerals being of one width.
  *
  * A position its row says takes a typed number (#1436, #1438) takes one in
  * each bucket holding one of its own values, or none, while the canvas takes
@@ -46,6 +49,8 @@ import { PlanCellInput, type PlanCellInputMove } from "./CellInput.js";
 import { cellName, tablePartsText } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
+import { useElementWidth } from "../use-element-height.js";
+import { maxOf } from "../reductions.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 type TableCellValue = ValueTypeOf<typeof Plan.Types.TableCell>;
@@ -144,6 +149,27 @@ function moveAcross(typing: PlanTyping, from: HTMLElement, cell: string, positio
 }
 
 /** The table-row plot content — per-bucket cells of series-joined parts. */
+/** A numeral's width in the table's numerals, in px: 10.5px type, of one width, about 0.62em a character. */
+const NUMERAL_PX = 6.5;
+/** A cell's inset either side of its numerals, in px. */
+const CELL_INSET_PX = 4;
+/** The gap between two parts drawn side by side, in px. */
+const PART_GAP_PX = 6;
+
+/**
+ * How wide a cell's numerals draw, in px: its parts side by side, or the
+ * widest of them where they stack.
+ *
+ * @param texts - Each part's text
+ * @param split - How the parts lay out
+ * @returns The width
+ */
+function numeralsPx(texts: readonly string[], split: "horizontal" | "vertical"): number {
+    const widths = texts.map((text) => text.length * NUMERAL_PX);
+    const inner = split === "vertical" ? Math.max(0, maxOf(widths)) : widths.reduce((a, w) => a + w, 0) + PART_GAP_PX * Math.max(0, texts.length - 1);
+    return inner + 2 * CELL_INSET_PX;
+}
+
 export function TableRowCells({ rowKey, rowId, series, split, format, styles, ctx, typed, own, parent }: TableRowCellsProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -155,6 +181,9 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
     const open = usePlanTypingOpen(typing?.store, rowKey);
     // The cells by their bucket, which a popover of the input anchors to below 480px of main.
     const cellEls = useRef(new Map<string, HTMLElement>());
+    // The plot's width, which each cell's share of it says whether its numerals fit: unknown before it is laid out.
+    const measureRef = useRef<HTMLDivElement | null>(null);
+    const plotPx = useElementWidth(measureRef, true);
     const typeables = useMemo(
         () => (typing !== undefined && typed !== undefined && typed.length > 0 ? typeablesOf(scale, typed, own ?? series, parent === true) : NO_TYPEABLES),
         [typing, typed, own, series, parent, scale]);
@@ -271,6 +300,7 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
     })();
     return (
         <>
+            <Box ref={measureRef} css={styles.tableCellMeasure} data-plan-measure="" aria-hidden="true" />
             {[...buckets.entries()].map(([bi, parts]) => {
                 const b = bucketByIndex.get(bi)!;
                 // The positions taking a number here: one value of their own in the bucket, or none.
@@ -293,8 +323,12 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                         : value < 0 ? "neg"
                         : s.tone.type === "some" ? s.tone.value.type
                         : undefined;
-                    return { text, tone, strong: s.strong, si };
+                    return { text, tone, strong: s.strong, si, held: value !== undefined || cell.text.type === "some" };
                 });
+                // Numerals wider than their column draw a dot in their place where the cell holds a value (#1438).
+                const dotted = plotPx !== undefined && plotPx > 0 && printed.some((p) => p.held)
+                    && (b.x1 - b.x0) * plotPx < numeralsPx(printed.map((p) => p.text), split);
+                const dotOf = printed.find((p) => p.held);
                 return (
                     <Box key={bi} css={styles.tableCellText}
                         ref={(el: HTMLElement | null) => { if (el !== null) cellEls.current.set(cell, el); else cellEls.current.delete(cell); }}
@@ -333,15 +367,19 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                         } : undefined}
                     >
                         {/* Its numerals, together: drawn whole, or — wider than the cell — off its line, out of
-                            sight, and said by the cell's hover (#1269); never some of them. */}
-                        <Box as="span" css={styles.tableCellGroup} data-table-parts="" data-plan-label="">
-                            {printed.map(({ text, tone, strong, si }, i) => (
-                                <Box key={i} as="span" css={styles.tableCellPart} data-part={si}
-                                    data-tone={tone} data-strong={strong ? "" : undefined}>
-                                    {text}
-                                </Box>
-                            ))}
-                        </Box>
+                            sight, and said by the cell's hover (#1269); never some of them. A cell holding a value its
+                            column cannot draw draws a dot in its place (#1438). */}
+                        {dotted && dotOf !== undefined
+                            ? <Box as="span" css={styles.tableCellDot} data-plan-cell-dot="" data-tone={dotOf.tone}
+                                data-strong={dotOf.strong ? "" : undefined} />
+                            : <Box as="span" css={styles.tableCellGroup} data-table-parts="" data-plan-label="">
+                                {printed.map(({ text, tone, strong, si }, i) => (
+                                    <Box key={i} as="span" css={styles.tableCellPart} data-part={si}
+                                        data-tone={tone} data-strong={strong ? "" : undefined}>
+                                        {text}
+                                    </Box>
+                                ))}
+                            </Box>}
                     </Box>
                 );
             })}
