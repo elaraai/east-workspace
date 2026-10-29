@@ -15,7 +15,7 @@
  * whatever the day.
  */
 import { BooleanType, DictType, East, FloatType, FunctionType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
-import { Box, Field, Fields, Format, Reactive, Slice, State, UIComponentType, VStack } from "@elaraai/east-ui";
+import { Box, Field, Fields, Format, Reactive, Slice, State, Style, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Allocation, Calendar, Data, DecisionQueue, Record, Roster, Schedule, Sheet } from "@elaraai/e3-ui";
 import { arrivals, kilnBins, kilns, yardBays } from "../allocation/allocation.examples.js";
 import { CalendarService, calendarJobs, calendarMachines, calendarServices } from "../calendar/calendar.examples.js";
@@ -23,14 +23,16 @@ import { planEventJobs, planPrintJobs, planPrintPresses } from "../plan/plan-eve
 import { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from "../roster/roster.examples.js";
 import { WarehouseDuty } from "../roster/warehouse.js";
 import { OptimiseWorkOrder, optimiseWorkOrders } from "../sheet/optimise.examples.js";
-import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from "./ops.js";
+import { OpsOption, listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from "./ops.js";
 import { previewCases, previewVerdicts } from "./previews.js";
+import { catalogue, serviceAreas, stockOrders, storeStock } from "./supply.js";
 
 // The example app's records (§3.1) and the records its cases change — the warehouse rota's, the print shop's, the
-// workshop's, the kiln yard's and the shop's work orders — and the previews gallery's, for the renderer's specs on e3
-// and the showcase's package of this area.
+// workshop's, the kiln yard's, the shop's work orders and the supply side's — and the previews gallery's, for the
+// renderer's specs on e3 and the showcase's package of this area.
 export * from "./ops.js";
 export * from "./previews.js";
+export * from "./supply.js";
 export { arrivals, kilnBins, kilns, yardBays } from "../allocation/allocation.examples.js";
 export { calendarJobs, calendarMachines, calendarServices } from "../calendar/calendar.examples.js";
 export { planEventJobs, planPrintJobs, planPrintPresses } from "../plan/plan-events.examples.js";
@@ -77,8 +79,8 @@ export const decisionQueueMinimal = example({
 
 export const decisionQueueOps = example({
     inputs: [],
-    description: "The full decision queue (§3.3): one record of the models' cases, every kind of decision in it, narrowed by a rail over its indexes. An option's change is a variant whose tag says where it lands — the warehouse rota's duties drawn as the Roster draws them, by people (`rota`) and by what they cost (`rotaCost`), the print shop's jobs as the Plan draws them, the workshop's machine maintenance as the Calendar does, beside the machines' jobs, the kiln yard's bins as the Allocation does, its loads on their way its Waiting row, the shop's work orders as the Sheet does, and the price list, a record no builder draws, in a form of its own. Each target takes the same consts the builder's own tag takes — the duty kind, the people, the shifts, the warehouse's pay — so the card's preview draws the change as that builder would, Modify edits each changed row in the builder's own form — the maintenance in its kind's own Details, its technician and its notes, as the Calendar's inspector shows them — the preview following each edit, and Apply drafts the change through each record's patch door beside the verdict, one step of one history. The price list's `ready`, the app's check that a list price moves in 5¢ steps, holds Apply while an edit leaves one that doesn't, in its own words. The verdicts take every role — the option chosen, the answer to the case's question, an override's reason and a note — each case's figures print as money or as a count, and the host follows the open case with `onSelect`.",
-    keywords: ["DecisionQueue", "DecisionQueue.decisions", "DecisionQueue.verdicts", "DecisionQueue.change.roster", "DecisionQueue.change.plan", "DecisionQueue.change.calendar", "DecisionQueue.change.allocation", "Allocation.arrivals", "DecisionQueue.change.sheet", "DecisionQueue.change.record", "options", "recommended", "routine", "format", "ifWrong", "confidence", "question", "warn", "refused", "knockOn", "guesses", "map", "cost", "pay", "Modify", "ready", "inspector", "Field.StringInput", "Slice.bindRecords", "Data.bindPaged", "Record.bind", "State.bind", "onSelect", "Fields.number", "Format.Currency", "now"],
+    description: "The full decision queue (§3.3): one record of the models' cases, every kind of decision in it, narrowed by a rail over its indexes. An option's change is a variant whose tag says where it lands — the warehouse rota's duties drawn as the Roster draws them, by people (`rota`) and by what they cost (`rotaCost`), the print shop's jobs as the Plan draws them, the workshop's machine maintenance as the Calendar does, beside the machines' jobs, the kiln yard's bins as the Allocation does, its loads on their way its Waiting row, the shop's work orders as the Sheet does, the price list, a record no builder draws, in a form of its own, and the supply side's records, which no builder draws either — the stock orders as a projection of each option's own forecast against the minimum, the stores' stock as a mix, the catalogue's minimums as a rule across its ranges, each range's items counted through the catalogue's index on it (`source`), and the service rounds' areas in their zones. Each target takes the same consts the builder's own tag takes — the duty kind, the people, the shifts, the warehouse's pay — so the card's preview draws the change as that builder would, Modify edits each changed row in the builder's own form — the maintenance in its kind's own Details, its technician and its notes, as the Calendar's inspector shows them — the preview following each edit, and Apply drafts the change through each record's patch door beside the verdict, one step of one history. The price list's `ready`, the app's check that a list price moves in 5¢ steps, holds Apply while an edit leaves one that doesn't, in its own words. The verdicts take every role — the option chosen, the answer to the case's question, an override's reason and a note — each case's figures print as money, as a percent or as a count, and the host follows the open case with `onSelect`.",
+    keywords: ["DecisionQueue", "DecisionQueue.decisions", "DecisionQueue.verdicts", "DecisionQueue.change.roster", "DecisionQueue.change.plan", "DecisionQueue.change.calendar", "DecisionQueue.change.allocation", "Allocation.arrivals", "DecisionQueue.change.sheet", "DecisionQueue.change.record", "DecisionQueue.change.projection", "DecisionQueue.change.zones", "measure", "group", "projection", "zones", "Style.ColorToken", "Format.Percent", "options", "recommended", "routine", "format", "ifWrong", "confidence", "question", "warn", "refused", "knockOn", "guesses", "map", "cost", "pay", "Modify", "ready", "inspector", "Field.StringInput", "Slice.bindRecords", "Data.bindPaged", "Record.bind", "State.bind", "onSelect", "Fields.number", "Format.Currency", "now"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // The models' cases, narrowed by the rail, and the verdicts the queue writes.
         const cases = $.let(Data.bindPaged(opsCases));
@@ -198,6 +200,16 @@ export const decisionQueueOps = example({
         const workOrders = $.let(Record.bind(optimiseWorkOrders));
         const priceList = $.let(Record.bind(listPrices));
 
+        // The supply side's records, which no builder draws: the stock orders, which a projection reads by each option's
+        // own forecast; the stores' stock, read as a mix; the catalogue, its minimums a rule whose ranges are counted
+        // through its index on them, its rows read by key through its entries; and the service rounds' areas.
+        const restocks = $.let(Record.bind(stockOrders));
+        const storeUnits = $.let(Record.bind(storeStock));
+        const items = $.let(Record.bind(catalogue));
+        const itemEntries = $.let(Data.bindPaged(catalogue));
+        const itemRanges = $.let(Data.bindPaged(catalogue, { indexes: ["catalogue_by_range"] }));
+        const areas = $.let(Record.bind(serviceAreas));
+
         // Where each kind of decision draws: a target for each tag of the options' change.
         const rotaChange = DecisionQueue.change.roster({ name: "Roster", icon: "users",
             events: { duty }, resources: { people, agencies }, shifts, groups, week: { start: "sunday" }, source: dutyWeek });
@@ -219,6 +231,19 @@ export const decisionQueueOps = example({
             fields: { price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05, help: "In 5¢ steps" }) },
             ready: r => r.price.subtract(East.Float.roundNearest(r.price, 0.05)).abs().greater(0.000001).ifElse(
                 () => variant("invalid", [{ field: "price", message: "A list price moves in 5¢ steps" }]), () => variant("ready", null)) });
+        // The supply side's: a projection of each option's forecast against the minimum, the stores' stock as a mix, the
+        // catalogue's minimums by range, and the rounds' areas in their zones.
+        const restockChange = DecisionQueue.change.projection(restocks, { name: "Stock", icon: "boxes-stacked", option: OpsOption,
+            points: o => o.forecast, x: p => p.week, y: p => p.units, limit: { y: 400.0, label: "min" } });
+        const splitChange = DecisionQueue.change.record(storeUnits, { name: "Stock", icon: "truck-ramp-box", label: s => s.store, measure: s => s.units });
+        const minimumsChange = DecisionQueue.change.record(items, { name: "Catalogue", icon: "layer-group", label: i => i.name, measure: i => i.min,
+            entries: itemEntries, group: "range", source: itemRanges });
+        const roundsChange = DecisionQueue.change.zones(areas, { name: "Rounds", icon: "map-location-dot",
+            zone: a => a.round, x: a => a.column, y: a => a.row, depot: a => a.depot,
+            zones: [
+                { key: "a", label: "Round A", color: Style.ColorToken("blue", "500") },
+                { key: "b", label: "Round B", color: Style.ColorToken("purple", "500") },
+            ] });
 
         return <Box height="760px">
             <DecisionQueue
@@ -228,8 +253,12 @@ export const decisionQueueOps = example({
                 decisions={DecisionQueue.decisions(cases, {
                     scope: c => c.scope, due: c => c.due, routine: c => c.routine, unit: c => c.unit, model: c => c.model,
                     why: c => c.why, ifWrong: c => c.ifWrong, recommended: c => c.recommended,
-                    // Money in dollars, a count as it is.
-                    format: c => c.money.ifElse(() => some(Format.Currency({ currency: "USD", compact: "short" })), () => none),
+                    // Money in dollars, a share as a percent, a count as it is.
+                    format: c => c.figure.match({
+                        money: () => some(Format.Currency({ currency: "USD", compact: "short" })),
+                        count: () => none,
+                        percent: () => some(Format.Percent({ maximumFractionDigits: 0n })),
+                    }),
                     options: { from: c => c.options, label: o => o.label, title: o => o.title, summary: o => o.summary,
                         detail: o => o.detail, note: o => o.note, value: o => o.value, confidence: o => o.confidence,
                         question: o => o.question, warn: o => o.warn, refused: o => o.refused, knockOn: o => o.knockOn,
@@ -237,6 +266,7 @@ export const decisionQueueOps = example({
                         change: { from: o => o.change, of: {
                             rota: rotaChange, rotaCost: rotaCostChange, print: printChange, workshop: workshopChange,
                             yard: yardChange, orders: orderChange, pricing: pricingChange,
+                            restock: restockChange, split: splitChange, minimums: minimumsChange, rounds: roundsChange,
                         } } },
                 })}
                 verdicts={DecisionQueue.verdicts(verdicts, {
@@ -291,8 +321,8 @@ export const decisionQueueReadOnly = example({
 
 export const decisionQueuePreviews = example({
     inputs: [],
-    description: "The previews gallery (§11): a case for each preview a builder draws, over the example app's records on the morning of Tuesday 20 October 2026 — the Roster's crop, three early shifts from one person to another with each one's hours before → after, and its week's map, twenty of 69 people changing; the Plan's crop, a job off a press where it overlaps a confirmed one with the now line across it, the confirmed job locked — the target reading which jobs are confirmed (`locked`) — and its day's map, five jobs onto Thursday's presses with the day it changes as a strip; the Allocation's crop, a load off the Waiting row into a kiln; the Calendar's, a machine's maintenance off the day it overlaps a job; and the Sheet's, three due dates filled from history, one a guess. Then a Plan crop for each of its other marks: a change the record moved under, stale; a job two cases place, shared; a job moved because of the change, a knock-on; and a breach, a job still overlapping another on its press. The Plan's target reads the print works' jobs through their interval index (`source`), as the Plan's own slice names it, its kind reading one job by its key through the record's entries.",
-    keywords: ["DecisionQueue", "previews", "gallery", "crop", "map", "marks", "locked", "stale", "shared", "knockOn", "breach", "now", "DecisionQueue.change.roster", "DecisionQueue.change.plan", "DecisionQueue.change.calendar", "DecisionQueue.change.allocation", "DecisionQueue.change.sheet", "DecisionQueue.change.record", "source", "entries", "Data.bind", "Data.bindPaged", "Record.bind"],
+    description: "The previews gallery (§11): a case for each preview a builder draws, over the example app's records on the morning of Tuesday 20 October 2026 — the Roster's crop, three early shifts from one person to another with each one's hours before → after, its week's map, twenty of 69 people changing, and its map by what they cost, three shifts moved to people with spare hours, each pay code's cost before → after, read through the warehouse's own pay; the Plan's crop, a job off a press where it overlaps a confirmed one with the now line across it, the confirmed job locked — the target reading which jobs are confirmed (`locked`) — and its day's map, five jobs onto Thursday's presses with the day it changes as a strip; the Allocation's crop, a load off the Waiting row into a kiln; the Calendar's, a machine's maintenance off the day it overlaps a job; and the Sheet's, three due dates filled from history, one a guess. Then the previews of the records no builder draws: the price list's changed fields, a region's list price and demand before → after, in its form's own labels; the stock orders' projection, each option's forecast against the minimum; the service rounds' zones, six areas moving from one round to the other; the stores' stock as a mix, 12,000 units rebalanced across five stores; and the catalogue's minimums as groups, 1,240 items across five ranges, each range's items counted through the catalogue's index on it (`source`). Then a Plan crop for each of its other marks: a change the record moved under, stale; a job two cases place, shared; a job moved because of the change, a knock-on; and a breach, a job still overlapping another on its press. The Plan's target reads the print works' jobs through their interval index (`source`), as the Plan's own slice names it, its kind reading one job by its key through the record's entries.",
+    keywords: ["DecisionQueue", "previews", "gallery", "crop", "map", "marks", "locked", "stale", "shared", "knockOn", "breach", "now", "cost", "pay", "fields", "projection", "zones", "mix", "groups", "measure", "group", "DecisionQueue.change.roster", "DecisionQueue.change.plan", "DecisionQueue.change.calendar", "DecisionQueue.change.allocation", "DecisionQueue.change.sheet", "DecisionQueue.change.record", "DecisionQueue.change.projection", "DecisionQueue.change.zones", "Fields.number", "Style.ColorToken", "Format.Percent", "source", "entries", "Data.bind", "Data.bindPaged", "Record.bind"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // The gallery's cases, read whole, and the verdicts the queue writes.
         const cases = $.let(Data.bind(previewCases));
@@ -387,6 +417,16 @@ export const decisionQueuePreviews = example({
         const workOrders = $.let(Record.bind(optimiseWorkOrders));
         const priceList = $.let(Record.bind(listPrices));
 
+        // The supply side's records, which no builder draws: the stock orders, which a projection reads by each option's
+        // own forecast; the stores' stock, read as a mix; the catalogue, its minimums a rule whose ranges are counted
+        // through its index on them, its rows read by key through its entries; and the service rounds' areas.
+        const restocks = $.let(Record.bind(stockOrders));
+        const storeUnits = $.let(Record.bind(storeStock));
+        const items = $.let(Record.bind(catalogue));
+        const itemEntries = $.let(Data.bindPaged(catalogue));
+        const itemRanges = $.let(Data.bindPaged(catalogue, { indexes: ["catalogue_by_range"] }));
+        const areas = $.let(Record.bind(serviceAreas));
+
         // Where each kind of decision draws: a target for each tag of the options' change. The Plan's reads the jobs
         // through their source and holds a confirmed job locked: the Locked mark.
         const rotaChange = DecisionQueue.change.roster({ name: "Roster", icon: "users",
@@ -405,7 +445,23 @@ export const decisionQueuePreviews = example({
             due: Sheet.column.date(OptimiseWorkOrder, { header: "Due", width: "96px" }),
         } });
         const pricingChange = DecisionQueue.change.record(priceList, { name: "Pricing", icon: "tag", label: r => r.region,
-            fields: { price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05, help: "In 5¢ steps" }) } });
+            fields: {
+                price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05, help: "In 5¢ steps" }),
+                demand: Fields.number({ label: "Demand / wk", unit: "units" }),
+            } });
+        // The supply side's: a projection of each option's forecast against the minimum, the stores' stock as a mix, the
+        // catalogue's minimums by range, and the rounds' areas in their zones.
+        const restockChange = DecisionQueue.change.projection(restocks, { name: "Stock", icon: "boxes-stacked", option: OpsOption,
+            points: o => o.forecast, x: p => p.week, y: p => p.units, limit: { y: 400.0, label: "min" } });
+        const splitChange = DecisionQueue.change.record(storeUnits, { name: "Stock", icon: "truck-ramp-box", label: s => s.store, measure: s => s.units });
+        const minimumsChange = DecisionQueue.change.record(items, { name: "Catalogue", icon: "layer-group", label: i => i.name, measure: i => i.min,
+            entries: itemEntries, group: "range", source: itemRanges });
+        const roundsChange = DecisionQueue.change.zones(areas, { name: "Rounds", icon: "map-location-dot",
+            zone: a => a.round, x: a => a.column, y: a => a.row, depot: a => a.depot,
+            zones: [
+                { key: "a", label: "Round A", color: Style.ColorToken("blue", "500") },
+                { key: "b", label: "Round B", color: Style.ColorToken("purple", "500") },
+            ] });
 
         return <Box height="760px">
             <DecisionQueue
@@ -414,8 +470,12 @@ export const decisionQueuePreviews = example({
                 decisions={DecisionQueue.decisions(cases, {
                     scope: c => c.scope, due: c => c.due, routine: c => c.routine, unit: c => c.unit, model: c => c.model,
                     why: c => c.why, ifWrong: c => c.ifWrong, recommended: c => c.recommended,
-                    // Money in dollars, a count as it is.
-                    format: c => c.money.ifElse(() => some(Format.Currency({ currency: "USD", compact: "short" })), () => none),
+                    // Money in dollars, a share as a percent, a count as it is.
+                    format: c => c.figure.match({
+                        money: () => some(Format.Currency({ currency: "USD", compact: "short" })),
+                        count: () => none,
+                        percent: () => some(Format.Percent({ maximumFractionDigits: 0n })),
+                    }),
                     options: { from: c => c.options, label: o => o.label, title: o => o.title, summary: o => o.summary,
                         detail: o => o.detail, note: o => o.note, value: o => o.value, confidence: o => o.confidence,
                         question: o => o.question, warn: o => o.warn, refused: o => o.refused, knockOn: o => o.knockOn,
@@ -423,6 +483,7 @@ export const decisionQueuePreviews = example({
                         change: { from: o => o.change, of: {
                             rota: rotaChange, rotaCost: rotaCostChange, print: printChange, workshop: workshopChange,
                             yard: yardChange, orders: orderChange, pricing: pricingChange,
+                            restock: restockChange, split: splitChange, minimums: minimumsChange, rounds: roundsChange,
                         } } },
                 })}
                 verdicts={DecisionQueue.verdicts(verdicts, {

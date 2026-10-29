@@ -326,6 +326,48 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     previewCell: (p: { column: string; was: string; is: string; op: "add" | "chg" | "del" | undefined; knock: boolean }) => string;
     /** A Sheet preview's row's title (P25): its name, how the change marks it, its lock, and the other cases changing it — `WO-1005 · changed`. */
     previewRow: (p: { name: string; op: "add" | "chg" | "del" | undefined; knock: boolean; locked: boolean; shared: PreviewSharedWords | undefined }) => string;
+    /** A head's caption over a preview's chart (P7, P10, P11) — `Pay code`, `Change`, `Changed`, `Rows`, `Net`. */
+    previewCaption: (p: { caption: "payCode" | "change" | "changed" | "rows" | "net" }) => string;
+    /** A record preview's field's caption (P6): its row's name and its own — `coast · List price`. */
+    previewFieldName: (p: { row: string; field: string }) => string;
+    /**
+     * A record preview's field's title (P6, P25): its row's name and its own, as it stands and as the change leaves it,
+     * or as it stands where the change leaves it so — `coast · List price · 10.5 → 11`, `coast · Demand / wk · 14,200 · no change`.
+     */
+    previewField: (p: { row: string; field: string; was: string; is: string; changed: boolean }) => string;
+    /** A record preview's sentence (P6, P25): its fields' titles, and the rows the model guessed. */
+    previewFields: (p: { fields: readonly string[]; guessed: { keys: string; n: number } | undefined }) => string;
+    /** A map by cost's pay code's title (P7, P25): the week's cost in it, before → after — `OT1 · $1.2K → $0.8K a week`. */
+    previewCost: (p: { code: string; was: string; now: string }) => string;
+    /**
+     * A map by cost's sentence (P7, P25): the week's change by pay code, the codes it moves — `Week 10 pay by code: AGENCY
+     * −$816, ORD +$924 and OT1 −$378` — or none — `Week 10 pay doesn't change` — and a pay that could not be worked out.
+     */
+    previewCosts: (p: { week: string; codes: readonly { code: string; change: string }[]; failed: boolean }) => string;
+    /** A mix's row's title (P10, P25) — `Harbour · 3,800 → 3,200`, `Station Rd · 1,200 · no change`. */
+    previewMeasure: (p: { name: string; was: string; now: string; same: boolean }) => string;
+    /** A mix's sentence (P10, P25): the rows it moves — `Harbour goes from 3,800 to 3,200 and Riverside from 1,600 to 1,300`. */
+    previewMix: (p: { rows: readonly { name: string; was: string; now: string }[]; guessed: { keys: string; n: number } | undefined }) => string;
+    /** A group's title (P11, P25): how many of its rows change, and their net change — `Envelopes · 412 of 980 change · net +8%`. */
+    previewGroup: (p: { name: string; n: string; of: string; net: string | undefined }) => string;
+    /** Groups' sentence (P11, P25) — `412 in Envelopes (+8%), 298 in Labels (+12%) and 136 in Cards (+6%) change`. */
+    previewGroups: (p: { groups: readonly { name: string; n: string; net: string | undefined }[] }) => string;
+    /** A zone's count in a zones preview's key (P9) — `25 → 19`, `15`. */
+    previewZoneCount: (p: { before: string; after: string; same: boolean }) => string;
+    /** A zones preview's tile's title (P9, P25) — `G2 · Round A → Round B`, `Round A depot · B3`, `C1 · Round A · no change`. */
+    previewZoneTile: (p: { name: string; zone: string; from: string | undefined; depot: boolean }) => string;
+    /**
+     * A zones preview's sentence (P9, P25): what moves from which zone to which, of how many, and how each zone's count
+     * moves — `6 of 40 move from Round A to Round B: Round A goes from 25 to 19 and Round B from 15 to 21`.
+     */
+    previewZones: (p: {
+        moves: readonly { n: string; one: boolean; from: string; to: string }[]; of: string; counts: readonly { zone: string; before: string; after: string }[];
+    }) => string;
+    /**
+     * A projection's sentence (P8, P25): each option's lowest point, and whether it falls under the limit — `2,000
+     * (chosen) stays at 1,840 or above; No order falls to 0, under min`.
+     */
+    previewProjection: (p: { lines: readonly { label: string; chosen: boolean; low: string; under: boolean }[]; limit: string | undefined }) => string;
     /** A batch step's label in the history — `Apply 3 routine cases`. */
     batchStep: (p: { n: string }) => string;
     /** A verdict step's label in the history — `Apply: Move 3 night shifts`. */
@@ -356,6 +398,7 @@ const APPLY_OFF = {
 const REASONS = { context: "Missing context", data: "Data is wrong", priorities: "Priorities changed", other: "Other" } as const;
 const VERDICTS = { applied: "Applied", overridden: "Overridden", deferred: "Deferred", handedOff: "Handed off" } as const;
 const MARKS = { add: "added", chg: "changed", del: "removed" } as const;
+const CAPTIONS = { payCode: "Pay code", change: "Change", changed: "Changed", rows: "Rows", net: "Net" } as const;
 
 /** Items in running text — `Mon, Wed and Thu`. */
 const listOf = (items: readonly string[]): string => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]!}`);
@@ -534,6 +577,27 @@ export const decisionQueueMessages: DecisionQueueMessages = {
         locked ? "locked" : undefined,
         sharedText(shared),
     ),
+    previewCaption: ({ caption }) => CAPTIONS[caption],
+    previewFieldName: ({ row, field }) => `${row} · ${field}`,
+    previewField: ({ row, field, was, is, changed }) => (changed ? `${row} · ${field} · ${was} → ${is}` : `${row} · ${field} · ${was} · no change`),
+    previewFields: ({ fields, guessed }) => guessedText(fields.join("; "), guessed),
+    previewCost: ({ code, was, now }) => `${code} · ${was} → ${now} a week`,
+    previewCosts: ({ week, codes, failed }) => `${codes.length === 0 ? `Week ${week} pay doesn't change`
+        : `Week ${week} pay by code: ${listOf(codes.map(c => `${c.code} ${c.change}`))}`}${failed ? "; some pay couldn't be worked out" : ""}`,
+    previewMeasure: ({ name, was, now, same }) => (same ? `${name} · ${now} · no change` : `${name} · ${was} → ${now}`),
+    previewMix: ({ rows, guessed }) => guessedText(rows.length === 0 ? "Nothing changes"
+        : listOf(rows.map((row, i) => `${row.name} ${i === 0 ? "goes " : ""}from ${row.was} to ${row.now}`)), guessed),
+    previewGroup: ({ name, n, of, net }) => parts(`${name} · ${n} of ${of} change`, net === undefined ? undefined : `net ${net}`),
+    previewGroups: ({ groups }) => `${listOf(groups.map(g => `${g.n} in ${g.name}${g.net === undefined ? "" : ` (${g.net})`}`))} change`,
+    previewZoneCount: ({ before, after, same }) => (same ? after : `${before} → ${after}`),
+    previewZoneTile: ({ name, zone, from, depot }) => (depot ? `${zone} depot · ${name}` : from !== undefined ? `${name} · ${from} → ${zone}` : `${name} · ${zone} · no change`),
+    previewZones: ({ moves, of, counts }) => {
+        if (moves.length === 0) return "Nothing moves";
+        const moved = moves.map((move, i) => `${move.n}${i === 0 ? ` of ${of}` : ""} ${move.one ? "moves" : "move"} from ${move.from} to ${move.to}`).join("; ");
+        return counts.length === 0 ? moved : `${moved}: ${listOf(counts.map((count, i) => `${count.zone} ${i === 0 ? "goes " : ""}from ${count.before} to ${count.after}`))}`;
+    },
+    previewProjection: ({ lines, limit }) => lines.map(line => `${line.label}${line.chosen ? " (chosen)" : ""} ${line.under
+        ? `falls to ${line.low}, under ${limit ?? "the limit"}` : `stays at ${line.low} or above`}`).join("; "),
     batchStep: ({ n }) => `Apply ${n} routine cases`,
     verdictStep: ({ verdict, title }) => `${VERDICTS[verdict]}: ${title}`,
 };

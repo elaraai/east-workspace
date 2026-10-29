@@ -17,13 +17,31 @@
  */
 
 import { none, some, variant } from "@elaraai/east";
-import type { TickFormatOpt } from "@elaraai/east-ui-components";
+import { tickFormatOf, type TickFormatOpt } from "@elaraai/east-ui-components";
 
 /** A confidence, at two places — `0.82`: a guessed cell's title (P26). */
 export const CONFIDENCE: TickFormatOpt = variant("number", { minimumFractionDigits: some(2n), maximumFractionDigits: some(2n), signDisplay: none });
 
-/** A figure: an optional sign and currency symbol, digits running on through separators, and an optional suffix. */
-const FIGURE = /([+\-−]?\p{Sc}?\d(?:[\d.,:\-–]*\d)?[kKMh%]?)/u;
+/** A net change, in whole percents — `+8%`: a group's, in a record's preview (P11). */
+export const NET: TickFormatOpt = variant("percent", { minimumFractionDigits: none, maximumFractionDigits: some(0n), signDisplay: none });
+
+/**
+ * An amount of pay in the Roster's currency, as the map by cost prints it (P7) — `$816`, `+$1.6K`: compact, whole under
+ * a thousand and one fraction digit past it.
+ *
+ * @param code - The Roster's currency
+ * @returns The format
+ */
+export function payFormat(code: string): TickFormatOpt {
+    const format = tickFormatOf(variant("currency", { code, compact: true }));
+    return format.type === "currency" ? variant("currency", { ...format.value, minimumFractionDigits: some(0n) }) : format;
+}
+
+/**
+ * A figure: an optional sign and currency symbol, digits running on through separators, and an optional suffix. A
+ * hyphen after a letter or a digit is a code's — `J-1019` is `J-` and its figure, as the mock marks it — never a sign.
+ */
+const FIGURE = /((?:(?<![\p{L}\p{N}])[+\-−])?\p{Sc}?\d(?:[\d.,:\-–]*\d)?[kKMh%]?)/u;
 
 /** A run of running text: a figure, or the words between. */
 export interface FigureRun {

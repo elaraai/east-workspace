@@ -4,34 +4,44 @@
  *
  * @vitest-environment jsdom
  *
- * The DecisionQueue's previews gallery on e3 itself (#1453, `Decision Queue
- * Spec.md` §9.5, §11), over its example: a case for each preview a builder
- * draws, on the morning of Tuesday 20 October 2026 — the Roster's crop and
- * its week's map by people (P4, P5), the Plan's crop with its lock and now
- * line (P17, P20) and its day's map with the when strip (P5, P12), the
- * Allocation's crop, the Calendar's and the Sheet's with its guess (P26) — and
- * a Plan crop for each other mark: stale, shared, a knock-on and a breach
- * (P15, P16, P18, P21). Each preview is one image whose sentence says what
- * moves where and names its marks (P25); a preview whose rows are still read
- * draws its placeholders, Apply off meanwhile (P23); and Apply on the Plan's
- * crop writes the job through the target that reads it by its source.
+ * The DecisionQueue's previews gallery on e3 itself (#1453, #1454, `Decision
+ * Queue Spec.md` §9.5, §11), over its example: a case for each preview a
+ * target draws, on the morning of Tuesday 20 October 2026 — the Roster's crop
+ * and its week's maps by people and by cost (P4, P5, P7), the Plan's crop
+ * with its lock and now line (P17, P20) and its day's map with the when strip
+ * (P5, P12), the Allocation's crop, the Calendar's and the Sheet's with its
+ * guess (P26), a record's changed fields, its mix and its groups (P6, P10,
+ * P11), the zones (P9) and the projection (P8) — and a Plan crop for each
+ * other mark: stale, shared, a knock-on and a breach (P15, P16, P18, P21).
+ * Each preview is one image whose sentence says what moves where and names
+ * its marks (P25); a preview whose rows are still read draws its
+ * placeholders, Apply off meanwhile (P23); the verdicts, and the rows a
+ * record's target touches, are read by key, a request each (R1); and Apply on
+ * the Plan's crop writes the job through the target that reads it by its
+ * source.
  */
 
-import { expect, test } from "vitest";
+import { afterEach, beforeEach, expect, test } from "vitest";
 import { act, waitFor, within } from "@testing-library/react";
 import { DateTimeType, SortedMap, StringType, compareFor, equalFor, none, some, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/decision/decision";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { e3Harness, settle } from "../e3-web-mount.test-utils.js";
+import { layOutList } from "./list.test-utils.js";
 import { decisionQueueMessages as m } from "./messages.js";
 import {
-    action, entries, head, heads, history, marked, measure, openCard, press, preview, previewRow, previewRows, ruler, sections, sheetCells, sheetHead,
-    tile, tiles,
+    action, axis, chartRow, entries, fields, head, heads, history, marked, measure, openCard, press, preview, previewRow, previewRows, ruler, sections,
+    sheetCells, sheetHead, tile, tiles,
 } from "./preview.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "decision/decision": ex }, { main: "data-decision-main" });
+
+// The list laid out, its frame tall enough that every card mounts.
+let restoreFrame: () => void = () => {};
+beforeEach(() => { restoreFrame = layOutList(12_000); });
+afterEach(() => restoreFrame());
 
 const verdictEqual = equalFor(ex.OpsVerdict);
 const jobsEqual = equalFor(ex.planPrintJobs.type);
@@ -40,8 +50,8 @@ const byString = compareFor(StringType);
 
 /** The gallery's cases, in the order the list draws them: by when each is due. */
 const CASES = [
-    "rota-garnet", "print-j1019", "print-thursday", "yard-ld2235", "print-stale", "print-shared", "workshop-press1", "orders-ready", "print-knock",
-    "rota-week10", "print-breach",
+    "rota-garnet", "print-j1019", "print-thursday", "yard-ld2235", "print-stale", "print-shared", "workshop-press1", "orders-ready", "stock-c5",
+    "print-knock", "rota-week10", "stock-minimums", "price-coast", "stock-split", "rounds-boundary", "rota-cost", "print-breach",
 ];
 
 /** The print works' jobs' reads, by key and through their interval index: what each print case's preview waits on. */
@@ -55,6 +65,8 @@ const icons = (el: Element) => [...el.querySelectorAll("svg[data-icon]")].map(ic
 /** Whether a case's preview has drawn what it reads: its rows, or a map's groups. */
 const drawn = (container: HTMLElement, key: string) =>
     head(container, key).querySelector("[data-decision-preview] [data-preview-row], [data-decision-preview] [data-preview-group]") !== null;
+/** Where a mark stands on its plot: its place's variable, in percent, to a hundredth. */
+const place = (el: Element, name: string) => Math.round(Number.parseFloat((el as HTMLElement).style.getPropertyValue(name)) * 100) / 100;
 
 /** Mounts the gallery, and waits until its cards show and every preview has drawn. */
 async function open() {
@@ -66,9 +78,9 @@ async function open() {
 
 // ── Laying out, and each preview's sentence (R1–R3, P3, P25) ────────────────
 
-test("the gallery's cases by when each is due, each a preview of the kind its target draws, its sentence saying what moves where and naming its marks (R1–R3, P3, P5, P15–P18, P21, P25, P26)", async () => {
+test("the gallery's cases by when each is due, each a preview of the kind its target draws, its sentence saying what moves where and naming its marks (R1–R3, P3, P5–P11, P15–P18, P21, P25, P26)", async () => {
     const { container } = await open();
-    expect(sections(container)).toEqual([["overdue", "Overdue | 2 | +$86K"], ["today", "Due today | 5 | +$21K"], ["week", "This week | 4"]]);
+    expect(sections(container)).toEqual([["overdue", "Overdue | 2 | +$86K"], ["today", "Due today | 5 | +$21K"], ["week", "This week | 10"]]);
     expect(openCard(container)).toBe("rota-garnet");
     const drawn = CASES.map(key => {
         const frame = preview(container, key);
@@ -83,8 +95,14 @@ test("the gallery's cases by when each is due, each a preview of the kind its ta
         ["print-shared", "plan", "lanes", "Winter brochure runs on Press B3 from 06:00 to 17:00; 1 other case changes Winter brochure too"],
         ["workshop-press1", "calendar", "lanes", "Preventive maintenance leaves Thu 1, where it overlapped Mounting brackets · batch 42, and runs on Sat 3 from 06:00 to 08:00"],
         ["orders-ready", "sheet", "sheet", "Status and Due change on WO-1005, WO-1007 and WO-1008. WO-1007 is a low-confidence guess"],
+        ["stock-c5", "projection", "projection", "2,000 (chosen) stays at 440 or above; 1,500 falls to 40, under min; No order falls to 0, under min"],
         ["print-knock", "plan", "lanes", "Order forms runs on Press B1 from 06:00 to 09:00 and pushes Exhibition book from 06:00 to 09:00"],
         ["rota-week10", "roster", "people", "20 of 69 people change: 18 gain or change shifts, R. Wold and G. Ember lose shifts"],
+        ["stock-minimums", "record", "groups", "412 in Envelopes (+8%), 298 in Labels (+12%), 214 in Folders (+5%), 180 in Notebooks (-4%) and 136 in Cards (+6%) change"],
+        ["price-coast", "record", "fields", "Coast · List price · 10.5 → 11; Coast · Demand / wk · 14,200 → 13,916"],
+        ["stock-split", "record", "mix", "Harbour goes from 3,800 to 3,200, Hillside from 3,000 to 3,400, Market St from 2,400 to 2,900 and Riverside from 1,600 to 1,300"],
+        ["rounds-boundary", "zones", "zones", "6 of 40 move from Round A to Round B: Round A goes from 25 to 19 and Round B from 15 to 21"],
+        ["rota-cost", "roster", "cost", "Week 10 pay by code: AGENCY -$816, ORD +$756 and OT1 -$126"],
         ["print-breach", "plan", "lanes", "Guide reprint runs on Press A1 from 07:00 to 09:00, where it overlaps Menu cards"],
     ]);
     // Every preview is one image, between its card's title and its chip line.
@@ -126,6 +144,30 @@ test("the Roster's week map by people: four of the twenty who change, compact �
     expect(tile(previewRow(frame, "J. Quartz"), "s281")).toEqual({ op: "add", fill: "own", title: "Early · Mon 6 · proposed" });
     expect(within(frame).getByText(m.previewMorePeople({ n: "16" }))).toBeDefined();
     expect(within(frame).getByText(m.previewCount({ n: "20", of: "69" }))).toBeDefined();
+});
+
+// ── The Roster's map by cost (P7, P13, P14, P24) ────────────────────────────
+
+test("the Roster's map by cost: week 10's pay by the warehouse's codes, before and after, as its pay answers — the agency's shifts and the overtime saved, ghosts left of zero, the ordinary hours they move to glowing right of it — on an axis a thousand dollars either side (P7, P13, P14, P24, P25)", async () => {
+    const { container } = await open();
+    const frame = preview(container, "rota-cost");
+    expect(within(frame).getByText(m.previewCaption({ caption: "payCode" }))).toBeDefined();
+    expect(axis(frame)).toEqual(["-$1K", "0", "+$1K"]);
+    expect(previewRows(frame)).toEqual(["AGENCY", "ORD", "OT1"]);
+    expect(chartRow(previewRow(frame, "AGENCY"))).toEqual({
+        title: "AGENCY · $816 → $0 a week", marks: [{ at: undefined, op: "from", fill: undefined }], figures: [{ text: "-$816", tone: "better" }],
+    });
+    expect(chartRow(previewRow(frame, "ORD"))).toEqual({
+        title: "ORD · $103.3K → $104.1K a week", marks: [{ at: undefined, op: "add", fill: "own" }], figures: [{ text: "+$756", tone: "worse" }],
+    });
+    expect(chartRow(previewRow(frame, "OT1"))).toEqual({
+        title: "OT1 · $3.8K → $3.7K a week", marks: [{ at: undefined, op: "from", fill: undefined }], figures: [{ text: "-$126", tone: "better" }],
+    });
+    // Each change a bar from zero, the middle: a saving to its left, an added cost to its right.
+    expect(["AGENCY", "ORD", "OT1"].map(code => {
+        const bar = previewRow(frame, code).querySelector("[data-op]")!;
+        return [place(bar, "--pv-left"), place(bar, "--pv-width")];
+    })).toEqual([[9.2, 40.8], [50, 37.8], [43.7, 6.3]]);
 });
 
 // ── The Plan's crop and its day map (P5, P12–P14, P17, P20) ─────────────────
@@ -204,6 +246,99 @@ test("the Allocation's crop over the kiln yard's May days, no now line; the Cale
     expect(sheetCells(previewRow(orders, "WO-1005")).map(cell => cell.guess)).toEqual([undefined, undefined]);
 });
 
+// ── A record's changed fields, its mix and its groups (P6, P10, P11) ────────
+
+test("a record's changed fields: the Coast price list's list price and its demand, each as it stands struck and as the change leaves it, printed as the row's own form prints them (P6, P24, P25)", async () => {
+    const { container } = await open();
+    const frame = preview(container, "price-coast");
+    expect(previewRows(frame)).toEqual(["Coast", "Coast"]);
+    expect(fields(frame)).toEqual([
+        { caption: "Coast · List price", was: "10.5", now: "11", op: "chg", title: "Coast · List price · 10.5 → 11" },
+        { caption: "Coast · Demand / wk", was: "14,200", now: "13,916", op: "chg", title: "Coast · Demand / wk · 14,200 → 13,916" },
+    ]);
+    // No guess: the option names none.
+    expect(frame.querySelector("[data-preview-guess]")).toBeNull();
+});
+
+test("a record's mix: the five stores' stock on one axis from zero, each as it stands a hollow dot and proposed a glowing one, its change signed; Station Rd, which keeps its stock, a dot alone (P10, P24, P25)", async () => {
+    const { container } = await open();
+    const frame = preview(container, "stock-split");
+    expect(within(frame).getByText("Stock")).toBeDefined();
+    expect(axis(frame)).toEqual(["0", "2K", "4K"]);
+    const stores = [...frame.querySelectorAll<HTMLElement>("[data-preview-row]")].map(row => {
+        const { title, marks, figures } = chartRow(row);
+        return [title, marks.map(mark => [mark.at, mark.op]), figures.map(figure => figure.text)];
+    });
+    expect(stores).toEqual([
+        ["Harbour · 3,800 → 3,200", [["was", undefined], ["now", "chg"]], ["-600"]],
+        ["Hillside · 3,000 → 3,400", [["was", undefined], ["now", "chg"]], ["+400"]],
+        ["Market St · 2,400 → 2,900", [["was", undefined], ["now", "chg"]], ["+500"]],
+        ["Riverside · 1,600 → 1,300", [["was", undefined], ["now", "chg"]], ["-300"]],
+        ["Station Rd · 1,200 · no change", [["now", undefined]], ["0"]],
+    ]);
+    expect(previewRow(frame, "Station Rd").querySelector("[data-same]")?.textContent).toBe("0");
+    // On the axis to 4,000: Harbour from 3,800 to 3,200.
+    expect([...previewRow(frame, "Harbour").querySelectorAll("[data-at]")].map(dot => place(dot, "--pv-at"))).toEqual([95, 80]);
+});
+
+test("a record's groups: the five ranges the minimums change, the most rows first, each counted through the catalogue's index on its range — its track its size, the glowing part the rows that change — then the count and the net change, Notebooks' down (P11, P24, P25)", async () => {
+    const { container } = await open();
+    const frame = preview(container, "stock-minimums");
+    // Its head: the field it groups by, as the row's form names it, then what each figure says.
+    expect([...previewRow(frame, "Envelopes").parentElement!.firstElementChild!.children].map(el => el.textContent)).toEqual([
+        "Range", ...(["changed", "rows", "net"] as const).map(caption => m.previewCaption({ caption })),
+    ]);
+    const ranges = [...frame.querySelectorAll<HTMLElement>("[data-preview-row]")].map(row => {
+        const { title, marks, figures } = chartRow(row);
+        return [title, marks.map(mark => [mark.op, mark.fill]), figures.map(figure => [figure.text, figure.tone]), icons(row)];
+    });
+    expect(ranges).toEqual([
+        ["Envelopes · 412 of 980 change · net +8%", [["chg", "own"]], [["412", undefined], ["+8%", "neither"]], ["caret-up"]],
+        ["Labels · 298 of 410 change · net +12%", [["chg", "own"]], [["298", undefined], ["+12%", "neither"]], ["caret-up"]],
+        ["Folders · 214 of 520 change · net +5%", [["chg", "own"]], [["214", undefined], ["+5%", "neither"]], ["caret-up"]],
+        ["Notebooks · 180 of 300 change · net -4%", [["chg", "own"]], [["180", undefined], ["-4%", "neither"]], ["caret-down"]],
+        ["Cards · 136 of 260 change · net +6%", [["chg", "own"]], [["136", undefined], ["+6%", "neither"]], ["caret-up"]],
+    ]);
+    // Envelopes, the largest range, its whole track; the part that changes 412 of its 980.
+    const part = previewRow(frame, "Envelopes").querySelector("[data-op]")!;
+    expect([place(part.previousElementSibling!, "--pv-width"), place(part, "--pv-width")]).toEqual([100, 42.04]);
+});
+
+// ── The zones and the projection (P8, P9) ───────────────────────────────────
+
+test("the zones: the forty areas a tile each at their place, twelve a row, filled by their round; the six the change moves from Round A in Round B's fill, glowing; each depot its dot; the key each round's count before → after (P9, P24, P25)", async () => {
+    const { container } = await open();
+    const frame = preview(container, "rounds-boundary");
+    expect([...frame.querySelectorAll("[data-preview-row]")].map(item => [item.getAttribute("data-preview-row"), item.lastElementChild!.textContent]))
+        .toEqual([["Round A", "25 → 19"], ["Round B", "15 → 21"]]);
+    const area = (key: string) => frame.querySelector<HTMLElement>(`[data-preview-tile="${key}"]`)!;
+    expect(area("C1").parentElement!.style.getPropertyValue("--pv-columns")).toBe("12");
+    expect(frame.querySelectorAll("[data-preview-tile], [data-empty]")).toHaveLength(48);
+    expect(frame.querySelectorAll("[data-preview-tile]")).toHaveLength(40);
+    expect([...frame.querySelectorAll("[data-preview-tile][data-op]")].map(el => [el.getAttribute("data-preview-tile"), el.getAttribute("data-op"), el.getAttribute("data-fill"), el.getAttribute("title")])).toEqual(
+        ["G1", "F2", "G2", "F3", "G3", "G4"].map(key => [key, "chg", "own", `${key} · Round A → Round B`]),
+    );
+    expect(tile(frame, "C1")).toEqual({ op: undefined, fill: undefined, title: "C1 · Round A · no change" });
+    // A moved area takes its new round's fill.
+    const fill = (key: string) => area(key).style.getPropertyValue("--pv-zone");
+    expect(fill("G1")).toBe(fill("H1"));
+    expect(fill("G1")).not.toBe(fill("C1"));
+    expect([...frame.querySelectorAll("[data-preview-tile]")].filter(el => el.firstElementChild !== null).map(el => [el.getAttribute("data-preview-tile"), el.getAttribute("title")]))
+        .toEqual([["B2", "Round A depot · B2"], ["J3", "Round B depot · J3"]]);
+});
+
+test("the projection: a line per option over the order's weeks — 2,000, the chosen, glowing; No order, which changes nothing, a dashed ghost; 1,500 thin — the min a warn rule; each label at its line's first rise, No order's over its last run (P8, P24, P25)", async () => {
+    const { container } = await open();
+    const frame = preview(container, "stock-c5");
+    expect([...frame.querySelectorAll("polyline")].map(line => [line.getAttribute("data-option"), line.getAttribute("data-line") ?? undefined, line.closest("[data-glow]") !== null]))
+        .toEqual([["1,500", undefined, false], ["No order", "asis", false], ["2,000", "chosen", true]]);
+    expect(axis(frame, "y")).toEqual(["2K", "min"]);
+    expect(within(frame).getByText("min").getAttribute("data-tone")).toBe("warn");
+    expect(axis(frame)).toEqual(["9", "11", "13", "16"]);
+    expect([...frame.querySelectorAll<HTMLElement>("[data-preview-row]")].map(label => [label.textContent, label.getAttribute("data-place") ?? undefined, label.hasAttribute("data-chosen")]))
+        .toEqual([["1,500", undefined, false], ["No order", "run", false], ["2,000", undefined, true]]);
+});
+
 // ── The marks (P15, P16, P18, P21) ──────────────────────────────────────────
 
 test("stale: the frame dashed, J-1008 as the works now has it, the case's status Stale and its Apply off, saying why (P21, R23)", async () => {
@@ -244,7 +379,7 @@ test("shared, a knock-on and a breach: J-1025, which the day map places too, tak
     expect([flagged("data-preview-shared"), flagged("data-knock"), flagged("data-breach")]).toEqual([["print-shared"], ["print-knock"], ["print-breach"]]);
 });
 
-// ── Loading (P23) ───────────────────────────────────────────────────────────
+// ── Loading (P23), and reading by key (R1) ──────────────────────────────────
 
 test("a preview whose rows are still read draws its placeholders in its final layout, busy, named as reading, its Apply off saying so; the read landing draws the change (P23)", async () => {
     const held = h.e3.hold(jobsRead);
@@ -273,6 +408,14 @@ test("a preview whose rows are still read draws its placeholders in its final la
     await waitFor(() => expect(previewRows(frame())).toEqual(["Press B2", "Press B3"]));
     expect(frame().getAttribute("aria-busy")).toBeNull();
     await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
+});
+
+test("the verdicts of every case read are read by key, all in one request, and the catalogue's rows the minimums change in one more: neither record is read whole (R1, §5.3)", async () => {
+    await open();
+    for (const record of [ex.previewVerdicts.name, ex.catalogue.name]) {
+        expect(h.requests("rows", `records.${record}`)).toHaveLength(1);
+        expect(h.requests("read", `records.${record}`)).toEqual([]);
+    }
 });
 
 // ── Apply (R16, R29) ────────────────────────────────────────────────────────

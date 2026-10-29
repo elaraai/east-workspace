@@ -3,26 +3,29 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /**
- * The decision queue's previews gallery (#1453, `Decision Queue Spec.md` §11):
- * a case for each preview a builder draws, as the spec's gallery shows them —
- * the Roster's crop and its week's map, the Plan's crop and its day's map, the
- * Allocation's crop, the Calendar's and the Sheet's — and a Plan crop for each
- * of its other marks: a breach, a knock-on, a row two cases share and a
- * change the record has moved under; its lock is on the Plan's crop, the
- * confirmed job the moved one overlapped. The cases are the example app's
- * (`ops.ts`), their changes patches of the records it holds beside them
- * (`changes.ts`) — the warehouse rota's duties, the print works' jobs, the
- * workshop's maintenance, the kiln yard's bins and the shop's work orders —
- * on Tuesday 20 October 2026 at 09:14, the example's `now`; the rota's week
- * and the kiln yard's days are their records' own. Every name and figure is
- * generated.
+ * The decision queue's previews gallery (#1453, #1454, `Decision Queue
+ * Spec.md` §11): a case for each preview the spec's gallery shows — the
+ * Roster's crop, its week's map and its cost, the Plan's crop and its day's
+ * map, the Allocation's crop, the Calendar's and the Sheet's, a record's
+ * changed fields, its mix and its groups, the zones and the projection — and a
+ * Plan crop for each of its other marks: a breach, a knock-on, a row two cases
+ * share and a change the record has moved under; its lock is on the Plan's
+ * crop, the confirmed job the moved one overlapped. The cases are the example
+ * app's (`ops.ts`), their changes patches of the records it holds beside them
+ * (`changes.ts`, `supply.ts`) — the warehouse rota's duties, the print works'
+ * jobs, the workshop's maintenance, the kiln yard's bins, the shop's work
+ * orders, the price list, the stock orders, the stores' stock, the
+ * catalogue's minimums and the service rounds' areas — on Tuesday 20 October
+ * 2026 at 09:14, the example's `now`; the rota's week and the kiln yard's days
+ * are their records' own. Every name and figure is generated.
  */
 import { DictType, SortedMap, SortedSet, StringType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { calendarServices } from "../calendar/calendar.examples.js";
 import { planPrintJobs } from "../plan/plan-events.examples.js";
 import { binPatch, byString, dutiesTo, jobsPatch, ld2235Bin, option, ordersPatch, servicesPatch } from "./changes.js";
-import { OpsCase, OpsVerdict } from "./ops.js";
+import { OpsCase, OpsVerdict, pricesPatch } from "./ops.js";
+import { boundaryAreas, c5NoOrder, c5Order1500, c5Order2000, minimumsPatch, roundsPatch, stockOrderPatch, stockSplitPatch } from "./supply.js";
 
 /** The print works' jobs, as the works' record holds them. */
 const printJobs = planPrintJobs.default!;
@@ -40,14 +43,16 @@ const pressOneService = calendarServices.default!.get("service1")!;
 const tue11 = new Date("2027-05-11T14:15:00Z");
 
 /**
- * The gallery's cases, each one option the card opens on: the Roster's crop, two hours late; the Plan's crop, 35
- * minutes late; the Plan's day map, the Allocation's crop and the Calendar's, due today; the Sheet's crop and the
- * Roster's week map, due this week; and the Plan's other marks, a case each.
+ * The gallery's cases, each one option the card opens on but the projection's, whose lines are its options: the
+ * Roster's crop, two hours late; the Plan's crop, 35 minutes late; the Plan's day map, the Allocation's crop and the
+ * Calendar's, due today; the Sheet's crop, the Roster's week map and its cost, and the targets no builder draws — a
+ * record's changed fields, its mix and its groups, the zones and the projection — due this week; and the Plan's other
+ * marks, a case each.
  */
 export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new SortedMap<string, ValueTypeOf<typeof OpsCase>>([
     // The Roster's crop: three of one person's early shifts to another, which the card asks about.
     ["rota-garnet", {
-        area: "rota", scope: "Dispatch · W10", due: some(new Date("2026-10-20T07:14:00Z")), routine: false, unit: "uplift", money: true,
+        area: "rota", scope: "Dispatch · W10", due: some(new Date("2026-10-20T07:14:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "staffing-v3.2.1 · run #43",
         why: "P. Garnet is booked on a training course on Monday, Tuesday and Thursday. J. Quartz labels and handles returns, and has those days free.",
         ifWrong: some(-9_000), recommended: "1-quartz",
@@ -60,7 +65,7 @@ export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = n
     }],
     // The Plan's crop: a job off the press it overlaps a confirmed job on, the now line across it.
     ["print-j1019", {
-        area: "print", scope: "Print works · Hall B", due: some(new Date("2026-10-20T08:39:00Z")), routine: false, unit: "uplift", money: true,
+        area: "print", scope: "Print works · Hall B", due: some(new Date("2026-10-20T08:39:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "press-sched-v2 · run #119",
         why: "J-1018 runs on Press B2 until 12:00, so J-1019 overlaps it for two hours. Press B3 is free from 09:00 and carries the same board stock.",
         ifWrong: some(-1_800), recommended: "1-b3",
@@ -74,7 +79,7 @@ export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = n
     // The Plan's day map: five jobs onto Thursday's presses, four of them from the backlog.
     ["print-thursday", {
         area: "print", scope: "Print works · Thu 22", due: some(new Date("2026-10-20T12:00:00Z")), routine: false, unit: "uplift · 5 jobs move",
-        money: true, model: "press-sched-v2 · run #120",
+        figure: variant("money", null), model: "press-sched-v2 · run #120",
         why: "Four jobs wait in the backlog, due this week and next. Press B2 prints J-1012's 48,000 sheets in four hours, against six on Press A3.",
         ifWrong: some(-4_000), recommended: "1-all",
         options: new SortedMap([
@@ -92,7 +97,7 @@ export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = n
     }],
     // The Allocation's crop: a load off the Waiting row into a kiln, which the card asks about.
     ["yard-ld2235", {
-        area: "yard", scope: "Kiln yard", due: some(new Date("2026-10-20T14:00:00Z")), routine: false, unit: "uplift", money: true,
+        area: "yard", scope: "Kiln yard", due: some(new Date("2026-10-20T14:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "yard-fit · run #78",
         why: "K-305 is free on Tue 11 and takes 4–10 m³: LD-2235's 8 m³ dries its 9 days there before the kiln's next planned charge on Thu 20. The bulk kilns take no load under 40 m³.",
         ifWrong: some(-600), recommended: "1-k305",
@@ -105,7 +110,7 @@ export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = n
     }],
     // The Calendar's crop: a machine's maintenance off the day it overlaps a job.
     ["workshop-press1", {
-        area: "workshop", scope: "Fabrication", due: some(new Date("2026-10-20T17:00:00Z")), routine: false, unit: "uplift", money: true,
+        area: "workshop", scope: "Fabrication", due: some(new Date("2026-10-20T17:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "fab-sched · run #13",
         why: "Press 1's preventive maintenance overlaps the mounting brackets on Thursday. Saturday morning is free on Press 1 and inside the service interval.",
         ifWrong: some(-900), recommended: "1-sat",
@@ -119,7 +124,7 @@ export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = n
     // The Sheet's crop: cells filled from history, one a guess.
     ["orders-ready", {
         area: "orders", scope: "Workshop orders", due: some(new Date("2026-10-21T17:00:00Z")), routine: false, unit: "due dates · 1 low confidence",
-        money: false, model: "sheet copilot · 5m ago",
+        figure: variant("count", null), model: "sheet copilot · 5m ago",
         why: "Three orders are ready with no due date. Past orders through the same work centres give each one.",
         ifWrong: none, recommended: "1-all",
         options: new SortedMap([
@@ -133,7 +138,7 @@ export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = n
     }],
     // The Roster's week map: twenty of the warehouse's people change, two of them only losing shifts.
     ["rota-week10", {
-        area: "rota", scope: "Warehouse · W10", due: some(new Date("2026-10-23T17:00:00Z")), routine: false, unit: "uplift · 18 changes", money: true,
+        area: "rota", scope: "Warehouse · W10", due: some(new Date("2026-10-23T17:00:00Z")), routine: false, unit: "uplift · 18 changes", figure: variant("money", null),
         model: "staffing-v3.2.1 · run #43",
         why: "R. Wold and G. Ember run 2h over contract while B. Pumice and J. Quartz have room. Eight swaps between teammates even out the week's days off.",
         ifWrong: some(-5_000), recommended: "1-week",
@@ -152,7 +157,7 @@ export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = n
     // The Plan's other marks, a crop each. A change the record moved under: diffed against J-1008 as the model read it,
     // an hour before the works moved it.
     ["print-stale", {
-        area: "print", scope: "Print works · Hall A", due: some(new Date("2026-10-20T15:00:00Z")), routine: false, unit: "uplift", money: true,
+        area: "print", scope: "Print works · Hall A", due: some(new Date("2026-10-20T15:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "press-sched-v2 · run #97",
         why: "Press B1 prints J-1008's 100,000 sheets in seven hours, against ten on Press A2, which frees A2 for Wednesday's late work.",
         ifWrong: some(-700), recommended: "1-b1",
@@ -165,7 +170,7 @@ export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = n
     }],
     // A row two cases share: J-1025, which the day map also places.
     ["print-shared", {
-        area: "print", scope: "Print works · Hall B", due: some(new Date("2026-10-20T16:00:00Z")), routine: false, unit: "uplift", money: true,
+        area: "print", scope: "Print works · Hall B", due: some(new Date("2026-10-20T16:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "press-sched-v2 · run #118",
         why: "J-1025's winter brochure is due on Wednesday. Press B3 is free all day on Wednesday.",
         ifWrong: some(-2_200), recommended: "1-b3",
@@ -177,7 +182,7 @@ export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = n
     }],
     // A knock-on: a job moved later because of the change, not by it.
     ["print-knock", {
-        area: "print", scope: "Print works · Hall B", due: some(new Date("2026-10-23T12:00:00Z")), routine: false, unit: "uplift", money: true,
+        area: "print", scope: "Print works · Hall B", due: some(new Date("2026-10-23T12:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "press-sched-v2 · run #121",
         why: "J-1024's order forms are overdue. Press B1 takes them first thing on Monday, and J-1016's exhibition book starts three hours later to make room.",
         ifWrong: some(-1_100), recommended: "1-b1",
@@ -193,7 +198,7 @@ export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = n
     }],
     // A breach: the change still overlaps another job on its press.
     ["print-breach", {
-        area: "print", scope: "Print works · Hall A", due: some(new Date("2026-10-26T09:00:00Z")), routine: false, unit: "uplift", money: true,
+        area: "print", scope: "Print works · Hall A", due: some(new Date("2026-10-26T09:00:00Z")), routine: false, unit: "uplift", figure: variant("money", null),
         model: "press-sched-v2 · run #121",
         why: "J-1023's guide reprint was due on the 16th. Press A1 is the only press with coated stock free on Tuesday, from an hour after J-1005 starts.",
         ifWrong: some(-400), recommended: "1-a1",
@@ -202,6 +207,85 @@ export const previewCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = n
                 detail: "J-1023 runs on A1 07:00–09:00, an hour over J-1005.", value: 900, confidence: some(0.7),
                 warn: some("J-1023 overlaps J-1005 on Press A1 for an hour."),
                 change: variant("print", jobsTo([["J-1023", "a1", new Date("2026-10-27T07:00:00Z"), new Date("2026-10-27T09:00:00Z")]])) })],
+        ], byString),
+    }],
+    // The Roster's cost: three shifts to people with spare hours, read by what each pay code costs.
+    ["rota-cost", {
+        area: "rota", scope: "Warehouse · W10", due: some(new Date("2026-10-23T17:00:00Z")), routine: false, unit: "saved / wk · by pay code",
+        figure: variant("money", null), model: "staffing-v3.2.1 · run #44",
+        why: "R. Wold runs 2h over contract, and both of Thursday's shifts from the agency are on agency rates. B. Pumice, J. Quartz and N. Ochre have 14h spare.",
+        ifWrong: some(-1_100), recommended: "1-team",
+        options: new SortedMap([
+            ["1-team", option({ label: "The team", title: "Move 3 shifts in week 10 to people with spare hours", summary: "3 shifts · B. Pumice, J. Quartz, N. Ochre",
+                detail: "B. Pumice takes R. Wold's Friday night; J. Quartz takes Thursday's early agency shift and N. Ochre its late one.",
+                value: 186, confidence: some(0.81), question: some("Have B. Pumice, J. Quartz and N. Ochre agreed to the extra shifts?"),
+                change: variant("rotaCost", dutiesTo([["s262", "bpumice"], ["s217", "jquartz"], ["s250", "nochre"]])) })],
+        ], byString),
+    }],
+    // A record's changed fields: a region's list price and the demand the model expects at it.
+    ["price-coast", {
+        area: "pricing", scope: "Regional list prices", due: some(new Date("2026-10-23T17:00:00Z")), routine: false, unit: "uplift / mo",
+        figure: variant("money", null), model: "demand-coast · query 2h ago",
+        why: "Coast demand is less sensitive to price than other regions, at an elasticity of −0.42. Competitors sit at a median of $11.20.",
+        ifWrong: some(-6_100), recommended: "1-p1100",
+        options: new SortedMap([
+            ["1-p1100", option({ label: "$11.00", title: "Raise the Coast list price to $11.00", summary: "Coast $10.50 → $11.00",
+                detail: "Demand −2.0% · revenue +2.7%.", value: 17_400, confidence: some(0.74),
+                change: variant("pricing", pricesPatch("coast", 11.00, 13_916)) })],
+        ], byString),
+    }],
+    // The projection: an order of stock, a line for each option's forecast against the minimum.
+    ["stock-c5", {
+        area: "stock", scope: "C5 envelopes · North store", due: some(new Date("2026-10-22T12:00:00Z")), routine: false,
+        unit: "stock-out risk · was 34%", figure: variant("percent", null), model: "stock-plan · run #31",
+        why: "C5 envelopes sell 380 a week. With no order they fall through their 400-unit minimum in week 11 and run out early in week 12; the next delivery lands in week 11.",
+        ifWrong: none, recommended: "1-q2000",
+        options: new SortedMap([
+            ["1-q2000", option({ label: "2,000", title: "Order 2,000 units of C5 envelopes for week 11", summary: "2,000 units · week 11",
+                detail: "Stock stays above its 400-unit minimum through week 16.", value: 0.03, confidence: some(0.86), forecast: c5Order2000,
+                change: variant("restock", stockOrderPatch(2_000)) })],
+            ["2-q1500", option({ label: "1,500", title: "Order 1,500 units of C5 envelopes for week 11", summary: "1,500 units · week 11",
+                detail: "Stock stays above its minimum through week 15.", value: 0.12, confidence: some(0.83), forecast: c5Order1500,
+                change: variant("restock", stockOrderPatch(1_500)) })],
+            ["3-none", option({ label: "No order", title: "Place no order of C5 envelopes", summary: "no change",
+                detail: "No order: stock runs out in week 12.", value: 0.34, forecast: c5NoOrder,
+                change: variant("restock", stockOrderPatch(undefined)) })],
+        ], byString),
+    }],
+    // The zones: the boundary areas of one round moved into the next.
+    ["rounds-boundary", {
+        area: "rounds", scope: "City rounds", due: some(new Date("2026-10-23T17:00:00Z")), routine: false, unit: "saved / wk · drive time −7%",
+        figure: variant("money", null), model: "round-fit · run #9",
+        why: "Round B finishes 50 minutes earlier than round A each day. Its van passes the six areas on the boundary on its way out.",
+        ifWrong: some(-900), recommended: "1-move",
+        options: new SortedMap([
+            ["1-move", option({ label: "Move 6", title: "Move 6 boundary areas from Round A to Round B", summary: "6 areas · Round A → Round B",
+                detail: "Round A drops to 19 areas; Round B takes 21.", value: 3_100, confidence: some(0.79),
+                change: variant("rounds", roundsPatch(boundaryAreas, "b")) })],
+        ], byString),
+    }],
+    // The mix: one item's stock moved between five stores, a row each on a shared axis.
+    ["stock-split", {
+        area: "stock", scope: "C5 envelopes · 5 stores", due: some(new Date("2026-10-23T17:00:00Z")), routine: false, unit: "uplift · 1,800 units move",
+        figure: variant("money", null), model: "stock-balance · run #12",
+        why: "Hillside and Market St sell through faster than their stock allows; Harbour and Riverside hold more than four weeks' cover.",
+        ifWrong: some(-2_000), recommended: "1-move",
+        options: new SortedMap([
+            ["1-move", option({ label: "Rebalance", title: "Rebalance 12,000 units of C5 envelopes across 5 stores", summary: "1,800 units · 4 stores",
+                detail: "Harbour sends 600 and Riverside 300; Hillside takes 400 and Market St 500.", value: 5_400, confidence: some(0.77),
+                change: variant("split", stockSplitPatch([["harbour", 3_200], ["hillside", 3_400], ["market", 2_900], ["riverside", 1_300]])) })],
+        ], byString),
+    }],
+    // The groups: a rule moving the minimum stock of many items, a row per range.
+    ["stock-minimums", {
+        area: "stock", scope: "Catalogue minimums", due: some(new Date("2026-10-23T17:00:00Z")), routine: false, unit: "lost sales avoided / mo",
+        figure: variant("money", null), model: "min-stock · run #6",
+        why: "Lead times from the envelope and label mills have grown by four days; notebooks sell slower since the spring range.",
+        ifWrong: some(-4_000), recommended: "1-rule",
+        options: new SortedMap([
+            ["1-rule", option({ label: "The rule", title: "Raise minimum stock on 1,240 items", summary: "1,240 items · 5 ranges",
+                detail: "Envelopes, labels, folders and cards rise; notebooks fall 4%.", value: 22_000, confidence: some(0.71),
+                change: variant("minimums", minimumsPatch([["Envelopes", 412, 0.08], ["Labels", 298, 0.12], ["Folders", 214, 0.05], ["Notebooks", 180, -0.04], ["Cards", 136, 0.06]])) })],
         ], byString),
     }],
 ], byString);

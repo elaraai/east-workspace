@@ -31,7 +31,7 @@ import { scheduleWithinCap } from "../../shared/schedule/cells.js";
 import { EMPTY_SCHEDULE_DRAFTS } from "../../shared/schedule/editing.js";
 import type { ScheduleItemValue } from "../../shared/schedule/overlaps.js";
 import { kindPlural } from "../../shared/schedule/words.js";
-import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
+import { appliedRows, standingRows, type DecisionTarget } from "../editing.js";
 import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
 import { LanesCrop, LanesMap, dayText, lanesSentence, mapSentence, type PreviewMap } from "./lanes.js";
 import { UNASSIGNED, laneDay, laneDayKey, laneDayWindow, laneEvent, lanesPreview, type LaneEvent, type LanesModel } from "./lanes-model.js";
@@ -131,10 +131,9 @@ export function CalendarPreview({ c, view, target, kind, record, rows, changed, 
             const o = theirs ? recommended : option;
             marked = stale;
             if (o === undefined) return EMPTY;
-            for (const key of target.touched(o.change.patch)) {
-                const got = standingRow(schedule, record, key);
-                if (got.type !== "some") return PENDING;
-                const bytes = got.value.type === "some" ? got.value.value : undefined;
+            const standing = standingRows(schedule, record, target.touched(o.change.patch));
+            if (standing.type !== "some") return PENDING;
+            for (const [key, bytes] of standing.value) {
                 const e = eventOf(key, bytes);
                 if (e === "reading") return PENDING;
                 before.set(key, e);

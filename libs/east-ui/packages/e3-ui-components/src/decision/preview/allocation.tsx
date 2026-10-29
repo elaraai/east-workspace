@@ -27,7 +27,7 @@ import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { DAY, allocationContext, allocationDomain, allocationWords, compareDate, compareString, dayStart, emptyDay, type Bin, type Issue } from "../../allocation/model.js";
 import { lower, other } from "../../allocation/nouns.js";
 import { kindPlural } from "../../shared/schedule/words.js";
-import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
+import { appliedRows, draftedRows, standingRows, type DecisionTarget } from "../editing.js";
 import { allocationCrop, type AllocationCropBin, type AllocationCropDay, type AllocationCropPlan } from "./allocation-model.js";
 import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
 import { LanesCrop, LanesMap, dayText, lanesSentence, mapSentence, type PreviewMap } from "./lanes.js";
@@ -96,10 +96,9 @@ export function AllocationPreview({ c, view, target, kind, record, rows, changed
             const o = theirs ? recommended : option;
             marked = stale;
             if (o === undefined) return EMPTY;
-            for (const key of target.touched(o.change.patch)) {
-                const got = standingRow(schedule, record, key);
-                if (got.type !== "some") return PENDING;
-                const bytes = got.value.type === "some" ? got.value.value : undefined;
+            const standing = standingRows(schedule, record, target.touched(o.change.patch));
+            if (standing.type !== "some") return PENDING;
+            for (const [key, bytes] of standing.value) {
                 const bin = binOf(bytes);
                 bins.push({ key, before: bin, after: bin });
                 if (bytes !== undefined) bytesOf.set(key, bytes);
@@ -117,11 +116,7 @@ export function AllocationPreview({ c, view, target, kind, record, rows, changed
         }
         // The queue's drafts of the bins' record — the verdicts drafted before this one — each where its draft puts it.
         const drafts = new Map<string, Bin | undefined>();
-        for (const key of schedule.draftsOf(record.key).keys()) {
-            const got = standingRow(schedule, record, key);
-            if (got.type !== "some") return PENDING;
-            drafts.set(key, binOf(got.value.type === "some" ? got.value.value : undefined));
-        }
+        for (const [key, bytes] of draftedRows(schedule, record)) drafts.set(key, binOf(bytes));
         // The days the bins stand on, and those the recommendation lands on: each read as the record holds it, the drafts
         // in place, then laid out as it stands and as the change leaves it, with the board's loads and checks and the app's.
         const daysRead = new SortedSet<Date>([], compareDate);

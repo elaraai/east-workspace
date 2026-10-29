@@ -307,7 +307,7 @@ describe("DecisionQueue.decisions: the cases, read only, each role an East funct
     });
 
     test("cases with alternatives: `recommended` among them, the option's roles over the option, its key and its case", () => {
-        const of = /DecisionQueue\.decisions: `options\.change\.of` gives no target for the tag 'orders' — give each of the variant's tags \(orders, pricing, print, rota, rotaCost, workshop, yard\) a target/;
+        const of = /DecisionQueue\.decisions: `options\.change\.of` gives no target for the tag 'minimums' — give each of the variant's tags \(minimums, orders, pricing, print, restock, rota, rotaCost, rounds, split, workshop, yard\) a target/;
         // Declared up to the change role, whose targets this test gives none of.
         assert.throws(() => opsCases((base) => base), of);
         assert.throws(() => opsCases((base) => ({ ...base, options: { ...base.options, label: (_o: O, key: ExprType<StringType>) => key,
@@ -502,15 +502,40 @@ describe("DecisionQueue.change.record, .zones and .projection: records no builde
     /** The price list, bound with its patch door. */
     const prices = ($: BlockBuilder<NullType>) => $.let(Record.bind(ops.listPrices));
 
-    test("a record's label and measure are East functions over its row; its group a String field of it, counted over the record read whole", () => {
+    test("a record's label and measure are East functions over its row", () => {
         assert.doesNotThrow(() => inBlock(($) => DecisionQueue.change.record(prices($), { name: "Pricing", icon: "tag", label: (r) => r.region,
-            measure: (r) => r.demand, group: "region", locked: (r) => East.greater(r.price, 12.0) }).build(["pricing"], "spec.pricing")));
+            measure: (r) => r.demand, locked: (r) => East.greater(r.price, 12.0) }).build(["pricing"], "spec.pricing")));
         assert.throws(() => inBlock(($) => DecisionQueue.change.record(prices($), { name: "Pricing", icon: "tag", label: ((r: ExprType<typeof ops.ListPrice>) => r.price) as never })),
             /DecisionQueue\.change\.record: `label` returns .*Float.* — it takes a String/);
+    });
+
+    test("a record's group is a String field of it, each group's rows counted through `source`'s plain index on it alone", () => {
+        // A catalogue's items by range, and the record's index on it beside one on their names.
+        const Item = StructType({ name: StringType, range: StringType, min: FloatType });
+        const items = e3.record("decision_spec_items", DictType(StringType, Item), {
+            initial: new Map(),
+            indexes: (index) => ({ decision_spec_items_by_range: index.on(["range"]), decision_spec_items_by_name: index.on(["name"]) }),
+            mutations: (mutation) => ({ patch: mutation.patch() }),
+        });
+        const catalogue = ($: BlockBuilder<NullType>) => $.let(Record.bind(items));
+        const byRange = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(items, { indexes: ["decision_spec_items_by_range"] }));
+        // Read by key beside it: a record bound beside its pages is never read whole.
+        assert.doesNotThrow(() => inBlock(($) => DecisionQueue.change.record(catalogue($), { name: "Catalogue", icon: "layer-group", label: (r) => r.name,
+            measure: (r) => r.min, group: "range", source: byRange($), entries: $.let(Data.bindPaged(items)) }).build(["minimums"], "spec.minimums")));
+        assert.throws(() => inBlock(($) => DecisionQueue.change.record(catalogue($), { name: "Catalogue", icon: "layer-group", group: "range", source: byRange($) })),
+            /DecisionQueue\.change\.record: a record counted through `source` is read by key, never whole — give entries: Data\.bindPaged\(record\), the record's own entries, beside it/);
         assert.throws(() => inBlock(($) => DecisionQueue.change.record(prices($), { name: "Pricing", icon: "tag", group: "price" as never })),
             /DecisionQueue\.change\.record: `group` names a String field of the row, as a rail's fields do — and "price" holds .*Float/);
-        assert.throws(() => inBlock(($) => DecisionQueue.change.record(prices($), { name: "Pricing", icon: "tag", group: "region", entries: $.let(Data.bindPaged(ops.listPrices)) })),
-            /DecisionQueue\.change\.record: `group` counts each group's rows over the record read whole — leave `entries` out to read it whole/);
+        assert.throws(() => inBlock(($) => DecisionQueue.change.record(prices($), { name: "Pricing", icon: "tag", group: "region" })),
+            /DecisionQueue\.change\.record: `group` counts each group's rows through an index on "region" — declare an index on it among the record's indexes, by_region: index\.on\(\["region"\]\), and give source: Data\.bindPaged\(record, \{ indexes: \["by_region"\] \}\)/);
+        assert.throws(() => inBlock(($) => DecisionQueue.change.record(catalogue($), { name: "Catalogue", icon: "layer-group", group: "range",
+            source: $.let(Data.bindPaged(items, { indexes: ["decision_spec_items_by_name"] })) })),
+        /DecisionQueue\.change\.record: `source` lists no index on "range" alone, through which `group` counts each group's rows — declare an index on it among the record's indexes, by_range: index\.on\(\["range"\]\)/);
+        assert.throws(() => inBlock(($) => DecisionQueue.change.record(catalogue($), { name: "Catalogue", icon: "layer-group", group: "range",
+            source: $.let(Data.bindPaged(ops.proposals, { indexes: ["proposals_by_site"] })) })),
+        /DecisionQueue\.change\.record: `source` is an indexed read of the target's own record, through which `group` counts each group's rows/);
+        assert.throws(() => inBlock(($) => DecisionQueue.change.record(catalogue($), { name: "Catalogue", icon: "layer-group", source: byRange($) })),
+            /DecisionQueue\.change\.record: `source` counts each group's rows through its index on `group` — give `group`, the field it is on, or leave `source` out/);
     });
 
     test("areas in zones: each one's zone and place are required, and the zones are the app's list", () => {
@@ -532,7 +557,7 @@ describe("DecisionQueue.change.record, .zones and .projection: records no builde
     test("a projection: the option's row type, the series it gives and each point's place", () => {
         const Series = StructType({ forecast: ArrayType(StructType({ week: FloatType, units: FloatType })) });
         assert.doesNotThrow(() => inBlock(($) => DecisionQueue.change.projection(prices($), { name: "Demand", icon: "chart-line", option: Series,
-            points: (o) => o.forecast, x: (p) => p.week, y: (p) => p.units, limit: { y: 120.0, label: "Reorder point" } }).build(["pricing"], "spec.demand")));
+            points: (o) => o.forecast, x: (p) => p.week, y: (p) => p.units, limit: { y: 120.0, label: "Minimum" } }).build(["pricing"], "spec.demand")));
         assert.throws(() => inBlock(($) => DecisionQueue.change.projection(prices($), { name: "Demand", icon: "chart-line", option: StringType } as never)),
             /DecisionQueue\.change\.projection: `option` is the option's row type — the struct the cases' options are, option: OpsOption — which `points` reads/);
         assert.throws(() => inBlock(($) => DecisionQueue.change.projection(prices($), { name: "Demand", icon: "chart-line", option: Series,

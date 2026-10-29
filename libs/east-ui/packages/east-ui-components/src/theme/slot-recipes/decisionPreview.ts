@@ -15,7 +15,8 @@
  * Slots:
  * - root: the frame — `role="img"`, 1px `--rule`, `--r-sm`, `--paper`, at its target's height (`data-kind`, P2): 120
  *   for a builder's and the zones', 116 for a projection, 112 otherwise; dashed `--rule-strong` while stale
- *   (`data-stale`, P21). Its layout (`data-layout`: `roster`, `people`, `lanes`, `map`, `sheet`) lays out its rows; its kind sets the
+ *   (`data-stale`, P21). Its layout (`data-layout`: `roster`, `people`, `cost`, `lanes`, `map`, `sheet`, `fields`, `mix`,
+ *   `groups`, `projection`, `zones`) lays out its rows; its kind sets the
  *   lanes' measures — the lane head's least width (`--pv-lw`: the Plan's 72, the Allocation's 88, the Calendar's 96), a
  *   bar's height (the Plan's and the Calendar's 18, a bin's 24) and the gaps between stacked bars.
  * - lanes: the lanes' grid — its ruler and its lanes share its two columns, the head's and the plot's: the head as wide
@@ -51,6 +52,38 @@
  *   mono, its changed cells' values on the dirty fill (`data-fill="cell"`), a cleared one the Sheet's blank, italic
  *   `--ink-4` (`data-empty`) — and a guessed cell's dot, Font Awesome's `circle` 6px in `--warn`, 6 before its value
  *   (P26).
+ * - field, fieldName, fieldLine, fieldWas, fieldNow: a record's field (P6) — its name, the caption's mono
+ *   `--fs-label-xs` 600 upper case tracked 0.12em, over its line: the value it held, mono `--fs-label-md` 500 `--ink-4`
+ *   struck through, then its value as a chip 22 tall, mono `--fs-body-sm` 600 — a changed one (`data-op="chg"`) on the
+ *   dirty fill with the glow, one left as it is 1px `--rule-strong` on `--paper`, `--ink-3`. Rows 54, a rule between.
+ * - chart, chartHead, chartCaption, chartTicks, chartRow, chartName, chartPlot, chartFigure: a row per key on a shared
+ *   axis — the Roster's cost by pay code (P7; `104px` name, `52px` change), a record's mix (P10; `80px`, `48px`) and its
+ *   groups (P11; `76px`, `36px` count, `48px` net): a head 16 tall (the cost's 14) of upper-case captions and the axis's
+ *   ticks, mono `--fs-label-xs` 500 `--ink-4`, spaced to its ends; rows 17, the name `--fs-body-sm`, the figures mono
+ *   `--fs-label-md` 600 in their tone (`data-tone`: `better` `--pos-text`, `worse` `--warn-text`, `bad` `--neg-text`,
+ *   `neither` `--ink-3`; `data-same`, a row its change leaves as it is, `--ink-4`), a trend's arrow (`trend`) before one.
+ * - zero, delta: the cost's zero, 1px `--rule-strong` at the plot's middle, and a code's change as a bar from it, 9
+ *   tall (`--pv-left`, `--pv-width`): a saving a ghost (`data-op="from"`), an added cost `--brand-d` with the glow
+ *   (`data-op="add"`, `data-fill="own"`).
+ * - rail, span, dot: a mix's row — its 1px `--rule` across the plot's middle, the 2px `elara.edge` line from the value it
+ *   holds to its proposed one, and their dots, 8 across (`--pv-at`): the value held (`data-at="was"`) hollow, 1px
+ *   `--ink-3` on `--paper`, drawn only where it changes; the proposed `--brand-d` with the glow where it changes
+ *   (`data-op="chg"`, `data-fill="own"`), `--ink-4` where it does not.
+ * - track, part: a group's size, `--paper-3`, and its rows the change touches, `--brand-d` with the glow — each 8
+ *   tall, its width (`--pv-width`) its share of the largest group.
+ * - projection, yAxis, yLabel, projPlot, wash, limit, lines, line, lineLabel, xAxis: a projection (P8) — its plot 84
+ *   tall beside a 36 axis, `--rule` on its left and `--rule-strong` along its foot, its ticks (`tick`, `gridLine`)
+ *   under it; the limit a dashed `--warn` rule (`--pv-at`) over a 6% `--warn` wash below it, its label `--warn-text`;
+ *   a line per option, drawn in a 100 × 100 box at any size, its stroke kept: the chosen 2px `--brand-d`
+ *   (`data-line="chosen"`), glowing (`data-glow` on its box) unless it is the option that changes nothing, which, not
+ *   chosen, is a dashed 1.5px `elara.edge` ghost (`data-line="asis"`); the others 1px `--ink-5`. Each line's label,
+ *   mono `--fs-label-xs` 600 (`--pv-x`, `--pv-y`), at its rise and left of it, or over its run (`data-place="run"`),
+ *   `--ink` for the chosen (`data-chosen`), else `--ink-4`.
+ * - zones, zoneKey, zoneItem, swatch, zoneName, zoneCount, zoneTiles, zoneTile, depot: a map of zones (P9) — the key,
+ *   each zone's swatch, its name and its count before → after; the areas as tiles 16 tall, at least twelve a row
+ *   (`--pv-columns`), each filled from its zone's colour (`--pv-zone`: its edge 70%, its fill 32% on `--paper`), a
+ *   cell no area holds empty (`data-empty`), one the change moves taking its new zone's fill and the glow
+ *   (`data-op="chg"`, `data-fill="own"`), and a depot a 6px `--ink` dot.
  * - pending, failed: the frame's place while its rows are read — the shared placeholder shapes in its layout (P23) —
  *   and a failed read's line.
  *
@@ -130,6 +163,23 @@ const CAPTION = { fontFamily: "mono", fontSize: "label.xs", fontWeight: "semibol
 const LANE_HEIGHT = "max(var(--pv-lane-min), calc(2 * var(--pv-lane-pad) + var(--pv-lanes, 1) * var(--pv-bar-h) + (var(--pv-lanes, 1) - 1) * var(--pv-bar-gap)))";
 /** A bar's top: its stack centred in the lane, then its place in the stack. */
 const BAR_TOP = "calc((100% - (var(--pv-lanes, 1) * var(--pv-bar-h) + (var(--pv-lanes, 1) - 1) * var(--pv-bar-gap))) / 2 + var(--pv-lane, 0) * (var(--pv-bar-h) + var(--pv-bar-gap)))";
+/** A head's upper-case caption, tracked 0.12em. */
+const HEAD_CAPTION = { ...CAPTION, letterSpacing: "widest", textTransform: "uppercase" } as const;
+/** A figure: mono `--fs-label-md` 600, its digits tabular. */
+const FIGURE = { fontFamily: "mono", fontSize: "label.md", fontWeight: "semibold", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" } as const;
+/** A chart's columns, by its layout: the name, the plot, then its figures. */
+const CHART_COLUMNS = {
+    "[data-layout=cost] &": { gridTemplateColumns: "104px minmax(0, 1fr) 52px", paddingRight: "8px" },
+    "[data-layout=mix] &": { gridTemplateColumns: "80px minmax(0, 1fr) 48px" },
+    "[data-layout=groups] &": { gridTemplateColumns: "76px minmax(0, 1fr) 36px 48px" },
+} as const;
+/** A zone's fill, from its colour (`--pv-zone`): its edge 70% of it on `--paper`, its fill 32%. */
+const ZONE_FILL = {
+    borderWidth: "1px",
+    borderStyle: "solid",
+    borderColor: "color-mix(in oklch, var(--pv-zone) 70%, {colors.bg.surface})",
+    background: "color-mix(in oklch, var(--pv-zone) 32%, {colors.bg.surface})",
+} as const;
 
 export const decisionPreviewSlotRecipe = defineSlotRecipe({
     className: "elara-decision-preview",
@@ -143,6 +193,11 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
         "people", "peopleRow", "peopleDay", "peopleName", "mark",
         "count", "countText", "countFigure",
         "sheetKey", "sheetCell", "guess",
+        "field", "fieldName", "fieldLine", "fieldWas", "fieldNow",
+        "chart", "chartHead", "chartCaption", "chartTicks", "chartRow", "chartName", "chartPlot", "chartFigure", "trend",
+        "zero", "delta", "rail", "span", "dot", "track", "part",
+        "projection", "yAxis", "yLabel", "projPlot", "wash", "limit", "lines", "line", "lineLabel", "xAxis",
+        "zones", "zoneKey", "zoneItem", "swatch", "zoneName", "zoneCount", "zoneTiles", "zoneTile", "depot",
         "pending", "failed",
     ],
     base: {
@@ -424,6 +479,197 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
             "&[data-empty]": { fontStyle: "italic", fontWeight: "normal", color: "fg.subtle" },
         },
         guess: { ...fontAwesomeSize("6px"), flex: "none", display: "inline-flex", color: "status.warn" },
+
+        // ── A record's changed fields (P6) ──
+        field: {
+            display: "grid",
+            flexShrink: 0,
+            gap: "4px",
+            minWidth: 0,
+            padding: "8px 12px",
+            borderBottomWidth: "1px",
+            ...RULE,
+            "&:last-child": { borderBottomWidth: 0 },
+        },
+        fieldName: { ...HEAD_CAPTION, ...ELLIPSIS, lineHeight: "12px" },
+        fieldLine: { display: "flex", alignItems: "center", gap: "8px", minWidth: 0 },
+        fieldWas: { ...FIGURE, fontWeight: "medium", color: "fg.subtle", textDecoration: "line-through" },
+        fieldNow: {
+            ...FIGURE,
+            height: "22px",
+            boxSizing: "border-box",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "6px",
+            minWidth: 0,
+            overflow: "hidden",
+            padding: "0 6px",
+            borderWidth: "1px",
+            borderStyle: "solid",
+            borderColor: "border.strong",
+            borderRadius: "sm",
+            background: "bg.surface",
+            fontSize: "body.sm",
+            color: "fg.muted",
+            "&[data-op]": { borderWidth: 0, color: "fg" },
+        },
+
+        // ── A row per key on a shared axis: the Roster's cost (P7), a record's mix (P10) and its groups (P11) ──
+        chart: { display: "grid", alignContent: "start", padding: "4px 0 8px", "[data-layout=cost] &": { paddingBottom: "4px" } },
+        chartHead: {
+            display: "grid",
+            columnGap: "8px",
+            alignItems: "center",
+            height: "16px",
+            padding: "0 12px",
+            ...CHART_COLUMNS,
+            "[data-layout=cost] &": { ...CHART_COLUMNS["[data-layout=cost] &"], height: "14px" },
+        },
+        chartCaption: { ...HEAD_CAPTION, ...ELLIPSIS, "&[data-align=end]": { textAlign: "right" } },
+        chartTicks: {
+            display: "flex",
+            justifyContent: "space-between",
+            minWidth: 0,
+            overflow: "hidden",
+            whiteSpace: "nowrap",
+            fontFamily: "mono",
+            fontSize: "label.xs",
+            fontWeight: "medium",
+            fontVariantNumeric: "tabular-nums",
+            color: "fg.subtle",
+        },
+        chartRow: { display: "grid", columnGap: "8px", alignItems: "center", height: "17px", padding: "0 12px", ...CHART_COLUMNS },
+        chartName: { ...ELLIPSIS, fontSize: "body.sm", color: "fg" },
+        chartPlot: { position: "relative", height: "100%", minWidth: 0, "[data-layout=groups] &": { height: "8px" } },
+        chartFigure: {
+            ...FIGURE,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: "2px",
+            minWidth: 0,
+            color: "fg",
+            "&[data-tone=better]": { color: "fg.success" },
+            "&[data-tone=worse]": { color: "fg.warning" },
+            "&[data-tone=bad]": { color: "fg.danger" },
+            "&[data-tone=neither]": { color: "fg.muted" },
+            "&[data-same]": { color: "fg.subtle" },
+            "[data-stale] &": { color: "fg.subtle" },
+        },
+        trend: { ...fontAwesomeSize("8px"), flex: "none", display: "inline-flex", color: "inherit" },
+        zero: { position: "absolute", top: 0, bottom: 0, left: "50%", borderLeftWidth: "1px", borderLeftStyle: "solid", borderColor: "border.strong", pointerEvents: "none" },
+        delta: {
+            position: "absolute",
+            top: "4px",
+            left: "var(--pv-left)",
+            width: "var(--pv-width)",
+            height: "9px",
+            boxSizing: "border-box",
+            borderRadius: "2px",
+            background: "brand.solid",
+        },
+        rail: { position: "absolute", left: 0, right: 0, top: "50%", borderTopWidth: "1px", ...RULE, pointerEvents: "none" },
+        span: { position: "absolute", top: "50%", left: "var(--pv-left)", width: "var(--pv-width)", height: "2px", transform: "translateY(-50%)", background: "elara.edge" },
+        dot: {
+            position: "absolute",
+            top: "50%",
+            left: "var(--pv-at)",
+            width: "8px",
+            height: "8px",
+            boxSizing: "border-box",
+            borderRadius: "full",
+            transform: "translate(-50%, -50%)",
+            background: "fg.subtle",
+            "&[data-at=was]": { borderWidth: "1px", borderStyle: "solid", borderColor: "fg.muted", background: "bg.surface" },
+            "&[data-op]": { background: "brand.solid" },
+        },
+        track: { position: "absolute", left: 0, top: 0, bottom: 0, width: "var(--pv-width)", borderRadius: "2px", background: "bg.subtle" },
+        part: { position: "absolute", left: 0, top: 0, bottom: 0, width: "var(--pv-width)", borderRadius: "2px", background: "brand.solid" },
+
+        // ── A projection (P8) ──
+        projection: { display: "grid", gridTemplateColumns: "36px minmax(0, 1fr)", gridTemplateRows: "84px 16px", padding: "8px 12px 4px 0" },
+        yAxis: { position: "relative" },
+        yLabel: {
+            position: "absolute",
+            right: "6px",
+            top: "var(--pv-at)",
+            transform: "translateY(-50%)",
+            whiteSpace: "nowrap",
+            fontFamily: "mono",
+            fontSize: "label.xs",
+            fontWeight: "semibold",
+            fontVariantNumeric: "tabular-nums",
+            lineHeight: "12px",
+            color: "fg.subtle",
+            "&[data-tone=warn]": { color: "fg.warning" },
+        },
+        projPlot: {
+            position: "relative",
+            minWidth: 0,
+            borderLeftWidth: "1px",
+            borderBottomWidth: "1px",
+            borderStyle: "solid",
+            borderLeftColor: "border.subtle",
+            borderBottomColor: "border.strong",
+        },
+        wash: { position: "absolute", left: 0, right: 0, bottom: 0, top: "var(--pv-at)", background: "color-mix(in oklch, {colors.status.warn} 6%, transparent)", pointerEvents: "none" },
+        limit: { position: "absolute", left: 0, right: 0, top: "var(--pv-at)", borderTopWidth: "1px", borderTopStyle: "dashed", borderColor: "status.warn", pointerEvents: "none" },
+        lines: {
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            overflow: "visible",
+            pointerEvents: "none",
+            "&[data-glow]": { filter: "drop-shadow(0 0 2px {colors.elara.soft})" },
+            "[data-stale] &": { "&[data-glow]": { filter: "none" } },
+        },
+        line: {
+            fill: "none",
+            vectorEffect: "non-scaling-stroke",
+            strokeLinejoin: "round",
+            stroke: "fg.faint",
+            strokeWidth: "1px",
+            "&[data-line=asis]": { stroke: "elara.edge", strokeWidth: "1.5px", strokeDasharray: "3 3" },
+            "&[data-line=chosen]": { stroke: "brand.solid", strokeWidth: "2px" },
+            "[data-stale] &": { "&[data-line=chosen]": { stroke: "fg.subtle", strokeDasharray: "4 3" } },
+        },
+        lineLabel: {
+            position: "absolute",
+            left: "var(--pv-x)",
+            top: "var(--pv-y)",
+            transform: "translate(calc(-100% - 4px), -50%)",
+            whiteSpace: "nowrap",
+            fontFamily: "mono",
+            fontSize: "label.xs",
+            fontWeight: "semibold",
+            fontVariantNumeric: "tabular-nums",
+            lineHeight: "12px",
+            color: "fg.subtle",
+            "&[data-place=run]": { transform: "translate(-50%, calc(-100% - 2px))" },
+            "&[data-chosen]": { color: "fg" },
+        },
+        xAxis: { position: "relative", minWidth: 0 },
+
+        // ── A map of zones (P9) ──
+        zones: { display: "grid", alignContent: "start", gap: "8px", padding: "8px 12px 12px" },
+        zoneKey: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px 16px", minHeight: "16px" },
+        zoneItem: { display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" },
+        swatch: { ...ZONE_FILL, width: "10px", height: "10px", boxSizing: "border-box", borderRadius: "2px" },
+        zoneName: { fontSize: "body.sm", fontWeight: "semibold", color: "fg" },
+        zoneCount: { ...FIGURE, color: "fg.muted" },
+        zoneTiles: { display: "grid", gridTemplateColumns: "repeat(var(--pv-columns, 12), minmax(0, 1fr))", gap: "2px" },
+        zoneTile: {
+            ...ZONE_FILL,
+            height: "16px",
+            boxSizing: "border-box",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: "2px",
+            "&[data-empty]": { borderWidth: 0, background: "transparent" },
+        },
+        depot: { width: "6px", height: "6px", borderRadius: "full", background: "fg" },
 
         // ── A read in flight, or one that failed ──
         pending: { display: "flex", alignItems: "center", minWidth: 0, height: "100%" },

@@ -135,9 +135,10 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
  * A record read by key through a paged read of its own entries (#1199,
  * #1386), as a builder's kind carries it ({@link ScheduleEntriesType}): the
  * read's revision and a move to another, one entry's row as bytes by its
- * key's text, and the record's largest key. A session builds it over its
- * `entries`, and a kind bound read only with `Data.bindPaged(record)` over
- * that binding itself.
+ * key's text, the record's largest key, and the read's `id`, by which a
+ * reader asks many entries in one request (#1454). A session builds it over
+ * its `entries`, and a kind bound read only with `Data.bindPaged(record)`
+ * over that binding itself.
  *
  * @param entries - A paged read of the record's own entries, checked (`checkEntries`)
  * @param byKey - One entry by its key's text through it (`scheduleEntryByKey`)
@@ -150,6 +151,7 @@ export function scheduleEntriesSeam(
     lastKey: ExprType<FunctionType<[], OptionType<OptionType<StringType>>>>,
 ): ExprType<OptionType<typeof ScheduleEntriesType>> {
     const pinned = entries as unknown as ExprType<StructType<{
+        id: StringType;
         revision: FunctionType<[], OptionType<StringType>>;
         refresh: FunctionType<[OptionType<StringType>], NullType>;
     }>>;
@@ -162,7 +164,7 @@ export function scheduleEntriesSeam(
         });
         return result;
     });
-    return East.value(some({ revision: pinned.revision, refresh: pinned.refresh, entry, last: lastKey }) as never, OptionType(ScheduleEntriesType)) as
+    return East.value(some({ revision: pinned.revision, refresh: pinned.refresh, entry, last: lastKey, paged: pinned.id }) as never, OptionType(ScheduleEntriesType)) as
         ExprType<OptionType<typeof ScheduleEntriesType>>;
 }
 

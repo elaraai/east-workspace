@@ -29,7 +29,7 @@ import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { scheduleWithinCap } from "../../shared/schedule/cells.js";
 import { EMPTY_SCHEDULE_DRAFTS } from "../../shared/schedule/editing.js";
 import { kindPlural } from "../../shared/schedule/words.js";
-import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
+import { appliedRows, standingRows, type DecisionTarget } from "../editing.js";
 import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
 import { LanesCrop, LanesMap, lanesSentence, mapSentence, type PreviewMap } from "./lanes.js";
 import { UNASSIGNED, laneEvent, laneWindow, lanesOf, lanesPreview, type LaneEvent, type LanesModel } from "./lanes-model.js";
@@ -131,10 +131,9 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
             const o = theirs ? recommended : option;
             marked = stale;
             if (o === undefined) return EMPTY;
-            for (const key of target.touched(o.change.patch)) {
-                const got = standingRow(schedule, record, key);
-                if (got.type !== "some") return PENDING;
-                const bytes = got.value.type === "some" ? got.value.value : undefined;
+            const standing = standingRows(schedule, record, target.touched(o.change.patch));
+            if (standing.type !== "some") return PENDING;
+            for (const [key, bytes] of standing.value) {
                 const e = eventOf(key, bytes);
                 if (e === "reading") return PENDING;
                 before.set(key, e);
@@ -159,7 +158,8 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
         // marks none, so reads none.
         const lanes = lanesOf([...before.values(), ...after.values(), ...landed]);
         const pins = target.locked.type === "some" && lanes.length <= CROP_LANES ? target.locked.value : undefined;
-        let reading = false;
+        // Where in the context each of the target's kind's events on the crop's lanes stands: asked of `locked` below.
+        const pinned: number[] = [];
         // The window's other events, every kind's, as they stand — the queue's drafts of the target's record in place —
         // each kind counted first and read only within the cap; past it, it draws none here.
         const context: LaneEvent[] = [];
@@ -174,20 +174,20 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
                 if (own && (before.has(item.key) || after.has(item.key))) continue;
                 const e = laneEvent(item);
                 if (e === undefined) continue;
-                // Pinned: the target's `locked` asked of its row as it stands, drafted or stored — every read issued before
-                // the preview waits on them.
-                if (own && pins !== undefined && lanes.some(lane => stringEqual(lane, e.lane))) {
-                    const row = standingRow(schedule, record, e.key);
-                    if (row.type !== "some") reading = true;
-                    else if (row.value.type === "some" && pins(row.value.value, e.key)) {
-                        context.push({ ...e, locked: true });
-                        continue;
-                    }
-                }
+                if (own && pins !== undefined && lanes.some(lane => stringEqual(lane, e.lane))) pinned.push(context.length);
                 context.push(e);
             }
         }
-        if (reading) return PENDING;
+        // Pinned: the target's `locked` asked of each one's row as it stands, drafted or stored — every row read at once.
+        if (pins !== undefined && pinned.length > 0) {
+            const standing = standingRows(schedule, record, pinned.map(i => context[i]!.key));
+            if (standing.type !== "some") return PENDING;
+            for (const i of pinned) {
+                const e = context[i]!;
+                const bytes = standing.value.get(e.key);
+                if (bytes !== undefined && pins(bytes, e.key)) context[i] = { ...e, locked: true };
+            }
+        }
         // Each lane's name, as the Plan's gutter names its resource.
         const names = new Map<string, string>();
         for (const [lane, item] of items) {

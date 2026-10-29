@@ -106,12 +106,18 @@ export interface PreviewProps {
     readonly now: Date;
 }
 
+/** How a preview lays its rows out: what the recipe sizes and draws it by (`data-layout`). */
+export type PreviewLayout = "roster" | "people" | "cost" | "lanes" | "map" | "sheet" | "fields" | "mix" | "groups" | "projection" | "zones";
+
 /** Props of {@link PreviewFrame}. */
 export interface PreviewFrameProps {
     /** The target's kind: the frame's height (P2). */
     readonly kind: DecisionTarget["kind"]["type"];
-    /** How its rows are laid out: the Roster's week or its map by people, lanes, a builder's map of tiles, a Sheet's rows, or a map's own. */
-    readonly layout: "roster" | "people" | "lanes" | "map" | "sheet" | undefined;
+    /**
+     * How its rows are laid out: the Roster's week, its map by people or by cost, lanes, a builder's map of tiles, a
+     * Sheet's rows, a record's fields, its mix or its groups, a projection, zones, or a map's own.
+     */
+    readonly layout: PreviewLayout | undefined;
     /** Its sentence (P25). */
     readonly label: string;
     /** Whether the change no longer applies (P21). */
@@ -139,10 +145,13 @@ export function PreviewFrame({ kind, layout, label, stale, busy, styles, childre
     );
 }
 
+/** The layouts that draw a row a key on a shared axis: a name, a plot and its figures. */
+const CHARTS: readonly PreviewLayout[] = ["cost", "mix", "groups"];
+
 /**
  * A preview whose rows are read still (P23): its frame and head at once, the shared placeholder shapes in its rows —
- * a name and its measure, then a chip a cell, or a lane's plot washed — shown after its own reveal clock, so a quick
- * read never flashes.
+ * a name and its measure, then a chip a cell; a lane's or a chart's plot washed; a field's caption and its chip; a
+ * projection's plot, or a zones' key and tiles — shown after its own reveal clock, so a quick read never flashes.
  *
  * @param props - Its kind and layout, how many rows it draws and, in a layout of cells, how many cells a row; and the queue's words
  * @returns The placeholder
@@ -151,10 +160,55 @@ export function PreviewPending({ kind, layout, rows, cells = 0, words, styles }:
     readonly rows: number; readonly cells?: number | undefined; readonly words: DecisionQueueWords;
 }) {
     const heads = (row: number) => <Box css={styles.rowHead}><PlaceholderShape kind="label2" index={row} /></Box>;
+    const body = (() => {
+        if (layout === "fields") {
+            return Array.from({ length: rows }, (_, row) => (
+                <Box key={row} css={styles.field} aria-hidden="true" data-preview-pending="">
+                    <PlaceholderShape kind="label" index={row} />
+                    <Box css={styles.fieldLine}><PlaceholderShape kind="chip" index={row} /></Box>
+                </Box>
+            ));
+        }
+        if (layout !== undefined && CHARTS.includes(layout)) {
+            return (
+                <Box css={styles.chart}>
+                    <Box css={styles.chartHead} aria-hidden="true" />
+                    {Array.from({ length: rows }, (_, row) => (
+                        <Box key={row} css={styles.chartRow} aria-hidden="true" data-preview-pending="">
+                            <PlaceholderShape kind="label" index={row} />
+                            <Box css={styles.chartPlot}><PlaceholderShape kind="wash" index={row} /></Box>
+                            {Array.from({ length: layout === "groups" ? 2 : 1 }, (_, figure) => (
+                                <Box key={figure} css={styles.chartFigure}><PlaceholderShape kind="number" index={row} /></Box>
+                            ))}
+                        </Box>
+                    ))}
+                </Box>
+            );
+        }
+        if (layout === "projection") {
+            return (
+                <Box css={styles.projection} aria-hidden="true" data-preview-pending="">
+                    <Box css={styles.yAxis} />
+                    <Box css={styles.projPlot}><PlaceholderShape kind="wash" index={0} /></Box>
+                </Box>
+            );
+        }
+        if (layout === "zones") {
+            return (
+                <Box css={styles.zones} aria-hidden="true" data-preview-pending="">
+                    <Box css={styles.zoneKey}><PlaceholderShape kind="label" index={0} /><PlaceholderShape kind="label" index={1} /></Box>
+                    <Box css={styles.zoneTiles}>
+                        {Array.from({ length: rows * cells }, (_, tile) => <Box as="span" key={tile} css={styles.zoneTile} data-empty=""><PlaceholderShape kind="fill" index={tile} /></Box>)}
+                    </Box>
+                </Box>
+            );
+        }
+        return undefined;
+    })();
     return (
         <LoadingReveal waiting>
             <PreviewFrame kind={kind} layout={layout} label={words.m.applyOff({ why: "reading" })} stale={false} busy styles={styles}>
-                {layout === "lanes" ? (
+                {body !== undefined ? body : layout === "lanes" ? (
                     <Box css={styles.lanes}>
                         <Box css={styles.ruler} aria-hidden="true"><span /><Box css={styles.rulerPlot} /></Box>
                         {Array.from({ length: rows }, (_, row) => (

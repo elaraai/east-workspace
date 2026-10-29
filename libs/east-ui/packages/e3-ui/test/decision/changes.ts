@@ -27,7 +27,7 @@ export function option(row: Pick<ValueTypeOf<typeof OpsOption>, "label" | "title
     & Partial<ValueTypeOf<typeof OpsOption>>): ValueTypeOf<typeof OpsOption> {
     return {
         note: none, confidence: none, question: none, warn: none, refused: none,
-        knockOn: new SortedSet<string>([], byString), guesses: new SortedMap<string, number>([], byString), ...row,
+        knockOn: new SortedSet<string>([], byString), guesses: new SortedMap<string, number>([], byString), forecast: [], ...row,
     };
 }
 

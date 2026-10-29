@@ -4,12 +4,13 @@
  */
 
 /**
- * What the DecisionQueue's previews' DOM tests read (#1453, `Decision Queue
- * Spec.md` §9.5): the cards in their order and their sections' heads, a
- * card's preview — its rows, each row's measure in its tone, and the entries
- * it draws as the change marks them — a Sheet crop's head and cells, a lanes
- * crop's ruler, a card's options, chip line and actions, and the history's
- * buttons.
+ * What the DecisionQueue's previews' DOM tests read (#1453, #1454,
+ * `Decision Queue Spec.md` §9.5): the cards in their order and their
+ * sections' heads, a card's preview — its rows, each row's measure in its
+ * tone, and the entries it draws as the change marks them — a Sheet crop's
+ * head and cells, a lanes crop's ruler, a chart's or a projection's axis, a
+ * chart's rows, a record's changed fields, a card's options, chip line and
+ * actions, and the history's buttons.
  *
  * @packageDocumentation
  */
@@ -88,6 +89,32 @@ export const sheetCells = (row: HTMLElement) => [...row.querySelectorAll<HTMLEle
 }));
 /** A lanes crop's ruler: the times it labels. */
 export const ruler = (frame: HTMLElement) => [...frame.querySelectorAll("[data-preview-ruler] span")].map(el => el.textContent).filter(text => text !== "");
+/** A chart's or a projection's axis: the ticks it labels — along the bottom (`x`), or up the side (`y`). */
+export const axis = (frame: HTMLElement, side: "x" | "y" = "x") => [...frame.querySelectorAll(`[data-preview-axis="${side}"] span`)].map(el => el.textContent);
+
+/**
+ * A chart's row — a mix's, a map by cost's or a group's: its title, the marks its plot draws as the change marks them,
+ * and its figures, each in its tone.
+ *
+ * @param row - The row
+ * @returns Its title, its marks and its figures
+ */
+export function chartRow(row: HTMLElement) {
+    const [, plot, ...figures] = [...row.children];
+    return {
+        title: row.getAttribute("title"),
+        marks: [...plot!.querySelectorAll("[data-at], [data-op], [data-fill]")].map(el => ({
+            at: el.getAttribute("data-at") ?? undefined, op: el.getAttribute("data-op") ?? undefined, fill: el.getAttribute("data-fill") ?? undefined,
+        })),
+        figures: figures.map(el => ({ text: el.textContent, tone: el.getAttribute("data-tone") ?? undefined })),
+    };
+}
+
+/** A record's changed fields, in order: each one's caption, its value as it stands and as the change leaves it, its mark and its title. */
+export const fields = (frame: HTMLElement) => [...frame.querySelectorAll<HTMLElement>("[data-preview-field]")].map(now => ({
+    caption: now.closest("[data-preview-row]")!.firstElementChild!.textContent, was: now.previousElementSibling?.textContent,
+    now: now.textContent, op: now.getAttribute("data-op") ?? undefined, title: now.getAttribute("title"),
+}));
 /** One of a card's options, by the start of its name: its label. */
 export const optionOf = (container: HTMLElement, key: string, label: RegExp) => within(card(container, key)).getByRole("option", { name: label });
 /** A card's chip line: `Proposed` or `Modified`, and the summary — the head's part after the preview. */

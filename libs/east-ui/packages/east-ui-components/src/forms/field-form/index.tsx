@@ -90,6 +90,9 @@ type Control = FieldValue["control"];
 /** A number editor's hint. */
 type NumberEditor = ValueTypeOf<typeof FieldEditorType.cases.number>;
 
+/** A checklist editor's hint: the item's text field and its done field. */
+type ChecklistEditor = ValueTypeOf<typeof FieldEditorType.cases.checklist>;
+
 /** One choice of a `reference` editor: a key of the keyed set, and what it shows. */
 export interface FieldOption {
     /** The key the field holds. */
@@ -269,6 +272,47 @@ function printOf(
     return printFor(type)(value as never);
 }
 
+/** A checklist's items done of all, in the form's words: its help line, and what it prints read-only. */
+function checklistText(items: readonly Record<string, unknown>[], checklist: ChecklistEditor, words: FieldFormWords): string {
+    const done = items.filter((item) => item[checklist.done] as boolean).length;
+    return words.m.checklistCount({ done: words.number(done), total: words.number(items.length) });
+}
+
+/**
+ * Prints a field's value for a person as the form prints it read-only — a
+ * reference by its choice's words, a case by its select's, a number and a date
+ * in the locale's figures, a Boolean in words, a checklist its items done of
+ * all, an Option's none or a field given no value as absent; tags, which the
+ * form keeps as chips, joined — for a host that shows a field's value outside
+ * the form: a decision's preview of the fields its change makes.
+ *
+ * @param spec - The field, as `Fields.specs` resolved it
+ * @param value - The field's value, typed as the field — an Option's `some` or `none` — or `undefined` for none yet
+ * @param words - The form's words: the host's, else `{ ...formatters(locale), m: fieldFormMessages }`
+ * @param options - The host's choices for each `reference` editor, by the keyed set it names (`of`)
+ * @returns The value's words
+ * @example
+ * ```ts
+ * import { FloatType, StructType } from "@elaraai/east";
+ * import { Fields } from "@elaraai/east-ui";
+ * import { fieldFormMessages, fieldText, formatters } from "@elaraai/east-ui-components";
+ *
+ * const [price] = Fields.specs(StructType({ price: FloatType }), { price: Fields.number({ unit: "$ / unit" }) });
+ * fieldText(price!, 11.0, { ...formatters("en-US"), m: fieldFormMessages }); // "11"
+ * ```
+ */
+export function fieldText(
+    spec: FieldSpecValue, value: unknown, words: FieldFormWords,
+    options: Readonly<Record<string, readonly FieldOption[]>> = NO_OPTIONS,
+): string {
+    const type = fromEastTypeValue(spec.type) as EastType;
+    // An Option is printed by its value's type; `none` is no value.
+    const inner = spec.optional && type.type === "Variant" ? (type.cases as Record<string, EastType>)["some"]! : type;
+    const held = spec.optional ? getSomeorUndefined(value as option<unknown>) : value;
+    if (spec.editor.type === "checklist" && held !== undefined) return checklistText(held as readonly Record<string, unknown>[], spec.editor.value, words);
+    return printOf(inner, held, spec.editor, options, words);
+}
+
 /**
  * Renders a typed form over an East struct, each field the shared `Field`
  * around the shared input its type takes — see the module docs.
@@ -375,7 +419,6 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
     // A checklist: its items, and the item typed into its box.
     const checklist = own === undefined && editor.type === "checklist" ? editor.value : undefined;
     const items = (checklist === undefined || held === undefined ? [] : held) as readonly Record<string, unknown>[];
-    const done = checklist === undefined ? 0 : items.filter((item) => item[checklist.done] as boolean).length;
     const typed = useRef("");
     const fieldRef = useRef<HTMLDivElement | null>(null);
     const addItem = () => {
@@ -508,7 +551,7 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
                 });
             }
             case "checklist":
-                if (readOnly) return printedValue(m.checklistCount({ done: words.number(done), total: words.number(items.length) }));
+                if (readOnly) return printedValue(checklistText(items, editor.value, words));
                 return variant("StringInput", {
                     ...STRING_INPUT,
                     placeholder: some(m.addItem()),
@@ -521,7 +564,7 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
     const help = [
         getSomeorUndefined(spec.help),
         editor.type === "number" && !printed ? numberLine(editor.value, words) : undefined,
-        checklist !== undefined && !readOnly && held !== undefined ? m.checklistCount({ done: words.number(done), total: words.number(items.length) }) : undefined,
+        checklist !== undefined && !readOnly && held !== undefined ? checklistText(items, checklist, words) : undefined,
     ].filter((part): part is string => part !== undefined && part.length > 0);
     const field: FieldValue = {
         ...FIELD,
