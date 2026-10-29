@@ -175,7 +175,7 @@ import { OptimiseWorkOrder } from "../sheet/optimise.examples.js";         // th
 
 /** A list price, and the demand a week the model expects at it: a record no builder draws. */
 export const ListPrice = StructType({ region: StringType, price: FloatType, demand: FloatType, from: DateTimeType });
-export const listPrices = e3.record("list_prices", DictType(StringType, ListPrice), seededPrices);
+export const listPrices = e3.record("list_prices", DictType(StringType, ListPrice), listPriceRows);
 export const listPricesPatch = e3.mutation.patch(listPrices);
 
 /** What an option changes: its tag is the kind of decision, its value a patch of the record that kind changes. */
@@ -191,15 +191,15 @@ export const OpsChange = VariantType({
 
 /** One way to decide a case: the app's own words for it, what it is worth, and its change. */
 export const OpsOption = StructType({
-    label: StringType,                 // "C. Clover"
-    title: StringType,                 // "Move 3 night shifts from H. Aspen to C. Clover"
-    summary: StringType,               // "C. Clover · Mon, Wed, Thu nights"
-    detail: StringType,                // "C. Clover takes Mon, Wed and Thu nights; H. Aspen drops to 38 h."
-    note: OptionType(StringType),      // "lands at 38 h of 38"
-    value: FloatType,                  // 8000
+    label: StringType,                 // "B. Pumice"
+    title: StringType,                 // "Move J. Tansy's Friday late to B. Pumice"
+    summary: StringType,               // "B. Pumice · Fri 14–22"
+    detail: StringType,                // "B. Pumice takes Friday 14–22; J. Tansy drops to 34h."
+    note: OptionType(StringType),      // "B. Pumice lands at 32h of 38"
+    value: FloatType,                  // 80000
     confidence: OptionType(FloatType), // 0.82
-    question: OptionType(StringType),  // "Has C. Clover been told this is on the table?"
-    warn: OptionType(StringType),      // "R. Birch lands 8 h over contract, paid at 1.5×."
+    question: OptionType(StringType),  // "Has B. Pumice been told this is on the table?"
+    warn: OptionType(StringType),      // "A. Osier lands 2h over contract, paid at 1.5×."
     refused: OptionType(StringType),   // "busy 12:00–17:00 with J-3006" — a refused option says why
     knockOn: SetType(StringType),      // rows of the target moved because of the change, not by it
     guesses: DictType(StringType, FloatType), // the changed rows the model is unsure of, by key: "WO-1004" → 0.69
@@ -209,15 +209,16 @@ export const OpsOption = StructType({
 /** A case a model leaves to a person. */
 export const OpsCase = StructType({
     area: StringType,                  // "rota" — the app's own field, which the rail narrows by (an index reads a field of the row); the queue maps none
-    scope: StringType,                 // "Inbound · W10"
+    scope: StringType,                 // "Picking · W10"
     due: OptionType(DateTimeType),
     routine: BooleanType,
-    unit: StringType,                  // "saved / wk"
-    model: StringType,                 // "rota-opt · run #204"
+    unit: StringType,                  // "uplift"
+    money: BooleanType,                // whether its figures are money, or a count — the orders' — which `format` reads
+    model: StringType,                 // "staffing-v3.2.1 · run #42"
     why: StringType,
-    ifWrong: OptionType(FloatType),    // −2100
+    ifWrong: OptionType(FloatType),    // −8000
     recommended: StringType,           // the key of the option the card opens on
-    options: DictType(StringType, OpsOption),
+    options: DictType(StringType, OpsOption),  // keyed by the model's rank, which orders them: `1-pumice`, `2-osier`, …
 });
 
 /** A person's verdict on a case, under the case's key; each case holds when it was given. */
@@ -231,7 +232,7 @@ export const OpsVerdict = StructType({
 });
 
 // The models' cases: the app's record, filled by its own mutation — e3's tasks read records and never write them.
-export const opsCases = e3.record("ops_cases", DictType(StringType, OpsCase), seededCases);
+export const opsCases = e3.record("ops_cases", DictType(StringType, OpsCase), opsCaseRows);
 export const opsCasesPropose = e3.mutation.reduce("ops_propose", opsCases, proposeCases);  // the app's: a run's cases in, decided ones out
 export const opsCasesByArea = e3.recordIndex("ops_cases_by_area", opsCases, { on: ["area"] });
 export const opsCasesByScope = e3.recordIndex("ops_cases_by_scope", opsCases, { on: ["scope"] });
@@ -267,7 +268,7 @@ export const Proposal = StructType({
     site: StringType, deadline: OptionType(DateTimeType), metric: StringType, run: StringType, rationale: StringType,
     headline: StringType, brief: StringType, description: StringType, saving: FloatType, details: ProposalDetails,
 });
-export const proposals = e3.record("proposals", DictType(StringType, Proposal), seededProposals);
+export const proposals = e3.record("proposals", DictType(StringType, Proposal), proposalRows);
 export const proposalVerdicts = e3.record("proposal_verdicts", DictType(StringType, OpsVerdict), new Map());
 export const proposalVerdictsPatch = e3.mutation.patch(proposalVerdicts);
 ```
@@ -331,7 +332,9 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
     }));
     const verdicts = $.let(Record.bind(opsVerdicts, [opsVerdictsPatch]));
     const verdictEntries = $.let(Data.bindPaged(opsVerdicts));
-    const open = $.let(State.bind([OptionType(StringType)], "ops.open", none));     // the host's: the case open in the queue
+    // The host's: the case open in the queue, which it follows.
+    const open = $.let(State.bind([OptionType(StringType)], "ops.open", none));
+    const follow = $.const(East.function([OptionType(StringType)], NullType, ($2, key) => { $2(open.write(key)); }));
 
     // The records the cases change, and the kinds and lists their builders take: the same consts the app's own
     // <Roster>, <Plan>, <Calendar>, <Allocation> and <Sheet> are handed.
@@ -354,12 +357,13 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
     });
     const people = Schedule.resources(staff.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team, contract: p => p.contract });
     const agencies = Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name });
-    const shifts = Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, color: s => s.colour });
+    const shifts = Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours,
+        order: s => s.order, color: s => s.colour });
     const groups = Roster.groups(teams.read(), { label: t => t.label, order: t => t.order });
     // The warehouse's pay in its own codes, as `rosterWarehouse` builds it (test/roster/roster.examples.tsx) for its
-    // <Roster pay={pay} currency="AUD">: ordinary time to the contract, OT1 past it, an agency's hours at its rate.
+    // <Roster pay={pay}>: ordinary time to the contract, OT1 past it, an agency's hours at its rate.
     const pay = $.const(East.function([Roster.Types.PayRequest(WarehouseDuty)], Roster.Types.Pay, ($2, req) => {
-        /* rosterWarehouse's body, over `rates` */
+        /* rosterWarehouse's body, over `rates` — written out in full in the example */
     }));
 
     // The Plan's, as `planOptimise` gives them (test/plan/optimise.examples.tsx).
@@ -376,11 +380,12 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
         resource: { field: "machine", of: "machines" } });
     const machineRows = Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: m => m.name });
     const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+    const binEntries = $.let(Data.bindPaged(kilnBins));
     const yardDayBins = $.let(Data.bindPaged(kilnBins, { indexes: [kilnBinsByTime] }));
     const bays = $.let(Data.bind(yardBays));
     const kilnList = $.let(Data.bind(kilns));
-    const bin = Schedule.events(bins, { name: "Bin", icon: "box", at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
-        quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec" });
+    const bin = Schedule.events(bins, { name: "Bin", icon: "box", entries: binEntries, at: "at", resource: { field: "bay", of: "bays" },
+        arrival: "load", quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec" });
     const bayRows = Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset });
     const kilnRows = Schedule.resources(kilnList.read(), { name: "Kilns", icon: "fire", label: k => k.name, group: k => k.group,
         min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges });
@@ -392,7 +397,7 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
     // Where each kind of decision draws: a target for each tag of the options' change.
     const rotaChange = DecisionQueue.change.roster({ name: "Roster", icon: "users",
         events: { duty }, resources: { people, agencies }, shifts, groups, week: { start: "sunday" }, source: dutyWeek });
-    const rotaCostChange = DecisionQueue.change.roster({ name: "Roster", icon: "users", map: "cost", pay, currency: "AUD",
+    const rotaCostChange = DecisionQueue.change.roster({ name: "Roster", icon: "users", map: "cost", pay, currency: "USD",
         events: { duty }, resources: { people, agencies }, shifts, groups, week: { start: "sunday" }, source: dutyWeek });
     const printChange = DecisionQueue.change.plan({ name: "Plan", icon: "bars-progress", events: { job }, resources: { presses: pressRows } });
     const workshopChange = DecisionQueue.change.calendar({ name: "Calendar", icon: "calendar-days",
@@ -413,7 +418,8 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
         decisions={DecisionQueue.decisions(cases, {
             scope: c => c.scope, due: c => c.due, routine: c => c.routine, unit: c => c.unit, model: c => c.model,
             why: c => c.why, ifWrong: c => c.ifWrong, recommended: c => c.recommended,
-            format: _c => some(Format.Currency({ currency: "AUD", compact: "short" })),
+            // Money in dollars, a count as it is.
+            format: c => c.money.ifElse(() => some(Format.Currency({ currency: "USD", compact: "short" })), () => none),
             options: { from: c => c.options, label: o => o.label, title: o => o.title, summary: o => o.summary,
                 detail: o => o.detail, note: o => o.note, value: o => o.value, confidence: o => o.confidence,
                 question: o => o.question, warn: o => o.warn, refused: o => o.refused, knockOn: o => o.knockOn,
@@ -431,10 +437,19 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
             reason: { field: "reason", context: "context", data: "data", priorities: "priorities", other: "other" },
             note: "note",
         })}
-        onSelect={East.function([OptionType(StringType)], NullType, ($, key) => { $(open.write(key)); })}
+        onSelect={follow}
     />;
 }}</Reactive>
 ```
+
+The examples are these two queues as written here (`decisionQueueMinimal`,
+`decisionQueueOps`, §15), each placed in a `Box` of a fixed height, as the
+showcase places a builder, with `now` pinned to 15:00 on 8 March 2028 so their
+sections stand as the mock's do whatever the day. Their cases carry the mock's
+words and figures over the rows of the example records each case changes — the
+roster case moves a duty the warehouse rota holds, J. Tansy's Friday late — and
+each case's `money` says whether its figures print as dollars (`+$80K`) or as a
+count (`+3`).
 
 A record with no builder declares its form in its target, with the names an
 event kind gives them: `fields` (east-ui's `Fields` hints: `Fields.number`,

@@ -31,6 +31,7 @@ import type { CaseChoice } from "./choices.js";
 import { appliedInTurn, targetOf, type AppliedItem, type AppliedRows, type Decided, type DecisionRecord, type DecisionTarget } from "./editing.js";
 import { totalOf, type DecisionCase, type DecisionLayout, type DecisionSectionLayout } from "./layout.js";
 import type { DecisionQueueWords, DecisionVerdictWord } from "./messages.js";
+import type { SharedRows } from "./preview/index.js";
 import { applyOff, cardView } from "./state.js";
 
 const stringEqual = equalFor(StringType);
@@ -150,8 +151,8 @@ export interface DecisionListProps {
     readonly words: DecisionQueueWords;
     /** The `decisionQueue` recipe's styles. */
     readonly styles: SlotStyles;
-    /** The queue's editing: the open card reads the rows its change touches through it, and the band its batch's; none read only. */
-    readonly schedule: ScheduleEditing | undefined;
+    /** The queue's editing: each card reads the rows its change touches through it, and the band its batch's. */
+    readonly schedule: ScheduleEditing;
     /** A gesture's hold on a row (R8). */
     readonly hold: RowsHold | undefined;
     /** A case to bring into view, a key's step to a card the list has not mounted: each new nonce asks again. */
@@ -195,6 +196,29 @@ export const DecisionList = memo(function DecisionList(props: DecisionListProps)
         }
         return out;
     }, [rows, receipts, choiceOf, roles.answer, words]);
+    // The rows every waiting case's chosen option changes (P18): an entry's `+N` counts the other cases changing it.
+    const shared = useMemo((): SharedRows => {
+        const out = new Map<string, Map<string, number>>();
+        const count = (c: DecisionCase, choice: CaseChoice) => {
+            const option = cardView(c, choice, roles.answer).option;
+            const at = option === undefined ? -1 : targetOf(targets, option.change.tag);
+            const record = at < 0 ? undefined : records[at];
+            if (option === undefined || record === undefined) return;
+            let keys: Iterable<string>;
+            try {
+                keys = targets[at]!.touched(option.change.patch);
+            } catch (err) {
+                console.error(`[DecisionQueue] the rows case ${c.key}'s change touches could not be named:`, err);
+                return;
+            }
+            let counts = out.get(record.key);
+            if (counts === undefined) { counts = new Map(); out.set(record.key, counts); }
+            for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1);
+        };
+        for (const row of rows) if (row.kind === "case" && !receipts.has(row.c.key)) count(row.c, choiceOf(row.c.key));
+        for (const c of layout.routine) count(c, NONE_CHOSEN);
+        return out;
+    }, [rows, receipts, layout.routine, choiceOf, roles.answer, targets, records]);
     const getItemKey = useCallback((index: number) => rows[index]?.key ?? index, [rows]);
     const anchorable = useCallback(() => true, []);
     const estimateSize = useCallback((index: number) => {
@@ -228,7 +252,7 @@ export const DecisionList = memo(function DecisionList(props: DecisionListProps)
                 return (
                     <Box css={styles.cardRow}>
                         <DecisionCard c={c} targets={targets} records={records} choice={choiceOf(c.key)} open={isOpen} roles={roles} readOnly={readOnly}
-                            now={now} words={words} styles={styles} schedule={isOpen ? schedule : undefined}
+                            now={now} words={words} styles={styles} schedule={schedule} shared={shared}
                             onToggle={onToggle} onChoice={onChoice} onDecide={onDecide} />
                     </Box>
                 );
@@ -240,7 +264,7 @@ export const DecisionList = memo(function DecisionList(props: DecisionListProps)
                 );
         }
     }, [rows, totals, receipts, undoMark, open, routineOpen, layout.routine, layout.routineWaiting, choiceOf, targets, records, roles, readOnly, now, words,
-        styles, schedule, onToggle, onChoice, onDecide, onUndo, onGone, onRoutineToggle, onApplyAll]);
+        styles, schedule, shared, onToggle, onChoice, onDecide, onUndo, onGone, onRoutineToggle, onApplyAll]);
     const scrollIndex = scrollTo === undefined ? undefined : rows.findIndex(row => row.kind === "case" && stringEqual(row.c.key, scrollTo.key));
     if (empty) return <EmptyList words={words} styles={styles} />;
     return (
@@ -277,7 +301,7 @@ interface RoutineBandProps {
     readonly readOnly: boolean;
     readonly words: DecisionQueueWords;
     readonly styles: SlotStyles;
-    readonly schedule: ScheduleEditing | undefined;
+    readonly schedule: ScheduleEditing;
     readonly onToggle: () => void;
     readonly onApplyAll: (decided: readonly Decided[]) => void;
 }
@@ -300,7 +324,7 @@ const RoutineBand = memo(function RoutineBand({
         const at = targetOf(targets, view.option.change.tag);
         return [{ c, option: view.option, target: at < 0 ? undefined : targets[at], record: at < 0 ? undefined : records[at] }];
     }), [cases, roles.answer, targets, records]);
-    const readBatch = useCallback(() => (schedule === undefined || readOnly ? NO_APPLIED : appliedInTurn(schedule, candidates)), [schedule, readOnly, candidates]);
+    const readBatch = useCallback(() => (readOnly ? NO_APPLIED : appliedInTurn(schedule, candidates)), [schedule, readOnly, candidates]);
     const { result } = useTrackedEvaluation(readBatch);
     const applied = result.ok ? result.value : NO_APPLIED;
     const reading = applied.some(a => a.state === "reading");
@@ -325,7 +349,7 @@ const RoutineBand = memo(function RoutineBand({
                 <Box as="span" css={styles.routineTotal}>
                     {total !== undefined && m.together({ total: words.value(total.value, getSomeorUndefined(total.format), true) })}
                 </Box>
-                {!readOnly && schedule !== undefined && n > 0 && (
+                {!readOnly && n > 0 && (
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} aria-disabled={off !== undefined || undefined} title={off}
                         onClick={() => { if (off === undefined && decided.length > 0) onApplyAll(decided); }}>
                         {m.applyAll({ n: words.number(n) })}

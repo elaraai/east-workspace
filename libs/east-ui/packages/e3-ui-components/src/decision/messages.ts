@@ -28,6 +28,33 @@ export type DecisionReasonWord = "context" | "data" | "priorities" | "other";
 /** A person's answer, as the queue words it: the answer's case. */
 export type DecisionAnswerWord = "yes" | "no" | "unsure";
 
+/** One clause of a preview's sentence, worded: its names, shifts and days the builder's, `n` how many entries it moves. */
+export type PreviewClauseWords =
+    | { readonly kind: "move"; readonly from: string; readonly to: string; readonly what: string; readonly n: number; readonly days: string }
+    | { readonly kind: "add" | "remove"; readonly who: string; readonly what: string; readonly n: number; readonly days: string }
+    | { readonly kind: "reschedule"; readonly who: string; readonly what: string; readonly when: string; readonly toWhat: string; readonly toWhen: string }
+    | { readonly kind: "change"; readonly who: string; readonly what: string; readonly when: string };
+
+/** A preview's entry, worded for its title: its shift and day, and how the change marks it. */
+export interface PreviewTileWords {
+    /** Its shift, or what it is. */
+    readonly what: string;
+    /** Its day. */
+    readonly when: string;
+    /** How the change marks it: proposed where it lands, changed in place, moved off, or removed. */
+    readonly op: "add" | "chg" | "from" | "del" | undefined;
+    /** A moved-off entry's: whom it moves to. */
+    readonly to: string | undefined;
+    /** Whether the option knocks it on. */
+    readonly knock: boolean;
+    /** Whether it is locked. */
+    readonly locked: boolean;
+    /** The rule it breaks once the change is made. */
+    readonly breach: string | undefined;
+    /** How many other cases change it. */
+    readonly shared: { readonly n: string; readonly one: boolean } | undefined;
+}
+
 /** The DecisionQueue's message table: numbers and values arrive formatted. */
 export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMessages {
     /** The toolbar's title — `Decisions`. */
@@ -50,6 +77,8 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     options: (p: { n: string }) => string;
     /** A refused option's line — `refused · over the weekly cap`. */
     refused: (p: { reason: string }) => string;
+    /** The recommended option's line, before its note — `recommended · lands at 40h of 40`, or `recommended` alone. */
+    recommendedLine: (p: { note: string | undefined }) => string;
     /** The change's label — `Change`. */
     change: () => string;
     /** The figures' labels — `If wrong`, `Confidence`. */
@@ -130,6 +159,26 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     verdictsSession: () => string;
     /** A guessed cell's title — `conf 0.69 · a guess`. */
     guess: (p: { confidence: string }) => string;
+    /** Items in running text — `Mon, Wed and Thu`. */
+    previewList: (p: { items: readonly string[] }) => string;
+    /** One clause of a preview's sentence (P25): what moves where — `H. Aspen's Night shifts on Mon, Wed and Thu move to C. Clover`. */
+    previewClause: (p: PreviewClauseWords) => string;
+    /** A preview's sentence (P25): its clauses, a map's count ahead of them, and the rows the model guessed after them. */
+    previewSentence: (p: { clauses: readonly string[]; people?: { n: string; of: string } | undefined; guessed?: { keys: string; n: number } | undefined }) => string;
+    /** The sentence of a preview whose option changes nothing, over the rows the recommendation lands on (P4). */
+    previewUnchanged: (p: { names: string }) => string;
+    /** A person's hours, before → after, or as they stand against their contract — `52 → 40h`, `52→40h`, `52h of 40`. */
+    previewHours: (p: { before: string; after: string; same: boolean; contract: string | undefined; compact: boolean }) => string;
+    /** An agency's requests in the week — `3 requests`. */
+    previewRequests: (p: { n: string; one: boolean }) => string;
+    /** A map's rows past the four it shows (P5) — `+ 16 more people`. */
+    previewMorePeople: (p: { n: string }) => string;
+    /** A map's count of what changes (P5) — `20 of 36`. */
+    previewCount: (p: { n: string; of: string }) => string;
+    /** A preview's entry's title (P25): its shift and day, and how the change marks it. */
+    previewTile: (p: PreviewTileWords) => string;
+    /** The `+N` chip of the other cases changing an entry (P18) — `+2`. */
+    previewShared: (p: { n: string }) => string;
     /** A batch step's label in the history — `Apply 3 routine cases`. */
     batchStep: (p: { n: string }) => string;
     /** A verdict step's label in the history — `Apply: Move 3 night shifts`. */
@@ -174,6 +223,7 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     status: ({ status }) => STATUSES[status],
     options: ({ n }) => `Options · ${n}`,
     refused: ({ reason }) => `refused · ${reason}`,
+    recommendedLine: ({ note }) => (note === undefined ? "recommended" : `recommended · ${note}`),
     change: () => "Change",
     figure: ({ figure }) => (figure === "ifWrong" ? "If wrong" : "Confidence"),
     noData: () => "no data",
@@ -215,6 +265,37 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     unrecorded: () => ({ title: "Verdict not recorded", description: "Its records are being read or saved — try again in a moment." }),
     verdictsSession: () => "Verdicts",
     guess: ({ confidence }) => `conf ${confidence} · a guess`,
+    previewList: ({ items }) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]!}`),
+    previewClause: (p) => {
+        switch (p.kind) {
+            case "move": return p.n === 1 ? `${p.from}'s ${p.what} shift on ${p.days} moves to ${p.to}` : `${p.from}'s ${p.what} shifts on ${p.days} move to ${p.to}`;
+            case "add": return p.n === 1 ? `${p.who} takes the ${p.what} shift on ${p.days}` : `${p.who} takes ${p.what} shifts on ${p.days}`;
+            case "remove": return p.n === 1 ? `${p.who}'s ${p.what} shift on ${p.days} comes off` : `${p.who}'s ${p.what} shifts on ${p.days} come off`;
+            case "reschedule": return `${p.who}'s ${p.what} shift on ${p.when} moves to ${p.toWhat} on ${p.toWhen}`;
+            case "change": return `${p.who}'s ${p.what} shift on ${p.when} changes`;
+        }
+    },
+    previewSentence: ({ clauses, people, guessed }) => {
+        const said = clauses.join("; ");
+        const head = people === undefined ? said : `${people.n} of ${people.of} people change: ${said}`;
+        return guessed === undefined ? head : `${head}. ${guessed.keys} ${guessed.n === 1 ? "is a low-confidence guess" : "are low-confidence guesses"}`;
+    },
+    previewUnchanged: ({ names }) => `Nothing changes for ${names}`,
+    previewHours: ({ before, after, same, contract, compact }) => (same
+        ? contract === undefined ? `${after}h` : `${after}h of ${contract}`
+        : compact ? `${before}→${after}h` : `${before} → ${after}h`),
+    previewRequests: ({ n, one }) => (one ? `${n} request` : `${n} requests`),
+    previewMorePeople: ({ n }) => `+ ${n} more people`,
+    previewCount: ({ n, of }) => `${n} of ${of}`,
+    previewTile: ({ what, when, op, to, knock, locked, breach, shared }) => [
+        `${what} · ${when}`,
+        op === "add" ? "proposed" : op === "chg" ? "changed" : op === "from" ? `moves to ${to ?? "another day"}` : op === "del" ? "comes off" : undefined,
+        knock ? "knock-on" : undefined,
+        locked ? "locked" : undefined,
+        breach,
+        shared === undefined ? undefined : `${shared.n} other ${shared.one ? "case changes" : "cases change"} it too`,
+    ].filter(part => part !== undefined).join(" · "),
+    previewShared: ({ n }) => `+${n}`,
     batchStep: ({ n }) => `Apply ${n} routine cases`,
     verdictStep: ({ verdict, title }) => `${VERDICTS[verdict]}: ${title}`,
 };

@@ -22,7 +22,7 @@ import e3 from "@elaraai/e3";
 import { KilnBin } from "../allocation/kiln-yard.js";
 import { CalendarJob } from "../calendar/calendar.examples.js";
 import { PrintJob } from "../plan/plan-events.examples.js";
-import { WarehouseDuty } from "../roster/warehouse.js";
+import { WarehouseDuty, warehouseDuties } from "../roster/warehouse.js";
 import { OptimiseWorkOrder, optimiseWorkOrderRows } from "../sheet/optimise.examples.js";
 
 // ============================================================================
@@ -67,11 +67,12 @@ export const OpsCase = StructType({
     due: OptionType(DateTimeType),
     routine: BooleanType,
     unit: StringType,
+    money: BooleanType,                // whether its figures are money, or a count — the orders'
     model: StringType,
     why: StringType,
     ifWrong: OptionType(FloatType),
     recommended: StringType,           // the key of the option the card opens on
-    options: DictType(StringType, OpsOption),
+    options: DictType(StringType, OpsOption),  // keyed by the model's rank, which orders them: `1-pumice`, `2-osier`, …
 });
 
 /** When a verdict was given: each case of a verdict holds it. */
@@ -115,6 +116,28 @@ function ordersPatch(dues: readonly (readonly [string, Date])[]) {
     const after = new SortedMap(dues.map(([key, due]) => [key, { ...optimiseWorkOrderRows.get(key)!, status: "Scheduled", due: some(due) }] as const), byString);
     return diffOrders(before, after);
 }
+/** A duty of the warehouse's rota. */
+type DutyRow = ValueTypeOf<typeof WarehouseDuty>;
+/** The duties' patch, as a model diffs the rows it touches. */
+const diffDuties = diffFor(DictType(StringType, WarehouseDuty));
+/**
+ * The duties' patch changing the duties given — each to the row it becomes, `undefined` where the model removes it —
+ * from the rows as the rota holds them: the patch of those rows alone, a key the rota has not a new duty.
+ */
+function dutiesPatch(changes: readonly (readonly [string, DutyRow | undefined])[]) {
+    const before = new SortedMap(changes.flatMap(([key]) => {
+        const row = warehouseDuties.get(key);
+        return row === undefined ? [] : [[key, row] as const];
+    }), byString);
+    const after = new SortedMap(changes.flatMap(([key, row]) => (row === undefined ? [] : [[key, row] as const])), byString);
+    return diffDuties(before, after);
+}
+/** J. Tansy's Friday late, 14:00–22:00: the week's fifth shift of theirs, 4 h past their 38. */
+const tansyFriday = warehouseDuties.get("s234")!;
+/** Thursday's agency request on the late picking shift, whose fields a request for Saturday's takes. */
+const thursdayRequest = warehouseDuties.get("s250")!;
+const saturdayLate = new Date("2028-03-11T14:00:00Z");
+const saturdayLateEnd = new Date("2028-03-11T22:00:00Z");
 /** Monday to Wednesday of the week after the warehouse's: the days the shop's ready orders fall due. */
 const mon13 = new Date("2028-03-13T00:00:00Z");
 const tue14 = new Date("2028-03-14T00:00:00Z");
@@ -128,36 +151,73 @@ function option(row: Pick<ValueTypeOf<typeof OpsOption>, "label" | "title" | "su
     };
 }
 
-/** The cases the models left: a price for the Coast region, and the shop's ready work orders. */
+/**
+ * The cases the models left: who takes J. Tansy's Friday late, and a request for Saturday's open late — routine — on
+ * the warehouse's rota; a price for the Coast region; and the shop's ready work orders.
+ */
 export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new SortedMap<string, ValueTypeOf<typeof OpsCase>>([
+    ["rota-tansy", {
+        area: "rota", scope: "Picking · W10", due: some(new Date("2028-03-08T13:00:00Z")), routine: false, unit: "uplift", money: true,
+        model: "staffing-v3.2.1 · run #42",
+        why: "Picking demand runs 14% above plan for the next two weeks. The extra late shift sits on J. Tansy, 4h over contract; B. Pumice has 14h spare.",
+        ifWrong: some(-8_000), recommended: "1-pumice",
+        options: new SortedMap([
+            ["1-pumice", option({ label: "B. Pumice", title: "Move J. Tansy's Friday late to B. Pumice", summary: "B. Pumice · Fri 14–22",
+                detail: "B. Pumice takes Friday 14–22; J. Tansy drops to 34h.", note: some("B. Pumice lands at 32h of 38"), value: 80_000,
+                confidence: some(0.82), question: some("Has B. Pumice been told this is on the table?"),
+                change: variant("rota", dutiesPatch([["s234", { ...tansyFriday, who: variant("staff", "bpumice") }]])) })],
+            ["2-osier", option({ label: "A. Osier", title: "Move J. Tansy's Friday late to A. Osier", summary: "A. Osier · Fri 14–22",
+                detail: "A. Osier takes Friday 14–22.", note: some("A. Osier lands at 40h of 38"), value: 72_000, confidence: some(0.74),
+                warn: some("A. Osier lands 2h over contract, paid at 1.5×."), question: some("Has A. Osier been told this is on the table?"),
+                change: variant("rota", dutiesPatch([["s234", { ...tansyFriday, who: variant("staff", "aosier") }]])) })],
+            ["3-agency", option({ label: "Agency", title: "Request an agency late on Friday", summary: "Agency · 1 request",
+                detail: "Northside Staffing covers Friday 14–22.", note: some("$408 agency fee"), value: 61_000, confidence: some(0.70),
+                change: variant("rota", dutiesPatch([["s234", { ...tansyFriday, who: variant("agency", "northside") }]])) })],
+            ["4-keep", option({ label: "Keep with J. Tansy", title: "Keep Friday's late with J. Tansy", summary: "no change",
+                detail: "No change to the roster.", note: some("J. Tansy stays 4h over contract"), value: 0,
+                warn: some("J. Tansy stays 4h over contract; an SLA breach is likely in week 2."),
+                change: variant("rota", dutiesPatch([["s234", tansyFriday]])) })],
+        ], byString),
+    }],
+    ["rota-saturday", {
+        area: "rota", scope: "Picking · W10", due: none, routine: true, unit: "uplift", money: true,
+        model: "roster-opt · run #204",
+        why: "Saturday's late picking shift is one short of its seven; Northside Staffing can fill it.",
+        ifWrong: none, recommended: "1-request",
+        options: new SortedMap([
+            ["1-request", option({ label: "Request", title: "Request an agency late on Saturday", summary: "Agency · Sat 14–22",
+                detail: "Northside Staffing covers Saturday 14–22.", value: 1_200,
+                change: variant("rota", dutiesPatch([["s319", { ...thursdayRequest, start: saturdayLate, end: saturdayLateEnd }]])) })],
+        ], byString),
+    }],
     ["price-coast", {
-        area: "pricing", scope: "Regional list prices", due: some(new Date("2028-03-10T17:00:00Z")), routine: false, unit: "uplift / mo",
+        area: "pricing", scope: "Regional list prices", due: some(new Date("2028-03-10T17:00:00Z")), routine: false, unit: "uplift / mo", money: true,
         model: "demand-coast · query 2h ago",
         why: "Coast demand is less sensitive to price than other regions, at an elasticity of −0.42. Competitors sit at a median of $11.20.",
-        ifWrong: some(-6_100), recommended: "p1100",
+        ifWrong: some(-6_100), recommended: "1-p1100",
         options: new SortedMap([
-            ["p1100", option({ label: "$11.00", title: "Raise the Coast list price to $11.00", summary: "Coast $10.50 → $11.00",
+            ["1-p1100", option({ label: "$11.00", title: "Raise the Coast list price to $11.00", summary: "Coast $10.50 → $11.00",
                 detail: "Demand −2.0% · revenue +2.7%.", value: 17_400, confidence: some(0.74),
                 change: variant("pricing", pricesPatch("coast", 11.00, 13_916)) })],
-            ["p1075", option({ label: "$10.75", title: "Raise the Coast list price to $10.75", summary: "Coast $10.50 → $10.75",
+            ["2-p1075", option({ label: "$10.75", title: "Raise the Coast list price to $10.75", summary: "Coast $10.50 → $10.75",
                 detail: "Demand −1.0% · revenue +1.4%.", value: 9_100, confidence: some(0.79),
                 change: variant("pricing", pricesPatch("coast", 10.75, 14_058)) })],
-            ["hold", option({ label: "Hold at $10.50", title: "Hold the Coast list price at $10.50", summary: "no change",
+            ["3-hold", option({ label: "Hold at $10.50", title: "Hold the Coast list price at $10.50", summary: "no change",
                 detail: "No change to prices.", note: some("margin stays at 18%"), value: 0,
                 change: variant("pricing", pricesPatch("coast", 10.50, 14_200)) })],
         ], byString),
     }],
     ["orders-ready", {
-        area: "orders", scope: "Workshop orders", due: some(new Date("2028-03-08T17:00:00Z")), routine: false, unit: "orders",
+        area: "orders", scope: "Workshop orders", due: some(new Date("2028-03-08T17:00:00Z")), routine: false, unit: "orders", money: false,
         model: "sheet copilot · 5m ago",
         why: "Three orders are ready with no due date. The shop's next free days on their work centres give each one.",
-        ifWrong: none, recommended: "all",
+        ifWrong: none, recommended: "1-all",
         options: new SortedMap([
-            ["all", option({ label: "All three", title: "Schedule the three ready orders", summary: "3 orders",
+            ["1-all", option({ label: "All three", title: "Schedule the three ready orders", summary: "3 orders",
                 detail: "WO-1005, WO-1007 and WO-1008 are given due dates and set Scheduled.", value: 3, confidence: some(0.91),
                 guesses: new SortedMap([["WO-1007", 0.69]], byString),
                 change: variant("orders", ordersPatch([["WO-1005", mon13], ["WO-1007", tue14], ["WO-1008", wed15]])) })],
-            ["first", option({ label: "WO-1005 only", title: "Schedule WO-1005 alone", summary: "1 order",
+            ["2-first", option({ label: "WO-1005 only", title: "Schedule WO-1005 alone", summary: "1 order",
                 detail: "WO-1005 is given a due date; the other two stay ready.", value: 1, confidence: some(0.96),
                 change: variant("orders", ordersPatch([["WO-1005", mon13]])) })],
         ], byString),

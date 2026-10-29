@@ -6,9 +6,9 @@
 /**
  * DecisionQueue slot recipe (#1447; `Decision Queue Spec.md` §8) — the queue's own looks, from the mock: what no other
  * builder draws. The frame, the toolbar's row and its history item, the buttons (`xs`), the radios, the note's
- * textarea, Modify's inspector form, the banners and the empty state are the shared parts' own (§6), and a preview's
- * entries are each builder's own recipes at the crop's sizes; this recipe never restyles them. The parts set data
- * attributes and geometry only.
+ * textarea, Modify's inspector form, the banners and the empty state are the shared parts' own (§6), and a preview is
+ * the `decisionPreview` recipe's, over each builder's own recipes at the crop's sizes; this recipe never restyles them.
+ * The parts set data attributes and geometry only.
  *
  *   - root / main: the queue's root, a column filling its host, and the frame's main — a bounded column the list fills
  *     and scrolls in. While a narrowing is read the cases it showed stand in, retained (`data-decision-stale` on main,
@@ -44,16 +44,6 @@
  *
  * On a coarse pointer each bare button — Why's toggle, the Routine band's, a link, a receipt's Undo — is a 44px tap
  * target by its halo (`coarseHitArea`), its size kept.
- *   - preview, previewIcon, previewShared, previewGuess: a preview's frame (`role="img"`, dashed while stale —
- *     `data-stale`) and the marks on the `elara` tokens over the attributes a builder's own entries carry in it, the
- *     words Optimise's landing reads (#1409): a proposed entry (`data-op="add|chg"`) the steady highlight Optimise's
- *     result is drawn with (`ELARA_STEADY`), on the dirty fill unless the entry has its own (`data-fill="own"`), inset
- *     on a Sheet cell (`data-fill="cell"`); a ghost — an entry the proposal moves off (`data-op="from"`) or removes
- *     (`data-op="del"`, struck through) — dashed in `elara.edge`, unfilled, its words `--ink-4`; an entry the proposal
- *     knocks on (`data-knock`) a dashed `elara.edge` ring 3px out; one it overfills or breaks a rule on
- *     (`data-breach`) a `--warn` ring; while stale the proposal dashed on `--paper-3`, no glow; once applied
- *     (`data-applied`) the glow settles to nothing over `--dur-slow` and the ghosts go. The warning and lock icons, the
- *     shared `+N` chip and the guess dot are the marks' own parts.
  *
  * Under `prefers-reduced-motion` every duration is 0: the body opens, the receipt arrives and leaves and the chip
  * settles at once.
@@ -63,7 +53,6 @@
 
 import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
-import { ELARA_STEADY, ELARA_STEADY_INSET } from "../elara-marks.js";
 import { builderFooter } from "./builder-footer.js";
 
 /** A label in the mono caps the queue's eyebrows, section heads and part labels share. */
@@ -104,55 +93,6 @@ const RETAINED = { "[data-decision-stale] &": { color: "fg.muted", "& *": { colo
 /** The 6% wash of a tone a call box stands on. */
 const wash = (tone: string) => `color-mix(in oklch, {colors.${tone}} 6%, transparent)`;
 
-/** A ghost in a preview: dashed `elara.edge`, unfilled, its words `--ink-4`. */
-const GHOST = {
-    borderWidth: "1px",
-    borderStyle: "dashed",
-    borderColor: "elara.edge",
-    background: "transparent",
-    boxShadow: "none",
-    color: "fg.subtle",
-} satisfies SystemStyleObject;
-
-/** The marks over a preview's entries (§8, P13–P22): what the `preview` slot draws on the builder's own parts. */
-const MARKS = {
-    "& [data-op=add], & [data-op=chg]": {
-        boxShadow: ELARA_STEADY,
-        transitionProperty: "box-shadow",
-        transitionDuration: "slow",
-        transitionTimingFunction: "{easings.out}",
-    },
-    "& [data-op=add]:not([data-fill=own]):not([data-fill=cell]), & [data-op=chg]:not([data-fill=own]):not([data-fill=cell])": {
-        backgroundColor: "brandTint",
-    },
-    "& [data-fill=cell][data-op=add], & [data-fill=cell][data-op=chg]": { backgroundColor: "brandTint", boxShadow: ELARA_STEADY_INSET },
-    "& [data-op=from], & [data-op=del]": {
-        ...GHOST,
-        transitionProperty: "opacity",
-        transitionDuration: "slow",
-        transitionTimingFunction: "{easings.out}",
-    },
-    "& [data-op=del]": { textDecoration: "line-through" },
-    "& [data-op=from] *, & [data-op=del] *": { color: "inherit" },
-    "& [data-knock]": { outline: "1px dashed {colors.elara.edge}", outlineOffset: "3px" },
-    "& [data-breach]": { outline: "1px solid {colors.status.warn}", outlineOffset: "3px" },
-    // Stale (P21): the proposal dashed on `--paper-3`, its words `--ink-3`, no glow.
-    "&[data-stale] [data-op=add], &[data-stale] [data-op=chg]": {
-        borderWidth: "1px",
-        borderStyle: "dashed",
-        borderColor: "fg.subtle",
-        backgroundColor: "bg.subtle",
-        boxShadow: "none",
-        color: "fg.muted",
-    },
-    // Applied (P22): the glow settles, the ghosts go.
-    "&[data-applied] [data-op=add], &[data-applied] [data-op=chg]": { boxShadow: "none" },
-    "&[data-applied] [data-op=from], &[data-applied] [data-op=del]": { opacity: 0 },
-    _motionReduce: {
-        "& [data-op]": { transition: "none" },
-    },
-} satisfies SystemStyleObject;
-
 export const decisionQueueSlotRecipe = defineSlotRecipe({
     className: "elara-decision-queue",
     slots: [
@@ -177,7 +117,6 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
         "receipt", "receiptDot", "receiptVerdict", "receiptTitle", "receiptUndo",
         "routine", "routineHead", "routineToggle", "routineTotal", "routineList", "routineRow",
         "routineIcon", "routineText", "routineTitle", "routineMeta", "routineValue",
-        "preview", "previewIcon", "previewShared", "previewGuess",
     ],
     base: {
         // The queue (§7): a column filling its host, the frame's main a bounded column the list fills.
@@ -920,51 +859,6 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             color: "fg",
             whiteSpace: "nowrap",
-        },
-        // A preview (§8, P2–P22): its frame at its target's crop height (`data-kind`), and the marks on the builder's own
-        // entries in it.
-        preview: {
-            position: "relative",
-            boxSizing: "border-box",
-            height: "112px",
-            borderWidth: "1px",
-            borderStyle: "solid",
-            borderColor: "border.subtle",
-            borderRadius: "sm",
-            background: "bg.surface",
-            overflow: "hidden",
-            "&[data-kind=roster]": { height: "120px" },
-            "&[data-kind=allocation], &[data-kind=zones]": { height: "104px" },
-            "&[data-kind=record]": { height: "108px" },
-            "&[data-kind=projection]": { height: "96px" },
-            "&[data-stale]": { borderStyle: "dashed", borderColor: "border.strong" },
-            ...MARKS,
-        },
-        previewIcon: {
-            "--fa-width": "auto",
-            flex: "none",
-            display: "inline-flex",
-            fontSize: "label.xs",
-            color: "inherit",
-            "&[data-tone=warn]": { color: "status.warn" },
-        },
-        previewShared: {
-            flex: "none",
-            height: "12px",
-            display: "inline-flex",
-            alignItems: "center",
-            paddingInline: "4px",
-            borderRadius: "2px",
-            background: "bg.surface",
-            color: "fg",
-            fontSize: "label.xs",
-        },
-        previewGuess: {
-            flex: "none",
-            width: "6px",
-            height: "6px",
-            borderRadius: "full",
-            background: "status.warn",
         },
     },
 });

@@ -43,7 +43,7 @@ import { flag } from "./card.js";
 import { useDecisionChoices } from "./choices.js";
 import { DecisionDataReader, INITIAL_DATA, type DecisionData } from "./data.js";
 import {
-    VERDICTS, decisionChanges, useDecisionEditing, verdictDraft, verdictSteps, type Decided, type DecisionEditing, type DecisionQueueValue,
+    VERDICTS, decisionChanges, useDecisionEditing, verdictDraft, verdictSteps, type Decided, type DecisionQueueValue,
 } from "./editing.js";
 import { DecisionFooter } from "./footer.js";
 import { layoutCases, recommendedIndex, type DecisionCase } from "./layout.js";
@@ -115,21 +115,18 @@ function useNow(pinned: option<Date>): Date {
     return stable.type === "some" ? stable.value : clock;
 }
 
-/** What the frame takes: the payload, its key, and its editing — none read only. */
+/** What the frame takes: the payload, and its key. */
 interface FrameProps {
     readonly value: DecisionQueueValue;
     readonly storageKey: string;
-    readonly editing: DecisionEditing | undefined;
 }
 
-/** The queue that takes verdicts: its sessions made, under its key (R22 — a read-only queue makes none). */
-function EditableQueue(props: Omit<FrameProps, "editing">) {
-    const editing = useDecisionEditing(props.value, props.storageKey);
-    return <DecisionFrame {...props} editing={editing} />;
-}
-
-/** The frame (see the module docs). */
-function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
+/**
+ * The frame (see the module docs). Its sessions are made read only too (R22): it takes no verdict and shows no history
+ * item, and its previews read the rows each change touches as they stand through them.
+ */
+function DecisionFrame({ value, storageKey: key }: FrameProps) {
+    const editing = useDecisionEditing(value, key);
     const [data, setData] = useState<DecisionData>(INITIAL_DATA);
     const { choices, choiceOf, setChoice, setOpen, setRoutineOpen, forget } = useDecisionChoices(key);
     const styles = useSlotStyles("decisionQueue");
@@ -137,16 +134,16 @@ function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
     const words = useMemo((): DecisionQueueWords => ({ ...formatters, m: decisionQueueMessages }), [formatters]);
     const { m } = words;
     const now = useNow(value.now);
-    const readOnly = value.readOnly || editing === undefined;
-    const schedule = editing?.schedule;
-    const history = editing?.history;
+    const readOnly = value.readOnly;
+    const schedule = editing.schedule;
+    const history = editing.history;
     const main = useRef<HTMLDivElement>(null);
 
     // ── What shows ────────────────────────────────────────────────────────────
     // A case waits while no verdict holds its key (R3, D1): drafted, it is decided; a draft removing a saved one — an
     // Undo past its Save — brings it back; else its verdict as read.
     const waits = useCallback((c: DecisionCase): boolean => {
-        const drafted = schedule === undefined ? undefined : verdictDraft(schedule, c.key);
+        const drafted = verdictDraft(schedule, c.key);
         return drafted === undefined ? !data.saved.has(c.key) : drafted === "removed";
     }, [schedule, data.saved]);
     const cases = data.cases ?? NO_CASES;
@@ -236,7 +233,7 @@ function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
     // keyboard goes to the next card's head.
     const onDecide = useCallback((d: Decided, from: number) => {
         const now = latest.current;
-        if (editing === undefined || now.retained) return;
+        if (readOnly || now.retained) return;
         const title = d.c.options[recommendedIndex(d.c).index]?.title ?? "";
         const recorded = editing.schedule.record(decisionChanges(now.value, d, new Date()), "verdict", now.m.verdictStep({ verdict: d.verdict, title }));
         if (!recorded) {
@@ -249,10 +246,10 @@ function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
         holdRow(d.c.key, HEAD_PART);
         setOpen(null);
         focusAfter(cardAfter(now.rows, now.standing, d.c.key));
-    }, [editing, holdRow, setOpen]);
+    }, [editing, readOnly, holdRow, setOpen]);
     // A receipt's Undo (R27): the history's; the case comes back open where the receipt was.
     const onUndo = useCallback((caseKey: string) => {
-        if (editing === undefined) return;
+        if (readOnly) return;
         editing.history.act("undo");
         setReceipts(was => {
             const next = new Map(was);
@@ -262,7 +259,7 @@ function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
         holdRow(caseKey, RECEIPT_PART, REVEAL_PX);
         setOpen(caseKey);
         focusAfter(caseKey);
-    }, [editing, holdRow, setOpen]);
+    }, [editing, readOnly, holdRow, setOpen]);
     // A receipt that has left (R26): the keyboard on it goes to the next card's head.
     const onGone = useCallback((caseKey: string) => {
         const board = main.current;
@@ -282,7 +279,7 @@ function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
     const [batch, setBatch] = useState<{ readonly mark: number | undefined; readonly n: number } | undefined>(undefined);
     const onApplyAll = useCallback((decided: readonly Decided[]) => {
         const now = latest.current;
-        if (editing === undefined || now.retained || decided.length === 0) return;
+        if (readOnly || now.retained || decided.length === 0) return;
         const at = new Date();
         const recorded = editing.schedule.record(decided.flatMap(d => decisionChanges(now.value, d, at)), "verdict",
             now.m.batchStep({ n: now.words.number(decided.length) }));
@@ -292,9 +289,9 @@ function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
         }
         setUnrecorded(false);
         setBatch({ mark: verdictSteps(editing.schedule), n: decided.length });
-    }, [editing]);
+    }, [editing, readOnly]);
     // The history's step a receipt's or the batch's Undo takes back: the verdicts' steps done, while it can undo.
-    const undoMark = history !== undefined && schedule !== undefined && history.canUndo ? verdictSteps(schedule) : undefined;
+    const undoMark = !readOnly && history.canUndo ? verdictSteps(schedule) : undefined;
     const batchShown = batch !== undefined && undoMark !== undefined && batch.mark === undoMark;
 
     // ── The history ───────────────────────────────────────────────────────────
@@ -302,11 +299,10 @@ function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
         // A field typed into hands the keyboard to main first, so what it holds is taken as the step runs.
         const active = main.current?.ownerDocument.activeElement ?? null;
         if (active instanceof HTMLElement && typedInto(active)) main.current?.focus({ preventScroll: true });
-        history?.act(action);
+        history.act(action);
     }, [history]);
     // An issue of the history: a verdict's opens its case where it waits.
     const onIssue = (issue: EditIssue) => {
-        if (editing === undefined) return;
         const source = editing.history.sourceOf(issue);
         const verdicts = editing.schedule.sessions.find(held => stringEqual(held.kind, VERDICTS));
         if (source === undefined || verdicts === undefined || !stringEqual(source, verdicts.key)) return;
@@ -314,7 +310,7 @@ function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
     };
     // A session's banners name it, and an issue's place: a verdict by its case's title, a row by its key.
     const sessionName = (kind: string) => (stringEqual(kind, VERDICTS) ? m.verdictsSession()
-        : editing?.records.find(record => record !== undefined && stringEqual(record.key, kind))?.name ?? kind);
+        : editing.records.find(record => record !== undefined && stringEqual(record.key, kind))?.name ?? kind);
     const where = (kind: string) => (issue: EditIssue) => {
         if (!stringEqual(kind, VERDICTS)) return issue.entry;
         const c = cases.find(held => stringEqual(held.key, issue.entry));
@@ -340,7 +336,7 @@ function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
         }
         if (typedInto(event.target)) return;
         const action = historyShortcut(event);
-        if (action !== undefined && history !== undefined && !readOnly) {
+        if (action !== undefined && !readOnly) {
             takeKey(event);
             onAction(action);
         } else if ((event.key === "j" || event.key === "k") && !event.metaKey && !event.ctrlKey && !event.altKey) {
@@ -374,9 +370,9 @@ function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
                     rootProps={CLICK_FOCUS} banners={<>
                         {batchShown && batchWords !== undefined && (
                             <BannerView status="info" title={batchWords.title} description={batchWords.description}
-                                actions={<Button size="xs" variant="outline" onClick={() => { history?.act("undo"); setBatch(undefined); }}>{m.undo()}</Button>} />
+                                actions={<Button size="xs" variant="outline" onClick={() => { history.act("undo"); setBatch(undefined); }}>{m.undo()}</Button>} />
                         )}
-                        {editing?.schedule.sessions.map(held => (
+                        {!readOnly && editing.schedule.sessions.map(held => (
                             <SessionBanners key={held.key} session={held.session} words={words} name={sessionName(held.kind)} where={where(held.kind)}
                                 onAction={action => editing.history.actOn(held.key, action)} />
                         ))}
@@ -395,7 +391,7 @@ function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
                     <Box ref={main} css={styles.main} data-decision-main="" tabIndex={-1} aria-disabled={retained ? true : undefined}
                         data-decision-stale={flag(retained)}>
                         <DecisionList rows={rows} layout={layout} empty={empty} receipts={standing} undoMark={undoMark} open={open}
-                            routineOpen={choices.routineOpen} choiceOf={choiceOf} targets={value.targets} records={editing?.records ?? value.targets.map(() => undefined)}
+                            routineOpen={choices.routineOpen} choiceOf={choiceOf} targets={value.targets} records={editing.records}
                             roles={value.verdicts.roles} readOnly={readOnly} now={now} words={words} styles={styles} schedule={schedule} hold={hold}
                             scrollTo={scrollTo} onToggle={onToggle} onChoice={setChoice} onDecide={onDecide} onUndo={onUndo} onGone={onGone}
                             onRoutineToggle={onRoutineToggle} onApplyAll={onApplyAll} />
@@ -408,15 +404,15 @@ function DecisionFrame({ value, storageKey: key, editing }: FrameProps) {
 
 /**
  * Renders e3-ui's `<DecisionQueue>` (see the module docs): its state kept under
- * `storageKey` by the queue's `id`; read only, it makes no session and takes
- * no verdict (R22).
+ * `storageKey` by the queue's `id`; read only, it takes no verdict and its
+ * toolbar has no history item (R22).
  *
  * @param props - The payload and its storage key
  * @returns The queue, in its frame
  */
 export const EastChakraDecisionQueue = memo(function EastChakraDecisionQueue({ value, storageKey }: EastChakraDecisionQueueProps) {
     const key = `${storageKey}.${value.id}`;
-    return value.readOnly ? <DecisionFrame value={value} storageKey={key} editing={undefined} /> : <EditableQueue value={value} storageKey={key} />;
+    return <DecisionFrame value={value} storageKey={key} />;
 }, (prev, next) => queueEqual(prev.value, next.value) && prev.storageKey === next.storageKey);
 
 implementUIComponent(DecisionQueueComponent, EastChakraDecisionQueue);

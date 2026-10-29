@@ -20,9 +20,10 @@
  * type, as `FieldForm`'s are; the `decisionQueue` recipe draws the rest from
  * the attributes the card sets.
  *
- * The rows the chosen option's change leaves are read only while the card is
- * open, tracked, so a row's read landing reads them again: what Apply writes,
- * what Modify edits, and whether the change still applies (Stale).
+ * The rows the chosen option's change leaves are read for every card the list
+ * draws, closed or open, tracked, so a row's read landing reads them again:
+ * what its preview draws (`preview/`), what Apply writes, what Modify edits,
+ * and whether the change still applies (Stale).
  *
  * @packageDocumentation
  */
@@ -44,6 +45,7 @@ import { rowCodec, type RowCodec } from "../shared/schedule/records.js";
 import { bytesOf, keptBytes, optionId, type CaseChoice, type RowEdit } from "./choices.js";
 import { appliedRows, targetOf, type AppliedRows, type Decided, type DecisionQueueValue, type DecisionRecord, type DecisionTarget } from "./editing.js";
 import { figureRuns } from "./figures.js";
+import { DecisionPreview, flag, type SharedRows } from "./preview/index.js";
 import { dueWords, sectionOf, type DecisionCase } from "./layout.js";
 import type { DecisionAnswerWord, DecisionQueueWords, DecisionReasonWord, DecisionVerdictWord } from "./messages.js";
 import {
@@ -91,14 +93,13 @@ const CALL_ICONS: Readonly<Record<CallState, IconDefinition>> = {
 /** A status's tone at the value line's end (P21). */
 const STATUS_TONES = { needsAnswer: "warn", blocked: "neg", handoff: "warn", stale: "warn" } as const;
 
-/** A closed card reads no rows. */
-const CLOSED: AppliedRows = { state: "none" };
+/** A case with no option reads no rows. */
+const NO_OPTION: AppliedRows = { state: "none" };
 const NO_ROWS: readonly ChangedRow[] = [];
 const KEEP: RowEdit = { keep: true };
 const NO_CHANGE = (): void => {};
 
-/** A flag attribute: present while `on`. */
-export const flag = (on: boolean): "" | undefined => (on ? "" : undefined);
+export { flag };
 
 /**
  * Running text with its figures marked for the recipe to set in mono (`data-figure`, §8).
@@ -142,8 +143,10 @@ export interface DecisionCardProps {
     readonly words: DecisionQueueWords;
     /** The `decisionQueue` recipe's styles. */
     readonly styles: SlotStyles;
-    /** The queue's editing, handed to the open card alone: a closed card reads no rows, and draws nothing again as a step lands. */
-    readonly schedule: ScheduleEditing | undefined;
+    /** The queue's editing: the rows the chosen option's change touches, as they stand, are read through it. */
+    readonly schedule: ScheduleEditing;
+    /** The rows every waiting case's chosen option changes: an entry's `+N` (P18). */
+    readonly shared: SharedRows;
     /** Opens the card, or closes it. */
     readonly onToggle: (key: string) => void;
     /** Changes some of the card's choices, from its choices as they stand. */
@@ -159,7 +162,7 @@ export interface DecisionCardProps {
  * @returns The card
  */
 export const DecisionCard = memo(function DecisionCard({
-    c, targets, records, choice, open, roles, readOnly, now, words, styles, schedule, onToggle, onChoice, onDecide,
+    c, targets, records, choice, open, roles, readOnly, now, words, styles, schedule, shared, onToggle, onChoice, onDecide,
 }: DecisionCardProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
@@ -175,12 +178,12 @@ export const DecisionCard = memo(function DecisionCard({
     const target = at < 0 ? undefined : targets[at];
     const record = at < 0 ? undefined : records[at];
 
-    // The rows the chosen option's change leaves, read while the card is open — tracked, so a row's read landing reads
-    // them again; Retry asks the record again.
+    // The rows the chosen option's change leaves — tracked, so a row's read landing reads them again; Retry asks the
+    // record again.
     const [attempt, setAttempt] = useState(0);
     const readRows = useCallback((): AppliedRows => {
         void attempt;
-        return schedule === undefined || option === undefined ? CLOSED : appliedRows(schedule, target, record, option);
+        return option === undefined ? NO_OPTION : appliedRows(schedule, target, record, option);
     }, [schedule, target, record, option, attempt]);
     const { result } = useTrackedEvaluation(readRows);
     useEffect(() => {
@@ -299,7 +302,8 @@ export const DecisionCard = memo(function DecisionCard({
                 </Box>
                 <Box css={styles.headTitle}><Figured text={title} /></Box>
                 {target !== undefined && option !== undefined && (
-                    <Box css={styles.preview} role="img" aria-label={option.detail} data-kind={target.kind.type} data-stale={flag(rows === "stale")} />
+                    <DecisionPreview c={c} view={view} target={target} record={record} rows={rows} changed={changed} schedule={schedule} shared={shared}
+                        words={words} />
                 )}
                 <Box css={styles.chipLine}>
                     <Box as="span" css={styles.proposal}>{m.chip({ modified: view.modified })}</Box>
@@ -416,7 +420,8 @@ interface OptionsPartProps {
 
 /**
  * The options (R14): a listbox, one tab stop — the chosen option, until the arrows move along it — each option its
- * mark, its label and line, and its value; a refused one off, its reason on its line.
+ * mark, its label and line, and its value; the recommended one's line says so before its note, and a refused one is
+ * off, its reason on its line.
  */
 function OptionsPart({ c, view, format, readOnly, words, styles, labelId, listRef, onChoose }: OptionsPartProps) {
     const { m } = words;
@@ -439,7 +444,8 @@ function OptionsPart({ c, view, format, readOnly, words, styles, labelId, listRe
             <Box ref={listRef} css={styles.options} role="listbox" aria-labelledby={labelId} aria-readonly={readOnly || undefined} onKeyDown={onKeyDown}>
                 {c.options.map((o, i) => {
                     const refused = getSomeorUndefined(o.refused);
-                    const line = refused !== undefined ? m.refused({ reason: refused }) : getSomeorUndefined(o.note);
+                    const note = getSomeorUndefined(o.note);
+                    const line = refused !== undefined ? m.refused({ reason: refused }) : i === view.recommended ? m.recommendedLine({ note }) : note;
                     const chosen = i === view.chosen;
                     return (
                         <chakra.button key={optionId(o)} type="button" css={styles.option} role="option" aria-selected={chosen}
