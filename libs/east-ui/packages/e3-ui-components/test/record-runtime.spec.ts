@@ -7,7 +7,8 @@
  * Tests for `RecordRuntime` — the `Record.bind` platform runtime — on e3
  * itself (#1378): its default API describes, mutates and reads the history of
  * the records the Record.bind examples' module deploys (the counter, with its
- * increment, reset and take, and the jobs, with their patch door), and its
+ * increment, reset and take, and the jobs, with their patch door) and an
+ * outline whose state is a tree, and its
  * read side is the dataset cache's, over e3 too. A write in flight is one the
  * harness holds on its way to e3, a lost answer or a refused history is a fault
  * there, another session's write is a real commit, and a write past e3's
@@ -20,21 +21,25 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+    EastTypeValueType,
     IntegerType,
     PatchType,
     SortedMap,
     StringType,
     StructType,
+    canonicalTypeValue,
     compareFor,
     decodeBeast2For,
     diffFor,
     isValueOf,
+    printFor,
     toEastTypeValue,
     variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordBindHandleType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/bind/record/record";
+import * as fixtures from "@elaraai/e3-ui/fixtures/bind/record/record";
 import { MutationCallRequestType, RecordCommitInfoType, type TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../src/e3-web.test-utils.js";
 import {
@@ -42,10 +47,11 @@ import {
     createDefaultRecordApi,
     recordChannelKey,
     signatureOfRecordHandleType,
+    type RecordApi,
 } from "../src/platform/record-runtime.js";
 import { e3Spec } from "./fixtures/e3.js";
 
-const h = e3Spec({ "bind/record/record": ex });
+const h = e3Spec({ "bind/record/record": ex, "bind/record/record.fixtures": fixtures });
 
 /** e3's deadline for a mutation that names none: what its reducer's unit runs under. */
 const MUTATION_DEADLINE_MS = 60_000;
@@ -60,6 +66,10 @@ const JobsHandleType = RecordBindHandleType(JobsType, { patch: [PatchType(JobsTy
 type Handle = ValueTypeOf<typeof CounterHandle>;
 /** A handle on the jobs record, through its patch door. */
 type JobsHandle = ValueTypeOf<typeof JobsHandleType>;
+const OutlineType = fixtures.outline.type;
+const OutlineHandleType = RecordBindHandleType(OutlineType, { patch: [PatchType(OutlineType)] });
+/** A handle on the outline, a tree, through its patch door. */
+type OutlineHandle = ValueTypeOf<typeof OutlineHandleType>;
 
 /** A patch of the jobs that takes job `a` from `before` to `after`, as a client drafts it from what it read. */
 function jobUpdate(before: Job, after: Job): unknown {
@@ -392,6 +402,33 @@ describe("RecordRuntime — validation", () => {
         assert.equal(handle.mutate.status().type, "failed");
         assert.match(handle.mutate.error().value!.message, /signature mismatch/);
         assert.deepEqual(h.requests("mutate"), []);
+    });
+
+    test("a recursive record's patch validates whatever ids its wrappers carry — the deployed signature is another build's, numbered as its process numbered them", async () => {
+        const bound = await h.bindRecord(fixtures.outline, OutlineHandleType, { whole: true });
+        const api = createDefaultRecordApi(h.e3.apiUrl, h.e3.repo, h.options);
+        // The signature as a package exported by another process gives it: its wrappers numbered from 0, as east-c's IR
+        // normalizer numbers them, where this process numbers a recursive type once, as it first builds it.
+        const elsewhere: RecordApi = {
+            ...api,
+            describe: async (workspace, record) => {
+                const signature = await api.describe(workspace, record);
+                return { ...signature, mutations: signature.mutations.map((m) => ({ ...m, argTypes: m.argTypes.map((t) => canonicalTypeValue(t)) })) };
+            },
+        };
+        const deployed = (await elsewhere.describe(h.workspace, fixtures.outline.name)).mutations.find((m) => m.name === "patch")!.argTypes[0]!;
+        const printTypeValue = printFor(EastTypeValueType);
+        assert.notEqual(printTypeValue(deployed), printTypeValue(toEastTypeValue(PatchType(OutlineType))));
+
+        const runtime = new RecordRuntime();
+        runtime.initialize(elsewhere, bound.cache, h.workspace);
+        const handle = runtime.buildHandle(toEastTypeValue(OutlineHandleType), fixtures.outline.name) as unknown as OutlineHandle;
+        const renamed = new SortedMap([["intro", { title: "Introduction", children: [] }]], compareFor(StringType));
+        handle.mutate.patch(diffFor(OutlineType)(fixtures.outline.default!, renamed));
+        await h.settle();
+        assert.equal(handle.mutate.error().type, "none");
+        assert.equal(handle.mutate.status().type, "committed");
+        assert.equal(h.requests("mutate").length, 1);
     });
 
     test("describe is fetched once across many mutations", async () => {
