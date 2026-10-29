@@ -57,7 +57,12 @@ also gives what each batch read sent: the JSON naming its keys, or the runs
 that name them), and applies a record's mutation of the spec's own as another
 session would (`mutateE3`: what the Schematic's budget run fills its floor
 of 50,000 racks through, past the hook's holds and its log). A
-page a person opens never has it, and no published package does. While a
+page a person opens has it only where its address asks every read of its e3
+to wait (`?slow=600`, before the `#`; at most 30 s, `slowFromAddress`): the
+page's reads then answer that long after they were asked, so a person sees
+what a builder draws while one is in flight — a wash, the loading line —
+which the e3 in the page answers too soon to see. No published package has
+it. While a
 spec holds a read on purpose it waits with `settled(page, { holding: true })`,
 which does not wait on the busy main the hold keeps;
 `builder-footer-line-reads.spec.ts` measures the footer's loading line in
