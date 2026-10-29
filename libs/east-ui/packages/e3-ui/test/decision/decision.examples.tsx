@@ -14,11 +14,11 @@
  * marks. Each pins `now`, so its sections stand as the example shows them
  * whatever the day.
  */
-import { BooleanType, DictType, East, FloatType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
-import { Box, Fields, Format, Reactive, Slice, State, UIComponentType } from "@elaraai/east-ui";
+import { BooleanType, DictType, East, FloatType, FunctionType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
+import { Box, Field, Fields, Format, Reactive, Slice, State, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Allocation, Calendar, Data, DecisionQueue, Record, Roster, Schedule, Sheet } from "@elaraai/e3-ui";
 import { arrivals, kilnBins, kilns, yardBays } from "../allocation/allocation.examples.js";
-import { calendarJobs, calendarMachines, calendarServices } from "../calendar/calendar.examples.js";
+import { CalendarService, calendarJobs, calendarMachines, calendarServices } from "../calendar/calendar.examples.js";
 import { planEventJobs, planPrintJobs, planPrintPresses } from "../plan/plan-events.examples.js";
 import { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from "../roster/roster.examples.js";
 import { WarehouseDuty } from "../roster/warehouse.js";
@@ -77,8 +77,8 @@ export const decisionQueueMinimal = example({
 
 export const decisionQueueOps = example({
     inputs: [],
-    description: "The full decision queue (§3.3): one record of the models' cases, every kind of decision in it, narrowed by a rail over its indexes. An option's change is a variant whose tag says where it lands — the warehouse rota's duties drawn as the Roster draws them, by people (`rota`) and by what they cost (`rotaCost`), the print shop's jobs as the Plan draws them, the workshop's machine maintenance as the Calendar does, beside the machines' jobs, the kiln yard's bins as the Allocation does, its loads on their way its Waiting row, the shop's work orders as the Sheet does, and the price list, a record no builder draws, in a form of its own. Each target takes the same consts the builder's own tag takes — the duty kind, the people, the shifts, the warehouse's pay — so the card's preview draws the change as that builder would, Modify edits a row in the builder's own form, and Apply drafts the change through each record's patch door beside the verdict, one step of one history. The verdicts take every role — the option chosen, the answer to the case's question, an override's reason and a note — each case's figures print as money or as a count, and the host follows the open case with `onSelect`.",
-    keywords: ["DecisionQueue", "DecisionQueue.decisions", "DecisionQueue.verdicts", "DecisionQueue.change.roster", "DecisionQueue.change.plan", "DecisionQueue.change.calendar", "DecisionQueue.change.allocation", "Allocation.arrivals", "DecisionQueue.change.sheet", "DecisionQueue.change.record", "options", "recommended", "routine", "format", "ifWrong", "confidence", "question", "warn", "refused", "knockOn", "guesses", "map", "cost", "pay", "Slice.bindRecords", "Data.bindPaged", "Record.bind", "State.bind", "onSelect", "Fields.number", "Format.Currency", "now"],
+    description: "The full decision queue (§3.3): one record of the models' cases, every kind of decision in it, narrowed by a rail over its indexes. An option's change is a variant whose tag says where it lands — the warehouse rota's duties drawn as the Roster draws them, by people (`rota`) and by what they cost (`rotaCost`), the print shop's jobs as the Plan draws them, the workshop's machine maintenance as the Calendar does, beside the machines' jobs, the kiln yard's bins as the Allocation does, its loads on their way its Waiting row, the shop's work orders as the Sheet does, and the price list, a record no builder draws, in a form of its own. Each target takes the same consts the builder's own tag takes — the duty kind, the people, the shifts, the warehouse's pay — so the card's preview draws the change as that builder would, Modify edits each changed row in the builder's own form — the maintenance in its kind's own Details, its technician and its notes, as the Calendar's inspector shows them — the preview following each edit, and Apply drafts the change through each record's patch door beside the verdict, one step of one history. The price list's `ready`, the app's check that a list price moves in 5¢ steps, holds Apply while an edit leaves one that doesn't, in its own words. The verdicts take every role — the option chosen, the answer to the case's question, an override's reason and a note — each case's figures print as money or as a count, and the host follows the open case with `onSelect`.",
+    keywords: ["DecisionQueue", "DecisionQueue.decisions", "DecisionQueue.verdicts", "DecisionQueue.change.roster", "DecisionQueue.change.plan", "DecisionQueue.change.calendar", "DecisionQueue.change.allocation", "Allocation.arrivals", "DecisionQueue.change.sheet", "DecisionQueue.change.record", "options", "recommended", "routine", "format", "ifWrong", "confidence", "question", "warn", "refused", "knockOn", "guesses", "map", "cost", "pay", "Modify", "ready", "inspector", "Field.StringInput", "Slice.bindRecords", "Data.bindPaged", "Record.bind", "State.bind", "onSelect", "Fields.number", "Format.Currency", "now"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // The models' cases, narrowed by the rail, and the verdicts the queue writes.
         const cases = $.let(Data.bindPaged(opsCases));
@@ -162,8 +162,22 @@ export const decisionQueueOps = example({
         const machineJob = Calendar.events(machineJobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end",
             resource: { field: "machine", of: "machines" } });
         const services = $.let(Record.bind(calendarServices));
+        // The maintenance's own Details, which the Calendar's inspector and Modify show in place of the form over the
+        // fields its roles leave: who does it and what to do, each written back over the row as it stands.
+        const serviceDetails = $.const(East.function([CalendarService, FunctionType([CalendarService], NullType)], UIComponentType, ($2, row, update) => {
+            const assign = $2.const(East.function([StringType], NullType, ($3, technician) => {
+                $3(update({ title: row.title, start: row.start, end: row.end, machine: row.machine, technician, notes: row.notes }));
+            }));
+            const note = $2.const(East.function([StringType], NullType, ($3, notes) => {
+                $3(update({ title: row.title, start: row.start, end: row.end, machine: row.machine, technician: row.technician, notes }));
+            }));
+            return <VStack gap="3" align="stretch">
+                <Field.StringInput label="Technician" value={row.technician} onChange={assign} />
+                <Field.StringInput label="Notes" value={row.notes} placeholder="What to do" onChange={note} />
+            </VStack>;
+        }));
         const service = Calendar.events(services, { name: "Maintenance", icon: "screwdriver-wrench", title: "title", start: "start", end: "end",
-            resource: { field: "machine", of: "machines" } });
+            resource: { field: "machine", of: "machines" }, inspector: serviceDetails });
         const machineRows = Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: m => m.name });
         const bins = $.let(Record.bind(kilnBins));
         const binEntries = $.let(Data.bindPaged(kilnBins));
@@ -200,8 +214,11 @@ export const decisionQueueOps = example({
             status: Sheet.column.text(OptimiseWorkOrder, { header: "Status" }),
             due: Sheet.column.date(OptimiseWorkOrder, { header: "Due", width: "96px" }),
         } });
+        // The price list's form, and the app's check on a price Modify leaves, which holds Apply: a list price moves in 5¢ steps.
         const pricingChange = DecisionQueue.change.record(priceList, { name: "Pricing", icon: "tag", label: r => r.region,
-            fields: { price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05, help: "In 5¢ steps" }) } });
+            fields: { price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05, help: "In 5¢ steps" }) },
+            ready: r => r.price.subtract(East.Float.roundNearest(r.price, 0.05)).abs().greater(0.000001).ifElse(
+                () => variant("invalid", [{ field: "price", message: "A list price moves in 5¢ steps" }]), () => variant("ready", null)) });
 
         return <Box height="760px">
             <DecisionQueue

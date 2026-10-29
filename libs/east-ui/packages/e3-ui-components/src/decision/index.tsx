@@ -392,7 +392,7 @@ function DecisionFrame({ value, storageKey: key }: FrameProps) {
                         data-decision-stale={flag(retained)}>
                         <DecisionList rows={rows} layout={layout} empty={empty} receipts={standing} undoMark={undoMark} open={open}
                             routineOpen={choices.routineOpen} choiceOf={choiceOf} targets={value.targets} records={editing.records}
-                            roles={value.verdicts.roles} readOnly={readOnly} now={now} words={words} styles={styles} schedule={schedule} hold={hold}
+                            roles={value.verdicts.roles} readOnly={readOnly} now={now} words={words} styles={styles} storageKey={key} schedule={schedule} hold={hold}
                             scrollTo={scrollTo} onToggle={onToggle} onChoice={setChoice} onDecide={onDecide} onUndo={onUndo} onGone={onGone}
                             onRoutineToggle={onRoutineToggle} onApplyAll={onApplyAll} />
                     </Box>

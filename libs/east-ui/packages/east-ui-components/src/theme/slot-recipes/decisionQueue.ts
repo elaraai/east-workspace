@@ -41,6 +41,7 @@
  *   - note: the note's box and the override's — the shared textarea and input — `--brand-tint` while it holds text
  *     (`data-filled`).
  *   - link: Add a note, Reset all.
+ *   - error: an edit a changed row's kind refuses, under the row's form in the Edit panel — the builders' inspectors' line.
  *
  * On a coarse pointer each bare button — Why's toggle, the Routine band's, a link, a receipt's Undo — is a 44px tap
  * target by its halo (`coarseHitArea`), its size kept.
@@ -113,7 +114,7 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
         "why", "chevron", "toggleLabel", "whyModel", "whyText",
         "note", "link",
         "actions", "actionRow",
-        "panel", "panelHead", "panelTitle", "panelMeta", "overrideKinds",
+        "panel", "panelHead", "panelTitle", "panelMeta", "overrideKinds", "error",
         "receipt", "receiptDot", "receiptVerdict", "receiptTitle", "receiptUndo",
         "routine", "routineHead", "routineToggle", "routineTotal", "routineList", "routineRow",
         "routineIcon", "routineText", "routineTitle", "routineMeta", "routineValue",
@@ -710,6 +711,8 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             fontSize: "label.xs",
             color: "fg.subtle",
         },
+        // An edit its row's kind refuses, under the row's form: the builders' inspectors' error line.
+        error: { textStyle: "body.sm", color: "fg.danger", overflowWrap: "anywhere" },
         // The reasons: the shared radio group's column, laid in two.
         overrideKinds: {
             "& [role=radiogroup] > div": {

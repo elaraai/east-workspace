@@ -61,7 +61,7 @@ import {
     EastChakraComponent, FieldForm, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue, type FieldOption,
 } from "@elaraai/east-ui-components";
 import { useSheetInspect, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget, type SheetInspectWrite } from "../index.js";
-import { NULL_CELL, cellText, indexRegisters, type SheetColumnMeta } from "../model.js";
+import { NULL_CELL, cellText, indexRegisters, type SheetColumnMeta, type SheetRegisterIndex } from "../model.js";
 import type { SheetCellValue } from "../values.js";
 import { issueText, type SheetWords } from "../words.js";
 import type { SheetValue } from "./index.js";
@@ -86,6 +86,42 @@ const PICK = "$column";
 
 /** A field's path as one key. */
 const pathKey = (path: readonly string[]) => path.join("\u001f");
+
+/**
+ * A form's field as the inspector's form draws it: a select's members keyed by its path, so two fields over one register
+ * may each be offered their own — the DecisionQueue's Modify draws a Sheet's row's fields so too (D9).
+ *
+ * @param spec - The field, as the payload's form gives it
+ * @returns The field the form draws
+ */
+export function sheetFieldSpec(spec: FieldSpecValue): FieldSpecValue {
+    return spec.editor.type === "reference" ? { ...spec, editor: variant("reference", { of: pathKey(spec.path) }) } : spec;
+}
+
+/**
+ * Each select's members, as the inspector's form offers them — the DecisionQueue's Modify too (D9): its register's, each
+ * named with its meta, of those its column's options rule allows where it is given one.
+ *
+ * @param fields - The form's fields
+ * @param registers - The sheet's registers
+ * @param allowed - The members a field's column allows at the row; `undefined` for every member
+ * @returns Each select's members, by its field's path ({@link sheetFieldSpec})
+ */
+export function sheetFieldOptions(fields: readonly FormField[], registers: SheetRegisterIndex,
+    allowed: (field: FormField) => ReadonlySet<string> | undefined): Record<string, FieldOption[]> {
+    const out: Record<string, FieldOption[]> = {};
+    for (const f of fields) {
+        if (f.spec.editor.type !== "reference") continue;
+        const keep = allowed(f);
+        out[pathKey(f.spec.path)] = (registers.byName.get(f.spec.editor.value.of) ?? [])
+            .filter((member) => keep === undefined || keep.has(member.key))
+            .map((member) => {
+                const meta = getSomeorUndefined(member.meta);
+                return { key: member.key, label: meta === undefined ? member.label : `${member.label} · ${meta}` };
+            });
+    }
+    return out;
+}
 
 /** The record's last commit, as the footer and the inspector say it (SB22, SB51). */
 export interface SheetLastCommit {
@@ -250,7 +286,7 @@ function useTargetForm({ value, words, hidden, styles, inspect, target, form }: 
         const meta = metaOf(f);
         const editor = f.spec.editor;
         // Each select its own members at this row, by its path: two fields over one register may be offered different ones.
-        if (editor.type === "reference") return { ...f.spec, editor: variant("reference", { of: pathKey(f.spec.path) }) };
+        if (editor.type === "reference") return sheetFieldSpec(f.spec);
         if (meta?.kind === "quantity" && editor.type === "number" && editor.value.unit.type === "none") {
             const unit = inspect.unitAt(r, meta.key);
             return unit === undefined ? f.spec : { ...f.spec, editor: variant("number", { ...editor.value, unit: some(unit) }) };
@@ -264,21 +300,10 @@ function useTargetForm({ value, words, hidden, styles, inspect, target, form }: 
     }), [form.fields, metaOf, inspect, r]);
 
     // A select's members: its register's, as its column's options rule offers them at this row.
-    const options = useMemo(() => {
-        const out: Record<string, FieldOption[]> = {};
-        for (const f of form.fields) {
-            if (f.spec.editor.type !== "reference") continue;
-            const key = getSomeorUndefined(f.column);
-            const allowed = key !== undefined ? inspect.allowedAt(r, key) : undefined;
-            out[pathKey(f.spec.path)] = (registers.byName.get(f.spec.editor.value.of) ?? [])
-                .filter((member) => allowed === undefined || allowed.has(member.key))
-                .map((member) => {
-                    const meta = getSomeorUndefined(member.meta);
-                    return { key: member.key, label: meta === undefined ? member.label : `${member.label} · ${meta}` };
-                });
-        }
-        return out;
-    }, [form.fields, registers, inspect, r]);
+    const options = useMemo(() => sheetFieldOptions(form.fields, registers, (f) => {
+        const key = getSomeorUndefined(f.column);
+        return key !== undefined ? inspect.allowedAt(r, key) : undefined;
+    }), [form.fields, registers, inspect, r]);
 
     // The form's value and baseline: the draft's fields — a custom column's text by its print, a read-only column's from its cell.
     const { formValue, baseline } = useMemo(() => {

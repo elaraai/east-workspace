@@ -14,16 +14,19 @@
  * — a listbox, one tab stop, the arrows moving along it — the change's
  * sentence, the figures, Your call over the chosen option's question, the
  * warnings, Why and the note; the foot holds the actions and their panels:
- * Modify's edits of each row the change touches, through the shared form over
- * its record's fields, and Override's reason and note. Every input is a shared
- * renderer mounted with a payload built from East's `defaultValue` of its
- * type, as `FieldForm`'s are; the `decisionQueue` recipe draws the rest from
- * the attributes the card sets.
+ * Modify's edits of each row the change touches, in the form its builder's
+ * inspector shows for one row (`row-form.tsx`, D9), and Override's reason and
+ * note. Every input is a shared renderer mounted with a payload built from
+ * East's `defaultValue` of its type, as `FieldForm`'s are; the
+ * `decisionQueue` recipe draws the rest from the attributes the card sets.
  *
  * The rows the chosen option's change leaves are read for every card the list
  * draws, closed or open, tracked, so a row's read landing reads them again:
  * what its preview draws (`preview/`), what Apply writes, what Modify edits,
- * and whether the change still applies (Stale).
+ * and whether the change still applies (Stale). Open, the rows a verdict would
+ * write are checked by the record's `ready` (D9), tracked too: a row that
+ * fails it holds Apply — and an override's own edits, Override case — its
+ * issues the button's words and each under its row in the Edit panel.
  *
  * @packageDocumentation
  */
@@ -33,23 +36,26 @@ import { Box, Field as ChakraField, VisuallyHidden, chakra, useRecipe } from "@c
 import { findIconDefinition, library, type IconDefinition, type IconName } from "@fortawesome/fontawesome-svg-core";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faBan, faCheck, faChevronRight, faCircleExclamation, faTriangleExclamation, fas } from "@fortawesome/free-solid-svg-icons";
-import { StringType, defaultValue, equalFor, fromEastTypeValue, none, some, variant, type EastType } from "@elaraai/east";
+import { StringType, defaultValue, equalFor, fromEastTypeValue, none, some, variant, type EastType, type EastTypeValue, type StructType } from "@elaraai/east";
 import { Checkbox, Input, RadioGroup, Textarea } from "@elaraai/east-ui/internal";
 import {
-    EastChakraCheckbox, EastChakraRadioGroup, EastChakraStringInput, EastChakraTextarea, FieldForm, fieldFormMessages, getSomeorUndefined, takeKey,
-    useTrackedEvaluation, type FieldFormWords, type TickFormatOpt,
+    EastChakraCheckbox, EastChakraRadioGroup, EastChakraStringInput, EastChakraTextarea, fieldFormMessages, getSomeorUndefined, takeKey,
+    useTrackedEvaluation, type BatchReadiness, type FieldFormWords, type TickFormatOpt,
 } from "@elaraai/east-ui-components";
 import { LoadingFailedLine, useReceiptHold, type SlotStyles } from "@elaraai/east-ui-components/internal";
 import type { ScheduleEditing } from "../shared/schedule/editing.js";
-import { rowCodec, type RowCodec } from "../shared/schedule/records.js";
+import { rowCodec } from "../shared/schedule/records.js";
 import { bytesOf, keptBytes, optionId, type CaseChoice, type RowEdit } from "./choices.js";
-import { appliedRows, targetOf, type AppliedRows, type Decided, type DecisionQueueValue, type DecisionRecord, type DecisionTarget } from "./editing.js";
+import {
+    appliedRows, rowsReadiness, targetOf, type AppliedRows, type Decided, type DecisionQueueValue, type DecisionRecord, type DecisionTarget,
+} from "./editing.js";
 import { figureRuns } from "./figures.js";
 import { DecisionPreview, flag, type SharedRows } from "./preview/index.js";
 import { dueWords, sectionOf, type DecisionCase } from "./layout.js";
 import type { DecisionAnswerWord, DecisionQueueWords, DecisionReasonWord, DecisionVerdictWord } from "./messages.js";
+import { DecisionRowForm } from "./row-form.js";
 import {
-    applyOff, cardStatus, cardView, changedRows, fieldAt, overrideRows, sameRow, valueSub, withField, writtenRows,
+    applyOff, cardStatus, cardView, changedRows, fieldAt, overrideRows, sameRow, valueSub, writtenRows,
     type CallState, type CardView, type ChangedRow, type RowsState,
 } from "./state.js";
 
@@ -97,7 +103,51 @@ const STATUS_TONES = { needsAnswer: "warn", blocked: "neg", handoff: "warn", sta
 const NO_OPTION: AppliedRows = { state: "none" };
 const NO_ROWS: readonly ChangedRow[] = [];
 const KEEP: RowEdit = { keep: true };
-const NO_CHANGE = (): void => {};
+
+/** The app's check over the rows a verdict would write (D9): Apply's, and while Override is open its own edits'. */
+interface CardReadiness {
+    readonly apply: BatchReadiness;
+    readonly override: BatchReadiness | undefined;
+}
+
+/** What a check says of the rows: each issue with its row's key, and the issues by row. */
+interface RowIssues {
+    readonly list: readonly { readonly row: string; readonly message: string }[];
+    readonly byRow: ReadonlyMap<string, readonly string[]>;
+}
+const NO_ISSUES: RowIssues = { list: [], byRow: new Map() };
+
+/**
+ * What a check says of the rows, each issue as the builders' inspectors say one: `Field: message`.
+ *
+ * @param readiness - The check's answer; `undefined` for none
+ * @returns Its issues
+ */
+function issuesOf(readiness: BatchReadiness | undefined): RowIssues {
+    if (readiness === undefined || readiness.type === "ready") return NO_ISSUES;
+    const list = readiness.value.map(issue => ({ row: issue.entry, message: issue.field.type === "some" ? `${issue.field.value}: ${issue.message}` : issue.message }));
+    const byRow = new Map<string, string[]>();
+    for (const issue of list) {
+        const held = byRow.get(issue.row);
+        if (held === undefined) byRow.set(issue.row, [issue.message]);
+        else held.push(issue.message);
+    }
+    return { list, byRow };
+}
+
+/**
+ * Each top-level field of a row type, and how East tells two of its values apart: what the Edit panel counts the
+ * viewer's changes by.
+ *
+ * @param entryType - The row's type
+ * @returns Its fields; `undefined` for a row of no struct, which counts as one field
+ */
+function topFields(entryType: EastTypeValue): readonly { readonly name: string; readonly equal: (a: unknown, b: unknown) => boolean }[] | undefined {
+    const type = fromEastTypeValue(entryType) as EastType;
+    if (!("fields" in type)) return undefined;
+    return Object.entries((type as StructType).fields as Record<string, EastType>)
+        .map(([name, field]) => ({ name, equal: equalFor(field) as (a: unknown, b: unknown) => boolean }));
+}
 
 export { flag };
 
@@ -143,6 +193,8 @@ export interface DecisionCardProps {
     readonly words: DecisionQueueWords;
     /** The `decisionQueue` recipe's styles. */
     readonly styles: SlotStyles;
+    /** What a row's own form in the Edit panel keeps its viewer's state under, beneath the case's key. */
+    readonly storageKey: string;
     /** The queue's editing: the rows the chosen option's change touches, as they stand, are read through it. */
     readonly schedule: ScheduleEditing;
     /** The rows every waiting case's chosen option changes: an entry's `+N` (P18). */
@@ -162,7 +214,7 @@ export interface DecisionCardProps {
  * @returns The card
  */
 export const DecisionCard = memo(function DecisionCard({
-    c, targets, records, choice, open, roles, readOnly, now, words, styles, schedule, shared, onToggle, onChoice, onDecide,
+    c, targets, records, choice, open, roles, readOnly, now, words, styles, storageKey, schedule, shared, onToggle, onChoice, onDecide,
 }: DecisionCardProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
@@ -197,8 +249,29 @@ export const DecisionCard = memo(function DecisionCard({
         setAttempt(n => n + 1);
     }, [record]);
 
+    // The app's check over the rows a verdict would write (D9) — Apply's, and while Override is open its own edits' —
+    // read while the card is open, tracked, as the check may read the app's data; a check that cannot be run holds them.
+    const overriding = choice.panel === "override";
+    const readReadiness = useCallback((): CardReadiness | undefined => {
+        if (!open || record === undefined || rows !== "ready" || changed.length === 0) return undefined;
+        return {
+            apply: rowsReadiness(record, writtenRows(changed)),
+            override: overriding ? rowsReadiness(record, overrideRows(changed)) : undefined,
+        };
+    }, [open, record, rows, changed, overriding]);
+    const { result: checked } = useTrackedEvaluation(readReadiness);
+    useEffect(() => {
+        if (!checked.ok) console.error(`[DecisionQueue] the app's check of case ${c.key}'s rows could not be run:`, checked.error);
+    }, [checked, c.key]);
+    const ready = checked.ok ? checked.value : undefined;
+    const applyIssues = useMemo(() => issuesOf(ready?.apply), [ready]);
+    const overrideIssues = useMemo(() => issuesOf(ready?.override), [ready]);
+
     const status = cardStatus(view, rows === "stale");
-    const off = applyOff(view, rows, false);
+    const off = applyOff(view, rows, !checked.ok || (ready !== undefined && ready.apply.type !== "ready"));
+    // An override's own edits the check fails hold Override case, its issues its words (R20).
+    const held = !overriding ? undefined : !checked.ok || (ready?.override !== undefined && ready.override.type !== "ready")
+        ? m.applyOff({ why: "unready", issues: overrideIssues.list }) : undefined;
     const due = dueWords(c.due, now);
     const section = sectionOf(c.due, now);
     const dueText = due === undefined ? undefined
@@ -235,7 +308,7 @@ export const DecisionCard = memo(function DecisionCard({
     const overrideText = choice.overrideNote ?? "";
     const overrideOk = !roles.reason || (choice.reason !== undefined && (choice.reason !== "other" || overrideText.trim().length > 0));
     const override = () => {
-        if (!overrideOk) return;
+        if (!overrideOk || held !== undefined) return;
         decide("overridden", rows === "ready" ? overrideRows(changed) : undefined, choice.reason,
             overrideText.trim().length > 0 ? overrideText : choice.note);
     };
@@ -245,8 +318,9 @@ export const DecisionCard = memo(function DecisionCard({
     };
 
     // ── Modify ────────────────────────────────────────────────────────────────
-    // Its form edits each row the change touches, by its record's fields; with none to edit, Modify goes to the options.
-    const canEdit = record !== undefined && record.fields.length > 0 && rows === "ready" && changed.length > 0;
+    // Its form edits each row the change touches, as the row's builder's inspector does (D9); with none to edit, Modify
+    // goes to the options.
+    const canEdit = record !== undefined && rows === "ready" && changed.length > 0;
     const modifyOff = !canEdit && c.options.length <= 1;
     const modify = () => {
         if (canEdit) {
@@ -384,16 +458,18 @@ export const DecisionCard = memo(function DecisionCard({
                                         {m.action({ action: "modify" })}
                                     </chakra.button>
                                     <chakra.button type="button" css={button({ variant: "solid", size: "xs" })} aria-disabled={off !== undefined || undefined}
-                                        title={off === undefined ? undefined : m.applyOff({ why: off })} onClick={apply}>
+                                        title={off === undefined ? undefined : m.applyOff({ why: off, issues: off === "unready" ? applyIssues.list : undefined })}
+                                        onClick={apply}>
                                         {m.action({ action: view.edited ? "applyEdits" : "apply" })}
                                     </chakra.button>
                                 </Box>
-                                {(panel === "edit" || panel === "override") && canEdit && record !== undefined && (
-                                    <EditPanel changed={changed} record={record} override={panel === "override"} words={words} styles={styles}
-                                        onEdit={setEdit} onResetAll={resetAll} />
+                                {(panel === "edit" || panel === "override") && canEdit && record !== undefined && target !== undefined && (
+                                    <EditPanel changed={changed} target={target} record={record} override={panel === "override"}
+                                        issues={panel === "override" ? overrideIssues.byRow : applyIssues.byRow} storageKey={`${storageKey}.modify.${c.key}`}
+                                        words={words} styles={styles} onEdit={setEdit} onResetAll={resetAll} />
                                 )}
                                 {panel === "override" && (
-                                    <OverridePanel choice={choice} roles={roles} ok={overrideOk} words={words} styles={styles}
+                                    <OverridePanel choice={choice} roles={roles} ok={overrideOk} held={held} words={words} styles={styles}
                                         onChoice={choose} onCancel={cancelOverride} onOverride={override} />
                                 )}
                             </Box>
@@ -589,8 +665,12 @@ function NotePart({ note, readOnly, words, styles, onNote }: NotePartProps) {
 /** Props of {@link EditPanel}. */
 interface EditPanelProps {
     readonly changed: readonly ChangedRow[];
+    readonly target: DecisionTarget;
     readonly record: DecisionRecord;
     readonly override: boolean;
+    /** What the app's check says of each row the verdict would write, by its key. */
+    readonly issues: ReadonlyMap<string, readonly string[]>;
+    readonly storageKey: string;
     readonly words: DecisionQueueWords;
     readonly styles: SlotStyles;
     readonly onEdit: (key: string, edit: RowEdit | undefined) => void;
@@ -598,29 +678,28 @@ interface EditPanelProps {
 }
 
 /**
- * Modify's Edit panel (R19) — `Your decision` under Override (R20): each row the change touches, its form over its
- * record's fields as the change leaves it, a field the viewer changed tinted with its Reset to the proposal, and Keep as
- * it is; how many changes the viewer made, and Reset all.
+ * Modify's Edit panel (R19) — `Your decision` under Override (R20): each row the change touches, in the form its
+ * builder's inspector shows for one row (D9) as the change leaves it, a field the viewer changed tinted with its Reset to
+ * the proposal, what the app's check says of it, and Keep as it is; how many fields the viewer changed, and Reset all.
  */
-function EditPanel({ changed, record, override, words, styles, onEdit, onResetAll }: EditPanelProps) {
+function EditPanel({ changed, target, record, override, issues, storageKey, words, styles, onEdit, onResetAll }: EditPanelProps) {
     const { m } = words;
     const id = useId();
     const codec = rowCodec(record.editing.entryType);
-    const equals = useMemo(() => record.fields.map(spec => equalFor(fromEastTypeValue(spec.type) as EastType) as (a: unknown, b: unknown) => boolean),
-        [record.fields]);
+    const fields = useMemo(() => topFields(record.editing.entryType), [record.editing.entryType]);
     // The form's words: the queue's formatters, and its Reset in the queue's words.
     const formWords = useMemo((): FieldFormWords => ({ ...words, m: { ...fieldFormMessages, reset: ({ label }) => m.resetField({ field: label }) } }), [words, m]);
-    // Each field the viewer changed from the proposal, and each row kept as it stands.
+    // Each top-level field the viewer changed from the proposal, and each row kept as it stands.
     let count = 0;
     for (const row of changed) {
         if (row.edit === undefined) continue;
-        if ("keep" in row.edit || row.proposed === undefined) {
+        if ("keep" in row.edit || row.proposed === undefined || fields === undefined) {
             count += 1;
             continue;
         }
         const edited = codec.decode(bytesOf(row.edit.row));
         const proposed = codec.decode(row.proposed);
-        record.fields.forEach((spec, i) => { if (!equals[i]!(fieldAt(edited, spec.path), fieldAt(proposed, spec.path))) count += 1; });
+        for (const field of fields) if (!field.equal(fieldAt(edited, [field.name]), fieldAt(proposed, [field.name]))) count += 1;
     }
     return (
         <Box css={styles.panel} role="group" aria-labelledby={id}>
@@ -632,7 +711,8 @@ function EditPanel({ changed, record, override, words, styles, onEdit, onResetAl
                 )}
             </Box>
             {changed.map(row => (
-                <EditRow key={row.key} row={row} record={record} codec={codec} words={words} formWords={formWords} styles={styles} onEdit={onEdit} />
+                <EditRow key={row.key} row={row} target={target} record={record} issues={issues.get(row.key)} storageKey={storageKey} words={words}
+                    formWords={formWords} styles={styles} onEdit={onEdit} />
             ))}
         </Box>
     );
@@ -641,8 +721,11 @@ function EditPanel({ changed, record, override, words, styles, onEdit, onResetAl
 /** Props of {@link EditRow}. */
 interface EditRowProps {
     readonly row: ChangedRow;
+    readonly target: DecisionTarget;
     readonly record: DecisionRecord;
-    readonly codec: RowCodec;
+    /** What the app's check says of the row; `undefined` for nothing. */
+    readonly issues: readonly string[] | undefined;
+    readonly storageKey: string;
     readonly words: DecisionQueueWords;
     readonly formWords: FieldFormWords;
     readonly styles: SlotStyles;
@@ -651,23 +734,18 @@ interface EditRowProps {
 
 /**
  * One row the change touches (R19): its key — or, for one the change removes, that it is removed — Keep as it is, and
- * the form: the row as the viewer left it over the row as the change leaves it, or, kept, the row as it stands, read
- * only. An edit that puts the row back as the change leaves it is no edit.
+ * its builder's form (D9): the row as the viewer left it over the row as the change leaves it, or, kept, the row as it
+ * stands, read only; then what the app's check says of it. An edit that puts the row back as the change leaves it is no
+ * edit.
  */
-function EditRow({ row, record, codec, words, formWords, styles, onEdit }: EditRowProps) {
+function EditRow({ row, target, record, issues, storageKey, words, formWords, styles, onEdit }: EditRowProps) {
     const { m } = words;
     const kept = row.edit !== undefined && "keep" in row.edit;
     const editedBytes = row.edit !== undefined && "row" in row.edit ? row.edit.row : undefined;
-    const proposed = useMemo(() => (row.proposed === undefined ? undefined : codec.decode(row.proposed)), [codec, row.proposed]);
-    const standing = useMemo(() => (row.standing === undefined ? undefined : codec.decode(row.standing)), [codec, row.standing]);
-    const edited = useMemo(() => (editedBytes === undefined ? undefined : codec.decode(bytesOf(editedBytes))), [codec, editedBytes]);
-    const current = edited ?? proposed;
-    const write = useCallback((next: unknown) => {
-        const bytes = codec.encode(next);
-        onEdit(row.key, sameRow(bytes, row.proposed) ? undefined : { row: keptBytes(bytes) });
-    }, [codec, onEdit, row.key, row.proposed]);
-    const onChange = useCallback((path: readonly string[], value: unknown) => write(withField(current, path, value)), [write, current]);
-    const onReset = useCallback((path: readonly string[]) => write(withField(current, path, fieldAt(proposed, path))), [write, current, proposed]);
+    const edited = useMemo(() => (editedBytes === undefined ? undefined : bytesOf(editedBytes)), [editedBytes]);
+    const shown = kept ? row.standing : edited ?? row.proposed;
+    const write = useCallback((bytes: Uint8Array) => onEdit(row.key, sameRow(bytes, row.proposed) ? undefined : { row: keptBytes(bytes) }),
+        [onEdit, row.key, row.proposed]);
     return (
         <Box css={styles.part} data-decision-row={row.key}>
             <Box css={styles.panelHead}>
@@ -679,9 +757,11 @@ function EditRow({ row, record, codec, words, formWords, styles, onEdit }: EditR
                     onChange: some((next: boolean) => { onEdit(row.key, next ? KEEP : undefined); return null; }),
                 }} />
             </Box>
-            {kept
-                ? standing !== undefined && <FieldForm specs={record.fields} value={standing} readOnly words={formWords} onChange={NO_CHANGE} />
-                : current !== undefined && <FieldForm specs={record.fields} value={current} baseline={proposed} words={formWords} onChange={onChange} onReset={onReset} />}
+            {shown !== undefined && (
+                <DecisionRowForm target={target} record={record} rowKey={row.key} row={shown} baseline={kept ? undefined : row.proposed} readOnly={kept}
+                    words={words} formWords={formWords} storageKey={`${storageKey}.${row.key}`} styles={styles} onWrite={write} />
+            )}
+            {issues?.map((issue, i) => <Box key={i} css={styles.error} data-decision-issue="">{issue}</Box>)}
         </Box>
     );
 }
@@ -691,6 +771,8 @@ interface OverridePanelProps {
     readonly choice: CaseChoice;
     readonly roles: DecisionRoles;
     readonly ok: boolean;
+    /** Why the app's check holds Override case: its own edits' issues; `undefined` while it holds nothing. */
+    readonly held: string | undefined;
     readonly words: DecisionQueueWords;
     readonly styles: SlotStyles;
     readonly onChoice: (next: (was: CaseChoice) => Partial<CaseChoice>) => void;
@@ -700,9 +782,10 @@ interface OverridePanelProps {
 
 /**
  * Override's panel (R20): why — the reasons, where the verdicts hold one, Other only where they hold a note too — the
- * note, and Cancel and Override case, which waits for a reason, and for Other its note.
+ * note, and Cancel and Override case, which waits for a reason, and for Other its note, and is held while the app's
+ * check fails the override's own edits (D9), its issues its words.
  */
-function OverridePanel({ choice, roles, ok, words, styles, onChoice, onCancel, onOverride }: OverridePanelProps) {
+function OverridePanel({ choice, roles, ok, held, words, styles, onChoice, onCancel, onOverride }: OverridePanelProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const id = useId();
@@ -742,7 +825,8 @@ function OverridePanel({ choice, roles, ok, words, styles, onChoice, onCancel, o
             )}
             <Box css={styles.actionRow}>
                 <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} onClick={onCancel}>{m.cancel()}</chakra.button>
-                <chakra.button type="button" css={button({ variant: "solid", size: "xs" })} aria-disabled={!ok || undefined} onClick={onOverride}>
+                <chakra.button type="button" css={button({ variant: "solid", size: "xs" })} aria-disabled={!ok || held !== undefined || undefined} title={held}
+                    onClick={onOverride}>
                     {m.overrideCase()}
                 </chakra.button>
             </Box>

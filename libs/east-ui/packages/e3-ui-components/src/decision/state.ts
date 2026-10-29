@@ -168,8 +168,20 @@ export function changedRows(rows: ReadonlyMap<string, Uint8Array | undefined>, s
 }
 
 /**
- * The rows a verdict writes (R19, R23): each changed row as Modify left it — its edited row, the row the change
- * leaves, or none where it is kept as it stands — leaving out a row that ends as it stands.
+ * Whether a changed row ends as it stands (R19): kept as it is, or edited back to it — no change of the verdict's,
+ * which Apply writes nothing of and the preview draws as none.
+ *
+ * @param row - A changed row ({@link changedRows})
+ * @returns Whether it ends as it stands
+ */
+export function endsAsItStands(row: ChangedRow): boolean {
+    if (row.edit !== undefined && "keep" in row.edit) return true;
+    return sameRow(row.edit !== undefined ? bytesOf(row.edit.row) : row.proposed, row.standing);
+}
+
+/**
+ * The rows a verdict writes (R19, R23): each changed row as Modify left it — its edited row, or the row the change
+ * leaves — leaving out a row that ends as it stands ({@link endsAsItStands}).
  *
  * @param changed - The changed rows ({@link changedRows})
  * @returns The rows to write, by key: `undefined` for one removed
@@ -177,10 +189,8 @@ export function changedRows(rows: ReadonlyMap<string, Uint8Array | undefined>, s
 export function writtenRows(changed: readonly ChangedRow[]): Map<string, Uint8Array | undefined> {
     const out = new Map<string, Uint8Array | undefined>();
     for (const row of changed) {
-        if (row.edit !== undefined && "keep" in row.edit) continue;
-        const next = row.edit !== undefined ? bytesOf(row.edit.row) : row.proposed;
-        if (blobEqual(asOption(next), asOption(row.standing))) continue;
-        out.set(row.key, next);
+        if (endsAsItStands(row)) continue;
+        out.set(row.key, row.edit !== undefined && "row" in row.edit ? bytesOf(row.edit.row) : row.proposed);
     }
     return out;
 }

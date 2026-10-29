@@ -28,7 +28,7 @@ import { VirtualRows, type RowsHold, type RowsHoldPart, type SlotStyles } from "
 import type { ScheduleEditing } from "../shared/schedule/editing.js";
 import { DecisionCard, DecisionReceipt, Figured, flag, iconOf, type DecisionRoles } from "./card.js";
 import type { CaseChoice } from "./choices.js";
-import { appliedInTurn, targetOf, type AppliedItem, type AppliedRows, type Decided, type DecisionRecord, type DecisionTarget } from "./editing.js";
+import { appliedInTurn, targetOf, type AppliedItem, type BatchRows, type Decided, type DecisionRecord, type DecisionTarget } from "./editing.js";
 import { totalOf, type DecisionCase, type DecisionLayout, type DecisionSectionLayout } from "./layout.js";
 import type { DecisionQueueWords, DecisionVerdictWord } from "./messages.js";
 import type { SharedRows } from "./preview/index.js";
@@ -95,7 +95,7 @@ const LIST_PROPS = { "data-decision-list": "" } as Record<string, string>;
 const INBOX = { prefix: "fas", name: "inbox" };
 /** A routine case's choices: none — the band applies each one's recommended option. */
 const NONE_CHOSEN: CaseChoice = {};
-const NO_APPLIED: readonly AppliedRows[] = [];
+const NO_APPLIED: readonly BatchRows[] = [];
 
 /**
  * A count chip — the toolbar's, a section's, the Routine band's (R4): `…` while the count is not known, and each time
@@ -151,6 +151,8 @@ export interface DecisionListProps {
     readonly words: DecisionQueueWords;
     /** The `decisionQueue` recipe's styles. */
     readonly styles: SlotStyles;
+    /** The queue's key: what a card's Edit panel keeps a row's own form's state under. */
+    readonly storageKey: string;
     /** The queue's editing: each card reads the rows its change touches through it, and the band its batch's. */
     readonly schedule: ScheduleEditing;
     /** A gesture's hold on a row (R8). */
@@ -181,8 +183,8 @@ export interface DecisionListProps {
  */
 export const DecisionList = memo(function DecisionList(props: DecisionListProps) {
     const {
-        rows, layout, empty, receipts, undoMark, open, routineOpen, choiceOf, targets, records, roles, readOnly, now, words, styles, schedule, hold, scrollTo,
-        onToggle, onChoice, onDecide, onUndo, onGone, onRoutineToggle, onApplyAll,
+        rows, layout, empty, receipts, undoMark, open, routineOpen, choiceOf, targets, records, roles, readOnly, now, words, styles, storageKey, schedule, hold,
+        scrollTo, onToggle, onChoice, onDecide, onUndo, onGone, onRoutineToggle, onApplyAll,
     } = props;
     // Each section's total (R3): the sum of its waiting cases' shown values, the chosen option's of each, where they share
     // one format.
@@ -196,11 +198,13 @@ export const DecisionList = memo(function DecisionList(props: DecisionListProps)
         }
         return out;
     }, [rows, receipts, choiceOf, roles.answer, words]);
-    // The rows every waiting case's chosen option changes (P18): an entry's `+N` counts the other cases changing it.
+    // The rows every waiting case's chosen option changes (P18) — none its card keeps as it is (R19): an entry's `+N`
+    // counts the other cases changing it.
     const shared = useMemo((): SharedRows => {
         const out = new Map<string, Map<string, number>>();
         const count = (c: DecisionCase, choice: CaseChoice) => {
-            const option = cardView(c, choice, roles.answer).option;
+            const view = cardView(c, choice, roles.answer);
+            const option = view.option;
             const at = option === undefined ? -1 : targetOf(targets, option.change.tag);
             const record = at < 0 ? undefined : records[at];
             if (option === undefined || record === undefined) return;
@@ -213,7 +217,10 @@ export const DecisionList = memo(function DecisionList(props: DecisionListProps)
             }
             let counts = out.get(record.key);
             if (counts === undefined) { counts = new Map(); out.set(record.key, counts); }
-            for (const key of keys) counts.set(key, (counts.get(key) ?? 0) + 1);
+            for (const key of keys) {
+                const edit = view.edits?.[key];
+                if (edit === undefined || !("keep" in edit)) counts.set(key, (counts.get(key) ?? 0) + 1);
+            }
         };
         for (const row of rows) if (row.kind === "case" && !receipts.has(row.c.key)) count(row.c, choiceOf(row.c.key));
         for (const c of layout.routine) count(c, NONE_CHOSEN);
@@ -252,7 +259,7 @@ export const DecisionList = memo(function DecisionList(props: DecisionListProps)
                 return (
                     <Box css={styles.cardRow}>
                         <DecisionCard c={c} targets={targets} records={records} choice={choiceOf(c.key)} open={isOpen} roles={roles} readOnly={readOnly}
-                            now={now} words={words} styles={styles} schedule={schedule} shared={shared}
+                            now={now} words={words} styles={styles} storageKey={storageKey} schedule={schedule} shared={shared}
                             onToggle={onToggle} onChoice={onChoice} onDecide={onDecide} />
                     </Box>
                 );
@@ -264,7 +271,7 @@ export const DecisionList = memo(function DecisionList(props: DecisionListProps)
                 );
         }
     }, [rows, totals, receipts, undoMark, open, routineOpen, layout.routine, layout.routineWaiting, choiceOf, targets, records, roles, readOnly, now, words,
-        styles, schedule, shared, onToggle, onChoice, onDecide, onUndo, onGone, onRoutineToggle, onApplyAll]);
+        styles, storageKey, schedule, shared, onToggle, onChoice, onDecide, onUndo, onGone, onRoutineToggle, onApplyAll]);
     const scrollIndex = scrollTo === undefined ? undefined : rows.findIndex(row => row.kind === "case" && stringEqual(row.c.key, scrollTo.key));
     if (empty) return <EmptyList words={words} styles={styles} />;
     return (
@@ -309,7 +316,8 @@ interface RoutineBandProps {
 /**
  * The Routine band (R28, §8): its toggle — the chevron, `Routine` and its count — the cases' total together, and
  * `Apply all {n}`; open, a row a case. Apply all applies the recommended option of each case whose Apply is on, as its
- * card's would be, as one step: what each leaves read here, tracked, each over the rows the ones before it leave.
+ * card's would be, as one step: what each leaves read here, tracked, each over the rows the ones before it leave. A case
+ * whose rows the app's check fails (D9) is left out, as its card's Apply is held; the cases after it apply without it.
  */
 const RoutineBand = memo(function RoutineBand({
     cases, waiting, first, open, targets, records, roles, readOnly, words, styles, schedule, onToggle, onApplyAll,
