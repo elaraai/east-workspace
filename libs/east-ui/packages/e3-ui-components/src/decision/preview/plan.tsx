@@ -11,11 +11,13 @@
  * (`planEvent`, given the row); the window's other events are read through
  * every kind's `planItems` — tracked, so a read landing draws them, each kind
  * counted first and read only within the builders' cap — the queue's drafts of
- * the target's record in place; and a lane's name is its resource's, as the
- * Plan's gutter names it. What it draws is {@link lanesPreview}'s. Past two
- * lanes it draws the Plan's map (P5): every resource of the kinds the change's
- * events are on, under its row's group, else its kind's name — of a kind read
- * a window at a time, those the change touches.
+ * the target's record in place, each of the target's kind on the crop's lanes
+ * asked of its `locked` by its row as it stands (P17); and a lane's name is
+ * its resource's, as the Plan's gutter names it. What it draws is
+ * {@link lanesPreview}'s. Past two lanes it draws the Plan's map (P5): every
+ * resource of the kinds the change's events are on, under its row's group,
+ * else its kind's name — of a kind read a window at a time, those the change
+ * touches.
  *
  * @packageDocumentation
  */
@@ -30,7 +32,7 @@ import { kindPlural } from "../../shared/schedule/words.js";
 import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
 import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
 import { LanesCrop, LanesMap, lanesSentence, mapSentence, type PreviewMap } from "./lanes.js";
-import { UNASSIGNED, laneEvent, laneWindow, lanesPreview, type LaneEvent, type LanesModel } from "./lanes-model.js";
+import { UNASSIGNED, laneEvent, laneWindow, lanesOf, lanesPreview, type LaneEvent, type LanesModel } from "./lanes-model.js";
 import { CROP_LANES, lanesMap, type MapResource } from "./map-model.js";
 
 /** A Plan target's kind, decoded. */
@@ -152,6 +154,11 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
         }
         const window = laneWindow([...before.values(), ...after.values(), ...landed].filter((e): e is LaneEvent => e !== undefined));
         if (window === undefined) return EMPTY;
+        // The Locked mark (P17) on the target's kind's other events, where the crop draws them: two lanes at most — a map
+        // marks none, so reads none.
+        const lanes = lanesOf([...before.values(), ...after.values(), ...landed]);
+        const pins = target.locked.type === "some" && lanes.length <= CROP_LANES ? target.locked.value : undefined;
+        let reading = false;
         // The window's other events, every kind's, as they stand — the queue's drafts of the target's record in place —
         // each kind counted first and read only within the cap; past it, it draws none here.
         const context: LaneEvent[] = [];
@@ -165,9 +172,21 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
             for (const item of got.value) {
                 if (own && (before.has(item.key) || after.has(item.key))) continue;
                 const e = laneEvent(item);
-                if (e !== undefined) context.push(e);
+                if (e === undefined) continue;
+                // Pinned: the target's `locked` asked of its row as it stands, drafted or stored — every read issued before
+                // the preview waits on them.
+                if (own && pins !== undefined && lanes.some(lane => stringEqual(lane, e.lane))) {
+                    const row = standingRow(schedule, record, e.key);
+                    if (row.type !== "some") reading = true;
+                    else if (row.value.type === "some" && pins(row.value.value, e.key)) {
+                        context.push({ ...e, locked: true });
+                        continue;
+                    }
+                }
+                context.push(e);
             }
         }
+        if (reading) return PENDING;
         // Each lane's name, as the Plan's gutter names its resource.
         const names = new Map<string, string>();
         for (const [lane, item] of items) {

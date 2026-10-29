@@ -93,6 +93,25 @@ export interface LaneEvent {
     readonly issue?: string;
     /** How it is drawn, for a resource's job. */
     readonly look?: LaneLook;
+    /**
+     * Whether the target's `locked` pins it (P17), for an event the change leaves as it is: its preview asks, by its row;
+     * those the change touches are asked through {@link LanesInput.locked}.
+     */
+    readonly locked?: boolean;
+}
+
+/**
+ * The lanes a crop draws the events on, once each, in their order (see {@link lanesPreview}): each lane an event the
+ * change touches stands on, before it and after it, and each the recommendation would land its events on (P4).
+ *
+ * @param events - The events the change touches, before it and after it — `undefined` for none — then where the
+ *   recommendation lands them
+ * @returns The lanes
+ */
+export function lanesOf(events: Iterable<{ readonly lane: string } | undefined>): string[] {
+    const lanes: string[] = [];
+    for (const e of events) if (e !== undefined && !lanes.some(held => stringEqual(held, e.lane))) lanes.push(e.lane);
+    return lanes;
 }
 
 /**
@@ -567,10 +586,7 @@ export function lanesPreview(input: LanesInput): LanesModel {
         .filter(key => before.get(key) !== undefined || after.get(key) !== undefined)
         .sort((a, b) => compareDate(startOf(a), startOf(b)) || compareString(a, b));
     // The lanes: each event's before its after, in that order; then the lanes the recommendation would land on (P4).
-    const lanes: string[] = [];
-    const join = (lane: string | undefined) => { if (lane !== undefined && !lanes.some(held => stringEqual(held, lane))) lanes.push(lane); };
-    for (const key of touched) { join(before.get(key)?.lane); join(after.get(key)?.lane); }
-    for (const lane of input.lands) join(lane);
+    const lanes = lanesOf([...touched.flatMap(key => [before.get(key), after.get(key)]), ...input.lands.map(lane => ({ lane }))]);
     if (input.laneOrder !== undefined) lanes.sort(input.laneOrder);
     const on = (lane: string) => (e: LaneEvent | undefined): e is LaneEvent => e !== undefined && stringEqual(e.lane, lane);
     const was = new Map(lanes.map(lane => [lane, [...context.filter(on(lane)), ...touched.map(key => before.get(key)).filter(on(lane))]]));
@@ -602,7 +618,7 @@ export function lanesPreview(input: LanesInput): LanesModel {
             const left = shareOf(e.start);
             entries.push({ key: e.key, title: e.title, start: e.start, end: e.end, left, width: Math.max(LEAST, shareOf(e.end) - left), look: e.look, ...mark });
         };
-        for (const e of context.filter(on(lane))) entry(e, { op: undefined, knock: false, locked: false, breach: breachOf(e), shared: 0, to: undefined });
+        for (const e of context.filter(on(lane))) entry(e, { op: undefined, knock: false, locked: e.locked === true, breach: breachOf(e), shared: 0, to: undefined });
         for (const key of touched) {
             const b = before.get(key), a = after.get(key);
             const knock = marked && input.knockOn(key);
