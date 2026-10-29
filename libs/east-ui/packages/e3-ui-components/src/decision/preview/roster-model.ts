@@ -75,6 +75,8 @@ export interface RosterPreviewRow {
     readonly tone: PreviewTone;
     /** Each day of the week's duties: its ghosts first, then the duties as the change leaves them. */
     readonly days: readonly (readonly RosterPreviewTile[])[];
+    /** How many duties they hold in the week before the change, and after it: a map's sentence names those it leaves fewer (P25). */
+    readonly duties: { readonly before: number; readonly after: number };
 }
 
 /** One clause of the preview's sentence (P25), its names and shifts in the Roster's words, its days the week's. */
@@ -228,10 +230,12 @@ export function rosterPreview(input: RosterPreviewInput): RosterPreviewModel {
                     locked: input.locked(was.rows.get(id)!.bytes, id), shared: 0, to: a === undefined ? undefined : nameOf(a.who) });
             }
         }
+        const held = (placed: PlacedDuties): number => [...placed.assignments.values()].filter(a => sameWho(a.who, who)).length;
+        const duties = { before: held(was), after: held(now) };
         const measure: RosterPreviewMeasure = who.type === "person"
             ? { kind: "hours", before: hoursWas.get(who.value) ?? 0, after: hoursNow.get(who.value) ?? 0, contract: context.people.get(who.value)?.contract }
-            : { kind: "requests", n: [...now.assignments.values()].filter(a => sameWho(a.who, who)).length };
-        return { key, name: nameOf(who), measure, tone: toneOf(measure, days.some(tiles => tiles.some(t => t.breach !== undefined))), days };
+            : { kind: "requests", n: duties.after };
+        return { key, name: nameOf(who), measure, tone: toneOf(measure, days.some(tiles => tiles.some(t => t.breach !== undefined))), days, duties };
     });
     return { start, rows, clauses: marked ? clausesOf(touched, was, now, nameOf, shiftName) : [], people: roster.people.length };
 }

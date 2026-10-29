@@ -5,31 +5,35 @@
 /** @jsxImportSource @elaraai/e3-ui */
 /**
  * The DecisionQueue's examples (#1447, `Decision Queue Spec.md` §3.2, §3.3,
- * §15): the smallest queue — a record of the model's proposals, each one
+ * §11, §15): the smallest queue — a record of the model's proposals, each one
  * decision with no alternatives, whose change lands in the shop's work orders,
  * which the Sheet draws, or in the price list, which no builder draws — the
- * same queue read only, and the full queue over the models' cases, every kind
- * of decision landing in the builder that draws its record. Each pins `now`, so
- * its sections stand as the example shows them whatever the day.
+ * same queue read only, the full queue over the models' cases, every kind of
+ * decision landing in the builder that draws its record, and the previews
+ * gallery, a case for each preview a builder draws and each of the Plan's
+ * marks. Each pins `now`, so its sections stand as the example shows them
+ * whatever the day.
  */
 import { BooleanType, DictType, East, FloatType, NullType, OptionType, StringType, example, none, some, variant } from "@elaraai/east";
 import { Box, Fields, Format, Reactive, Slice, State, UIComponentType } from "@elaraai/east-ui";
 import { Allocation, Calendar, Data, DecisionQueue, Record, Roster, Schedule, Sheet } from "@elaraai/e3-ui";
 import { arrivals, kilnBins, kilns, yardBays } from "../allocation/allocation.examples.js";
 import { calendarJobs, calendarMachines, calendarServices } from "../calendar/calendar.examples.js";
-import { planEventJobs, planPrintPresses } from "../plan/plan-events.examples.js";
+import { planEventJobs, planPrintJobs, planPrintPresses } from "../plan/plan-events.examples.js";
 import { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from "../roster/roster.examples.js";
 import { WarehouseDuty } from "../roster/warehouse.js";
 import { OptimiseWorkOrder, optimiseWorkOrders } from "../sheet/optimise.examples.js";
 import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from "./ops.js";
+import { previewCases, previewVerdicts } from "./previews.js";
 
 // The example app's records (§3.1) and the records its cases change — the warehouse rota's, the print shop's, the
-// workshop's, the kiln yard's and the shop's work orders — for the renderer's specs on e3 and the showcase's package of
-// this area.
+// workshop's, the kiln yard's and the shop's work orders — and the previews gallery's, for the renderer's specs on e3
+// and the showcase's package of this area.
 export * from "./ops.js";
+export * from "./previews.js";
 export { arrivals, kilnBins, kilns, yardBays } from "../allocation/allocation.examples.js";
 export { calendarJobs, calendarMachines, calendarServices } from "../calendar/calendar.examples.js";
-export { planEventJobs, planPrintPresses } from "../plan/plan-events.examples.js";
+export { planEventJobs, planPrintJobs, planPrintPresses } from "../plan/plan-events.examples.js";
 export { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from "../roster/roster.examples.js";
 export { OptimiseWorkOrder, optimiseWorkOrderRows, optimiseWorkOrders } from "../sheet/optimise.examples.js";
 
@@ -262,6 +266,155 @@ export const decisionQueueReadOnly = example({
                 verdicts={DecisionQueue.verdicts(verdicts, {
                     entries: verdictEntries,
                     verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" },
+                })}
+            />
+        </Box>;
+    }}</Reactive>),
+});
+
+export const decisionQueuePreviews = example({
+    inputs: [],
+    description: "The previews gallery (§11): a case for each preview a builder draws, over the example app's records on the morning of Tuesday 20 October 2026 — the Roster's crop, three early shifts from one person to another with each one's hours before → after, and its week's map, twenty of 69 people changing; the Plan's crop, a job off a press where it overlaps a confirmed one with the now line across it, the confirmed job locked — the target reading which jobs are confirmed (`locked`) — and its day's map, five jobs onto Thursday's presses with the day it changes as a strip; the Allocation's crop, a load off the Waiting row into a kiln; the Calendar's, a machine's maintenance off the day it overlaps a job; and the Sheet's, three due dates filled from history, one a guess. Then a Plan crop for each of its other marks: a change the record moved under, stale; a job two cases place, shared; a job moved because of the change, a knock-on; and a breach, a job still overlapping another on its press. The Plan's target reads the print works' jobs through their interval index (`source`), as the Plan's own slice names it, its kind reading one job by its key through the record's entries.",
+    keywords: ["DecisionQueue", "previews", "gallery", "crop", "map", "marks", "locked", "stale", "shared", "knockOn", "breach", "now", "DecisionQueue.change.roster", "DecisionQueue.change.plan", "DecisionQueue.change.calendar", "DecisionQueue.change.allocation", "DecisionQueue.change.sheet", "DecisionQueue.change.record", "source", "entries", "Data.bind", "Data.bindPaged", "Record.bind"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        // The gallery's cases, read whole, and the verdicts the queue writes.
+        const cases = $.let(Data.bind(previewCases));
+        const verdicts = $.let(Record.bind(previewVerdicts));
+        const verdictEntries = $.let(Data.bindPaged(previewVerdicts));
+
+        // The Roster's, as `rosterOptimise` gives them, and the warehouse's pay.
+        const duties = $.let(Record.bind(rosterDuties));
+        const dutyEntries = $.let(Data.bindPaged(rosterDuties));
+        const dutyWeek = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const staff = $.let(Data.bind(rosterStaff));
+        const firms = $.let(Data.bind(rosterAgencies));
+        const times = $.let(Data.bind(rosterShiftTimes));
+        const teams = $.let(Data.bind(rosterTeams));
+        const rateRows = $.let(Data.bind(rosterPayRates));
+        const rates = $.const(rateRows.read());
+        const duty = Schedule.events(duties, {
+            name: "Duty", icon: "user-clock", entries: dutyEntries,
+            start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+            shift: "shift", group: "team", position: "role", activity: "task",
+            hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+        });
+        const people = Schedule.resources(staff.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team, contract: p => p.contract });
+        const agencies = Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name });
+        const shifts = Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order, color: s => s.colour });
+        const groups = Roster.groups(teams.read(), { label: t => t.label, order: t => t.order });
+        // The warehouse's pay in its own codes: ordinary time to the contract, OT1 past it, an agency's hours at its rate.
+        const pay = $.const(East.function([Roster.Types.PayRequest(WarehouseDuty)], Roster.Types.Pay, ($2, req) => {
+            const out = $2.let(new Map(), Roster.Types.Pay);
+            const zero = $2.const(0.0, FloatType);
+            const agency = $2.let(true, BooleanType);
+            const contract = $2.let(0.0, FloatType);
+            $2.match(req.who, { person: ($3, key) => {
+                $3.if(req.context.people.has(key), ($4) => {
+                    const person = $4.const(req.context.people.get(key));
+                    $4.assign(agency, person.agency);
+                    $4.assign(contract, person.contract);
+                });
+            } });
+            const worked = $2.let(0.0, FloatType);
+            const ordered = $2.const(req.duties.toArray(($3, row, key) => ({ key, duty: row })).sort(($3, d) => d.duty.start));
+            $2.for(ordered, ($3, d) => {
+                const costs = $3.let(new Map(), DictType(StringType, FloatType));
+                $3.if(agency, ($4) => {
+                    $4(costs.insert("AGENCY", d.duty.hours.multiply(rates.get("AGENCY", () => 0.0))));
+                }).else(($4) => {
+                    const ordinary = $4.const(East.max(East.min(d.duty.hours, contract.subtract(worked)), zero));
+                    const over = $4.const(d.duty.hours.subtract(ordinary));
+                    $4(costs.insert("ORD", ordinary.multiply(rates.get("ORD", () => 0.0))));
+                    $4.if(East.greater(over, 0.0), ($5) => { $5(costs.insert("OT1", over.multiply(rates.get("OT1", () => 0.0)))); });
+                });
+                $3.assign(worked, worked.add(d.duty.hours));
+                $3(out.insert(d.key, costs));
+            });
+            return out;
+        }));
+
+        // The Plan's, as `planPrintWorks` gives them: the print works' jobs on its presses, read through the jobs'
+        // interval index, one job by its key through the record's own entries.
+        const jobs = $.let(Record.bind(planPrintJobs));
+        const jobEntries = $.let(Data.bindPaged(planPrintJobs));
+        const jobTimes = $.let(Data.bindPaged(planPrintJobs, { indexes: ["plan_print_jobs_by_time"] }));
+        const presses = $.let(Data.bind(planPrintPresses));
+        const job = Schedule.events(jobs, { name: "Print job", icon: "file-lines", entries: jobEntries, title: "title", start: "start", end: "end",
+            resource: { field: "press", of: "presses" }, state: "state" });
+        const pressRows = Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name, group: p => p.hall });
+
+        // The Calendar's, as `calendarOptimise` gives them; the Allocation's, as `allocationOptimise` does.
+        const machineJobs = $.let(Record.bind(calendarJobs));
+        const machines = $.let(Data.bind(calendarMachines));
+        const machineJob = Calendar.events(machineJobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end",
+            resource: { field: "machine", of: "machines" } });
+        const services = $.let(Record.bind(calendarServices));
+        const service = Calendar.events(services, { name: "Maintenance", icon: "screwdriver-wrench", title: "title", start: "start", end: "end",
+            resource: { field: "machine", of: "machines" } });
+        const machineRows = Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: m => m.name });
+        const bins = $.let(Record.bind(kilnBins));
+        const binEntries = $.let(Data.bindPaged(kilnBins));
+        const yardDayBins = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
+        const bays = $.let(Data.bind(yardBays));
+        const kilnList = $.let(Data.bind(kilns));
+        const loads = $.let(Data.bind(arrivals));
+        const bin = Schedule.events(bins, { name: "Bin", icon: "box", entries: binEntries, at: "at", resource: { field: "bay", of: "bays" },
+            arrival: "load", quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec" });
+        const bayRows = Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset });
+        const kilnRows = Schedule.resources(kilnList.read(), { name: "Kilns", icon: "fire", label: k => k.name, group: k => k.group,
+            min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges });
+        const loadRows = Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
+            kind: l => some(l.spec), due: l => some(l.due), window: l => some({ from: l.from, to: l.to }) });
+
+        // The Sheet's work orders, as `sheetOptimise` binds them, and the price list.
+        const workOrders = $.let(Record.bind(optimiseWorkOrders));
+        const priceList = $.let(Record.bind(listPrices));
+
+        // Where each kind of decision draws: a target for each tag of the options' change. The Plan's reads the jobs
+        // through their source and holds a confirmed job locked: the Locked mark.
+        const rotaChange = DecisionQueue.change.roster({ name: "Roster", icon: "users",
+            events: { duty }, resources: { people, agencies }, shifts, groups, week: { start: "sunday" }, source: dutyWeek });
+        const rotaCostChange = DecisionQueue.change.roster({ name: "Roster", icon: "users", map: "cost", pay, currency: "USD",
+            events: { duty }, resources: { people, agencies }, shifts, groups, week: { start: "sunday" }, source: dutyWeek });
+        const printChange = DecisionQueue.change.plan({ name: "Plan", icon: "bars-progress", events: { job }, resources: { presses: pressRows },
+            source: jobTimes, locked: j => j.state.hasTag("confirmed") });
+        const workshopChange = DecisionQueue.change.calendar({ name: "Calendar", icon: "calendar-days",
+            events: { job: machineJob, service }, event: "service", resources: { machines: machineRows } });
+        const yardChange = DecisionQueue.change.allocation({ name: "Allocation", icon: "fire-flame-curved",
+            events: { bin }, resources: { bays: bayRows, kilns: kilnRows }, arrivals: loadRows, source: yardDayBins });
+        const orderChange = DecisionQueue.change.sheet(workOrders, { name: "Sheet", icon: "table-cells", columns: {
+            reference: Sheet.column.text(OptimiseWorkOrder, { header: "Reference", width: "96px" }),
+            status: Sheet.column.text(OptimiseWorkOrder, { header: "Status" }),
+            due: Sheet.column.date(OptimiseWorkOrder, { header: "Due", width: "96px" }),
+        } });
+        const pricingChange = DecisionQueue.change.record(priceList, { name: "Pricing", icon: "tag", label: r => r.region,
+            fields: { price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05, help: "In 5¢ steps" }) } });
+
+        return <Box height="760px">
+            <DecisionQueue
+                id="previewsQueue"
+                now={new Date("2026-10-20T09:14:00Z")}
+                decisions={DecisionQueue.decisions(cases, {
+                    scope: c => c.scope, due: c => c.due, routine: c => c.routine, unit: c => c.unit, model: c => c.model,
+                    why: c => c.why, ifWrong: c => c.ifWrong, recommended: c => c.recommended,
+                    // Money in dollars, a count as it is.
+                    format: c => c.money.ifElse(() => some(Format.Currency({ currency: "USD", compact: "short" })), () => none),
+                    options: { from: c => c.options, label: o => o.label, title: o => o.title, summary: o => o.summary,
+                        detail: o => o.detail, note: o => o.note, value: o => o.value, confidence: o => o.confidence,
+                        question: o => o.question, warn: o => o.warn, refused: o => o.refused, knockOn: o => o.knockOn,
+                        guesses: o => o.guesses,
+                        change: { from: o => o.change, of: {
+                            rota: rotaChange, rotaCost: rotaCostChange, print: printChange, workshop: workshopChange,
+                            yard: yardChange, orders: orderChange, pricing: pricingChange,
+                        } } },
+                })}
+                verdicts={DecisionQueue.verdicts(verdicts, {
+                    entries: verdictEntries,
+                    verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" },
+                    option: "option",
+                    answer: { field: "answer", yes: "yes", no: "no", unsure: "unsure" },
+                    reason: { field: "reason", context: "context", data: "data", priorities: "priorities", other: "other" },
+                    note: "note",
                 })}
             />
         </Box>;

@@ -23,7 +23,7 @@
  */
 
 import { useCallback } from "react";
-import { StringType, equalFor, none, printFor, some, type option } from "@elaraai/east";
+import { StringType, equalFor, none, printFor, some } from "@elaraai/east";
 import { ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { scheduleWithinCap } from "../../shared/schedule/cells.js";
@@ -97,14 +97,15 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
         const events = kind.events.find(k => stringEqual(k.key, kind.event));
         if (events === undefined || record === undefined) return EMPTY;
         const items = new Map<string, PlanItem>();
-        // An event as a row's bytes give it: its kind's own item, made from the row, the drafts aside.
-        const eventOf = (key: string, bytes: Uint8Array | undefined): option<LaneEvent | undefined> => {
-            if (bytes === undefined) return some(undefined);
+        // An event as a row's bytes give it: its kind's own item, made from the row, the drafts aside — none for no row, or
+        // a row with no time, as a job in the backlog has — or `reading` while its kind's read of the row is in flight.
+        const eventOf = (key: string, bytes: Uint8Array | undefined): LaneEvent | undefined | "reading" => {
+            if (bytes === undefined) return undefined;
             const got = events.planEvent(key, EMPTY_SCHEDULE_DRAFTS, EPOCH, EPOCH, some(some(bytes)));
-            if (got.type !== "some") return none;
+            if (got.type !== "some") return "reading";
             const item = got.value.item;
             if (item.resource.type === "some") items.set(printResource(item.resource.value), item);
-            return some(laneEvent(item));
+            return laneEvent(item);
         };
         const before = new Map<string, LaneEvent | undefined>(), after = new Map<string, LaneEvent | undefined>();
         const bytesOf = new Map<string, Uint8Array>();
@@ -114,9 +115,9 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
             for (const row of changed) {
                 const left = leftBy(row);
                 const was = eventOf(row.key, row.standing), is = eventOf(row.key, left);
-                if (was.type !== "some" || is.type !== "some") return PENDING;
-                before.set(row.key, was.value);
-                after.set(row.key, is.value);
+                if (was === "reading" || is === "reading") return PENDING;
+                before.set(row.key, was);
+                after.set(row.key, is);
                 const bytes = row.standing ?? left;
                 if (bytes !== undefined) bytesOf.set(row.key, bytes);
             }
@@ -135,9 +136,9 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
                 if (got.type !== "some") return PENDING;
                 const bytes = got.value.type === "some" ? got.value.value : undefined;
                 const e = eventOf(key, bytes);
-                if (e.type !== "some") return PENDING;
-                before.set(key, e.value);
-                after.set(key, e.value);
+                if (e === "reading") return PENDING;
+                before.set(key, e);
+                after.set(key, e);
                 if (bytes !== undefined) bytesOf.set(key, bytes);
             }
             if (theirs) {
@@ -146,8 +147,8 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
                 if (applied.state === "ready") {
                     for (const [key, bytes] of applied.rows) {
                         const e = eventOf(key, bytes);
-                        if (e.type !== "some") return PENDING;
-                        if (e.value !== undefined) landed.push(e.value);
+                        if (e === "reading") return PENDING;
+                        if (e !== undefined) landed.push(e);
                     }
                 }
             }
@@ -253,10 +254,11 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
     if (got.state === "pending") return <PreviewPending kind="plan" layout="lanes" rows={PENDING_LANES} words={words} styles={styles} />;
     if (got.state === "empty") return <PreviewFrame kind="plan" layout="lanes" label={option?.detail ?? ""} stale={stale} styles={styles} />;
     const guessed = guessedOf(option?.guesses, changed);
-    // A map's sentence counts what changes; with nothing marked, it names the lanes the recommendation lands on (P4).
+    // A map's sentence counts what changes; with nothing marked, it names the lanes the recommendation lands on (P4), and stale
+    // what the change touches (P21), as a crop's does.
     if (got.map !== undefined) {
-        const label = got.model.clauses.length === 0 ? lanesSentence(got.model, guessed, words) : mapSentence(got.map, guessed, words);
+        const label = stale || got.model.clauses.length === 0 ? lanesSentence(got.model, guessed, stale, words) : mapSentence(got.map, guessed, words);
         return <LanesMap kind="plan" map={got.map} label={label} stale={stale} words={words} styles={styles} />;
     }
-    return <LanesCrop kind="plan" model={got.model} label={lanesSentence(got.model, guessed, words)} stale={stale} now={now} words={words} styles={styles} />;
+    return <LanesCrop kind="plan" model={got.model} label={lanesSentence(got.model, guessed, stale, words)} stale={stale} now={now} words={words} styles={styles} />;
 }

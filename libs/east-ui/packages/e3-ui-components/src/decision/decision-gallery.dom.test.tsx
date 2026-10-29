@@ -1,0 +1,301 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ *
+ * @vitest-environment jsdom
+ *
+ * The DecisionQueue's previews gallery on e3 itself (#1453, `Decision Queue
+ * Spec.md` §9.5, §11), over its example: a case for each preview a builder
+ * draws, on the morning of Tuesday 20 October 2026 — the Roster's crop and
+ * its week's map by people (P4, P5), the Plan's crop with its lock and now
+ * line (P17, P20) and its day's map with the when strip (P5, P12), the
+ * Allocation's crop, the Calendar's and the Sheet's with its guess (P26) — and
+ * a Plan crop for each other mark: stale, shared, a knock-on and a breach
+ * (P15, P16, P18, P21). Each preview is one image whose sentence says what
+ * moves where and names its marks (P25); a preview whose rows are still read
+ * draws its placeholders, Apply off meanwhile (P23); and Apply on the Plan's
+ * crop writes the job through the target that reads it by its source.
+ */
+
+import { expect, test } from "vitest";
+import { act, waitFor, within } from "@testing-library/react";
+import { DateTimeType, SortedMap, StringType, compareFor, equalFor, none, some, variant } from "@elaraai/east";
+import { editingMessages } from "@elaraai/east-ui-components";
+import * as ex from "@elaraai/e3-ui/examples/decision/decision";
+import type { E3Request } from "../e3-web.test-utils.js";
+import { e3Harness, settle } from "../e3-web-mount.test-utils.js";
+import { decisionQueueMessages as m } from "./messages.js";
+import {
+    action, entries, head, heads, history, marked, measure, openCard, press, preview, previewRow, previewRows, ruler, sections, sheetCells, sheetHead,
+    tile, tiles,
+} from "./preview.test-utils.js";
+import "./index.js";
+
+const h = e3Harness({ "decision/decision": ex }, { main: "data-decision-main" });
+
+const verdictEqual = equalFor(ex.OpsVerdict);
+const jobsEqual = equalFor(ex.planPrintJobs.type);
+const compareTime = compareFor(DateTimeType);
+const byString = compareFor(StringType);
+
+/** The gallery's cases, in the order the list draws them: by when each is due. */
+const CASES = [
+    "rota-garnet", "print-j1019", "print-thursday", "yard-ld2235", "print-stale", "print-shared", "workshop-press1", "orders-ready", "print-knock",
+    "rota-week10", "print-breach",
+];
+
+/** The print works' jobs' reads, by key and through their interval index: what each print case's preview waits on. */
+const JOB_READS = new Set(["read", "find", "page", "rows", "runs", "place", "within"]);
+const jobsRead = (request: E3Request) => JOB_READS.has(request.kind) && request.dataset === `records.${ex.planPrintJobs.name}`;
+
+/** The mutations a test's Saves sent, by the record each wrote, in order. */
+const mutated = () => h.requests("mutate").map(request => request.record).sort();
+/** A preview's entry's icons, by their Font Awesome names. */
+const icons = (el: Element) => [...el.querySelectorAll("svg[data-icon]")].map(icon => icon.getAttribute("data-icon"));
+/** Whether a case's preview has drawn what it reads: its rows, or a map's groups. */
+const drawn = (container: HTMLElement, key: string) =>
+    head(container, key).querySelector("[data-decision-preview] [data-preview-row], [data-decision-preview] [data-preview-group]") !== null;
+
+/** Mounts the gallery, and waits until its cards show and every preview has drawn. */
+async function open() {
+    const ui = await h.mount(ex.decisionQueuePreviews);
+    await waitFor(() => expect(heads(ui.container)).toEqual(CASES));
+    await waitFor(() => expect(CASES.filter(key => !drawn(ui.container, key))).toEqual([]), { timeout: 15_000 });
+    return ui;
+}
+
+// ── Laying out, and each preview's sentence (R1–R3, P3, P25) ────────────────
+
+test("the gallery's cases by when each is due, each a preview of the kind its target draws, its sentence saying what moves where and naming its marks (R1–R3, P3, P5, P15–P18, P21, P25, P26)", async () => {
+    const { container } = await open();
+    expect(sections(container)).toEqual([["overdue", "Overdue | 2 | +$86K"], ["today", "Due today | 5 | +$21K"], ["week", "This week | 4"]]);
+    expect(openCard(container)).toBe("rota-garnet");
+    const drawn = CASES.map(key => {
+        const frame = preview(container, key);
+        return [key, frame.getAttribute("data-kind"), frame.getAttribute("data-layout"), frame.getAttribute("aria-label")];
+    });
+    expect(drawn).toEqual([
+        ["rota-garnet", "roster", "roster", "P. Garnet's Early shifts on Mon, Tue and Thu move to J. Quartz"],
+        ["print-j1019", "plan", "lanes", "Loyalty cards leaves Press B2, where it overlapped Market posters, and runs on Press B3 from 09:30 to 15:30; Market posters is pinned on Press B2"],
+        ["print-thursday", "plan", "map", "5 of 6 presses change; Press B1 takes 2 print jobs, Press A3 loses its print job"],
+        ["yard-ld2235", "allocation", "lanes", "LD-2235 leaves Waiting and is held in K-305 from Tue 11 14:15 to Thu 20 00:00"],
+        ["print-stale", "plan", "lanes", "Stale: the rows changed after this run; the change to Seed catalogue needs a rerun"],
+        ["print-shared", "plan", "lanes", "Winter brochure runs on Press B3 from 06:00 to 17:00; 1 other case changes Winter brochure too"],
+        ["workshop-press1", "calendar", "lanes", "Preventive maintenance leaves Thu 1, where it overlapped Mounting brackets · batch 42, and runs on Sat 3 from 06:00 to 08:00"],
+        ["orders-ready", "sheet", "sheet", "Status and Due change on WO-1005, WO-1007 and WO-1008. WO-1007 is a low-confidence guess"],
+        ["print-knock", "plan", "lanes", "Order forms runs on Press B1 from 06:00 to 09:00 and pushes Exhibition book from 06:00 to 09:00"],
+        ["rota-week10", "roster", "people", "20 of 69 people change: 18 gain or change shifts, R. Wold and G. Ember lose shifts"],
+        ["print-breach", "plan", "lanes", "Guide reprint runs on Press A1 from 07:00 to 09:00, where it overlaps Menu cards"],
+    ]);
+    // Every preview is one image, between its card's title and its chip line.
+    for (const key of CASES) {
+        expect(preview(container, key).getAttribute("role")).toBe("img");
+        expect([...head(container, key).children].indexOf(preview(container, key))).toBe(2);
+    }
+});
+
+// ── The Roster's crop and its map by people (P4, P5, P13, P14, P24) ─────────
+
+test("the Roster's crop: the week from its Sunday, P. Garnet's three early shifts ghosts moving to J. Quartz, proposed there, every other duty and off day as it stands; P. Garnet's hours better, J. Quartz's worse, landing over contract (P4, P13, P14, P19, P24)", async () => {
+    const { container } = await open();
+    const frame = preview(container, "rota-garnet");
+    expect([...frame.firstElementChild!.children].map(day => day.textContent)).toEqual(["", "S05", "M06", "T07", "W08", "T09", "F10", "S11"]);
+    expect(previewRows(frame)).toEqual(["P. Garnet", "J. Quartz"]);
+    const garnet = previewRow(frame, "P. Garnet"), quartz = previewRow(frame, "J. Quartz");
+    expect(measure(garnet, "40 → 16h")).toBe("better");
+    expect(measure(quartz, "24 → 48h")).toBe("worse");
+    for (const [key, day] of [["s286", "Mon 6"], ["s287", "Tue 7"], ["s284", "Thu 9"]] as const) {
+        expect(tile(garnet, key)).toEqual({ op: "from", fill: undefined, title: `Early · ${day} · moves to J. Quartz` });
+        expect(tile(quartz, key)).toEqual({ op: "add", fill: "own", title: `Early · ${day} · proposed` });
+    }
+    expect(tile(garnet, "s285")).toEqual({ op: undefined, fill: undefined, title: "Early · Sun 5" });
+    expect(marked(garnet)).toEqual(["s286", "s287", "s284"]);
+    expect(garnet.querySelectorAll("[data-preview-off]")).toHaveLength(2);
+    expect(quartz.querySelectorAll("[data-preview-off]")).toHaveLength(1);
+});
+
+test("the Roster's week map by people: four of the twenty who change, compact — R. Wold's Sunday night a ghost moving to B. Pumice, G. Ember's Monday early to J. Quartz — then the rest counted, 20 of 69 (P5, P13, P14, P24)", async () => {
+    const { container } = await open();
+    const frame = preview(container, "rota-week10");
+    expect(previewRows(frame)).toEqual(["R. Wold", "B. Pumice", "G. Ember", "J. Quartz"]);
+    expect(measure(previewRow(frame, "R. Wold"), "40→32h")).toBe("better");
+    expect(measure(previewRow(frame, "B. Pumice"), "24→32h")).toBeUndefined();
+    expect(tile(previewRow(frame, "R. Wold"), "s260")).toEqual({ op: "from", fill: undefined, title: "Night · Sun 5 · moves to B. Pumice" });
+    expect(tile(previewRow(frame, "B. Pumice"), "s260")).toEqual({ op: "add", fill: "own", title: "Night · Sun 5 · proposed" });
+    expect(tile(previewRow(frame, "G. Ember"), "s281")).toEqual({ op: "from", fill: undefined, title: "Early · Mon 6 · moves to J. Quartz" });
+    expect(tile(previewRow(frame, "J. Quartz"), "s281")).toEqual({ op: "add", fill: "own", title: "Early · Mon 6 · proposed" });
+    expect(within(frame).getByText(m.previewMorePeople({ n: "16" }))).toBeDefined();
+    expect(within(frame).getByText(m.previewCount({ n: "20", of: "69" }))).toBeDefined();
+});
+
+// ── The Plan's crop and its day map (P5, P12–P14, P17, P20) ─────────────────
+
+test("the Plan's crop: J-1019 a ghost leaving Press B2 and proposed on Press B3, the confirmed J-1018 it overlapped locked, the now line on both presses at 09:14, each press's booked share before → after (P13, P14, P17, P19, P20, P24)", async () => {
+    const { container } = await open();
+    const frame = preview(container, "print-j1019");
+    expect(previewRows(frame)).toEqual(["Press B2", "Press B3"]);
+    // Two hours either side of what the change touches, in whole hours.
+    expect(ruler(frame)).toEqual(["07", "11", "15", "18"]);
+    const b2 = previewRow(frame, "Press B2"), b3 = previewRow(frame, "Press B3");
+    expect(measure(b2, "73 → 45%")).toBe("better");
+    expect(measure(b3, "18 → 73%")).toBeUndefined();
+    expect(tiles(b2, "J-1019")).toEqual([{ op: "from", fill: undefined, title: "Loyalty cards · 10:00–13:00 · moves to Press B3" }]);
+    expect(tiles(b3, "J-1019")).toEqual([{ op: "add", fill: "own", title: "Loyalty cards · 09:30–15:30 · proposed" }]);
+    // The confirmed job stands as it is, locked, its lock the Font Awesome lock; the job beside it on B3 unmarked.
+    expect(tiles(b2, "J-1018")).toEqual([{ op: undefined, fill: undefined, title: "Market posters · 06:00–12:00 · locked" }]);
+    expect(icons(b2.querySelector('[data-preview-tile="J-1018"]')!)).toEqual(["lock"]);
+    expect(tiles(b3, "J-1022")).toEqual([{ op: undefined, fill: undefined, title: "Box sleeves · 06:00–09:00" }]);
+    expect(icons(b3)).toEqual([]);
+    // Now, 09:14, two hours and fourteen minutes into the window's eleven.
+    for (const row of [b2, b3]) {
+        const now = row.querySelectorAll<HTMLElement>("[data-preview-now]");
+        expect(now).toHaveLength(1);
+        expect(Number.parseFloat(now[0]!.style.getPropertyValue("--pv-at"))).toBeCloseTo(134 / 660 * 100, 6);
+    }
+});
+
+test("the Plan's day map: every press a tile under its hall, lit where it takes or changes jobs, a ghost where it only loses one, B3 as it is; the when strip a tick at each job's new time, the backlog's four landing (P5, P12, P13, P14)", async () => {
+    const { container } = await open();
+    const frame = preview(container, "print-thursday");
+    const halls = [...frame.querySelectorAll<HTMLElement>("[data-preview-group]")].map(group => [
+        group.getAttribute("data-preview-group"),
+        [...group.querySelectorAll<HTMLElement>("[data-preview-tile]")].map(el => [el.textContent, el.getAttribute("data-op") ?? undefined, el.getAttribute("title")]),
+    ]);
+    expect(halls).toEqual([
+        ["Hall A", [
+            ["A1", "chg", "Press A1 · 1 print job changes"], ["A2", "chg", "Press A2 · 1 print job changes"], ["A3", "from", "Press A3 · 1 print job moves off"],
+        ]],
+        ["Hall B", [
+            ["B1", "chg", "Press B1 · 2 print jobs change"], ["B2", "chg", "Press B2 · 1 print job changes"], ["B3", undefined, "Press B3 · no change"],
+        ]],
+    ]);
+    const when = frame.querySelector<HTMLElement>("[data-preview-when]")!;
+    expect(within(when).getByText("05–14")).toBeDefined();
+    expect([...when.querySelectorAll("[data-preview-tick]")].map(el => [el.getAttribute("data-preview-tick"), el.getAttribute("title")])).toEqual([
+        ["J-1025", "07:00 · Winter brochure lands here"],
+        ["J-1027", "08:00 · Prospectus lands here"],
+        ["J-1028", "09:00 · Price lists lands here"],
+        ["J-1012", "10:00 · Gift boxes moves here"],
+        ["J-1026", "11:30 · Wall calendars lands here"],
+    ]);
+});
+
+// ── The Allocation's, the Calendar's and the Sheet's crops (P4, P24, P26) ───
+
+test("the Allocation's crop over the kiln yard's May days, no now line; the Calendar's a lane a day; the Sheet's three orders, WO-1007's cells the model's guess (P4, P13, P14, P20, P24, P26)", async () => {
+    const { container } = await open();
+    const yard = preview(container, "yard-ld2235");
+    expect(previewRows(yard)).toEqual(["K-305", "Waiting"]);
+    expect(ruler(yard)).toEqual(["May 9", "May 16"]);
+    expect(measure(previewRow(yard, "K-305"), "0 → 8 m³")).toBeUndefined();
+    expect(measure(previewRow(yard, "Waiting"), "8 → 0 m³")).toBe("better");
+    expect(entries(previewRow(yard, "K-305")).map(entry => [entry.op, entry.look])).toEqual([[undefined, "prior"], [undefined, "next"], ["add", undefined]]);
+    expect(yard.querySelector("[data-preview-now]")).toBeNull();
+    const workshop = preview(container, "workshop-press1");
+    expect(previewRows(workshop)).toEqual(["Thu 1", "Sat 3"]);
+    expect(measure(previewRow(workshop, "Thu 1"), "overlap 1 → 0")).toBe("better");
+    expect(measure(previewRow(workshop, "Sat 3"), "no overlap")).toBeUndefined();
+    const orders = preview(container, "orders-ready");
+    expect(sheetHead(orders)).toEqual(["Reference", "Status", "Due"]);
+    expect(previewRows(orders)).toEqual(["WO-1005", "WO-1007", "WO-1008"]);
+    const guess = m.guess({ confidence: "0.69" });
+    expect(sheetCells(previewRow(orders, "WO-1007")).map(cell => [cell.column, cell.value, cell.op, cell.guess]))
+        .toEqual([["status", "Scheduled", "chg", guess], ["due", "26 Oct 26", "chg", guess]]);
+    expect(sheetCells(previewRow(orders, "WO-1005")).map(cell => cell.guess)).toEqual([undefined, undefined]);
+});
+
+// ── The marks (P15, P16, P18, P21) ──────────────────────────────────────────
+
+test("stale: the frame dashed, J-1008 as the works now has it, the case's status Stale and its Apply off, saying why (P21, R23)", async () => {
+    const { container } = await open();
+    const frame = preview(container, "print-stale");
+    expect(frame.hasAttribute("data-stale")).toBe(true);
+    expect(previewRows(frame)).toEqual(["Press A2"]);
+    expect(tiles(previewRow(frame, "Press A2"), "J-1008")).toEqual([{ op: "chg", fill: "own", title: "Seed catalogue · 06:00–16:00 · changed" }]);
+    expect(within(head(container, "print-stale")).getByText(m.status({ status: "stale" }))).toBeDefined();
+    await press(head(container, "print-stale"));
+    const apply = action(container, "print-stale", m.action({ action: "apply" }));
+    expect(apply.getAttribute("aria-disabled")).toBe("true");
+    expect(apply.getAttribute("title")).toBe(m.applyOff({ why: "stale" }));
+    // No other preview is stale.
+    expect(CASES.filter(key => preview(container, key).hasAttribute("data-stale"))).toEqual(["print-stale"]);
+});
+
+test("shared, a knock-on and a breach: J-1025, which the day map places too, takes +1; J-1016, pushed by the change, keeps its fill in a dashed ring beside its ghost; J-1023 and the J-1005 it overlaps each take the warning ring and triangle, the press worse (P15, P16, P18, P24)", async () => {
+    const { container } = await open();
+    const shared = previewRow(preview(container, "print-shared"), "Press B3");
+    expect(tiles(shared, "J-1025")).toEqual([{ op: "add", fill: "own", title: "Winter brochure · 06:00–17:00 · proposed · 1 other case changes it too" }]);
+    expect(shared.querySelector('[data-preview-tile="J-1025"] [data-preview-shared]')?.textContent).toBe(m.previewShared({ n: "1" }));
+    const knock = previewRow(preview(container, "print-knock"), "Press B1");
+    expect(tiles(knock, "J-1016")).toEqual([
+        { op: undefined, fill: undefined, title: "Exhibition book · 09:00–15:00 · knock-on" },
+        { op: "from", fill: undefined, title: "Exhibition book · 06:00–12:00 · moves to 09:00–15:00" },
+    ]);
+    expect([...knock.querySelectorAll("[data-knock]")].map(el => el.getAttribute("data-preview-tile"))).toEqual(["J-1016"]);
+    expect(tiles(knock, "J-1024")).toEqual([{ op: "add", fill: "own", title: "Order forms · 06:00–09:00 · proposed" }]);
+    const breach = previewRow(preview(container, "print-breach"), "Press A1");
+    expect(measure(breach, "33 → 67%")).toBe("worse");
+    expect(tiles(breach, "J-1023")).toEqual([{ op: "add", fill: "own", title: "Guide reprint · 07:00–09:00 · proposed · overlaps Menu cards" }]);
+    expect(tiles(breach, "J-1005")).toEqual([{ op: undefined, fill: undefined, title: "Menu cards · 06:00–08:00 · overlaps Guide reprint" }]);
+    expect([...breach.querySelectorAll<HTMLElement>("[data-breach]")].map(el => [el.getAttribute("data-preview-tile"), icons(el)]))
+        .toEqual([["J-1005", ["triangle-exclamation"]], ["J-1023", ["triangle-exclamation"]]]);
+    // Nothing else is shared, knocked on or breached in the gallery.
+    const flagged = (mark: string) => CASES.filter(key => preview(container, key).querySelector(`[${mark}]`) !== null);
+    expect([flagged("data-preview-shared"), flagged("data-knock"), flagged("data-breach")]).toEqual([["print-shared"], ["print-knock"], ["print-breach"]]);
+});
+
+// ── Loading (P23) ───────────────────────────────────────────────────────────
+
+test("a preview whose rows are still read draws its placeholders in its final layout, busy, named as reading, its Apply off saying so; the read landing draws the change (P23)", async () => {
+    const held = h.e3.hold(jobsRead);
+    const ui = await h.mount(ex.decisionQueuePreviews);
+    const { container } = ui;
+    await waitFor(() => expect(heads(container)).toEqual(CASES));
+    await held.holding;
+    const frame = () => preview(container, "print-j1019");
+    await waitFor(() => expect(frame().getAttribute("aria-busy")).toBe("true"));
+    expect(frame().getAttribute("aria-label")).toBe(m.applyOff({ why: "reading" }));
+    expect(frame().getAttribute("data-layout")).toBe("lanes");
+    // A press's lanes: each its name's placeholder, then its plot washed.
+    expect(frame().querySelectorAll("[data-preview-pending]")).toHaveLength(2);
+    expect(frame().querySelectorAll('[data-preview-pending] [data-shape="label2"]')).toHaveLength(2);
+    // Shown once the reveal's clock has run, never as a flash.
+    await waitFor(() => expect(frame().querySelectorAll("[data-unrevealed]")).toHaveLength(0));
+    // The print cases wait; the others, which read no job, draw.
+    await waitFor(() => expect(drawn(container, "rota-garnet")).toBe(true));
+    expect(preview(container, "rota-garnet").getAttribute("aria-busy")).toBeNull();
+    await press(head(container, "print-j1019"));
+    const apply = () => action(container, "print-j1019", m.action({ action: "apply" }));
+    expect(apply().getAttribute("aria-disabled")).toBe("true");
+    expect(apply().getAttribute("title")).toBe(m.applyOff({ why: "reading" }));
+    await act(async () => { held.release(); });
+    await settle();
+    await waitFor(() => expect(previewRows(frame())).toEqual(["Press B2", "Press B3"]));
+    expect(frame().getAttribute("aria-busy")).toBeNull();
+    await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
+});
+
+// ── Apply (R16, R29) ────────────────────────────────────────────────────────
+
+test("the Plan crop's Apply drafts J-1019's move and the verdict as one step, and Save writes the job to Press B3 09:30–15:30 through the target that reads it by its source, and the verdict, a request each (R16, R29)", async () => {
+    const { container } = await open();
+    const jobs = await h.read(ex.planPrintJobs);
+    await press(head(container, "print-j1019"));
+    const apply = () => action(container, "print-j1019", m.action({ action: "apply" }));
+    await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
+    const from = new Date();
+    await press(apply());
+    expect(container.querySelector('[data-decision-receipt="print-j1019"]')).not.toBeNull();
+    await press(history(container, editingMessages.apply()));
+    expect(mutated()).toEqual([ex.planPrintJobs.name, ex.previewVerdicts.name].sort());
+    const saved = (await h.read(ex.previewVerdicts)).get("print-j1019");
+    expect(saved).toBeDefined();
+    const at = saved!.verdict.value.at;
+    expect(compareTime(at, from)).toBeGreaterThanOrEqual(0);
+    expect(compareTime(at, new Date())).toBeLessThanOrEqual(0);
+    expect(verdictEqual(saved!, { verdict: variant("applied", { at }), option: some("1-b3"), answer: none, reason: none, note: none })).toBe(true);
+    const cards = jobs.get("J-1019")!;
+    expect(jobsEqual(await h.read(ex.planPrintJobs), new SortedMap([...jobs, ["J-1019", {
+        ...cards, press: some("b3"), start: some(new Date("2026-10-20T09:30:00Z")), end: some(new Date("2026-10-20T15:30:00Z")),
+    }]], byString))).toBe(true);
+});

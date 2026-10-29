@@ -27,17 +27,18 @@ import type { CSSProperties } from "react";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLock, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
-import { DateTimeType, FloatType, equalFor } from "@elaraai/east";
+import { DateTimeType, FloatType, StringType, equalFor } from "@elaraai/east";
 import type { SlotStyles } from "@elaraai/east-ui-components/internal";
 import { allocationWords } from "../../allocation/model.js";
 import { dayStart } from "../../shared/schedule/window.js";
 import type { DecisionQueueWords, PreviewCountWords } from "../messages.js";
-import { PreviewFrame, flag } from "./frame.js";
+import { PreviewFrame, flag, staleNames } from "./frame.js";
 import { nowShare, type LaneBar, type LaneBreach, type LaneClause, type LaneRow, type LaneUnit, type LaneWindow, type LanesModel } from "./lanes-model.js";
 import type { MapModel, MapTile, MapWhen } from "./map-model.js";
 
 const sameDate = equalFor(DateTimeType);
 const sameNumber = equalFor(FloatType);
+const sameString = equalFor(StringType);
 
 /** A place along the window, as the recipe reads it. */
 const at = (share: number): CSSProperties => ({ "--pv-at": `${share * 100}%` } as CSSProperties);
@@ -107,31 +108,51 @@ function measureText(row: LaneRow, model: LanesModel, words: DecisionQueueWords)
     }
 }
 
+/** Whether a clause is of an event the option knocks on (P16): moved, along its lane or onto another. */
+const knocked = (c: LaneClause): c is Extract<LaneClause, { kind: "move" | "reschedule" }> => (c.kind === "move" || c.kind === "reschedule") && c.knock;
+
 /**
- * A lanes crop's sentence (P25): what moves where, then the rows the model guessed; with nothing marked, the lanes it
- * would land on.
+ * A lanes crop's sentence (P25): what moves where — each with what it breaks once the change is made (P15) — and the
+ * knock-ons it pushes (P16), then the entries it leaves pinned (P17), those other cases change too (P18) and the rows
+ * the model guessed; with nothing marked, the lanes it would land on; stale, what the change touches, which moved after
+ * the model's run (P21).
  *
  * @param model - The crop
  * @param guessed - The keys of the changed rows the model guessed (P26)
+ * @param stale - Whether the change no longer applies
  * @param words - The queue's words
  * @returns The sentence
  */
-export function lanesSentence(model: LanesModel, guessed: readonly string[], words: DecisionQueueWords): string {
+export function lanesSentence(model: LanesModel, guessed: readonly string[], stale: boolean, words: DecisionQueueWords): string {
     const { m } = words;
     const dated = datedOf(model.window);
     const time = (d: Date) => timeText(d, dated, words);
     const clause = (c: LaneClause): string => {
         switch (c.kind) {
-            case "move": return m.previewEvent({ kind: "move", what: c.what, from: c.from, to: c.to, verb: c.verb, start: time(c.start), end: time(c.end), overlapped: c.overlapped });
-            case "reschedule": return m.previewEvent({ kind: "reschedule", what: c.what, on: c.on, start: time(c.start), end: time(c.end), overlapped: c.overlapped });
-            case "add": return m.previewEvent({ kind: "add", what: c.what, on: c.on, verb: c.verb, start: time(c.start), end: time(c.end) });
+            case "move": return m.previewEvent({ kind: "move", what: c.what, from: c.from, to: c.to, verb: c.verb, start: time(c.start), end: time(c.end), overlapped: c.overlapped, breach: c.breach });
+            case "reschedule": return m.previewEvent({ kind: "reschedule", what: c.what, on: c.on, start: time(c.start), end: time(c.end), overlapped: c.overlapped, breach: c.breach });
+            case "add": return m.previewEvent({ kind: "add", what: c.what, on: c.on, verb: c.verb, start: time(c.start), end: time(c.end), breach: c.breach });
             case "remove": return m.previewEvent({ kind: "remove", what: c.what, from: c.from });
             case "change": return m.previewEvent({ kind: "change", what: c.what, on: c.on });
         }
     };
+    if (stale) {
+        const names = model.clauses.map(c => c.what).filter((what, i, all) => all.findIndex(other => sameString(other, what)) === i);
+        return m.previewStale({ names: staleNames(names, words) });
+    }
     if (model.clauses.length === 0) return m.previewUnchanged({ names: m.previewList({ items: model.rows.map(row => row.name) }) });
+    // The change's own clauses, then the knock-ons the last pushes; knock-ons alone say what moves.
+    const own = model.clauses.filter(c => !knocked(c));
+    const pushes = own.length === 0 ? [] : model.clauses.filter(knocked);
     return m.previewSentence({
-        clauses: model.clauses.map(clause),
+        clauses: (own.length === 0 ? model.clauses : own).map(clause),
+        pushes: pushes.length === 0 ? undefined : m.previewPushes({
+            pushes: pushes.map(c => (c.kind === "move" ? { what: c.what, onto: c.to, start: time(c.start) } : { what: c.what, was: time(c.was), start: time(c.start) })),
+        }),
+        marks: [
+            ...model.pinned.map(p => m.previewPinned({ what: p.what, on: p.on })),
+            ...model.shared.map(s => m.previewAlsoIn({ what: s.what, n: words.number(s.n), one: s.n === 1 })),
+        ],
         guessed: guessed.length === 0 ? undefined : { keys: m.previewList({ items: guessed }), n: guessed.length },
     });
 }

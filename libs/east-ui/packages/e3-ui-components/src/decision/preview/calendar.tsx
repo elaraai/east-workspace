@@ -24,7 +24,7 @@
  */
 
 import { useCallback } from "react";
-import { StringType, equalFor, none, printFor, some, type option } from "@elaraai/east";
+import { StringType, equalFor, none, printFor, some } from "@elaraai/east";
 import { ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { scheduleWithinCap } from "../../shared/schedule/cells.js";
@@ -92,18 +92,20 @@ export function CalendarPreview({ c, view, target, kind, record, rows, changed, 
         // The resources the change's events are on, printed — UNASSIGNED for none — and each day lane's first instant.
         const refs = new Map<string, ResourceRef | undefined>();
         const days = new Map<string, number>();
-        // An event as a row's bytes give it: its kind's own item, made from the row, the drafts aside, on its day's lane.
-        const eventOf = (key: string, bytes: Uint8Array | undefined): option<LaneEvent | undefined> => {
-            if (bytes === undefined) return some(undefined);
+        // An event as a row's bytes give it: its kind's own item, made from the row, the drafts aside, on its day's lane —
+        // none for no row, or a row with no time, as an event in the backlog has — or `reading` while its kind's read of the
+        // row is in flight.
+        const eventOf = (key: string, bytes: Uint8Array | undefined): LaneEvent | undefined | "reading" => {
+            if (bytes === undefined) return undefined;
             const got = events.event(key, EMPTY_SCHEDULE_DRAFTS, EPOCH, EPOCH, some(some(bytes)));
-            if (got.type !== "some") return none;
+            if (got.type !== "some") return "reading";
             const item = got.value.item;
             const e = laneEvent(item);
-            if (e === undefined) return some(undefined);
+            if (e === undefined) return undefined;
             refs.set(e.resource, item.resource.type === "some" ? item.resource.value : undefined);
             const lane = laneDayKey(e.start);
             days.set(lane, laneDay(e.start));
-            return some({ ...e, lane });
+            return { ...e, lane };
         };
         const before = new Map<string, LaneEvent | undefined>(), after = new Map<string, LaneEvent | undefined>();
         const bytesOf = new Map<string, Uint8Array>();
@@ -113,9 +115,9 @@ export function CalendarPreview({ c, view, target, kind, record, rows, changed, 
             for (const row of changed) {
                 const left = leftBy(row);
                 const was = eventOf(row.key, row.standing), is = eventOf(row.key, left);
-                if (was.type !== "some" || is.type !== "some") return PENDING;
-                before.set(row.key, was.value);
-                after.set(row.key, is.value);
+                if (was === "reading" || is === "reading") return PENDING;
+                before.set(row.key, was);
+                after.set(row.key, is);
                 const bytes = row.standing ?? left;
                 if (bytes !== undefined) bytesOf.set(row.key, bytes);
             }
@@ -134,9 +136,9 @@ export function CalendarPreview({ c, view, target, kind, record, rows, changed, 
                 if (got.type !== "some") return PENDING;
                 const bytes = got.value.type === "some" ? got.value.value : undefined;
                 const e = eventOf(key, bytes);
-                if (e.type !== "some") return PENDING;
-                before.set(key, e.value);
-                after.set(key, e.value);
+                if (e === "reading") return PENDING;
+                before.set(key, e);
+                after.set(key, e);
                 if (bytes !== undefined) bytesOf.set(key, bytes);
             }
             if (theirs) {
@@ -145,8 +147,8 @@ export function CalendarPreview({ c, view, target, kind, record, rows, changed, 
                 if (applied.state === "ready") {
                     for (const [key, bytes] of applied.rows) {
                         const e = eventOf(key, bytes);
-                        if (e.type !== "some") return PENDING;
-                        if (e.value !== undefined) landed.push(e.value);
+                        if (e === "reading") return PENDING;
+                        if (e !== undefined) landed.push(e);
                     }
                 }
             }
@@ -256,10 +258,11 @@ export function CalendarPreview({ c, view, target, kind, record, rows, changed, 
     if (got.state === "pending") return <PreviewPending kind="calendar" layout="lanes" rows={PENDING_LANES} words={words} styles={styles} />;
     if (got.state === "empty") return <PreviewFrame kind="calendar" layout="lanes" label={option?.detail ?? ""} stale={stale} styles={styles} />;
     const guessed = guessedOf(option?.guesses, changed);
-    // A map's sentence counts what changes; with nothing marked, it names the days the recommendation lands on (P4).
+    // A map's sentence counts what changes; with nothing marked, it names the days the recommendation lands on (P4), and stale
+    // what the change touches (P21), as a crop's does.
     if (got.map !== undefined) {
-        const label = got.model.clauses.length === 0 ? lanesSentence(got.model, guessed, words) : mapSentence(got.map, guessed, words);
+        const label = stale || got.model.clauses.length === 0 ? lanesSentence(got.model, guessed, stale, words) : mapSentence(got.map, guessed, words);
         return <LanesMap kind="calendar" map={got.map} label={label} stale={stale} words={words} styles={styles} />;
     }
-    return <LanesCrop kind="calendar" model={got.model} label={lanesSentence(got.model, guessed, words)} stale={stale} now={now} words={words} styles={styles} />;
+    return <LanesCrop kind="calendar" model={got.model} label={lanesSentence(got.model, guessed, stale, words)} stale={stale} now={now} words={words} styles={styles} />;
 }

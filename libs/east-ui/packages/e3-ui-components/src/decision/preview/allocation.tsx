@@ -194,10 +194,11 @@ export function AllocationPreview({ c, view, target, kind, record, rows, changed
     if (got.state === "pending") return <PreviewPending kind="allocation" layout="lanes" rows={PENDING_LANES} words={words} styles={styles} />;
     if (got.state === "empty") return <PreviewFrame kind="allocation" layout="lanes" label={option?.detail ?? ""} stale={stale} styles={styles} />;
     const guessed = guessedOf(option?.guesses, changed);
-    // A map's sentence counts what changes; with nothing marked, it names the lanes the recommendation lands on (P4).
+    // A map's sentence counts what changes; with nothing marked, it names the lanes the recommendation lands on (P4), and stale
+    // what the change touches (P21), as a crop's does.
     if (got.map !== undefined) {
-        const label = got.model.clauses.length === 0 ? lanesSentence(got.model, guessed, words) : mapSentence(got.map, guessed, words);
+        const label = stale || got.model.clauses.length === 0 ? lanesSentence(got.model, guessed, stale, words) : mapSentence(got.map, guessed, words);
         return <LanesMap kind="allocation" map={got.map} label={label} stale={stale} words={words} styles={styles} />;
     }
-    return <LanesCrop kind="allocation" model={got.model} label={lanesSentence(got.model, guessed, words)} stale={stale} now={now} words={words} styles={styles} />;
+    return <LanesCrop kind="allocation" model={got.model} label={lanesSentence(got.model, guessed, stale, words)} stale={stale} now={now} words={words} styles={styles} />;
 }

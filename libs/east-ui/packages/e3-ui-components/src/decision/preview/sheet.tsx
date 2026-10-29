@@ -30,7 +30,7 @@ import type { SheetRowValue } from "../../sheet/values.js";
 import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
 import { CONFIDENCE } from "../figures.js";
 import type { DecisionQueueWords } from "../messages.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, flag, leftBy, sharedOf, type PreviewProps } from "./frame.js";
+import { PreviewFailed, PreviewFrame, PreviewPending, flag, leftBy, sharedOf, staleNames, type PreviewProps } from "./frame.js";
 import { CROP_ROWS, sheetCrop, type SheetCropCell, type SheetCropColumn, type SheetCropInput, type SheetCropModel, type SheetCropRow } from "./sheet-model.js";
 
 /** A Sheet target's kind, decoded. */
@@ -149,19 +149,22 @@ export function SheetPreview({ c, view, target, kind, record, rows, changed, sch
     const got = result.value;
     if (got.state === "pending") return <PreviewPending kind="sheet" layout="sheet" rows={CROP_ROWS} cells={1} words={words} styles={styles} />;
     if (got.state === "empty") return <PreviewFrame kind="sheet" layout="sheet" label={option?.detail ?? ""} stale={stale} styles={styles} />;
-    return <SheetCrop model={got.model} label={sentence(got.model, words)} stale={stale} words={words} styles={styles} />;
+    return <SheetCrop model={got.model} label={sentence(got.model, stale, words)} stale={stale} words={words} styles={styles} />;
 }
 
 /**
  * The crop's sentence (P25): the columns the change sets on its rows, the rows it adds and removes — three named, the
- * rest counted — then the rows the model guessed; with nothing marked, the rows drawn.
+ * rest counted — then the rows the model guessed; with nothing marked, the rows drawn; stale, the rows the change
+ * touches, which moved after the model's run (P21).
  *
  * @param model - The crop
+ * @param stale - Whether the change no longer applies
  * @param words - The queue's words
  * @returns The sentence
  */
-function sentence(model: SheetCropModel, words: DecisionQueueWords): string {
+function sentence(model: SheetCropModel, stale: boolean, words: DecisionQueueWords): string {
     const { m } = words;
+    if (stale) return m.previewStale({ names: staleNames(model.rows.map(row => row.name), words) });
     if (model.clauses.length === 0) return m.previewUnchanged({ names: m.previewList({ items: model.rows.map(row => row.name) }) });
     const named = (rows: readonly string[]) => ({
         rows: rows.slice(0, CROP_ROWS),
