@@ -20,11 +20,13 @@
  * touches over the hours around it, each its booked share before → after
  * (P13–P16, P24, P25); the Calendar's, a lane a day the change lands on over
  * the same hours, each its overlaps before → after (P13–P15, P24, P25); the
- * recommended option says so on its line (R14); choosing another option draws
- * its change, and one that changes nothing draws the people, or the days, the
- * recommendation lands on, unmarked (P4); Apply, once the question is
- * answered, writes the duty and the verdict through their doors (R16, R23,
- * R29), the print case's the job and the workshop case's the maintenance; and
+ * Sheet's, the work orders the change sets under the columns it sets, the
+ * model's guess dotted (P3, P13, P25, P26); the recommended option says so on
+ * its line (R14); choosing another option draws its change, and one that
+ * changes nothing draws the people, or the days, the recommendation lands on,
+ * unmarked (P4); Apply, once the question is answered, writes the duty and the
+ * verdict through their doors (R16, R23, R29), the print case's the job, the
+ * workshop case's the maintenance and the orders case's the work orders; and
  * the routine band's Apply all adds the request it proposes (R28).
  */
 
@@ -43,12 +45,17 @@ const verdictEqual = equalFor(ex.OpsVerdict);
 const dutiesEqual = equalFor(ex.rosterDuties.type);
 const jobsEqual = equalFor(ex.planEventJobs.type);
 const servicesEqual = equalFor(ex.calendarServices.type);
+const ordersEqual = equalFor(ex.optimiseWorkOrders.type);
 const compareTime = compareFor(DateTimeType);
 const byString = compareFor(StringType);
 
 /** Saturday's late, which the routine case asks an agency to cover. */
 const SAT_LATE = new Date("2028-03-11T14:00:00Z");
 const SAT_LATE_END = new Date("2028-03-11T22:00:00Z");
+/** The days the orders case gives the ready orders. */
+const MON_13 = new Date("2028-03-13T00:00:00Z");
+const TUE_14 = new Date("2028-03-14T00:00:00Z");
+const WED_15 = new Date("2028-03-15T00:00:00Z");
 
 /** The cases whose cards the list draws, in its order. */
 const heads = (container: HTMLElement) => [...container.querySelectorAll("[data-decision-head]")].map(el => el.getAttribute("data-decision-head"));
@@ -81,6 +88,19 @@ const tiles = (row: HTMLElement, key: string) => [...row.querySelectorAll<HTMLEl
     ({ op: el.getAttribute("data-op") ?? undefined, fill: el.getAttribute("data-fill") ?? undefined, title: el.getAttribute("title") }));
 /** The duties a row draws that the change marks. */
 const marked = (row: HTMLElement) => [...row.querySelectorAll("[data-preview-tile][data-op]")].map(el => el.getAttribute("data-preview-tile"));
+/** A Sheet crop's head: its columns' heads. */
+const sheetHead = (frame: HTMLElement) => [...frame.firstElementChild!.children].map(el => el.textContent);
+/** A Sheet crop's row's name: its mark and its title. */
+function sheetName(row: HTMLElement) {
+    const el = row.querySelector<HTMLElement>("[data-preview-name]")!;
+    return { op: el.getAttribute("data-op") ?? undefined, title: el.getAttribute("title") };
+}
+/** A Sheet crop's row's cells, as the change marks each: its column, its value, its mark and fill, its title and its guess's. */
+const sheetCells = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>("[data-preview-cell]")].map(el => ({
+    column: el.getAttribute("data-preview-cell"), value: el.querySelector("[data-value]")?.textContent, op: el.getAttribute("data-op") ?? undefined,
+    fill: el.getAttribute("data-fill") ?? undefined, title: el.getAttribute("title"),
+    guess: el.querySelector("[data-preview-guess]")?.getAttribute("title") ?? undefined,
+}));
 /** A lanes crop's ruler: the times it labels. */
 const ruler = (frame: HTMLElement) => [...frame.querySelectorAll("[data-preview-ruler] span")].map(el => el.textContent).filter(text => text !== "");
 /** One of a card's options, by the start of its name: its label. */
@@ -279,7 +299,61 @@ test("the workshop case's Keep changes nothing: Thursday as it stands, the maint
     expect(chipLine(container, "workshop-press1").textContent).toBe(`${m.chip({ modified: true })}Keep Thu 09:00`);
 });
 
+// ── The Sheet's crop (P3, P4, P13, P25, P26) ────────────────────────────────
+
+test("the orders case's preview is the Sheet's crop of the work orders its change sets: WO-1005, WO-1007 and WO-1008 under Reference, Status and Due, each set Scheduled and given its due date on the dirty fill; WO-1007's cells the model's guess, dotted; one sentence (P3, P13, P25, P26)", async () => {
+    const { container } = await open();
+    const frame = () => preview(container, "orders-ready");
+    await waitFor(() => expect(previewRows(frame())).toEqual(["WO-1005", "WO-1007", "WO-1008"]));
+    expect(frame().getAttribute("data-kind")).toBe("sheet");
+    expect(frame().getAttribute("data-layout")).toBe("sheet");
+    expect(frame().getAttribute("aria-label")).toBe("Status and Due change on WO-1005, WO-1007 and WO-1008. WO-1007 is a low-confidence guess");
+    expect(sheetHead(frame())).toEqual(["Reference", "Status", "Due"]);
+    const guess = m.guess({ confidence: "0.69" });
+    const set = (due: string, guessed: string | undefined) => [
+        { column: "status", value: "Scheduled", op: "chg", fill: "cell", title: "Status: Ready → Scheduled", guess: guessed },
+        { column: "due", value: due, op: "chg", fill: "cell", title: `Due: — → ${due}`, guess: guessed },
+    ];
+    expect(sheetCells(previewRow(frame(), "WO-1005"))).toEqual(set("13 Mar 28", undefined));
+    expect(sheetCells(previewRow(frame(), "WO-1007"))).toEqual(set("14 Mar 28", guess));
+    expect(sheetCells(previewRow(frame(), "WO-1008"))).toEqual(set("15 Mar 28", undefined));
+    // Each row is named by its first column, unmarked: its cells show its change. No other case changes them.
+    expect(sheetName(previewRow(frame(), "WO-1005"))).toEqual({ op: undefined, title: "WO-1005" });
+    expect(frame().querySelector("[data-preview-shared]")).toBeNull();
+});
+
+test("choosing the orders case's WO-1005 alone draws its row alone, and the chip reads Modified (P1, P4, R15)", async () => {
+    const { container } = await open();
+    await press(head(container, "orders-ready"));
+    await press(optionOf(container, "orders-ready", /^WO-1005 only/u));
+    const frame = () => preview(container, "orders-ready");
+    await waitFor(() => expect(frame().getAttribute("aria-label")).toBe("Status and Due change on WO-1005"));
+    expect(previewRows(frame())).toEqual(["WO-1005"]);
+    expect(sheetHead(frame())).toEqual(["Reference", "Status", "Due"]);
+    expect(sheetCells(previewRow(frame(), "WO-1005")).map(cell => [cell.value, cell.op, cell.guess])).toEqual([["Scheduled", "chg", undefined], ["13 Mar 28", "chg", undefined]]);
+    expect(chipLine(container, "orders-ready").textContent).toBe(`${m.chip({ modified: true })}WO-1005 only`);
+});
+
 // ── Apply and Save (R16, R23, R29) ──────────────────────────────────────────
+
+test("the orders case's Apply drafts the three orders and the verdict as one step, and Save writes them Scheduled with their due dates and the verdict, a request each (R16, R29)", async () => {
+    const { container } = await open();
+    const orders = await h.read(ex.optimiseWorkOrders);
+    await press(head(container, "orders-ready"));
+    const apply = () => action(container, "orders-ready", m.action({ action: "apply" }));
+    await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
+    const from = new Date();
+    await press(apply());
+    expect(container.querySelector('[data-decision-receipt="orders-ready"]')).not.toBeNull();
+    await press(history(container, editingMessages.apply()));
+    expect(mutated()).toEqual([ex.opsVerdicts.name, ex.optimiseWorkOrders.name].sort());
+    await savedVerdict("orders-ready", from, new Date(), { option: "1-all" });
+    expect(ordersEqual(await h.read(ex.optimiseWorkOrders), new SortedMap([...orders,
+        ["WO-1005", { ...orders.get("WO-1005")!, status: "Scheduled", due: some(MON_13) }],
+        ["WO-1007", { ...orders.get("WO-1007")!, status: "Scheduled", due: some(TUE_14) }],
+        ["WO-1008", { ...orders.get("WO-1008")!, status: "Scheduled", due: some(WED_15) }],
+    ], byString))).toBe(true);
+});
 
 test("the print case's Apply drafts J-3007's move and the verdict as one step, and Save writes the job to Press A1 11:30–14:30 and the verdict, a request each (R16, R29)", async () => {
     const { container } = await open();

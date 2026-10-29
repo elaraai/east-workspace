@@ -44,9 +44,11 @@
  * - people, peopleRow, peopleDay, peopleName, mark: the Roster's map by people (P5): rows 16, its days' letters 12, a
  *   person's name and hours, and a day's mark, 12 tall, over the Roster's `mark`.
  * - count, countText, countFigure: what a map names beside its rows — `+ 16 more people` — and its count, `20 of 36`.
- * - sheetKey, sheetCell, guess: a Sheet's row — its first column's value mono `--fs-label-md` `--ink-3`, its changed
- *   cells' values on the dirty fill (`data-fill="cell"`), an empty one italic `--ink-4` — and a guessed cell's dot,
- *   6px `--warn`, 6 before its value (P26).
+ * - sheetKey, sheetCell, guess: a Sheet's row — its first column's value mono `--fs-label-md` `--ink-3`, then its lock
+ *   and its `+N`; its cells, a quantity's figures at the end (`data-numeric`) and a date's in place (`data-mono`) in
+ *   mono, its changed cells' values on the dirty fill (`data-fill="cell"`), a cleared one the Sheet's blank, italic
+ *   `--ink-4` (`data-empty`) — and a guessed cell's dot, Font Awesome's `circle` 6px in `--warn`, 6 before its value
+ *   (P26).
  * - pending, failed: the frame's place while its rows are read — the shared placeholder shapes in its layout (P23) —
  *   and a failed read's line.
  *
@@ -55,7 +57,7 @@
  * dirty fill unless the entry keeps its own (`data-fill="own"`), inset on a Sheet's cell (`data-fill="cell"`); a ghost
  * — an entry the change moves off (`data-op="from"`) or that is gone from its row (`data-op="del"`, struck through) —
  * dashed in `elara.edge`, unfilled, its words `--ink-4` (P14); an entry the option knocks on (`data-knock`) a dashed
- * `elara.edge` ring 3 out (P16); one that breaks a rule (`data-breach`) a `--warn` ring (P15); while stale the
+ * `elara.edge` ring 3 out, 3 in on a Sheet's cell (P16); one that breaks a rule (`data-breach`) a `--warn` ring (P15); while stale the
  * proposal dashed on `--paper-3`, no glow (P21); once applied (`data-applied`) the glow settles to nothing over
  * `--dur-slow` and the ghosts go (P22).
  *
@@ -97,6 +99,7 @@ const MARKS = {
     "& [data-op=del]": { textDecoration: "line-through" },
     "& [data-op=from] *, & [data-op=del] *": { color: "inherit" },
     "& [data-knock]": { outline: "1px dashed {colors.elara.edge}", outlineOffset: "3px" },
+    "& [data-fill=cell][data-knock]": { outlineOffset: "-3px" },
     "& [data-breach]": { outline: "1px solid {colors.status.warn}", outlineOffset: "3px" },
     // Stale (P21): the proposal dashed on `--paper-3`, its words `--ink-3`, no glow.
     "&[data-stale] [data-op=add], &[data-stale] [data-op=chg]": {
@@ -384,7 +387,19 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
         countFigure: { fontFamily: "mono", fontSize: "label.md", fontWeight: "semibold", fontVariantNumeric: "tabular-nums", color: "fg", whiteSpace: "nowrap" },
 
         // ── A Sheet's rows ──
-        sheetKey: { ...ELLIPSIS, display: "block", alignSelf: "center", padding: "0 8px 0 12px", fontFamily: "mono", fontSize: "label.md", fontWeight: "medium", color: "fg.muted" },
+        sheetKey: {
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            minWidth: 0,
+            overflow: "hidden",
+            padding: "0 8px 0 12px",
+            fontFamily: "mono",
+            fontSize: "label.md",
+            fontWeight: "medium",
+            color: "fg.muted",
+            "& > [data-value]": ELLIPSIS,
+        },
         sheetCell: {
             display: "flex",
             alignItems: "center",
@@ -398,10 +413,11 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
             color: "fg",
             "& > [data-value]": ELLIPSIS,
             "&[data-numeric]": { justifyContent: "flex-end", fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
+            "&[data-mono]": { fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
             "&[data-op]": { fontWeight: "semibold" },
             "&[data-empty]": { fontStyle: "italic", fontWeight: "normal", color: "fg.subtle" },
         },
-        guess: { flex: "none", width: "6px", height: "6px", borderRadius: "full", background: "status.warn" },
+        guess: { ...fontAwesomeSize("6px"), flex: "none", display: "inline-flex", color: "status.warn" },
 
         // ── A read in flight, or one that failed ──
         pending: { display: "flex", alignItems: "center", minWidth: 0, height: "100%" },

@@ -10,10 +10,17 @@
  * their separators and a range's dash, and a `k`, `K`, `M`, `h` or `%` after
  * them — as the mock's `toks()` does, any currency's symbol in place of its
  * `$`. The text is the app's own words, whose figures it printed itself; the
- * queue marks them (`data-figure`) and the recipe sets them.
+ * queue marks them (`data-figure`) and the recipe sets them. A confidence the
+ * queue prints itself, at two places.
  *
  * @packageDocumentation
  */
+
+import { none, some, variant } from "@elaraai/east";
+import type { TickFormatOpt } from "@elaraai/east-ui-components";
+
+/** A confidence, at two places — `0.82`: a guessed cell's title (P26). */
+export const CONFIDENCE: TickFormatOpt = variant("number", { minimumFractionDigits: some(2n), maximumFractionDigits: some(2n), signDisplay: none });
 
 /** A figure: an optional sign and currency symbol, digits running on through separators, and an optional suffix. */
 const FIGURE = /([+\-−]?\p{Sc}?\d(?:[\d.,:\-–]*\d)?[kKMh%]?)/u;
