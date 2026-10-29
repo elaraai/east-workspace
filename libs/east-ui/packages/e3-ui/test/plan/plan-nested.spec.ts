@@ -117,9 +117,9 @@ describe("the Plan over them (#1439)", () => {
         assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
     });
 
-    test("its program writes each expression out once: under 50,000 IR nodes, where its pick and its Save's restatement, written out at every read, made 1.35 million, and its editing session, read a field at a time, 75,000", () => {
+    test("its program writes each expression out once: under 20,000 IR nodes, where its pick and its Save's restatement, written out at every read, made 1.35 million, its editing session, read a field at a time, 75,000, and its index's entries, bound for a Save's keys beside the index's maintenance, 22,400", () => {
         let nodes = 0;
         walkIR(ex.planNestedAll.fn.toIR().ir, () => { nodes++; });
-        assert.ok(nodes < 50_000, `the works' program is ${nodes} IR nodes`);
+        assert.ok(nodes < 20_000, `the works' program is ${nodes} IR nodes`);
     });
 });

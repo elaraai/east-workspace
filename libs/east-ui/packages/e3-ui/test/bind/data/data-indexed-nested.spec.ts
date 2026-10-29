@@ -16,7 +16,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, DateTimeType, DictType, East, Expr, IRType, NullType, SortedMap, StringType, StructType, compareFor, decodeBeast2For,
-    encodeBeast2For, equalFor, isTypeEqual, isValueOf, none, some, variant,
+    encodeBeast2For, equalFor, isTypeEqual, isValueOf, none, printFor, some, variant,
     type FunctionType, type IR, type option, type ValueTypeOf, type VariantType,
 } from "@elaraai/east";
 import { builtIndex, indexMaintenance } from "@elaraai/e3";
@@ -120,6 +120,17 @@ describe("Data.bindPaged beside a nested series index", () => {
         const ops = maintenance.value.machines_in_time!("M-000", some(held), some(next), patch);
         assert.ok(ops.size > 0, "the job's entries change");
         assert.ok(equalFor(type.output)(ops, East.compile(own, [])("M-000", some(held), some(next), patch)), "e3's own ops");
+    });
+
+    test("reads a row's keys under the nested index through its maintenance, the keys e3 files the row's entries under: what a narrowing seeks of it", () => {
+        const record = ex.nestedMachines;
+        const index = record.indexes.machines_in_time;
+        const handle = handleOf(machines()) as unknown as { entryKeys: (index: string, key: unknown, row: unknown) => readonly string[] };
+        const row = ex.nestedMachine(0);
+        const entriesOf = East.compile(index.keyFn as never, []) as (key: string, row: unknown) => ReadonlyMap<unknown, unknown>;
+        const filed = [...entriesOf("M-000", row).keys()].map((ik) => printFor(index.keyType)(ik as never));
+        assert.ok(filed.length > 0, "the machine files entries");
+        assert.deepEqual([...handle.entryKeys("machines_in_time", "M-000", row)], filed);
     });
 
     test("carries the nested index's fill: a page's lean rows filled with the entries read of them are the rows (#1438)", () => {

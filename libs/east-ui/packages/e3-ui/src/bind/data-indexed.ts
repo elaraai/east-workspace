@@ -370,30 +370,6 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         throw new Error("Data.bindPaged with join: false needs an index without Set fields for its unfiltered view; add a one-entry-per-row field index or use join: true");
     }
     const indexFields = StructType(fields);
-    // Reuse the SDK's exact maintained-key functions. A Save checks individual
-    // primary identities with indexed seeks; it never scans a narrowed run.
-    const keyFunctions = new Map(options.indexes.map(index => {
-        const keys = East.function([type.key, type.value], ArrayType(StringType), ($, key, row) => {
-            if (index.summary !== undefined || index.nested !== undefined) {
-                // A summary's key function is a row's contributions (#1039), a nested series index's a row's entries (#1434):
-                // the keys they file under.
-                const fn = $.const(index.keyFn as ExprType<FunctionType<[typeof type.key, typeof type.value], DictType<EastType, EastType>>>);
-                return fn(key, row).keys().toArray((_$, ik) => East.print(ik));
-            }
-            if (index.multi) {
-                const fn = $.const(index.keyFn as ExprType<FunctionType<[typeof type.key, typeof type.value], SetType<EastType>>>);
-                return fn(key, row).toArray((_$, ik) => East.print(ik));
-            }
-            const fn = $.const(index.keyFn as ExprType<FunctionType<[typeof type.key, typeof type.value], EastType>>);
-            return East.value([East.print(fn(key, row))], ArrayType(StringType));
-        });
-        return [index.name, keys] as const;
-    }));
-    const keyFunctionsType = DictType(StringType, FunctionType([type.key, type.value], ArrayType(StringType)));
-    const entryKeys = East.function([StringType, type.key, type.value], ArrayType(StringType), ($, index, key, row) => {
-        const keys = $.const(keyFunctions, keyFunctionsType);
-        return keys.get(index)(key, row);
-    });
     // The nested index's part (#1435): its declaration as structure, its tile and its summary tile.
     const declared = nested?.nested;
     const marker = declared === undefined ? { type: StructType({}), value: {} } : nestedMarker(declared.declaration);
@@ -413,12 +389,42 @@ export function bindDataIndexed<T extends EastType, const I extends FieldIndexes
         [name, Expr.type(maintain as unknown as Expr) as EastType]))));
     // The listed nested series index's fill of a page (#1438): its lean rows filled with the entries read of it, by e3's own program.
     const fillType = OptionType(FunctionType([DictType(type.key, type.value), BlobType], DictType(type.key, type.value)));
-    return bindIndexedPagedPlatformFn(
-        [type.key, type.value, projection, indexFields, VariantType(keyTypes), nestedType, nested?.valueType ?? NullType, maintenanceType],
-        East.value(record.path, TreePathType), East.value(metadata, indexFields), East.value(nestedValue, nestedType), joined, entryKeys, record.name,
-        East.value(maintained.length === 0 ? none : some(Object.fromEntries(maintained)), maintenanceType),
-        East.value(nested === undefined ? none : some(nestedPageFill(type.key, type.value, nested)), fillType),
-    ) as unknown as IndexedPagedValue<T, I>;
+    const rowPatchType = East.patchesFor(type.value).patchType;
+    const keyFunctionsType = DictType(StringType, FunctionType([type.key, type.value], ArrayType(StringType)));
+    // Built in a block of its own, which holds each index's maintenance once: a Save reads the keys a nested series or a
+    // summary index files a row under through it, rather than through the index's own key function written out again.
+    return Expr.block(($) => {
+        const held = new Map(maintained.map(([name, maintain]) => [name, $.const(maintain)] as const));
+        // Reuse the SDK's exact maintained-key functions. A Save checks individual
+        // primary identities with indexed seeks; it never scans a narrowed run.
+        const keyFunctions = new Map(options.indexes.map(index => {
+            const maintain = held.get(index.name);
+            const keys = East.function([type.key, type.value], ArrayType(StringType), ($2, key, row) => {
+                if (maintain !== undefined) {
+                    // A summary's maintenance moves a row's contributions (#1039), a nested series index's its entries (#1434):
+                    // a row come gives an `add` or an `insert` under each key it files under.
+                    const ops = $2.const(maintain(key, East.value(none, OptionType(type.value)), East.value(some(row), OptionType(type.value)),
+                        East.value(none, OptionType(rowPatchType))) as unknown as ExprType<DictType<StructType<{ ik: EastType; k: EastType }>, EastType>>);
+                    return ops.keys().toArray((_$3, entry) => East.print(entry.ik));
+                }
+                if (index.multi) {
+                    const fn = $2.const(index.keyFn as ExprType<FunctionType<[typeof type.key, typeof type.value], SetType<EastType>>>);
+                    return fn(key, row).toArray((_$3, ik) => East.print(ik));
+                }
+                const fn = $2.const(index.keyFn as ExprType<FunctionType<[typeof type.key, typeof type.value], EastType>>);
+                return East.value([East.print(fn(key, row))], ArrayType(StringType));
+            });
+            return [index.name, keys] as const;
+        }));
+        const keys = $.const(keyFunctions, keyFunctionsType);
+        const entryKeys = East.function([StringType, type.key, type.value], ArrayType(StringType), (_$2, name, key, row) => keys.get(name)(key, row));
+        return bindIndexedPagedPlatformFn(
+            [type.key, type.value, projection, indexFields, VariantType(keyTypes), nestedType, nested?.valueType ?? NullType, maintenanceType],
+            East.value(record.path, TreePathType), East.value(metadata, indexFields), East.value(nestedValue, nestedType), joined, entryKeys, record.name,
+            East.value(held.size === 0 ? none : some(Object.fromEntries(held)), maintenanceType),
+            East.value(nested === undefined ? none : some(nestedPageFill(type.key, type.value, nested)), fillType),
+        );
+    }) as unknown as IndexedPagedValue<T, I>;
 }
 
 /**
