@@ -7,13 +7,14 @@
  * The showcase's e3 worker (#849): e3 itself — its storage, its orchestrator,
  * its runner and its API — which `showcase-e3.ts` starts the first time an e3
  * example renders. Its repositories are kept in memory, so each page load
- * starts from the showcase's package afresh, and its unit workers run
+ * starts from the showcase's workspace bundles afresh, and its unit workers run
  * `unit.worker.ts`, four at most: each holds a heap of its own, and a page's
  * examples need few, where one a core would start dozens on a large machine.
  * It cuts a split task's pieces at the showcase's piece size
  * (#1132, `showcase-pieces.ts`, its `pieceBytes`), as `E3_TEST_PIECE_BYTES`
  * sets a local runner's, so a query over the generated order history runs as a
- * split call over its pieces.
+ * split call over its pieces. The build makes the bundles in an e3 of the
+ * same settings (`scripts/e3-showcase-bundles.ts`).
  *
  * @packageDocumentation
  */

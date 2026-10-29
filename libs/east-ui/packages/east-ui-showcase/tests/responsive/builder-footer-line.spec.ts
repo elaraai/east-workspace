@@ -163,7 +163,7 @@ function railAt(rail: Locator): Promise<RailAt> {
     });
 }
 
-// A test a builder: each is an area of its own, whose workspace the page deploys the first time it shows (#1397).
+// A test a builder: each is an area of its own, whose workspace the page makes from its bundle the first time it shows (#1397).
 for (const theme of ["light", "dark"] as const) {
     for (const { builder, route, root, rail: railSelector } of BUILDERS) {
         test(`the ${builder}'s footer stays one line at every width, its fit cutting units whole, and its loading line says nothing at rest, in the footer's voice (#1398, CL3) (${theme}) @desktop`, async ({ page }) => {

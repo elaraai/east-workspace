@@ -267,7 +267,7 @@ function missedTaps(retry: Locator): Promise<string[]> {
     });
 }
 
-// A test a builder: each is an area of its own, whose workspace the page deploys the first time it shows (#1397). The page
+// A test a builder: each is an area of its own, whose workspace the page makes from its bundle the first time it shows (#1397). The page
 // is wide enough that a 1440px frame keeps clear of its "On this page" column.
 for (const theme of ["light", "dark"] as const) {
     for (const reader of READERS) {

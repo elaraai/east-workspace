@@ -2,10 +2,11 @@
  * Copyright (c) 2025 Elara AI Pty Ltd
  * Licensed under AGPL-3.0. See LICENSE file for details.
  *
- * The showcase's e3 packages (#849, #1397), as the page takes them in: the
- * zips e3-ui's examples' package step writes (#1375), one an area — the e3
- * examples of one category, one directory of e3-ui's `test/` — built as the
- * Vite plugin builds them and imported into an in-memory e3. Every e3
+ * The showcase's e3 packages (#849, #1397), as the build takes them in to make
+ * each area's workspace bundle: the zips e3-ui's examples' package step writes
+ * (#1375), one an area — the e3 examples of one category, one directory of
+ * e3-ui's `test/` — built as the Vite plugin builds them and imported into an
+ * in-memory e3. Every e3
  * definition each e3-ui example module exports is in its area's package;
  * every example finds what it binds there — its datasets, paged sources,
  * functions and records; and an area's package holds no record but those its

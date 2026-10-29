@@ -20,9 +20,10 @@ import {
     type E3Config, type ReactiveDatasetCacheInterface,
 } from "@elaraai/e3-ui-components";
 import type { LiveEntry } from "../catalog";
+import { SHOWCASE_REPO, showcaseE3Workspace } from "../showcase-config";
 import {
-    SHOWCASE_POLL_MS, SHOWCASE_REPO, e3AreaOf, exampleReadsLoaded, loadExampleReads, retryShowcaseE3,
-    setShowcaseE3Cache, showcaseE3Status, showcaseE3Workspace, shownShowcaseE3, startShowcaseE3,
+    SHOWCASE_POLL_MS, e3AreaOf, exampleReadsLoaded, loadExampleReads, retryShowcaseE3,
+    setShowcaseE3Cache, showcaseE3Status, shownShowcaseE3, startShowcaseE3,
     subscribeShowcaseE3, type ShowcaseE3Status,
 } from "../showcase-e3";
 import { exampleIr } from "./example-ir";
