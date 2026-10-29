@@ -18,6 +18,7 @@
 import { editingMessages, type EditingMessages, type Formatters } from "@elaraai/east-ui-components";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import type { DecisionSection } from "./layout.js";
+import type { LaneVerb } from "./preview/lanes-model.js";
 
 /** What a person decided, as the queue words it: the verdict's case. */
 export type DecisionVerdictWord = "applied" | "overridden" | "deferred" | "handedOff";
@@ -37,13 +38,13 @@ export type PreviewClauseWords =
 
 /**
  * One clause of a lanes preview's sentence, worded: an event's title, the lanes' names and its times the builder's —
- * moved to another lane, along its own, added, taken off or changed — and what it overlapped where it was, which the
- * change clears.
+ * moved to another lane, along its own, added, taken off or changed — what it overlapped where it was, which the change
+ * clears, and what it does where it moves or is added: runs there, is held in a resource, or waits.
  */
 export type PreviewEventWords =
-    | { readonly kind: "move"; readonly what: string; readonly from: string; readonly to: string; readonly start: string; readonly end: string; readonly overlapped: string | undefined }
+    | { readonly kind: "move"; readonly what: string; readonly from: string; readonly to: string; readonly verb: LaneVerb; readonly start: string; readonly end: string; readonly overlapped: string | undefined }
     | { readonly kind: "reschedule"; readonly what: string; readonly on: string; readonly start: string; readonly end: string; readonly overlapped: string | undefined }
-    | { readonly kind: "add"; readonly what: string; readonly on: string; readonly start: string; readonly end: string }
+    | { readonly kind: "add"; readonly what: string; readonly on: string; readonly verb: LaneVerb; readonly start: string; readonly end: string }
     | { readonly kind: "remove"; readonly what: string; readonly from: string }
     | { readonly kind: "change"; readonly what: string; readonly on: string };
 
@@ -207,10 +208,21 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     previewTile: (p: PreviewTileWords) => string;
     /** The `+N` chip of the other cases changing an entry (P18) — `+2`. */
     previewShared: (p: { n: string }) => string;
-    /** One clause of a lanes preview's sentence (P25) — `Loyalty cards leaves Press B2, where it overlapped Market posters, and runs on Press A1 from 11:30 to 14:30`. */
+    /**
+     * One clause of a lanes preview's sentence (P25) — `Loyalty cards leaves Press B2, where it overlapped Market posters,
+     * and runs on Press A1 from 11:30 to 14:30`, `LD-2235 leaves Waiting and is held in K-305 from Tue 11 14:15 to Thu 20 00:00`.
+     */
     previewEvent: (p: PreviewEventWords) => string;
     /** A lane's booked share of the window, before → after, or as it stands (P24) — `78 → 44%`, `44%`. */
     previewShare: (p: { before: string; after: string; same: boolean }) => string;
+    /** A lane's load, before → after, or as it stands (P24), each a quantity as the board words it — `0 → 8 m³`, `8 m³`. */
+    previewLoad: (p: { before: string; after: string; same: boolean }) => string;
+    /** The Allocation's lane of what waits for a resource: the arrivals no resource holds yet — `Waiting`. */
+    previewWaiting: () => string;
+    /** A bin booking no arrival, as the board's card names it — `Reserved` — and as the sentence does: `A reservation`. */
+    previewReserved: (p: { sentence: boolean }) => string;
+    /** A bin's part on a resource, as the board's card names it: its arrival or `Reserved`, and its quantity — `LD-2235 · 8 m³`. */
+    previewBin: (p: { code: string; quantity: string }) => string;
     /**
      * A day lane's overlaps, before → after, or as they stand (P24): `n` how many, `free` whether nothing stands on it —
      * `overlap 1 → 0`, `1 overlap`, `no overlap`, `free`.
@@ -273,6 +285,8 @@ const sharedText = (shared: PreviewSharedWords | undefined): string | undefined 
     (shared === undefined ? undefined : `${shared.n} other ${shared.one ? "case changes" : "cases change"} it too`);
 /** A title's parts, those it has, in order. */
 const parts = (...said: readonly (string | undefined)[]): string => said.filter((part): part is string => part !== undefined).join(" · ");
+/** What an event does where it moves or is added, in a lanes preview's sentence: `runs on Press A1`, `is held in K-305`, `waits`. */
+const doesText = (verb: LaneVerb, where: string): string => (verb === "runs" ? `runs on ${where}` : verb === "held" ? `is held in ${where}` : "waits");
 
 /** The English table — the default. */
 export const decisionQueueMessages: DecisionQueueMessages = {
@@ -363,14 +377,18 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     previewShared: ({ n }) => `+${n}`,
     previewEvent: (p) => {
         switch (p.kind) {
-            case "move": return `${p.what} leaves ${p.from}${p.overlapped === undefined ? "" : `, where it overlapped ${p.overlapped},`} and runs on ${p.to} from ${p.start} to ${p.end}`;
+            case "move": return `${p.what} leaves ${p.from}${p.overlapped === undefined ? "" : `, where it overlapped ${p.overlapped},`} and ${doesText(p.verb, p.to)} from ${p.start} to ${p.end}`;
             case "reschedule": return `${p.what} on ${p.on}${p.overlapped === undefined ? "" : `, where it overlapped ${p.overlapped},`} moves to ${p.start}–${p.end}`;
-            case "add": return `${p.what} runs on ${p.on} from ${p.start} to ${p.end}`;
+            case "add": return `${p.what} ${doesText(p.verb, p.on)} from ${p.start} to ${p.end}`;
             case "remove": return `${p.what} leaves ${p.from}`;
             case "change": return `${p.what} on ${p.on} changes`;
         }
     },
     previewShare: ({ before, after, same }) => (same ? after : `${before} → ${after}`),
+    previewLoad: ({ before, after, same }) => (same ? after : `${before} → ${after}`),
+    previewWaiting: () => "Waiting",
+    previewReserved: ({ sentence }) => (sentence ? "A reservation" : "Reserved"),
+    previewBin: ({ code, quantity }) => `${code} · ${quantity}`,
     previewOverlaps: ({ before, after, n, same, free }) => (!same ? `overlap ${before} → ${after}`
         : free ? "free" : n === 0 ? "no overlap" : n === 1 ? `${after} overlap` : `${after} overlaps`),
     previewWhere: ({ resource, day }) => `${resource} on ${day}`,

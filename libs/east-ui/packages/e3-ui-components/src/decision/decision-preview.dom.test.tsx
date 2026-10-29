@@ -8,8 +8,9 @@
  * §9.5), over the full queue's example (§3.3): the models' cases read through
  * the rail's source, each option's change landing where its tag says — here
  * the warehouse rota's duties, drawn as the Roster draws them, the print
- * works' jobs, drawn as the Plan draws them, and the workshop's maintenance,
- * drawn as the Calendar draws it. The cases are laid out by when each is due,
+ * works' jobs, drawn as the Plan draws them, the workshop's maintenance,
+ * drawn as the Calendar draws it, and the kiln yard's bins, drawn as the
+ * Allocation draws them. The cases are laid out by when each is due,
  * money printed as money and the orders as a count — a section of both with
  * no total — the routine case in its band (R1–R3, R28); a card's preview
  * stands between its title and its chip line, open or closed (P1), the People
@@ -20,13 +21,17 @@
  * touches over the hours around it, each its booked share before → after
  * (P13–P16, P24, P25); the Calendar's, a lane a day the change lands on over
  * the same hours, each its overlaps before → after (P13–P15, P24, P25); the
+ * Allocation's, the kilns a change's bins land on and the Waiting row they
+ * leave, beside the kilns' charges, each its load before → after and a bin
+ * under its kiln's minimum flagged (P13–P17, P24, P25); the
  * Sheet's, the work orders the change sets under the columns it sets, the
  * model's guess dotted (P3, P13, P25, P26); the recommended option says so on
  * its line (R14); choosing another option draws its change, and one that
  * changes nothing draws the people, or the days, the recommendation lands on,
  * unmarked (P4); Apply, once the question is answered, writes the duty and the
  * verdict through their doors (R16, R23, R29), the print case's the job, the
- * workshop case's the maintenance and the orders case's the work orders; and
+ * workshop case's the maintenance, the yard case's the bin and the orders
+ * case's the work orders; and
  * the routine band's Apply all adds the request it proposes (R28).
  */
 
@@ -45,6 +50,7 @@ const verdictEqual = equalFor(ex.OpsVerdict);
 const dutiesEqual = equalFor(ex.rosterDuties.type);
 const jobsEqual = equalFor(ex.planEventJobs.type);
 const servicesEqual = equalFor(ex.calendarServices.type);
+const binsEqual = equalFor(ex.kilnBins.type);
 const ordersEqual = equalFor(ex.optimiseWorkOrders.type);
 const compareTime = compareFor(DateTimeType);
 const byString = compareFor(StringType);
@@ -86,6 +92,9 @@ function tile(row: HTMLElement, key: string) {
 /** Every entry of a key a row draws — a moved event's ghost and where it lands — as the change marks each. */
 const tiles = (row: HTMLElement, key: string) => [...row.querySelectorAll<HTMLElement>(`[data-preview-tile="${key}"]`)].map(el =>
     ({ op: el.getAttribute("data-op") ?? undefined, fill: el.getAttribute("data-fill") ?? undefined, title: el.getAttribute("title") }));
+/** Every entry a lanes row draws, in its order: its mark, how the board draws it — a resource's job before or after the day — and its title. */
+const entries = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>("[data-preview-tile]")].map(el =>
+    ({ op: el.getAttribute("data-op") ?? undefined, look: el.getAttribute("data-look") ?? undefined, title: el.getAttribute("title") }));
 /** The duties a row draws that the change marks. */
 const marked = (row: HTMLElement) => [...row.querySelectorAll("[data-preview-tile][data-op]")].map(el => el.getAttribute("data-preview-tile"));
 /** A Sheet crop's head: its columns' heads. */
@@ -123,7 +132,7 @@ async function press(el: Element) {
 /** Mounts the full queue, and waits until its cards show and the open one's preview has drawn its rows. */
 async function open() {
     const ui = await h.mount(ex.decisionQueueOps);
-    await waitFor(() => expect(heads(ui.container)).toEqual(["rota-tansy", "print-j3007", "workshop-press1", "orders-ready", "price-coast"]));
+    await waitFor(() => expect(heads(ui.container)).toEqual(["rota-tansy", "print-j3007", "yard-ld2235", "workshop-press1", "orders-ready", "price-coast"]));
     await waitFor(() => expect(previewRows(preview(ui.container, "rota-tansy"))).not.toEqual([]));
     return ui;
 }
@@ -145,8 +154,8 @@ async function savedVerdict(key: string, from: Date, to: Date, rest: { option: s
 
 test("the models' cases by when each is due — Overdue, Due today, This week — each its count and total, money as money; Due today, money beside the orders' count, no total; the routine case in its band; the first opens on its recommendation (R1–R3, R7, R14, R28)", async () => {
     const { container } = await open();
-    expect(sections(container)).toEqual([["overdue", "Overdue | 2 | +$86K"], ["today", "Due today | 2"], ["week", "This week | 1 | +$17K"]]);
-    expect(slot(container, "toolbar").querySelector("[data-decision-title] [data-decision-count]")?.textContent).toBe("5");
+    expect(sections(container)).toEqual([["overdue", "Overdue | 2 | +$86K"], ["today", "Due today | 3"], ["week", "This week | 1 | +$17K"]]);
+    expect(slot(container, "toolbar").querySelector("[data-decision-title] [data-decision-count]")?.textContent).toBe("6");
     const band = container.querySelector<HTMLElement>("[data-decision-routine]")!;
     expect(band.textContent).toContain(m.together({ total: "+$1.2K" }));
     expect(within(band).getByRole("button", { name: m.applyAll({ n: "1" }) })).toBeDefined();
@@ -299,6 +308,50 @@ test("the workshop case's Keep changes nothing: Thursday as it stands, the maint
     expect(chipLine(container, "workshop-press1").textContent).toBe(`${m.chip({ modified: true })}Keep Thu 09:00`);
 });
 
+// ── The Allocation's crop (P13–P17, P24, P25) ───────────────────────────────
+
+test("the yard case's preview is the Allocation's crop: LD-2235 booked into K-305 on Tue 11 at 14:15 and held to Thu 20, between the kiln's charge before it and the one planned after, its window a ghost on the Waiting row it leaves; each lane's load before → after, the Waiting row's better; the weeks on the ruler, and one sentence (P13–P16, P24, P25)", async () => {
+    const { container } = await open();
+    const frame = () => preview(container, "yard-ld2235");
+    await waitFor(() => expect(previewRows(frame())).toEqual(["K-305", "Waiting"]));
+    expect(frame().getAttribute("data-kind")).toBe("allocation");
+    expect(frame().getAttribute("data-layout")).toBe("lanes");
+    expect(frame().getAttribute("aria-label")).toBe("LD-2235 leaves Waiting and is held in K-305 from Tue 11 14:15 to Thu 20 00:00");
+    // Whole days either side of what the change touches — the load's window and the bin's hold — past a week by weeks.
+    expect(ruler(frame())).toEqual(["May 9", "May 16"]);
+    const kiln = previewRow(frame(), "K-305"), waiting = previewRow(frame(), "Waiting");
+    expect(measure(kiln, "0 → 8 m³")).toBeUndefined();
+    expect(measure(waiting, "8 → 0 m³")).toBe("better");
+    expect(entries(kiln)).toEqual([
+        { op: undefined, look: "prior", title: "C-3151 · Wed 28 00:00–Tue 11 00:00" },
+        { op: undefined, look: "next", title: "planned · Thu 20 00:00–Fri 28 00:00" },
+        { op: "add", look: undefined, title: "LD-2235 · 8 m³ · Tue 11 14:15–Thu 20 00:00 · proposed" },
+    ]);
+    expect(entries(waiting)).toEqual([{ op: "from", look: undefined, title: "LD-2235 · Mon 10 00:00–Thu 13 00:00 · moves to K-305" }]);
+    // Every entry the board's card; nothing breaches, and the queue's now is long past the yard's day.
+    expect([...frame().querySelectorAll("[data-preview-tile]")].map(el => el.getAttribute("data-shape"))).toEqual(["bin", "bin", "bin", "bin"]);
+    expect(frame().querySelector("[data-breach]")).toBeNull();
+    expect(frame().querySelector("[data-preview-now]")).toBeNull();
+});
+
+test("choosing the yard case's K-403 on Wed draws LD-2235 booked there on Wed 12, short of the kiln's 10 m³ minimum: its bin flagged with the board's warning, the kiln's load worse, and the chip reads Modified (P15, P17, P24, R15)", async () => {
+    const { container } = await open();
+    await press(head(container, "yard-ld2235"));
+    await press(optionOf(container, "yard-ld2235", /^K-403 on Wed/u));
+    const frame = () => preview(container, "yard-ld2235");
+    await waitFor(() => expect(frame().getAttribute("aria-label")).toBe("LD-2235 leaves Waiting and is held in K-403 from Wed 12 07:15 to Fri 21 00:00"));
+    expect(previewRows(frame())).toEqual(["K-403", "Waiting"]);
+    const kiln = previewRow(frame(), "K-403");
+    expect(measure(kiln, "0 → 8 m³")).toBe("worse");
+    expect(measure(previewRow(frame(), "Waiting"), "8 → 0 m³")).toBe("better");
+    // K-403's charges fall outside the days drawn: the one before ends on the 8th, the next starts on the 22nd.
+    expect(entries(kiln)).toEqual([
+        { op: "add", look: undefined, title: "LD-2235 · 8 m³ · Wed 12 07:15–Fri 21 00:00 · proposed · 8 m³ · min 10 · 2 short · a warning, Save still works" },
+    ]);
+    expect(kiln.querySelector("[data-preview-tile]")?.hasAttribute("data-breach")).toBe(true);
+    expect(chipLine(container, "yard-ld2235").textContent).toBe(`${m.chip({ modified: true })}K-403 on Wed`);
+});
+
 // ── The Sheet's crop (P3, P4, P13, P25, P26) ────────────────────────────────
 
 test("the orders case's preview is the Sheet's crop of the work orders its change sets: WO-1005, WO-1007 and WO-1008 under Reference, Status and Due, each set Scheduled and given its due date on the dirty fill; WO-1007's cells the model's guess, dotted; one sentence (P3, P13, P25, P26)", async () => {
@@ -390,6 +443,27 @@ test("the workshop case's Apply waits for its question; answered Yes, it drafts 
     const service = services.get("service1")!;
     expect(servicesEqual(await h.read(ex.calendarServices), new SortedMap([...services, ["service1", {
         ...service, start: new Date("2026-10-03T06:00:00Z"), end: new Date("2026-10-03T08:00:00Z"),
+    }]], byString))).toBe(true);
+});
+
+test("the yard case's Apply waits for its question; answered Yes, it drafts LD-2235's bin and the verdict as one step, and Save adds the bin in K-305 to the yard's bins and writes the verdict, a request each (R16, R23, R29)", async () => {
+    const { container } = await open();
+    const bins = await h.read(ex.kilnBins);
+    await press(head(container, "yard-ld2235"));
+    const apply = () => action(container, "yard-ld2235", m.action({ action: "apply" }));
+    expect(apply().getAttribute("aria-disabled")).toBe("true");
+    await press(within(card(container, "yard-ld2235")).getByRole("radio", { name: m.answer({ answer: "yes" }) }));
+    await waitFor(() => expect(apply().getAttribute("aria-disabled")).toBeNull());
+    const from = new Date();
+    await press(apply());
+    expect(container.querySelector('[data-decision-receipt="yard-ld2235"]')).not.toBeNull();
+    await press(history(container, editingMessages.apply()));
+    expect(mutated()).toEqual([ex.kilnBins.name, ex.opsVerdicts.name].sort());
+    await savedVerdict("yard-ld2235", from, new Date(), { option: "1-k305", answer: "yes" });
+    expect(binsEqual(await h.read(ex.kilnBins), new SortedMap([...bins, ["3127", {
+        bay: "B-1", at: new Date("2027-05-11T14:15:00Z"), load: some("LD-2235"), m3: 8, spec: some("MC10"), dryFor: variant("days", 9),
+        kilns: new SortedMap([["K-305", 8]], byString), specBooked: "MC10", specMeasured: "MC10", gradeBooked: "P", gradeMeasured: "P1",
+        instruction: some("Sticker every 600 mm before loading"),
     }]], byString))).toBe(true);
 });
 

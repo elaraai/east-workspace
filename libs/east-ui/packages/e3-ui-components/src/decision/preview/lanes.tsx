@@ -5,16 +5,17 @@
 
 /**
  * A lanes crop, drawn (`Decision Queue Spec.md` D8, P13–P20, P24, P25): the
- * Plan's and the Calendar's — and the Allocation's after them — ruler over the
- * window, its ticks the window's hours, days or weeks, and a lane a resource
- * the change touches, or a day it lands on: its name and its measure before →
- * after in its tone at its head — the Plan's booked share, the Calendar's
- * overlaps — and on its plot the grid, the now line where the window holds it
- * that day, and its entries — each at its place in the lane's stack, the
- * change's marked, its ghosts dashed, its lock, its conflict and the `+N` of
- * the other cases changing it. What it draws is {@link lanesPreview}'s; the
- * `decisionPreview` recipe draws it from the attributes and the geometry set
- * here.
+ * Plan's, the Calendar's and the Allocation's ruler over the window, its ticks
+ * the window's hours, days or weeks, and a lane a resource the change touches,
+ * the Allocation's waiting row, or a day it lands on: its name and its measure
+ * before → after in its tone at its head — the Plan's booked share, the
+ * Calendar's overlaps, the Allocation's load — and on its plot the grid, the
+ * now line where the window holds it that day, and its entries — each at its
+ * place in the lane's stack, the change's marked, its ghosts dashed, its lock,
+ * its conflict and the `+N` of the other cases changing it; an Allocation's
+ * its bins and its resources' jobs, as the board draws them. What it draws is
+ * {@link lanesPreview}'s; the `decisionPreview` recipe draws it from the
+ * attributes and the geometry set here.
  *
  * @packageDocumentation
  */
@@ -25,10 +26,11 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faLock, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import { DateTimeType, FloatType, equalFor } from "@elaraai/east";
 import type { SlotStyles } from "@elaraai/east-ui-components/internal";
+import { allocationWords } from "../../allocation/model.js";
 import { dayStart } from "../../shared/schedule/window.js";
 import type { DecisionQueueWords } from "../messages.js";
 import { PreviewFrame, flag } from "./frame.js";
-import { nowShare, type LaneBar, type LaneClause, type LaneMeasure, type LaneRow, type LaneUnit, type LaneWindow, type LanesModel } from "./lanes-model.js";
+import { nowShare, type LaneBar, type LaneClause, type LaneRow, type LaneUnit, type LaneWindow, type LanesModel } from "./lanes-model.js";
 
 const sameDate = equalFor(DateTimeType);
 const sameNumber = equalFor(FloatType);
@@ -41,9 +43,24 @@ function manyDays(w: LaneWindow): boolean {
     return !sameDate(dayStart(w.from), dayStart(new Date(w.to.getTime() - 1)));
 }
 
-/** A time, as a lanes crop words it: its hour and minute, after its day where the window runs over more than one. */
-function timeText(d: Date, days: boolean, words: DecisionQueueWords): string {
-    return days ? `${words.weekday(d)} ${words.time(d)}` : words.time(d);
+/**
+ * How a lanes crop words a time: its hour and minute alone; after its weekday, where the window runs over more than one
+ * UTC day; after its weekday and date, where its ruler steps by weeks, so a weekday alone names more than one day.
+ */
+type Dated = "time" | "weekday" | "date";
+
+/** How a window's times are worded ({@link Dated}). */
+function datedOf(w: LaneWindow): Dated {
+    return w.unit === "week" ? "date" : manyDays(w) ? "weekday" : "time";
+}
+
+/** A time, as a lanes crop words it ({@link Dated}). */
+function timeText(d: Date, dated: Dated, words: DecisionQueueWords): string {
+    switch (dated) {
+        case "time": return words.time(d);
+        case "weekday": return `${words.weekday(d)} ${words.time(d)}`;
+        case "date": return `${dayText(d, words)} ${words.time(d)}`;
+    }
 }
 
 /**
@@ -68,16 +85,22 @@ function tickText(d: Date, unit: LaneUnit, words: DecisionQueueWords): string {
 
 /**
  * A lane's measure, worded (P24): its booked share before → after, in whole percent, or as it stands where they round
- * alike; or its overlaps so.
+ * alike; its overlaps so; or its load, a quantity as the Allocation's board words it, its unit after.
  */
-function measureText(row: LaneRow, measure: LaneMeasure, words: DecisionQueueWords): string {
-    if (measure === "overlaps") {
-        return words.m.previewOverlaps({
+function measureText(row: LaneRow, model: LanesModel, words: DecisionQueueWords): string {
+    switch (model.measure) {
+        case "overlaps": return words.m.previewOverlaps({
             before: words.number(row.before), after: words.number(row.after), n: row.after, same: sameNumber(row.before, row.after), free: row.free,
         });
+        case "load": {
+            const { quantity } = allocationWords();
+            return words.m.previewLoad({ before: quantity(row.before, ""), after: quantity(row.after, model.unit), same: sameNumber(row.before, row.after) });
+        }
+        case "share": {
+            const before = Math.round(row.before * 100), after = Math.round(row.after * 100);
+            return words.m.previewShare({ before: words.number(before), after: words.percent(row.after), same: sameNumber(before, after) });
+        }
     }
-    const before = Math.round(row.before * 100), after = Math.round(row.after * 100);
-    return words.m.previewShare({ before: words.number(before), after: words.percent(row.after), same: sameNumber(before, after) });
 }
 
 /**
@@ -91,13 +114,13 @@ function measureText(row: LaneRow, measure: LaneMeasure, words: DecisionQueueWor
  */
 export function lanesSentence(model: LanesModel, guessed: readonly string[], words: DecisionQueueWords): string {
     const { m } = words;
-    const days = manyDays(model.window);
-    const time = (d: Date) => timeText(d, days, words);
+    const dated = datedOf(model.window);
+    const time = (d: Date) => timeText(d, dated, words);
     const clause = (c: LaneClause): string => {
         switch (c.kind) {
-            case "move": return m.previewEvent({ kind: "move", what: c.what, from: c.from, to: c.to, start: time(c.start), end: time(c.end), overlapped: c.overlapped });
+            case "move": return m.previewEvent({ kind: "move", what: c.what, from: c.from, to: c.to, verb: c.verb, start: time(c.start), end: time(c.end), overlapped: c.overlapped });
             case "reschedule": return m.previewEvent({ kind: "reschedule", what: c.what, on: c.on, start: time(c.start), end: time(c.end), overlapped: c.overlapped });
-            case "add": return m.previewEvent({ kind: "add", what: c.what, on: c.on, start: time(c.start), end: time(c.end) });
+            case "add": return m.previewEvent({ kind: "add", what: c.what, on: c.on, verb: c.verb, start: time(c.start), end: time(c.end) });
             case "remove": return m.previewEvent({ kind: "remove", what: c.what, from: c.from });
             case "change": return m.previewEvent({ kind: "change", what: c.what, on: c.on });
         }
@@ -134,7 +157,9 @@ export interface LanesCropProps {
  * @returns The crop
  */
 export function LanesCrop({ kind, model, label, stale, now, words, styles }: LanesCropProps) {
-    const days = manyDays(model.window);
+    const dated = datedOf(model.window);
+    // An Allocation's entries are its bins and its resources' jobs, as the board draws them.
+    const shape = kind === "allocation" ? "bin" : undefined;
     return (
         <PreviewFrame kind={kind} layout="lanes" label={label} stale={stale} styles={styles}>
             <Box css={styles.lanes}>
@@ -155,12 +180,12 @@ export function LanesCrop({ kind, model, label, stale, now, words, styles }: Lan
                         <Box key={row.key} css={styles.row} style={{ "--pv-lanes": `${row.lanes}` } as CSSProperties} data-preview-row={row.name}>
                             <Box css={styles.rowHead}>
                                 <Box as="span" css={styles.rowName} title={row.name}>{row.name}</Box>
-                                <Box as="span" css={styles.measure} data-tone={row.tone}>{measureText(row, model.measure, words)}</Box>
+                                <Box as="span" css={styles.measure} data-tone={row.tone}>{measureText(row, model, words)}</Box>
                             </Box>
                             <Box css={styles.plot}>
                                 {model.grid.map(line => <Box as="span" key={line} css={styles.gridLine} style={at(line)} />)}
                                 {nowAt !== undefined && <Box as="span" css={styles.now} style={at(nowAt)} data-preview-now="" />}
-                                {row.bars.map(bar => <Bar key={`${bar.key}.${bar.op ?? ""}`} bar={bar} days={days} words={words} styles={styles} />)}
+                                {row.bars.map(bar => <Bar key={`${bar.key}.${bar.op ?? ""}`} bar={bar} shape={shape} dated={dated} words={words} styles={styles} />)}
                             </Box>
                         </Box>
                     );
@@ -171,28 +196,44 @@ export function LanesCrop({ kind, model, label, stale, now, words, styles }: Lan
 }
 
 /** An entry's title (P25): what it is and when it runs, and how the change marks it. */
-function barTitle(bar: LaneBar, days: boolean, words: DecisionQueueWords): string {
+function barTitle(bar: LaneBar, dated: Dated, words: DecisionQueueWords): string {
     const { m } = words;
-    const span = (start: Date, end: Date) => m.previewSpan({ start: timeText(start, days, words), end: timeText(end, days, words) });
+    const span = (start: Date, end: Date) => m.previewSpan({ start: timeText(start, dated, words), end: timeText(end, dated, words) });
     return m.previewTile({
         what: bar.title, when: span(bar.start, bar.end), op: bar.op,
         to: bar.to === undefined ? undefined : bar.to.name ?? span(bar.to.start, bar.to.end),
         knock: bar.knock, locked: bar.locked,
-        breach: bar.overlaps === undefined ? undefined : m.previewOverlap({ with: bar.overlaps }),
+        breach: bar.breach === undefined ? undefined : bar.breach.kind === "overlap" ? m.previewOverlap({ with: bar.breach.with }) : bar.breach.text,
         shared: bar.shared > 0 ? { n: words.number(bar.shared), one: bar.shared === 1 } : undefined,
     });
 }
 
+/** Props of {@link Bar}. */
+interface BarProps {
+    /** The entry. */
+    readonly bar: LaneBar;
+    /** How its kind draws an entry: an Allocation's as a bin, the board's card; else the builder's bar, its own fill kept where the change proposes it. */
+    readonly shape: "bin" | undefined;
+    /** How its times are worded. */
+    readonly dated: Dated;
+    /** The queue's words. */
+    readonly words: DecisionQueueWords;
+    /** The `decisionPreview` recipe's styles. */
+    readonly styles: SlotStyles;
+}
+
 /** An entry on a lane: its title, its lock and its conflict, and the `+N` of the other cases changing it. */
-function Bar({ bar, days, words, styles }: { readonly bar: LaneBar; readonly days: boolean; readonly words: DecisionQueueWords; readonly styles: SlotStyles }) {
+function Bar({ bar, shape, dated, words, styles }: BarProps) {
     const place = { "--pv-left": `${bar.left * 100}%`, "--pv-width": `${bar.width * 100}%`, "--pv-lane": `${bar.lane}` } as CSSProperties;
+    const proposed = bar.op === "add" || bar.op === "chg";
     return (
-        <Box as="span" css={styles.bar} style={place} title={barTitle(bar, days, words)}
-            data-preview-tile={bar.key} data-op={bar.op} data-fill={bar.op === "add" || bar.op === "chg" ? "own" : undefined}
-            data-knock={flag(bar.knock)} data-breach={flag(bar.overlaps !== undefined)}>
+        <Box as="span" css={styles.bar} style={place} title={barTitle(bar, dated, words)}
+            data-preview-tile={bar.key} data-op={bar.op} data-shape={shape} data-look={bar.look}
+            data-fill={shape === undefined && proposed ? "own" : undefined}
+            data-knock={flag(bar.knock)} data-breach={flag(bar.breach !== undefined)}>
             <Box as="span" css={styles.barText}>{bar.title}</Box>
             {bar.locked && <Box as="span" css={styles.icon} aria-hidden="true"><FontAwesomeIcon icon={faLock} /></Box>}
-            {bar.overlaps !== undefined && <Box as="span" css={styles.icon} data-tone="warn" aria-hidden="true"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>}
+            {bar.breach !== undefined && <Box as="span" css={styles.icon} data-tone="warn" aria-hidden="true"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>}
             {bar.shared > 0 && <Box as="span" css={styles.shared} data-preview-shared="">{words.m.previewShared({ n: words.number(bar.shared) })}</Box>}
         </Box>
     );
