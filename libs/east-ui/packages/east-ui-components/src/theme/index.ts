@@ -147,6 +147,7 @@ import { editConflictsSlotRecipe } from "./slot-recipes/editConflicts.js";
 import { bannerSlotRecipe } from "./slot-recipes/banner.js";
 import { reviewChromeSlotRecipe } from "./slot-recipes/reviewChrome.js";
 import { decisionQueueSlotRecipe } from "./slot-recipes/decisionQueue.js";
+import { decisionPreviewSlotRecipe } from "./slot-recipes/decisionPreview.js";
 import { studioBuilderSlotRecipe } from "./slot-recipes/studioBuilder.js";
 import { studioInspectorSlotRecipe } from "./slot-recipes/studioInspector.js";
 import { sheetInspectorSlotRecipe } from "./slot-recipes/sheetInspector.js";
@@ -304,6 +305,7 @@ const config = defineConfig({
             banner:          bannerSlotRecipe,
             reviewChrome:    reviewChromeSlotRecipe,
             decisionQueue:   decisionQueueSlotRecipe,
+            decisionPreview: decisionPreviewSlotRecipe,
             studioBuilder:   studioBuilderSlotRecipe,
             studioInspector: studioInspectorSlotRecipe,
             sheetInspector:  sheetInspectorSlotRecipe,
