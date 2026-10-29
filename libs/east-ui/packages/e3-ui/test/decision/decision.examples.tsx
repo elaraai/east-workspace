@@ -16,7 +16,7 @@ import { BooleanType, DictType, East, FloatType, NullType, OptionType, StringTyp
 import { Box, Fields, Format, Reactive, Slice, State, UIComponentType } from "@elaraai/east-ui";
 import { Calendar, Data, DecisionQueue, Record, Roster, Schedule, Sheet } from "@elaraai/e3-ui";
 import { kilnBins, kilnBinsByTime, kilnBinsPatch, kilns, yardBays } from "../allocation/allocation.examples.js";
-import { calendarJobs, calendarJobsPatch, calendarMachines } from "../calendar/calendar.examples.js";
+import { calendarJobs, calendarJobsPatch, calendarMachines, calendarServices, calendarServicesPatch } from "../calendar/calendar.examples.js";
 import { planEventJobs, planEventJobsPatch, planPrintPresses } from "../plan/plan-events.examples.js";
 import {
     rosterAgencies, rosterDuties, rosterDutiesByTime, rosterDutiesPatch, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams,
@@ -33,7 +33,7 @@ import {
 // this area.
 export * from "./ops.js";
 export { kilnBins, kilnBinsByTime, kilnBinsPatch, kilns, yardBays } from "../allocation/allocation.examples.js";
-export { calendarJobs, calendarJobsPatch, calendarMachines } from "../calendar/calendar.examples.js";
+export { calendarJobs, calendarJobsPatch, calendarMachines, calendarServices, calendarServicesPatch } from "../calendar/calendar.examples.js";
 export { planEventJobs, planEventJobsPatch, planPrintPresses } from "../plan/plan-events.examples.js";
 export {
     rosterAgencies, rosterDuties, rosterDutiesByTime, rosterDutiesPatch, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams,
@@ -80,7 +80,7 @@ export const decisionQueueMinimal = example({
 
 export const decisionQueueOps = example({
     inputs: [],
-    description: "The full decision queue (§3.3): one record of the models' cases, every kind of decision in it, narrowed by a rail over its indexes. An option's change is a variant whose tag says where it lands — the warehouse rota's duties drawn as the Roster draws them, by people (`rota`) and by what they cost (`rotaCost`), the print shop's jobs as the Plan draws them, the workshop's machine jobs as the Calendar does, the kiln yard's bins as the Allocation does, the shop's work orders as the Sheet does, and the price list, a record no builder draws, in a form of its own. Each target takes the same consts the builder's own tag takes — the duty kind, the people, the shifts, the warehouse's pay — so the card's preview draws the change as that builder would, Modify edits a row in the builder's own form, and Apply drafts the change through each record's patch door beside the verdict, one step of one history. The verdicts take every role — the option chosen, the answer to the case's question, an override's reason and a note — each case's figures print as money or as a count, and the host follows the open case with `onSelect`.",
+    description: "The full decision queue (§3.3): one record of the models' cases, every kind of decision in it, narrowed by a rail over its indexes. An option's change is a variant whose tag says where it lands — the warehouse rota's duties drawn as the Roster draws them, by people (`rota`) and by what they cost (`rotaCost`), the print shop's jobs as the Plan draws them, the workshop's machine maintenance as the Calendar does, beside the machines' jobs, the kiln yard's bins as the Allocation does, the shop's work orders as the Sheet does, and the price list, a record no builder draws, in a form of its own. Each target takes the same consts the builder's own tag takes — the duty kind, the people, the shifts, the warehouse's pay — so the card's preview draws the change as that builder would, Modify edits a row in the builder's own form, and Apply drafts the change through each record's patch door beside the verdict, one step of one history. The verdicts take every role — the option chosen, the answer to the case's question, an override's reason and a note — each case's figures print as money or as a count, and the host follows the open case with `onSelect`.",
     keywords: ["DecisionQueue", "DecisionQueue.decisions", "DecisionQueue.verdicts", "DecisionQueue.change.roster", "DecisionQueue.change.plan", "DecisionQueue.change.calendar", "DecisionQueue.change.allocation", "DecisionQueue.change.sheet", "DecisionQueue.change.record", "options", "recommended", "routine", "format", "ifWrong", "confidence", "question", "warn", "refused", "knockOn", "guesses", "map", "cost", "pay", "Slice.bindRecords", "Data.bindPaged", "Record.bind", "State.bind", "onSelect", "Fields.number", "Format.Currency", "now"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // The models' cases, narrowed by the rail, and the verdicts the queue writes.
@@ -164,6 +164,9 @@ export const decisionQueueOps = example({
         const machines = $.let(Data.bind(calendarMachines));
         const machineJob = Calendar.events(machineJobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end",
             resource: { field: "machine", of: "machines" } });
+        const services = $.let(Record.bind(calendarServices, [calendarServicesPatch]));
+        const service = Calendar.events(services, { name: "Maintenance", icon: "screwdriver-wrench", title: "title", start: "start", end: "end",
+            resource: { field: "machine", of: "machines" } });
         const machineRows = Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: m => m.name });
         const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
         const binEntries = $.let(Data.bindPaged(kilnBins));
@@ -186,8 +189,9 @@ export const decisionQueueOps = example({
         const rotaCostChange = DecisionQueue.change.roster({ name: "Roster", icon: "users", map: "cost", pay, currency: "USD",
             events: { duty }, resources: { people, agencies }, shifts, groups, week: { start: "sunday" }, source: dutyWeek });
         const printChange = DecisionQueue.change.plan({ name: "Plan", icon: "bars-progress", events: { job }, resources: { presses: pressRows } });
+        // The maintenance the tags patch, named by `event`, beside the jobs its days' overlaps count.
         const workshopChange = DecisionQueue.change.calendar({ name: "Calendar", icon: "calendar-days",
-            events: { job: machineJob }, resources: { machines: machineRows } });
+            events: { job: machineJob, service }, event: "service", resources: { machines: machineRows } });
         const yardChange = DecisionQueue.change.allocation({ name: "Allocation", icon: "fire-flame-curved",
             events: { bin }, resources: { bays: bayRows, kilns: kilnRows }, source: yardDayBins });
         const orderChange = DecisionQueue.change.sheet(workOrders, { name: "Sheet", icon: "table-cells", columns: {

@@ -18,7 +18,7 @@
  */
 
 import { useCallback } from "react";
-import { DateTimeType, StringType, compareFor, equalFor, none, printFor, some, type option } from "@elaraai/east";
+import { StringType, equalFor, none, printFor, some, type option } from "@elaraai/east";
 import { ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { scheduleWithinCap } from "../../shared/schedule/cells.js";
@@ -26,7 +26,7 @@ import { EMPTY_SCHEDULE_DRAFTS } from "../../shared/schedule/editing.js";
 import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
 import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
 import { LanesCrop, lanesSentence } from "./lanes.js";
-import { UNASSIGNED, laneWindow, lanesPreview, type LaneEvent, type LanesModel } from "./lanes-model.js";
+import { UNASSIGNED, laneEvent, laneWindow, lanesPreview, type LaneEvent, type LanesModel } from "./lanes-model.js";
 
 /** A Plan target's kind, decoded. */
 type PlanKind = Extract<DecisionTarget["kind"], { type: "plan" }>["value"];
@@ -48,23 +48,9 @@ const PENDING: PlanRead = { state: "pending" };
 const EMPTY: PlanRead = { state: "empty" };
 /** The range an event read from its own row is read over: given its row, the kind reads no window. */
 const EPOCH = new Date(0);
-const compareDate = compareFor(DateTimeType);
 const stringEqual = equalFor(StringType);
 const printResource = printFor(ScheduleResourceRefType);
 const NOT_LOCKED = (): boolean => false;
-
-/**
- * An event as the crop draws it: its kind's item placed on its lane, an end before its start taken as its start.
- *
- * @param item - The event, as its kind draws it
- * @returns The event; `undefined` for one with no time, which draws on no lane
- */
-function laneEvent(item: PlanItem): LaneEvent | undefined {
-    if (item.start.type !== "some") return undefined;
-    const start = item.start.value;
-    const end = item.end.type === "some" && compareDate(item.end.value, start) > 0 ? item.end.value : start;
-    return { key: item.key, kind: item.kind, title: item.title, start, end, lane: item.resource.type === "some" ? printResource(item.resource.value) : UNASSIGNED };
-}
 
 /**
  * A resource's name, as the Plan's gutter names it: its kind's row's label — a paged kind's read by its key — else its
@@ -199,6 +185,8 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
                 },
                 shared: key => sharedOf(shared, record.key, key),
                 overlaps: slot => kind.events.find(k => stringEqual(k.key, slot))?.overlaps.type === "warn",
+                pairs: "kind",
+                measure: "share",
                 nameOf: lane => (stringEqual(lane, UNASSIGNED) ? words.m.previewUnassigned() : names.get(lane) ?? lane),
             }),
         };
