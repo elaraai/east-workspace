@@ -28,7 +28,8 @@
  *   week holding one value replaces it at its date. The resolution is the
  *   slice's: a Plan without one has no zoom but the one it shows.
  * - Below 480px of main, a tap on a cell opens the input in a popover anchored
- *   to it, its Enter writing as above.
+ *   to it, its Enter writing as above. A card reads its row's nested series
+ *   whatever the desktop folds, washed while they are read.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
@@ -60,13 +61,15 @@ interface LedgersTyped {
     readonly resolutions?: readonly (keyof typeof WINDOWS)[];
     /** Its rows paged through a slice, which holds the resolution, so the Plan zooms: without one it shows the one it opens at. */
     readonly sliced?: boolean;
+    /** Its measures folded on the desktop, so it lays out none of their children. */
+    readonly collapsed?: boolean;
 }
 
 /**
  * The twenty ledgers paged lean beside their nested series index, each leaf measure's readings taking a typed number: at
  * a resolution, its axis naming `resolutions` beside it, where given, and zooming to them through a slice, where `sliced`.
  */
-const ledgersTyped = (resolution: keyof typeof WINDOWS, { resolutions, sliced = false }: LedgersTyped = {}) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const ledgersTyped = (resolution: keyof typeof WINDOWS, { resolutions, sliced = false, collapsed = false }: LedgersTyped = {}) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const record = $.const(Record.bind(ex.ledgers, ["patch"]));
     const ledgers = Data.bindPaged(ex.ledgers, { indexes: ["ledgers_by_site", "ledgers_in_time"] });
     return Plan({
@@ -77,7 +80,7 @@ const ledgersTyped = (resolution: keyof typeof WINDOWS, { resolutions, sliced = 
         series: [Plan.series.group(ex.Ledger, {
             key: "ledgers", title: "Ledgers", label: (l) => l.name,
             children: Plan.children("measures", [Plan.series.table(ex.Measure, {
-                key: "readings", title: "Readings", label: (m) => m.label, children: "children", aggregate: "sum",
+                key: "readings", title: "Readings", label: (m) => m.label, children: "children", aggregate: "sum", collapsed,
                 cells: Plan.tableCells(Plan.values("readings", (v) => ({ value: some(v) }))), edit: true,
             })]),
         })],
@@ -418,6 +421,32 @@ describe("below 480px of main (#1438)", () => {
         await settle();
         expect(document.querySelector("[data-plan-typing-popover]")).toBeNull();
         await waitFor(() => expect([printed(c, leaf, JAN_12), printed(c, middle, JAN_12)]).toEqual(["15", "22"]));
+    });
+
+    test("with its measures folded on the desktop, a leaf's card reads its readings, washed while they are read, and a tap on one takes a typed number, the subtotals above it moving", async () => {
+        const { container: c } = await h.mount(ledgersTyped("week", { collapsed: true }));
+        await settle();
+        // Folded, the desktop lays out none of ledger 101's leaves.
+        expect(c.querySelector(LEAF)).toBeNull();
+        await narrowTo(390);
+        // Ledger 101's rows as cards, their readings' reads held: its leaf's card washes until they land.
+        const reads = h.e3.hold((request) => request.kind === "find");
+        const group = [...c.querySelectorAll<HTMLElement>("[data-plan-groupcard]")]
+            .find((el) => el.getAttribute("data-plan-groupcard") === rowKeyOf(entry("ledgers", "L-101")))!;
+        await act(async () => { fireEvent.click(group); });
+        await waitFor(() => expect(c.querySelector(`${leaf} [data-plan-unread]`)).not.toBeNull());
+        reads.release();
+        await settle();
+        await waitFor(() => expect([printed(c, leaf, JAN_12), printed(c, middle, JAN_12)]).toEqual(["2", "9"]));
+        expect(c.querySelector(`${leaf} [data-plan-unread]`)).toBeNull();
+        const tapped = cellAt(c, leaf, JAN_12)!;
+        await act(async () => { fireEvent.click(tapped); });
+        await waitFor(() => expect(document.querySelector("[data-plan-typing-popover]")).not.toBeNull());
+        const input = document.querySelector<HTMLInputElement>("[data-plan-typing-popover] input")!;
+        await act(async () => { fireEvent.input(input, { target: { value: "500" } }); });
+        await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
+        await settle();
+        await waitFor(() => expect([printed(c, leaf, JAN_12), printed(c, middle, JAN_12)]).toEqual(["500", "507"]));
     });
 
     test("at the month of a Plan zooming to the week, a tap on a leaf's summary opens nothing and zooms to the week about it", async () => {

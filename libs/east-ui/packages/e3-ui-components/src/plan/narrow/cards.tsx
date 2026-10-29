@@ -13,6 +13,7 @@
 import { memo, useMemo, type ComponentProps } from "react";
 import { Box } from "@chakra-ui/react";
 import { EastChakraComponent } from "@elaraai/east-ui-components";
+import { LoadingWash } from "@elaraai/east-ui-components/internal";
 import { NowLine } from "../../shared/time/now-line.js";
 import { usePlanDispatch, usePlanScale } from "../context.js";
 import { GridSeparators } from "../rows/RowShell.js";
@@ -45,7 +46,7 @@ export interface NarrowRowCardProps {
     /** The drilled row's developer render and gutter body — on the drilled
      *  card only. */
     drill: { body: UIValue; gutter: UIValue | null } | undefined;
-    /** Whether the row nests children (a collapsed parent draws slimmer bars). */
+    /** Whether the row nests children: a table parent's positions drawing their subtotals take no typed number. */
     hasChildren: boolean;
     styles: Styles;
     derived: PlanDerived;
@@ -54,6 +55,8 @@ export interface NarrowRowCardProps {
     watch: ((el: HTMLElement | null) => (() => void) | undefined) | undefined;
     /** The row's draft mark (#880) — the canvas row's, where the draft was made. */
     draft: PlanDraftMark | undefined;
+    /** Its cells are unread (#1398, #1438): the body washes under what it holds, as the canvas's row's plot does. */
+    unread: boolean;
 }
 
 /**
@@ -83,7 +86,7 @@ function sameCard(a: NarrowRowCardProps, b: NarrowRowCardProps): boolean {
 /** One data row as a card: head = the gutter identity, body = the plot. */
 export const NarrowRowCard = memo(function NarrowRowCard({
     row, h, chartExpanded, selected, canDrill, drill, hasChildren,
-    styles, derived, storageKey, watch, draft,
+    styles, derived, storageKey, watch, draft, unread,
 }: NarrowRowCardProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -135,7 +138,10 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                     </PlanPartBoundary>
                 </Box>
             )}
-            <Box css={styles.narrowCardBody} height={`${h}px`} data-plan-cardbody={row.kind.type}>
+            <Box css={styles.narrowCardBody} height={`${h}px`} data-plan-cardbody={row.kind.type}
+                aria-busy={unread ? true : undefined} data-plan-unread={unread ? "" : undefined}>
+                {/* Under everything the body draws after it, as the canvas's row's plot washes (#1398, CL2). */}
+                {unread && <LoadingWash />}
                 {!isChart && <GridSeparators styles={styles} />}
                 {diagnostic !== undefined ? (
                     <RowDiagnostic diagnostic={diagnostic} styles={styles} />

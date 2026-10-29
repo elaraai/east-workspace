@@ -1369,7 +1369,9 @@ component of its own beside the event kinds' reader, and the canvas draws each
 window through the seam with what it read:
 
 - **What it reads.** The canvas's rows in view and 25 either side, in blocks
-  of fifty of its rows. For each row, each collection its series read, one
+  of fifty of its rows; below 480px, every row the narrow layout's cards draw
+  — its group cards, a page of its Rows tab or its measures, whatever the
+  desktop folds — all in view (`PlanNarrow`'s `onShown`). For each row, each collection its series read, one
   range a level its items are filed at; a parent whose row derives its numbers
   (a heat or table aggregate, a group's strip) its subtotals, one range at the
   resolution's level; a span parent rolling up bands its subtree's items, one
@@ -1387,7 +1389,8 @@ window through the seam with what it read:
   in its revision. Beside them (`onWaiting`), while a read is in flight, the
   rows waiting on it — each row with a run not held, as a pan, a zoom, a
   scroll or a commit asks — which wash as a paged kind's unread rows do (the
-  plot busy, #1398 CL2) until their cells land: never a blank plot that fills.
+  plot busy, #1398 CL2, a card's body too) until their cells land: never a
+  blank plot that fills.
 - **The span.** The collections the series the canvas holds rows of read
   (`usePlanNestedSpan`): their months across the record's rows, each with the
   items and values touching it, as e3 keeps them in the index's span

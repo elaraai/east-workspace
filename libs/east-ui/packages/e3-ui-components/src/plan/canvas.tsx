@@ -637,6 +637,11 @@ export function usePlanCanvas({
     // signal is the CONTAINER the body renders in, never the viewport).
     const focusBodyRef = useRef<HTMLDivElement | null>(null);
     const narrow = useContainerBelow(focusBodyRef, PLAN_NARROW_BELOW);
+    // The rows the narrow layout's cards draw, in order (#1438): kept while they are the same rows, so a list drawn again
+    // over them asks for nothing again.
+    const [narrowShown, setNarrowShown] = useState<readonly PlanRowValue[]>(NO_ROWS_IN_VIEW);
+    const onNarrowShown = useCallback((rows: readonly PlanRowValue[]) => setNarrowShown((was) =>
+        (was.length === rows.length && was.every((row, i) => row === rows[i]) ? was : rows)), []);
     // What the view shows at rest that is not read yet, as its last report at rest said it (#1398, CL3): a run whose
     // windows are on their way, or rows whose cells have not landed — what it still waits for once a window has landed and
     // before the cells its rows are drawn from are asked, which they are only once the view has said which rows it shows.
@@ -1650,11 +1655,15 @@ export function usePlanCanvas({
                 kinds={kinds} resources={resources} parts={eventParts} links={editing.data.links} spans={cellSpans} onLead={setLead} />
         )
         : null;
-    // The rows' nested series (#1438), read by a component of its own around the rows laid out.
+    // The rows' nested series (#1438), read by a component of its own around the rows laid out — or, while the Plan is
+    // narrow, the rows its cards draw, which follow none of the desktop's folds, all of them in view.
     const nestedSeam = data.nested.type === "some" ? data.nested.value : undefined;
     const laidOut = useMemo(() => visible.map((v) => v.row), [visible]);
+    useEffect(() => {
+        if (narrow && narrowShown.length > 0) nestedViews.set({ first: narrowShown[0]!.key, last: narrowShown[narrowShown.length - 1]!.key });
+    }, [narrow, narrowShown, nestedViews]);
     const nestedReader = nestedSeam !== undefined
-        ? <PlanNestedReader seam={nestedSeam} visible={laidOut} index={index} scale={scale} views={nestedViews}
+        ? <PlanNestedReader seam={nestedSeam} visible={narrow ? narrowShown : laidOut} index={index} scale={scale} views={nestedViews}
             session={editing.enabled ? editing.session as never : undefined} onLead={setNestedLead} onWaiting={setNestedWaiting}
             onSpan={setNestedSpan} />
         : null;
@@ -1996,6 +2005,9 @@ export function usePlanCanvas({
                     pagedMeasures={pagedMeasures}
                     failures={paging.failures} onRetry={controller.retry}
                     paging={narrowPaging} marks={marks} noun={rowsNoun}
+                    // Its cards wash as the rows do while their cells are read, and say which rows they draw, for the
+                    // rows' nested series to be read for them (#1438).
+                    unread={unreadOrInFlight} onShown={onNarrowShown}
                 />
             ) : (
                 <VirtualRows

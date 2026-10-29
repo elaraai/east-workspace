@@ -171,6 +171,11 @@ export interface PlanNarrowProps {
     noun: string;
     /** Each drafted row's mark, by row key (#880) — a card wears its row's. */
     marks: ReadonlyMap<RowKey, PlanDraftMark>;
+    /** Whether a row's cells are unread (#1398, #1438) — its card washes under what it holds, as the canvas's row does. */
+    unread?: ((row: PlanRowValue) => boolean) | undefined;
+    /** Where the rows the cards draw go, in order, as they change (#1438): the canvas reads the rows' nested series for
+     *  them while the list shows, where the desktop's rows read theirs for the rows laid out. */
+    onShown?: ((rows: readonly PlanRowValue[]) => void) | undefined;
 }
 
 const selectSelected = (s: PlanSnapshot) => s.store.ui.selected;
@@ -205,7 +210,7 @@ function PendingTail({ tail, watch, onLoadMore, styles }: {
 export function PlanNarrow({
     styles, index, derived, view, dense, storageKey,
     expandBody, expandGutterBody, canExpand, partial, pagedCount, pagedMeasures, fill,
-    failures, onRetry, paging, marks, noun,
+    failures, onRetry, paging, marks, noun, unread, onShown,
 }: PlanNarrowProps) {
     const scale = usePlanScale();
     const dispatch = usePlanDispatch();
@@ -312,6 +317,14 @@ export function PlanNarrow({
         };
     }, [activeTab, scope, sectionRows, rowLimit, reveal.rows]);
 
+    // The rows the cards draw (#1438): the group cards shown, one page of the Rows tab across its sections, or the
+    // measures shown — whatever the desktop's folds, which a card does not follow.
+    const groupsShown = useMemo(() => groupCards.slice(0, reveal.groups).map((card) => card.row), [groupCards, reveal.groups]);
+    const rowsShown = useMemo(() => sectionRows.slice(0, rowLimit), [sectionRows, rowLimit]);
+    const measuresShown = useMemo(() => chartRows.slice(0, reveal.measures), [chartRows, reveal.measures]);
+    const shownRows = activeTab === "groups" ? groupsShown : activeTab === "rows" ? rowsShown : measuresShown;
+    useEffect(() => { onShown?.(shownRows); }, [onShown, shownRows]);
+
     // ── A row asked for from outside the canvas (#1198) ───────────────────
     // Its group opened on the Rows tab, the list paged to it, and its card
     // scrolled into view once drawn. A request made before the list mounted
@@ -394,7 +407,7 @@ export function PlanNarrow({
                 drill={drilled && expandBody !== null ? { body: expandBody, gutter: expandGutterBody } : undefined}
                 hasChildren={(index.children.get(row.key)?.length ?? 0) > 0}
                 styles={styles} derived={derived} storageKey={storageKey}
-                watch={watch} draft={marks.get(row.key)} />
+                watch={watch} draft={marks.get(row.key)} unread={unread?.(row) === true} />
         );
     };
 
@@ -546,11 +559,10 @@ export function PlanNarrow({
             </>
         );
     } else {
-        const shown = chartRows.slice(0, reveal.measures);
-        const rest = chartRows.length - shown.length;
+        const rest = chartRows.length - measuresShown.length;
         list = (
             <>
-                {shown.map((row) => renderRowCard(row, true))}
+                {measuresShown.map((row) => renderRowCard(row, true))}
                 {rest > 0 ? more("measures", words.m.moreMeasures({ n: rest, count: words.number(rest) })) : loadMore()}
             </>
         );
