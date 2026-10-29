@@ -32,9 +32,7 @@ import {
 import { DAY, weekStart } from "../../shared/schedule/window.js";
 import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
 import type { DecisionQueueWords } from "../messages.js";
-import { bytesOf } from "../choices.js";
-import type { ChangedRow } from "../state.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, flag, sharedOf, type PreviewProps } from "./frame.js";
+import { PreviewFailed, PreviewFrame, PreviewPending, flag, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
 import { WEEK_DAYS, firstStart, rosterPreview, type RosterPreviewModel, type RosterPreviewRow, type RosterPreviewTile } from "./roster-model.js";
 
 /** A Roster target's kind, decoded. */
@@ -66,12 +64,6 @@ function keptDuties(read: ReadonlyMap<string, { roles: StoredDuty["roles"]; row:
         out.set(key, { roles: entry.roles, bytes: entry.row, row: decode(entry.row) });
     }
     return same && held !== undefined ? held : out;
-}
-
-/** A changed row as the change, edited, leaves it: kept as it stands, the viewer's edit, else the proposal (P1). */
-function leftBy(row: ChangedRow): Uint8Array | undefined {
-    if (row.edit === undefined) return row.proposed;
-    return "keep" in row.edit ? row.standing : bytesOf(row.edit.row);
 }
 
 /** Props of {@link RosterPreview}. */
@@ -174,12 +166,6 @@ export function RosterPreview({ c, view, target, kind, record, rows, changed, sc
     return map
         ? <PeopleMap model={model} label={label} stale={stale} words={words} styles={styles} roles={roles} roster={roster} />
         : <Crop model={model} label={label} stale={stale} words={words} styles={styles} roles={roles} roster={roster} />;
-}
-
-/** The changed rows the option's `guesses` names, by key (P26): what the sentence names as guessed. */
-function guessedOf(guesses: ReadonlyMap<string, number> | undefined, changed: readonly ChangedRow[]): string[] {
-    if (guesses === undefined || guesses.size === 0) return [];
-    return changed.filter(row => guesses.has(row.key)).map(row => row.key);
 }
 
 /** The day of the week a preview's day is. */
