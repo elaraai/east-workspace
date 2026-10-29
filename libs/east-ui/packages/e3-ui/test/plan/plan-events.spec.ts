@@ -23,7 +23,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, BooleanType, DateTimeType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType,
-    StringType, StructType, decodeBeast2For, equalFor, isTypeEqual, none, some, variant,
+    StringType, StructType, decodeBeast2For, equalFor, isTypeEqual, none, some, variant, walkIR,
     type BlockBuilder, type EastType,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
@@ -111,6 +111,12 @@ describe("the payload (PB8, PB11)", () => {
             });
             for (const payload of [ofJobs, ofStops]) assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, PlanPayloadType));
         });
+    });
+
+    test("writes each event kind's reads and its item out once: the print works are under 30,000 IR nodes, where each of a kind's parts writing them again made 37,700", () => {
+        let nodes = 0;
+        walkIR(ex.planPrintWorks.fn.toIR().ir, () => { nodes++; });
+        assert.ok(nodes < 30_000, `the print works' program is ${nodes} IR nodes`);
     });
 
     test("<Plan> returns its payload through the `Plan` carrier", () => {
