@@ -16,6 +16,7 @@ import {
     none,
     some,
     variant,
+    type ValueTypeOf,
 } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
@@ -95,9 +96,11 @@ export const planSeriesPresses = e3.record("plan_series_presses", DictType(Strin
  * The print jobs on the presses, from Monday 5 October 2026: a night run into
  * the next day, a run over three days, jobs on presses in each window of 200,
  * jobs in the weeks after the first two, and four waiting in the backlog.
+ *
+ * @returns The jobs, by their keys
  */
-export const planWindowJobs = e3.record("plan_window_jobs", DictType(StringType, PrintJob), {
-    initial: new Map([
+function windowJobs(): ValueTypeOf<DictType<StringType, typeof PrintJob>> {
+    return new Map([
         ["W-0001", { title: "Brochure run", start: some(new Date("2026-10-05T06:00:00Z")), end: some(new Date("2026-10-05T14:00:00Z")), press: some("P-1001"), state: variant("actual", null), sheets: 40000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-07T00:00:00Z")) }],
         ["W-0002", { title: "Night catalogue", start: some(new Date("2026-10-05T22:00:00Z")), end: some(new Date("2026-10-06T06:00:00Z")), press: some("P-1001"), state: variant("actual", null), sheets: 96000.0, customer: "Larkspur Home", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
         ["W-0003", { title: "Museum guide", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T12:00:00Z")), press: some("P-1002"), state: variant("actual", null), sheets: 72000.0, customer: "Driftwood Museum", stock: variant("coated", null), due: some(new Date("2026-10-09T00:00:00Z")) }],
@@ -118,7 +121,12 @@ export const planWindowJobs = e3.record("plan_window_jobs", DictType(StringType,
         ["W-0018", { title: "Winter brochure", start: none, end: none, press: none, state: variant("estimated", null), sheets: 64000.0, customer: "Bluewater Tours", stock: variant("coated", null), due: some(new Date("2026-10-21T00:00:00Z")) }],
         ["W-0019", { title: "Prospectus", start: none, end: none, press: none, state: variant("estimated", null), sheets: 100000.0, customer: "Elmway College", stock: variant("coated", null), due: some(new Date("2026-10-30T00:00:00Z")) }],
         ["W-0020", { title: "Proof sheets", start: none, end: none, press: none, state: variant("estimated", null), sheets: 2000.0, customer: "Alder & Finch", stock: variant("uncoated", null), due: none }],
-    ]),
+    ]);
+}
+
+/** The print jobs on the presses ({@link windowJobs}), read through their indexes. */
+export const planWindowJobs = e3.record("plan_window_jobs", DictType(StringType, PrintJob), {
+    initial: windowJobs(),
     indexes: (index) => ({
         // The jobs over their interval index (#1344): a job is filed by the interval
         // it runs over, so a window reads each job overlapping it once, however many
@@ -146,20 +154,6 @@ export const planWindowJobs = e3.record("plan_window_jobs", DictType(StringType,
         plan_window_jobs_by_press_month_again: index.summary({
             key: "press", from: "start", to: "end", tile: "month",
         }),
-        // The jobs by their stock, then the press each is on and the weeks each
-        // touches, and the same jobs' monthly totals by their stock (#1432): a series
-        // and a summary index led by a field, which a narrowing choosing the stock
-        // reads exactly — its cells hold that stock's jobs alone, so the stock is
-        // asked of none of them, and its totals shade zoomed out. The interval index
-        // led by the stock is what the rail narrows them through, the window beside
-        // the stock.
-        plan_window_jobs_by_stock_time: index.interval({ on: ["stock"], from: "start", to: "end" }),
-        plan_window_jobs_by_stock_press_week: index.series({
-            on: ["stock"], key: "press", from: "start", to: "end", tile: "week",
-        }),
-        plan_window_jobs_by_stock_press_month: index.summary({
-            on: ["stock"], key: "press", from: "start", to: "end", tile: "month",
-        }),
         // The jobs by the days each touches (`Schedule.days`): a scheduled job is
         // filed under every day it runs into, and a job in the backlog under none —
         // the index a kind with no rail reads the days in view through (`window`), on
@@ -184,6 +178,33 @@ export const planWindowJobs = e3.record("plan_window_jobs", DictType(StringType,
     }),
     mutations: (mutation) => ({
         // The jobs' patch door: every Save commits through it.
+        patch: mutation.patch(),
+    }),
+});
+
+/**
+ * The same jobs ({@link windowJobs}) by their stock, then the press each is on
+ * and the weeks each touches, and their monthly totals by their stock (#1432):
+ * a series and a summary index led by a field, which a narrowing choosing the
+ * stock reads exactly — its cells hold that stock's jobs alone, so the stock is
+ * asked of none of them, and its totals shade zoomed out. The interval index
+ * led by the stock is what the rail narrows them through, the window beside
+ * the stock. A record of their own: every write maintains every index its
+ * record declares, and the jobs' others need none of these.
+ */
+export const planStockJobs = e3.record("plan_stock_jobs", DictType(StringType, PrintJob), {
+    initial: windowJobs(),
+    indexes: (index) => ({
+        plan_stock_jobs_by_stock_time: index.interval({ on: ["stock"], from: "start", to: "end" }),
+        plan_stock_jobs_by_stock_press_week: index.series({
+            on: ["stock"], key: "press", from: "start", to: "end", tile: "week",
+        }),
+        plan_stock_jobs_by_stock_press_month: index.summary({
+            on: ["stock"], key: "press", from: "start", to: "end", tile: "month",
+        }),
+    }),
+    mutations: (mutation) => ({
+        // Its patch door: every Save commits through it.
         patch: mutation.patch(),
     }),
 });

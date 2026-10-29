@@ -79,15 +79,18 @@ const SERIES = ex.planWindowJobs.indexes.plan_window_jobs_by_press_week;
 const SUMMARY = ex.planWindowJobs.indexes.plan_window_jobs_by_press_month;
 const BY_TIME = ex.planWindowJobs.indexes.plan_window_jobs_by_time;
 
-/** Whether a request reads the jobs through one of their indexes. */
-const through = (index: { readonly name: string }) => (request: E3Request) =>
-    request.dataset === JOBS && (request.query.get("index") ?? undefined) === index.name;
+/** An index of a record, as a request names it: its name, and its record's path. */
+type RecordIndex = { readonly name: string; readonly record: { readonly path: unknown } };
+
+/** Whether a request reads a record through one of its indexes. */
+const through = (index: RecordIndex) => (request: E3Request) =>
+    request.dataset === pathText(index.record.path as TreePath) && (request.query.get("index") ?? undefined) === index.name;
 
 /**
- * What one of the jobs' indexes was asked, from its `since`-th request on:
+ * What one of a record's indexes was asked, from its `since`-th request on:
  * each request's kind — a batch of searches as `find`, its size after it.
  */
-const askedOf = (index: { readonly name: string }, since = 0) => h.requests().filter(through(index)).slice(since)
+const askedOf = (index: RecordIndex, since = 0) => h.requests().filter(through(index)).slice(since)
     .map((request) => (request.kind === "find" ? `find ${request.searches.length}` : request.kind));
 
 /** How many of a level's cells' searches the canvas asks for each block of fifty presses — a range a press — and with the jobs on none. */
@@ -150,17 +153,17 @@ const seriesPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Roo
 }))) };
 
 /**
- * The series Plan with its `job` source's series and summary indexes led by
- * the stock, the coated stock chosen (#1432): its cells and its totals hold
- * the coated jobs alone.
+ * The series Plan over the jobs whose series and summary indexes the stock
+ * leads (`planStockJobs`), the coated stock chosen (#1432): its cells and its
+ * totals hold the coated jobs alone.
  */
 const stockPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
-    const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
+    const jobs = $.const(Record.bind(ex.planStockJobs, ["patch"]));
+    const jobEntries = $.const(Data.bindPaged(ex.planStockJobs));
     const slice = $.const(Slice.bindRecords("plan.series.stock.dom", {
         job: {
-            source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_stock_time", "plan_window_jobs_by_stock_press_week", "plan_window_jobs_by_stock_press_month"] }),
+            source: Data.bindPaged(ex.planStockJobs, { indexes: ["plan_stock_jobs_by_stock_time", "plan_stock_jobs_by_stock_press_week", "plan_stock_jobs_by_stock_press_month"] }),
             fields: { start: { label: "Dates" }, stock: { label: "Stock" } }, range: "start", initial: { stock: ["coated"] },
         },
     }));
@@ -766,9 +769,10 @@ describe("past the budget (#1039)", () => {
 // ============================================================================
 
 describe("a series and a summary index led by a field (#1432)", () => {
-    const BY_STOCK = ex.planWindowJobs.indexes.plan_window_jobs_by_stock_press_week;
-    const BY_STOCK_TOTALS = ex.planWindowJobs.indexes.plan_window_jobs_by_stock_press_month;
-    const withins = () => h.requests().filter((request) => request.dataset === JOBS && request.kind === "within");
+    const BY_STOCK = ex.planStockJobs.indexes.plan_stock_jobs_by_stock_press_week;
+    const BY_STOCK_TOTALS = ex.planStockJobs.indexes.plan_stock_jobs_by_stock_press_month;
+    const STOCK_JOBS = pathText(ex.planStockJobs.path as TreePath);
+    const withins = () => h.requests().filter((request) => request.dataset === STOCK_JOBS && request.kind === "within");
 
     test("the stock chosen, its cells are read through the series it leads and it is asked of no event; past the budget, at a month, the summary it leads shades", async () => {
         const { container: c } = await h.mount(stockPlan);
@@ -780,7 +784,7 @@ describe("a series and a summary index led by a field (#1432)", () => {
         expect(bar(c, "W-0004", "P-1003")).toBeNull();
 
         // Another planner books 10,001 coated hour-long proofs on the first fifty presses: more than the Plan draws.
-        const jobs = new Map(await readJobs());
+        const jobs = new Map((await h.read(ex.planStockJobs)) as ReadonlyMap<string, Job>);
         const proof = jobs.get("W-0001")!;
         for (let i = 0; i < 10_001; i++) {
             const start = new Date(FIRST.getTime() + Math.floor(i / BLOCK) * HOUR);
@@ -788,7 +792,7 @@ describe("a series and a summary index led by a field (#1432)", () => {
                 ...proof, title: `Proof ${i}`, press: some(`P-${1001 + (i % BLOCK)}`), start: some(start), end: some(new Date(start.getTime() + HOUR)),
             });
         }
-        await h.patch(ex.planWindowJobs, jobs);
+        await h.patch(ex.planStockJobs, jobs);
         await settle();
         await zoomTo(c, "month");
         // At a month, the coated jobs' totals, from the summary the stock leads: each press's share of each month booked.
