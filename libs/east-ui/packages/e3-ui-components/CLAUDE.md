@@ -1449,7 +1449,11 @@ its numerals' ink (`tableCellDot`), so a value never leaves its cell looking
 empty at a zoom too dense for it: the row measures its plot beside its cells
 (`tableCellMeasure`, `useElementWidth`), and a cell compares its column's share
 of it with its numerals' width, the table's numerals being of one width. An
-unmeasured plot — jsdom's — draws the numerals.
+unmeasured plot — jsdom's — draws the numerals. The dot sits at the cell's
+centre, off its wrapping line: a 9px column's padding leaves the line less
+room than the dot, which would wrap out of sight as the numerals do. Only a
+browser lays it out, so the showcase's `plan-geometry.spec.ts` holds it whole
+and centred in its cell down to its own width.
 
 ### Typing a number into a table cell (#1436, #1438)
 

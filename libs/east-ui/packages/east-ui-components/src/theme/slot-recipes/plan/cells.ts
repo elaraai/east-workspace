@@ -556,12 +556,16 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         "&[data-strong]":       { fontWeight: "semibold", color: "fg.default" },
     },
     // A cell's value wider than its column (#1269, #1438): a dot in its place, in its numerals' ink, so a value never
-    // leaves its cell looking empty — the cell's hover says it.
+    // leaves its cell looking empty — the cell's hover says it. At the cell's centre, off its line: a 9px column's
+    // padding leaves the line less room than the dot, which would wrap off it, out of sight, as numerals do.
     tableCellDot: {
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
         width: "4px",
         height: "4px",
         borderRadius: "full",
-        flexShrink: 0,
         background: "fg.muted",
         "&[data-tone='neg']": { background: "{colors.status.neg}" },
         "&[data-strong]":     { background: "fg.default" },

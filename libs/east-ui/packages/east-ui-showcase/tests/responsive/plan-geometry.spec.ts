@@ -969,6 +969,36 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
             await expect.poll(() => entry.evaluate(cutNumbers)).toEqual([]);
         });
     }
+
+    /** A table cell whose column cannot hold its numerals (#1438): at WEEK the measures example's weeks are narrower
+     *  than a month's sums, and each cell holding one draws a dot in its place, so a value narrower than its numerals
+     *  is still seen. The dot is drawn whole and centred in its cell at any width down to its own: in a 9px column,
+     *  a 42-week window's, the cell's padding leaves its line less room than the dot, and it must not wrap off it. */
+    test("planMeasures: a table cell whose column cannot hold its numerals draws a dot in their place, whole and centred in the cell down to the dot's own width (#1438)", async ({ page }) => {
+        const entry = await openExample(page, "planMeasures");
+        await entry.locator('[data-plan-seg="resolution"]').getByRole("radio", { name: "WEEK", exact: true }).click();
+        await settled(page);
+        const cell = entry.locator("[data-plan-row] [data-cell]:has(> [data-plan-cell-dot])").first();
+        await expect(cell).toHaveCount(1);
+        /** The dot's box against its cell's: drawn, inside it, and at its centre. */
+        const read = () => cell.evaluate((el) => {
+            const d = el.querySelector("[data-plan-cell-dot]")!.getBoundingClientRect();
+            const c = el.getBoundingClientRect();
+            return {
+                drawn: d.width > 0 && d.height > 0,
+                inside: d.left >= c.left - 0.5 && d.right <= c.right + 0.5 && d.top >= c.top - 0.5 && d.bottom <= c.bottom + 0.5,
+                centred: Math.abs(d.left + d.right - c.left - c.right) <= 2 && Math.abs(d.top + d.bottom - c.top - c.bottom) <= 2,
+            };
+        });
+        await expect.poll(read).toEqual({ drawn: true, inside: true, centred: true });
+        for (const px of [9, 4]) {
+            await cell.evaluate((el: HTMLElement, w) => {
+                el.style.setProperty("width", `${w}px`, "important");
+            }, px);
+            await expect.poll(read, `a ${px}px column`).toEqual({ drawn: true, inside: true, centred: true });
+        }
+        await expect.poll(() => entry.evaluate(cutNumbers)).toEqual([]);
+    });
 });
 
 /**
