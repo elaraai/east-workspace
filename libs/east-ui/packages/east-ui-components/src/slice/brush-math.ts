@@ -232,8 +232,8 @@ export interface BrushBar {
 }
 
 /**
- * The bars of a histogram on a track (#1438): every bar one width, a
- * bucket's usual width between its whole-pixel edges less the gap — 1px, 2px
+ * The bars of a histogram on a track (#1438): every bar one width, the
+ * narrowest bucket's between its whole-pixel edges less the gap — 1px, 2px
  * from 8px a bucket — at its slot's start; a short slot's bar, or an end bucket the
  * horizon clips, keeps the gap to the next slot's start. Its height is
  * linear to the largest bucket, up to `barMax`, a non-zero bucket's at least
@@ -249,9 +249,10 @@ export function brushBars(buckets: readonly BrushBucketSpan[], trackPx: number, 
     if (!(trackPx > 0) || buckets.length === 0) return [];
     const max = buckets.reduce((m, b) => Math.max(m, b.count), 0);
     if (!(max > 0)) return [];
-    // The pitch: a bucket's usual width between its whole-pixel edges, which an end bucket the horizon clips does not set.
-    const widths = buckets.map((b) => Math.round(b.to * trackPx) - Math.round(b.from * trackPx)).sort((a, b) => a - b);
-    const pitch = widths[Math.floor(widths.length / 2)]!;
+    // The pitch: the narrowest bucket between its whole-pixel edges, so every bar is one width with its gap kept; an end
+    // bucket the horizon clips sets none.
+    const inner = buckets.length > 2 ? buckets.slice(1, -1) : buckets;
+    const pitch = inner.reduce((least, b) => Math.min(least, Math.round(b.to * trackPx) - Math.round(b.from * trackPx)), Infinity);
     const gap = pitch >= 8 ? 2 : 1;
     const width = Math.max(0, pitch - gap);
     const bars: BrushBar[] = [];

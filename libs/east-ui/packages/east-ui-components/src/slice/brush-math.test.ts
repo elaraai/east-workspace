@@ -214,8 +214,14 @@ describe("brushBars — the histogram's bars on whole pixels (#1438)", () => {
         expect(bars.map((b) => b.step)).toEqual([5, 5, 4, 3, 2, 1]);
     });
 
-    test("a short slot's bar keeps its gap to the next, and an end bucket the horizon clips draws inside its slot", () => {
-        // Calendar months: 31, 28 and 31 days across 45px, a February narrower than the pitch.
+    test("bars of unequal slots are one width, the narrowest's, and an end bucket the horizon clips draws inside its slot", () => {
+        // Calendar months, 30 to 31 days each across 120px: slots of 9 to 11 whole pixels, every bar 7 wide.
+        const year = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+        let day = 0;
+        const days365 = year.reduce((a, d) => a + d, 0);
+        const twelve = year.map((d) => { const b = { from: day / days365, to: (day + d) / days365, count: 1 }; day += d; return b; });
+        expect(new Set(brushBars(twelve, 120, 28).map((b) => b.width))).toEqual(new Set([7]));
+        // Calendar months: 31, 28 and 31 days across 45px, a February narrower than the others.
         const days = [31, 28, 31];
         const total = days.reduce((a, d) => a + d, 0);
         let from = 0;
@@ -224,7 +230,7 @@ describe("brushBars — the histogram's bars on whole pixels (#1438)", () => {
         for (let i = 0; i + 1 < bars.length; i++) expect(bars[i]!.x + bars[i]!.width).toBeLessThanOrEqual(bars[i + 1]!.x - 1);
         // A first bucket the horizon clips to 5px of its slot: its slot less the 2px gap, at the track's start.
         const clipped = brushBars([{ from: 0, to: 0.05, count: 5 }, { from: 0.05, to: 0.55, count: 5 }, { from: 0.55, to: 1, count: 5 }], 100, 28);
-        expect(clipped.map((b) => [b.x, b.width])).toEqual([[0, 3], [5, 43], [55, 43]]);
+        expect(clipped.map((b) => [b.x, b.width])).toEqual([[0, 3], [5, 48], [55, 43]]);
     });
 
     test("no bars on a track with no width, or with nothing counted", () => {
