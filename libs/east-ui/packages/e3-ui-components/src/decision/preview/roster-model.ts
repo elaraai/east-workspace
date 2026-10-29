@@ -60,8 +60,8 @@ export type RosterPreviewMeasure =
     | { readonly kind: "hours"; readonly before: number; readonly after: number; readonly contract: number | undefined }
     | { readonly kind: "requests"; readonly n: number };
 
-/** A measure's tone (P24): better, worse, or neither. */
-export type PreviewTone = "better" | "worse" | undefined;
+/** A measure's tone (P24): better, worse — `bad` where what is worse is a danger, as an Allocation's check says one — or neither. */
+export type PreviewTone = "better" | "worse" | "bad" | undefined;
 
 /** One person the change lands on, or one agency. */
 export interface RosterPreviewRow {

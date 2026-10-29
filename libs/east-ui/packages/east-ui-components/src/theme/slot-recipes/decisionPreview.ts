@@ -34,8 +34,10 @@
  *   grid lines and the now line, 1px `--brand-d` (P20).
  * - bar, barText, icon, shared: an entry on a lane at its place (`--pv-left`, `--pv-width`, `--pv-lane`): the
  *   Plan's committed bar `--brand-d` with `--paper` words (P19), an Allocation's bin (`data-shape="bin"`) the board's
- *   card, 1px `--rule-strong` on `--paper`, `--r-md`; its lock or its warning (`icon`, `data-tone="warn"`, P15, P17)
- *   and the `+N` chip of the other cases changing it (`shared`, `--paper`, 12 tall, P18).
+ *   card, 1px `--rule-strong` on `--paper`, `--r-md`, and a resource's job as the board's row draws it (`data-look`):
+ *   the one under way on the day on `--paper-3`, one planned after it dashed `--ink-4`, unfilled, its words `--ink-4`;
+ *   its lock or its warning (`icon`, `data-tone="warn"`, P15, P17) and the `+N` chip of the other cases changing it
+ *   (`shared`, `--paper`, 12 tall, P18).
  * - map, mapRow, mapLabel, mapTiles, mapTile: a builder's map (P5) — its resources as 22px tiles, eight a row, under
  *   their group's label; one the change touches on the dirty fill with the glow, one it moves off a ghost, the rest
  *   `--paper-3` on `--rule-strong`.
@@ -320,6 +322,9 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
             fontVariantNumeric: "tabular-nums",
             "&[data-shape=bin]": { borderRadius: "md", color: "fg" },
             "&[data-shape=bin]:not([data-op])": { borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", background: "bg.surface" },
+            // A resource's job, as the board's row draws it: the one under way on the day, or one planned after it.
+            "&[data-shape=bin][data-look=prior]": { background: "bg.subtle" },
+            "&[data-shape=bin][data-look=next]": { borderStyle: "dashed", borderColor: "fg.subtle", background: "transparent", color: "fg.subtle" },
         },
         barText: { ...ELLIPSIS, flex: 1 },
         icon: {

@@ -6,19 +6,22 @@
 /**
  * What a lanes crop draws (`Decision Queue Spec.md` D8, P4, P6, P13–P20, P24,
  * P25): the Plan's crop of the resources a change lands on, the Calendar's of
- * the days it lands on — and the Allocation's after them. The Plan's window is
- * whole hours from two before the first event the change touches to two after
- * the last, whole days past a day (`laneWindow`); the Calendar's the same hours
- * of the day, every lane a day drawn over them (`laneDayWindow`). Its ruler
- * steps by the fewest ticks that cut it in three or fewer. Each lane — a
- * resource the change touches, or a day — is in the order its events start:
- * the events there as the change leaves them, packed as the builders pack
- * theirs (`packLanes`), the ones it proposes marked, a ghost where each was,
- * and every other as it stands; its measure before and after, in the tone the
- * change gives it — the Plan's booked share of the window, its overlaps
- * counted twice, or the Calendar's overlaps. What overlaps is the builders'
- * own (`scheduleOverlaps`): events pair within each kind that warns on a Plan
- * (PB51), across every kind that warns on a Calendar. Pure: the preview reads
+ * the days it lands on, and the Allocation's of the resources and the waiting
+ * row its bins move between. The Plan's and the Allocation's window is whole
+ * hours from two before the first event the change touches to two after the
+ * last, whole days past a day (`laneWindow`); the Calendar's the same hours of
+ * the day, every lane a day drawn over them (`laneDayWindow`). Its ruler steps
+ * by the fewest ticks that cut it in three or fewer. Each lane — a resource the
+ * change touches, or a day — is in the order its events start, unless its
+ * preview orders them: the events there as the change leaves them, packed as
+ * the builders pack theirs (`packLanes`), the ones it proposes marked, a ghost
+ * where each was, and every other as it stands; its measure before and after,
+ * in the tone the change gives it — the Plan's booked share of the window, its
+ * overlaps counted twice, the Calendar's overlaps, or the Allocation's load,
+ * which its preview works out. What overlaps is the builders' own
+ * (`scheduleOverlaps`): events pair within each kind that warns on a Plan
+ * (PB51), across every kind that warns on a Calendar; an Allocation's entries
+ * pair with none, its check's issues their breaches. Pure: the preview reads
  * the events, and this works out what they draw.
  *
  * @packageDocumentation
@@ -54,6 +57,9 @@ const printResource = printFor(ScheduleResourceRefType);
 /** The lane of the events on no resource: no resource prints as it. */
 export const UNASSIGNED = "";
 
+/** How a resource's job is drawn, as the Allocation's board draws it: the one under way on the day, or one planned after it. */
+export type LaneLook = "prior" | "next";
+
 /** One event a lanes crop draws: its key and kind, its title, when it runs, the lane it is drawn in and the resource it is on. */
 export interface LaneEvent {
     /** Its key. */
@@ -62,6 +68,8 @@ export interface LaneEvent {
     readonly kind: string;
     /** Its title, as its builder shows it. */
     readonly title: string;
+    /** What the sentence names it by: its title, unless given. */
+    readonly what?: string;
     /** When it starts. */
     readonly start: Date;
     /** When it ends: its start, for an instant. */
@@ -70,8 +78,12 @@ export interface LaneEvent {
     readonly lane: string;
     /** The resource it is on, printed, or {@link UNASSIGNED}. */
     readonly resource: string;
-    /** It, as its builder draws it: what its overlaps are worked out from. */
-    readonly item: ScheduleItemValue;
+    /** It, as its builder draws it: what its overlaps are worked out from — none for an entry that pairs with none. */
+    readonly item?: ScheduleItemValue;
+    /** The words of the app's check for what it breaks (P15), where its builder checks it so. */
+    readonly issue?: string;
+    /** How it is drawn, for a resource's job. */
+    readonly look?: LaneLook;
 }
 
 /**
@@ -112,7 +124,7 @@ function hourly(from: number, to: number): LaneWindow {
 }
 
 /**
- * The window a change is drawn in, its lanes resources (see the module docs).
+ * The window a change is drawn in, its lanes resources or a waiting row (see the module docs).
  *
  * @param events - What the change touches, before it and after it
  * @returns The window and its ruler's step; `undefined` for nothing with a time
@@ -218,6 +230,12 @@ export interface LaneMove {
     readonly end: Date;
 }
 
+/**
+ * What an entry breaks once the change is made (P15): the event it overlaps, where its kind takes that as a conflict —
+ * that one's title — or the words of the app's check for it.
+ */
+export type LaneBreach = { readonly kind: "overlap"; readonly with: string } | { readonly kind: "issue"; readonly text: string };
+
 /** One entry a lane draws. */
 export interface LaneBar {
     /** Its event's key. */
@@ -240,16 +258,31 @@ export interface LaneBar {
     readonly knock: boolean;
     /** Whether the target's `locked` pins it (P17). */
     readonly locked: boolean;
-    /** The event it overlaps once the change is made, where its kind takes that as a conflict (P15): that one's title. */
-    readonly overlaps: string | undefined;
+    /** What it breaks once the change is made (P15); a ghost breaks nothing. */
+    readonly breach: LaneBreach | undefined;
+    /** How it is drawn, for a resource's job. */
+    readonly look: LaneLook | undefined;
     /** How many other cases' chosen options change it too (P18). */
     readonly shared: number;
     /** A ghost's: where its event goes. */
     readonly to: LaneMove | undefined;
 }
 
-/** What a lane's head measures: the Plan's booked share of the window, or the Calendar's overlaps. */
-export type LaneMeasure = "share" | "overlaps";
+/** What a lane's head measures: the Plan's booked share of the window, the Calendar's overlaps, or the Allocation's load. */
+export type LaneMeasure = "share" | "overlaps" | "load";
+
+/** A lane's load, as its preview works it out: before the change and after it, and its tone (P24). */
+export interface LaneLoad {
+    /** What it holds before the change. */
+    readonly before: number;
+    /** What it holds after it. */
+    readonly after: number;
+    /** The tone the change gives it. */
+    readonly tone: PreviewTone;
+}
+
+/** How the sentence words what an event does in a lane: it runs there, on a Plan or a Calendar; it is held in a resource, or waits. */
+export type LaneVerb = "runs" | "held" | "waits";
 
 /** One lane of the crop: a resource the change touches, the events on none, or a day. */
 export interface LaneRow {
@@ -261,7 +294,7 @@ export interface LaneRow {
     readonly origin: number;
     /**
      * Its measure before the change: its booked share of the window — the time its events take there, an overlap
-     * counted twice — or its overlaps, by the model's `measure`.
+     * counted twice — its overlaps, or its load, by the model's `measure`.
      */
     readonly before: number;
     /** Its measure after it. */
@@ -276,11 +309,14 @@ export interface LaneRow {
     readonly bars: readonly LaneBar[];
 }
 
-/** One clause of the preview's sentence (P25): an event moved to another lane, along its own, added, taken off or changed. */
+/**
+ * One clause of the preview's sentence (P25): an event moved to another lane, along its own, added, taken off or changed —
+ * moved or added, in its new lane's verb.
+ */
 export type LaneClause =
-    | { readonly kind: "move"; readonly what: string; readonly from: string; readonly to: string; readonly start: Date; readonly end: Date; readonly overlapped: string | undefined }
+    | { readonly kind: "move"; readonly what: string; readonly from: string; readonly to: string; readonly verb: LaneVerb; readonly start: Date; readonly end: Date; readonly overlapped: string | undefined }
     | { readonly kind: "reschedule"; readonly what: string; readonly on: string; readonly start: Date; readonly end: Date; readonly overlapped: string | undefined }
-    | { readonly kind: "add"; readonly what: string; readonly on: string; readonly start: Date; readonly end: Date }
+    | { readonly kind: "add"; readonly what: string; readonly on: string; readonly verb: LaneVerb; readonly start: Date; readonly end: Date }
     | { readonly kind: "remove"; readonly what: string; readonly from: string }
     | { readonly kind: "change"; readonly what: string; readonly on: string };
 
@@ -294,7 +330,9 @@ export interface LanesModel {
     readonly grid: readonly number[];
     /** What each lane's head measures. */
     readonly measure: LaneMeasure;
-    /** Each lane, in the order the change's events start. */
+    /** A load's unit — `m³` — or empty: a measure of no load has none. */
+    readonly unit: string;
+    /** Each lane, in the order the change's events start, unless its preview orders them. */
     readonly rows: readonly LaneRow[];
     /** What moves where, for the sentence. */
     readonly clauses: readonly LaneClause[];
@@ -324,14 +362,21 @@ export interface LanesInput {
     readonly overlaps: (kind: string) => boolean;
     /** How events pair, as `scheduleOverlaps` groups them: within each kind that warns, as a Plan pairs them, or across every kind that warns, as a Calendar does. */
     readonly pairs: "kind" | "all";
-    /** What each lane's head measures. */
-    readonly measure: LaneMeasure;
+    /**
+     * What each lane's head measures: the booked share or the overlaps, worked out here; or a load, which the preview
+     * works out — in its unit.
+     */
+    readonly measure: "share" | "overlaps" | { readonly kind: "load"; readonly unit: string; readonly of: (lane: string) => LaneLoad };
     /** A lane's name. */
     readonly nameOf: (lane: string) => string;
     /** Where an event stands, as the sentence and a ghost's title name it: its lane's name, unless given. */
     readonly whereOf?: (e: LaneEvent) => string;
     /** How much earlier than they run a lane's events are drawn, in ms: a lane a day's day; none, unless given. */
     readonly originOf?: (lane: string) => number;
+    /** The lanes' order, a stable sort over the order their events start: as they start, unless given. */
+    readonly laneOrder?: (a: string, b: string) => number;
+    /** How the sentence words what an event does on a lane it moves or is added to: it runs there, unless given. */
+    readonly verbOf?: (lane: string) => LaneVerb;
 }
 
 /**
@@ -384,14 +429,14 @@ function covered(spans: readonly (readonly [number, number])[]): number {
 
 /**
  * Events in the groups whose events pair (`scheduleOverlaps`): each event once — one a lane a day draws on two days is
- * one event — in its group, and none of a kind that does not warn.
+ * one event — in its group, and none of a kind that does not warn, nor one with no item, which pairs with none.
  */
 function pairGroups(events: readonly LaneEvent[], groupOf: (kind: string) => string | undefined): ScheduleItemValue[][] {
     const groups = new Map<string, ScheduleItemValue[]>();
     const seen = new Set<string>();
     for (const e of events) {
         const group = groupOf(e.kind);
-        if (group === undefined) continue;
+        if (group === undefined || e.item === undefined) continue;
         const ref = scheduleEventKey(e.item);
         if (seen.has(ref)) continue;
         seen.add(ref);
@@ -405,7 +450,7 @@ function pairGroups(events: readonly LaneEvent[], groupOf: (kind: string) => str
 /** How many of the overlaps pair two events a lane draws. */
 function pairsOn(overlaps: ScheduleOverlaps<ScheduleItemValue>, events: readonly LaneEvent[]): number {
     if (overlaps.pairs.length === 0) return 0;
-    const on = new Set(events.map(e => scheduleEventKey(e.item)));
+    const on = new Set(events.flatMap(e => (e.item === undefined ? [] : [scheduleEventKey(e.item)])));
     return overlaps.pairs.filter(pair => on.has(scheduleEventKey(pair.first)) && on.has(scheduleEventKey(pair.second))).length;
 }
 
@@ -474,41 +519,50 @@ export function lanesPreview(input: LanesInput): LanesModel {
     const join = (lane: string | undefined) => { if (lane !== undefined && !lanes.some(held => stringEqual(held, lane))) lanes.push(lane); };
     for (const key of touched) { join(before.get(key)?.lane); join(after.get(key)?.lane); }
     for (const lane of input.lands) join(lane);
+    if (input.laneOrder !== undefined) lanes.sort(input.laneOrder);
     const on = (lane: string) => (e: LaneEvent | undefined): e is LaneEvent => e !== undefined && stringEqual(e.lane, lane);
     const was = new Map(lanes.map(lane => [lane, [...context.filter(on(lane)), ...touched.map(key => before.get(key)).filter(on(lane))]]));
     const now = new Map(lanes.map(lane => [lane, [...context.filter(on(lane)), ...touched.map(key => after.get(key)).filter(on(lane))]]));
     // The overlaps before the change and after it, as the builder pairs its events.
     const overlapsWas = scheduleOverlaps(pairGroups([...context, ...touched.map(key => before.get(key)).filter(defined)], groupOf));
     const overlapsNow = scheduleOverlaps(pairGroups([...context, ...touched.map(key => after.get(key)).filter(defined)], groupOf));
-    // The event one overlaps once the change is made, where its kind takes that as a conflict (P15).
-    const overlapsOf = (e: LaneEvent): string | undefined => overlapsNow.peers.get(scheduleEventKey(e.item))?.[0]?.title;
+    // What an event breaks once the change is made (P15): what the app's check says of it, else the event it overlaps,
+    // where its kind takes that as a conflict.
+    const breachOf = (e: LaneEvent): LaneBreach | undefined => {
+        if (e.issue !== undefined) return { kind: "issue", text: e.issue };
+        const peer = e.item === undefined ? undefined : overlapsNow.peers.get(scheduleEventKey(e.item))?.[0];
+        return peer === undefined ? undefined : { kind: "overlap", with: peer.title };
+    };
     // What an event the change moves overlapped where it was and no longer does: the clause names it.
     const cleared = (b: LaneEvent, a: LaneEvent): string | undefined => {
+        if (b.item === undefined || a.item === undefined) return undefined;
         const still = overlapsNow.peers.get(scheduleEventKey(a.item)) ?? [];
         return overlapsWas.peers.get(scheduleEventKey(b.item))?.find(other => !still.some(held => sameEvent(held, other)))?.title;
     };
+    const load = input.measure === "share" || input.measure === "overlaps" ? undefined : input.measure;
+    const measure: LaneMeasure = input.measure === "share" || input.measure === "overlaps" ? input.measure : "load";
 
     const rows = lanes.map((lane): LaneRow => {
         const origin = input.originOf?.(lane) ?? 0;
         const shareOf = (t: Date) => Math.min(1, Math.max(0, (t.getTime() - origin - from) / span));
         const entries: Omit<LaneBar, "lane">[] = [];
-        const entry = (e: LaneEvent, mark: Pick<LaneBar, "op" | "knock" | "locked" | "overlaps" | "shared" | "to">) => {
+        const entry = (e: LaneEvent, mark: Pick<LaneBar, "op" | "knock" | "locked" | "breach" | "shared" | "to">) => {
             const left = shareOf(e.start);
-            entries.push({ key: e.key, title: e.title, start: e.start, end: e.end, left, width: Math.max(LEAST, shareOf(e.end) - left), ...mark });
+            entries.push({ key: e.key, title: e.title, start: e.start, end: e.end, left, width: Math.max(LEAST, shareOf(e.end) - left), look: e.look, ...mark });
         };
-        for (const e of context.filter(on(lane))) entry(e, { op: undefined, knock: false, locked: false, overlaps: overlapsOf(e), shared: 0, to: undefined });
+        for (const e of context.filter(on(lane))) entry(e, { op: undefined, knock: false, locked: false, breach: breachOf(e), shared: 0, to: undefined });
         for (const key of touched) {
             const b = before.get(key), a = after.get(key);
             const knock = marked && input.knockOn(key);
             // The event as the change leaves it, the change's marked.
             if (on(lane)(a)) {
                 const op: PreviewOp | undefined = !marked || knock ? undefined : b !== undefined && samePlace(b, a) ? "chg" : "add";
-                entry(a, { op, knock, locked: input.locked(key), overlaps: overlapsOf(a), shared: marked ? input.shared(key) : 0, to: undefined });
+                entry(a, { op, knock, locked: input.locked(key), breach: breachOf(a), shared: marked ? input.shared(key) : 0, to: undefined });
             }
             // Where the change moves it off, or takes it off: a ghost (P14).
             if (marked && on(lane)(b) && !(a !== undefined && samePlace(b, a))) {
                 entry(b, {
-                    op: a === undefined ? "del" : "from", knock: false, locked: input.locked(key), overlaps: undefined, shared: 0,
+                    op: a === undefined ? "del" : "from", knock: false, locked: input.locked(key), breach: undefined, shared: 0,
                     to: a === undefined ? undefined : { name: moved(b, a) ? where(a) : undefined, start: a.start, end: a.end },
                 });
             }
@@ -517,15 +571,17 @@ export function lanesPreview(input: LanesInput): LanesModel {
         const places = packLanes(spans);
         const bars = entries.map((e, i): LaneBar => ({ ...e, lane: places[i]!.lane }));
         const wasOn = was.get(lane)!, nowOn = now.get(lane)!;
-        const measured = input.measure === "share"
-            ? (() => {
-                const sharesWas = booked(wasOn, from, to, groupOf), sharesNow = booked(nowOn, from, to, groupOf);
-                return { before: sharesWas.share, after: sharesNow.share, tone: shareTone(sharesWas, sharesNow) };
-            })()
-            : (() => {
-                const countWas = pairsOn(overlapsWas, wasOn), countNow = pairsOn(overlapsNow, nowOn);
-                return { before: countWas, after: countNow, tone: overlapsTone(countWas, countNow) };
-            })();
+        const measured: LaneLoad = load !== undefined
+            ? load.of(lane)
+            : input.measure === "share"
+                ? (() => {
+                    const sharesWas = booked(wasOn, from, to, groupOf), sharesNow = booked(nowOn, from, to, groupOf);
+                    return { before: sharesWas.share, after: sharesNow.share, tone: shareTone(sharesWas, sharesNow) };
+                })()
+                : (() => {
+                    const countWas = pairsOn(overlapsWas, wasOn), countNow = pairsOn(overlapsNow, nowOn);
+                    return { before: countWas, after: countNow, tone: overlapsTone(countWas, countNow) };
+                })();
         return {
             key: lane, name: nameOf(lane), origin, ...measured, free: nowOn.length === 0,
             lanes: places.reduce((most, place) => Math.max(most, place.lane + 1), 1), bars,
@@ -534,18 +590,20 @@ export function lanesPreview(input: LanesInput): LanesModel {
 
     const clauses: LaneClause[] = [];
     if (marked) {
+        const verb = (lane: string): LaneVerb => input.verbOf?.(lane) ?? "runs";
         for (const key of touched) {
             const b = before.get(key), a = after.get(key);
             if (b !== undefined && a !== undefined) {
+                const what = a.what ?? a.title;
                 if (moved(b, a)) {
-                    clauses.push({ kind: "move", what: a.title, from: where(b), to: where(a), start: a.start, end: a.end, overlapped: cleared(b, a) });
+                    clauses.push({ kind: "move", what, from: where(b), to: where(a), verb: verb(a.lane), start: a.start, end: a.end, overlapped: cleared(b, a) });
                 } else if (!samePlace(b, a)) {
-                    clauses.push({ kind: "reschedule", what: a.title, on: where(a), start: a.start, end: a.end, overlapped: cleared(b, a) });
-                } else clauses.push({ kind: "change", what: a.title, on: where(a) });
-            } else if (b !== undefined) clauses.push({ kind: "remove", what: b.title, from: where(b) });
-            else if (a !== undefined) clauses.push({ kind: "add", what: a.title, on: where(a), start: a.start, end: a.end });
+                    clauses.push({ kind: "reschedule", what, on: where(a), start: a.start, end: a.end, overlapped: cleared(b, a) });
+                } else clauses.push({ kind: "change", what, on: where(a) });
+            } else if (b !== undefined) clauses.push({ kind: "remove", what: b.what ?? b.title, from: where(b) });
+            else if (a !== undefined) clauses.push({ kind: "add", what: a.what ?? a.title, on: where(a), verb: verb(a.lane), start: a.start, end: a.end });
         }
     }
     const { ticks, grid } = laneTicks(w);
-    return { window: w, ticks, grid, measure: input.measure, rows, clauses };
+    return { window: w, ticks, grid, measure, unit: load?.unit ?? "", rows, clauses };
 }
