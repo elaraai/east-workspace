@@ -119,6 +119,15 @@ describe('e3.record declared whole', () => {
     assert.equal(record('later', Machines, { indexes: (index) => ({ by_site: index.on(['site']) }) }).default, undefined);
   });
 
+  it('makes its initial state with the function given for it once, when it is first read — as its package is exported — never as it is declared', () => {
+    let made = 0;
+    const rec = record('made', Machines, { initial: () => { made++; return new Map(); } });
+    assert.equal(made, 0, 'declared, nothing made');
+    assert.equal(rec.default instanceof Map, true);
+    assert.equal(rec.default, rec.default, 'made once, then held');
+    assert.equal(made, 1);
+  });
+
   it('carries its rows without their collections in its other indexes, whichever is declared first', () => {
     const rec = machines();
     // by_site is declared before the nested index, and carries the lean machine all the same: the record knows both.

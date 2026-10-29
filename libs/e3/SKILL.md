@@ -525,8 +525,11 @@ body and no platform call, since the compare-and-swap retry runs it again
 against fresher state — named by an identifier. Each commit records its parent,
 the state, the mutation, its arguments, the actor and the time. Deploy mints a
 `$init` commit from the initial value, and a redeploy keeps state and history.
-The record's version vector carries the commit hash, so even a mutation that
-leaves the state unchanged triggers downstream tasks.
+A large initial value is given as a function that makes it —
+`initial: () => East.compile(generate, [])(50_000n)` — called once, as the
+package is exported, never where the declaration is only read (a page binding
+the record). The record's version vector carries the commit hash, so even a
+mutation that leaves the state unchanged triggers downstream tasks.
 
 Declared with no initial value, a record is **unassigned** until its first
 state is committed — `e3 seed <repo> <record> <file.beast2> -w <ws>` from a

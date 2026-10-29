@@ -31,8 +31,13 @@ import { sameEastType } from './record-guards.js';
  * @typeParam M - Its mutations, as `mutations` returns them
  */
 export interface RecordConfig<T extends EastType, I extends object, M extends object> {
-  /** The initial state, the genesis commit; omitted for a record whose first state is committed from outside. */
-  readonly initial?: NoInfer<ValueTypeOf<T>>;
+  /**
+   * The initial state, the genesis commit, or a function that makes it — once,
+   * when it is first read, as its package is exported: a large one is never
+   * made where the declaration is only read, as a page binding the record
+   * reads it. Omitted for a record whose first state is committed from outside.
+   */
+  readonly initial?: NoInfer<ValueTypeOf<T>> | (() => NoInfer<ValueTypeOf<T>>);
   /** Its indexes by name, from the `index` builder. */
   readonly indexes?: (index: IndexBuilder<T>) => I;
   /** Its mutations by name, from the `mutation` builder. */
@@ -127,19 +132,25 @@ export function record(name: string, type: EastType, declared?: unknown): Record
   const where = `e3.record '${name}'`;
   const config = declared === undefined ? undefined : declarationOf(where, type, declared);
   const initial = config?.initial;
+  // A function makes the state; a record whose state is a function holds it as given.
+  const made = typeof initial === 'function' && type.type !== 'Function' && type.type !== 'AsyncFunction';
   const rec = {
     kind: 'dataset' as const,
     recordKind: 'record' as const,
     name,
     path: [variant('field', 'records'), variant('field', name)],
     type,
-    ...(initial !== undefined && { default: initial }),
+    ...(initial !== undefined && !made && { default: initial }),
     writable: false,
     mutations: {} as Record<string, MutationDef>,
     indexes: {} as Record<string, RecordIndexDef>,
     migrations: [] as MigrationDef[],
     deps: new Set([...recordsTree.deps, recordsTree]),
   };
+  if (made) {
+    let state: { readonly value: unknown } | undefined;
+    Object.defineProperty(rec, 'default', { enumerable: true, get: () => (state ??= { value: (initial as () => unknown)() }).value });
+  }
   // Each part is built in the order declared, over the record itself: an index or a mutation under its key, a
   // migration after the step before it.
   for (const [key, draft] of partsOf(where, 'indexes', config?.indexes?.(INDEX_BUILDER as unknown as IndexBuilder<EastType>))) {
