@@ -191,16 +191,17 @@ describe("the window a canvas holds itself (#1344)", () => {
         expect(s.state().where).toEqual(where);
     });
 
-    test("no source holding the window, the resolution is the slice's first source's: one write, of the resolution alone, the rows' narrowing standing", async () => {
+    test("no source holding the window, the resolution is the slice's first source's: one write, of the resolution alone, the rows' narrowing standing, and the canvas's own window zoomed", async () => {
         const { s, hold, c, moved } = await overRows("c1344-res");
         const where = s.state().where;
         c.dispatch({ t: "resolution.set", resolution: "day" });
         expect(s.writes()).toBe(1);
         expect(s.state().resolution).toEqual(some(variant("day", null)));
         expect(s.state().where).toEqual(where);
-        // A resolution moves no window: the hold stands.
-        expect(moved()).toBe(0);
-        expect(hold.last).toBeUndefined();
+        // The canvas's own window zooms with it (#1438): as many days as it showed weeks, twelve, about the same middle.
+        const middle = W27.getTime() + 6 * WEEK;
+        expect(moved()).toBe(1);
+        expect(hold.last).toEqual([middle - 6 * DAY, middle + 6 * DAY]);
         expect(c.getSnapshot().announce?.text).toBe("Resolution: day");
     });
 

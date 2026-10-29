@@ -38,6 +38,7 @@
 import { useLayoutEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { getSomeorUndefined, useSlicesReactivity } from "@elaraai/east-ui-components";
 import { recordSliceWindow, recordSliceWindowFits, setRecordSliceWindow } from "@elaraai/east-ui-components/internal";
+import { tileNext, tileStart, type RecordTile } from "@elaraai/east-ui/internal";
 import { resolveScale, type PlanAxisValue } from "../axis.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanAxisKind } from "../instant.js";
@@ -72,6 +73,9 @@ export interface PlanWindowHold {
     rows: readonly string[];
     /** How many times a gesture has moved the canvas's own window: what its render reads the hold by. */
     readonly moves: number;
+    /** The span of what the canvas's series shown read through its rows' nested series index (#1438), `[from, to)`: what a zoom
+     *  keeps the canvas's own window inside; `undefined` where none is known. */
+    span: readonly [number, number] | undefined;
     /**
      * Moves the canvas's own window — no source of its slice holds one — and
      * tells its render. The window it shows already moves nothing.
@@ -102,6 +106,7 @@ export function createPlanWindowHold(initial?: readonly [number, number]): PlanW
     const hold: PlanWindowHold = {
         last: initial,
         rows: PLAN_ROW_SOURCES,
+        span: undefined,
         get moves() { return moves; },
         move(min, max) {
             if (hold.last !== undefined && hold.last[0] === min && hold.last[1] === max) return;
@@ -115,6 +120,52 @@ export function createPlanWindowHold(initial?: readonly [number, number]): PlanW
         },
     };
     return hold;
+}
+
+/** The resolutions a zoom counts in buckets of the calendar. */
+const ZOOM_TILES: ReadonlySet<string> = new Set<RecordTile>(["day", "week", "month", "quarter", "year"]);
+
+/** A bucket's mean length, in ms: how far a run of them around an instant reaches, before the calendar cuts them. */
+const BUCKET_MS: Readonly<Record<RecordTile, number>> = { day: 864e5, week: 6048e5, month: 2629746e3, quarter: 7889238e3, year: 31556952e3 };
+
+/** Each bucket of a resolution from one instant to another, by its start, in ms: at most ten thousand. */
+function bucketsOver(tile: RecordTile, from: number, to: number): number[] {
+    const out: number[] = [];
+    for (let at = tileStart(tile, new Date(from)); at.getTime() < to && out.length < 10_000; at = tileNext(tile, at)) out.push(at.getTime());
+    return out;
+}
+
+/**
+ * The window a zoom shows on a canvas holding its own (#1438): as many
+ * buckets of the new resolution as the window shown held of the old, about
+ * the same middle — inside the span of what its series read where it is
+ * known, the whole span where they do not fit, and over the window shown too
+ * where it lies outside the span. Where a source holds the window it is that
+ * source's narrowing, and a zoom only re-buckets.
+ *
+ * @param shown - The window shown, `[from, to)` in ms
+ * @param from - The resolution it shows at
+ * @param to - The resolution zoomed to
+ * @param span - The span of what the series read, `[from, to)` in ms; `undefined` where none is known
+ * @returns The window, `[from, to)` in ms, each end a bucket's edge; `undefined` for a resolution no calendar bucket names
+ */
+export function zoomedWindow(shown: readonly [number, number], from: string, to: string,
+    span: readonly [number, number] | undefined): readonly [number, number] | undefined {
+    if (!ZOOM_TILES.has(from) || !ZOOM_TILES.has(to)) return undefined;
+    const tile = to as RecordTile;
+    const n = Math.max(1, bucketsOver(from as RecordTile, shown[0], shown[1]).length);
+    const middle = (shown[0] + shown[1]) / 2;
+    const reach = (n + 1) * BUCKET_MS[tile];
+    const buckets = span === undefined
+        ? bucketsOver(tile, middle - reach, middle + reach)
+        : bucketsOver(tile, Math.min(span[0], shown[0]), Math.max(span[1], shown[1]));
+    if (buckets.length === 0) return undefined;
+    let at = 0;
+    while (at + 1 < buckets.length && buckets[at + 1]! <= middle) at++;
+    const first = Math.max(0, Math.min(at - Math.floor(n / 2), buckets.length - n));
+    const last = Math.min(buckets.length, first + n);
+    const end = last < buckets.length ? buckets[last]! : tileNext(tile, new Date(buckets[last - 1]!)).getTime();
+    return [buckets[first]!, end];
 }
 
 /** The canvas's narrowing chrome and scale. */

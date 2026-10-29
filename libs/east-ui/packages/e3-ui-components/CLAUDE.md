@@ -354,7 +354,12 @@ kept under the canvas's storage key as its folds are
 (`persisted.ts`, #813), and a remount draws it from its first frame while the
 axis still allows it (`restoredWindow`), else the axis's stated window. A
 record's resolution
-only re-buckets, and the brush commits once a gesture, with no histogram. The
+only re-buckets — the window a source holds is its narrowing — and the brush
+commits once a gesture, with no histogram. A canvas holding its own window
+zooms with it (#1438, `zoomedWindow`): as many buckets of the new resolution
+as it showed of the old, about the same middle, inside the span of what its
+series read where it reads a nested series index (`PlanWindowHold.span`), so
+the year shows the works' ten years. The
 Plan reads its event kinds' rows, counts and backlog, the selected events and
 what its eye's request waits on in components of their own
 (`PlanEventsReader`, `PlanKindsReader`, `PlanSelectionReader`,

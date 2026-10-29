@@ -48,7 +48,7 @@ import { instantOrder, type PlanInstantValue } from "../instant.js";
 import { rowIdOfKey, type PlanRootValue } from "../model.js";
 import type { PlanEffect } from "../plan-state.js";
 import { planSlices, planWindowParts } from "../root/sources.js";
-import { leadingWindow, slicedResolution, statedWindow, type PlanWindowHold, type PlanWindowPart } from "../root/window.js";
+import { leadingWindow, slicedResolution, statedWindow, zoomedWindow, type PlanWindowHold, type PlanWindowPart } from "../root/window.js";
 
 /**
  * The scale as the window is held NOW — the same resolution the canvas
@@ -117,11 +117,18 @@ export function runPlanEffects(effects: readonly PlanEffect[], value: PlanRootVa
             }
             case "slice.setResolution": {
                 // A resolution is a TIME-axis fact — the segment only mounts there (a number axis has `step`; an
-                // ordinal list no unit). It only re-buckets: the window, the narrowing, stays.
+                // ordinal list no unit). Where a source holds the window it is the source's narrowing, and a zoom only
+                // re-buckets; a canvas holding its own zooms with it (#1438): as many buckets of the new resolution as
+                // it showed of the old, about the same middle, inside the span of what its series read.
                 if (chrome === undefined || value.axis.type !== "time") break;
                 const holders = bound ? parts.map(({ part }) => part) : chrome.slice.parts.map(({ slice }) => slice);
+                const shown = !bound && hold !== undefined ? currentScale(value, hold) : undefined;
                 const resolution = some(variant(eff.resolution, null)) as Parameters<(typeof holders)[number]["setResolution"]>[0];
                 for (const part of holders) part.setResolution(resolution);
+                if (shown?.resolution !== undefined && hold !== undefined) {
+                    const zoomed = zoomedWindow([shown.toNumber(shown.window.min), shown.toNumber(shown.window.max)], shown.resolution, eff.resolution, hold.span);
+                    if (zoomed !== undefined) hold.move(zoomed[0], zoomed[1]);
+                }
                 break;
             }
             case "emit.select": {

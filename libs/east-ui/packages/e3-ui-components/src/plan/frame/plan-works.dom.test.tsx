@@ -138,6 +138,20 @@ describe("the works on a Plan (#1438)", () => {
         await waitFor(() => expect(spanReads().slice(before)).toEqual(["runs"]));
     });
 
+    test("a zoom shows as many buckets as before about the same middle: the year shows the ten years, and the week again a few weeks in their middle", async () => {
+        const { container } = await h.mount(ex.planNestedAll);
+        await settle();
+        const caption = () => Number((container.querySelector("[data-slot='horizon']")?.textContent ?? "").replace(/[^0-9]/g, ""));
+        await waitFor(() => expect(caption()).toBeGreaterThanOrEqual(520));
+        const ruler = () => container.querySelector("[data-slot='ruler'], [data-plan-ruler]")?.textContent ?? "";
+        await zoomTo(container, "year");
+        await waitFor(() => expect(ruler()).toContain("2022"));
+        for (const year of ["2023", "2026", "2029", "2031"]) expect(ruler()).toContain(year);
+        await zoomTo(container, "week");
+        await waitFor(() => expect(ruler()).toContain("2027"));
+        expect(ruler()).not.toContain("2022");
+    });
+
     test("a works' crew hours, folded, draw each week's sum of its crews' hours as e3 keeps it", async () => {
         const { container } = await h.mount(ex.planNestedAll);
         await settle();

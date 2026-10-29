@@ -412,7 +412,10 @@ spans the time the series shown read, as e3 keeps it beside the index (its
 span, `<index>_span`): from the first month to the last any row's items or
 values touch, in the collections those series read, read again at each commit
 — a series switched off leaves its collections out — so the brush reaches
-every part of the data from the start, not the window's own margins.
+every part of the data from the start, not the window's own margins. Its
+canvas holds its own window, and a zoom zooms it: as many buckets of the new
+resolution as it showed of the old, about the same middle, inside that span —
+the year shows the whole of it.
 
 **A builder narrows through `Slice.bindRecords` alone** (#1340): one rail on
 its toolbar, `Slice.bindRecords(key, { [source]: { source:
