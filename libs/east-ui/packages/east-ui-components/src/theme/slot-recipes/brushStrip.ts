@@ -14,7 +14,7 @@
  *   at 20 %).
  * - **masks** — `fg` at 4 % full-height panels over the excluded regions.
  * - **handles** — the visible 5 px × r2 `brand.solid` bars, inset 4 px
- *   top/bottom, each centred in an invisible 10 px hit zone that stays in
+ *   top/bottom, each centred in an invisible 12 px hit zone that stays in
  *   lockstep with `brush-math`'s `BRUSH_HANDLE_PX` geometry.
  * - **now** — the 1.5 px `brand.solid` tick at the now instant, opacity .8.
  *
@@ -69,7 +69,7 @@ export const brushStripSlotRecipe = defineSlotRecipe({
             position: "absolute",
             top: "0",
             bottom: "0",
-            width: "10px",
+            width: "12px",
             transform: "translateX(-50%)",
             cursor: "ew-resize",
             display: "flex",

@@ -10,7 +10,9 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { brushHitTest, brushDragWindow, brushRelease, brushCursor, type BrushDrag } from "./brush-math.js";
+import {
+    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushHitTest, brushKey, brushRelease, type BrushDrag,
+} from "./brush-math.js";
 
 const WIDTH = 400;
 const WIN = { lo: 100, hi: 200 };
@@ -31,15 +33,41 @@ describe("brushHitTest — resolves the gesture at pointer-down (#192)", () => {
         expect(brushHitTest(300, WIN)).toBe("draw");
     });
 
-    test("edge hot zones win over the interior, ±5px either side", () => {
+    test("edge hot zones win over the interior: 12px, centred on each edge, a press within 6 of it (#1438)", () => {
         expect(brushHitTest(100, WIN)).toBe("resize-lo");
-        expect(brushHitTest(95, WIN)).toBe("resize-lo");   // outside edge
-        expect(brushHitTest(105, WIN)).toBe("resize-lo");  // inside edge
+        expect(brushHitTest(94, WIN)).toBe("resize-lo");   // outside edge
+        expect(brushHitTest(106, WIN)).toBe("resize-lo");  // inside edge
         expect(brushHitTest(200, WIN)).toBe("resize-hi");
-        expect(brushHitTest(205, WIN)).toBe("resize-hi");
-        expect(brushHitTest(195, WIN)).toBe("resize-hi");
-        expect(brushHitTest(106, WIN)).toBe("move");
-        expect(brushHitTest(94, WIN)).toBe("draw");
+        expect(brushHitTest(206, WIN)).toBe("resize-hi");
+        expect(brushHitTest(194, WIN)).toBe("resize-hi");
+        expect(brushHitTest(107, WIN)).toBe("move");
+        expect(brushHitTest(93, WIN)).toBe("draw");
+    });
+
+    test("a coarse pointer's zones are 24px: a press within 12 of an edge (#1438)", () => {
+        expect(brushHitTest(88, WIN, BRUSH_HANDLE_COARSE_PX)).toBe("resize-lo");
+        expect(brushHitTest(112, WIN, BRUSH_HANDLE_COARSE_PX)).toBe("resize-lo");
+        expect(brushHitTest(113, WIN, BRUSH_HANDLE_COARSE_PX)).toBe("move");
+        expect(brushHitTest(212, WIN, BRUSH_HANDLE_COARSE_PX)).toBe("resize-hi");
+        expect(brushHitTest(213, WIN, BRUSH_HANDLE_COARSE_PX)).toBe("draw");
+    });
+
+    test("a window under 24px wide sets each zone outside its edge, and a press inside it moves it (#1438)", () => {
+        const narrow = { lo: 100, hi: 110 };
+        expect(brushHitTest(100, narrow)).toBe("resize-lo");
+        expect(brushHitTest(88, narrow)).toBe("resize-lo");
+        expect(brushHitTest(87, narrow)).toBe("draw");
+        expect(brushHitTest(101, narrow)).toBe("move");
+        expect(brushHitTest(109, narrow)).toBe("move");
+        expect(brushHitTest(110, narrow)).toBe("resize-hi");
+        expect(brushHitTest(122, narrow)).toBe("resize-hi");
+        expect(brushHitTest(123, narrow)).toBe("draw");
+        // A coarse pointer's, under 48px wide, the same with its 24px zones.
+        const touch = { lo: 100, hi: 140 };
+        expect(brushHitTest(76, touch, BRUSH_HANDLE_COARSE_PX)).toBe("resize-lo");
+        expect(brushHitTest(120, touch, BRUSH_HANDLE_COARSE_PX)).toBe("move");
+        expect(brushHitTest(164, touch, BRUSH_HANDLE_COARSE_PX)).toBe("resize-hi");
+        expect(brushHitTest(165, touch, BRUSH_HANDLE_COARSE_PX)).toBe("draw");
     });
 });
 
@@ -121,5 +149,99 @@ describe("brushCursor — the track cursor while dragging (#192)", () => {
         expect(brushCursor("resize-lo")).toBe("ew-resize");
         expect(brushCursor("resize-hi")).toBe("ew-resize");
         expect(brushCursor("draw")).toBe("crosshair");
+    });
+});
+
+/** A period a sixty-fourth of the track: fractions on it are exact. */
+const step = (f: number, periods: number): number => f + periods / 64;
+const at = (n: number): number => n / 64;
+
+describe("brushKey — what a key does from a focused handle or the window (#1438)", () => {
+    const win = { from: at(16), to: at(32) };
+
+    test("Escape clears the range from any of the three; a key it does not take does nothing", () => {
+        expect(brushKey("Escape", false, "lo", win, step)).toEqual({ kind: "clear" });
+        expect(brushKey("Escape", false, "window", win, step)).toEqual({ kind: "clear" });
+        expect(brushKey("a", false, "hi", win, step)).toBeUndefined();
+        expect(brushKey("ArrowUp", false, "hi", win, step)).toBeUndefined();
+    });
+
+    test("an arrow moves a handle one period, ten under Shift, never past a period from the other, nor off the track", () => {
+        expect(brushKey("ArrowRight", false, "lo", win, step)).toEqual({ kind: "commit", from: at(17), to: at(32) });
+        expect(brushKey("ArrowLeft", true, "lo", win, step)).toEqual({ kind: "commit", from: at(6), to: at(32) });
+        expect(brushKey("ArrowRight", true, "lo", { from: at(28), to: at(32) }, step)).toEqual({ kind: "commit", from: at(31), to: at(32) });
+        expect(brushKey("ArrowLeft", true, "lo", { from: at(4), to: at(32) }, step)).toEqual({ kind: "commit", from: 0, to: at(32) });
+        expect(brushKey("ArrowLeft", false, "hi", win, step)).toEqual({ kind: "commit", from: at(16), to: at(31) });
+        expect(brushKey("ArrowLeft", true, "hi", { from: at(16), to: at(20) }, step)).toEqual({ kind: "commit", from: at(16), to: at(17) });
+        expect(brushKey("ArrowRight", true, "hi", { from: at(16), to: at(60) }, step)).toEqual({ kind: "commit", from: at(16), to: 1 });
+    });
+
+    test("an arrow on the window moves both edges, its width kept, and stops at the track's ends", () => {
+        expect(brushKey("ArrowRight", false, "window", win, step)).toEqual({ kind: "commit", from: at(17), to: at(33) });
+        expect(brushKey("ArrowLeft", true, "window", win, step)).toEqual({ kind: "commit", from: at(6), to: at(22) });
+        expect(brushKey("ArrowLeft", true, "window", { from: at(4), to: at(20) }, step)).toEqual({ kind: "commit", from: 0, to: at(16) });
+        expect(brushKey("ArrowRight", true, "window", { from: at(40), to: at(60) }, step)).toEqual({ kind: "commit", from: at(44), to: 1 });
+    });
+
+    test("Home and End take a handle to its end of the track, short of the other by a period, and the window to the track's ends", () => {
+        expect(brushKey("Home", false, "lo", win, step)).toEqual({ kind: "commit", from: 0, to: at(32) });
+        expect(brushKey("End", false, "lo", win, step)).toEqual({ kind: "commit", from: at(31), to: at(32) });
+        expect(brushKey("Home", false, "hi", win, step)).toEqual({ kind: "commit", from: at(16), to: at(17) });
+        expect(brushKey("End", false, "hi", win, step)).toEqual({ kind: "commit", from: at(16), to: 1 });
+        expect(brushKey("Home", false, "window", win, step)).toEqual({ kind: "commit", from: 0, to: at(16) });
+        expect(brushKey("End", false, "window", win, step)).toEqual({ kind: "commit", from: at(48), to: 1 });
+    });
+});
+
+describe("brushBars — the histogram's bars on whole pixels (#1438)", () => {
+    /** `n` equal buckets across the track, their counts given. */
+    const equal = (counts: readonly number[]) => counts.map((count, i) => ({ from: i / counts.length, to: (i + 1) / counts.length, count }));
+
+    test("every bar one width, floor(pitch) − gap, at its slot's start; 2px apart from 8px a bucket, else 1px", () => {
+        const wide = brushBars(equal([4, 8, 2, 8, 6, 8, 8, 8, 8, 8, 8, 8]), 120, 28);
+        expect(wide.map((b) => [b.x, b.width])).toEqual(Array.from({ length: 12 }, (_, i) => [i * 10, 8]));
+        const close = brushBars(equal(Array.from({ length: 24 }, () => 1)), 120, 28);
+        expect(close.map((b) => [b.x, b.width])).toEqual(Array.from({ length: 24 }, (_, i) => [i * 5, 4]));
+    });
+
+    test("a bar's height is linear to the largest bucket, up to the most, a non-zero one at least 2; a zero draws none", () => {
+        const bars = brushBars(equal([100, 50, 1, 0, 25]), 100, 28);
+        expect(bars.map((b) => [b.index, b.height])).toEqual([[0, 28], [1, 14], [2, 2], [4, 7]]);
+    });
+
+    test("its tone is a step on the heat ramp: ceil(count ÷ max × 5)", () => {
+        const bars = brushBars(equal([100, 81, 80, 41, 40, 1]), 120, 28);
+        expect(bars.map((b) => b.step)).toEqual([5, 5, 4, 3, 2, 1]);
+    });
+
+    test("a short slot's bar keeps its gap to the next, and an end bucket the horizon clips draws inside its slot", () => {
+        // Calendar months: 31, 28 and 31 days across 45px, a February narrower than the pitch.
+        const days = [31, 28, 31];
+        const total = days.reduce((a, d) => a + d, 0);
+        let from = 0;
+        const months = days.map((d) => { const b = { from: from / total, to: (from + d) / total, count: 1 }; from += d; return b; });
+        const bars = brushBars(months, 45, 28);
+        for (let i = 0; i + 1 < bars.length; i++) expect(bars[i]!.x + bars[i]!.width).toBeLessThanOrEqual(bars[i + 1]!.x - 1);
+        // A first bucket the horizon clips to 5px of its slot: its slot less the 2px gap, at the track's start.
+        const clipped = brushBars([{ from: 0, to: 0.05, count: 5 }, { from: 0.05, to: 0.55, count: 5 }, { from: 0.55, to: 1, count: 5 }], 100, 28);
+        expect(clipped.map((b) => [b.x, b.width])).toEqual([[0, 3], [5, 43], [55, 43]]);
+    });
+
+    test("no bars on a track with no width, or with nothing counted", () => {
+        expect(brushBars(equal([1, 2]), 0, 28)).toEqual([]);
+        expect(brushBars(equal([0, 0]), 100, 28)).toEqual([]);
+    });
+});
+
+describe("brushBucketAt — the bucket under the pointer (#1438)", () => {
+    const buckets = [{ from: 0, to: 0.25, count: 1 }, { from: 0.25, to: 0.75, count: 0 }, { from: 0.75, to: 1, count: 3 }];
+
+    test("the bucket whose slot holds the pointer, its start in it and its end not; none off the track", () => {
+        expect(brushBucketAt(0, 200, buckets)).toBe(0);
+        expect(brushBucketAt(49, 200, buckets)).toBe(0);
+        expect(brushBucketAt(50, 200, buckets)).toBe(1);
+        expect(brushBucketAt(199, 200, buckets)).toBe(2);
+        expect(brushBucketAt(200, 200, buckets)).toBeUndefined();
+        expect(brushBucketAt(-1, 200, buckets)).toBeUndefined();
     });
 });
