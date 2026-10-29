@@ -10,7 +10,7 @@ import { Paged, UIComponentType } from "@elaraai/east-ui";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import {
     East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
-    none, some, variant, type ExprType,
+    none, some, variant, walkIR, type ExprType,
 } from "@elaraai/east";
 import * as ex from "./sheet.examples.js";
 import * as linkEx from "./sheet-link.examples.js";
@@ -1093,5 +1093,13 @@ describe("Sheet structure declarations", () => {
         }, { group: Sheet.group(PlanType, "lines", { title: "name" }), edits: { moveRows: "within" } })).toIR().compile([])();
         assert.equal(value.editing.edits.moveRows.type, "within");
         assert.equal(value.editing.edits.moveGroups, false);
+    });
+});
+
+describe("a Sheet's program", () => {
+    hostTest("writes each of its bridge's functions out once: the workshop is under 20,000 IR nodes, where its bridge written into every rule, check and context made 73,000", () => {
+        let nodes = 0;
+        walkIR(ex.sheetWorkshop.fn.toIR().ir, () => { nodes++; });
+        assert.ok(nodes < 20_000, `the workshop's program is ${nodes} IR nodes`);
     });
 });
