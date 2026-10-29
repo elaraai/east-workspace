@@ -19,7 +19,7 @@ import {
     VariantType, compareFor, diffFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { KilnBin } from "../allocation/kiln-yard.js";
+import { KilnBin, yardArrivals } from "../allocation/kiln-yard.js";
 import { CalendarService, calendarServices } from "../calendar/calendar.examples.js";
 import { PrintJob, planEventJobs } from "../plan/plan-events.examples.js";
 import { WarehouseDuty, warehouseDuties } from "../roster/warehouse.js";
@@ -156,6 +156,30 @@ function servicesPatch(key: string, row: ServiceRow) {
 }
 /** Press 1's preventive maintenance, 09:00–11:00 on Thursday the 1st: an hour over the mounting brackets' run there. */
 const pressOneService = workshopServices.get("service1")!;
+/** A bin of the kiln yard's. */
+type BinRow = ValueTypeOf<typeof KilnBin>;
+/** The bins' patch, as a model diffs the rows it touches. */
+const diffBins = diffFor(DictType(StringType, KilnBin));
+/** The bins' patch booking a new bin under the key given: the patch of that row alone. */
+function binPatch(key: string, row: BinRow) {
+    return diffBins(new SortedMap<string, BinRow>([], byString), new SortedMap([[key, row]], byString));
+}
+/** LD-2235, waiting on the yard: 8 m³ of MC10, grade P1, dried 9 days, due Tue 11 May 2027 and taken from the 10th to the 13th. */
+const ld2235 = yardArrivals.get("LD-2235")!;
+/**
+ * LD-2235's bin as the board books one: in bay B-1 at the time given, the whole load in the one kiln given, held the
+ * days it dries; the yard's own fields its load's, as the kiln yard's `values` give a booked bin them.
+ */
+function ld2235Bin(kiln: string, at: Date): BinRow {
+    return {
+        bay: "B-1", at, load: some(ld2235.code), m3: ld2235.m3, spec: some(ld2235.spec), dryFor: variant("days", ld2235.dryingDays),
+        kilns: new SortedMap([[kiln, ld2235.m3]], byString), specBooked: ld2235.spec, specMeasured: ld2235.spec,
+        gradeBooked: ld2235.grade.substring(0, 1), gradeMeasured: ld2235.grade, instruction: ld2235.instruction,
+    };
+}
+/** Bay B-1's free slots: Tue 11 May 2027 at 14:15, after its 13:15 bin, and Wed 12 at 07:15, after its 06:15. */
+const tue11 = new Date("2027-05-11T14:15:00Z");
+const wed12 = new Date("2027-05-12T07:15:00Z");
 /** J. Tansy's Friday late, 14:00–22:00: the week's fifth shift of theirs, 4 h past their 38. */
 const tansyFriday = warehouseDuties.get("s234")!;
 /** Thursday's agency request on the late picking shift, whose fields a request for Saturday's takes. */
@@ -178,7 +202,8 @@ function option(row: Pick<ValueTypeOf<typeof OpsOption>, "label" | "title" | "su
 /**
  * The cases the models left: who takes J. Tansy's Friday late, and a request for Saturday's open late — routine — on
  * the warehouse's rota; where the print works' J-3007 runs, overlapping J-3006 on Press B2; when Press 1's maintenance
- * runs, overlapping the mounting brackets on Thursday; a price for the Coast region; and the shop's ready work orders.
+ * runs, overlapping the mounting brackets on Thursday; which kiln the kiln yard's LD-2235 dries in, waiting since its
+ * window opened; a price for the Coast region; and the shop's ready work orders.
  */
 export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new SortedMap<string, ValueTypeOf<typeof OpsCase>>([
     ["rota-tansy", {
@@ -250,6 +275,26 @@ export const opsCaseRows: SortedMap<string, ValueTypeOf<typeof OpsCase>> = new S
             ["2-keep", option({ label: "Keep Thu 09:00", title: "Keep Press 1 maintenance on Thu 09:00", summary: "no change",
                 detail: "No change to the calendar.", note: some("the overlap with the mounting brackets stays"), value: 0,
                 change: variant("workshop", servicesPatch("service1", pressOneService)) })],
+        ], byString),
+    }],
+    ["yard-ld2235", {
+        area: "yard", scope: "Kiln yard", due: some(new Date("2028-03-08T16:00:00Z")), routine: false, unit: "uplift", money: true,
+        model: "yard-fit · run #77",
+        why: "K-305 is free on Tue 11 and takes 4–10 m³: LD-2235's 8 m³ dries its 9 days there before the kiln's next planned charge on Thu 20. The bulk kilns take no load under 40 m³.",
+        ifWrong: some(-600), recommended: "1-k305",
+        options: new SortedMap([
+            ["1-k305", option({ label: "K-305", title: "Load LD-2235 (8 m³) into kiln K-305", summary: "K-305 · Tue 11 14:15",
+                detail: "K-305 dries it Tue 11 14:15 – Thu 20 and fills to 8 of 10 m³.", note: some("fits best"), value: 1_900,
+                confidence: some(0.88), question: some("Has LD-2235 passed its moisture check?"),
+                change: variant("yard", binPatch("3127", ld2235Bin("K-305", tue11))) })],
+            ["2-k403", option({ label: "K-403 on Wed", title: "Hold LD-2235 for kiln K-403 on Wed 12", summary: "K-403 · Wed 12 07:15",
+                detail: "K-403 dries it Wed 12 07:15 – Fri 21.", note: some("waits a day · $1.5k holding cost"), value: 400,
+                confidence: some(0.7), warn: some("K-403 runs 2 m³ short of its 10 m³ minimum."),
+                question: some("Has LD-2235 passed its moisture check?"),
+                change: variant("yard", binPatch("3204", ld2235Bin("K-403", wed12))) })],
+            ["3-k601", option({ label: "K-601", title: "Load LD-2235 (8 m³) into kiln K-601", summary: "K-601 · Tue 11 14:15",
+                detail: "K-601 dries it Tue 11 14:15 – Thu 20.", value: 0, refused: some("bulk kiln · takes no load under 40 m³"),
+                change: variant("yard", binPatch("3127", ld2235Bin("K-601", tue11))) })],
         ], byString),
     }],
     ["price-coast", {

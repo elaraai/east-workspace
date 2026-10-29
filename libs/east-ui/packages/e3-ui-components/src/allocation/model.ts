@@ -148,8 +148,11 @@ export function allocationWords() {
     return words;
 }
 
+/** What {@link allocationContext} reads of the board's payload: a DecisionQueue's Allocation target carries the same. */
+export type AllocationContextSource = Pick<AllocationValue, "lanes" | "every" | "arrivals" | "resources" | "rules"> & { readonly bin: Pick<AllocationValue["bin"], "unit"> };
+
 /** Every arrival and resource, by key, and the board's configuration: what the fit, the checks and the loads read, whatever the narrowing hides. */
-export function allocationContext(value: AllocationValue): Context {
+export function allocationContext(value: AllocationContextSource): Context {
     return {
         lanes: value.lanes, every: value.every,
         arrivals: new SortedMap(value.arrivals.map(a => [a.key, a] as const), compareString),
