@@ -1667,8 +1667,8 @@ async function showOnly(entry: Locator, shown: readonly string[]): Promise<void>
 
 /**
  * The nested Plan's rows as they draw (#1438): a part's own jobs at the bar's
- * height whatever its fold, and a crew's cell keeping its ring whole once a
- * number typed into it is written.
+ * height whatever its fold; a crew's cell taking a typed number marked so, and
+ * keeping its ring whole once a number typed into it is written.
  */
 test.describe("planNestedAll's rows (#1438)", { tag: "@desktop" }, () => {
     test("a part's own jobs draw at the bar's height folded and open, its bands at the rollup's, its row at the row's", async ({ page }) => {
@@ -1689,6 +1689,26 @@ test.describe("planNestedAll's rows (#1438)", { tag: "@desktop" }, () => {
         await part.locator('[role="rowheader"]').click();
         await expect(part).toHaveAttribute("aria-expanded", "true");
         await expect.poll(drawn, "open").toEqual(geometry);
+    });
+
+    test("a crew's cell taking a typed number wears a faint well inside its edges, and an input's edge on hover; the works row's subtotal, a summary, stays plain", async ({ page }) => {
+        const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
+        await showOnly(entry, ["Crew hours"]);
+        const works = entry.locator(rowSel("crews", "W-10001"));
+        await works.locator('[role="rowheader"]').click();
+        const cell = entry.locator(`[data-plan-row*='series="crew"'] [data-typed]`).first();
+        await expect(cell).toBeVisible();
+        /** A cell's well (its `::after`), whether it is painted, and its edge, as drawn. */
+        const look = (el: Locator) => el.evaluate((c) => {
+            const well = getComputedStyle(c, "::after");
+            const painted = well.content !== "none" && well.backgroundColor !== "rgba(0, 0, 0, 0)";
+            const inside = painted && [well.top, well.right, well.bottom, well.left].every((side) => side === "1px");
+            return { well: painted && inside, edge: getComputedStyle(c).boxShadow };
+        });
+        await expect.poll(() => look(cell)).toEqual({ well: true, edge: "none" });
+        await expect.poll(() => look(works.locator("[data-cell]").first())).toEqual({ well: false, edge: "none" });
+        await cell.hover();
+        await expect.poll(async () => (await look(cell)).edge).toMatch(/ 0px 0px 0px 1px inset$/);
     });
 
     test("a crew's cell keeps its ring whole once Enter writes the number typed into it: the field's ring, inside the cell", async ({ page }) => {

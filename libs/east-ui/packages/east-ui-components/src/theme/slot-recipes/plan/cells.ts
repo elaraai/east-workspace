@@ -527,6 +527,19 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
             textTransform: "uppercase",
             color: "fg.subtle",
         },
+        // A cell taking a typed number (#1438) wears a faint well, about a paper step of ink, inside its edges: the
+        // column's rule shows around it and the row's wash — selected, drafted — through it. Hovered, an input's edge.
+        // A summary — a parent's subtotal, or any cell coarser than the Plan's finest zoom — takes none, and stays plain.
+        "&[data-typed]::after": {
+            content: '""',
+            position: "absolute",
+            inset: "1px",
+            borderRadius: "2px",
+            background: "color-mix(in oklch, {colors.fg} 3%, transparent)",
+            pointerEvents: "none",
+            zIndex: -1,
+        },
+        "&[data-typed]:hover:not(:focus-visible)": { boxShadow: "inset 0 0 0 1px {colors.border.strong}" },
         // Focused, the ring its input draws while open, and the Sheet's cell: 2px of brand INSIDE the cell. A cell is
         // its row's whole height, so a ring outside it, as other elements draw theirs, lost its top and bottom to the
         // row (#1438).

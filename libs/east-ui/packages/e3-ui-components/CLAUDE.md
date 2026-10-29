@@ -1494,6 +1494,10 @@ main in a popover anchored to the cell.
   subtotals takes none; a bucket folding several values takes none, its
   tooltip naming the resolution they take one at and the Plan's zoom showing
   them apart, where it has one.
+- **The look.** A cell taking a number wears a faint well inside its edges,
+  about a paper step of ink (`tableCellText`'s `::after`), the column's rule
+  around it and the row's wash through it, and an input's edge on hover; a
+  summary — a parent's subtotal, any cell at a coarser zoom — stays plain.
 - **Keys.** Enter, F2, a double click or a digit opens it (a tap below 480px).
   Enter writes, focus going back to the cell, whose ring is the input's, drawn
   inside it (`tableCellText`: a ring outside a cell as high as its row is cut
