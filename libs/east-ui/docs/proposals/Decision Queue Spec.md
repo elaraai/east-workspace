@@ -120,7 +120,7 @@ ones its builders already edit, which a case's change lands in and the queue
 reads only to draw the change against the rows it changes.
 
 ```
-the app's records     duties · print jobs · machine jobs · bins · work orders · list prices
+the app's records     duties · print jobs · machine jobs and maintenance · bins · work orders · list prices
                       — what the app's builders edit: <Roster>, <Plan>, <Calendar>, <Allocation>, <Sheet>
         │ read by
 the app's models      its tasks: an optimiser, a forecast, a rule
@@ -169,7 +169,7 @@ import { BooleanType, DateTimeType, DictType, FloatType, NullType, OptionType, P
 import e3 from "@elaraai/e3";
 import { WarehouseDuty } from "../roster/warehouse.js";                    // the warehouse rota's duties
 import { PrintJob } from "../plan/plan-events.examples.js";                // the print shop's jobs
-import { CalendarJob } from "../calendar/calendar.examples.js";            // the workshop's machine jobs
+import { CalendarService } from "../calendar/calendar.examples.js";        // the workshop's machine maintenance
 import { KilnBin } from "../allocation/kiln-yard.js";                      // the kiln yard's bins
 import { OptimiseWorkOrder } from "../sheet/optimise.examples.js";         // the shop's work orders
 
@@ -185,7 +185,7 @@ export const OpsChange = VariantType({
     rota: PatchType(DictType(StringType, WarehouseDuty)),        // cover: the warehouse rota's duties, as the Roster draws them
     rotaCost: PatchType(DictType(StringType, WarehouseDuty)),    // pay: the same duties, a change read by what it costs
     print: PatchType(DictType(StringType, PrintJob)),            // the print shop's jobs, as the Plan draws them
-    workshop: PatchType(DictType(StringType, CalendarJob)),      // the workshop's machine jobs, as the Calendar draws them
+    workshop: PatchType(DictType(StringType, CalendarService)),  // the workshop's machine maintenance, as the Calendar draws it
     yard: PatchType(DictType(StringType, KilnBin)),              // the kiln yard's bins, as the Allocation draws them
     orders: PatchType(DictType(StringType, OptimiseWorkOrder)),  // the shop's work orders, as the Sheet draws them
     pricing: PatchType(DictType(StringType, ListPrice)),         // the price list, which no builder draws
@@ -325,8 +325,8 @@ offers no answer, no override reason and no note (§5.2).
 
 The same app, its cases narrowed by a rail, its seven kinds of decision
 landing in the Roster's duties — by people, and by cost — the Plan's jobs, the
-Calendar's machine jobs, the Allocation's bins, the Sheet's work orders and
-the price list. Each builder's kinds and lists are the consts its own tag
+Calendar's machine maintenance, the Allocation's bins, the Sheet's work orders
+and the price list. Each builder's kinds and lists are the consts its own tag
 takes in its example — declared once and handed to both, with their own
 `fields`, `ready` and `inspector`, which Modify uses (D9). The bindings are
 named for the records they bind (`duties`, `workOrders`, `priceList`); the
@@ -389,17 +389,38 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
     const machines = $.let(Data.bind(calendarMachines));
     const machineJob = Calendar.events(machineJobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end",
         resource: { field: "machine", of: "machines" } });
+    const services = $.let(Record.bind(calendarServices));
+    // The maintenance's own Details, which the Calendar's inspector and Modify show in place of the form over the
+    // fields its roles leave: who does it and what to do, each written back over the row as it stands.
+    const serviceDetails = $.const(East.function([CalendarService, FunctionType([CalendarService], NullType)], UIComponentType, ($2, row, update) => {
+        const assign = $2.const(East.function([StringType], NullType, ($3, technician) => {
+            $3(update({ title: row.title, start: row.start, end: row.end, machine: row.machine, technician, notes: row.notes }));
+        }));
+        const note = $2.const(East.function([StringType], NullType, ($3, notes) => {
+            $3(update({ title: row.title, start: row.start, end: row.end, machine: row.machine, technician: row.technician, notes }));
+        }));
+        return <VStack gap="3" align="stretch">
+            <Field.StringInput label="Technician" value={row.technician} onChange={assign} />
+            <Field.StringInput label="Notes" value={row.notes} placeholder="What to do" onChange={note} />
+        </VStack>;
+    }));
+    const service = Calendar.events(services, { name: "Maintenance", icon: "screwdriver-wrench", title: "title", start: "start", end: "end",
+        resource: { field: "machine", of: "machines" }, inspector: serviceDetails });
     const machineRows = Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: m => m.name });
     const bins = $.let(Record.bind(kilnBins));
     const binEntries = $.let(Data.bindPaged(kilnBins));
     const yardDayBins = $.let(Data.bindPaged(kilnBins, { indexes: ["kiln_bins_by_time"] }));
     const bays = $.let(Data.bind(yardBays));
     const kilnList = $.let(Data.bind(kilns));
+    const loads = $.let(Data.bind(arrivals));
     const bin = Schedule.events(bins, { name: "Bin", icon: "box", entries: binEntries, at: "at", resource: { field: "bay", of: "bays" },
         arrival: "load", quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec" });
     const bayRows = Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset });
     const kilnRows = Schedule.resources(kilnList.read(), { name: "Kilns", icon: "fire", label: k => k.name, group: k => k.group,
         min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges });
+    // The loads on their way, as `allocationKilnYard` gives them: a bin a change books takes its load off the Waiting row.
+    const loadRows = Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
+        kind: l => some(l.spec), due: l => some(l.due), window: l => some({ from: l.from, to: l.to }) });
 
     // The Sheet's work orders, as `sheetOptimise` binds them, and the price list.
     const workOrders = $.let(Record.bind(optimiseWorkOrders));
@@ -411,17 +432,21 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
     const rotaCostChange = DecisionQueue.change.roster({ name: "Roster", icon: "users", map: "cost", pay, currency: "USD",
         events: { duty }, resources: { people, agencies }, shifts, groups, week: { start: "sunday" }, source: dutyWeek });
     const printChange = DecisionQueue.change.plan({ name: "Plan", icon: "bars-progress", events: { job }, resources: { presses: pressRows } });
+    // The maintenance the tags patch, named by `event`, beside the jobs its days' overlaps count.
     const workshopChange = DecisionQueue.change.calendar({ name: "Calendar", icon: "calendar-days",
-        events: { job: machineJob }, resources: { machines: machineRows } });
+        events: { job: machineJob, service }, event: "service", resources: { machines: machineRows } });
     const yardChange = DecisionQueue.change.allocation({ name: "Allocation", icon: "fire-flame-curved",
-        events: { bin }, resources: { bays: bayRows, kilns: kilnRows }, source: yardDayBins });
+        events: { bin }, resources: { bays: bayRows, kilns: kilnRows }, arrivals: loadRows, source: yardDayBins });
     const orderChange = DecisionQueue.change.sheet(workOrders, { name: "Sheet", icon: "table-cells", columns: {
         reference: Sheet.column.text(OptimiseWorkOrder, { header: "Reference", width: "96px" }),
         status: Sheet.column.text(OptimiseWorkOrder, { header: "Status" }),
         due: Sheet.column.date(OptimiseWorkOrder, { header: "Due", width: "96px" }),
     } });
+    // The price list's form, and the app's check on a price Modify leaves, which holds Apply: a list price moves in 5¢ steps.
     const pricingChange = DecisionQueue.change.record(priceList, { name: "Pricing", icon: "tag", label: r => r.region,
-        fields: { price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05, help: "In 5¢ steps" }) } });
+        fields: { price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05, help: "In 5¢ steps" }) },
+        ready: r => r.price.subtract(East.Float.roundNearest(r.price, 0.05)).abs().greater(0.000001).ifElse(
+            () => variant("invalid", [{ field: "price", message: "A list price moves in 5¢ steps" }]), () => variant("ready", null)) });
 
     return <DecisionQueue
         id="opsQueue"
@@ -859,16 +884,27 @@ queue's, P the previews'.
 - **R18. Why** opens and closes the reason; `Add a note` opens the note, which
   stays open while it holds text.
 - **R19. Modify.** The Edit panel: `Edit` and `drafts on the proposal`, or
-  `{n} changed · drafts on the proposal`; each changed row in its builder's
-  inspector form (D9), a field changed from the proposed row tinted and taking
-  its reset, the kind's `ready` holding Apply with its words; Reset all returns
-  every field; each changed row takes Keep as it is. The preview follows each
-  edit. Apply reads `Apply with edits`.
+  `{n} changed · drafts on the proposal` — `{n}` each field of a row's top
+  level the viewer changed from the proposal, and each row kept; each changed
+  row in its builder's inspector form (D9, the table below), a field changed
+  from the proposed row tinted and taking its reset, the kind's `ready`
+  holding Apply with its words — each issue on a line under its row (`price:
+  A list price moves in 5¢ steps`), Apply's tooltip naming each by its row
+  (`coast · price: A list price moves in 5¢ steps`); Reset all returns every
+  field; each changed row takes Keep as it is. An edit the row's kind refuses
+  — its write answers none, or throws — says so under the row's form (`This
+  edit can't be made`), the row as it was. The preview follows each edit.
+  Apply reads `Apply with edits`. A row kept as it is, or edited back to the
+  row as it stands, is no change: Apply writes nothing of it, the preview
+  leaves it out — a change left with no row drawn as an option that changes
+  nothing (P4) — and no other case's `+N` counts it (P18).
 - **R20. Override…** opens `Why override`: one reason of four and a note —
   `Say what the model got wrong` for Other, else `Add a note (optional)`;
   Override case is on once a reason is chosen, and for Other a note is
-  written. The Edit panel above it reads `Your decision` and `set what happens
-  instead · the model learns from it`. Cancel and Escape close it.
+  written — and stays off while the app's check holds the rows the person's
+  own change leaves (R19), its tooltip the check's words. The Edit panel above
+  it reads `Your decision` and `set what happens instead · the model learns
+  from it`. Cancel and Escape close it.
 - **R21. Choices.** The choice, the answer, the note, Modify's edits and the
   override form are the viewer's under the queue's `id` until a verdict (D12):
   a card closed and opened again, or the queue unmounted and mounted again,
@@ -876,6 +912,21 @@ queue's, P the previews'.
 - **R22. Read only.** Under `readOnly` a card opens and shows everything but
   takes no choice, no answer and no action, and the toolbar has no history
   item.
+
+**Modify's form, builder by builder (D9).** Each changed row is drawn in its
+builder's inspector form for one row, made from the row and its kinds alone:
+the queue holds none of a builder's window or rail, so what an inspector reads
+off its builder's view is not drawn, and what must hold Apply is the app's
+`ready`.
+
+| Target | The form | Not drawn |
+|---|---|---|
+| Roster | The duty's times, its position and — a person's duty — its activity, the Roster's own fields, written through the duty kind's roles; then the duty kind's own `inspector`, else its `fields` | The checks the Roster's inspector makes as it edits — a position the person may take (`validRoles`), the rest between shifts: the preview draws a breach the edit leaves by the target's `rules` and `check` (P15) |
+| Plan | The kind's form over the fields its roles leave, or its own `inspector` | The inspector's facts about the event |
+| Calendar | The event's title and status; its placement, refused as the Calendar refuses one before asking its `canDrop`, every resource offered — a paged kind's sought by key, as the Calendar's Chooser seeks one; then the kind's own `inspector`, else its other fields | The kind's `canDrop` |
+| Allocation | The Bin section's form: the lane as its segments, the time printed, the quantity no less than the bin's parts take — a bin wholly on one resource taking its part with it; then the bin kind's own `inspector`, else its `fields` | The time's stepper — a lane picked keeps the bin's time — the bin's facts, and its key, which its row's head names |
+| Sheet | Its Details' row form over the row's own fields — the id field and a read-only column printed, a select offering every member of its register — or the author's own Details; a grouped sheet's form is a line's, none of the record's rows, so its rows take Keep as it is alone | A field a custom column or a projection reads; what the Sheet reads off its grid at the row — a quantity's unit, a date's level, a stamped code's owner, a column's options rule; its `ready`, which is over its cells, never a row |
+| Record, zones, projection | The target's own `inspector`, else its `fields`, written through its `set` | — |
 
 ### 9.4 Deciding a case (owner: `decision/editing.ts`; test: DOM on e3-web)
 
@@ -901,16 +952,20 @@ queue's, P the previews'.
   receipt was, anchored as any open, its choices as they were. Once a later
   step lands, the receipt holds without Undo, and the toolbar's Undo reaches
   its step in turn; Redo is the history's.
-- **R28. Batch.** `Apply all {n}` applies every routine case shown, the
-  recommended option each, as one step; the banner says `Applied {n} routine
-  cases` with Undo while the step is the history's last.
+- **R28. Batch.** `Apply all {n}` applies the recommended option of every
+  routine case shown whose Apply would be on, as one step, each over the rows
+  the ones before it leave — `{n}` those it applies: a case whose question
+  waits, whose change no longer applies (P21) or whose rows the app's check
+  holds (R19) is left out, and waits on its own card. The banner says
+  `Applied {n} routine cases` with Undo while the step is the history's last.
 - **R29. Save.** The history item's Save sends each record's changes through
   its patch door as a request of its own — the verdicts, and each record a
   change lands in — and a decided case leaves the queue for good once its
   verdict reads back. A conflict, a refusal or an unknown outcome is the
   session's banner, with Retry where it applies; that record's drafts stay and
-  the others' commits stand, as the Roster's do. Discard returns every case
-  decided since the last Save.
+  the others' commits stand, as the Roster's do. A drafted row its record's
+  `ready` fails holds Save, as a builder's kinds hold it. Discard returns
+  every case decided since the last Save.
 
 ### 9.5 The previews (owner: e3-ui-components `decision/preview/`; test: DOM on e3-web, the showcase's responsive specs in both themes)
 
@@ -1016,8 +1071,8 @@ queue's, P the previews'.
 | Your call's help | `Apply waits for this answer. The model can't see it.` · `Your answer contradicts the proposal. Override it or defer the case.` · `Nobody here can answer yet. Hand the case on.` · `Recorded with the verdict.` |
 | Why | `Why` · `{model}`; `Add a note`; placeholder `What you know that the model can't see` |
 | Actions | `Defer` · `Hand off` · `Override…` · `Modify` · `Apply` · `Apply with edits` |
-| Apply off | `Answer the question above to apply.` · `Blocked by your answer · override or defer.` · `Handoff · defer hands the case on.` · `The rows moved since the proposal · override or defer.` |
-| Edit | `Edit` · `Your decision` · `drafts on the proposal` · `{n} changed · drafts on the proposal` · `set what happens instead · the model learns from it` · `Reset all` · `Keep as it is` · `Reset {field} to the proposal` |
+| Apply off | `Answer the question above to apply.` · `Blocked by your answer · override or defer.` · `Handoff · defer hands the case on.` · `The rows moved since the proposal · override or defer.`; the app's check, each issue by its row, `; ` between: `{row} · {field}: {message}` |
+| Edit | `Edit` · `Your decision` · `drafts on the proposal` · `{n} changed · drafts on the proposal` · `set what happens instead · the model learns from it` · `Reset all` · `Keep as it is` · `Reset {field} to the proposal`; under a row: the check's `{field}: {message}` · `This edit can't be made` · `Its own form could not be shown: its fields are shown instead` · `This row's form could not be shown` |
 | Override | `Why override` · `Missing context` · `Data is wrong` · `Priorities changed` · `Other` · `Say what the model got wrong` · `Add a note (optional)` · `Cancel` · `Override case` |
 | Receipt | `Applied` · `Overridden` · `Deferred` · `Handed off` · `Undo` |
 | Batch banner | `Applied` `{n} routine cases` · `Undo` |

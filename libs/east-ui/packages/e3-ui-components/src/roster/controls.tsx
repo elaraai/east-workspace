@@ -8,7 +8,7 @@ import { Box, Button } from "@chakra-ui/react";
 import { DateTimeType, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, none, parseFor, printFor, some, type ValueTypeOf, type option } from "@elaraai/east";
 import { RosterRequirementType } from "@elaraai/e3-ui/internal";
 import { Fields } from "@elaraai/east-ui";
-import { FieldForm, SliceEditPopover, useFormatters } from "@elaraai/east-ui-components";
+import { FieldForm, SliceEditPopover, useFormatters, type FieldFormWords } from "@elaraai/east-ui-components";
 import { Chooser, type ChooserSection } from "@elaraai/east-ui-components/internal";
 import {
     activityChoices, compareString, DAY, duties, groupSkills, patternProblem, patternSummary, requirementOf, type Assignment, type Person, type RosterStyles, type RosterValue,
@@ -120,28 +120,57 @@ export function dutyForm(a: Assignment): DutyFormValue { return { position: a.po
 /**
  * The Roster's own form over a duty's roles: the position held — where the
  * kind maps one — and, for a named person, the activity; each choice one edit.
+ * The DecisionQueue's Modify draws it too, over a duty a change touches (D9).
+ *
+ * @param props - The duty's group and whether it names a person, the form and what it began from, the roster's
+ *   positions and activities, where an edit — or, given `onReset`, a field put back as `baseline` has it — goes, and
+ *   the form's words
+ * @returns The form; nothing where the kind maps neither role
  */
-export function AssignmentFields({ assignment, form, baseline, value, onChange, readOnly = false }: {
-    assignment: Assignment; form: DutyFormValue; baseline?: DutyFormValue | undefined; value: RosterValue; onChange: (change: RolesChange) => void; readOnly?: boolean;
+export function AssignmentFields({ group, person, form, baseline, value, onChange, onReset, readOnly = false, words }: {
+    /** The group the duty is rostered in: its skills are among the activities offered. */
+    group: string;
+    /** Whether the duty names a person: only a person's duty takes an activity. */
+    person: boolean;
+    form: DutyFormValue; baseline?: DutyFormValue | undefined;
+    value: Pick<RosterValue, "duty" | "positions" | "activities" | "visibleActivities">;
+    onChange: (change: RolesChange) => void;
+    /** Puts a field back as `baseline` has it: with it, a field the form changed takes its Reset. */
+    onReset?: ((path: readonly string[]) => void) | undefined;
+    readOnly?: boolean;
+    /** The form's words — its host's formatters and Reset's words; the shared form's own unless given. */
+    words?: FieldFormWords | undefined;
 }) {
     // The group's skills and the duties the slice shows, and the duty's own — as stored and as the edit has it — so a
     // stored activity the rail hides can be picked again after choosing another (#1342).
     const own = [form.activity, baseline?.activity].flatMap(activity => activity?.type === "some" ? [activity.value] : []);
-    const activities = activityChoices(value, assignment.slot.group, own);
-    const specs = DUTY_FIELDS.filter(field => field.path[0] === "position" ? value.duty.roles.position : value.duty.roles.activity && assignment.who.type === "person");
+    const activities = activityChoices(value, group, own);
+    const specs = DUTY_FIELDS.filter(field => field.path[0] === "position" ? value.duty.roles.position : value.duty.roles.activity && person);
     if (specs.length === 0) return null;
     const shown = { position: form.position.type === "some" ? form.position.value : "", activity: form.activity };
     const held = baseline === undefined ? undefined : { position: baseline.position.type === "some" ? baseline.position.value : "", activity: baseline.activity };
-    return <FieldForm specs={specs} value={shown} baseline={held} readOnly={readOnly}
+    return <FieldForm specs={specs} value={shown} baseline={held} readOnly={readOnly} onReset={onReset} words={words}
         options={{ positions: value.positions.map(p => ({ key: p.key, label: p.label })), activities: activities.map(a => ({ key: a.key, label: a.label })) }}
         onChange={(path, next) => onChange(path[0] === "position" ? { position: some(next as string) } : { activity: next as option<string> })} />;
 }
-/** A duty's own times (§5.5, rule 4): each one an edit, held within twelve hours of its shift's start, its end after its start. */
-export function TimesFields({ form, baseline, onChange, readOnly = false }: {
-    form: DutyFormValue; baseline?: DutyFormValue | undefined; onChange: (change: RolesChange) => void; readOnly?: boolean;
+/**
+ * A duty's own times (§5.5, rule 4): each one an edit, held within twelve hours of its shift's start, its end after its
+ * start. The DecisionQueue's Modify draws it too (D9).
+ *
+ * @param props - The form and what it began from, where an edit — or, given `onReset`, a time put back as `baseline` has
+ *   it — goes, and the form's words
+ * @returns The form
+ */
+export function TimesFields({ form, baseline, onChange, onReset, readOnly = false, words }: {
+    form: DutyFormValue; baseline?: DutyFormValue | undefined; onChange: (change: RolesChange) => void;
+    /** Puts a time back as `baseline` has it: with it, a time the form changed takes its Reset. */
+    onReset?: ((path: readonly string[]) => void) | undefined;
+    readOnly?: boolean;
+    /** The form's words — its host's formatters and Reset's words; the shared form's own unless given. */
+    words?: FieldFormWords | undefined;
 }) {
     return <FieldForm specs={TIME_FIELDS} value={{ start: form.start, end: form.end }} baseline={baseline === undefined ? undefined : { start: baseline.start, end: baseline.end }}
-        readOnly={readOnly} onChange={(path, next) => onChange(path[0] === "start" ? { start: next as Date } : { end: next as Date })} />;
+        readOnly={readOnly} onReset={onReset} words={words} onChange={(path, next) => onChange(path[0] === "start" ? { start: next as Date } : { end: next as Date })} />;
 }
 /** Every mobile duty exposes its operations without opening the inspector. */
 export function AssignmentActions({ id, assignment, value, start, commands, styles, removed = false }: {
@@ -163,7 +192,7 @@ export function AssignmentActions({ id, assignment, value, start, commands, styl
                     ...(value.duty.roles.activity ? { activity: form.activity } : {}) });
                 setError(refused); if (refused === undefined) setOpen(false);
             }}>Update</Button></>}>
-            <AssignmentFields assignment={assignment} form={form} baseline={dutyForm(assignment)} value={value} onChange={change} />
+            <AssignmentFields group={assignment.slot.group} person={assignment.who.type === "person"} form={form} baseline={dutyForm(assignment)} value={value} onChange={change} />
             <TimesFields form={form} baseline={dutyForm(assignment)} onChange={change} />
             {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
         </SliceEditPopover>

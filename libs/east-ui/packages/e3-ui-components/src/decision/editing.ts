@@ -21,8 +21,8 @@
 import { useMemo } from "react";
 import { BlobType, OptionType, SortedMap, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import type { DecisionQueuePayloadType, DecisionTargetType, DecisionVerdictType } from "@elaraai/e3-ui/internal";
-import type { FieldSpecValue } from "@elaraai/east-ui/internal";
-import type { EditHistory } from "@elaraai/east-ui-components";
+import type { BatchReadiness, EditHistory } from "@elaraai/east-ui-components";
+import { wholeEntryReadiness } from "@elaraai/east-ui-components/internal";
 import { useScheduleEditing, type ScheduleChange, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef } from "../shared/schedule/editing.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
 import type { DecisionCase, DecisionOption } from "./layout.js";
@@ -43,11 +43,18 @@ const stringEqual = equalFor(StringType);
 const blobEqual = equalFor(OptionType(BlobType));
 const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
 const NO_KINDS: Parameters<typeof useScheduleEditing>[0]["kinds"] = [];
+const READY: BatchReadiness = variant("ready", null);
+/** The rows a verdict writes are checked whole: none of them is told from an original. */
+const NO_ORIGINALS = () => undefined;
+const NEVER_EQUAL = () => false;
 
-/** A record a target draws, as the queue writes it: its session, and the form Modify edits one of its rows in. */
+/** A record a target draws, as the queue writes it: its session, and the app's check over its rows. */
 export interface DecisionRecord extends ScheduleEditingRecord {
-    /** The form over one of its rows: its kind's or its side's `fields` (D9). */
-    readonly fields: readonly FieldSpecValue[];
+    /**
+     * The app's check over its rows (D9): its kind's, or its side's, `ready` — what holds its builder's Save — which holds
+     * Apply while a row the verdict would write fails it, and the record's Save as it holds every builder's; none unless given.
+     */
+    readonly ready: NonNullable<ScheduleEditingRecord["ready"]>;
 }
 
 /**
@@ -55,34 +62,55 @@ export interface DecisionRecord extends ScheduleEditingRecord {
  * read by key where its kind carries them — a record no builder draws its
  * side's, a builder's the kind its tags patch, the Sheet's the queue's own
  * over its record, whole rows as every other's — keyed in the history by the
- * record's identity, so two targets over one record share its session.
+ * record's identity, so two targets over one record share its session; and
+ * the app's check over its rows, where its kind gives one (D9) — the Sheet's
+ * is over its cells, never a row, and holds no verdict.
  *
  * @param target - The target
  * @returns Its record; `undefined` for a target whose kind carries no session the queue can write
  */
 export function targetRecord(target: DecisionTarget): DecisionRecord | undefined {
     const kind = target.kind;
-    const of = (editing: ScheduleEditingRecord["editing"], entries: ScheduleEditingRecord["entries"], fields: readonly FieldSpecValue[]): DecisionRecord =>
-        ({ key: `decision.record.${editing.sourceId}`, name: target.name, editing, entries, fields });
+    const of = (editing: ScheduleEditingRecord["editing"], entries: ScheduleEditingRecord["entries"], ready: DecisionRecord["ready"]): DecisionRecord =>
+        ({ key: `decision.record.${editing.sourceId}`, name: target.name, editing, entries, ready });
     switch (kind.type) {
         case "record": case "zones": case "projection":
-            return kind.value.editing.type === "some" ? of(kind.value.editing.value, kind.value.entries, kind.value.fields) : undefined;
+            return kind.value.editing.type === "some" ? of(kind.value.editing.value, kind.value.entries, kind.value.ready) : undefined;
         case "roster": {
             const duty = kind.value.roster.duty.kind;
-            return of(duty.editing, duty.entries, duty.fields);
+            return of(duty.editing, duty.entries, duty.ready);
         }
         case "plan": case "calendar": {
             const slot = kind.value.event;
             const events = kind.value.events.find(k => stringEqual(k.key, slot));
-            return events === undefined ? undefined : of(events.editing, events.entries, events.fields);
+            return events === undefined ? undefined : of(events.editing, events.entries, events.ready);
         }
         case "allocation": {
             const bins = kind.value.bin.kind;
-            return of(bins.editing, bins.entries, bins.fields);
+            return of(bins.editing, bins.entries, bins.ready);
         }
         case "sheet":
-            return of(kind.value.editing, kind.value.entries, []);
+            return of(kind.value.editing, kind.value.entries, none);
     }
+}
+
+/**
+ * The app's check over the rows a verdict would write (D9): each row it writes,
+ * as its record decodes it, checked by the record's `ready` in one call, as
+ * its session checks a drafted row — a check that throws refuses every row it
+ * was asked about; a row it removes is none of the check's. Read inside a
+ * tracked evaluation: the check may read the app's data.
+ *
+ * @param record - The record
+ * @param rows - The rows it would write, by key: `undefined` for one it removes
+ * @returns Their readiness, each issue naming its row by its key's text; ready where the record gives no check
+ */
+export function rowsReadiness(record: DecisionRecord, rows: ReadonlyMap<string, Uint8Array | undefined>): BatchReadiness {
+    if (record.ready.type !== "some") return READY;
+    const codec = rowCodec(record.editing.entryType);
+    const entries = new Map<string, { draft: unknown }>();
+    for (const [id, row] of rows) if (row !== undefined) entries.set(id, { draft: variant("value", codec.decode(row)) });
+    return wholeEntryReadiness(record.ready.value, NO_ORIGINALS, { encode: codec.encode, equal: NEVER_EQUAL })(entries);
 }
 
 /** The queue's editing: its history over the verdicts and the targets' records, and how a verdict is made of a decision. */
@@ -231,24 +259,28 @@ export interface AppliedItem {
     readonly option: DecisionOption;
 }
 
+/** What an option of a batch leaves (R28, D9): what its change leaves, or that the app's check fails the rows it writes. */
+export type BatchRows = AppliedRows | { readonly state: "unready" };
+
 /**
  * The rows each option of a batch leaves, in turn (R28): each over the rows as they stand with the rows the options
- * before it leave in place, so two changes of one row compose in the batch's order, as its one step records them.
- * Read inside a tracked evaluation.
+ * before it leave in place, so two changes of one row compose in the batch's order, as its one step records them. An
+ * option whose rows fail the app's check is `unready`, and leaves the options after it nothing (D9). Read inside a
+ * tracked evaluation.
  *
  * @param schedule - The queue's editing
  * @param items - The batch's options, in its order
  * @returns What each leaves, in the same order
  */
-export function appliedInTurn(schedule: ScheduleEditing, items: readonly AppliedItem[]): AppliedRows[] {
+export function appliedInTurn(schedule: ScheduleEditing, items: readonly AppliedItem[]): BatchRows[] {
     const earlier = new Map<string, Map<string, Uint8Array | undefined>>();
-    return items.map(item => {
+    return items.map((item): BatchRows => {
         const applied = appliedRows(schedule, item.target, item.record, item.option, earlier);
-        if (applied.state === "ready" && item.record !== undefined) {
-            let rows = earlier.get(item.record.key);
-            if (rows === undefined) { rows = new Map(); earlier.set(item.record.key, rows); }
-            for (const [key, row] of applied.rows) rows.set(key, row);
-        }
+        if (applied.state !== "ready" || item.record === undefined) return applied;
+        if (rowsReadiness(item.record, applied.rows).type !== "ready") return { state: "unready" };
+        let rows = earlier.get(item.record.key);
+        if (rows === undefined) { rows = new Map(); earlier.set(item.record.key, rows); }
+        for (const [key, row] of applied.rows) rows.set(key, row);
         return applied;
     });
 }
