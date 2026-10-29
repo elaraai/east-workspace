@@ -61,7 +61,7 @@ export { DRAFT_ISSUE_TEXT, SESSION_TEXT, type EditHistoryWord } from "./editing/
 export { type EditSource } from "./editing/use-edit-session.js";
 // The Slice: its bound range, the brush, the rail's toolbar items, and density.
 export { boundRangeDomain, boundRangeHistogram } from "./platform/slice/index.js";
-export { BrushStrip } from "./slice/brush-strip.js";
+export { BrushStrip, type BrushBucket, type BrushStripProps, type BrushWords } from "./slice/brush-strip.js";
 export { SliceDensityContext } from "./slice/density.js";
 export { railAffordanceKinds } from "./slice/rail-kinds.js";
 export { HOST_RANK, useSliceToolbarItems } from "./slice/rail/index.js";

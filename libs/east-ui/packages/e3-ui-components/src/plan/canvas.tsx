@@ -84,7 +84,7 @@ import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
 import { StringType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Plan, ScheduleEventRefType, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
-    getSomeorUndefined, optimiseMessages, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState,
+    getSomeorUndefined, optimiseMessages, useCoarsePointer, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState,
     historyShortcut, takeKey, useSliceReactivity, useTrackedEvaluation,
     type EditHistory, type EditHistoryJoined, type EditIssue, type DragEventValue, type DragMeta, type HistoryAction,
 } from "@elaraai/east-ui-components";
@@ -133,7 +133,7 @@ import {
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
 import { cellKinds, createCellSpanStore, shownCellSpan } from "./root/cells.js";
-import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead, type PlanNestedSpan, type SPAN_READING } from "./root/nested.js";
+import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead, type PlanNestedSpanRead, type SPAN_READING } from "./root/nested.js";
 import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
@@ -466,8 +466,8 @@ export function usePlanCanvas({
     const [nestedWaiting, setNestedWaiting] = useState<ReadonlySet<RowKey>>(NO_ROWS_WAITING);
     // The span of the collections the series shown read (#1438): the horizon a canvas holding its own window spans, and
     // what a zoom keeps that window inside.
-    const [nestedSpan, setNestedSpan] = useState<PlanNestedSpan | typeof SPAN_READING | undefined>(undefined);
-    useEffect(() => { windowHold.span = nestedSpan === "reading" ? windowHold.span : nestedSpan; }, [windowHold, nestedSpan]);
+    const [nestedSpan, setNestedSpan] = useState<PlanNestedSpanRead | typeof SPAN_READING | undefined>(undefined);
+    useEffect(() => { windowHold.span = nestedSpan === "reading" ? windowHold.span : nestedSpan?.span; }, [windowHold, nestedSpan]);
     // A link end the cells do not hold (#1438): a run the links focus names on a row read lean, outside the cells read,
     // has its row read whole by its key — every such row in one request — and drawn whole in its lean row's place, the run
     // where its times put it. The rows asked stay whole while the focus lasts (`linkEnds`, set below once the rows draw).
@@ -856,7 +856,9 @@ export function usePlanCanvas({
     // reads — the same numbers `rowHeight` lays the body out from.
     const recipe = useSlotRecipe({ key: "plan" });
     const styles = useMemo(() => recipe() as unknown as Styles, [recipe]);
-    const geometry = planGeometry(dense);
+    // A coarse pointer's horizon band is taller, its handles' zones wider (#1438).
+    const coarse = useCoarsePointer();
+    const geometry = planGeometry(dense, coarse);
     const geometryStyle = useMemo(() => planGeometryStyle(geometry), [geometry]);
     const style = useMemo(() => getSomeorUndefined(data.style), [data.style]);
     // gutterWidth is a CSS px size string. `pxOf`, not `parseFloat`: a

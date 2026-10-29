@@ -128,7 +128,7 @@ function Bars({ bars, styles, dim, clip }: { bars: readonly BrushBar[]; styles: 
     return (
         <Box css={styles.bars} data-brush-bars={clip === undefined ? "" : "in"} data-dim={dim ? "" : undefined} clipPath={clip}>
             {bars.map((b) => (
-                <Box key={b.index} css={styles.bar} data-brush-bar="" data-step={b.step}
+                <Box key={b.index} css={styles.bar} data-brush-bar="" data-step={b.step} data-count={b.count}
                     left={`${b.x}px`} width={`${b.width}px`} height={`${b.height}px`} />
             ))}
         </Box>

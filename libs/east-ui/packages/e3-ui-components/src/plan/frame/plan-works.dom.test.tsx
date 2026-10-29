@@ -22,7 +22,7 @@
  */
 
 import { appendFileSync } from "node:fs";
-import { describe, test, expect, beforeEach, afterEach, onTestFinished } from "vitest";
+import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import { East, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -35,6 +35,8 @@ import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { act, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { width } from "../../e3-web-mount.test-utils.js";
+import { periodText } from "../../shared/time/scale.js";
 
 const h = planHarness({ "plan/plan-nested": ex });
 
@@ -57,6 +59,24 @@ const askedOf = (index: { readonly name: string }) => h.requests().filter(throug
 
 /** A works' row of jobs. */
 const worksRow = (c: HTMLElement, key: string) => slot(c, "main")!.querySelector<HTMLElement>(rowAt(entry("works", key)));
+
+/**
+ * Lays the horizon's strip out over jsdom's measures (#1438), which the
+ * harness leaves to the test: its width is what the returned setter last set,
+ * and a resize tells the strip it moved.
+ *
+ * @returns Sets the strip's width, px
+ */
+function horizonLaidOut(): (px: number) => void {
+    let laid = 0;
+    const real = Element.prototype.getBoundingClientRect;
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+        return this.hasAttribute("data-plan-horizon-track") || this.hasAttribute("data-brush-track")
+            ? { x: 0, y: 0, top: 0, left: 0, right: laid, bottom: 32, width: laid, height: 32, toJSON() {} } as DOMRect
+            : real.call(this);
+    });
+    return (px) => { laid = px; };
+}
 /** The works' keys by their rows' ids, as `data-plan-row` holds them: `W-` and each one's number plus 10,001. */
 const worksKeys = (rows: bigint) => new Map(Array.from({ length: Number(rows) }, (_, n) => `W-${n + 10_001}`)
     .map((key) => [rowKeyOf(entry("works", key)), key] as const));
@@ -119,15 +139,15 @@ describe("the works on a Plan (#1438)", () => {
     test("the horizon spans the ten years the series shown read, as e3 keeps their span, and a series switched off leaves its collections out", async () => {
         const { container } = await h.mount(ex.planNestedAll);
         await settle();
-        // The span's searches: one for each collection the series read, in one request, then their first and last months.
+        // The span's searches: one for each collection the series read, in one request, then their months.
         const spanReads = () => h.requests().filter(through(SPAN)).map((request) => (request.kind === "find" ? `find ${request.searches.length}` : request.kind));
         expect(spanReads()).toEqual(["find 5", "runs"]);
         // Ten years of weeks, from the works' first month to their last: the strip spans them, not the window's own margins.
-        const caption = () => Number((container.querySelector("[data-slot='horizon']")?.textContent ?? "").replace(/[^0-9]/g, ""));
+        const caption = () => Number((container.querySelector("[data-plan-horizon-caption]")?.textContent ?? "").replace(/[^0-9]/g, ""));
         await waitFor(() => expect(caption()).toBeGreaterThanOrEqual(520));
         expect(caption()).toBeLessThan(540);
         // Jobs switched off: its jobs and alarms are read no more, and the span of the rest is — their searches held from
-        // the first batch, one read of their first and last months.
+        // the first batch, one read of their months.
         const before = spanReads().length;
         const pane = slot(container, "start")!;
         fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
@@ -138,10 +158,60 @@ describe("the works on a Plan (#1438)", () => {
         await waitFor(() => expect(spanReads().slice(before)).toEqual(["runs"]));
     });
 
+    test("the horizon's bars are each month's items as e3 keeps them in the span: a month a bar toned by its count, the largest in the meta line, a bar's hover its month and count; a narrower strip counts by quarter", async () => {
+        // The strip laid out 1,000px wide: ten years keep some 8px a month.
+        const horizonWidth = horizonLaidOut();
+        horizonWidth(1000);
+        // Load alone: each works' load every four weeks, as the generator made them, counted by month.
+        const months = new Map<number, number>();
+        for (const works of East.compile(ex.generateWorksAll, [])(200n, 522n).values()) {
+            for (const at of works.load.keys()) {
+                const month = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1);
+                months.set(month, (months.get(month) ?? 0) + 1);
+            }
+        }
+        const expected = [...months].sort(([a], [b]) => a - b);
+        const max = expected.reduce((m, [, n]) => Math.max(m, n), 0);
+        const { container } = await h.mount(ex.planNestedAll);
+        await settle();
+        const pane = slot(container, "start")!;
+        fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
+        await settle();
+        for (const name of ["Jobs", "Crew hours", "Parts"]) {
+            const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+            fireEvent.click([...panel.querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!);
+            await settle();
+        }
+        const band = () => container.querySelector<HTMLElement>("[data-slot='horizon']")!;
+        const meta = () => band().querySelector("[data-plan-horizon-meta]")?.textContent;
+        // Every bar on the layer under the window's, in order: a month the load is in, at its count.
+        const bars = () => [...band().querySelectorAll<HTMLElement>("[data-brush-bars=''] > [data-brush-bar]")];
+        await waitFor(() => expect(meta()).toBe(`max ${max} items / mo`));
+        expect(bars().map((b) => Number(b.getAttribute("data-count")))).toEqual(expected.map(([, n]) => n));
+        expect(bars().filter((b) => b.getAttribute("data-step") === "5").map((b) => Number(b.getAttribute("data-count")))).toContain(max);
+        // A bar's hover: its month, then its count.
+        const top = expected.findIndex(([, n]) => n === max);
+        const track = band().querySelector<HTMLElement>("[data-brush-track]")!;
+        fireEvent.pointerMove(track, { clientX: parseFloat(getComputedStyle(bars()[top]!).left) + 1, pointerType: "mouse" });
+        await waitFor(() => expect(document.querySelector("[data-brush-tip]")?.textContent).toBe(`${periodText(new Date(expected[top]![0]), "month")} · ${max} items`));
+        fireEvent.pointerLeave(track, { pointerType: "mouse" });
+        // 300px keeps no 4px a month: a quarter a bar, each its three months' counts.
+        horizonWidth(300);
+        await width(900);
+        await waitFor(() => expect(meta()).toMatch(/^max \d+ items \/ q$/));
+        const quarters = new Map<number, number>();
+        for (const [month, n] of expected) {
+            const at = new Date(month);
+            const quarter = Date.UTC(at.getUTCFullYear(), Math.floor(at.getUTCMonth() / 3) * 3, 1);
+            quarters.set(quarter, (quarters.get(quarter) ?? 0) + n);
+        }
+        expect(bars().map((b) => Number(b.getAttribute("data-count")))).toEqual([...quarters].sort(([a], [b]) => a - b).map(([, n]) => n));
+    });
+
     test("a zoom shows as many buckets as before about the same middle: the year shows the ten years, and the week again a few weeks in their middle", async () => {
         const { container } = await h.mount(ex.planNestedAll);
         await settle();
-        const caption = () => Number((container.querySelector("[data-slot='horizon']")?.textContent ?? "").replace(/[^0-9]/g, ""));
+        const caption = () => Number((container.querySelector("[data-plan-horizon-caption]")?.textContent ?? "").replace(/[^0-9]/g, ""));
         await waitFor(() => expect(caption()).toBeGreaterThanOrEqual(520));
         const ruler = () => container.querySelector("[data-slot='ruler'], [data-plan-ruler]")?.textContent ?? "";
         await zoomTo(container, "year");

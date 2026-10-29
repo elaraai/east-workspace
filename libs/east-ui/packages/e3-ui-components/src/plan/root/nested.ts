@@ -930,8 +930,8 @@ export interface PlanNestedReaderProps {
     onLead: (lead: PlanNestedLead | undefined) => void;
     /** Where the rows waiting on a read in flight go, by their keys: called only when they move, and with none as it unmounts. */
     onWaiting: (rows: ReadonlySet<string>) => void;
-    /** Where the span of the collections the series shown read goes (#1438): called only when it moves. */
-    onSpan: (span: PlanNestedSpan | typeof SPAN_READING | undefined) => void;
+    /** Where the span of the collections the series shown read, and their months' counts, go (#1438): called only when they move. */
+    onSpan: (span: PlanNestedSpanRead | typeof SPAN_READING | undefined) => void;
 }
 
 /**
@@ -972,51 +972,77 @@ export function PlanNestedReader({ seam, visible, index, scale, views, session, 
 /** The span of the collections a Plan's series read (#1438): `[from, to)`, in ms. */
 export type PlanNestedSpan = readonly [number, number];
 
+/**
+ * How much the collections a Plan's series read hold in each month (#1438),
+ * as e3 keeps it in the index's span: each month's start, in ms, and the items
+ * and values touching it across the rows, in order — what the horizon's bars
+ * count.
+ */
+export type PlanNestedMonths = readonly (readonly [number, number])[];
+
+/** The span's read (#1438): the span of what the series read, and their months' counts. */
+export interface PlanNestedSpanRead {
+    /** `[from, to)`, in ms: from the first month any of them touches to the end of the last. */
+    readonly span: PlanNestedSpan;
+    /** Each month's count, in order. */
+    readonly months: PlanNestedMonths;
+}
+
 /** A span whose read is in flight. */
 export const SPAN_READING = "reading";
 
+/** An entry of a nested series index's span, as a read of its runs gives it: its month, and its totals. */
+type SpanEntry = { readonly ik: { readonly value: { readonly tile: Date } }; readonly value: option<{ readonly count: bigint }> };
+
 /**
  * The span of some collections, as the index's span keeps it (#1438): each
- * one's first and last month across the record's rows — one batch of
- * searches, each an exact match on a collection's place, and one read of the
- * first and last entry of each — joined, to the end of the last month.
+ * one's months across the record's rows — one batch of searches, each an
+ * exact match on a collection's place, and one read of their entries — joined,
+ * to the end of the last month, and each month's count summed across them.
  *
  * @param binding - The binding the rows are read through
  * @param places - The collections' places, each by its field names from the row down
- * @returns The span; {@link SPAN_READING} while a read is in flight; undefined where none holds an item
+ * @returns The span and its months; {@link SPAN_READING} while a read is in flight; undefined where none holds an item
  */
-function spanOf(binding: IndexedBindingRead, places: readonly (readonly string[])[]): PlanNestedSpan | typeof SPAN_READING | undefined {
+function spanOf(binding: IndexedBindingRead, places: readonly (readonly string[])[]): PlanNestedSpanRead | typeof SPAN_READING | undefined {
     if (places.length === 0) return undefined;
     const name = nestedSpanName(binding.nested!.index);
     const lit = literals(binding);
     const found = binding.batches.seekAll(name, places.map((place) => variant("fields", { values: [lit.path(place)], prefix: none })));
     if (found.type !== "some") return SPAN_READING;
-    const held = found.value.filter((range) => range.count > 0n);
+    // Each collection's months, in the index's order, as a read of runs asks: ascending and disjoint.
+    const held = found.value.filter((range) => range.count > 0n).sort((a, b) => (a.row < b.row ? -1 : a.row > b.row ? 1 : 0));
     if (held.length === 0) return undefined;
-    // Each collection's first and last entry, each row once and in the index's order, as a read of runs asks.
-    const rows = [...new Set(held.flatMap((range) => [range.row, range.row + range.count - 1n]))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    const read = binding.batches.runsAll(name, rows.map((row) => ({ found: true, row, count: 1n })));
+    const read = binding.batches.runsAll(name, held.map((range) => ({ found: true, row: range.row, count: range.count })));
     if (read.type !== "some") return SPAN_READING;
-    let from = Infinity;
-    let last = -Infinity;
-    for (const entry of read.value as readonly { readonly ik: { readonly value: { readonly tile: Date } } }[]) {
+    const counts = new Map<number, number>();
+    for (const entry of read.value as readonly SpanEntry[]) {
         const at = entry.ik.value.tile.getTime();
-        from = Math.min(from, at);
-        last = Math.max(last, at);
+        counts.set(at, (counts.get(at) ?? 0) + (entry.value.type === "some" ? Number(entry.value.value.count) : 0));
     }
-    return [from, tileNext("month", new Date(last)).getTime()];
+    const months = [...counts].sort((a, b) => a[0] - b[0]);
+    if (months.length === 0) return undefined;
+    return { span: [months[0]![0], tileNext("month", new Date(months[months.length - 1]![0])).getTime()], months };
+}
+
+/** Whether two reads of a span say the same: its ends, and each month's count. */
+function sameSpanRead(a: PlanNestedSpanRead, b: PlanNestedSpanRead): boolean {
+    return a.span[0] === b.span[0] && a.span[1] === b.span[1] && a.months.length === b.months.length
+        && a.months.every(([at, n], i) => at === b.months[i]![0] && n === b.months[i]![1]);
 }
 
 /**
- * The span of the collections the series the canvas holds rows of read
- * (#1438), read again at each revision: a series switched off holds none, so
- * its collections count for nothing.
+ * The span of the collections the series the canvas holds rows of read, and
+ * their months' counts (#1438), read again at each revision: a series switched
+ * off holds none, so its collections count for nothing. While a read again is
+ * in flight it is the last read, so the horizon and its bars hold still until
+ * the new counts land.
  *
  * @param seam - The root's seam
  * @param index - Every row the canvas holds
- * @returns The span; {@link SPAN_READING} while it is read; undefined where none is held
+ * @returns The span and its months; {@link SPAN_READING} while the first read is in flight; undefined where none is held
  */
-export function usePlanNestedSpan(seam: PlanNestedValue, index: PlanRowIndex): PlanNestedSpan | typeof SPAN_READING | undefined {
+export function usePlanNestedSpan(seam: PlanNestedValue, index: PlanRowIndex): PlanNestedSpanRead | typeof SPAN_READING | undefined {
     // The places the shown series read, printed as their key: what the read is asked again for when they move.
     const places = useMemo(() => {
         const shown = new Set<string>();
@@ -1033,16 +1059,18 @@ export function usePlanNestedSpan(seam: PlanNestedValue, index: PlanRowIndex): P
         return binding?.nested === undefined ? undefined : spanOf(binding, kept);
     }, [seam.source, kept]);
     const { result } = useTrackedEvaluation(read);
-    const last = useRef<PlanNestedSpan | typeof SPAN_READING | undefined>(SPAN_READING);
+    const last = useRef<PlanNestedSpanRead | typeof SPAN_READING | undefined>(SPAN_READING);
     return useMemo(() => {
         if (!result.ok) {
             console.error("[Plan] the span of the rows' nested series could not be read:", result.error);
             return undefined;
         }
         const next = result.value;
-        // The same span as the last is the last, so a reader of it draws once.
         const was = last.current;
-        if (next !== SPAN_READING && next !== undefined && was !== SPAN_READING && was !== undefined && was[0] === next[0] && was[1] === next[1]) return was;
+        // Read again, the last read holds until the new one lands; the same read as the last is the last, so a reader of
+        // it draws once.
+        if (next === SPAN_READING && was !== SPAN_READING && was !== undefined) return was;
+        if (next !== SPAN_READING && next !== undefined && was !== SPAN_READING && was !== undefined && sameSpanRead(was, next)) return was;
         last.current = next;
         return next;
     }, [result]);

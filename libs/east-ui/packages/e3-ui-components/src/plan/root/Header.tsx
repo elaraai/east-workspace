@@ -17,7 +17,7 @@ import { PlanRuler } from "../shell/Ruler.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanUiView } from "./view.js";
 import type { PlanWindowPart } from "./window.js";
-import type { PlanNestedSpan, SPAN_READING } from "./nested.js";
+import type { PlanNestedSpanRead, SPAN_READING } from "./nested.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -32,7 +32,7 @@ export interface PlanHeaderProps {
     stated: readonly [number, number] | undefined;
     /** The span of the collections the series shown read through the rows' nested series index (#1438), or its read in flight: with no
      *  source holding the window, the brush spans it and the window shown. */
-    span: PlanNestedSpan | typeof SPAN_READING | undefined;
+    span: PlanNestedSpanRead | typeof SPAN_READING | undefined;
     affordances: ReadonlyArray<string>;
     now: PlanInstantValue | undefined;
     /** The ruler's gutter caption — the active grain's name. */

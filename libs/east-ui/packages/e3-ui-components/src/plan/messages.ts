@@ -54,6 +54,9 @@ export type PlanPart =
 /** The unit a horizon caption counts in — a time resolution, or a number axis's step. */
 export type PlanHorizonUnit = "hour" | "day" | "week" | "month" | "quarter" | "year" | "step";
 
+/** The period a horizon's bars count by (#1438). */
+export type PlanHorizonBucket = "month" | "quarter" | "year";
+
 /** A chart layer kind, as the chart's summary names it. */
 export type PlanChartLayerWord = "line" | "area" | "column" | "scatter" | "band";
 
@@ -286,6 +289,18 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     // ── The horizon, the ruler, the axis in words ──────────────────────────
     /** The horizon strip's caption — `HORIZON · 26 WK`. */
     horizon: (p: { n: number; count: string; unit: PlanHorizonUnit }) => string;
+    /** The horizon strip's meta line (#1438) — `max 1,559 items / mo`: its largest bucket's count, and the period its buckets are. */
+    horizonMax: (p: { n: number; count: string; unit: PlanHorizonBucket }) => string;
+    /** The horizon strip's meta line where nothing is in the horizon (#1438). */
+    horizonNoData: () => string;
+    /** A horizon bucket's count, after its period in its tooltip (#1438) — `1,284 items`. */
+    horizonCount: (p: { n: number; count: string }) => string;
+    /** The horizon brush's start handle, as a reader hears it (#1438). */
+    horizonStart: () => string;
+    /** The horizon brush's window, between its handles (#1438). */
+    horizonWindow: () => string;
+    /** The horizon brush's end handle (#1438). */
+    horizonEnd: () => string;
     /** The ruler's now chip. */
     now: () => string;
 
@@ -500,6 +515,8 @@ const HORIZON_UNIT: Record<PlanHorizonUnit, string> = {
     hour: "HR", day: "D", week: "WK", month: "MO", quarter: "Q", year: "YR", step: "STEPS",
 };
 
+const HORIZON_PER: Record<PlanHorizonBucket, string> = { month: "mo", quarter: "q", year: "yr" };
+
 const STATE_WORD: Record<PlanStateWord, string> = {
     estimated: "estimated",
     added: "proposed",
@@ -666,6 +683,12 @@ export const planMessages: PlanMessages = {
     inspectorOverlapPair: ({ first, second }) => `${first} · ${second}`,
 
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
+    horizonMax: ({ n, count, unit }) => `max ${count} ${plural(n, "item", "items")} / ${HORIZON_PER[unit]}`,
+    horizonNoData: () => "no data",
+    horizonCount: ({ n, count }) => `${count} ${plural(n, "item", "items")}`,
+    horizonStart: () => "Window start",
+    horizonWindow: () => "Window",
+    horizonEnd: () => "Window end",
     now: () => "NOW",
 
     allRows: () => "← All rows",

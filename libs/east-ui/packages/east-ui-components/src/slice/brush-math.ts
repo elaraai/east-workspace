@@ -227,6 +227,8 @@ export interface BrushBar {
     height: number;
     /** Its step on the heat ramp, 1–5. */
     step: 1 | 2 | 3 | 4 | 5;
+    /** Its bucket's count. */
+    count: number;
 }
 
 /**
@@ -261,7 +263,7 @@ export function brushBars(buckets: readonly BrushBucketSpan[], trackPx: number, 
         if (w <= 0) return;
         const height = Math.max(2, Math.round((b.count / max) * barMax));
         const step = Math.min(5, Math.max(1, Math.ceil((b.count / max) * 5))) as BrushBar["step"];
-        bars.push({ index, x, width: w, height, step });
+        bars.push({ index, x, width: w, height, step, count: b.count });
     });
     return bars;
 }

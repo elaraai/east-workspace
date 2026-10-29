@@ -16,6 +16,13 @@
  * (#949): a lens under it joins the window it selected to the plot's edges —
  * the grid below is that window, magnified.
  *
+ * Its bars (#1438): over rows read through a nested series index, how much
+ * the collections the series shown read hold in each month, as e3 keeps it in
+ * the index's span — a bar each month, quarter or year, the finest that keeps
+ * 4px a bar (`horizonDensity`) — with the largest under the caption, `max
+ * 1,559 items / mo`, or `no data`. A horizon over record sources has no
+ * counts yet: its strip draws the baseline alone.
+ *
  * Renders only over a horizon of the AXIS's arm (#631): a `datetime` domain on
  * a time axis, a `float` / `integer` domain on a number axis. The horizon
  * spans every source's domain holding the window: the jobs' and the shifts'
@@ -31,16 +38,18 @@
  * CL1), so nothing below it moves as the span lands.
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { Box, chakra } from "@chakra-ui/react";
-import { BrushStrip, PlaceholderShape, recordSliceDomain } from "@elaraai/east-ui-components/internal";
-import { useSlicesReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { BrushStrip, PlaceholderShape, recordSliceDomain, type BrushBucket } from "@elaraai/east-ui-components/internal";
+import { useContainerWidth, useSlicesReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
+import { periodText } from "../../shared/time/scale.js";
 import { usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanHorizonUnit } from "../messages.js";
 import type { PlanWindowPart } from "../root/window.js";
-import type { PlanNestedSpan, SPAN_READING } from "../root/nested.js";
-import { usePlanWords } from "../words.js";
+import type { PlanNestedSpan, PlanNestedSpanRead, SPAN_READING } from "../root/nested.js";
+import { usePlanWords, type PlanWords } from "../words.js";
+import { horizonDensity, type HorizonDensity } from "./horizon-density.js";
 
 type Styles = Record<string, Record<string, unknown>>;
 
@@ -62,8 +71,8 @@ export interface HorizonBrushProps {
     /** The axis's stated window, `[from, to)` on its domain: beside the window shown, the horizon of a canvas holding its own. */
     stated: readonly [number, number] | undefined;
     /** The span of the collections the series shown read through the rows' nested series index (#1438), or its read in flight: beside the
-     *  window shown, the horizon of a canvas holding its own, in place of the stated window's. */
-    span?: PlanNestedSpan | typeof SPAN_READING | undefined;
+     *  window shown, the horizon of a canvas holding its own, in place of the stated window's; its months' counts, its bars. */
+    span?: PlanNestedSpanRead | typeof SPAN_READING | undefined;
     /** The now instant, if any (domain tick) — on the axis's arm. */
     now: PlanInstantValue | undefined;
 }
@@ -122,11 +131,29 @@ function spanHorizon(span: PlanNestedSpan, shown: readonly [number, number]): Re
     return { kind: "datetime", min: Math.min(span[0], shown[0]), max: Math.max(span[1], shown[1]) };
 }
 
+/**
+ * The horizon's bars as the strip draws them (#1438): each bucket's slot and
+ * count, and its hover's words — its period, then its count.
+ *
+ * @param density - The horizon's buckets
+ * @param words - The canvas's words
+ * @returns The strip's buckets
+ */
+function densityBuckets(density: HorizonDensity, words: PlanWords): BrushBucket[] {
+    return density.buckets.map((b) => ({
+        from: b.from, to: b.to, count: b.count,
+        label: `${periodText(b.start, density.unit, words)} · ${words.m.horizonCount({ n: b.count, count: words.number(b.count) })}`,
+    }));
+}
+
 /** The horizon band — caption gutter cell + the shared brush strip + its lens. */
 export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSpan, now }: HorizonBrushProps) {
     const dispatch = usePlanDispatch();
     const geometry = usePlanGeometry();
     const words = usePlanWords();
+    // The strip's width, which decides the period its bars count by (#1438).
+    const trackRef = useRef<HTMLDivElement | null>(null);
+    const trackPx = useContainerWidth(trackRef);
     // The scale IS the applied window (slice range ▸ axis ▸ fit), on its
     // own numeric domain — epoch ms, or the value on a number axis.
     const scale = usePlanScale();
@@ -147,7 +174,7 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     const domain = own
         ? (scale.kind === "ordinal" ? undefined
             : scale.kind === "time" && reading ? undefined
-                : scale.kind === "time" && read !== undefined ? spanHorizon(read, [shownFrom, shownTo])
+                : scale.kind === "time" && read !== undefined ? spanHorizon(read.span, [shownFrom, shownTo])
                     : ownHorizon(scale.kind === "time" ? "datetime" : "float", stated, [shownFrom, shownTo]))
         : recordDomain.ok ? recordDomain.value : undefined;
     // The domain must speak the axis's arm — a datetime field on a time
@@ -219,6 +246,13 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     const unit: PlanHorizonUnit = scale.kind === "time" ? (scale.resolution ?? "week") : "step";
     const periods = extent.periods;
     const caption = words.m.horizon({ n: periods, count: words.number(periods), unit });
+    // Its bars (#1438): over the rows' nested series, each month's items as e3 keeps them in the index's span, in the
+    // finest period that keeps 4px a bar; a source's horizon has no counts yet, and draws the baseline alone.
+    const density = own && scale.kind === "time" && read !== undefined ? horizonDensity(extent.lo, extent.hi, read.months, trackPx) : undefined;
+    const buckets = density === undefined ? undefined : densityBuckets(density, words);
+    // A key moves the window a period of the resolution; a handle says its instant.
+    const step = (f: number, n: number): number => toFrac(scale.offset(fromFraction(f), n));
+    const valueText = (f: number): string => scale.instantText(fromFraction(f));
     return (
         <Box css={styles.brushRow} gridTemplateColumns={gridTemplate} data-slot="horizon"
             // The esc rung DISARMS on any release — including the
@@ -227,11 +261,23 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
             // `ui.brush` armed forever and silently eat the next Escape (#615).
             onPointerUpCapture={() => dispatch({ t: "brush.up" })}
             onPointerCancelCapture={() => dispatch({ t: "brush.up" })}>
-            <Box css={styles.brushCaption}>{caption}</Box>
+            <Box css={styles.brushCaption}>
+                <Box as="span" data-plan-horizon-caption="">{caption}</Box>
+                {/* The meta line (#1438): the largest bucket and its period, or that nothing is in the horizon. */}
+                {density !== undefined && (density.max > 0
+                    ? <Box as="span" css={styles.brushMeta} data-plan-horizon-meta="">
+                        {words.m.horizonMax({ n: density.max, count: words.number(density.max), unit: density.unit })}
+                    </Box>
+                    : <Box as="span" css={styles.brushMeta} data-plan-horizon-meta="" data-empty="">{words.m.horizonNoData()}</Box>)}
+            </Box>
             {/* Only the STRIP arms the rung — a caption click is not a brush
                 gesture, and only strip gestures can ever settle one. */}
-            <Box css={styles.brushTrack} onPointerDownCapture={() => dispatch({ t: "brush.down" })}>
+            <Box ref={trackRef} css={styles.brushTrack} data-plan-horizon-track="" onPointerDownCapture={() => dispatch({ t: "brush.down" })}>
                 <BrushStrip
+                    buckets={buckets === undefined ? undefined : () => buckets}
+                    step={step}
+                    valueText={valueText}
+                    words={{ start: words.m.horizonStart(), end: words.m.horizonEnd(), window: words.m.horizonWindow() }}
                     window={winTo > winFrom ? { from: winFrom, to: winTo } : undefined}
                     nowFrac={nowFrac !== undefined && nowFrac >= 0 && nowFrac <= 1 ? nowFrac : undefined}
                     // The strip and its tallest bar are the canvas geometry

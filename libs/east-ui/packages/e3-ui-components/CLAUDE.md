@@ -1389,13 +1389,24 @@ window through the seam with what it read:
   scroll or a commit asks — which wash as a paged kind's unread rows do (the
   plot busy, #1398 CL2) until their cells land: never a blank plot that fills.
 - **The span.** The collections the series the canvas holds rows of read
-  (`usePlanNestedSpan`): their first and last month across the record's rows,
-  as e3 keeps them in the index's span (`<index>_span`, which the binding reads
-  as a summary index, never listed) — one search a collection, an exact match
-  on its place, and one read of the first and last entry of each, each row
-  once and ascending. Reported apart (`onSpan`); the horizon spans it beside
-  the window shown where no source holds the window, its row held while it is
-  read.
+  (`usePlanNestedSpan`): their months across the record's rows, each with the
+  items and values touching it, as e3 keeps them in the index's span
+  (`<index>_span`, which the binding reads as a summary index, never listed) —
+  one search a collection, an exact match on its place, and one read of their
+  entries, ascending; the span is the first month to the end of the last.
+  Reported apart (`onSpan`, a `PlanNestedSpanRead`); the horizon spans it
+  beside the window shown where no source holds the window, its row held while
+  it is first read, and a read again holds the last until it lands.
+- **The horizon's bars** (`shell/horizon-density.ts`, #1438). Over the span,
+  `horizonDensity` buckets the months' counts in the finest of month, quarter
+  and year that keeps 4px a bucket on the strip (the band measures its track,
+  `data-plan-horizon-track`), from the period the horizon begins in to the one
+  it ends in, each clipped to it — a month the horizon clips counts whole, as
+  e3 keeps no finer count. The strip draws them (east-ui-components'
+  `BrushStrip`); the caption's meta line says the largest bucket and its
+  period (`max 1,559 items / mo`), or `no data`, and a bar's hover its period
+  and count. A horizon over record sources has no counts yet, and draws the
+  baseline alone, with no meta line.
 - **Finding the binding.** The seam names the binding by id; the indexed
   runtime keeps each binding it built by id (`indexedBindingOf`).
 - **Drafting.** A gesture drafts each row it touches read whole by key
