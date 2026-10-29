@@ -47,6 +47,22 @@ export type PreviewEventWords =
     | { readonly kind: "remove"; readonly what: string; readonly from: string }
     | { readonly kind: "change"; readonly what: string; readonly on: string };
 
+/**
+ * One clause of a Sheet preview's sentence, worded: the columns' heads a change sets on its rows — none, for a change
+ * that no longer applies — or the rows it adds or removes, each row by its name, `more` past the rows named.
+ */
+export type PreviewCellsWords =
+    | { readonly kind: "change"; readonly columns: readonly string[]; readonly rows: readonly string[]; readonly more: string | undefined }
+    | { readonly kind: "add" | "remove"; readonly rows: readonly string[]; readonly more: string | undefined };
+
+/** How many other cases change an entry, worded: the count, and whether it is one. */
+export interface PreviewSharedWords {
+    /** The count. */
+    readonly n: string;
+    /** Whether it is one. */
+    readonly one: boolean;
+}
+
 /** A preview's entry, worded for its title: its shift and day, and how the change marks it. */
 export interface PreviewTileWords {
     /** Its shift, or what it is. */
@@ -64,7 +80,7 @@ export interface PreviewTileWords {
     /** The rule it breaks once the change is made. */
     readonly breach: string | undefined;
     /** How many other cases change it. */
-    readonly shared: { readonly n: string; readonly one: boolean } | undefined;
+    readonly shared: PreviewSharedWords | undefined;
 }
 
 /** The DecisionQueue's message table: numbers and values arrive formatted. */
@@ -208,6 +224,17 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     previewOverlap: (p: { with: string }) => string;
     /** The lane of the events on no resource — `Unassigned`. */
     previewUnassigned: () => string;
+    /** One clause of a Sheet preview's sentence (P25) — `Status and Due change on WO-1005, WO-1007 and WO-1008`, `WO-1010 is added`. */
+    previewCells: (p: PreviewCellsWords) => string;
+    /** A Sheet preview's cell its change clears, as the Sheet marks a blank — `—`. */
+    previewBlank: () => string;
+    /**
+     * A Sheet preview's cell's title (P25): its column's head and its value — as it stands and as the change leaves it,
+     * where the change sets it — and how the change marks it: `Due: — → 13 Mar 28`, `Due: 13 Mar 28 · removed`.
+     */
+    previewCell: (p: { column: string; was: string; is: string; op: "add" | "chg" | "del" | undefined; knock: boolean }) => string;
+    /** A Sheet preview's row's title (P25): its name, how the change marks it, its lock, and the other cases changing it — `WO-1005 · changed`. */
+    previewRow: (p: { name: string; op: "add" | "chg" | "del" | undefined; knock: boolean; locked: boolean; shared: PreviewSharedWords | undefined }) => string;
     /** A batch step's label in the history — `Apply 3 routine cases`. */
     batchStep: (p: { n: string }) => string;
     /** A verdict step's label in the history — `Apply: Move 3 night shifts`. */
@@ -237,6 +264,15 @@ const APPLY_OFF = {
 } as const;
 const REASONS = { context: "Missing context", data: "Data is wrong", priorities: "Priorities changed", other: "Other" } as const;
 const VERDICTS = { applied: "Applied", overridden: "Overridden", deferred: "Deferred", handedOff: "Handed off" } as const;
+const MARKS = { add: "added", chg: "changed", del: "removed" } as const;
+
+/** Items in running text — `Mon, Wed and Thu`. */
+const listOf = (items: readonly string[]): string => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]!}`);
+/** How many other cases change an entry, in its title. */
+const sharedText = (shared: PreviewSharedWords | undefined): string | undefined =>
+    (shared === undefined ? undefined : `${shared.n} other ${shared.one ? "case changes" : "cases change"} it too`);
+/** A title's parts, those it has, in order. */
+const parts = (...said: readonly (string | undefined)[]): string => said.filter((part): part is string => part !== undefined).join(" · ");
 
 /** The English table — the default. */
 export const decisionQueueMessages: DecisionQueueMessages = {
@@ -294,7 +330,7 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     unrecorded: () => ({ title: "Verdict not recorded", description: "Its records are being read or saved — try again in a moment." }),
     verdictsSession: () => "Verdicts",
     guess: ({ confidence }) => `conf ${confidence} · a guess`,
-    previewList: ({ items }) => (items.length <= 1 ? items.join("") : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]!}`),
+    previewList: ({ items }) => listOf(items),
     previewClause: (p) => {
         switch (p.kind) {
             case "move": return p.n === 1 ? `${p.from}'s ${p.what} shift on ${p.days} moves to ${p.to}` : `${p.from}'s ${p.what} shifts on ${p.days} move to ${p.to}`;
@@ -316,14 +352,14 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     previewRequests: ({ n, one }) => (one ? `${n} request` : `${n} requests`),
     previewMorePeople: ({ n }) => `+ ${n} more people`,
     previewCount: ({ n, of }) => `${n} of ${of}`,
-    previewTile: ({ what, when, op, to, knock, locked, breach, shared }) => [
+    previewTile: ({ what, when, op, to, knock, locked, breach, shared }) => parts(
         `${what} · ${when}`,
         op === "add" ? "proposed" : op === "chg" ? "changed" : op === "from" ? `moves to ${to ?? "another day"}` : op === "del" ? "comes off" : undefined,
         knock ? "knock-on" : undefined,
         locked ? "locked" : undefined,
         breach,
-        shared === undefined ? undefined : `${shared.n} other ${shared.one ? "case changes" : "cases change"} it too`,
-    ].filter(part => part !== undefined).join(" · "),
+        sharedText(shared),
+    ),
     previewShared: ({ n }) => `+${n}`,
     previewEvent: (p) => {
         switch (p.kind) {
@@ -341,6 +377,30 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     previewSpan: ({ start, end }) => `${start}–${end}`,
     previewOverlap: (p) => `overlaps ${p.with}`,
     previewUnassigned: () => "Unassigned",
+    previewCells: (p) => {
+        const one = p.rows.length === 1 && p.more === undefined;
+        const rows = p.more === undefined ? listOf(p.rows) : `${p.rows.join(", ")} and ${p.more} more`;
+        switch (p.kind) {
+            case "change": return p.columns.length === 0
+                ? `${rows} ${one ? "changes" : "change"}`
+                : `${listOf(p.columns)} ${p.columns.length === 1 ? "changes" : "change"} on ${rows}`;
+            case "add": return `${rows} ${one ? "is" : "are"} added`;
+            case "remove": return `${rows} ${one ? "is" : "are"} removed`;
+        }
+    },
+    previewBlank: () => "—",
+    previewCell: ({ column, was, is, op, knock }) => parts(
+        op === "chg" || knock ? `${column}: ${was} → ${is}` : `${column}: ${op === "del" ? was : is}`,
+        op === "add" || op === "del" ? MARKS[op] : undefined,
+        knock ? "knock-on" : undefined,
+    ),
+    previewRow: ({ name, op, knock, locked, shared }) => parts(
+        name,
+        op === undefined ? undefined : MARKS[op],
+        knock ? "knock-on" : undefined,
+        locked ? "locked" : undefined,
+        sharedText(shared),
+    ),
     batchStep: ({ n }) => `Apply ${n} routine cases`,
     verdictStep: ({ verdict, title }) => `${VERDICTS[verdict]}: ${title}`,
 };
