@@ -6,9 +6,9 @@
 /** Shared forms for the explicit actions and the inspector's schedule section. */
 import { useCallback, useMemo, useState } from "react";
 import { Box, Button } from "@chakra-ui/react";
-import { DateTimeType, OptionType, StringType, StructType, none, some, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, OptionType, StringType, StructType, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
-import { FieldForm, SliceEditPopover } from "@elaraai/east-ui-components";
+import { FieldForm, SliceEditPopover, type FieldFormWords } from "@elaraai/east-ui-components";
 import { initialPlacement, type CalendarCommands, type CalendarPlacement, type CalendarSource } from "./actions.js";
 import { pagedControl, useCalendarChooser } from "./chooser.js";
 import { parseResourceKey, resourceChoices, resourceKey, type CalendarItem, type CalendarStyles, type CalendarValue } from "./model.js";
@@ -30,34 +30,46 @@ function placementOf(form: PlacementForm): CalendarPlacement | undefined {
 }
 /** Whether a placement form's field is its resource. */
 const isResource = (spec: FieldSpecValue) => spec.path[0] === "resource";
+const stringEqual = equalFor(StringType);
 
 /**
- * The placement form is one shared FieldForm in both the inspector and popovers. Its resource Chooser offers the
- * rows the rail shows, and the placement's own resource whatever the rail hides (#1343) — or, for a kind placed on the
- * paged resource kind, searches that kind by key (#1424, `chooser.tsx`).
+ * The placement form is one shared FieldForm in both the inspector and popovers — and the DecisionQueue's Modify, over
+ * an event its change places (D9). Its resource Chooser offers the rows the rail shows, and the placement's own resource
+ * whatever the rail hides (#1343) — or, for a kind placed on the paged resource kind, searches that kind by key (#1424,
+ * `chooser.tsx`). Given a `baseline`, a field changed from it is tinted and takes its reset, which sets the baseline's
+ * value as typing it would: a start moves the end with it.
+ *
+ * @param props - The kinds of resource the event's kind is placed on, every resource kind and the rows the rail shows, the
+ *   placement and what a changed field is told from, what a change sets, whether it takes none, and the form's words —
+ *   its host's formatters and Reset's words, the shared form's own unless given
+ * @returns The form
  */
-export function PlacementFields({ source, value, shown, placement, onChange, readOnly = false }: {
-    source: CalendarSource; value: CalendarValue; shown: CalendarShownResources; placement: CalendarPlacement; onChange: (at: CalendarPlacement) => void; readOnly?: boolean;
+export function PlacementFields({ takes, resources, shown, placement, baseline, onChange, readOnly = false, words }: {
+    takes: readonly string[]; resources: CalendarValue["resources"]; shown: CalendarShownResources; placement: CalendarPlacement;
+    baseline?: CalendarPlacement | undefined; onChange: (at: CalendarPlacement) => void; readOnly?: boolean; words?: FieldFormWords | undefined;
 }) {
     const form = formOf(placement);
     const own = placement.resource;
-    const options = useMemo(() => ({ resources: resourceChoices(value.resources, shown, own.type === "some" ? [own.value] : [])
-        .filter(kind => source.kind.takes.includes(kind.key)).flatMap(kind => kind.rows.map(row => ({ key: resourceKey({ kind: kind.key, key: row.key }), label: `${row.label} · ${kind.name}` }))) }),
-    [value.resources, shown, own, source.kind.takes]);
+    const options = useMemo(() => ({ resources: resourceChoices(resources, shown, own.type === "some" ? [own.value] : [])
+        .filter(kind => takes.some(key => stringEqual(key, kind.key))).flatMap(kind => kind.rows.map(row => ({ key: resourceKey({ kind: kind.key, key: row.key }), label: `${row.label} · ${kind.name}` }))) }),
+    [resources, shown, own, takes]);
     // A kind placed on the paged resource kind chooses its resource by key, through the kind's own paged read (#1424).
     const chooser = useCalendarChooser();
-    const paged = chooser !== undefined && source.kind.takes.includes(chooser.paged.kind) ? chooser : undefined;
-    const chosen = own.type === "some" && paged !== undefined && own.value.kind === paged.paged.kind ? own.value.key : undefined;
+    const paged = chooser !== undefined && takes.some(key => stringEqual(key, chooser.paged.kind)) ? chooser : undefined;
+    const chosen = own.type === "some" && paged !== undefined && stringEqual(own.value.kind, paged.paged.kind) ? own.value.key : undefined;
     const renderControl = useCallback((spec: FieldSpecValue) => pagedControl(paged, spec, isResource, chosen, key => {
         if (paged !== undefined) onChange({ start: placement.start, end: placement.end, resource: some({ kind: paged.paged.kind, key }) });
     }, readOnly), [paged, chosen, onChange, placement.start, placement.end, readOnly]);
-    return <FieldForm specs={SPECS} readOnly={readOnly} value={form} options={options} renderControl={paged === undefined ? undefined : renderControl} onChange={(path, next) => {
+    const change = (path: readonly string[], next: unknown) => {
         let changed = { ...form, [path[0]!]: next };
         if (path[0] === "start" && next instanceof Date) changed = { ...changed, end: new Date(next.getTime() + form.end.getTime() - form.start.getTime()) };
         if (path[0] === "end" && next instanceof Date && next <= changed.start) changed = { ...changed, end: new Date(next.getTime() + 86_400_000) };
         const at = placementOf(changed);
         if (at !== undefined) onChange(at);
-    }} />;
+    };
+    const was = baseline === undefined ? undefined : formOf(baseline);
+    return <FieldForm specs={SPECS} readOnly={readOnly} value={form} baseline={was} options={options} words={words} renderControl={paged === undefined ? undefined : renderControl}
+        onChange={change} onReset={was === undefined ? undefined : path => change(path, path[0] === "start" ? was.start : path[0] === "end" ? was.end : was.resource)} />;
 }
 /** An anchored action uses the same Schedule command as a desktop drop. */
 export function PlacementAction({ label, source, value, shown, day, commands, styles, held = false }: {
@@ -78,7 +90,7 @@ export function PlacementAction({ label, source, value, shown, day, commands, st
             const refused = commands.place(source, placement, label === "Resize" ? "resize" : "typed");
             setError(refused); if (refused === undefined) setOpen(false);
         }}>{label}</Button></>}>
-        <PlacementFields source={source} value={value} shown={shown} placement={placement} onChange={setPlacement} />
+        <PlacementFields takes={source.kind.takes} resources={value.resources} shown={shown} placement={placement} onChange={setPlacement} />
         {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
     </SliceEditPopover>;
 }

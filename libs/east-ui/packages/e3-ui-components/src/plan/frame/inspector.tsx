@@ -166,6 +166,20 @@ const printResource = printFor(ScheduleResourceRefType);
 const parseResource = parseFor(ScheduleResourceRefType);
 const encodeState = encodeBeast2For(EventStateType);
 
+/**
+ * The kind's form the inspector draws over one of its events — the DecisionQueue's Modify draws it over an event its
+ * change writes too (D9): the kind's fields but those its roles read, each of which has a line of its own among the
+ * event's facts.
+ *
+ * @param kind - The event's kind: its fields and its roles
+ * @returns The form's fields
+ */
+export function planFormSpecs(kind: Pick<PlanEventKindValue, "fields" | "roles">): readonly FieldSpecValue[] {
+    const { roles } = kind;
+    const roleFields = [roles.state, roles.quantity, roles.lane].flatMap((field) => (field.type === "some" ? [field.value] : []));
+    return kind.fields.filter((spec) => !roleFields.some((field) => stringEqual(field, spec.path[0]!)));
+}
+
 /** A lifecycle state's word, its proposal's flavour spelled out — what the bulk edit chooses among. */
 function stateWordOf(state: ValueTypeOf<typeof EventStateType>): PlanStateWord {
     return (state.type === "proposed" ? state.value.type : state.type) as PlanStateWord;
@@ -663,10 +677,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
     const rowType = useMemo(() => fromEastTypeValue(kind.editing.entryType) as StructType, [kind.editing.entryType]);
     const value = useMemo(() => decodeBeast2For(rowType)(row), [rowType, row]);
     // The kind's form, but the fields its roles read: each has its own line here.
-    const specs = useMemo(() => {
-        const roleFields = [roles.state, roles.quantity, roles.lane].flatMap((field) => (field.type === "some" ? [field.value] : []));
-        return kind.fields.filter((spec) => !roleFields.some((field) => stringEqual(field, spec.path[0]!)));
-    }, [kind.fields, roles]);
+    const specs = useMemo(() => planFormSpecs({ fields: kind.fields, roles }), [kind.fields, roles]);
     // What its record holds (PB42): what a drafted field is tinted against — a new event's every field, against
     // nothing. An event its drafts do not hold stands as its record holds it (#1199: a kind read a window at a time
     // holds no snapshot to read it from).

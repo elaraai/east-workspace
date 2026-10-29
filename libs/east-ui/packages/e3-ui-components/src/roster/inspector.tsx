@@ -108,7 +108,8 @@ function DutyForm({ props, assignment, id }: { props: Args; assignment: Assignme
     const baselineRow = useMemo(() => held === undefined ? undefined : props.domain.decodeRow(held.bytes), [held, props.domain]);
     return <>
         <TimesFields form={form} baseline={baseline} readOnly={readOnly} onChange={change} />
-        <AssignmentFields assignment={assignment} form={form} baseline={baseline} value={props.value} readOnly={readOnly} onChange={change} />
+        <AssignmentFields group={assignment.slot.group} person={assignment.who.type === "person"} form={form} baseline={baseline} value={props.value}
+            readOnly={readOnly} onChange={change} />
         {error !== undefined && <Box css={props.styles.error} role="alert">{error}</Box>}
         {result.ok && result.value !== undefined ? <chakra.fieldset disabled={readOnly}><EastChakraComponent value={result.value} storageKey={`${props.storageKey}.duty.${id}`} /></chakra.fieldset>
             : decoded !== undefined && kind.fields.length > 0 && <FieldForm specs={kind.fields} value={decoded} baseline={baselineRow ?? {}} readOnly={readOnly}

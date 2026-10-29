@@ -4,7 +4,7 @@
  */
 
 /** One command path for desktop gestures and explicit agenda actions. */
-import { DateTimeType, compareFor, encodeBeast2For, fromEastTypeValue, none, some, variant, type StructType } from "@elaraai/east";
+import { DateTimeType, StringType, compareFor, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant, type StructType } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange, ScheduleEditing } from "../shared/schedule/editing.js";
 import { durationMinutes } from "../shared/schedule/due.js";
@@ -13,6 +13,7 @@ import {
 } from "./model.js";
 
 const compareDate = compareFor(DateTimeType);
+const stringEqual = equalFor(StringType);
 
 /** A placement proposed by a form, a drop or a draw gesture. */
 export interface CalendarPlacement {
@@ -61,6 +62,27 @@ export interface CalendarPagedRows {
 const NO_PAGED_ROWS: CalendarPagedRows = { rows: [], known: undefined };
 
 /**
+ * Why an event can't take a placement, by the Calendar's own checks, before its `canDrop`'s — the DecisionQueue's Modify
+ * asks them of an event's new placement too (D9): it lasts under 15 minutes, or is on a resource of a kind the event's
+ * kind is placed on none of, or on one no longer there. A paged kind's resources come a window at a time (#1424): one is
+ * chosen from a window held, or by its key, so any of its keys stands.
+ *
+ * @param kind - The event's kind
+ * @param at - The placement
+ * @param resources - Every resource kind, every row
+ * @param paged - The resource kind read a window at a time, if any
+ * @returns Why it can't take it; `undefined` where it can
+ */
+export function placementRefusal(kind: Pick<CalendarKind, "takes">, at: CalendarPlacement, resources: CalendarValue["resources"], paged: CalendarValue["paged"]): string | undefined {
+    if (!Number.isFinite(at.start.getTime()) || !Number.isFinite(at.end.getTime()) || at.end.getTime() - at.start.getTime() < QUARTER) return "An event must last at least 15 minutes";
+    if (at.resource.type === "none") return undefined;
+    const ref = at.resource.value;
+    if (!kind.takes.some(key => stringEqual(key, ref.kind))) return `Needs ${kind.takes.map(key => resources.find(resource => stringEqual(resource.key, key))?.name ?? key).join(" or ")}`;
+    if (paged.type === "some" && stringEqual(paged.value.kind, ref.kind)) return undefined;
+    return resources.some(resource => stringEqual(resource.key, ref.kind) && resource.rows.some(row => stringEqual(row.key, ref.key))) ? undefined : "This resource is no longer available";
+}
+
+/**
  * Commands write through the shared Schedule seams and one EditHistory. Their checks read every resource, whatever
  * the rail hides; a creation with no resource lands on one the rail shows (`shown`, #1343) — of a paged kind, one of the
  * windows the frame holds (`paged`, #1424).
@@ -71,14 +93,8 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
     const validate = (source: CalendarSource, at: CalendarPlacement): string | undefined => {
         const { kind } = source;
         if (!editing.available(kind.key)) return `${kind.name} is not ready to edit`;
-        if (!Number.isFinite(at.start.getTime()) || !Number.isFinite(at.end.getTime()) || at.end.getTime() - at.start.getTime() < QUARTER) return "An event must last at least 15 minutes";
-        if (at.resource.type === "some") {
-            const ref = at.resource.value;
-            if (!kind.takes.includes(ref.kind)) return `Needs ${kind.takes.map(key => value.resources.find(resource => resource.key === key)?.name ?? key).join(" or ")}`;
-            // A paged kind's resources come a window at a time (#1424): one is chosen from a window held, or by its key.
-            const paged = value.paged.type === "some" && value.paged.value.kind === ref.kind;
-            if (!paged && !value.resources.some(resource => resource.key === ref.kind && resource.rows.some(row => row.key === ref.key))) return "This resource is no longer available";
-        }
+        const refusal = placementRefusal(kind, at, value.resources, value.paged);
+        if (refusal !== undefined) return refusal;
         if (value.canDrop.type === "some") {
             const from = "template" in source ? variant("template", source.template.key)
                 : source.item.start.type === "none" ? variant("backlog", source.item.key) : variant("event", source.item.key);

@@ -160,8 +160,14 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     actions: () => string;
     /** An action — `Defer`, `Hand off`, `Override…`, `Modify`, `Apply`, `Apply with edits`. */
     action: (p: { action: "defer" | "handOff" | "override" | "modify" | "apply" | "applyEdits" }) => string;
-    /** Why Apply is off — its tooltip. */
-    applyOff: (p: { why: "needs" | "blocked" | "handoff" | "stale" | "reading" | "failed" | "malformed" | "unready" }) => string;
+    /**
+     * Why Apply is off — its tooltip: for edits the app's check refuses, each issue it names, by its row — `R-14 · Days:
+     * over the weekly cap`.
+     */
+    applyOff: (p: {
+        why: "needs" | "blocked" | "handoff" | "stale" | "reading" | "failed" | "malformed" | "unready";
+        issues?: readonly { readonly row: string; readonly message: string }[] | undefined;
+    }) => string;
     /** The Edit panel's title — `Edit`, or `Your decision` under Override. */
     editTitle: (p: { override: boolean }) => string;
     /** The Edit panel's meta — `drafts on the proposal`, `2 changed · drafts on the proposal`, or under Override what it sets. */
@@ -174,6 +180,12 @@ export interface DecisionQueueMessages extends EditingMessages, PagedLoadingMess
     removedRow: (p: { name: string }) => string;
     /** A changed field's reset — `Reset Days to the proposal`. */
     resetField: (p: { field: string }) => string;
+    /** An edit a changed row's kind refuses, under the row's form — `This edit can't be made`. */
+    editRefused: () => string;
+    /** A kind's own form that could not be drawn, under the fields drawn in its place. */
+    ownFormFailed: () => string;
+    /** A changed row whose form could not be drawn: its kind could not read it. */
+    formFailed: () => string;
     /** The Override panel's title — `Why override`. */
     whyOverride: () => string;
     /** An override's reason — `Missing context`, `Data is wrong`, `Priorities changed`, `Other`. */
@@ -391,7 +403,8 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     note: () => "Note",
     actions: () => "Decide",
     action: ({ action }) => ACTIONS[action],
-    applyOff: ({ why }) => APPLY_OFF[why],
+    applyOff: ({ why, issues }) => (why === "unready" && issues !== undefined && issues.length > 0
+        ? issues.map(issue => `${issue.row} · ${issue.message}`).join("; ") : APPLY_OFF[why]),
     editTitle: ({ override }) => (override ? "Your decision" : "Edit"),
     editMeta: ({ changed, override }) => (override ? "set what happens instead · the model learns from it"
         : changed === undefined ? "drafts on the proposal" : `${changed} changed · drafts on the proposal`),
@@ -399,6 +412,9 @@ export const decisionQueueMessages: DecisionQueueMessages = {
     keepAsIs: () => "Keep as it is",
     removedRow: ({ name }) => `${name} · removed`,
     resetField: ({ field }) => `Reset ${field} to the proposal`,
+    editRefused: () => "This edit can't be made",
+    ownFormFailed: () => "Its own form could not be shown: its fields are shown instead",
+    formFailed: () => "This row's form could not be shown",
     whyOverride: () => "Why override",
     reason: ({ reason }) => REASONS[reason],
     overridePlaceholder: ({ other }) => (other ? "Say what the model got wrong" : "Add a note (optional)"),

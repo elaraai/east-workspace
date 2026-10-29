@@ -12,13 +12,16 @@
  * the Calendar's a day a lane (`calendar.tsx`) and the Allocation's resources
  * and waiting row (`allocation.tsx`), each drawn by `lanes.tsx`, and the
  * Sheet's rows (`sheet.tsx`). Its frame, its placeholders and its failure are
- * every kind's (`frame.tsx`).
+ * every kind's (`frame.tsx`). A row Modify keeps as it is, or edits back to
+ * it, is no change (R19): the preview draws what is left of the change, and a
+ * change left with none as an option that changes nothing (P4).
  *
  * @packageDocumentation
  */
 
-import { memo } from "react";
+import { memo, useMemo } from "react";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
+import { endsAsItStands } from "../state.js";
 import { AllocationPreview } from "./allocation.js";
 import { CalendarPreview } from "./calendar.js";
 import { PreviewFrame, type PreviewProps } from "./frame.js";
@@ -37,8 +40,14 @@ export type DecisionPreviewProps = Omit<PreviewProps, "styles">;
  * @param props - The case, its target and record, the rows its change leaves and the queue's editing ({@link DecisionPreviewProps})
  * @returns The preview
  */
-export const DecisionPreview = memo(function DecisionPreview(props: DecisionPreviewProps) {
+export const DecisionPreview = memo(function DecisionPreview(given: DecisionPreviewProps) {
     const styles = useSlotStyles("decisionPreview");
+    // The rows the change still changes: those that end as they stand left out, the same array while none does.
+    const changed = useMemo(() => {
+        const left = given.changed.filter(row => !endsAsItStands(row));
+        return left.length === given.changed.length ? given.changed : left;
+    }, [given.changed]);
+    const props = { ...given, changed };
     const kind = props.target.kind;
     switch (kind.type) {
         case "roster":
