@@ -9,8 +9,9 @@
  */
 /**
  * The window a zoom shows on a canvas holding its own (#1438): as many buckets
- * of the new resolution as it showed of the old, about the same middle, inside
- * the span of what its series read where it is known.
+ * of the new resolution as it showed of the old, about the same middle or the
+ * one a table cell names, inside the span of what its series read where it is
+ * known.
  */
 import { describe, expect, test } from "vitest";
 import { zoomedWindow } from "./window.js";
@@ -42,6 +43,12 @@ describe("a zoom on a canvas holding its own window (#1438)", () => {
 
     test("kept inside the span where the window would run past its end: twelve weeks, twelve months to the span's end", () => {
         expect(iso(zoomedWindow([at("2032-01-05"), at("2032-03-29")], "week", "month", SPAN))).toEqual(["2031-04-01", "2032-04-01"]);
+    });
+
+    test("in from six months to the week about a month a cell names, not the window's middle: six weeks, the month's middle in the fourth", () => {
+        const january = (at("2026-01-01") + at("2026-02-01")) / 2;
+        expect(iso(zoomedWindow([at("2026-01-01"), at("2026-07-01")], "month", "week", SPAN, january))).toEqual(["2025-12-22", "2026-02-02"]);
+        expect(iso(zoomedWindow([at("2026-01-01"), at("2026-07-01")], "month", "week", SPAN))).toEqual(["2026-03-09", "2026-04-20"]);
     });
 
     test("a resolution no calendar bucket names leaves the window to the canvas", () => {

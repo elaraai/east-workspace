@@ -24,17 +24,22 @@
  * beside its cells, and a cell knows its numerals' width from their length,
  * the table's numerals being of one width.
  *
- * A position its row says takes a typed number (#1436, #1438) takes one in
- * each bucket holding one of its own values, or none, while the canvas takes
- * typing — every bucket in the window then draws a cell, so an empty one takes
- * a first value. Enter, F2, a double click or a digit opens the canvas's one
- * input over the cell ({@link PlanCellInput}); below 480px of main a tap opens
- * it, in a popover anchored to the cell. A parent's position drawing its
- * children's subtotals takes none, and a bucket folding several values says,
- * as its tooltip, the resolution they take one at.
+ * A position its row says takes a typed number (#1436, #1438) takes one, at
+ * the Plan's finest zoom, in each bucket holding one of its own values —
+ * written at that value's date, so it replaces it — or none, written at its
+ * start, while the canvas takes typing: every bucket in the window then draws
+ * a cell. Enter, F2, a double click or a digit opens the canvas's one input
+ * over the cell ({@link PlanCellInput}); below 480px of main a tap opens it, in
+ * a popover anchored to the cell. At a coarser zoom each cell is a summary of
+ * the values beneath it and takes none: its tooltip says to zoom to the
+ * finest, and a double click, Enter or a tap on it zooms there, about its
+ * period, focus landing on the row's cell at its middle. A parent's position
+ * drawing its children's subtotals takes none, and a bucket folding several
+ * values says, as its tooltip, the resolution they are at and the Plan's zoom
+ * showing them apart, where it has one.
  */
 
-import { useMemo, useRef, type KeyboardEvent } from "react";
+import { useLayoutEffect, useMemo, useRef, type KeyboardEvent } from "react";
 import { FloatType, equalFor, variant, type ValueTypeOf } from "@elaraai/east";
 import { Box, Popover, Portal } from "@chakra-ui/react";
 import { Plan } from "@elaraai/e3-ui/internal";
@@ -44,7 +49,8 @@ import { ToneStrip, type ToneDatum } from "./ToneStrip.js";
 import type { PlanBucket, PlanScale } from "../scale.js";
 import { instantKey } from "../instant.js";
 import { usePlanEdit } from "../edit/store.js";
-import { readTyped, resolutionOfValues, typedText, usePlanTypingOpen, type PlanTyping } from "../edit/typing.js";
+import { readTyped, resolutionOfValues, typedText, typesAt, usePlanTypingOpen, zoomApart, type PlanTyping } from "../edit/typing.js";
+import type { TimeResolution } from "../../shared/time/calendar-math.js";
 import { PlanCellInput, type PlanCellInputMove } from "./CellInput.js";
 import { cellName, tablePartsText } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
@@ -83,7 +89,7 @@ interface Typeable {
     readonly position: number;
     readonly whole: boolean;
     readonly held: ReadonlyMap<number, number>;
-    readonly resolution: string | undefined;
+    readonly resolution: TimeResolution | undefined;
 }
 
 const NO_TYPEABLES: readonly Typeable[] = [];
@@ -187,6 +193,25 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
     const typeables = useMemo(
         () => (typing !== undefined && typed !== undefined && typed.length > 0 ? typeablesOf(scale, typed, own ?? series, parent === true) : NO_TYPEABLES),
         [typing, typed, own, series, parent, scale]);
+    // The Plan's zooms, the finest first: its axis's, or, where it states none, the one it shows.
+    const zooms = typing === undefined ? [] : typing.zooms.length > 0 ? typing.zooms : scale.resolution !== undefined ? [scale.resolution] : [];
+    // At the Plan's finest zoom a bucket takes a typed number holding one value of the position's own, or none; coarser,
+    // each cell is a summary, which takes none.
+    const types = typesAt(scale.resolution, zooms);
+    const takesAt = (t: Typeable, bucket: number): boolean => types && (t.held.get(bucket) ?? 0) <= 1;
+    // A zoom from a coarser cell of this row lands on its cell holding the period's middle, once it draws.
+    useLayoutEffect(() => {
+        const at = typing?.store.takeFocus(rowKey, scale.resolution);
+        if (at === undefined) return;
+        const b = scale.renderBucketOf(scale.fromNumber(at));
+        if (b !== undefined) cellEls.current.get(instantKey(b.start))?.focus({ preventScroll: true });
+    });
+    /** Zoom to the Plan's finest zoom about a coarser cell's period, to edit it there. */
+    const zoomInto = (b: PlanBucket, finest: TimeResolution) => {
+        const about = (scale.toNumber(b.start) + scale.toNumber(b.end)) / 2;
+        typing?.store.focusOnZoom({ rowKey, at: about, resolution: finest });
+        dispatch({ t: "resolution.set", resolution: finest, about });
+    };
     // ── R2 (#591): numerals have no small form ──
     // The ROLLUP position is the one that carries the row's headline number
     // (`tableRollupSeries`' contract), so it is the one the strip encodes —
@@ -230,11 +255,11 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
     /** The cells along the row that take typing, in order: each bucket's positions, left to right. */
     const along = (): { cell: string; position: number }[] => [...bucketByIndex.values()]
         .sort((a, b) => a.index - b.index)
-        .flatMap((b) => typeables.filter((t) => (t.held.get(b.index) ?? 0) <= 1).map((t) => ({ cell: instantKey(b.start), position: t.position })));
+        .flatMap((b) => typeables.filter((t) => takesAt(t, b.index)).map((t) => ({ cell: instantKey(b.start), position: t.position })));
     // The input, where it is open on this row: its bucket and its position, while both still take typing.
     const openBucket = open !== null ? [...bucketByIndex.values()].find((b) => instantKey(b.start) === open.cell) : undefined;
     const openTypeable = open !== null && openBucket !== undefined
-        ? typeables.find((t) => t.position === open.position && (t.held.get(openBucket.index) ?? 0) <= 1) : undefined;
+        ? typeables.find((t) => t.position === open.position && takesAt(t, openBucket.index)) : undefined;
     const input = (() => {
         if (typing === undefined || open === null || openBucket === undefined || openTypeable === undefined) return null;
         const b = openBucket;
@@ -249,8 +274,9 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
         const onWrite = (value: number | undefined, move: PlanCellInputMove, el: HTMLElement) => {
             const unchanged = value === undefined ? current === undefined : current !== undefined && sameNumber(value, current);
             if (!unchanged) {
+                // Over the one value the bucket held, at its date, so the number replaces it.
                 typing.type({
-                    rowKey, position, at: b.start, bucket: scale.bucketText(b), value,
+                    rowKey, position, at: held?.at ?? b.start, bucket: scale.bucketText(b), value,
                     text: value !== undefined ? words.value(value, partFormat) : "",
                 });
             }
@@ -303,9 +329,11 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
             <Box ref={measureRef} css={styles.tableCellMeasure} data-plan-measure="" aria-hidden="true" />
             {[...buckets.entries()].map(([bi, parts]) => {
                 const b = bucketByIndex.get(bi)!;
-                // The positions taking a number here: one value of their own in the bucket, or none.
-                const typedHere = typeables.filter((t) => (t.held.get(bi) ?? 0) <= 1);
-                const folded = typedHere.length === 0 ? typeables.find((t) => (t.held.get(bi) ?? 0) > 1) : undefined;
+                // The positions taking a number here, at the finest zoom: one value of their own in the bucket, or none.
+                const typedHere = typeables.filter((t) => takesAt(t, bi));
+                const folded = types && typedHere.length === 0 ? typeables.find((t) => (t.held.get(bi) ?? 0) > 1) : undefined;
+                // Coarser, a summary: its tooltip says to zoom to the finest, which a double click, Enter or a tap does.
+                const coarse = !types && typeables.length > 0 ? zooms[0] : undefined;
                 const cell = instantKey(b.start);
                 const openHere = (position: number, seed?: string) => typing?.store.openAt({ rowKey, position, cell }, seed);
                 const takes = typing !== undefined && typedHere.length > 0;
@@ -337,7 +365,8 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                         data-cell={cell}
                         // The positions typing takes here (#1438); a bucket folding several values says where they take one.
                         data-typed={takes ? typedHere.map((t) => t.position).join(" ") : undefined}
-                        data-plan-note={folded !== undefined ? words.m.typedFolded({ resolution: folded.resolution }) : undefined}
+                        data-plan-note={folded !== undefined ? words.m.typedFolded({ resolution: folded.resolution, zoom: zoomApart(folded.resolution, zooms) })
+                            : coarse !== undefined ? words.m.typedZoomTo({ zoom: coarse }) : undefined}
                         data-plan-frac={b.x0.toFixed(4)}
                         tabIndex={-1}
                         role="button"
@@ -352,10 +381,12 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                             // inside it) — the BUCKET instant is the honest
                             // subject, exactly as the payload documents.
                             onElementClick?.(variant("cell", { row: rowId, at: b.start }) as PlanElementRefValue);
-                            // Below 480px of main, a tap opens the input (#1438).
+                            // Below 480px of main, a tap opens the input (#1438), or on a summary zooms in to edit it.
                             if (takes && typing.popover) openHere(positionAt(e.target, typedHere));
+                            else if (coarse !== undefined && typing?.popover === true) zoomInto(b, coarse);
                         }}
-                        onDoubleClick={takes ? (e) => { e.stopPropagation(); openHere(positionAt(e.target, typedHere)); } : undefined}
+                        onDoubleClick={takes ? (e) => { e.stopPropagation(); openHere(positionAt(e.target, typedHere)); }
+                            : coarse !== undefined ? (e) => { e.stopPropagation(); zoomInto(b, coarse); } : undefined}
                         onKeyDown={takes ? (e: KeyboardEvent<HTMLElement>) => {
                             if (e.altKey || e.ctrlKey || e.metaKey) return;
                             // A digit, a minus or the decimal separator opens it typed in.
@@ -364,6 +395,11 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                             e.preventDefault();
                             e.stopPropagation();
                             openHere(typedHere[0]!.position, seed);
+                        } : coarse !== undefined ? (e: KeyboardEvent<HTMLElement>) => {
+                            if (e.key !== "Enter" || e.altKey || e.ctrlKey || e.metaKey) return;
+                            e.preventDefault();
+                            e.stopPropagation();
+                            zoomInto(b, coarse);
                         } : undefined}
                     >
                         {/* Its numerals, together: drawn whole, or — wider than the cell — off its line, out of

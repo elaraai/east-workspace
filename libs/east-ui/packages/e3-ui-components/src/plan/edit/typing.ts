@@ -9,11 +9,15 @@
  * table rows read: a row draws the input only while it holds it, so opening
  * and moving it renders the rows it leaves and joins, never the canvas.
  *
- * - **Which cells.** A position its row says takes a typed number
- *   (`edits.values`), in a bucket holding one of its own values, or none. A
- *   parent's position drawing its children's subtotals takes none, and nor
- *   does a bucket folding several values: its tooltip names the resolution
- *   they are at.
+ * - **Which cells.** At the Plan's finest zoom, a position its row says takes
+ *   a typed number (`edits.values`), in a bucket holding one of its own values
+ *   — written at that value's date, so it replaces it — or none, written at the
+ *   bucket's start. A coarser cell is a summary of the values beneath it, and
+ *   takes none: its tooltip says to zoom to the finest, and a double click or
+ *   Enter on it zooms there, about its period. A parent's position drawing its
+ *   children's subtotals takes none, and nor does a bucket folding several
+ *   values: its tooltip names the resolution they are at, and the Plan's zoom
+ *   showing them apart, where it has one.
  * - **The text.** The value as its position's format reads it: a percent's
  *   `0.82` opens as `82`, and `82` or `82%` writes `0.82`; digit groups, the
  *   viewer's decimal separator and a `k` or `m` read as the Sheet's grammar
@@ -45,7 +49,7 @@ export interface PlanTypingOpen extends PlanTypingCell {
 export interface PlanTypedValue {
     readonly rowKey: RowKey;
     readonly position: number;
-    /** The bucket's start: the key the value is written under. */
+    /** The date the value is written under: the one value the bucket held, so it replaces it; else the bucket's start. */
     readonly at: PlanInstantValue;
     /** The bucket as words, as the history's step names it. */
     readonly bucket: string;
@@ -67,12 +71,49 @@ export interface PlanTyping {
     readonly type: (typed: PlanTypedValue) => boolean;
     /** Whether a tap on a cell opens the input in a popover anchored to it: below 480px of main. */
     readonly popover: boolean;
+    /** The resolutions the Plan zooms to, finest first ({@link planZooms}): none, where its axis states none. */
+    readonly zooms: readonly TimeResolution[];
+}
+
+/** A cell focus goes to once a zoom lands: a row's, at the instant its bucket holds, at a resolution. */
+export interface PlanTypingFocus {
+    readonly rowKey: RowKey;
+    /** The instant, in the axis's numbers. */
+    readonly at: number;
+    readonly resolution: TimeResolution;
 }
 
 /** The canvas's one input: the cell it is open on, if any. */
 export class PlanTypingStore {
     #open: PlanTypingOpen | null = null;
+    #focusing: PlanTypingFocus | null = null;
     readonly #listeners = new Set<() => void>();
+
+    /**
+     * Focus a row's cell once a zoom lands: the cell of the resolution zoomed
+     * to that holds the instant, where a double click or Enter on a coarser
+     * cell zooms to edit it (#1438).
+     *
+     * @param focus - The row, the instant and the resolution
+     */
+    focusOnZoom(focus: PlanTypingFocus): void {
+        this.#focusing = focus;
+    }
+
+    /**
+     * The focus a row's cells take as they draw at a resolution, taken once:
+     * the instant its cell holds, where the zoom landed on that row.
+     *
+     * @param rowKey - The row drawing
+     * @param resolution - The resolution it draws at
+     * @returns The instant, or `undefined` where no focus waits for it
+     */
+    takeFocus(rowKey: RowKey, resolution: TimeResolution | undefined): number | undefined {
+        const focusing = this.#focusing;
+        if (focusing === null || focusing.rowKey !== rowKey || focusing.resolution !== resolution) return undefined;
+        this.#focusing = null;
+        return focusing.at;
+    }
 
     /** The cell the input is open on. */
     get open(): PlanTypingOpen | null {
@@ -184,4 +225,53 @@ export function resolutionOfValues(instants: readonly number[]): TimeResolution 
     if (least === Infinity) return undefined;
     return least < DAY_MS ? "hour" : least < 7 * DAY_MS ? "day" : least < 28 * DAY_MS ? "week"
         : least < 89 * DAY_MS ? "month" : least < 365 * DAY_MS ? "quarter" : "year";
+}
+
+/** The time resolutions, from the finest. */
+const RESOLUTIONS: readonly TimeResolution[] = ["hour", "day", "week", "month", "quarter", "year"];
+
+/** A resolution's place among them, the finest first. */
+const rankOf = (resolution: TimeResolution): number => RESOLUTIONS.indexOf(resolution);
+
+/**
+ * The resolutions a Plan zooms to (#1438): its resolution segment's, and the
+ * one its axis opens at — but `auto`, which is none of them.
+ *
+ * @param segment - The resolution segment's resolutions
+ * @param opened - The resolution the axis opens at
+ * @returns Them, the finest first
+ */
+export function planZooms(segment: readonly string[], opened: string | undefined): readonly TimeResolution[] {
+    const named = new Set<string>(opened === undefined ? segment : [...segment, opened]);
+    return RESOLUTIONS.filter((resolution) => named.has(resolution));
+}
+
+/**
+ * Whether a table cell takes a typed number at a zoom (#1438): at the Plan's
+ * finest zoom alone, where a cell holds at most the values of its own bucket.
+ * A coarser cell is a summary of the values beneath it — a number typed there
+ * would stand for none of them — so it takes none. On an axis of no
+ * resolution, every cell takes one.
+ *
+ * @param zoom - The resolution the Plan shows
+ * @param zooms - The resolutions it zooms to, the finest first
+ * @returns Whether its cells take one
+ */
+export function typesAt(zoom: TimeResolution | undefined, zooms: readonly TimeResolution[]): boolean {
+    const finest = zooms[0];
+    return zoom === undefined || finest === undefined || rankOf(zoom) <= rankOf(finest);
+}
+
+/**
+ * The zoom a bucket folding values one each `each` shows them apart at, of
+ * the Plan's (#1438): the coarsest no coarser than they are. None where none
+ * is, so a bucket never names a zoom the Plan lacks.
+ *
+ * @param each - The resolution the values are at
+ * @param zooms - The resolutions the Plan zooms to, the finest first
+ * @returns The zoom, or `undefined` where no zoom of the Plan's shows them apart
+ */
+export function zoomApart(each: TimeResolution | undefined, zooms: readonly TimeResolution[]): TimeResolution | undefined {
+    if (each === undefined) return undefined;
+    return [...zooms].reverse().find((zoom) => rankOf(zoom) <= rankOf(each));
 }

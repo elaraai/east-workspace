@@ -467,9 +467,13 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     typedNotNumber: () => string;
     /** A fraction typed into a table cell whose values are whole numbers (#1438). */
     typedNotWhole: () => string;
-    /** What a table cell folding several values of a position that takes typing says: the resolution they are at, where
-     *  each takes one — `Holds several values, one each week: zoom to week to type one` (#1438). */
-    typedFolded: (p: { resolution: string | undefined }) => string;
+    /** What a table cell folding several values of a position that takes typing says: the resolution they are at, and the
+     *  Plan's zoom showing them apart — `Holds several values, one each week: zoom to week to type one` — or that it has
+     *  none (#1438). */
+    typedFolded: (p: { resolution: string | undefined; zoom: string | undefined }) => string;
+    /** What a table cell of a position taking typing says at a zoom coarser than the Plan's finest, where it is a summary
+     *  and takes none — `Zoom to week to edit`; a double click on it does (#1438). */
+    typedZoomTo: (p: { zoom: string }) => string;
     /** A tone-strip block's value — `101, beyond threshold`. */
     toneValue: (p: { value: string; warn: boolean }) => string;
     /** A chart layer's name in the chart's summary — `line`, or `columns 2`
@@ -775,9 +779,11 @@ export const planMessages: PlanMessages = {
     clearedStep: ({ row, bucket }) => `Clear ${row}, ${bucket}`,
     typedNotNumber: () => "Type a number",
     typedNotWhole: () => "Type a whole number",
-    typedFolded: ({ resolution }) => (resolution === undefined
-        ? "Holds several values: zoom in to type one"
-        : `Holds several values, one each ${resolution}: zoom to ${resolution} to type one`),
+    typedFolded: ({ resolution, zoom }) => {
+        const several = resolution === undefined ? "Holds several values" : `Holds several values, one each ${resolution}`;
+        return zoom === undefined ? `${several}, and no zoom shows them apart` : `${several}: zoom to ${zoom} to type one`;
+    },
+    typedZoomTo: ({ zoom }) => `Zoom to ${zoom} to edit`,
     toneValue: ({ value, warn }) => (warn ? `${value}, beyond threshold` : value),
     chartLayer: ({ kind, index }) => (index !== undefined ? `${LAYER_WORD[kind]} ${index}` : LAYER_WORD[kind]),
     chartLayerValues: ({ layer, min, max, last, n, breaches }) =>

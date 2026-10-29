@@ -154,7 +154,7 @@ import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
 import type { PlanSearch } from "./use-seek.js";
 import { DROPPABLE_KINDS } from "./rows/BodyRow.js";
 import { PlanEditContext, PlanEditStore, type PlanEditContextValue } from "./edit/store.js";
-import { PlanTypingStore, type PlanTyping } from "./edit/typing.js";
+import { PlanTypingStore, planZooms, type PlanTyping } from "./edit/typing.js";
 import { originOf, unmoved, usePlanCarry, type PlanMoveRequest } from "./edit/use-carry.js";
 import { PlanCarryAnnouncer } from "./edit/announce.js";
 import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from "./rows/element-select.js";
@@ -1194,6 +1194,11 @@ export function usePlanCanvas({
     // The resolution segment is a TIME-axis affordance; the now instant rides
     // whichever arm the axis declares.
     const resolutions = useMemo(() => axisResolutions(data.axis), [data.axis]);
+    // The resolutions the Plan zooms to, the finest first: its segment's and the one its axis opens at — what a table
+    // cell's typing reads (#1438). The resolution is the slice's: without one the Plan shows the one it opens at alone.
+    const zoomable = slices !== undefined;
+    const zooms = useMemo(() => (zoomable ? planZooms(resolutions, data.axis.type === "time" ? data.axis.value.resolution.type : undefined) : []),
+        [zoomable, resolutions, data.axis]);
     const now = useMemo(() => axisNow(data.axis), [data.axis]);
     // What the brush spans beside the window shown while no source holds the window (#1344).
     const stated = useMemo(() => statedWindow(data.axis), [data.axis]);
@@ -1567,11 +1572,12 @@ export function usePlanCanvas({
         ? {
             store: typingStore,
             popover: narrow,
+            zooms,
             type: (typed) => draftValue(typed, typed.value === undefined
                 ? words.m.clearedStep({ row: labelOf(typed.rowKey), bucket: typed.bucket })
                 : words.m.typedStep({ row: labelOf(typed.rowKey), bucket: typed.bucket, value: typed.text })),
         }
-        : undefined), [rowDrop, typingStore, narrow, draftValue, words, labelOf]);
+        : undefined), [rowDrop, typingStore, narrow, zooms, draftValue, words, labelOf]);
     // The input closes once the rows take no typing: a Save under way, a run of the optimiser out.
     useEffect(() => { if (typing === undefined) typingStore.close(); }, [typing, typingStore]);
     const editCtx = useMemo<PlanEditContextValue | null>(() => (scale !== undefined

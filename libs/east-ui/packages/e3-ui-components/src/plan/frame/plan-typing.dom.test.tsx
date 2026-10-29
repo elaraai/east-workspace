@@ -19,16 +19,23 @@
  *   move along the row, ↑ and ↓ to the rows above and below that take typing,
  *   and Esc writes nothing.
  * - A parent's cell takes none, and nor does a bucket folding several values,
- *   whose tooltip names the resolution they take one at.
+ *   whose tooltip names the resolution they are at and the Plan's zoom showing
+ *   them apart, where it has one.
+ * - At a zoom coarser than the Plan's finest, each cell is a summary of the
+ *   values beneath it and takes none: its tooltip says to zoom to the finest,
+ *   and a double click, Enter or a tap below 480px of main zooms there about
+ *   its period, on the row's cell at its middle, where a number typed into a
+ *   week holding one value replaces it at its date. The resolution is the
+ *   slice's: a Plan without one has no zoom but the one it shows.
  * - Below 480px of main, a tap on a cell opens the input in a popover anchored
  *   to it, its Enter writing as above.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DictType, East, PatchType, StringType, decodeBeast2For, equalFor, DateTimeType, some, type ValueTypeOf } from "@elaraai/east";
+import { DictType, East, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, equalFor, DateTimeType, some, type ValueTypeOf } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
-import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
+import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { Data, Plan, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/fixtures/plan/plan-nested";
 import { MutationCallRequestType, type TreePath } from "@elaraai/e3-types";
@@ -48,12 +55,25 @@ const WINDOWS = {
     month: { min: new Date("2026-01-01T00:00:00Z"), max: new Date("2026-07-01T00:00:00Z") },
 } as const;
 
-/** The twenty ledgers paged lean beside their nested series index, each leaf measure's readings taking a typed number. */
-const ledgersTyped = (resolution: keyof typeof WINDOWS) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+/** How the ledgers' Plan is mounted: the resolutions its axis names beside the one it opens at, and whether a slice holds them. */
+interface LedgersTyped {
+    readonly resolutions?: readonly (keyof typeof WINDOWS)[];
+    /** Its rows paged through a slice, which holds the resolution, so the Plan zooms: without one it shows the one it opens at. */
+    readonly sliced?: boolean;
+}
+
+/**
+ * The twenty ledgers paged lean beside their nested series index, each leaf measure's readings taking a typed number: at
+ * a resolution, its axis naming `resolutions` beside it, where given, and zooming to them through a slice, where `sliced`.
+ */
+const ledgersTyped = (resolution: keyof typeof WINDOWS, { resolutions, sliced = false }: LedgersTyped = {}) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const record = $.const(Record.bind(ex.ledgers, ["patch"]));
-    const ledgers = $.const(Data.bindPaged(ex.ledgers, { indexes: ["ledgers_by_site", "ledgers_in_time"] }));
+    const ledgers = Data.bindPaged(ex.ledgers, { indexes: ["ledgers_by_site", "ledgers_in_time"] });
     return Plan({
-        axis: Plan.axis({ window: WINDOWS[resolution], resolution }), data: ledgers,
+        axis: Plan.axis({ window: WINDOWS[resolution], resolution, ...(resolutions === undefined ? {} : { resolutions: [...resolutions] }) }),
+        ...(sliced
+            ? { slice: { slice: $.const(Slice.bindRecords("ledgers", { rows: { source: ledgers, fields: { site: { label: "Site" } } } })) } }
+            : { data: $.const(ledgers) }),
         series: [Plan.series.group(ex.Ledger, {
             key: "ledgers", title: "Ledgers", label: (l) => l.name,
             children: Plan.children("measures", [Plan.series.table(ex.Measure, {
@@ -71,8 +91,13 @@ const MIDDLE = rowAt(entry("readings", "L-101", "101.1", "101.1.1"));
 const LEAF = rowAt(entry("readings", "L-101", "101.1", "101.1.1", "101.1.1.1"));
 const LEAF_2 = rowAt(entry("readings", "L-101", "101.1", "101.1.1", "101.1.1.2"));
 
+const JAN_1 = new Date("2026-01-01T00:00:00Z");
+const JAN_5 = new Date("2026-01-05T00:00:00Z");
+const JAN_7 = new Date("2026-01-07T00:00:00Z");
 const JAN_12 = new Date("2026-01-12T00:00:00Z");
 const JAN_19 = new Date("2026-01-19T00:00:00Z");
+const FEB_1 = new Date("2026-02-01T00:00:00Z");
+const FEB_9 = new Date("2026-02-09T00:00:00Z");
 /** A cell, by its row and its bucket's start. */
 const cellAt = (c: HTMLElement, row: string, at: Date) =>
     [...c.querySelectorAll<HTMLElement>(`${row} [data-cell]`)].find((cell) => cell.getAttribute("data-cell") === instantKey(timeInstant(at)));
@@ -106,6 +131,22 @@ const measureOf = (ledger: LedgerValue, ...path: string[]): MeasureValue => {
     return at;
 };
 const readLedgers = async () => (await h.read(ex.ledgers)) as ReadonlyMap<string, LedgerValue>;
+/** The ledgers' Plan opened at the month, zooming to the week through its slice. */
+const ZOOMING = ledgersTyped("month", { resolutions: ["week", "month"], sliced: true });
+
+/** Ledger 101's first leaf: January holding one reading, the one of its week of the 5th moved to Wednesday the 7th. */
+async function januaryOnTheSeventh(): Promise<{ path: readonly string[]; reading: number }> {
+    const before = await readLedgers();
+    const path = ["101.1", "101.1.1", "101.1.1.1"] as const;
+    const reading = measureOf(before.get("L-101")!, ...path).readings.get(JAN_5)!;
+    const order = compareFor(DateTimeType);
+    const withLeaf = (measures: ReadonlyMap<string, MeasureValue>, [key, ...rest]: readonly string[]): Map<string, MeasureValue> =>
+        new Map([...measures].map(([k, m]) => [k, k !== key ? m : rest.length === 0
+            ? { ...m, readings: new SortedMap([...[...m.readings].filter(([at]) => order(at, JAN_1) < 0 || order(at, FEB_1) >= 0), [JAN_7, reading]], order) }
+            : { ...m, children: withLeaf(m.children, rest) }]));
+    await h.commit(ex.ledgers, new Map([...before].map(([k, l]) => [k, k === "L-101" ? { ...l, measures: withLeaf(l.measures, path) } : l])));
+    return { path, reading };
+}
 
 describe("a number typed into a table cell (#1438)", () => {
     test("a leaf's week value typed reads its ledger whole once, draws at once with every subtotal above it moved by the difference, and its Save commits that value alone", async () => {
@@ -258,19 +299,61 @@ describe("a number typed into a table cell (#1438)", () => {
         expect(h.requests("rows", LEDGERS)).toEqual([]);
     });
 
-    test("a parent's cell takes no typing; at the month, a leaf's cell folding its weeks takes none either, its tooltip saying where they take one", async () => {
+    test("a parent's cell takes no typing; at the month of a Plan with no slice, its one zoom however its axis names the week, a leaf's cell folding its weeks takes none either, its tooltip saying no zoom of this Plan's shows them apart", async () => {
         const { container: c } = await h.mount(ledgersTyped("week"));
         await settle();
         expect([MIDDLE, TOP].map((row) => cellAt(c, row, JAN_12)!.hasAttribute("data-typed"))).toEqual([false, false]);
         await openOn(c, MIDDLE, JAN_12);
         expect(inputOf(c)).toBeNull();
-        const { container: m } = await h.mount(ledgersTyped("month"), { storageKey: "month" });
+        const { container: m } = await h.mount(ledgersTyped("month", { resolutions: ["week", "month"] }), { storageKey: "month" });
         await settle();
         const january = cellAt(m, LEAF, new Date("2026-01-01T00:00:00Z"))!;
         expect(january.hasAttribute("data-typed")).toBe(false);
-        expect(january.getAttribute("data-plan-note")).toBe(planMessages.typedFolded({ resolution: "week" }));
+        expect(january.getAttribute("data-plan-note")).toBe(planMessages.typedFolded({ resolution: "week", zoom: undefined }));
         await openOn(m, LEAF, new Date("2026-01-01T00:00:00Z"));
         expect(inputOf(m)).toBeNull();
+    });
+
+    test("at the month of a Plan zooming to the week, a leaf's cell is a summary: it takes no number, saying to zoom to the week, and a double click zooms there about its month, on that row's cell at its middle, where a number typed into the week holding one value replaces it at its date", async () => {
+        const { path, reading } = await januaryOnTheSeventh();
+        const { container: c } = await h.mount(ZOOMING);
+        await settle();
+        const january = cellAt(c, LEAF, JAN_1)!;
+        expect(printed(c, LEAF, JAN_1)).toBe(String(reading));
+        expect([january.hasAttribute("data-typed"), january.getAttribute("data-plan-note")]).toEqual([false, planMessages.typedZoomTo({ zoom: "week" })]);
+        // A parent's says nothing: it takes no typing at any zoom.
+        expect(cellAt(c, MIDDLE, JAN_1)!.hasAttribute("data-plan-note")).toBe(false);
+        await openOn(c, LEAF, JAN_1);
+        await settle();
+        expect(inputOf(c)).toBeNull();
+        // At the week, about January's middle: the leaf's cell holding it focused, the week of the 5th holding the reading.
+        await waitFor(() => expect(document.activeElement).toBe(cellAt(c, LEAF, JAN_12)));
+        expect([cellAt(c, LEAF, JAN_5)!.getAttribute("data-typed"), printed(c, LEAF, JAN_5)]).toEqual(["0", String(reading)]);
+        await openOn(c, LEAF, JAN_5);
+        expect(inputOf(c)!.value).toBe(String(reading));
+        await typeIn(c, "100");
+        await press(c, "Enter");
+        await settle();
+        await waitFor(() => expect(printed(c, LEAF, JAN_5)).toBe("100"));
+        // Saved, the number is the reading of the 7th, and none is kept at the 5th.
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar") ?? c).getByRole("button", { name: editingMessages.apply() })); });
+        await settle();
+        const saved = measureOf((await readLedgers()).get("L-101")!, ...path);
+        expect([saved.readings.get(JAN_7), saved.readings.has(JAN_5)]).toEqual([100, false]);
+    });
+
+    test("at the month, a digit or F2 on a leaf's summary opens nothing, and Enter zooms to the week about it as a double click does", async () => {
+        const { container: c } = await h.mount(ZOOMING);
+        await settle();
+        const february = cellAt(c, LEAF, FEB_1)!;
+        await act(async () => { february.focus(); fireEvent.keyDown(february, { key: "7" }); fireEvent.keyDown(february, { key: "F2" }); });
+        expect(inputOf(c)).toBeNull();
+        expect(cellAt(c, LEAF, FEB_1)).toBe(february);
+        await act(async () => { fireEvent.keyDown(february, { key: "Enter" }); });
+        await settle();
+        // February's middle is the 15th, in the week of the 9th.
+        await waitFor(() => expect(document.activeElement).toBe(cellAt(c, LEAF, FEB_9)));
+        expect(inputOf(c)).toBeNull();
     });
 });
 
@@ -304,19 +387,25 @@ describe("below 480px of main (#1438)", () => {
         await settle();
     }
 
+    /** A row's card, by its id. */
+    const card = (id: ReturnType<typeof entry>) => `[data-plan-card=${JSON.stringify(rowKeyOf(id))}]`;
+    const leaf = card(entry("readings", "L-101", "101.1", "101.1.1", "101.1.1.1"));
+    const middle = card(entry("readings", "L-101", "101.1", "101.1.1"));
+
+    /** Narrows the container to a phone's width, and opens ledger 101's rows as cards. */
+    async function ledger101AsCards(c: HTMLElement): Promise<void> {
+        await narrowTo(390);
+        expect(c.querySelector("[data-plan-narrow]")).toBeTruthy();
+        const group = [...c.querySelectorAll<HTMLElement>("[data-plan-groupcard]")]
+            .find((el) => el.getAttribute("data-plan-groupcard") === rowKeyOf(entry("ledgers", "L-101")))!;
+        await act(async () => { fireEvent.click(group); });
+        await settle();
+    }
+
     test("a tap on a leaf's cell opens the input in a popover anchored to it; its Enter writes the value, every subtotal above it moving", async () => {
         const { container: c } = await h.mount(ledgersTyped("week"));
         await settle();
-        await narrowTo(390);
-        expect(c.querySelector("[data-plan-narrow]")).toBeTruthy();
-        // Ledger 101's rows, as cards.
-        const group = [...c.querySelectorAll<HTMLElement>("[data-plan-groupcard]")]
-            .find((card) => card.getAttribute("data-plan-groupcard") === rowKeyOf(entry("ledgers", "L-101")))!;
-        await act(async () => { fireEvent.click(group); });
-        await settle();
-        const card = (id: ReturnType<typeof entry>) => `[data-plan-card=${JSON.stringify(rowKeyOf(id))}]`;
-        const leaf = card(entry("readings", "L-101", "101.1", "101.1.1", "101.1.1.1"));
-        const middle = card(entry("readings", "L-101", "101.1", "101.1.1"));
+        await ledger101AsCards(c);
         const tapped = cellAt(c, leaf, JAN_12)!;
         expect(tapped.getAttribute("data-typed")).toBe("0");
         await act(async () => { fireEvent.click(tapped); });
@@ -329,6 +418,19 @@ describe("below 480px of main (#1438)", () => {
         await settle();
         expect(document.querySelector("[data-plan-typing-popover]")).toBeNull();
         await waitFor(() => expect([printed(c, leaf, JAN_12), printed(c, middle, JAN_12)]).toEqual(["15", "22"]));
+    });
+
+    test("at the month of a Plan zooming to the week, a tap on a leaf's summary opens nothing and zooms to the week about it", async () => {
+        const { container: c } = await h.mount(ZOOMING);
+        await settle();
+        await ledger101AsCards(c);
+        const january = cellAt(c, leaf, JAN_1)!;
+        expect(january.getAttribute("data-plan-note")).toBe(planMessages.typedZoomTo({ zoom: "week" }));
+        await act(async () => { fireEvent.click(january); });
+        await settle();
+        expect(document.querySelector("[data-plan-typing-popover]")).toBeNull();
+        // At the week, about January's middle: the card's cell holding it.
+        await waitFor(() => expect(cellAt(c, leaf, JAN_12)?.getAttribute("data-typed")).toBe("0"));
     });
 });
 

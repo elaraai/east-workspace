@@ -738,9 +738,10 @@ rows may still map a collection in one; `edit` needs the named read.
 - **A table's values take typed numbers.** `edit: true` on
   `Plan.series.table` (its `cells`) or on a `Plan.tableSeries` position, its
   cells a `Plan.values` read drawing each value as stored (`value: some(v)`):
-  a number typed into a cell sets the value at the bucket's start, adds one
-  where none is, and cleared deletes it. Which cells take typing, and how, is
-  the renderer's.
+  at the Plan's finest zoom, a number typed into a cell replaces the one value
+  its bucket holds, at that value's date, adds one at the bucket's start where
+  none is, and cleared deletes it; at a coarser zoom a cell is a summary and
+  takes none. Which cells take typing, and how, is the renderer's.
 - **Moves by id.** A move along a row writes the item's named times. A move to
   another row takes the item out of the first row's collection under its id
   and puts it in the second's under the same id. A move onto a row holding the

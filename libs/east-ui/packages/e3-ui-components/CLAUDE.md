@@ -1479,11 +1479,21 @@ while it holds it, over the cell's column (`rows/CellInput.tsx`: the Sheet's
 number field, the Plan recipe's `tableCellInput` slots), or below 480px of
 main in a popover anchored to the cell.
 
-- **Which cells.** A bucket holding one of the position's own values, or none
-  — every bucket in the window draws a cell then. A parent's position drawing
-  its children's subtotals takes none; a bucket folding several values takes
-  none, its tooltip (`data-plan-note`, said by the overlay's label tooltip)
-  naming the resolution they take one at.
+- **Which cells.** At the Plan's finest zoom, a bucket holding one of the
+  position's own values — written at that value's date, so it replaces it —
+  or none, written at the bucket's start; every bucket in the window draws a
+  cell then. At a coarser zoom each cell is a summary of the values beneath it
+  and takes none: its tooltip (`data-plan-note`, said by the overlay's label
+  tooltip) says to zoom to the finest, and a double click, Enter or a tap
+  below 480px zooms there about its period (`resolution.set`'s `about`; a
+  canvas holding its own window re-windows by `zoomedWindow`), focus landing
+  on the row's cell at the period's middle (`PlanTypingStore.focusOnZoom`,
+  `takeFocus`). The zooms are the slice's — its resolution segment's and the
+  one the axis opens at (`planZooms`) —, so a Plan without a slice types at
+  the one resolution it shows. A parent's position drawing its children's
+  subtotals takes none; a bucket folding several values takes none, its
+  tooltip naming the resolution they take one at and the Plan's zoom showing
+  them apart, where it has one.
 - **Keys.** Enter, F2, a double click or a digit opens it (a tap below 480px).
   Enter writes; Esc cancels; a blur writes. Tab and Shift+Tab write and move
   along the row; ↑ and ↓ write and move to the mounted rows above and below

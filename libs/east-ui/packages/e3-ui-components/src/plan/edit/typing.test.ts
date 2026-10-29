@@ -16,7 +16,7 @@ import { describe, it, expect } from "vitest";
 import { East } from "@elaraai/east";
 import { Format, TickFormatType } from "@elaraai/east-ui/internal";
 import { formatters } from "@elaraai/east-ui-components";
-import { readTyped, resolutionOfValues, typedText } from "./typing.js";
+import { PlanTypingStore, planZooms, readTyped, resolutionOfValues, typedText, typesAt, zoomApart } from "./typing.js";
 
 /** A percent, as a position's format decodes. */
 const PERCENT = East.compile(East.function([], TickFormatType, () => Format.Percent()), [])();
@@ -46,5 +46,37 @@ describe("a table cell's typed text (#1438)", () => {
         expect([every(DAY), every(7 * DAY), every(31 * DAY), every(91 * DAY), every(365 * DAY)].map(resolutionOfValues))
             .toEqual(["day", "week", "month", "quarter", "year"]);
         expect(resolutionOfValues([from])).toBeUndefined();
+    });
+});
+
+describe("the zooms a table cell's typing reads (#1438)", () => {
+    it("are the resolution segment's and the one the axis opens at, the finest first, auto none of them", () => {
+        expect(planZooms(["month", "week", "year"], "week")).toEqual(["week", "month", "year"]);
+        expect(planZooms([], "month")).toEqual(["month"]);
+        expect(planZooms(["quarter"], "auto")).toEqual(["quarter"]);
+        expect(planZooms([], undefined)).toEqual([]);
+    });
+
+    it("let a cell take a number at the finest zoom alone: a coarser one is a summary of the values beneath it", () => {
+        expect(typesAt("week", ["week", "month"])).toBe(true);
+        expect(typesAt("month", ["week", "month"])).toBe(false);
+        expect(typesAt(undefined, ["week"])).toBe(true);
+        expect(typesAt("month", [])).toBe(true);
+    });
+
+    it("land a zoom from a coarser cell on the row it came from, once that row draws at the zoom, and once", () => {
+        const store = new PlanTypingStore();
+        store.focusOnZoom({ rowKey: "ledger", at: 1_000, resolution: "week" });
+        expect(store.takeFocus("other", "week")).toBeUndefined();
+        expect(store.takeFocus("ledger", "month")).toBeUndefined();
+        expect(store.takeFocus("ledger", "week")).toBe(1_000);
+        expect(store.takeFocus("ledger", "week")).toBeUndefined();
+    });
+
+    it("show values apart at the coarsest zoom no coarser than they are, and name no zoom the Plan lacks", () => {
+        expect(zoomApart("week", ["week", "month", "quarter"])).toBe("week");
+        expect(zoomApart("month", ["week", "quarter"])).toBe("week");
+        expect(zoomApart("day", ["week", "month"])).toBeUndefined();
+        expect(zoomApart(undefined, ["week"])).toBeUndefined();
     });
 });

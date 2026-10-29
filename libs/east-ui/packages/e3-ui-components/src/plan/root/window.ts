@@ -142,7 +142,7 @@ function bucketsOver(tile: RecordTile, from: number, to: number): number[] {
 /**
  * The window a zoom shows on a canvas holding its own (#1438): as many
  * buckets of the new resolution as the window shown held of the old, about
- * the same middle — inside the span of what its series read where it is
+ * the same middle, or the one given — inside the span of what its series read where it is
  * known, the whole span where they do not fit, and over the window shown too
  * where it lies outside the span. Where a source holds the window it is that
  * source's narrowing, and a zoom only re-buckets.
@@ -151,14 +151,16 @@ function bucketsOver(tile: RecordTile, from: number, to: number): number[] {
  * @param from - The resolution it shows at
  * @param to - The resolution zoomed to
  * @param span - The span of what the series read, `[from, to)` in ms; `undefined` where none is known
+ * @param about - The middle it zooms about, in ms: the window shown's own unless given — a table cell's period, where a
+ *   double click on it zooms to edit it (#1438)
  * @returns The window, `[from, to)` in ms, each end a bucket's edge; `undefined` for a resolution no calendar bucket names
  */
 export function zoomedWindow(shown: readonly [number, number], from: string, to: string,
-    span: readonly [number, number] | undefined): readonly [number, number] | undefined {
+    span: readonly [number, number] | undefined, about?: number): readonly [number, number] | undefined {
     if (!ZOOM_TILES.has(from) || !ZOOM_TILES.has(to)) return undefined;
     const tile = to as RecordTile;
     const n = Math.max(1, bucketsOver(from as RecordTile, shown[0], shown[1]).length);
-    const middle = (shown[0] + shown[1]) / 2;
+    const middle = about ?? (shown[0] + shown[1]) / 2;
     const reach = (n + 1) * BUCKET_MS[tile];
     const buckets = span === undefined
         ? bucketsOver(tile, middle - reach, middle + reach)
