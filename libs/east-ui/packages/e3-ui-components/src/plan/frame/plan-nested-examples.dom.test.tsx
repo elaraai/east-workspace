@@ -4,17 +4,17 @@
  *
  * @vitest-environment jsdom
  *
- * The nested series examples (#1439), on e3 itself: each mounts as a surface
- * mounts it, its rows read through the record's indexes and its collections
- * through the nested series index a cell at a time, its Plan built with no
- * refusal and every row drawn; the twelve machines read whole read no index.
- * The works' series are picked, each switched off and on from the library's
- * Series tab. The ledgers take a typed reading at once, every subtotal above
- * it moving.
+ * The nested series example (#1439), on e3 itself: `planNestedAll` mounts as
+ * a surface mounts it, its rows read through the record's indexes and its
+ * collections through the nested series index a cell at a time, its Plan built
+ * with no refusal and every row drawn; its series picked, each switched off
+ * and on from the library's Series tab; and a crew's hours typed into a week,
+ * the works' sum above moving at once.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
-import { fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
+import { East } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
 import type { TreePath } from "@elaraai/e3-types";
 import { boundFrame, frameScrolls } from "../../sheet/frame.test-utils.js";
@@ -44,29 +44,20 @@ function drawn(c: HTMLElement) {
 const kindsOf = (dataset: string, index?: string) => h.requests().filter((request) => request.dataset === dataset
     && (index === undefined || (request.query.get("index") ?? undefined) === index)).map((request) => request.kind);
 
-describe("the nested series examples on e3 (#1439)", () => {
-    const paged = [
-        { name: "planNestedAll", example: ex.planNestedAll, record: ex.planWorks, index: ex.planWorks.indexes.plan_works_in_time.name },
-        { name: "planNestedMachines", example: ex.planNestedMachines, record: ex.machines, index: ex.machines.indexes.machines_in_time.name },
-        { name: "planNestedHalls", example: ex.planNestedHalls, record: ex.halls, index: ex.halls.indexes.halls_in_time.name },
-        { name: "planNestedAssemblies", example: ex.planNestedAssemblies, record: ex.assemblies, index: ex.assemblies.indexes.assemblies_in_time.name },
-        { name: "planNestedLedgers", example: ex.planNestedLedgers, record: ex.ledgers, index: ex.ledgers.indexes.ledgers_in_time.name },
-    ] as const;
-    for (const { name, example, record, index } of paged) {
-        test(`${name}: its rows paged lean, its collections read a cell at a time through ${index}, every row drawn`, async () => {
-            const { container: c } = await h.mount(example);
-            await settle();
-            const { rows, refused } = drawn(c);
-            expect(refused).toEqual([]);
-            expect(rows).toBeGreaterThan(0);
-            const dataset = pathText(record.path as TreePath);
-            expect(kindsOf(dataset)).toContain("page");
-            expect(kindsOf(dataset, index)).toContain("runs");
-            // Nothing read whole, nor a row by its key: no gesture asked for one.
-            expect(h.requests("rows", dataset)).toEqual([]);
-            expect(h.requests("read", dataset)).toEqual([]);
-        });
-    }
+describe("the nested series example on e3 (#1439)", () => {
+    test("planNestedAll: its rows paged lean, its collections read a cell at a time through plan_works_in_time, every row drawn", async () => {
+        const { container: c } = await h.mount(ex.planNestedAll);
+        await settle();
+        const { rows, refused } = drawn(c);
+        expect(refused).toEqual([]);
+        expect(rows).toBeGreaterThan(0);
+        const dataset = pathText(ex.planWorks.path as TreePath);
+        expect(kindsOf(dataset)).toContain("page");
+        expect(kindsOf(dataset, ex.planWorks.indexes.plan_works_in_time.name)).toContain("runs");
+        // Nothing read whole, nor a row by its key: no gesture asked for one.
+        expect(h.requests("rows", dataset)).toEqual([]);
+        expect(h.requests("read", dataset)).toEqual([]);
+    });
 
     test("planNestedAll: the Series tab lists every series, and switching one off takes its rows and on brings them back", async () => {
         const { container: c } = await h.mount(ex.planNestedAll);
@@ -93,37 +84,38 @@ describe("the nested series examples on e3 (#1439)", () => {
         await waitFor(() => expect(jobs()?.querySelector("[data-run]")).not.toBeNull());
     });
 
-    test("planNestedInline: the twelve machines read whole, no index asked", async () => {
-        const { container: c } = await h.mount(ex.planNestedInline);
+    test("planNestedAll: a crew's hours typed into a week move the works' sum above at once", async () => {
+        const { container: c } = await h.mount(ex.planNestedAll);
         await settle();
-        const { rows, refused } = drawn(c);
-        expect(refused).toEqual([]);
-        expect(rows).toBeGreaterThan(0);
-        expect(h.requests().filter((request) => request.kind === "find" || request.kind === "runs")).toEqual([]);
-    });
-
-    test("planNestedLedgers: a reading typed into a leaf's week moves every subtotal above it at once", async () => {
-        const { container: c } = await h.mount(ex.planNestedLedgers);
+        // Jobs and Load switched off, and every works unfolded: the first works' crews under its crew hours.
+        const pane = slot(c, "start")!;
+        fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
         await settle();
-        const OCT_12 = instantKey(timeInstant(new Date("2026-10-12T00:00:00Z")));
-        const at = (...path: string[]) => [...c.querySelectorAll<HTMLElement>(`${rowAt(entry("measure-totals", "L-101", ...path))} [data-cell]`)]
-            .find((cell) => cell.getAttribute("data-cell") === OCT_12);
-        const leaf = ["101.1", "101.1.1", "101.1.1.1"];
-        // Each cell's readings — its first part; the stock is its second.
-        const printed = () => [at(...leaf), at("101.1", "101.1.1"), at("101.1")]
-            .map((cell) => cell?.querySelector("[data-part='0']")?.textContent ?? "no reading");
-        const before = printed();
-        // Week 40 of the year (Oct 12): the first leaf's reading is 40 % 17 + 1 = 7.
-        expect(before[0]).toBe("7");
-        await act(async () => { fireEvent.doubleClick(at(...leaf)!); });
+        for (const name of ["Jobs", "Load"]) {
+            const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+            fireEvent.click([...panel.querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!);
+            await settle();
+        }
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar")!).getByRole("button", { name: "Expand all" })); });
+        await settle();
+        // The first crew's first week of hours in the window, as the generator made it: its works' sum that week is its alone.
+        const crews = [...East.compile(ex.generateWorks, [])(0n, 522n).crews.values()];
+        const from = new Date("2026-09-28T00:00:00Z").getTime();
+        const to = new Date("2026-12-28T00:00:00Z").getTime();
+        const [week, hours] = [...crews[0]!.hours].find(([at]) => at.getTime() >= from && at.getTime() < to)!;
+        expect(crews[1]!.hours.has(week)).toBe(false);
+        const key = instantKey(timeInstant(week));
+        const cellOf = (...path: string[]) => [...c.querySelectorAll<HTMLElement>(`${rowAt(entry(path.length === 1 ? "crews" : "crew", ...path))} [data-cell]`)]
+            .find((cell) => cell.getAttribute("data-cell") === key);
+        const printed = (cell: HTMLElement | undefined) => cell?.querySelector("[data-part='0']")?.textContent ?? "none";
+        await waitFor(() => expect(printed(cellOf("W-10001", "C-10001-1"))).toBe(String(hours)));
+        expect(printed(cellOf("W-10001"))).toBe(String(hours));
+        await act(async () => { fireEvent.doubleClick(cellOf("W-10001", "C-10001-1")!); });
         const input = c.querySelector<HTMLInputElement>("[data-plan-typing] input")!;
-        await act(async () => { fireEvent.input(input, { target: { value: "20" } }); });
+        await act(async () => { fireEvent.input(input, { target: { value: "500" } }); });
         await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
         await settle();
-        await waitFor(() => expect(printed()[0]).toBe("20"));
-        // The middle's and the top's readings each moved by 13.
-        const moved = printed();
-        const reading = (text: string) => Number(text.replace(/,/g, ""));
-        expect([reading(moved[1]!) - reading(before[1]!), reading(moved[2]!) - reading(before[2]!)]).toEqual([13, 13]);
+        await waitFor(() => expect(printed(cellOf("W-10001", "C-10001-1"))).toBe("500"));
+        await waitFor(() => expect(printed(cellOf("W-10001"))).toBe("500"));
     });
 });

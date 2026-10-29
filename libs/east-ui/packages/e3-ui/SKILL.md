@@ -377,9 +377,8 @@ no nested series index or on an axis other than time, and an index keeping no
 totals. Rows paged whole (`Data.bindPaged(dataset)`) are read as before.
 
 **A Plan over them reads a cell at a time** (#1438; the Plan's `plan-nested`
-examples: `planNestedAll`, every series kind over two hundred works and ten
-years, its series picked from the library; `planNestedMachines`,
-`planNestedHalls`, `planNestedAssemblies`, `planNestedLedgers`). The rail pages the rows lean; for the rows in view and 25
+example, `planNestedAll`: every series kind over two hundred works and ten
+years, its series picked from the library, a crew's hours typed into). The rail pages the rows lean; for the rows in view and 25
 either side, in blocks of fifty, the Plan reads each collection its series
 draw — one range a row a level its items are filed at — in one batch of
 searches and one read of the entries, and draws them with the same series as

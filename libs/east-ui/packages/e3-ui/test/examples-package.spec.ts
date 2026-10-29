@@ -219,15 +219,15 @@ describe("the examples' package step", () => {
         assert.deepEqual([...packages.keys()], [...new Set(keys.map(exampleArea))]);
     });
 
-    test("packages the nested series examples with the Plan's, their records and their indexes in the Plan's area (#1439)", async () => {
+    test("packages the nested series example's works in the Plan's area, and none of the records the Plan's tests read besides (#1439)", async () => {
         const packages = examplesAreaPackages(await loadExampleModules());
-        assert.equal(packages.get("plan-nested"), undefined, "the nested series examples are the Plan's, on its page");
+        assert.equal(packages.get("plan-nested"), undefined, "the nested series example is the Plan's, on its page");
         const plan = packages.get("plan");
         assert.ok(plan !== undefined);
         assert.equal(plan.name, "e3-ui-examples-plan");
-        const nested = ["assemblies", "halls", "ledgers", "machines", "machines_few"];
-        assert.deepEqual(Object.keys(plan.records).filter((name) => nested.includes(name)).sort(), nested);
-        assert.deepEqual(Object.keys(plan.records.ledgers!.indexes).sort(), ["ledgers_by_site", "ledgers_in_time", "ledgers_in_time_span"]);
-        assert.deepEqual(Object.keys(plan.records.machines!.indexes).sort(), ["machines_by_name", "machines_by_site_status", "machines_in_time", "machines_in_time_span"]);
+        assert.deepEqual(Object.keys(plan.records.plan_works!.indexes).sort(),
+            ["plan_works_by_name", "plan_works_by_site_status", "plan_works_in_time", "plan_works_in_time_span"]);
+        assert.deepEqual(Object.keys(plan.records).filter((name) => ["assemblies", "halls", "ledgers", "machines", "machines_few"].includes(name)), [],
+            "the fixtures are no example's");
     });
 });

@@ -26,7 +26,7 @@ import { layOut } from "@elaraai/east-ui-components/testing";
 import { Editing, Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { getStore } from "@elaraai/east-ui-components/internal";
 import { Data, Plan, Record } from "@elaraai/e3-ui/internal";
-import * as ex from "@elaraai/e3-ui/examples/plan/plan-nested";
+import * as ex from "@elaraai/e3-ui/fixtures/plan/plan-nested";
 import { MutationCallRequestType, type TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
@@ -35,7 +35,7 @@ import { carry } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
 import { act, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 
-const h = planHarness({ "plan/plan-nested": ex });
+const h = planHarness({ "plan/plan-nested.fixtures": ex });
 
 // ── The records, and what the Plan asks e3 of them ───────────────────────────
 

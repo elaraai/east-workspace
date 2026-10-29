@@ -1421,7 +1421,10 @@ window through the seam with what it read:
   so the moved item and every subtotal over it draw before Save.
 
 Tests: `plan/frame/plan-nested.dom.test.tsx`, on e3, over e3-ui's
-`plan-nested` examples (`test/plan/`, on the Plan's page). jsdom mounts the rows the canvas lays out first, in
+nested series fixtures (`@elaraai/e3-ui/fixtures/plan/plan-nested`: the
+machines, halls, assemblies and ledgers, on no page); the example's own,
+`planNestedAll` over the works, in `plan-nested-examples.dom.test.tsx` and
+`plan-works.dom.test.tsx`. jsdom mounts the rows the canvas lays out first, in
 its index's order; page by an index whose order puts the rows compared first,
 and scroll by the canvas's row geometry under `emulateWindowScroll`. A Plan
 pans and zooms only through its Slice, which holds the canvas's own window

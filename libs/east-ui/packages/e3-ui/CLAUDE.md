@@ -164,12 +164,15 @@ parents, and the function that fills a window's lean rows with the cells read,
 through e3's own fill); a parent's subtotals and bands come from e3, never its
 children's cells. A drafted row is read whole; Save restates each listed
 collection's change by key (`src/plan/nested-patch.ts`). The Plan's
-`plan-nested` examples (#1439, `test/plan/plan-nested.examples.tsx`, on the
-Plan's page) show each ruling on e3: the works (every series kind over ten
-years, sparse and spread evenly, its series picked from the library), the
-machines (five collections, the cap), the halls (strips by their members'
-mean), the assemblies (bands filed under parents) and the ledgers (subtotals
-by two rollups, typed readings).
+`plan-nested` example (#1439, `planNestedAll` in
+`test/plan/plan-nested.examples.tsx`, on the Plan's page) shows them on e3
+over the works: every series kind over ten years, sparse and spread evenly,
+its series picked from the library, a crew's hours typed into. The records
+the tests read besides — the machines (five collections, the cap), the halls
+(strips by their members' mean), the assemblies (bands filed under parents)
+and the ledgers (subtotals by two rollups, typed readings) — are fixtures
+(`test/plan/plan-nested.fixtures.ts`, exported as `@elaraai/e3-ui/fixtures/*`),
+on no page of the showcase.
 
 The Schematic (#1386) takes `slice={{ slice: Slice.bindRecords(key, { … })
 }}`. Each of its kinds — `Schematic.items`, `zones`, `links` and `nets`, keyed

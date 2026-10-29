@@ -5,13 +5,14 @@
 
 /**
  * The nested series records (#1438, #1439), as their seeds make them: the
- * sizes each is declared at, a row a function of its number alone, a parent
- * measure holding nothing of its own, and enough jobs in a year's view that a
- * Plan shades it from the totals. And the Plans over them (#1439): each builds,
- * reads its rows a page, a search or a cell at a time — never whole, but the
- * twelve machines it reads whole on purpose — and writes through the record's
- * patch door where it edits. What they draw and read, on e3, is
- * e3-ui-components' (`plan/frame/plan-nested.dom.test.tsx`, `plan-typing`).
+ * works the example reads, and the fixtures the Plan's tests read besides
+ * (`plan-nested.fixtures.ts`) — the sizes each is declared at, a row a function
+ * of its number alone, a parent measure holding nothing of its own, and enough
+ * jobs in a year's view that a Plan shades it from the totals. And the Plan
+ * over the works (#1439): it builds, reads its rows a page, a search or a cell
+ * at a time — never whole — and writes through the record's patch door. What
+ * it draws and reads, on e3, is e3-ui-components' (`plan/frame/plan-works`,
+ * `plan-nested`, `plan-typing`).
  */
 
 import { describe, test } from "node:test";
@@ -20,9 +21,10 @@ import { DictType, East, StringType, decodeBeast2For, encodeBeast2For, equalFor,
 import { UIComponentType } from "@elaraai/east-ui";
 import { deriveManifest } from "@elaraai/e3-ui/internal";
 import * as ex from "./plan-nested.examples.js";
+import * as rec from "./plan-nested.fixtures.js";
 
-type Part = ValueTypeOf<typeof ex.Part>;
-type Measure = ValueTypeOf<typeof ex.Measure>;
+type Part = ValueTypeOf<typeof rec.Part>;
+type Measure = ValueTypeOf<typeof rec.Measure>;
 
 /** Every node of a tree of parts, and of measures, the roots first. */
 function partsOf(parts: ReadonlyMap<string, Part>): Part[] {
@@ -58,7 +60,7 @@ describe("the nested series records", () => {
     });
 
     test("a thousand machines, each with 80 jobs, 10 stops, 10 alarms and 52 weeks of load and output: 204,000 items", () => {
-        const machines = East.compile(ex.generateMachines, [])(1_000n);
+        const machines = East.compile(rec.generateMachines, [])(1_000n);
         assert.equal(machines.size, 1_000);
         let items = 0;
         for (const machine of machines.values()) {
@@ -71,20 +73,20 @@ describe("the nested series records", () => {
     });
 
     test("the twelve machines are the thousand's first twelve: a row is a function of its number alone", () => {
-        const many = East.compile(ex.generateMachines, [])(1_000n);
-        const few = East.compile(ex.generateMachines, [])(12n);
+        const many = East.compile(rec.generateMachines, [])(1_000n);
+        const few = East.compile(rec.generateMachines, [])(12n);
         const first = new Map([...many].slice(0, 12));
-        assert.ok(equalFor(DictType(StringType, ex.Machine))(few as never, first as never));
+        assert.ok(equalFor(DictType(StringType, rec.Machine))(few as never, first as never));
     });
 
     test("forty halls of six members, each one's load every day of half a year", () => {
-        const halls = East.compile(ex.generateHalls, [])(40n);
+        const halls = East.compile(rec.generateHalls, [])(40n);
         assert.equal(halls.size, 40);
         assert.equal([...halls.values()].reduce((sum, hall) => sum + [...hall.members.values()].reduce((n, m) => n + m.load.size, 0), 0), 43_680);
     });
 
     test("fifty assemblies of 39 parts three deep, each part with four jobs: 7,800 jobs", () => {
-        const assemblies = East.compile(ex.generateAssemblies, [])(50n);
+        const assemblies = East.compile(rec.generateAssemblies, [])(50n);
         assert.equal(assemblies.size, 50);
         const parts = [...assemblies.values()].flatMap((assembly) => partsOf(assembly.parts));
         assert.equal(parts.length, 50 * 39);
@@ -92,7 +94,7 @@ describe("the nested series records", () => {
     });
 
     test("twenty ledgers of 18 leaf measures, each read and stocked weekly; a measure above them holds none of its own", () => {
-        const ledgers = East.compile(ex.generateLedgers, [])(20n);
+        const ledgers = East.compile(rec.generateLedgers, [])(20n);
         assert.equal(ledgers.size, 20);
         const measures = [...ledgers.values()].flatMap((ledger) => measuresOf(ledger.measures));
         const leaves = measures.filter((measure) => measure.children.size === 0);
@@ -104,33 +106,14 @@ describe("the nested series records", () => {
     });
 });
 
-describe("the Plans over them (#1439)", () => {
-    const paged = [
-        { example: ex.planNestedAll, record: ex.planWorks, edits: true },
-        { example: ex.planNestedMachines, record: ex.machines, edits: true },
-        { example: ex.planNestedMachinesPhone, record: ex.machines, edits: true },
-        { example: ex.planNestedHalls, record: ex.halls, edits: false },
-        { example: ex.planNestedAssemblies, record: ex.assemblies, edits: true },
-        { example: ex.planNestedLedgers, record: ex.ledgers, edits: true },
-    ];
-    for (const { example, record, edits } of paged) {
-        test(example.description, () => {
-            const manifest = deriveManifest(example.fn);
-            // Its rows are read a page, a search or a cell at a time, never whole; an editing Plan writes through the patch door.
-            assert.deepEqual(manifest.pages, [record.path]);
-            assert.equal(manifest.paths.length, 0, "the Plan never reads the record whole");
-            assert.deepEqual(manifest.records, edits ? [record.name] : []);
-            const component = (example.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
-            assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
-        });
-    }
-
-    test(ex.planNestedInline.description, () => {
-        const manifest = deriveManifest(ex.planNestedInline.fn);
-        // The twelve machines read whole, and nothing a page or a cell at a time.
-        assert.deepEqual(manifest.paths, [ex.machinesFew.path]);
-        assert.deepEqual([manifest.pages, manifest.records], [[], []]);
-        const component = (ex.planNestedInline.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
+describe("the Plan over them (#1439)", () => {
+    test(ex.planNestedAll.description, () => {
+        const manifest = deriveManifest(ex.planNestedAll.fn);
+        // Its rows are read a page, a search or a cell at a time, never whole, and it writes through the patch door.
+        assert.deepEqual(manifest.pages, [ex.planWorks.path]);
+        assert.equal(manifest.paths.length, 0, "the Plan never reads the works whole");
+        assert.deepEqual(manifest.records, [ex.planWorks.name]);
+        const component = (ex.planNestedAll.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
         assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
     });
 });
