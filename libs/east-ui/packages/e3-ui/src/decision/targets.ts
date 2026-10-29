@@ -22,13 +22,14 @@
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DictType, East, FloatType, OptionType, PatchType, StringType, isTypeEqual, none, some, variant,
-    type EastType, type ExprType, type FunctionType, type NullType, type StructType, type SubtypeExprOrValue, type VariantType,
+    ArrayType, BlobType, BooleanType, DictType, East, Expr, FloatType, IntegerType, NullType, OptionType, PatchType, StringType, VariantType,
+    isTypeEqual, none, some, variant,
+    type EastType, type ExprType, type FunctionType, type StructType, type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { Format } from "@elaraai/east-ui";
+import { Format, SeekQueryType, type SeekRangeType } from "@elaraai/east-ui";
 import { scheduleAccessor, scheduleAccessorOver, scheduleAccessorReturns } from "../schedule/accessor.js";
 import { fieldOf, type FieldsOf } from "../schedule/fields.js";
-import { scheduleIdOf, scheduleKeyOf, typeText } from "../schedule/window.js";
+import { optionOf, scheduleIdOf, scheduleKeyOf, typeText } from "../schedule/window.js";
 import { recordBound, recordEntries, recordSide, type RecordBinding, type RecordBound, type RecordSide } from "../utils/record-side.js";
 import { DecisionPointType, DecisionTargetKindType, DecisionTargetType, DecisionZoneType } from "./types.js";
 
@@ -275,9 +276,9 @@ function wholeRows(bound: RecordBound): ExprType<FunctionType<[], OptionType<Dic
 
 /**
  * A record target's own (§5.3): its names, the row's words and figure, the
- * field it groups by, the Locked mark, and its form — east-ui's `Fields`
- * hints, a `ready` and an `inspector`, as an event kind takes them — which
- * Modify uses (D9).
+ * field it groups by and the index each group's rows are counted through, the
+ * Locked mark, and its form — east-ui's `Fields` hints, a `ready` and an
+ * `inspector`, as an event kind takes them — which Modify uses (D9).
  *
  * @typeParam R - The record's row type
  */
@@ -286,26 +287,94 @@ export interface DecisionRecordTargetConfig<R extends StructType> extends Record
     label?: Accessor<R, StringType>;
     /** A row's figure: with it and at most five rows, the mix — a row per key on a shared axis. */
     measure?: Accessor<R, FloatType>;
-    /** The String field a row's group is: with it, the groups — a row per group, each one's size before → after. */
+    /** The String field a row's group is: with it, the groups — a row per group, its rows and those the change moves. */
     group?: FieldsOf<R, StringType>;
+    /**
+     * An indexed read of the record listing a plain index on the `group` field alone — `Data.bindPaged(record, {
+     * indexes: ["…"] })` — through which each group's rows are counted, never the record read whole: given with `group`,
+     * and with `entries`, as a record read through its pages is read by key.
+     */
+    source?: unknown;
     /** Whether a row is locked: the Locked mark. */
     locked?: Accessor<R, BooleanType>;
 }
 
+/** An indexed read of a record, as a group's count reads it: its key search through one of its indexes, by name. */
+type IndexedSeek = ExprType<StructType<{ seek: FunctionType<[StringType, typeof SeekQueryType], OptionType<typeof SeekRangeType>> }>>;
+
+/**
+ * Counts a record target's groups through its `source` (§5.3): an indexed read
+ * of the target's own record listing a plain index on the `group` field alone,
+ * whose key is the field's value — so a group's rows are the entries the index
+ * files under its value, which the index's key search counts.
+ *
+ * @param source - The `source` given
+ * @param rowType - The record's row type
+ * @param field - The `group` field
+ * @param where - The target, as a refusal names it
+ * @returns `(group)` → its rows; `none` while the search is in flight
+ * @throws {Error} Naming the declaration to make: no `source`, one that is no indexed read of the record, or one that
+ *   lists no plain index on the field alone
+ */
+function groupCount(source: unknown, rowType: StructType, field: string, where: string): ExprType<FunctionType<[StringType], OptionType<IntegerType>>> {
+    const declare = `declare an index on it among the record's indexes, by_${field}: index.on(["${field}"]), and give ` +
+        `source: Data.bindPaged(record, { indexes: ["by_${field}"] })`;
+    if (source === undefined) {
+        throw new Error(`${where}: \`group\` counts each group's rows through an index on "${field}" — ${declare}`);
+    }
+    const handle = source instanceof Expr ? source as ExprType<EastType> : undefined;
+    const type = handle === undefined ? undefined : Expr.type(handle as unknown as Expr) as EastType;
+    const fields = type?.type === "Struct" ? type.fields as Record<string, EastType> : undefined;
+    // Its record: the rows its pages carry are the target's own, keyed by String.
+    const page = fields?.["page"];
+    const served = page?.type === "Function" ? optionOf(page.output as EastType) : undefined;
+    const entry = served?.type === "Array" ? served.value as EastType : undefined;
+    const entryFields = entry?.type === "Struct" ? entry.fields as Record<string, EastType> : undefined;
+    const indexes = fields?.["indexes"];
+    if (fields?.["seek"]?.type !== "Function" || indexes?.type !== "Struct" || entryFields?.["key"] === undefined
+        || !isTypeEqual(entryFields["key"], StringType) || entryFields["row"] === undefined || !isTypeEqual(entryFields["row"], OptionType(rowType))) {
+        throw new Error(`${where}: \`source\` is an indexed read of the target's own record, through which \`group\` counts each group's ` +
+            `rows — ${declare}`);
+    }
+    // A plain index led by the field alone: each entry's key is the row's value of it.
+    const plain = VariantType({ plain: NullType });
+    const index = Object.entries(indexes.fields as Record<string, EastType>).find(([, meta]) => {
+        const parts = meta.type === "Struct" ? meta.fields as Record<string, EastType> : {};
+        const on = parts["fields"];
+        const led = on?.type === "Struct" ? on.fields as Record<string, EastType> : {};
+        return Object.keys(led).length === 1 && led[field]?.type === "Null" && parts["kind"] !== undefined && isTypeEqual(parts["kind"], plain);
+    })?.[0];
+    if (index === undefined) {
+        throw new Error(`${where}: \`source\` lists no index on "${field}" alone, through which \`group\` counts each group's rows — ${declare}`);
+    }
+    return East.function([StringType], OptionType(IntegerType), ($, group) => {
+        const src = $.const(handle!) as unknown as IndexedSeek;
+        const name = $.const(index, StringType);
+        const result = $.let(none, OptionType(IntegerType));
+        // The group's value as the index files it: its `.east` literal, sought whole.
+        const query = $.let(variant("key", East.print(group)), SeekQueryType);
+        $.match(src.seek(name, query), { some: ($2, found) => { $2.assign(result, some(found.count)); } });
+        return result;
+    });
+}
+
 /**
  * Declares a target over a record no builder draws (§5.3): up to two rows'
- * changed fields; with `measure`, the mix; with `group`, the groups. Modify
- * edits a row in its own form — `fields`, `ready` and `inspector` — and Apply
- * writes the change through the record's patch door.
+ * changed fields; with `measure`, the mix; with `group`, the groups, each
+ * group's rows counted through `source`. Modify edits a row in its own form —
+ * `fields`, `ready` and `inspector` — and Apply writes the change through the
+ * record's patch door.
  *
  * @typeParam R - The record's row type, from the binding
  * @param binding - The record, `Record.bind(record), its record declaring patch: mutation.patch()`, a `Dict<String, R>`
- * @param config - Its names, roles and form, and `entries` — `Data.bindPaged(record)` — to read the touched rows by key
- *   rather than the record whole
+ * @param config - Its names, roles and form, `entries` — `Data.bindPaged(record)` — to read the touched rows by key
+ *   rather than the record whole, and with `group` its `source`
  * @returns The target, for the change role's `of`
  * @throws {Error} Naming what to give: a record bound read only or without its patch door, `entries` that are no paged
- *   read of its own entries, a role that is no function or returns another type, `group` naming no String field or
- *   given beside `entries`, `name` or `icon` no text, and the form's hints and inspector as an event kind refuses them
+ *   read of its own entries, a role that is no function or returns another type, `group` naming no String field, or
+ *   given without a `source` listing a plain index on that field alone, a `source` without `entries` — a record bound
+ *   beside its pages is never read whole — `name` or `icon` no text, and the form's hints and inspector as an event
+ *   kind refuses them
  *
  * @example
  * ```tsx
@@ -329,7 +398,11 @@ export function decisionQueueRecordTarget<R extends StructType>(
     const label = role("label", StringType, "a String", given.label);
     const measure = role("measure", FloatType, "a Float", given.measure);
     const locked = role("locked", BooleanType, "a Boolean", given.locked);
-    let group: { field: string; of: ExprType<FunctionType<[BlobType, StringType], StringType>> } | undefined;
+    let group: {
+        field: string;
+        of: ExprType<FunctionType<[BlobType, StringType], StringType>>;
+        count: ExprType<FunctionType<[StringType], OptionType<IntegerType>>>;
+    } | undefined;
     if (given.group !== undefined) {
         const field = given.group as string;
         const type = (rowType.fields as Record<string, EastType>)[field];
@@ -337,10 +410,18 @@ export function decisionQueueRecordTarget<R extends StructType>(
             throw new Error(`${where}: \`group\` names a String field of the row, as a rail's fields do — and "${field}" ` +
                 `${type === undefined ? "is no field of it" : `holds ${typeText(type)}`}`);
         }
-        if (entries !== undefined) {
-            throw new Error(`${where}: \`group\` counts each group's rows over the record read whole — leave \`entries\` out to read it whole`);
+        group = {
+            field,
+            of: East.function([BlobType, StringType], StringType, (_$, bytes) => fieldOf(bytes.decodeBeast(rowType, "v2"), field) as ExprType<StringType>),
+            count: groupCount(given.source, rowType, field, where),
+        };
+        // A record bound beside its pages is never read whole: a UI task's manifest loads no such record.
+        if (entries === undefined) {
+            throw new Error(`${where}: a record counted through \`source\` is read by key, never whole — give entries: Data.bindPaged(record), ` +
+                "the record's own entries, beside it");
         }
-        group = { field, of: East.function([BlobType, StringType], StringType, (_$, bytes) => fieldOf(bytes.decodeBeast(rowType, "v2"), field) as ExprType<StringType>) };
+    } else if (given.source !== undefined) {
+        throw new Error(`${where}: \`source\` counts each group's rows through its index on \`group\` — give \`group\`, the field it is on, or leave \`source\` out`);
     }
     // Its form and its session: read by key through `entries`, or whole.
     const side = recordSide(bound, entries, entries, given, [], where);
@@ -481,10 +562,10 @@ export interface DecisionProjectionTargetConfig<O extends StructType, P extends 
  * @example
  * ```tsx
  * const orders = $.let(Record.bind(stockOrders));
- * const reorderChange = DecisionQueue.change.projection(orders, {
- *     name: "Stock", icon: "chart-line", option: OpsOption,
+ * const restockChange = DecisionQueue.change.projection(orders, {
+ *     name: "Stock", icon: "boxes-stacked", option: OpsOption,
  *     points: o => o.forecast, x: p => p.week, y: p => p.units,
- *     limit: { y: 120.0, label: "Reorder point" },
+ *     limit: { y: 400.0, label: "min" },
  * });
  * ```
  */

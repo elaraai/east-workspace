@@ -271,7 +271,7 @@ export type DecisionPointType = typeof DecisionPointType;
  *   rows, as a record target's side holds them, which Apply drafts a change's rows into: the Sheet's own drafts a field at
  *   a time
  * @property record - A record no builder draws: its side, its rows read whole — `none` for one read by key through
- *   `entries` — its label, its measure and the field it groups by
+ *   `entries` — its label, its measure, and the field it groups by with each group's rows, counted through an index on it
  * @property zones - Areas on a grid, each in a zone: their side, every area read whole, each one's zone, its place and
  *   whether it is a depot, and the zones
  * @property projection - A series an option gives: its record's side, the points, the limit and how values print
@@ -302,7 +302,11 @@ export const DecisionTargetKindType = VariantType({
         rows: OptionType(FunctionType([], OptionType(DictType(StringType, BlobType)))),
         label: OptionType(FunctionType([BlobType, StringType], StringType)),
         measure: OptionType(FunctionType([BlobType, StringType], FloatType)),
-        group: OptionType(StructType({ field: StringType, of: FunctionType([BlobType, StringType], StringType) })),
+        group: OptionType(StructType({
+            field: StringType,
+            of: FunctionType([BlobType, StringType], StringType),
+            count: FunctionType([StringType], OptionType(IntegerType)),
+        })),
     }),
     zones: StructType({
         ...RecordSideFields,

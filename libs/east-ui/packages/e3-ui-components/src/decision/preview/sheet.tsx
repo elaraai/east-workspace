@@ -27,7 +27,7 @@ import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import type { SlotStyles } from "@elaraai/east-ui-components/internal";
 import { cellText, indexColumns } from "../../sheet/model.js";
 import type { SheetRowValue } from "../../sheet/values.js";
-import { appliedRows, standingRow, type DecisionTarget } from "../editing.js";
+import { appliedRows, standingRows, type DecisionTarget } from "../editing.js";
 import { CONFIDENCE } from "../figures.js";
 import type { DecisionQueueWords } from "../messages.js";
 import { PreviewFailed, PreviewFrame, PreviewPending, flag, leftBy, sharedOf, staleNames, type PreviewProps } from "./frame.js";
@@ -108,10 +108,9 @@ export function SheetPreview({ c, view, target, kind, record, rows, changed, sch
             const o = theirs ? recommended : option;
             marked = stale;
             if (o === undefined) return EMPTY;
-            for (const key of target.touched(o.change.patch)) {
-                const got = standingRow(schedule, record, key);
-                if (got.type !== "some") return PENDING;
-                const bytes = got.value.type === "some" ? got.value.value : undefined;
+            const standing = standingRows(schedule, record, target.touched(o.change.patch));
+            if (standing.type !== "some") return PENDING;
+            for (const [key, bytes] of standing.value) {
                 const row = project(key, bytes);
                 touched.push({ key, before: row, after: row });
                 if (bytes !== undefined) bytesOf.set(key, bytes);

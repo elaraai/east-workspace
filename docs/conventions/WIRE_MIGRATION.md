@@ -643,3 +643,20 @@ Each wire changed under this rule, with the kind it is.
   `DecisionQueue.decisions` and `DecisionQueue.verdicts` read and write
   through their roles, is that application's own migration, as with any
   record whose type an application changes.
+- **e3-ui's read of a record by key names its paged read, and the
+  DecisionQueue's record target counts its groups through an index (#1447,
+  #1454)** — package-borne. `ScheduleEntriesType`, the read by key a kind
+  carries beside its session, gains `paged`, after `last`: the `id` of the
+  paged read of the record's own entries the others read through, by which a
+  reader asks many entries in one request — the queue's verdicts, and a
+  change's rows, a request a record. Every kind read by key carries it — a
+  Schedule kind's, a period kind's, the Roster's targets', the Schematic's
+  kinds' and the DecisionQueue's verdicts' and targets' — so it travels in the
+  `Calendar`, `Plan`, `Roster`, `Allocation`, `Schematic` and `DecisionQueue`
+  extensions' payloads. The record target's kind on the wire
+  (`DecisionTargetKindType`'s `record`) gains `count` in its `group`, after
+  `of`: a group's rows, counted through the index its `source` lists on the
+  field. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it.
