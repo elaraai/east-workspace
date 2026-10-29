@@ -41410,11 +41410,12 @@
         "import { Allocation, Calendar, Data, DecisionQueue, Record, Roster, Schedule, Sheet } from \"@elaraai/e3-ui\";",
         "import { arrivals, kilnBins, kilns, yardBays } from \"../allocation/allocation.examples.js\";",
         "import { calendarJobs, calendarMachines, calendarServices } from \"../calendar/calendar.examples.js\";",
-        "import { planEventJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
+        "import { planEventJobs, planPrintJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
         "import { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from \"../roster/roster.examples.js\";",
         "import { WarehouseDuty } from \"../roster/warehouse.js\";",
         "import { OptimiseWorkOrder, optimiseWorkOrders } from \"../sheet/optimise.examples.js\";",
-        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";"
+        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";",
+        "import { previewCases, previewVerdicts } from \"./previews.js\";"
       ],
       "languages": [
         "tsx"
@@ -41468,11 +41469,12 @@
         "import { Allocation, Calendar, Data, DecisionQueue, Record, Roster, Schedule, Sheet } from \"@elaraai/e3-ui\";",
         "import { arrivals, kilnBins, kilns, yardBays } from \"../allocation/allocation.examples.js\";",
         "import { calendarJobs, calendarMachines, calendarServices } from \"../calendar/calendar.examples.js\";",
-        "import { planEventJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
+        "import { planEventJobs, planPrintJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
         "import { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from \"../roster/roster.examples.js\";",
         "import { WarehouseDuty } from \"../roster/warehouse.js\";",
         "import { OptimiseWorkOrder, optimiseWorkOrders } from \"../sheet/optimise.examples.js\";",
-        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";"
+        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";",
+        "import { previewCases, previewVerdicts } from \"./previews.js\";"
       ],
       "languages": [
         "tsx"
@@ -41504,11 +41506,12 @@
         "import { Allocation, Calendar, Data, DecisionQueue, Record, Roster, Schedule, Sheet } from \"@elaraai/e3-ui\";",
         "import { arrivals, kilnBins, kilns, yardBays } from \"../allocation/allocation.examples.js\";",
         "import { calendarJobs, calendarMachines, calendarServices } from \"../calendar/calendar.examples.js\";",
-        "import { planEventJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
+        "import { planEventJobs, planPrintJobs, planPrintPresses } from \"../plan/plan-events.examples.js\";",
         "import { rosterAgencies, rosterDuties, rosterPayRates, rosterShiftTimes, rosterStaff, rosterTeams } from \"../roster/roster.examples.js\";",
         "import { WarehouseDuty } from \"../roster/warehouse.js\";",
         "import { OptimiseWorkOrder, optimiseWorkOrders } from \"../sheet/optimise.examples.js\";",
-        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";"
+        "import { listPrices, opsCases, opsVerdicts, proposalVerdicts, proposals } from \"./ops.js\";",
+        "import { previewCases, previewVerdicts } from \"./previews.js\";"
       ],
       "languages": [
         "tsx"
