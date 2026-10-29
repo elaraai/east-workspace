@@ -640,12 +640,16 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         // The canvas first, then the event kinds' rows, then the library: each refuses in that order.
         // The binding the `rows` source narrows (#1438): what the canvas reads its rows' nested series index through.
         const rowsBinding = pagesRows ? (bound.parts[ROWS] as unknown as { source: ExprType<StructType> }).source : undefined;
+        // The pick held once: every read of its series reads this variable, where the handle written out at each would
+        // copy all its series' code into each.
+        const pick = canvas.pick === undefined ? undefined : $.let(canvas.pick as never) as unknown as ExprType<StructType>;
         const plan = buildPlanRoot(
             { ...canvas, data, axis, links, ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
             rows === undefined ? (events !== undefined && data === undefined ? East.value([], PlanBlocksType) : undefined) : rowsBlocks(rows),
             sources.chrome,
             rowsNested,
             rowsBinding,
+            pick,
         );
         if (events !== undefined) {
             checkPagedKinds(resourceKinds, data);

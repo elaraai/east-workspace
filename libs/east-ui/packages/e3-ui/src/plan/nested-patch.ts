@@ -107,8 +107,11 @@ function rowByKey(rowType: EastType, collections: ReadonlyMap<string, PlanNested
         const out = $.let(patch);
         $.match(patch as never, {
             patch: ($2: typeof $, parts: ExprType<EastType>) => {
-                const next = restate.reduce<ExprType<EastType>>((held, [field, fn]) =>
-                    East.withField(held as never, field, fn(East.field(held as never, field) as ExprType<EastType>)) as ExprType<EastType>, parts);
+                // Each step held in a variable of its own: an expression read twice is written out twice.
+                const next = restate.reduce<ExprType<EastType>>((was, [field, fn]) => {
+                    const held = $2.let(was);
+                    return East.withField(held as never, field, fn(East.field(held as never, field) as ExprType<EastType>)) as ExprType<EastType>;
+                }, parts);
                 $2.assign(out, East.value(variant("patch", next) as never, patchType) as never);
             },
         } as never);

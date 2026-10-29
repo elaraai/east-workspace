@@ -17,7 +17,7 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { DictType, East, StringType, decodeBeast2For, encodeBeast2For, equalFor, match, type EastIR, type ValueTypeOf } from "@elaraai/east";
+import { DictType, East, StringType, decodeBeast2For, encodeBeast2For, equalFor, match, walkIR, type EastIR, type ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import { deriveManifest } from "@elaraai/e3-ui/internal";
 import * as ex from "./plan-nested.examples.js";
@@ -115,5 +115,11 @@ describe("the Plan over them (#1439)", () => {
         assert.deepEqual(manifest.records, [ex.planWorks.name]);
         const component = (ex.planNestedAll.fn.toIR() as EastIR<[], typeof UIComponentType>).compile([])();
         assert.equal(decodeBeast2For(UIComponentType)(encodeBeast2For(UIComponentType)(component)).type, component.type);
+    });
+
+    test("its program writes each expression out once: under 100,000 IR nodes, where its pick and its Save's restatement, written out at every read, made 1.35 million", () => {
+        let nodes = 0;
+        walkIR(ex.planNestedAll.fn.toIR().ir, () => { nodes++; });
+        assert.ok(nodes < 100_000, `the works' program is ${nodes} IR nodes`);
     });
 });

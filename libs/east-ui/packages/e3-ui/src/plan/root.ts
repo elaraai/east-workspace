@@ -376,13 +376,17 @@ export type PlanCanvasOptions = Omit<PlanConfig, "data"> & { data?: PlanConfig["
  * @param chrome - The chrome of the Plan's `Slice.bindRecords`; `none` with no slice
  * @param rowsNested - The nested part of the Slice's `rows` source, where it gives the canvas its rows
  * @param rowsBinding - The binding the Slice's `rows` source narrows, there: what its nested index is read through
+ * @param pickHeld - The pick, held in a variable of the block the root is built in: what the root's reads of its
+ *   series read. `config.pick` still says which series it lists; written out at each read, it would copy every series'
+ *   code into each
  * @returns An East expression of {@link PlanRootType}
  * @throws {Error} As {@link createPlanRoot} does — an axis stating no window is taken beside a slice, a source of which
  *   holds the window in its `range`; and with no `data`, a `series`, `pick` or `editing`, each of which reads it
  * @internal
  */
 export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlocksType> | undefined,
-    chrome: option<ExprType<RecordSlicesChromeType>>, rowsNested?: EastType, rowsBinding?: ExprType<StructType>): ExprType<PlanRootType> {
+    chrome: option<ExprType<RecordSlicesChromeType>>, rowsNested?: EastType, rowsBinding?: ExprType<StructType>,
+    pickHeld?: ExprType<StructType>): ExprType<PlanRootType> {
     // A canvas is DEFINED as data + series (+ the root resolvers) — there
     // is no rows-authoring channel; the IR's inline arm is what inline
     // application collapses to. A Plan of event kinds or `rows` alone has no data.
@@ -451,8 +455,9 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome, undefined);
     // A pick feeds the canvas its SURVIVING series; everything downstream sees
     // one series input either way.
-    const seriesInput: PlanSeriesInput = config.pick !== undefined
-        ? (pickActive(config.pick) as unknown as PlanSeriesInput)
+    const pick = pickHeld ?? config.pick;
+    const seriesInput: PlanSeriesInput = pick !== undefined
+        ? (pickActive(pick as never) as unknown as PlanSeriesInput)
         : config.series as PlanSeriesInput;
     // The shared row-source resolution (#567): inline collection, paged
     // source, or a whole-value bind handle — one dispatch, one vocabulary,
@@ -511,7 +516,8 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
         uses,
         rows: ordered.nestedRows(seriesInput, binding.fill.unwrap(), new Set(uses.filter((use) => use.shade.type === "booked").map((use) => use.series))),
     } as never, PlanNestedType) as ExprType<PlanNestedType>;
-    return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome, nestedSeam);
+    return rootOf(pick === config.pick ? config : { ...config, pick } as PlanCanvasOptions, rowsValue,
+        editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome, nestedSeam);
 }
 
 /**
