@@ -1187,6 +1187,7 @@ package is served beside the standard ones:
 | `serveE3` option | Default | Effect |
 |---|---|---|
 | `units` | — | starts a unit worker: a Web Worker whose script calls `serveUnits()` |
+| `width` | the cores | the most units that run at once, and so the most unit workers, each with a heap of its own |
 | `persist` | `true` | `false` keeps repositories in memory, gone with the page |
 | `name` | `'e3'` | the storage's name: e3 workers of one name share their repositories, in one tab or several |
 | `identify` | none | each request's caller, `{ sub, email?, roles }`, from the request; a request to a repository whose caller it does not identify is answered 401. None: the page's one caller may do everything |

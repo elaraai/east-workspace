@@ -47,9 +47,17 @@ export interface ServeE3Options {
   /**
    * Starts a unit worker: a dedicated Web Worker whose script calls
    * `serveUnits()` from `@elaraai/e3-web/units`. The e3 worker starts as many
-   * as the machine has cores, and runs every unit of every task on them.
+   * as {@link width} lets run at once, and runs every unit of every task on
+   * them.
    */
   readonly units: () => UnitWorker;
+  /**
+   * The most units that run at once, and so the most unit workers, each with
+   * a heap of its own: the machine's cores (`navigator.hardwareConcurrency`)
+   * unless given. One that is not a whole number of at least one is refused
+   * as the e3 boots.
+   */
+  readonly width?: number;
   /**
    * The grant each request's caller holds for what it supplies to run — a
    * one-shot, a split call, a function call naming its own runner. Unless
@@ -224,6 +232,7 @@ async function start(options: ServeE3Options): Promise<Running> {
     const connections = new Set<UnitConnection>();
     const pool = new UnitPool({
       units: options.units,
+      ...(options.width !== undefined && { width: options.width }),
       connect: () => {
         const { port1, port2 } = new MessageChannel();
         const bridge = serveBridge(() => Promise.resolve({ fetch: (request: Request) => app.fetch(request), persist }), port1, { lifelines: false });
