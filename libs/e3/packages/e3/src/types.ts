@@ -364,9 +364,10 @@ export interface RecordIndexDef<
   readonly summary?: { readonly key: string; readonly from: string; readonly to: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;
   /** A nested series index's span (#1438): the nested series index whose
    *  collections it counts, and the tile it counts by. It holds, under each
-   *  collection's place and each tile its items or values touch, how many rows
-   *  touch it — kept as a summary's totals are, so a collection's first and
-   *  last tile held are its span. Its {@link keyFn} is a row's tiles,
+   *  collection's place and each tile its items or values touch, how many of
+   *  them touch it and the milliseconds of it its items cover — kept as a
+   *  summary's totals are, so a collection's first and last tile held are its
+   *  span, and its tiles' counts how much it holds in each. Its {@link keyFn} is a row's tiles,
    *  `(K, V) -> Dict<{ collection, tile }, Totals>`, and its value type
    *  `Totals`. Built beside its nested series index, never declared. */
   readonly span?: { readonly of: string; readonly tile: 'day' | 'week' | 'month' | 'quarter' | 'year' } | undefined;

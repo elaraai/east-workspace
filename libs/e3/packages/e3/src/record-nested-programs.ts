@@ -1024,6 +1024,29 @@ function itemShares(decl: NestedDeclaration, types: NestedTypes, collection: Nes
   });
 }
 
+/** A row's summary tiles, each with how many of its items or values are in it and the milliseconds its items cover. */
+type RowTileTotals = FunctionExpr<[EastType, EastType], DictType<DateTimeType, typeof RecordSummaryTotalsType>>;
+
+/** No items or values: a tile's totals before any is counted. */
+const NO_SPAN_TOTALS = { count: 0n, ms: 0n };
+
+/**
+ * The summary tiles a row's things people drag touch, each with how many of
+ * them touch it and the milliseconds of it they cover: `(K, V) → Dict<DateTime,
+ * Totals>`, an item across a tile's end counted in each tile it touches.
+ */
+function itemTileTotals(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, summary: RecordLevel, nodesOf: NodesOf): RowTileTotals {
+  const sharesOf = itemShares(decl, types, collection, summary, nodesOf);
+  return East.function([types.keyType, types.rowType], DictType(DateTimeType, RecordSummaryTotalsType), ($, key, row) => {
+    const shared = $.const(sharesOf);
+    return shared(key, row, variant('all', null)).flatMap((_$, node) => node.shares).groupReduce(
+      (_$, share) => share.tile,
+      ($) => $.const(NO_SPAN_TOTALS, RecordSummaryTotalsType),
+      (_$, totals, share) => ({ count: totals.count.add(1n), ms: totals.ms.add(share.ms) }),
+    );
+  });
+}
+
 /** The summary tiles a row's things people drag touch: `(K, V) → Set<DateTime>`. */
 function itemTiles(decl: NestedDeclaration, types: NestedTypes, collection: NestedItems, summary: RecordLevel, nodesOf: NodesOf): RowTiles {
   const sharesOf = itemShares(decl, types, collection, summary, nodesOf);
@@ -1160,6 +1183,25 @@ function valueTotalsOf(decl: NestedDeclaration, types: NestedTypes, collection: 
         (_$, totals) => East.value(variant('totals', totals), entryValue),
       );
     });
+  });
+}
+
+/**
+ * The summary tiles a row's values are in, each with how many are in it: `(K,
+ * V) → Dict<DateTime, Totals>`, a value covering no milliseconds.
+ */
+function valueTileTotals(decl: NestedDeclaration, types: NestedTypes, collection: NestedValues, summary: RecordLevel, nodesOf: NodesOf): RowTileTotals {
+  const group = decl.groups[collection.group]!;
+  const holding = fieldOf(group.type, collection.field, DictType(DateTimeType, collection.valueType));
+  return East.function([types.keyType, types.rowType], DictType(DateTimeType, RecordSummaryTotalsType), ($, _key, row) => {
+    const nodes = $.const(nodesOf);
+    const held = $.const(holding);
+    const startOf = $.const(tileStart);
+    return nodes(row).flatMap((_$, node) => held(node.node).toArray((_$, _value, at) => startOf(summary, at))).groupReduce(
+      (_$, tile) => tile,
+      ($) => $.const(NO_SPAN_TOTALS, RecordSummaryTotalsType),
+      (_$, totals) => ({ count: totals.count.add(1n), ms: totals.ms }),
+    );
   });
 }
 
@@ -1509,10 +1551,12 @@ type SpanTotalsType = DictType<typeof NestedSpanKeyType, typeof RecordSummaryTot
 /**
  * A nested series index's span of a row (#1438): `(K, V) → Dict<{ collection,
  * tile }, Totals>`, each collection's months the row's items or values touch,
- * each counted once a row. Summed across the record's rows as a summary
- * index's totals are, and a month let go once no row touches it, a
- * collection's first and last month held are its span: the time a Plan's
- * series reading it cover, whatever rows they show.
+ * each with how many of them touch it and the milliseconds of it its items
+ * cover. Summed across the record's rows as a summary index's totals are, and
+ * a month let go once nothing touches it, a collection's first and last month
+ * held are its span: the time a Plan's series reading it cover, whatever rows
+ * they show. Its months' counts are how much there is in each: a Plan's
+ * horizon strip draws them as its bars.
  *
  * @param decl - The checked declaration
  * @param keyType - The record's key type
@@ -1536,13 +1580,13 @@ export function nestedSpan(decl: NestedDeclaration, keyType: EastType, rowType: 
   const nodesOf = groupNodes(decl, rowType);
   const parts = decl.collections.map((collection) => {
     const nodes = nodesOf[collection.group]!;
-    const touched = collection.kind === 'items' ? itemTiles(decl, types, collection, month, nodes) : valueTiles(decl, types, collection, month, nodes);
+    const touched = collection.kind === 'items' ? itemTileTotals(decl, types, collection, month, nodes) : valueTileTotals(decl, types, collection, month, nodes);
     const place = [...collection.place];
     return East.function([keyType, rowType], spanType, ($, key, row) => {
-      const tilesOf = $.const(touched);
+      const totalsOf = $.const(touched);
       const path = $.const(pathOf);
       const at = $.let(path(East.value(place, KeysType)));
-      return tilesOf(key, row).toDict((_$, tile) => ({ collection: at, tile }), () => ({ count: 1n, ms: 0n }));
+      return totalsOf(key, row).toDict((_$, _totals, tile) => ({ collection: at, tile }), (_$, totals) => totals);
     });
   });
   return parts.reduce<FunctionExpr<[EastType, EastType], SpanTotalsType>>((before, part) => East.function([keyType, rowType], spanType, ($, key, row) => {

@@ -405,22 +405,23 @@ describe('index.nested — a row\'s entries', () => {
 // ── Its span (#1438) ─────────────────────────────────────────────────────────
 
 describe('index.nested — its span, beside it (#1438)', () => {
-  it('keeps each collection\'s months a row touches beside it, `<name>_span`, summed across rows as a summary\'s totals are', () => {
+  it('keeps each collection\'s months beside it, `<name>_span`, with how many items or values touch each and the milliseconds its items cover, summed across rows as a summary\'s totals are', () => {
     const rec = machines();
     const span = rec.indexes.machines_in_time.nested!.span;
     assert.equal((rec.indexes as Readonly<Record<string, RecordIndexDef>>).machines_in_time_span, span, 'the span beside the nested series index');
     assert.deepEqual(span.span, { of: 'machines_in_time', tile: 'month' });
     assert.ok(span.mergeFn !== undefined && span.multi, 'its rows\' totals summed under each key');
-    // A job across a month's end touches both months, each once; a value its own month.
+    // A job across a month's end counts in both months, with its milliseconds in each; a month counts every job in it,
+    // and every value: 42h of j-1 in September, its other 126h and j-2's 24h in October, two values in November.
     const row = parsed(Machine, machine(
       { 'j-1': job('2026-09-29T06:00:00.000', '2026-10-06T06:00:00.000'), 'j-2': job('2026-10-12T06:00:00.000', '2026-10-13T06:00:00.000') },
-      { '2026-11-02T00:00:00.000': 0.5 },
+      { '2026-11-02T00:00:00.000': 0.5, '2026-11-09T00:00:00.000': 0.7 },
     ));
     const all = entries(span, 'M-7', row);
     assertEast(DictType(span.keyType, span.valueType), all, parsed(DictType(span.keyType, span.valueType), `{
-      (collection=.step (key="jobs", rest=.end), tile=2026-09-01T00:00:00.000): (count=1, ms=0),
-      (collection=.step (key="jobs", rest=.end), tile=2026-10-01T00:00:00.000): (count=1, ms=0),
-      (collection=.step (key="load", rest=.end), tile=2026-11-01T00:00:00.000): (count=1, ms=0)
+      (collection=.step (key="jobs", rest=.end), tile=2026-09-01T00:00:00.000): (count=1, ms=151200000),
+      (collection=.step (key="jobs", rest=.end), tile=2026-10-01T00:00:00.000): (count=2, ms=540000000),
+      (collection=.step (key="load", rest=.end), tile=2026-11-01T00:00:00.000): (count=2, ms=0)
     }`), 'M-7\'s months');
     assert.equal(entries(span, 'M-7', parsed(Machine, machine({ 'j-1': job(undefined) }))).size, 0, 'an item with no start touches no month');
   });
@@ -431,8 +432,8 @@ describe('index.nested — its span, beside it (#1438)', () => {
     const top = `(name="p1", jobs={"j-1":${job('2026-10-02T00:00:00.000', '2026-10-03T00:00:00.000')}}, parts={"p2":${deep}})`;
     const all = entries(span, 'A-1', parsed(Assembly, `(name="Assembly 1", parts={"p1":${top}})`));
     assertEast(DictType(span.keyType, span.valueType), all, parsed(DictType(span.keyType, span.valueType), `{
-      (collection=.step (key="parts", rest=.step (key="jobs", rest=.end)), tile=2026-10-01T00:00:00.000): (count=1, ms=0),
-      (collection=.step (key="parts", rest=.step (key="jobs", rest=.end)), tile=2027-03-01T00:00:00.000): (count=1, ms=0)
+      (collection=.step (key="parts", rest=.step (key="jobs", rest=.end)), tile=2026-10-01T00:00:00.000): (count=1, ms=86400000),
+      (collection=.step (key="parts", rest=.step (key="jobs", rest=.end)), tile=2027-03-01T00:00:00.000): (count=1, ms=86400000)
     }`), 'the parts\' months');
     const hall = halls().indexes.halls_in_time.nested!.span;
     const members = entries(hall, 'H-1', parsed(Hall,

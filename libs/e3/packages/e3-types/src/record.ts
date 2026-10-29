@@ -302,9 +302,11 @@ export function NestedEntryKeyType<K extends EastType>(rowKey: K) {
 /**
  * The key a nested series index's span keeps its totals under (#1438): a
  * collection's place, as an entry's key names it, and a month its items or
- * values touch. Each holds, as a summary index's key does, how many rows touch
- * it ({@link RecordSummaryTotalsType}), so a collection's first and last month
- * held are its span across the record's rows.
+ * values touch. Each holds how many of them touch it and the milliseconds of it
+ * its items cover ({@link RecordSummaryTotalsType}), summed across the record's
+ * rows as a summary index's totals are, so a collection's first and last month
+ * held are its span across the rows, and its months' counts how much it holds
+ * in each.
  *
  * @property collection - The collection's place: the field names from the row down to it, a recursive step adding none
  * @property tile - The start of a month its items or values touch

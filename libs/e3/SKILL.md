@@ -890,11 +890,13 @@ carry the lean rows — `Data.bindPaged(machines, { indexes: ['machines_by_site'
 **Its span.** Beside every nested series index e3 keeps its span, an index of
 the record's named `<index>_span` (e3-types' `nestedSpanName`), built with it
 and never declared: under each collection's place and each month its items or
-values touch (`NestedSpanKeyType`, `{ collection, tile }`), how many rows touch
-it, summed across the rows as a summary index's totals are, and a month let go
-once no row touches it. A collection's first and last month held are its span
-across the record — what a Plan's horizon covers for the series reading it
-(see **e3-ui**). Reading it is one search a collection, an exact match on its
+values touch (`NestedSpanKeyType`, `{ collection, tile }`), how many of them
+touch it and the milliseconds of it its items cover, summed across the rows as a
+summary index's totals are, and a month let go once nothing touches it. A
+collection's first and last month held are its span across the record — what a
+Plan's horizon covers for the series reading it — and its months' counts are
+how much it holds in each, which the horizon's strip draws as its bars (see
+**e3-ui**). Reading it is one search a collection, an exact match on its
 place, and one read of the first and last entry of each. An index the record
 declares under that name is refused.
 
