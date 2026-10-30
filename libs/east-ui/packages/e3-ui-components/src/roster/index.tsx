@@ -32,7 +32,7 @@ import {
     BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useDataStable,
     useFormatters, useLanding, useLandingStyles, usePersistedState, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
@@ -57,7 +57,7 @@ import {
 } from "./model.js";
 import { landRosterOptimise, lockRosterCommands, rosterOptimiseRequest, rosterOptimiseTypes, type RosterOptimiseRequest, type RosterOptimiseResult, type RosterOptimised } from "./optimise.js";
 import { useRosterToolbar } from "./toolbar.js";
-import { RosterViews, assignmentName, personOf, type PeoplePick, type RosterAnchor } from "./views.js";
+import { RosterViews, assignmentName, personOf, readRosterAnchor, type PeoplePick, type RosterAnchor } from "./views.js";
 import { useRosterWindow, type RosterWindow } from "./window.js";
 import { rosterPart, useRosterVisibility } from "./visibility.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
@@ -77,6 +77,8 @@ const NO_ISSUES: readonly Issue[] = [];
 const sameContext = equalFor(RosterContextType);
 /** No People view has rested anywhere yet. */
 const NO_ANCHOR: RosterAnchor = {};
+/** The viewer's display settings, as storage keeps them. */
+const readRosterDisplay = keptRead.record({ density: keptRead.oneOf("compact", "comfortable"), chipSkills: keptRead.boolean, requirements: keptRead.boolean });
 const keyEqual = equalFor(StringType);
 /**
  * The frame's root takes the focus a click on a part of it holding nothing focusable gives — a pane's empty foot, the
@@ -302,7 +304,7 @@ function RosterFrame(props: FrameProps) {
     // unavailable" over the grid.
     const read = useMemo(() => periodRead({ current, error: data.error, name: weekWords, retry: retryWeek }), [current, data.error, weekWords, retryWeek]);
     // Where the People views rest (#1398): saved under the Roster's key, so each comes back to it as it mounts.
-    const { state: anchor, setState: setAnchor } = usePersistedState<RosterAnchor>(`${key}.anchor`, NO_ANCHOR);
+    const { state: anchor, setState: setAnchor } = usePersistedState<RosterAnchor>(`${key}.anchor`, NO_ANCHOR, readRosterAnchor);
     const onAnchor = useCallback((next: Partial<RosterAnchor>) => setAnchor(was => ({ ...was, ...next })), [setAnchor]);
     const viewProps = { value, week, held, start, day: window.day, view: window.view, setView: window.setView, span, weeks: weekStates, openWeek: window.openWeek,
         styles, format, narrow, coverage, hours, pay: weekPay.pay, domain, issues, proposals, selection, select, commands, drag, onError: setError, read, optimised, lit: landing.lit };
@@ -431,7 +433,7 @@ function RosterFrame(props: FrameProps) {
 /** The Roster over the app's records: its narrowing, its week and its editing, around the frame. */
 function RosterRoot({ value: source, storageKey }: EastChakraRosterProps) {
     const key = `${storageKey}.${source.id.type === "some" ? source.id.value : "roster"}`;
-    const { state: display, setState: setDisplay } = usePersistedState(`${key}.display`, { density: source.settings.density.type, chipSkills: source.settings.chipSkills, requirements: source.settings.requirements });
+    const { state: display, setState: setDisplay } = usePersistedState(`${key}.display`, { density: source.settings.density.type, chipSkills: source.settings.chipSkills, requirements: source.settings.requirements }, readRosterDisplay);
     // The narrowing chooses which people, activities and patterns show, read from the slice itself (#1342); coverage, pay and checks read every one.
     const visibility = useRosterVisibility(source, "people");
     const activities = useRosterVisibility(source, "activities");

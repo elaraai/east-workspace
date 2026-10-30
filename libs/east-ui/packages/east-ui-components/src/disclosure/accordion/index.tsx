@@ -5,6 +5,7 @@
 
 import { memo, useMemo, useCallback } from "react";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { keptRead } from "../../platform/kept.js";
 import {
     Accordion as ChakraAccordion,
     Box,
@@ -118,6 +119,9 @@ interface AccordionPersistedState {
     expandedValues: string[];
 }
 
+/** The open items, as storage keeps them. */
+const readAccordionPersisted = keptRead.record<AccordionPersistedState>({ expandedValues: keptRead.array(keptRead.string) });
+
 export interface EastChakraAccordionProps {
     value: AccordionValue;
     storageKey: string;
@@ -150,6 +154,7 @@ export const EastChakraAccordion = memo(function EastChakraAccordion({ value, st
     const { state: persistedState, setState: setPersistedState } = usePersistedState<AccordionPersistedState>(
         storageKey,
         { expandedValues: defaultValue ?? [] },
+        readAccordionPersisted,
     );
 
     const handleValueChange = useCallback((details: { value: string[] }) => {

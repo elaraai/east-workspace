@@ -34,13 +34,13 @@ import {
     BannerView, BuilderFrame, SessionBanners, historyShortcut, implementUIComponent, optimiseMessages, takeKey, typedInto, useContainerBelow, useFormatters,
     useLanding, useLandingStyles, usePersistedState, useSliceReactivity, useTrackedEvaluation, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal, formatDatePattern } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, formatDatePattern, keptRead } from "@elaraai/east-ui-components/internal";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { publishPeriod } from "../shared/schedule/records.js";
-import type { RowAnchor } from "../shared/schedule/row-anchor.js";
+import { readRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { useSourceShown } from "../shared/schedule/source-tab.js";
 import { useSourceWindow } from "../shared/schedule/source-window.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
@@ -75,6 +75,11 @@ import { AllocationTimeline, type SelectedLink, type TimelineFollow } from "./ti
 import { ROW_H } from "./timeline-layout.js";
 import { pickerDays, useAllocationToolbar } from "./toolbar.js";
 import { useAllocationWindow, type AllocationWindow } from "./window.js";
+
+/** A pane's open tab, as storage keeps it. */
+const readTab = keptRead.record<{ tab: string }>({ tab: keptRead.string });
+/** Where the table rests, as storage keeps it. */
+const readAnchor = keptRead.record<{ table?: RowAnchor | undefined }>({ table: keptRead.optional(readRowAnchor) });
 export type { AllocationValue } from "./model.js";
 
 /** Props of the record-backed Allocation extension. */
@@ -172,7 +177,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         if (next !== undefined) setFollow(before => ({ nonce: before.nonce + 1, soft }));
     }, []);
     // The inspector's open tab (A55): an explicit inspection opens Details; a selection a command makes keeps it (A8).
-    const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${key}.inspector.tab`, { tab: "details" });
+    const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${key}.inspector.tab`, { tab: "details" }, readTab);
     const inspect = useCallback((next: Selection | undefined, soft = false) => {
         select(next, soft);
         if (next !== undefined) setInspectorTab({ tab: "details" });
@@ -247,7 +252,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const binFocused = useMemo<BinFocus>(() => ({ id: binFocus, done: () => setBinFocus(undefined) }), [binFocus]);
     const dropBinFocus = binFocus === undefined ? undefined : () => setBinFocus(undefined);
     // Where the Table's view rests (#1398): saved under the board's key, so the Table comes back to it as it mounts.
-    const { state: anchor, setState: setAnchor } = usePersistedState<{ table?: RowAnchor | undefined }>(`${key}.anchor`, NO_ANCHOR);
+    const { state: anchor, setState: setAnchor } = usePersistedState<{ table?: RowAnchor | undefined }>(`${key}.anchor`, NO_ANCHOR, readAnchor);
     const onTableAnchor = useCallback((at: RowAnchor) => setAnchor(was => ({ ...was, table: at })), [setAnchor]);
     const context = useMemo(() => allocationContext(value), [value]);
     const loads = useMemo(() => domain.loads(day, plan, context), [domain, day, plan, context]);
@@ -387,7 +392,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const bookPicked = (target: Target) => { if (pickGrip !== undefined && commands.canEdit()) runVerdict(drag.verdict(pickGrip, target)); };
     const highlight = pick?.kind === "bins" ? pick.arrival : undefined;
     // The Library (A50–A54): its open tab kept, as the pane keeps its own.
-    const { state: libraryTab, setState: setLibraryTab } = usePersistedState<{ tab: string }>(`${key}.library.tab`, { tab: "arrivals" });
+    const { state: libraryTab, setState: setLibraryTab } = usePersistedState<{ tab: string }>(`${key}.library.tab`, { tab: "arrivals" }, readTab);
     const lines = useMemo(() => new Map(value.resources.map(r => [r.key, allocationWords().line(day, r, loads.get(r.key)!, context.unit)] as const)),
         [value.resources, loads, day, context.unit]);
     // A find's question (A73, A74): the bin's unallocated quantity placed, asked of the drafts as they are and again as they change (F1).

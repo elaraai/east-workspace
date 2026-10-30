@@ -45,6 +45,7 @@ import { runFailure } from "./results.js";
 import { planRun } from "./run.js";
 import { QUERY_HEADER_ID } from "./session.js";
 import { parseSteps } from "./steps/parse.js";
+import { keptName } from "@elaraai/east-ui-components/internal";
 
 /** The shared fixture's default query (`Query Editor Spec.md` §4.7). */
 const DEFAULT_PROGRAM = [
@@ -150,7 +151,7 @@ describe("<Query.Builder> — runs (#938 R1)", () => {
         await settle();
         expect(shownAs()).toBe("table");
         // The run that answered is this viewer's most recent query, by its name.
-        await waitFor(() => expect(localStorage.getItem("query.builder.recent") ?? "").toContain("Top shipped orders, 2026"));
+        await waitFor(() => expect(localStorage.getItem(keptName("query.builder.recent")) ?? "").toContain("Top shipped orders, 2026"));
         await press("Keep the first", document.querySelector<HTMLElement>("[data-query-foot]")!);
         expect(h.oneShots()).toHaveLength(1);
     });

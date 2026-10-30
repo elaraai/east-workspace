@@ -103,7 +103,7 @@ import { Plan, PlanComponent, PlanEventBlocksType, PlanEventPagedType, PlanPaylo
 import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useDataStable, usePersistedState,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
 import type { KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import { usePlanCanvas } from "../canvas.js";
@@ -306,7 +306,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     // What this viewer hides in the Series tab (PB29), kept under the Plan's
     // id: a Plan without the tab hides none — nothing on it could show them
     // again, and another Plan under the same id may have hidden them.
-    const { state: stored, setState: store } = usePersistedState<readonly string[]>(keys.series, NONE_HIDDEN);
+    const { state: stored, setState: store } = usePersistedState<readonly string[]>(keys.series, NONE_HIDDEN, keptRead.texts);
     const series = useMemo(() => library.find((tab) => tab.type === "series"), [library]);
     const hidden = useMemo(() => (series !== undefined ? hiddenOf(stored) : NONE_HIDDEN), [series, stored]);
     const onHidden = useCallback((next: readonly string[]) => { store(next); }, [store]);
@@ -381,7 +381,7 @@ interface PlanFrameProps {
  * @returns The pick, what the tab writes into it kept
  */
 function useKeptPick(pick: PlanPickValue | undefined, listed: boolean): PlanPickValue | undefined {
-    const { state: kept, setState: keep } = usePersistedState<readonly string[] | undefined>(`pick.${pick?.key ?? ""}`, undefined);
+    const { state: kept, setState: keep } = usePersistedState<readonly string[] | undefined>(`pick.${pick?.key ?? ""}`, undefined, keptRead.texts);
     // Once for each pick: after that the tab writes both.
     const restored = useRef<string | undefined>(undefined);
     useLayoutEffect(() => {

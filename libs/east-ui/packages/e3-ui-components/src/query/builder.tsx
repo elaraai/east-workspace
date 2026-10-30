@@ -60,6 +60,7 @@ import {
     useTrackedEvaluation,
     type BuilderFrameDock, type EditIssue, type EditSession, type EditingWords,
 } from "@elaraai/east-ui-components";
+import { keptRead } from "@elaraai/east-ui-components/internal";
 import { useE3ConfigOptional } from "../platform/e3-config.js";
 import { SlotAutocomplete } from "./autocomplete.js";
 import { DatasetsTab, type SourceRole } from "./datasets-tab.js";
@@ -215,7 +216,7 @@ function QueryBuilderView({ session: state, entries, record, root, open, writeOp
     // ── The pane: its open tab and its collapse, the builder's to drive ──
     const [tab, setTab] = useState<QueryTab>("query");
     const [focus, setFocus] = useState<QueryFocus | undefined>(undefined);
-    const { state: pane, setState: setPane } = usePersistedState<{ collapsed: boolean }>(`${storageKey}.pane.collapsed`, { collapsed: false });
+    const { state: pane, setState: setPane } = usePersistedState<{ collapsed: boolean }>(`${storageKey}.pane.collapsed`, { collapsed: false }, keptRead.record({ collapsed: keptRead.boolean }));
     const shown = useRef(sourceId);
     useEffect(() => {
         // Opening or starting a query opens the Query tab.

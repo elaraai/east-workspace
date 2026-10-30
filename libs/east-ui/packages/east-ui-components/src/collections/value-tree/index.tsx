@@ -55,6 +55,7 @@ import {
 } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { keptRead } from "../../platform/kept.js";
 import { VirtualRows } from "../virtual-rows.js";
 import { parseCssSize } from "../../style/parse-size.js";
 import {
@@ -132,6 +133,13 @@ interface ValueTreePersisted {
      *  (0 = everything collapsed; large = everything expanded). */
     baseDepth?: number;
 }
+
+/** The tree's state, as storage keeps it. */
+const readValueTreePersisted = keptRead.record<ValueTreePersisted>({
+    open: keptRead.dict(keptRead.boolean),
+    topRow: keptRead.number,
+    baseDepth: keptRead.optional(keptRead.number),
+});
 
 /** Row callbacks decoded from the payload (undefined ⇒ read-only). */
 interface TreeCallbacks {
@@ -408,7 +416,7 @@ export const EastChakraValueTree = memo(function EastChakraValueTree(
     }), [value.onEdit, value.onInsert, value.onRemove, value.onTag]);
 
     const { state: persisted, setState: setPersisted } = usePersistedState<ValueTreePersisted>(
-        storageKey, { open: {}, topRow: 0 },
+        storageKey, { open: {}, topRow: 0 }, readValueTreePersisted,
     );
 
     const style = getSomeorUndefined(value.style);

@@ -24,6 +24,7 @@ import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { formatters } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { act, sheetHarness, settle, slot, tabs } from "./harness.test-utils.js";
+import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = sheetHarness();
 const JOBS = ex.sheetJobs;
@@ -236,7 +237,7 @@ test("the panes are BuilderFrame's: their open tab and collapsed state persist u
     fireEvent.click([...slot(first.container, "start")!.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent === "Columns 1")!);
     fireEvent.click(slot(first.container, "end")!.querySelector('button[aria-label="Collapse Inspector"]')!);
     await settle();
-    expect(localStorage.getItem("sheet.jobs.frame.start.dock.tab")).toBe(JSON.stringify({ key: "columns" }));
+    expect(localStorage.getItem(keptName("sheet.jobs.frame.start.dock.tab"))).toBe(JSON.stringify({ key: "columns" }));
     expect(localStorage.getItem("sheet.jobs.frame.end.dock.collapsed")).toBe("true");
     first.unmount();
 

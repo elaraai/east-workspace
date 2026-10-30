@@ -20,7 +20,7 @@
 // ends, its codecs and the readers of plain view state's shape; another store
 // cleared with it at a sign-out.
 export {
-    kept, useKept, keptText, keptFlag, keptBytes, keptJson, keptRead, NOT_KEPT, onClearKept,
+    kept, useKept, keptText, keptFlag, keptBytes, keptJson, keptRead, NOT_KEPT, onClearKept, keptName, resetKept,
     type Kept, type KeptCodec, type KeptOptions, type KeptReader,
 } from "./platform/kept.js";
 // Formatting: a tick's spec and printers, a date pattern's printer and reader,

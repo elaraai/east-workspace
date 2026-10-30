@@ -70,7 +70,7 @@ import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, usePersistedState, useTrackedEvaluation,
     type EditIssue,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
 import { sourcePart, type KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import type { SheetDropCard, SheetDropHost, SheetDropTemplate } from "../drop.js";
@@ -179,7 +179,7 @@ export const EastChakraSheet = memo(function EastChakraSheet({ value, storageKey
     // grid leaves them out, and the library's Columns tab shows and hides them.
     // A sheet without that tab hides none — nothing on it could show them
     // again, and another sheet under the same name may have hidden them.
-    const { state: stored, setState: store } = usePersistedState<readonly string[]>(keys.columns, NONE_HIDDEN);
+    const { state: stored, setState: store } = usePersistedState<readonly string[]>(keys.columns, NONE_HIDDEN, keptRead.texts);
     const listsColumns = value.library.some((tab) => tab.type === "columns");
     const hidden = useMemo(() => (listsColumns ? hiddenOf(stored) : NO_COLUMN_HIDDEN), [listsColumns, stored]);
     const onToggleColumn = useCallback((key: string) => {

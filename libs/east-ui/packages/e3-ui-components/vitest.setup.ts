@@ -26,7 +26,7 @@
  * @packageDocumentation
  */
 
-import { afterEach } from "vitest";
+import { afterEach, beforeEach } from "vitest";
 
 const globals = globalThis as unknown as Record<string, unknown>;
 
@@ -58,4 +58,11 @@ afterEach(() => {
     const urls = escaped;
     escaped = [];
     if (urls.length > 0) throw new Error(`the test's requests reached the global fetch, not the harness's: ${urls.join(", ")}`);
+});
+
+// Each test opens a fresh page: what east-ui-components' kept state holds in the page goes, as storage's clearing takes
+// what it stored. Loaded at the first test, after the realm above is set.
+beforeEach(async () => {
+    const { resetKept } = await import("@elaraai/east-ui-components/internal");
+    resetKept();
 });

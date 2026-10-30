@@ -5,6 +5,7 @@
 
 import { memo, useMemo, useCallback } from "react";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { keptRead } from "../../platform/kept.js";
 import {
     TreeView as ChakraTreeView,
     createTreeCollection,
@@ -69,6 +70,9 @@ interface TreeViewPersistedState {
     selectedValues: string[];
 }
 
+/** The tree's state, as storage keeps it. */
+const readTreeViewPersisted = keptRead.record<TreeViewPersistedState>({ expandedValues: keptRead.array(keptRead.string), selectedValues: keptRead.array(keptRead.string) });
+
 export interface EastChakraTreeViewProps {
     value: TreeViewRootValue;
     /** Storage key for persisting expanded/selected state in localStorage. Omit for ephemeral state. */
@@ -96,6 +100,7 @@ export const EastChakraTreeView = memo(function EastChakraTreeView({ value, stor
     const { state: persistedState, setState: setPersistedState } = usePersistedState<TreeViewPersistedState>(
         storageKey,
         { expandedValues: defaultExpandedValue ?? [], selectedValues: defaultSelectedValue ?? [] },
+        readTreeViewPersisted,
     );
 
     // Extract callbacks — now on main struct per §0.10

@@ -15,12 +15,9 @@ import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { act } from "react";
 import { render, screen, cleanup } from "@testing-library/react";
 import {
-    NOT_KEPT, clearKept, kept, keptBytes, keptFlag, keptJson, keptRead, keptReachable, keptText, onClearKept,
+    NOT_KEPT, clearKept, kept, keptBytes, keptFlag, keptJson, keptName, keptRead, keptReachable, keptText, onClearKept,
     onKeptFailure, resetKept, setKeptScope, useKept, type KeptFailure,
 } from "./kept.js";
-
-/** The task's queued writes, done: what a reload would find. */
-const endOfTask = () => new Promise<void>((resolve) => { queueMicrotask(resolve); });
 
 beforeEach(() => {
     resetKept();
@@ -36,30 +33,40 @@ afterEach(() => {
 });
 
 describe("kept state", () => {
-    test("a value written is read back after a reload, before anything draws", async () => {
+    test("a value written is read back after a reload, before anything draws", () => {
         kept("plan.zoom", keptText).write("month");
-        await endOfTask();
         resetKept();
         expect(kept("plan.zoom", keptText).read()).toBe("month");
     });
 
-    test("a write reaches storage before its task ends, once however often it changed in the task", async () => {
-        const setItem = vi.spyOn(Storage.prototype, "setItem");
+    test("a write reaches storage before it returns", () => {
         const zoom = kept("plan.zoom", keptText);
         zoom.write("week");
-        zoom.write("month");
+        expect(window.localStorage.getItem(keptName("plan.zoom"))).toBe("week");
         zoom.write("year");
         expect(zoom.read()).toBe("year");
-        expect(setItem).not.toHaveBeenCalled();
-        await endOfTask();
-        expect(setItem).toHaveBeenCalledTimes(1);
         expect(window.localStorage.getItem("east/s//plan.zoom")).toBe("year");
     });
 
-    test("tab state is the tab's session storage; browser state the origin's", async () => {
+    test("writing the value a key holds already moves nothing: no write, no reader told, the object read before still read", () => {
+        const tabs = kept("pane.tab", keptJson(keptRead.record<{ tab: string }>({ tab: keptRead.string })));
+        tabs.write({ tab: "history" });
+        const held = tabs.read();
+        const setItem = vi.spyOn(Storage.prototype, "setItem");
+        let heard = 0;
+        tabs.subscribe(() => { heard++; });
+        tabs.write({ tab: "history" });
+        expect(tabs.read()).toBe(held);
+        expect(setItem).not.toHaveBeenCalled();
+        expect(heard).toBe(0);
+        tabs.write({ tab: "details" });
+        expect(heard).toBe(1);
+        expect(setItem).toHaveBeenCalledTimes(1);
+    });
+
+    test("tab state is the tab's session storage; browser state the origin's", () => {
         kept("a", keptText, { where: "tab" }).write("tab");
         kept("a", keptText).write("browser");
-        await endOfTask();
         expect(window.sessionStorage.getItem("east/s//a")).toBe("tab");
         expect(window.localStorage.getItem("east/s//a")).toBe("browser");
     });
@@ -74,77 +81,68 @@ describe("kept state", () => {
         expect(failures).toEqual([{ key: "tabs", where: "browser", reason: "unreadable" }]);
     });
 
-    test("a full storage keeps the page's value, says why, and reports it once", async () => {
+    test("a full storage keeps the page's value, says why, and reports it once", () => {
         const failures: KeptFailure[] = [];
         onKeptFailure((failure) => failures.push(failure));
         vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("full", "QuotaExceededError"); });
         const zoom = kept("plan.zoom", keptText);
         zoom.write("month");
-        await endOfTask();
         zoom.write("year");
-        await endOfTask();
         expect(zoom.read()).toBe("year");
         expect(zoom.failure()).toBe("full");
         expect(failures).toEqual([{ key: "plan.zoom", where: "browser", reason: "full" }]);
     });
 
-    test("a write that lands after a failure clears it", async () => {
+    test("a write that lands after a failure clears it", () => {
         const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementationOnce(() => { throw new DOMException("full", "QuotaExceededError"); });
         onKeptFailure(() => undefined);
         const zoom = kept("plan.zoom", keptText);
         let heard = 0;
         zoom.subscribe(() => { heard++; });
         zoom.write("month");
-        await endOfTask();
         expect(zoom.failure()).toBe("full");
         zoom.write("year");
-        await endOfTask();
         expect(zoom.failure()).toBeUndefined();
         expect(setItem).toHaveBeenCalledTimes(2);
         expect(heard).toBe(4);
     });
 
-    test("storage the page cannot reach throws nothing: the page's value stands", async () => {
+    test("storage the page cannot reach throws nothing: the page's value stands", () => {
         onKeptFailure(() => undefined);
         vi.spyOn(window, "localStorage", "get").mockImplementation(() => { throw new DOMException("blocked", "SecurityError"); });
         expect(keptReachable("browser")).toBe(false);
         const zoom = kept("plan.zoom", keptText);
         expect(zoom.read()).toBeUndefined();
         zoom.write("month");
-        await endOfTask();
         expect(zoom.read()).toBe("month");
         expect(zoom.failure()).toBe("unavailable");
     });
 
-    test("a value its codec cannot write is unwritable, and the page's value stands", async () => {
+    test("a value its codec cannot write is unwritable, and the page's value stands", () => {
         onKeptFailure(() => undefined);
         const counts = kept("counts", keptJson<unknown>((stored) => stored));
         counts.write({ n: 1n });
-        await endOfTask();
         expect(counts.failure()).toBe("unwritable");
         expect(counts.read()).toEqual({ n: 1n });
     });
 
-    test("another scope's keys are other keys", async () => {
+    test("another scope's keys are other keys", () => {
         setKeptScope("person-a");
         kept("plan.zoom", keptText).write("month");
-        await endOfTask();
         setKeptScope("person-b");
         expect(kept("plan.zoom", keptText).read()).toBeUndefined();
         setKeptScope("person-a");
         expect(kept("plan.zoom", keptText).read()).toBe("month");
     });
 
-    test("clearing removes every scoped key of every scope, page and storage, keeps the device's, and clears the other stores", async () => {
+    test("clearing removes every scoped key of every scope, page and storage, keeps the device's, and clears the other stores", () => {
         setKeptScope("person-a");
         const zoom = kept("plan.zoom", keptText);
         zoom.write("month");
         kept("draft", keptText, { where: "tab" }).write("held");
         kept("color-mode", keptText, { scoped: false }).write("dark");
-        await endOfTask();
         setKeptScope("person-b");
         kept("plan.zoom", keptText).write("year");
-        await endOfTask();
         window.localStorage.setItem("someone-else", "theirs");
         let cleared = 0;
         onClearKept(() => { cleared++; });
@@ -152,7 +150,6 @@ describe("kept state", () => {
         zoom.subscribe(() => { heard++; });
 
         clearKept();
-        await endOfTask();
 
         const left = (storage: Storage) => Array.from({ length: storage.length }, (_, i) => storage.key(i)).sort();
         expect(left(window.localStorage)).toEqual(["east/d/color-mode", "someone-else"]);
@@ -184,9 +181,8 @@ describe("kept state", () => {
         expect(new URLSearchParams(window.location.search).has("slice.works")).toBe(false);
     });
 
-    test("a component draws what was kept on its first render, and every component of the key hears a write", async () => {
+    test("a component draws what was kept on its first render, and every component of the key hears a write", () => {
         kept("sheet.pane", keptFlag).write(true);
-        await endOfTask();
         resetKept();
         const draws: boolean[] = [];
         function Pane({ id }: { id: string }) {
@@ -199,14 +195,25 @@ describe("kept state", () => {
         act(() => { screen.getByTestId("b").click(); });
         expect(screen.getByTestId("a").textContent).toBe("open");
         expect(screen.getByTestId("b").textContent).toBe("open");
-        await endOfTask();
         expect(window.localStorage.getItem("east/s//sheet.pane")).toBe("false");
     });
 
-    test("another tab's write moves nothing here: a reload reads it", async () => {
+    test("while nothing is kept, a component reads its first render's default, one object for its life", () => {
+        const seen: object[] = [];
+        function Pane({ n }: { n: number }) {
+            const [value] = useKept("pane.view", keptJson<{ n: number }>((stored) => stored as { n: number }), { n });
+            seen.push(value);
+            return <span data-testid="view">{value.n}</span>;
+        }
+        const { rerender } = render(<Pane n={1} />);
+        rerender(<Pane n={2} />);
+        expect(screen.getByTestId("view").textContent).toBe("1");
+        expect(seen.every((value) => value === seen[0])).toBe(true);
+    });
+
+    test("another tab's write moves nothing here: a reload reads it", () => {
         const zoom = kept("plan.zoom", keptText);
         zoom.write("month");
-        await endOfTask();
         window.localStorage.setItem("east/s//plan.zoom", "year");
         window.dispatchEvent(new StorageEvent("storage", { key: "east/s//plan.zoom", newValue: "year" }));
         expect(zoom.read()).toBe("month");
@@ -247,6 +254,12 @@ describe("kept codecs and readers", () => {
         expect(read({ tab: "a", density: "compact", widths: [] })).toBe(NOT_KEPT);
         expect(read(["a"])).toBe(NOT_KEPT);
         expect(keptRead.number(Number.NaN)).toBe(NOT_KEPT);
+        expect(keptRead.texts(["a", 7, "b"])).toEqual(["a", "b"]);
+        expect(keptRead.texts({ a: true })).toBe(NOT_KEPT);
+        const widths = keptRead.dict(keptRead.number);
+        expect(widths({ name: 120, due: 80 })).toEqual({ name: 120, due: 80 });
+        expect(widths({ name: "120" })).toBe(NOT_KEPT);
+        expect(widths([120])).toBe(NOT_KEPT);
     });
 
     test("JSON is read through its reader", () => {

@@ -32,6 +32,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EastType } from "@elaraai/east";
 import { usePersistedState } from "@elaraai/east-ui-components";
+import { keptRead } from "@elaraai/east-ui-components/internal";
 import { useFuncCall, type FuncCall } from "./use-func-call.js";
 
 /** How long the footer says `Stopped · nothing changed` after Stop (§8): 2.5s. */
@@ -135,7 +136,7 @@ export function useOptimise<Req, Res>(args: OptimiseArgs<Req, Res>): OptimiseRun
     const { name, requestType, resultType, scope, storageKey, onLanded } = args;
     const call = useFuncCall<Res>(name, name === null ? null : [requestType], resultType);
     // Runs are numbered per builder per browser, from 1 (D5).
-    const { state: counter, setState: setCounter } = usePersistedState<number>(`${storageKey}.optimise.run`, 0);
+    const { state: counter, setState: setCounter } = usePersistedState<number>(`${storageKey}.optimise.run`, 0, keptRead.number);
     const [running, setRunning] = useState(false);
     const [startedAt, setStartedAt] = useState(0);
     const [seconds, setSeconds] = useState(1);

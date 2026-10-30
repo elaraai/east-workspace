@@ -51,6 +51,7 @@ import type { PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { act, el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = planHarness({ "plan/plan-windows": ex });
 
@@ -545,7 +546,7 @@ describe("a kind counted past the cap, through its source of the rail (#1039)", 
     test("hidden in the Series tab, a kind is in no figure, within the cap or past it: the footer, the pane and a press's row count the checks alone, and nothing says the jobs are not counted", async () => {
         await bookChecks();
         // The viewer hides the jobs in the Series tab, kept as it keeps them.
-        localStorage.setItem("plan.series", JSON.stringify(["events.job"]));
+        localStorage.setItem(keptName("plan.series"), JSON.stringify(["events.job"]));
         const { container: c } = await h.mount(checkedPlan);
         await settle();
         // Within the cap: the jobs are no part of what the canvas shows — the check alone is counted, nothing said of them.

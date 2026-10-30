@@ -14,11 +14,10 @@
  * - **Read before the first draw.** A key is read from storage the first time
  *   the page asks for it, synchronously, so a component draws what was kept on
  *   its first render.
- * - **Written as it changes.** A write is the page's value at once, and reaches
- *   storage before the task that made it ends — one write a key, however often
- *   it changed in the task — so a reload never lands between a change and its
- *   write. An address is rewritten at most every 350 ms: a browser refuses a
- *   page that rewrites it 100 times in 30 s (Safari).
+ * - **Written as it changes.** A write is the page's value and storage's
+ *   before it returns, so a reload never lands between a change and its write.
+ *   An address is rewritten at most every 350 ms: a browser refuses a page that
+ *   rewrites it 100 times in 30 s (Safari).
  * - **Read defensively.** Storage outlives versions, and anything on the origin
  *   may write it, so a value is taken only through its codec, which reads only
  *   the shape this version writes; anything else is removed, as never kept.
@@ -31,13 +30,16 @@
  *   all, as a sign-out does. A device's own preference — the colour mode — is
  *   kept unscoped, and stays.
  * - **One value a key in a page.** Every reader of a key reads one value and
- *   hears every write to it. Another tab's write moves nothing here: a reload
- *   reads it.
+ *   hears every write that changes it. A write of the value a key holds
+ *   already — another object, the same text — moves nothing: no write, no
+ *   reader told, the object read before still the one read, so a component
+ *   that writes back what it read settles. Another tab's write moves nothing
+ *   here: a reload reads it.
  *
  * @packageDocumentation
  */
 
-import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 /** Where a value is kept: every tab (`browser`), this tab through its reloads (`tab`), or the page's address (`url`). */
 export type KeptWhere = "browser" | "tab" | "url";
@@ -87,7 +89,7 @@ export interface KeptFailure {
 export interface Kept<T> {
     /** The value: the page's, else what storage kept; `undefined` for neither. */
     readonly read: () => T | undefined;
-    /** Make it the page's value now, and storage's before the task ends. */
+    /** Make it the page's value and storage's, before it returns. */
     readonly write: (value: T) => void;
     /** Drop it from the page and from storage. */
     readonly remove: () => void;
@@ -111,10 +113,10 @@ interface Entry {
     readonly scoped: boolean;
     readonly codec: KeptCodec<unknown>;
     value: unknown;
+    /** The value as kept: what storage holds, or is to hold; `undefined` for nothing, or a value its codec cannot write. */
+    text: string | undefined;
     failure: KeptFailureReason | undefined;
     readonly listeners: Set<() => void>;
-    /** A storage write is queued for the end of this task. */
-    pending: boolean;
     /** An address rewrite is waiting out its interval. */
     timer: ReturnType<typeof setTimeout> | undefined;
 }
@@ -164,6 +166,7 @@ export function clearKept(): void {
     for (const entry of entries.values()) {
         if (!entry.scoped || entry.where === "url" || entry.value === undefined) continue;
         entry.value = undefined;
+        entry.text = undefined;
         notify(entry);
     }
     for (const hook of [...clearHooks]) {
@@ -225,7 +228,21 @@ export function kept<T>(key: string, codec: KeptCodec<T>, options?: KeptOptions)
         write: (value) => {
             const entry = at();
             if (Object.is(entry.value, value)) return;
+            let text: string;
+            try {
+                text = entry.codec.encode(value);
+            } catch {
+                // The page's value stands, never kept.
+                entry.value = value;
+                entry.text = undefined;
+                notify(entry);
+                fail(entry, "unwritable");
+                return;
+            }
+            // The value it holds already: nothing moves.
+            if (entry.value !== undefined && text === entry.text) return;
             entry.value = value;
+            entry.text = text;
             notify(entry);
             schedule(entry);
         },
@@ -233,6 +250,7 @@ export function kept<T>(key: string, codec: KeptCodec<T>, options?: KeptOptions)
             const entry = at();
             if (entry.value === undefined) return;
             entry.value = undefined;
+            entry.text = undefined;
             notify(entry);
             schedule(entry);
         },
@@ -253,7 +271,8 @@ export function kept<T>(key: string, codec: KeptCodec<T>, options?: KeptOptions)
  * @typeParam T - The value
  * @param key - The key
  * @param codec - How it is stored: the key's first codec stands
- * @param initial - The value while nothing is kept
+ * @param initial - The value while nothing is kept: the first render's, one object for the component's life, as a
+ *   default made afresh each render would move everything that depends on it each render
  * @param options - Where, and for whom
  * @returns The value, its setter (a value or an update of the current one), and what removes it
  */
@@ -268,15 +287,14 @@ export function useKept<T>(key: string, codec: KeptCodec<T>, initial: T, options
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [key, where, scoped, serial]);
     const stored = useSyncExternalStore(handle.subscribe, handle.read, handle.read);
-    const initialRef = useRef(initial);
-    initialRef.current = initial;
+    const [first] = useState(initial);
     const set = useCallback((next: T | ((current: T) => T)) => {
         const current = handle.read();
-        const base = current === undefined ? initialRef.current : current;
+        const base = current === undefined ? first : current;
         handle.write(typeof next === "function" ? (next as (value: T) => T)(base) : next);
-    }, [handle]);
+    }, [handle, first]);
     const remove = useCallback(() => { handle.remove(); }, [handle]);
-    return [stored === undefined ? initial : stored, set, remove] as const;
+    return [stored === undefined ? first : stored, set, remove] as const;
 }
 
 // ── Codecs ────────────────────────────────────────────────────────────────
@@ -355,6 +373,11 @@ export const keptRead = {
     /** A flag. */
     boolean: ((value: unknown) => (typeof value === "boolean" ? value : NOT_KEPT)) as KeptReader<boolean>,
     /**
+     * A list of texts, any other item dropped: the keys a viewer chose, where
+     * an item a store held by mistake chooses nothing.
+     */
+    texts: ((value: unknown) => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : NOT_KEPT)) as KeptReader<string[]>,
+    /**
      * One of the given texts.
      *
      * @param options - The texts
@@ -410,6 +433,23 @@ export const keptRead = {
         return out as T;
     },
     /**
+     * A record of any names, every value in shape: a lookup by name, as a
+     * table's column widths are.
+     *
+     * @param item - Reads a value
+     * @returns The reader
+     */
+    dict: <T>(item: KeptReader<T>): KeptReader<Record<string, T>> => (value) => {
+        if (!isRecord(value)) return NOT_KEPT;
+        const out: Record<string, T> = {};
+        for (const [name, part] of Object.entries(value)) {
+            const read = item(part);
+            if (read === NOT_KEPT) return NOT_KEPT;
+            out[name] = read;
+        }
+        return out;
+    },
+    /**
      * A part that may be absent: `undefined` for absent, else as the reader takes it.
      *
      * @param read - Reads it when present
@@ -449,7 +489,7 @@ function entryOf(key: string, codec: KeptCodec<unknown>, where: KeptWhere, scope
     const id = `${where}\u0000${name}`;
     let entry = entries.get(id);
     if (entry !== undefined) return entry;
-    entry = { key, name, where, scoped, codec, value: undefined, failure: undefined, listeners: new Set(), pending: false, timer: undefined };
+    entry = { key, name, where, scoped, codec, value: undefined, text: undefined, failure: undefined, listeners: new Set(), timer: undefined };
     entries.set(id, entry);
     const text = readText(entry);
     if (text !== undefined) {
@@ -460,6 +500,7 @@ function entryOf(key: string, codec: KeptCodec<unknown>, where: KeptWhere, scope
             report(entry, "unreadable");
         } else {
             entry.value = value;
+            entry.text = text;
         }
     }
     return entry;
@@ -488,29 +529,17 @@ function forget(entry: Entry): void {
     try { storageOf(entry.where)?.removeItem(entry.name); } catch { /* nothing to remove it from */ }
 }
 
-/** Queue a key's write: before this task ends, or an address after its interval. */
+/** Write a key: to storage now, or to the address after its interval. */
 function schedule(entry: Entry): void {
-    if (entry.where === "url") {
-        if (entry.timer !== undefined) return;
-        entry.timer = setTimeout(() => { entry.timer = undefined; store(entry); }, URL_INTERVAL_MS);
-        return;
-    }
-    if (entry.pending) return;
-    entry.pending = true;
-    queueMicrotask(() => { entry.pending = false; store(entry); });
+    if (entry.where !== "url") { store(entry); return; }
+    if (entry.timer !== undefined) return;
+    entry.timer = setTimeout(() => { entry.timer = undefined; store(entry); }, URL_INTERVAL_MS);
 }
 
-/** Write a key's value as the page holds it now — or remove it, for none. */
+/** Write a key's text as the page holds it now — or remove it, for none. */
 function store(entry: Entry): void {
-    let text: string | undefined;
-    if (entry.value !== undefined) {
-        try {
-            text = entry.codec.encode(entry.value);
-        } catch {
-            fail(entry, "unwritable");
-            return;
-        }
-    }
+    const text = entry.text;
+    if (entry.value !== undefined && text === undefined) return;
     if (entry.where === "url") { rewriteAddress(entry, text); return; }
     if (typeof window === "undefined") return;
     const storage = storageOf(entry.where);
@@ -586,9 +615,24 @@ function readScopeSerial(): number {
 }
 
 /**
- * Forget every key the page has read, every failure reported and the scope,
- * and stop clearing other stores — storage left as it is. Test isolation only:
- * a page's next read reads storage afresh, as a reload's.
+ * The storage name a key is kept under — its query parameter, for the
+ * address: what a test seeds or reads storage by.
+ *
+ * @param key - The key, as the component names it
+ * @param options - Where, and for whom
+ * @returns The name
+ * @internal
+ */
+export function keptName(key: string, options?: KeptOptions): string {
+    const where = options?.where ?? "browser";
+    return nameOf(key, where, where !== "url" && (options?.scoped ?? true));
+}
+
+/**
+ * Forget every key the page has read, every failure reported, every failure
+ * listener and the scope — storage, and the stores cleared with it, left as
+ * they are. Test isolation only: the page's next read reads storage afresh,
+ * as a fresh page's.
  *
  * @internal
  */
@@ -597,7 +641,6 @@ export function resetKept(): void {
     entries.clear();
     reported.clear();
     failureListeners.clear();
-    clearHooks.clear();
     scope = "";
     scopeSerial++;
 }

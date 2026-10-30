@@ -17,7 +17,7 @@ import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
-import { getStore, initializeStore } from "@elaraai/east-ui-components/internal";
+import { getStore, initializeStore, keptName, resetKept } from "@elaraai/east-ui-components/internal";
 import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { EastChakraPlan, type PlanRootValue, type PlanValue } from "../index.js";
@@ -251,7 +251,7 @@ describe("Plan library integration", () => {
         expect(draws(first.container, marks)).toBe(false);
         expect(draws(first.container, entry("presses.span", "Hall A", "a1"))).toBe(true);
         expect(lines(first.container).find(([name]) => name === "Stop")).toEqual(["Stop", false]);
-        expect(localStorage.getItem("plan.printWorks.series")).toBe(JSON.stringify(["events.stop"]));
+        expect(localStorage.getItem(keptName("plan.printWorks.series"))).toBe(JSON.stringify(["events.stop"]));
         first.unmount();
 
         // Kept for the viewer, under the Plan's id.
@@ -262,7 +262,7 @@ describe("Plan library integration", () => {
         expect(lines(again.container).find(([name]) => name === "Stop")).toEqual(["Stop", false]);
         await toggle(again.container, "Stop");
         expect(draws(again.container, marks)).toBe(true);
-        expect(localStorage.getItem("plan.printWorks.series")).toBe(JSON.stringify([]));
+        expect(localStorage.getItem(keptName("plan.printWorks.series"))).toBe(JSON.stringify([]));
         const container = again.container;
         const util = entry("util", "Hall A", "a1");
         const output = entry("", "output");
@@ -278,7 +278,7 @@ describe("Plan library integration", () => {
         expect(draws(container, entry("presses.span", "Hall A", "a1"))).toBe(false);
         expect(drawsStrip(container, entry("presses.group", "Hall A"))).toBe(false);
         expect(drawsStrip(container, entry("crews.group", "Hall A"))).toBe(true);
-        expect(JSON.parse(localStorage.getItem("plan.printWorks.series")!)).toEqual(["measures.util", "rows.output", "resources.presses"]);
+        expect(JSON.parse(localStorage.getItem(keptName("plan.printWorks.series"))!)).toEqual(["measures.util", "rows.output", "resources.presses"]);
     });
 
     test("an authored tab wires its grouping, card metadata, drop action and selection", async () => {
@@ -351,12 +351,14 @@ describe("Plan library integration", () => {
     });
 
     test("hidden state is ignored without its tab or with invalid storage", async () => {
-        localStorage.setItem("plan.series", JSON.stringify(["resources.presses"]));
+        localStorage.setItem(keptName("plan.series"), JSON.stringify(["resources.presses"]));
         const { container } = await h.mount(jobsPlan(["events"]), DRAG);
         await settle();
         expect(draws(container, entry("presses.span", "a1"))).toBe(true);
         cleanup();
-        localStorage.setItem("plan.series", JSON.stringify({ "resources.presses": true }));
+        // A page of its own, over what storage holds by mistake.
+        resetKept();
+        localStorage.setItem(keptName("plan.series"), JSON.stringify({ "resources.presses": true }));
         const odd = await h.mount(jobsPlan(["series"]), DRAG);
         await settle();
         expect(draws(odd.container, entry("presses.span", "a1"))).toBe(true);
@@ -418,14 +420,14 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
         expect(lines(container)).toEqual([["Print job", true], ["Press jobs", true], ["Hall load", true], ["Crew shifts", false], ["Milestones", true]]);
         await toggle(container, "Press jobs");
         expect(pick.state.read()).toEqual(["c", "a"]);
-        expect(localStorage.getItem("plan.series")).toBe(JSON.stringify([]));
+        expect(localStorage.getItem(keptName("plan.series"))).toBe(JSON.stringify([]));
         act(() => {
             fireEvent.click(within(panel(container)).getByRole("button", { name: "Toggle Print job" }));
             fireEvent.click(within(panel(container)).getByRole("button", { name: "Toggle Milestones" }));
         });
         await settle();
         expect(pick.state.read()).toEqual(["c", "a"]);
-        expect(localStorage.getItem("plan.series")).toBe(JSON.stringify(["events.job", "rows.ms"]));
+        expect(localStorage.getItem(keptName("plan.series"))).toBe(JSON.stringify(["events.job", "rows.ms"]));
         // An external write must refresh the combined panel without replacing rows.
         act(() => {
             pick.state.write([]);
@@ -442,16 +444,18 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
         await openTab(first.container, "Series");
         await toggle(first.container, "Press jobs");
         await toggle(first.container, "Crew shifts");
-        expect(localStorage.getItem("pick.test.plan.pick")).toBe(JSON.stringify(["a"]));
+        expect(localStorage.getItem(keptName("pick.test.plan.pick"))).toBe(JSON.stringify(["a"]));
         first.unmount();
 
         // A reload: the pick as its program sets it, the browser's storage kept.
+        resetKept();
         const pick = fakePick(["c"]);
         renderPicked(pick).unmount();
         expect(pick.state.read()).toEqual(["a"]);
 
         // An id the pick no longer lists is dropped on the way back.
-        localStorage.setItem("pick.test.plan.pick", JSON.stringify(["b", "gone"]));
+        localStorage.setItem(keptName("pick.test.plan.pick"), JSON.stringify(["b", "gone"]));
+        resetKept();
         const renamed = fakePick(["c"]);
         renderPicked(renamed).unmount();
         expect(renamed.state.read()).toEqual(["b"]);
@@ -460,7 +464,8 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
         renderPicked(untabbed, [] as unknown as PlanValue["library"]).unmount();
         expect(untabbed.state.read()).toEqual(["c"]);
         // A pick the tab never wrote opens as its program sets it.
-        localStorage.removeItem("pick.test.plan.pick");
+        localStorage.removeItem(keptName("pick.test.plan.pick"));
+        resetKept();
         const fresh = fakePick(["c"]);
         renderPicked(fresh).unmount();
         expect(fresh.state.read()).toEqual(["c"]);

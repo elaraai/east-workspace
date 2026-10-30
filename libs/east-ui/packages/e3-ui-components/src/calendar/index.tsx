@@ -121,7 +121,7 @@ import { calendarNouns, calendarSaid, followedSources } from "./sources.js";
 import { useCalendarToolbar } from "./toolbar.js";
 import { useCalendarWindow, type CalendarWindow } from "./window.js";
 import { createTravel, createVisibleDays, useOverlapsShown } from "./visible.js";
-import { CalendarViews, calendarHour, type CalendarAnchor } from "./views.js";
+import { CalendarViews, calendarHour, readCalendarAnchor, type CalendarAnchor } from "./views.js";
 import {
     NOTHING_UNCOUNTED, calendarRange, chronological, dayStart, eventKey, inWindow, NARROW_WIDTH, navigate, periodWords,
     type CalendarItem, type CalendarRange, type CalendarRef, type CalendarRow, type CalendarStyles, type CalendarUncounted, type CalendarValue,
@@ -419,7 +419,7 @@ function CalendarFrame(props: HostProps) {
     const [nowAsked, setNowAsked] = useState(0);
     const onToday = useCallback(() => setNowAsked(n => n + 1), []);
     // Where each layout's view rests (#1398): saved under the Calendar's key, so a layout comes back to it as it mounts.
-    const { state: anchor, setState: setAnchor } = usePersistedState<CalendarAnchor>(`${storageKey}.anchor`, NO_ANCHOR);
+    const { state: anchor, setState: setAnchor } = usePersistedState<CalendarAnchor>(`${storageKey}.anchor`, NO_ANCHOR, readCalendarAnchor);
     const onAnchor = useCallback((next: Partial<CalendarAnchor>) => setAnchor(was => ({ ...was, ...next })), [setAnchor]);
     // Each resource kind's rows its source shows: the columns, the timeline's rows and the Choosers (#1343).
     const shown = useMemo(() => value.resources.map(kind => {

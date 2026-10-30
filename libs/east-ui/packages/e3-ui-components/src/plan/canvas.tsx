@@ -327,7 +327,7 @@ export function usePlanCanvas({
     // not outlive the page. Never the selection — a transient act, and
     // restoring it would re-fire `onSelect`. The controller restores from it
     // once and writes through the latest setter.
-    const { state: stored, setState: setStored } = usePersistedState<PlanPersisted>(storageKey, NOT_PERSISTED);
+    const { state: stored, setState: setStored } = usePersistedState<PlanPersisted>(storageKey, NOT_PERSISTED, persistedOf);
     const [restored] = useState(() => persistedOf(stored));
     const persistTo = useRef(setStored);
     useLayoutEffect(() => { persistTo.current = setStored; });

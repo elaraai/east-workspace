@@ -756,7 +756,7 @@ function useSheet(value: SheetRootValue, storageKey: string, host: SheetHost): S
     // they left them on, and where the frame's scroll rests — the Plan's
     // rule (#813). Read once, at mount; written when either changes, and only
     // when it differs from what storage holds.
-    const { state: stored, setState: setStored } = usePersistedState<SheetPersisted>(storageKey, NOT_PERSISTED);
+    const { state: stored, setState: setStored } = usePersistedState<SheetPersisted>(storageKey, NOT_PERSISTED, persistedOf);
     const [restored] = useState(() => persistedOf(stored));
     const persistedRef = useRef(restored);
     const persist = useCallback((next: SheetPersisted) => {

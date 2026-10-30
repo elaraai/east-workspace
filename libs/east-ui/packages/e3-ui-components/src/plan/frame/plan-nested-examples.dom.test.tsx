@@ -26,6 +26,7 @@ import { instantKey, timeInstant } from "../instant.js";
 import { planMessages } from "../messages.js";
 import { axisFormatter } from "../rows/chart-geometry.js";
 import { act, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = planHarness({ "plan/plan-nested": ex });
 
@@ -196,7 +197,7 @@ describe("the nested series example on e3 (#1439)", () => {
         expect(slot(c, "main")!.querySelector(rowAt(entry("works", "W-10001")))).toBeNull();
         await waitFor(() => expect(slot(c, "main")!.querySelector(rowAt(entry("load-line", "W-10001")))).not.toBeNull());
         // Kept under the pick's own key.
-        expect(new Set(JSON.parse(localStorage.getItem("pick.ex.planNestedAll.series")!))).toEqual(new Set(["works", "load", "crews", "assembly", "alarm-marks", "job-chips", "alarm-tiles"]));
+        expect(new Set(JSON.parse(localStorage.getItem(keptName("pick.ex.planNestedAll.series"))!))).toEqual(new Set(["works", "load", "crews", "assembly", "alarm-marks", "job-chips", "alarm-tiles"]));
     });
 
     test("planNestedAll: with every series switched off, the strip still spans what they hold", async () => {

@@ -28,7 +28,7 @@ import { ArrayType, East, IntegerType, StringType, decodeBeast2For, equalFor, no
 import { Data, Sheet } from "@elaraai/e3-ui/internal";
 import { RecordSlicesChromeType, RecordSliceWhereType, Reactive, Slice, UIComponentType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
-import { getStore } from "@elaraai/east-ui-components/internal";
+import { getStore, keptName } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { frameScrolls } from "./frame.test-utils.js";
@@ -452,7 +452,7 @@ test("Search Records lists the rows its key finds wherever they are — on scree
 /** Where the view rests as the sheet saved it, under its storage key: the row at its top, by its key, and the px into it. */
 const restedAt = (): { key: string; offset: number } | undefined => {
     for (const key of Object.keys(localStorage)) {
-        if (!key.startsWith("sheet-lens-test")) continue;
+        if (!key.startsWith(keptName("sheet-lens-test"))) continue;
         const stored = JSON.parse(localStorage.getItem(key)!) as { anchor?: { key: string; offset: number } | null };
         if (stored.anchor !== undefined && stored.anchor !== null) return { key: stored.anchor.key, offset: stored.anchor.offset };
     }

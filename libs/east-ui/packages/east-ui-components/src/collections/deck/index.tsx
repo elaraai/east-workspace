@@ -34,6 +34,7 @@ import { Deck, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { keptRead } from "../../platform/kept.js";
 import { useHoverCapable } from "../../contracts/adaptive.js";
 import { parseCssSize } from "../../style/parse-size.js";
 import { tickFormatter } from "../../charts/spec/index.js";
@@ -406,6 +407,9 @@ interface DeckToolbarState {
     collapsed: string[];
 }
 
+/** The toolbar's state, as storage keeps it. */
+const readDeckToolbar = keptRead.record<DeckToolbarState>({ groupKey: keptRead.nullable(keptRead.string), collapsed: keptRead.array(keptRead.string) });
+
 interface DeckGroup {
     label: string;
     summary: string | undefined;
@@ -422,7 +426,7 @@ function DeckCore({ value, storageKey }: EastChakraDeckProps) {
     const { state: toolbar, setState: setToolbar } = usePersistedState<DeckToolbarState>(`${storageKey}.toolbar`, {
         groupKey: groupOptions[0]?.key ?? null,
         collapsed: [],
-    });
+    }, readDeckToolbar);
 
     const setGroup = useCallback((key: string | null) => {
         setToolbar(prev => ({ ...prev, groupKey: key, collapsed: [] }));

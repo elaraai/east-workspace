@@ -5,6 +5,7 @@
 
 import { memo, useMemo, useCallback } from "react";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { keptRead } from "../../platform/kept.js";
 import {
     Tabs as ChakraTabs,
     type TabsRootProps,
@@ -125,6 +126,9 @@ interface TabsPersistedState {
     selectedValue: string | undefined;
 }
 
+/** The tab shown, as storage keeps it. */
+const readTabsPersisted = keptRead.record<TabsPersistedState>({ selectedValue: keptRead.optional(keptRead.string) });
+
 export interface EastChakraTabsProps {
     value: TabsValue;
     storageKey: string;
@@ -150,6 +154,7 @@ export const EastChakraTabs = memo(function EastChakraTabs({ value, storageKey }
     const { state: persistedState, setState: setPersistedState } = usePersistedState<TabsPersistedState>(
         storageKey,
         { selectedValue: defaultValue },
+        readTabsPersisted,
     );
 
     const handleValueChange = useCallback((details: { value: string }) => {

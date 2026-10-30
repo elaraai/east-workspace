@@ -19,6 +19,7 @@ import { Matrix } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { VirtualRows } from "../virtual-rows.js";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { keptRead } from "../../platform/kept.js";
 import { EastChakraComponent } from "../../component";
 import {
     getHeaderCellStyle, getCellStyle, useColumnSizeVars, ColumnResizeHandle, ColumnDividerBar,
@@ -57,6 +58,12 @@ interface MatrixPersistedState {
      *  key fold apart. A parent absent here starts as its row declares. */
     folds?: Record<string, boolean>;
 }
+
+/** The matrix's state, as storage keeps it. */
+const readMatrixPersisted = keptRead.record<MatrixPersistedState>({
+    columnSizing: keptRead.dict(keptRead.number),
+    folds: keptRead.optional(keptRead.dict(keptRead.boolean)),
+});
 
 /** One row of the matrix's tree (#955): a wire row, placed. */
 interface MatrixTreeRow {
@@ -458,7 +465,7 @@ export const EastChakraMatrix = memo(function EastChakraMatrix({ value, storageK
     ], [columnHelper, rowHeaderLabel]);
 
     const { state: persistedState, setState: setPersistedState } = usePersistedState<MatrixPersistedState>(
-        storageKey, { columnSizing: {} },
+        storageKey, { columnSizing: {} }, readMatrixPersisted,
     );
     const columnSizing = persistedState.columnSizing;
     const setColumnSizing = useCallback((updater: Updater<ColumnSizingState>) => {

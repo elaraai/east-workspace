@@ -29,12 +29,12 @@ import { Box, Button, Menu as ChakraMenu, Portal, chakra } from "@chakra-ui/reac
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faGripVertical, faRotateLeft, faTriangleExclamation, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { none, variant } from "@elaraai/east";
-import { LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedLine, PlaceholderShape, VirtualRows, devicePixels, useRevealed, useRowsTop, keptRead } from "@elaraai/east-ui-components/internal";
 import { takeKey, tickFormatOf, useDragEventChip, useDropCell, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import type { PeriodRead } from "../shared/loading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
-import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
+import { readRowAnchor, useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { ApplyPatternAction, AssignmentActions, PlaceAction, PlacePopover, RequirementAction } from "./controls.js";
 import { readRosterSource } from "./identity.js";
@@ -94,6 +94,9 @@ export interface RosterAnchor {
     readonly people?: RowAnchor | undefined;
     readonly cards?: RowAnchor | undefined;
 }
+
+/** Where the People views rest, as storage keeps it. */
+export const readRosterAnchor = keptRead.record<RosterAnchor>({ people: keptRead.optional(readRowAnchor), cards: keptRead.optional(readRowAnchor) });
 
 /** The person whose name the keyboard last stepped to, or a pick gave it to (#1398): their row's or card's name takes the focus as it mounts. */
 const PeopleFocusContext = createContext<{ readonly key: string | undefined; readonly done: () => void }>({ key: undefined, done: () => {} });

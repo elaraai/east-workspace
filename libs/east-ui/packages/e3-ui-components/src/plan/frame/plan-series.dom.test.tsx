@@ -58,6 +58,7 @@ import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = planHarness({ "plan/plan-windows": ex });
 
@@ -705,7 +706,7 @@ describe("a kind hidden in the Series tab (#1039)", () => {
             ...proof, title: "Plate check", start: some(new Date("2026-10-12T06:00:00Z")), end: some(new Date("2026-10-12T08:00:00Z")),
         }]]));
         // The viewer hides the jobs in the Series tab, kept as it keeps them.
-        localStorage.setItem("plan.series", JSON.stringify(["events.job"]));
+        localStorage.setItem(keptName("plan.series"), JSON.stringify(["events.job"]));
         const { container: c } = await h.mount(checkedPlan);
         await settle();
         // The check alone, counted through its own source; its hours over the rows drawn.

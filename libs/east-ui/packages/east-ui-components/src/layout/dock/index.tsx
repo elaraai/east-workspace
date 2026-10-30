@@ -14,8 +14,12 @@ import { Dock } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { keptRead } from "../../platform/kept.js";
 import { fitTabs, type TabRowMeasure } from "./fold.js";
 import { useFormatters } from "../../format/index.js";
+
+/** The open tab, as storage keeps it. */
+const readDockTab = keptRead.record<{ key: string | undefined }>({ key: keptRead.optional(keptRead.string) });
 
 // The rail's `icon` is a dynamic Font Awesome name (e.g. "book"); register
 // the free-solid set so it resolves by name (idempotent — safe if already added).
@@ -247,6 +251,7 @@ export function DockPane(props: DockPaneProps) {
     const { state: tabState, setState: setTabState } = usePersistedState<{ key: string | undefined }>(
         `${storageKey}.dock.tab`,
         { key: tabs[0]?.key },
+        readDockTab,
     );
     // Interactive-state: local state seeded from `tab`; a host-driven `tab` pushes into it.
     const [drivenTab, setDrivenTab] = useState<string | undefined>(tabProp);

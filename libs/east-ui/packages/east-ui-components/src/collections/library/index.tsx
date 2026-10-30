@@ -18,6 +18,7 @@ import { equivalentFor, match, type ValueTypeOf } from "@elaraai/east";
 import { Library, Slice as SliceInternal } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { usePersistedState } from "../../hooks/usePersistedState";
+import { keptRead } from "../../platform/kept.js";
 import { useDragSourceItem, useDropSink, type DragHandle } from "../../dnd/drag-layer";
 import { inRetained } from "../../dnd/retained.js";
 import { takeKey } from "../../editing/shortcuts.js";
@@ -44,6 +45,8 @@ export type LibraryItemValue = ValueTypeOf<typeof Library.Types.Item>;
 
 /** A gallery's layout — derived from the East type, never mirrored. */
 type LibraryLayout = ValueTypeOf<typeof Library.Types.Layout>["type"];
+/** Every layout a gallery takes. */
+const LIBRARY_LAYOUTS = Object.keys(Library.Types.Layout.cases) as LibraryLayout[];
 
 /** The bound slice handle, decoded. */
 type SliceBindValue = ValueTypeOf<typeof SliceInternal.Types.Bind>;
@@ -197,6 +200,15 @@ interface LibraryToolbarState {
     /** Top visible virtual-entry index — a clamped index survives data changes (#143 convention). */
     scrollIndex?: number;
 }
+
+/** The toolbar's state, as storage keeps it. */
+const readLibraryToolbar = keptRead.record<LibraryToolbarState>({
+    groupKey: keptRead.nullable(keptRead.string),
+    activeDims: keptRead.array(keptRead.string),
+    filters: keptRead.optional(keptRead.dict(keptRead.array(keptRead.string))),
+    layout: keptRead.optional(keptRead.oneOf(...LIBRARY_LAYOUTS)),
+    scrollIndex: keptRead.optional(keptRead.number),
+});
 
 function itemSearchText(item: LibraryItemValue): string {
     return (getSomeorUndefined(item.search) ?? item.label).toLowerCase();
@@ -929,7 +941,7 @@ function LibraryCore({ value, storageKey, rail, renderMedia, empty, onCardEnter,
         activeDims: [...value.defaultDimensions],
         filters: {},
         layout: getSomeorUndefined(value.layout)?.type,
-    });
+    }, readLibraryToolbar);
     const [query, setQuery] = useState("");
     const filterOptions = value.filterOptions;
     const activeFilters = useMemo(() => facetFilter?.values ?? toolbar.filters ?? {}, [facetFilter?.values, toolbar.filters]);

@@ -144,7 +144,7 @@ import {
     implementUIComponent, takeKey, typedInto, useContainerBelow, useDataStable, useFormatters, usePersistedState, useSlicesReactivity,
     type EditIssue, type EditingWords, type HistoryAction,
 } from "@elaraai/east-ui-components";
-import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue, keptRead } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
@@ -980,7 +980,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // Its rows in flight: what the frame's reveal waits on too, so its placeholders show by the same clock (#1398, CL4).
     const inspectorReading = inspectedRows.ref !== undefined && (inspectedRows.row.state === "reading" || inspectedRows.details?.state === "reading");
     // Its open tab, kept per viewer; Enter, or a double-click on an entity, opens Details — the pane too, collapsed.
-    const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" });
+    const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" }, keptRead.record({ tab: keptRead.string }));
     const onInspectorTab = useCallback((tab: string) => setInspectorTab({ tab }), [setInspectorTab]);
     const frameRef = useRef<HTMLDivElement>(null);
     const inspectorName = words.m.inspectorPane();

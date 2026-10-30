@@ -24,6 +24,7 @@ import { SavedQueryType, queryKeys } from "@elaraai/e3-ui/internal";
 import { TreePathType, pathToString } from "@elaraai/e3-types";
 import { CUSTOMERS, savedQuery } from "./fixture.test-utils.js";
 import { act, queryHarness, settle } from "./query.test-utils.js";
+import { keptName } from "@elaraai/east-ui-components/internal";
 
 type TreePath = ValueTypeOf<typeof TreePathType>;
 
@@ -51,7 +52,7 @@ const printSaved = printFor(SavedQueryType);
 
 /** This viewer's recent runs, the most recent first, as the builder keeps them in the browser. */
 function remember(...runs: ValueTypeOf<typeof SavedQueryType>[]) {
-    localStorage.setItem(queryKeys(undefined).recent, JSON.stringify(runs.map((run) => printSaved(run))));
+    localStorage.setItem(keptName(queryKeys(undefined).recent), JSON.stringify(runs.map((run) => printSaved(run))));
 }
 
 const h = queryHarness();

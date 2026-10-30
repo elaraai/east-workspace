@@ -60,7 +60,7 @@ import { tileNext } from "@elaraai/east-ui/internal";
 import { optimiseMessages, takeKey, useDragEventChip, useDragEventEdge, useDragMessages, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import {
     LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, UnloadedRun, VirtualRows, devicePixels, loadingLineText, useRowsTop, useSlotClass,
-    type RowRuns, type RunCell, type RunFailure,
+    type RowRuns, type RunCell, type RunFailure, keptRead
 } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PeriodRead } from "../shared/loading.js";
 import type { ScheduleCellShade, ScheduleCellShading } from "../shared/schedule/cells.js";
@@ -78,7 +78,7 @@ import { TIMELINE_GUTTER, recentredView, shiftedScroll, timelinePixels, timeline
 import { coversShown, useVisibleDays, type TravelStore, type VisibleDaysStore } from "./visible.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
-import { useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
+import { readRowAnchor, useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { useAgendaLanding } from "./agenda-focus.js";
 import { EventActions, type CalendarShownResources } from "./controls.js";
 import { calendarCoord, type CalendarDrag } from "./drag.js";
@@ -276,6 +276,9 @@ export interface CalendarAnchor {
     readonly gridHour?: number | undefined;
     readonly timeline?: RowAnchor | undefined;
 }
+
+/** Where each layout's view rests, as storage keeps it. */
+export const readCalendarAnchor = keptRead.record<CalendarAnchor>({ gridHour: keptRead.optional(keptRead.number), timeline: keptRead.optional(readRowAnchor) });
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 /** The hour the time grid opens at, the first time: half past five, the working day just above the fold. */
 const OPENING_HOUR = 5.5;

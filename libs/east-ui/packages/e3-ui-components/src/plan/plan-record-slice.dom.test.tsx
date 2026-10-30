@@ -39,7 +39,7 @@ import {
 } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
-import { getStore } from "@elaraai/east-ui-components/internal";
+import { getStore, keptName } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-records";
 import * as sheet from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import type { TreePath } from "@elaraai/e3-types";
@@ -501,7 +501,7 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         /** Where the view rests as the Plan saved it under its storage key: its item's key and its window. */
         const rested = (): { key: string; window: number | null } | undefined => {
             for (const at of Object.keys(localStorage)) {
-                if (!at.startsWith(storageKey)) continue;
+                if (!at.startsWith(keptName(storageKey))) continue;
                 const kept = JSON.parse(localStorage.getItem(at)!) as { anchor?: { key: string; window: number | null } | null };
                 if (kept.anchor !== undefined && kept.anchor !== null) return { key: kept.anchor.key, window: kept.anchor.window };
             }
