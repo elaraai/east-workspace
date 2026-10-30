@@ -12,7 +12,7 @@
  * with its source's name.
  */
 
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { IntegerType, StringType, StructType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
@@ -24,8 +24,13 @@ import { SessionBanners } from "./banners.js";
 import type { HistoryAction } from "./HistoryBar.js";
 import { editingMessages, type EditingWords } from "./messages.js";
 import { EditSession, type EditIssue, type EditSessionBinding, type EntryVersion } from "./session.js";
+import { keepDrafts, keptDraftsKey } from "./keep.js";
+import { keptName, resetKept } from "../platform/kept.js";
 
-afterEach(cleanup);
+afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+});
 
 const Run = StructType({ id: StringType, end: IntegerType });
 const Draft = Editing.Types.Draft(Run);
@@ -159,4 +164,34 @@ test("a banner leaves when what it reports does, following the session itself", 
     expect(kinds(container)).toEqual(["stale"]);
     act(() => session.discard());
     expect(kinds(container)).toEqual([]);
+});
+
+test("drafts a reload would lose say so, and why; drafts a reload kept but could not restore say so too", () => {
+    resetKept();
+    window.sessionStorage.clear();
+    const key = keptDraftsKey("runs", "runs.view");
+    const kept = (): EditSession<string> => {
+        const session = new EditSession<string>({
+            sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+            apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+        });
+        keepDrafts(session, key, StringType);
+        return session;
+    };
+    // The tab's storage refuses the draft: a reload would lose it.
+    const refused = kept();
+    refused.observeBase(variant("snapshot", [a]));
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("full", "QuotaExceededError"); });
+    refused.record([{ id: "a", before: version(a), after: version({ ...a, end: 2n }) }], "typed", "Edit a");
+    const full = mount(refused);
+    expect(kinds(full.container)).toEqual(["unkept"]);
+    expect(banner(full.container, "unkept")!.textContent).toContain(editingMessages.bannerUnkept({ reason: "full" }));
+    full.unmount();
+    vi.restoreAllMocks();
+    // Bytes this version does not read, kept from before a reload: not restored, and said so.
+    resetKept();
+    window.sessionStorage.setItem(keptName(key, { where: "tab" }), "AAECAwQF");
+    const lost = mount(kept());
+    expect(kinds(lost.container)).toEqual(["lost"]);
+    expect(banner(lost.container, "lost")!.textContent).toContain(editingMessages.bannerLost({ reason: "unreadable" }));
 });

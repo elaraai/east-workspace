@@ -88,6 +88,10 @@ export interface EditingMessages {
     conflictGoTo: () => string;
     /** A conflict, as the issue a collection goes to. */
     issueConflict: () => string;
+    /** The banner while a reload would lose the drafts: the tab's storage refused them, and why. */
+    bannerUnkept: (p: { reason: "unavailable" | "full" | "unreadable" | "unwritable" }) => string;
+    /** The banner over drafts a reload kept that could not be restored, and why. */
+    bannerLost: (p: { reason: "schema" | "unreadable" }) => string;
     /** The banner while conflicts wait — `2 of your changes conflict with newer changes`. */
     bannerConflicts: (p: { n: number; count: string }) => string;
     /** The banner's action: open the conflicts. */
@@ -192,6 +196,11 @@ export const editingMessages: EditingMessages = {
     conflictChangedSince: () => "Changed since you started editing",
     conflictGoTo: () => "Go to",
     issueConflict: () => "Someone else changed this too — choose which version to keep",
+    bannerUnkept: ({ reason }) => (reason === "full" ? "A reload would lose these changes: this tab's storage is full. Save them soon."
+        : reason === "unavailable" ? "A reload would lose these changes: this browser keeps nothing for this tab. Save them soon."
+        : "A reload would lose these changes: they could not be kept. Save them soon."),
+    bannerLost: ({ reason }) => (reason === "schema" ? "Changes from before the reload could not be restored: the data's shape has changed since."
+        : "Changes from before the reload could not be restored."),
     bannerConflicts: ({ n, count }) => `${count} of your ${plural(n, "changes conflicts", "changes conflict")} with newer changes`,
     conflictsChoose: () => "Choose",
     conflictsLocked: () => "An optimiser run is in progress. Choose once it finishes.",

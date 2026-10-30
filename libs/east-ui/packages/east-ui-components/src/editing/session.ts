@@ -150,6 +150,35 @@ export interface EntryConflicts {
 export type ConflictChoice = "draft" | "source";
 
 /**
+ * A drafted entry as a reload keeps it (keep.ts): what both began from, the
+ * draft, the collection's projection of each, and where each stands — what
+ * the session needs to carry the draft over to the source as a reload finds
+ * it ({@link EditSession.restore}).
+ *
+ * @typeParam W - The collection's projection of an entry
+ */
+export interface KeptEntry<W> {
+    /** The entry's id. */
+    readonly id: string;
+    /**
+     * What both began from: the source's value as the edit began — or as a
+     * carried-over conflict rewound it — as a draft; `none` for an entry new
+     * to the source.
+     */
+    readonly was: option<unknown>;
+    /** The draft; `none` for an entry the draft removes. */
+    readonly draft: option<unknown>;
+    /** The collection's projection of the draft. */
+    readonly wire: W | undefined;
+    /** Its projection of what both began from. */
+    readonly beforeWire: W | undefined;
+    /** Where the draft stands. */
+    readonly place: Placement;
+    /** Where the entry stood as its edit began. */
+    readonly beforePlace: Placement;
+}
+
+/**
  * A conflict settled since the drafts were last carried over, until Save:
  * how, and what each side held, so it reads back as settled and can be
  * settled the other way.
@@ -445,6 +474,8 @@ export class EditSession<W> {
     private ancestors = new Map<string, option<unknown>>();
     /** Drafts being carried over to a newer base: the base, and each drafted entry as read there. */
     private moving: { readonly base: Base; readonly read: Map<string, option<unknown>> } | undefined;
+    /** Drafts a reload kept, waiting for the session's first base ({@link EditSession.restore}). */
+    private restoring: readonly KeptEntry<W>[] | undefined;
     private readonly merger: EntryMerger;
     /** Each conflict settled since the drafts were last carried over, by entry and path. */
     private settledPoints = new Map<string, SettledConflict>();
@@ -651,6 +682,57 @@ export class EditSession<W> {
     get draftType(): EastType { return this.binding.draftType; }
 
     /**
+     * The drafts as a reload keeps them (keep.ts): each entry drafted away
+     * from what it began as, with what both began from — its original, or
+     * what a carried-over conflict rewound it to. An entry back as it began —
+     * undone, or discarded — is no draft to keep.
+     */
+    get keptEntries(): readonly KeptEntry<W>[] {
+        const out: KeptEntry<W>[] = [];
+        for (const [id, version] of this.current) {
+            const original = this.baseline.get(id) ?? ABSENT;
+            const was = this.ancestors.get(id) ?? draftOf(original);
+            const draft = draftOf(version);
+            if (Object.is(version, original) || (this.draftEqual(draft, was) && placementEqual(version.place, original.place))) continue;
+            out.push({ id, was, draft, wire: version.wire, beforeWire: original.wire, place: version.place, beforePlace: original.place });
+        }
+        return out;
+    }
+
+    /**
+     * Restore drafts a reload kept (keep.ts), before the session's first base:
+     * once the source's base is observed, they are carried over to the
+     * entries the source holds there, as drafts are when it moves
+     * ({@link EditSession.merge}) — each combined with what changed since,
+     * a part both changed a conflict to choose, and a draft the source holds
+     * already (a Save that landed before the reload) no draft any more. The
+     * history starts at them.
+     *
+     * @param entries - The kept drafts
+     * @returns Whether they will be restored: `false` once the session has a base
+     */
+    restore(entries: readonly KeptEntry<W>[]): boolean {
+        if (this.base !== undefined) return false;
+        this.restoring = entries;
+        return true;
+    }
+
+    /** Kept drafts, put back at the session's first base and carried over to it. */
+    private restoreAt(base: Base, entries: readonly KeptEntry<W>[]): void {
+        for (const entry of entries) {
+            this.baseline.set(entry.id, entry.was.type === "some" ? { draft: entry.was.value, wire: entry.beforeWire, place: entry.beforePlace } : ABSENT);
+            this.current.set(entry.id, entry.draft.type === "some" ? { draft: entry.draft.value, wire: entry.wire, place: entry.place } : ABSENT);
+        }
+        this.draftsChanged();
+        this.moving = { base: this.cloneBase(base), read: new Map() };
+        if (base.type === "snapshot") {
+            this.merge(base, (id) => this.inSnapshot(base.value, id));
+            return;
+        }
+        this.changed();
+    }
+
+    /**
      * A conflict — open, or settled since the drafts were last carried over —
      * as an issue of its entry, at the child row and the field it is in: what
      * a collection goes to and names as it does its own issues. The same
@@ -754,7 +836,13 @@ export class EditSession<W> {
      * @param base - The base the source is at now
      */
     observeBase(base: Base): void {
-        if (this.base === undefined) { this.base = this.cloneBase(base); return; }
+        if (this.base === undefined) {
+            this.base = this.cloneBase(base);
+            const kept = this.restoring;
+            this.restoring = undefined;
+            if (kept !== undefined && kept.length > 0) this.restoreAt(base, kept);
+            return;
+        }
         if (this.baseEqual(this.base, base)) return;
         if (this.locked) return; // Only reconcile() may acknowledge a submitted request.
         if (this.pending === 0) {

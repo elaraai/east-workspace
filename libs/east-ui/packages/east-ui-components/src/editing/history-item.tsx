@@ -13,6 +13,7 @@
  */
 import { DEFAULT_RANK, type ToolbarItem } from "../toolbar/index.js";
 import { HistoryBar, type HistoryBarProps } from "./HistoryBar.js";
+import { draftsKeepingOf } from "./keep.js";
 
 /**
  * The rank of the history item's one fold step. It folds after every step a
@@ -34,13 +35,14 @@ export function historyToolbarItem<W>(props: HistoryBarProps<W>): ToolbarItem {
     const { session } = props;
     const readiness = session.readiness;
     const issues = readiness.type === "ready" ? session.issues.length : readiness.value.length;
+    const keeping = draftsKeepingOf(session);
     return {
         key: "history",
         side: "end",
         forms: [<HistoryBar {...props} buttonsOnly={false} />, <HistoryBar {...props} buttonsOnly />],
         rank: HISTORY_RANK,
         // The full form's width moves with its status line, its issue count and its error, when it shows one; each form's
-        // with the conflicts still to choose.
-        version: `${session.stale ? "stale" : session.carrying ? "carrying" : session.status}|${issues}|${session.unsettled}|${props.showError === false ? "" : session.error ?? ""}`,
+        // with the conflicts still to choose, and with what it says of drafts a reload would lose.
+        version: `${session.stale ? "stale" : session.carrying ? "carrying" : session.status}|${issues}|${session.unsettled}|${props.showError === false ? "" : `${session.error ?? ""}|${keeping.state === "kept" ? "" : `${keeping.state}:${keeping.reason}`}`}`,
     };
 }

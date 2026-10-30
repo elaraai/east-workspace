@@ -21,6 +21,7 @@ import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import type { EditHistory } from "./history.js";
 import type { EditIssue, EditSession } from "./session.js";
 import { ConflictsControl } from "./conflicts.js";
+import { useDraftsKeeping } from "./keep.js";
 import { sessionErrorText, type EditingWords } from "./messages.js";
 
 /** A history bar action. */
@@ -124,6 +125,10 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, wher
         : undefined;
     const n = issues.length;
     const unsettled = session.unsettled;
+    // Drafts a reload would lose, or that a reload could not restore: said under the buttons where the bar says its error.
+    const keeping = useDraftsKeeping(session);
+    const keepingText = keeping.state === "unkept" ? m.bannerUnkept({ reason: keeping.reason })
+        : keeping.state === "lost" ? m.bannerLost({ reason: keeping.reason }) : undefined;
     return <Box data-slot="history" data-history-form={buttonsOnly ? "buttons" : "full"} data-history-locked={locked ? "" : undefined} css={styles.root}>
         <Box css={styles.actions}>
             {!buttonsOnly && message !== undefined && <Text role="status" aria-live="polite" css={styles.status}>{message}</Text>}
@@ -142,5 +147,6 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, wher
                     icon={status === "unknown" ? faRotate : faCheck} disabled={status !== "unknown" && !session.canApply && !commitEditor} locked={locked} onClick={() => onAction("apply")} />}
         </Box>
         {showError && session.error !== undefined && <Text css={styles.error} role="alert">{sessionErrorText(session.error, words)}</Text>}
+        {showError && session.error === undefined && keepingText !== undefined && <Text css={styles.notice} data-history-keeping="">{keepingText}</Text>}
     </Box>;
 }

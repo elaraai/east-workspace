@@ -24,7 +24,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 
 export const editHistorySlotRecipe = defineSlotRecipe({
     className: "elara-edit-history",
-    slots: ["root", "actions", "status", "button", "issues", "conflicts", "conflictsCount", "error", "bannerIssues", "bannerIssue"],
+    slots: ["root", "actions", "status", "button", "issues", "conflicts", "conflictsCount", "error", "notice", "bannerIssues", "bannerIssue"],
     base: {
         root: {
             flexShrink: "0",
@@ -70,6 +70,12 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             marginTop: "{spacing.2}",
             fontSize: "body.sm",
             color: "fg.danger",
+        },
+        /* What the bar says of drafts a reload would lose, or could not restore, where it says its error. */
+        notice: {
+            marginTop: "{spacing.2}",
+            fontSize: "body.sm",
+            color: "fg.warning",
         },
         /* An Apply's issues in a banner's body: one to a line, unmarked. */
         bannerIssues: {

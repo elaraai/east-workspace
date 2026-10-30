@@ -19,8 +19,13 @@ import { liftDraft } from "./draft.js";
 import { HistoryBar, type HistoryAction } from "./HistoryBar.js";
 import { editingMessages, SESSION_TEXT, type EditingMessages, type EditingWords } from "./messages.js";
 import { EditSession, type EditIssue, type EntryVersion } from "./session.js";
+import { keepDrafts, keptDraftsKey } from "./keep.js";
+import { resetKept } from "../platform/kept.js";
 
-afterEach(cleanup);
+afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+});
 
 const Run = StructType({ id: StringType, end: IntegerType });
 const Draft = Editing.Types.Draft(Run);
@@ -88,4 +93,21 @@ test("an incomplete draft counts as an issue the bar goes to; the status and the
     ui.session.error = "Refused by the host";
     ui.refresh();
     expect(ui.getByRole("alert").textContent).toBe("Refused by the host");
+});
+
+test("drafts a reload would lose are said under the buttons, where the bar says its error", () => {
+    resetKept();
+    window.sessionStorage.clear();
+    const session = new EditSession<string>({
+        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+        apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+    });
+    keepDrafts(session, keptDraftsKey("runs", "runs.bar"), StringType);
+    session.observeBase(variant("snapshot", [{ id: "a", end: 1n }]));
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("full", "QuotaExceededError"); });
+    session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
+    const { container } = render(<ChakraProvider value={system}>
+        <HistoryBar session={session} words={WORDS} editing={false} onAction={() => undefined} onIssue={() => undefined} />
+    </ChakraProvider>);
+    expect(container.querySelector("[data-history-keeping]")!.textContent).toBe(`⟦${editingMessages.bannerUnkept({ reason: "full" })}`);
 });

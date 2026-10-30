@@ -11,8 +11,10 @@
  * ones, whose Choose opens the history bar's conflicts; an Apply's conflicts, naming each
  * issue's place; an Apply the source refused, with its reasons; a write with
  * no answer, with Retry; an Apply whose result could not be read back, with
- * Retry; and drafts the source moved under, with Discard. Each follows the
- * session, and leaves when what it reports does. A host whose one history
+ * Retry; drafts the source moved under, with Discard; and drafts a reload
+ * would lose — the tab's storage refused them — or kept drafts a reload could
+ * not restore (keep.ts). Each follows the session, and leaves when what it
+ * reports does. A host whose one history
  * holds several sessions (`EditHistory`, #1194) draws each session's banners,
  * each titled with its source's name.
  *
@@ -24,6 +26,7 @@ import { BannerView } from "../feedback/banner/index.js";
 import type { HistoryAction } from "./HistoryBar.js";
 import type { EditIssue, EditSession } from "./session.js";
 import { useConflictsOpener } from "./conflicts.js";
+import { useDraftsKeeping } from "./keep.js";
 import { sessionErrorText, type EditingWords } from "./messages.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -73,6 +76,7 @@ export interface SessionBannersProps<W> {
 export function SessionBanners<W>({ session, words, onAction, where, issueText, name }: SessionBannersProps<W>) {
     useSyncExternalStore(session.subscribe, session.getSnapshot);
     const choose = useConflictsOpener(session);
+    const keeping = useDraftsKeeping(session);
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
@@ -136,6 +140,16 @@ export function SessionBanners<W>({ session, words, onAction, where, issueText, 
             {stale && (
                 <Box data-session-banner="stale">
                     <BannerView status="stale" title={titled(m.bannerStale())} actions={action(m.discard(), "discard")} />
+                </Box>
+            )}
+            {keeping.state === "unkept" && (
+                <Box data-session-banner="unkept">
+                    <BannerView status="warning" title={titled(m.bannerUnkept({ reason: keeping.reason }))} />
+                </Box>
+            )}
+            {keeping.state === "lost" && (
+                <Box data-session-banner="lost">
+                    <BannerView status="warning" title={titled(m.bannerLost({ reason: keeping.reason }))} />
                 </Box>
             )}
         </>
