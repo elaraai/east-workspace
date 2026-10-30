@@ -1029,8 +1029,9 @@ describe("VirtualRows — a row out of the layout keeps its size (#1389)", () =>
 describe("VirtualRows — a gesture holds its row (Decision Queue Spec.md R8, R11, R13)", () => {
     // A card's row: its 8px margin over a card in a 1px border, the card's head 40px tall 9px into the row; open, the
     // body below the head. jsdom lays nothing out: here the page lays the list's view 200px tall at the top, a row where
-    // the frame translates it less the scroll, and an open card's head stuck at the view's top while its card runs above
-    // it — pushed off by its card's end. The frame's writes land on scrollTop, as a browser's do, never above the top.
+    // the frame places it — by its transform, or its top — less the scroll, and an open card's head stuck at the view's
+    // top while its card runs above it — pushed off by its card's end. The frame's writes land on scrollTop, as a
+    // browser's do, never above the top.
     const CLOSED = 56;
     const OPEN = 856;
     const HEAD = 40;
@@ -1039,6 +1040,11 @@ describe("VirtualRows — a gesture holds its row (Decision Queue Spec.md R8, R1
     const realScrollTo = proto.scrollTo;
     const rect = (top: number, height: number) =>
         ({ x: 0, y: top, top, left: 0, right: 240, width: 240, height, bottom: top + height, toJSON: () => ({}) }) as DOMRect;
+    /** Where the frame placed a row among the rows: its transform's offset, or its top. */
+    const placed = (row: HTMLElement): number => {
+        const moved = /translateY\((-?[\d.]+)px\)/.exec(row.style.transform);
+        return moved === null ? Number.parseFloat(row.style.top) : Number(moved[1]);
+    };
     beforeEach(() => {
         proto.scrollTo = function (this: HTMLElement, options: ScrollToOptions) {
             if (options.top !== undefined) this.scrollTop = Math.max(0, options.top);
@@ -1049,7 +1055,7 @@ describe("VirtualRows — a gesture holds its row (Decision Queue Spec.md R8, R1
             if (list === null || row === null) return rect(0, VIEW);
             const card = row.firstElementChild as HTMLElement;
             const height = Number(card.dataset["h"]);
-            const top = Number(/translateY\((-?[\d.]+)px\)/.exec(row.style.transform)![1]) - list.scrollTop;
+            const top = placed(row) - list.scrollTop;
             if (this === row) return rect(top, height);
             const own = top + 9;
             return rect(card.hasAttribute("data-open") ? Math.min(Math.max(own, 0), top + height - 1 - HEAD) : own, HEAD);
@@ -1065,14 +1071,14 @@ describe("VirtualRows — a gesture holds its row (Decision Queue Spec.md R8, R1
     /** The queue's state: the open card, the rows landed above the thirty cards, and the last gesture's hold. */
     type At = { readonly open?: string | undefined; readonly above?: number; readonly hold?: RowsHold | undefined };
     let set: ((at: At) => void) | undefined;
-    function Queue({ first, liveHeights }: { first: At; liveHeights?: boolean }) {
+    function Queue({ first, liveHeights, stickyParts }: { first: At; liveHeights?: boolean; stickyParts?: boolean }) {
         const [at, setAt] = useState<At>(first);
         set = setAt;
         const keys = [...Array.from({ length: at.above ?? 0 }, (_u, i) => `n${i}`), ...Array.from({ length: 30 }, (_u, i) => `r${i}`)];
         return (
             <ChakraProvider value={system}>
                 <VirtualRows height={`${VIEW}px`} maxHeight={undefined} count={keys.length} estimateSize={() => CLOSED} overscan={2}
-                    getItemKey={(i) => keys[i]!} anchorable={() => true} hold={at.hold} liveHeights={liveHeights}
+                    getItemKey={(i) => keys[i]!} anchorable={() => true} hold={at.hold} liveHeights={liveHeights} stickyParts={stickyParts}
                     renderRow={(i) => (
                         <div data-key={keys[i]} data-h={keys[i] === at.open ? OPEN : CLOSED} {...(keys[i] === at.open ? { "data-open": "" } : {})}>
                             <div data-head="" />
@@ -1129,6 +1135,22 @@ describe("VirtualRows — a gesture holds its row (Decision Queue Spec.md R8, R1
         // The hold over, the frame anchors its rows again: ten rows landing above leave r8 where it shows.
         act(() => { set!({ open: "r8", above: 10, hold }); });
         expect(list.scrollTop).toBe(448 + 10 * CLOSED);
+        expect(rowAt(container, "r8")).toBe(0);
+    });
+
+    test("rows holding a part that sticks to the view's top are placed by their tops, never a transform — the browser places a sticky part from the layout, which a transform leaves where it was (R9) — and a gesture holds them as it holds rows a transform moves", async () => {
+        const { container } = render(<Queue first={{ open: "r5" }} stickyParts />);
+        const placements = () => [...container.querySelectorAll<HTMLElement>("[data-slot=virtualRow]")].slice(0, 3)
+            .map((row) => ({ transform: row.style.transform, top: row.style.top }));
+        expect(placements()).toEqual([{ transform: "", top: "0px" }, { transform: "", top: `${CLOSED}px` }, { transform: "", top: `${2 * CLOSED}px` }]);
+        // The card above closing as the one clicked opens: the head clicked stays where it showed, and the rows glide on.
+        const list = scrollList(container, 1100);
+        await pass(200);
+        expect(headAt(container, "r8")).toBe(157);
+        const hold: RowsHold = { key: "r8", nonce: 1, part: head, reveal: 64 };
+        expect(gesture(container, { open: "r8", hold }, "r8")).toEqual({ top: 300, row: 148, head: 157, extent: 30 * CLOSED + OPEN - CLOSED });
+        await pass(SETTLED);
+        expect(list.scrollTop).toBe(448);
         expect(rowAt(container, "r8")).toBe(0);
     });
 

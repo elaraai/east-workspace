@@ -14,10 +14,10 @@
  *     and scrolls in. While a narrowing is read the cases it showed stand in, retained (`data-decision-stale` on main,
  *     #1398 CL5): the cards', the receipts', the sections' and the Routine band's words in the third ink, every edge
  *     its own.
- *   - heading / title / count / late: the toolbar's first item, `Decisions` and its count chip on one line; the
- *     count chip — `count` is every count chip the queue draws, a section's and the Routine band's too, and settles
+ *   - heading / title / count / late / lateIcon: the toolbar's first item, `Decisions` and its count chip on one line;
+ *     the count chip — `count` is every count chip the queue draws, a section's and the Routine band's too, and settles
  *     from the tint to its paper as the count changes (`data-settle`, the queue keying it again at each change) — and
- *     the past-due words.
+ *     the past-due words, and at the row's floor their clock before their number.
  *   - list, empty, emptyLines, emptyLine, emptyIcon: main's list, on `--paper-2`; and the box the shared empty state
  *     stands in once a read finds nothing, at the list's top, its two lines each led by its icon.
  *   - footer: the shared footer rail (`builder-footer.ts`), which holds the shared loading line alone.
@@ -44,7 +44,7 @@
  *   - error: an edit a changed row's kind refuses, under the row's form in the Edit panel — the builders' inspectors' line.
  *
  * On a coarse pointer each bare button — Why's toggle, the Routine band's, a link, a receipt's Undo — is a 44px tap
- * target by its halo (`coarseHitArea`), its size kept.
+ * target by its halo (`coarseHitArea`), its size kept; an option, whose neighbours sit edge to edge, is 44px tall.
  *
  * Under `prefers-reduced-motion` every duration is 0: the body opens, the receipt arrives and leaves and the chip
  * settles at once.
@@ -98,7 +98,7 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
     className: "elara-decision-queue",
     slots: [
         "root", "main",
-        "heading", "title", "count", "late",
+        "heading", "title", "count", "late", "lateIcon",
         "list", "empty", "emptyLines", "emptyLine", "emptyIcon", "footer",
         "section", "sectionLabel", "sectionRule", "sectionTotal",
         "cardRow", "card", "head",
@@ -178,6 +178,12 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             fontWeight: "semibold",
             color: "fg.danger",
             whiteSpace: "nowrap",
+        },
+        // The past-due count's clock at the row's floor, in its words' ink and size, before its number.
+        lateIcon: {
+            "--fa-width": "auto",
+            display: "inline-flex",
+            marginInlineEnd: "4px",
         },
         // Main's list: the shared rows filling main, which scroll in it.
         list: {
@@ -468,6 +474,8 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             "&[aria-selected=true], &[aria-selected=true]:hover": { background: "bg.subtle" },
             "&[aria-disabled=true], &[aria-disabled=true]:hover": { background: "bg.surface", cursor: "default" },
             _focusVisible: { boxShadow: "{shadows.focusInset}" },
+            // Its neighbours sit edge to edge, so no halo: on a coarse pointer the row itself is the 44px target.
+            _coarse: { minHeight: "44px" },
         },
         optionMark: {
             "--fa-width": "auto",
@@ -537,11 +545,12 @@ export const decisionQueueSlotRecipe = defineSlotRecipe({
             "&[data-modified]": { color: "brandPressed" },
             "&[data-empty]": { fontStyle: "italic", color: "fg.subtle" },
         },
+        // One line wherever its column holds it, as the mock's; in a narrow host it wraps at its spaces, never running
+        // past its column (R30).
         figureSub: {
             fontFamily: "mono",
             fontSize: "label.xs",
             color: "fg.muted",
-            whiteSpace: "nowrap",
         },
         // Your call and the warning (§8): a box in its tone over a 6% wash of it.
         call: {
