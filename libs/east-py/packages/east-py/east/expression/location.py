@@ -52,6 +52,7 @@ __all__ = [
     "Location",
     "SourceMap",
     "UNKNOWN_LOC_ID",
+    "author_frames_from",
     "author_frames_of",
     "capture_frames",
     "current_source_map",
@@ -398,6 +399,32 @@ def author_frames_of(tb: Any) -> tuple[Location, ...]:
             frames.append((path, line, column))
         current = current.tb_next
     frames.reverse()
+    return tuple(frames)
+
+
+def author_frames_from(frame: Any) -> tuple[Location, ...]:
+    """The author's frames of a live stack, from ``frame`` outward, named as
+    :func:`author_frames_of` names a traceback's.
+
+    What ``east-py check`` reports for a refusal raised before a body ran — a
+    signature check, a declared ``out`` the body does not produce — whose
+    traceback holds only East's frames: the ``East.function`` call, given as
+    the frame that made it, and its callers. Paths are relative to the working
+    directory, as an editor resolves them, not recorded ones.
+
+    Args:
+        frame: The innermost frame to walk from.
+
+    Returns:
+        The author's ``(file, line, column)`` frames, innermost first.
+    """
+    frames: list[Location] = []
+    while frame is not None:
+        path = _author_path(frame.f_code.co_filename)
+        if path is not None:
+            line, column = _position(frame)
+            frames.append((path, line, column))
+        frame = frame.f_back
     return tuple(frames)
 
 

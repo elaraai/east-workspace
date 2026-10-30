@@ -47,8 +47,8 @@ from east.expression.lift import (
 from east.expression.location import (
     Location,
     SourceMap,
+    author_frames_from,
     author_frames_of,
-    capture_frames,
     frame_location,
     source_map_scope,
 )
@@ -761,7 +761,9 @@ def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
         return LazyFunction(getattr(body, "__name__", entry), build, getattr(body, "__doc__", None))
     if _current_collector() is None:
         return _build_strict(param_types, out, body, is_async=is_async, entry=entry, caller=caller)
-    call_site = capture_frames()
+    # where a refusal raised before the body ran is reported, as a traceback
+    # names it: relative to the working directory, not as a source map records
+    call_site = author_frames_from(caller)
     try:
         return _build_strict(param_types, out, body, is_async=is_async, entry=entry, caller=caller)
     except Exception as error:  # noqa: BLE001 - the checker reports whatever the build raised
