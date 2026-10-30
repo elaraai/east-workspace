@@ -292,7 +292,8 @@ const StoryStepBlock = memo(function StoryStepBlock({ step, index, total, state,
             paddingLeft="26px"
             display="flex"
             flexDirection="column"
-            minHeight={minHeight}
+            // Worked out from the scrollport's height, which a resize moves: inline, as a class would be minted for each.
+            style={{ minHeight }}
             boxSizing="border-box"
             opacity={state === "active" ? 1 : 0.45}
             transition="opacity 200ms ease-out"
