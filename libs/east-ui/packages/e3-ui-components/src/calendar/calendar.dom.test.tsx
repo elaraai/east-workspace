@@ -310,6 +310,22 @@ describe("Calendar explicit action forms", () => {
         await press(history(container, editingMessages.discard()));
         expect(event(container, "job", "job1")).not.toBeNull(); expect(event(container, "service", "service1")).toBeNull();
     });
+    test("a conflict's event is named by its title, as its kind's banners name it", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(event(container, "job", "job1"));
+        const input = slot(container, "end").querySelector<HTMLInputElement>('[data-field="customer"] input')!;
+        const user = userEvent.setup(); await user.clear(input); await user.type(input, "Customer here{Enter}"); await settle();
+        // Another session sets the same customer otherwise while the jobs' patch is on its way to e3.
+        await h.race(ex.calendarJobs, () => { fireEvent.click(history(container, editingMessages.apply())); }, (now) => {
+            const others = new Map(now);
+            others.set("job1", { ...others.get("job1")!, customer: "Customer there" });
+            return others;
+        });
+        await waitFor(() => expect(container.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        const [conflict, ...more] = await conflictCards(container);
+        expect(more).toEqual([]);
+        expect([conflict!.item, conflict!.yours]).toEqual(["Mounting brackets · batch 42", "Yours, Customer here"]);
+    });
     test("a reload keeps each kind's drafts in this tab: the events deleted stay deleted, still to save, and Save sends each kind's", async () => {
         const first = await h.mount(ex.calendarOperations);
         for (const [kind, key] of [["job", "job1"], ["service", "service1"]]) {

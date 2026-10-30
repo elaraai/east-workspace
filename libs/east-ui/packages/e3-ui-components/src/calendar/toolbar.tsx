@@ -17,7 +17,7 @@ import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/r
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
 import {
-    ChipMenu, historyToolbarItem, useKeySearchToolbarItem, type EditingWords, type HistoryAction, type KeySearchSource, type ToolbarItem,
+    ChipMenu, historyToolbarItem, useKeySearchToolbarItem, type EditIssue, type EditingWords, type HistoryAction, type KeySearchSource, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { HOST_RANK, RecordSliceFieldEditor, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { TimeNavigator } from "../shared/time/navigation.js";
@@ -25,6 +25,7 @@ import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
 import { eventsNotCounted } from "../shared/schedule/words.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { scheduleOverlapsIn, type ScheduleOverlaps } from "../shared/schedule/overlaps.js";
+import { scheduleIssueName } from "../shared/schedule/editing.js";
 import type { CalendarCommands } from "./actions.js";
 import type { CalendarWords } from "./messages.js";
 import type { CalendarEventPart } from "./window.js";
@@ -35,6 +36,11 @@ import {
 
 const LAYOUTS = [{ key: "calendar", label: "Calendar" }, { key: "resources", label: "Resources" }, { key: "timeline", label: "Timeline" }] as const;
 const PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }, { key: "month", label: "Month" }] as const;
+/** The kind of an issue's event: the kind whose session the history holds the issue in. */
+function kindOfIssue(commands: CalendarCommands, issue: EditIssue): string | undefined {
+    return commands.editing.sessions.find(held => held.key === commands.editing.history.sourceOf(issue))?.kind;
+}
+
 interface ToolbarArgs {
     view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; now: Date;
     /** The window's events; `undefined` while its period is read: "…", never a count of another period's (#1398, CL13). */
@@ -200,6 +206,8 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         // The eye, immediately before the history item (#1409, D4).
         args.optimise,
         commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, showError: false, onAction, locked: args.locked === true,
-            onIssue: issue => { const kind = commands.editing.sessions.find(held => held.key === commands.editing.history.sourceOf(issue))?.kind; if (kind !== undefined) select([{ kind, key: issue.entry }]); } }),
+            // A conflict's event, named as its kind's banners name it.
+            where: issue => { const kind = kindOfIssue(commands, issue); return kind === undefined ? issue.entry : scheduleIssueName(commands.editing, kind, issue.entry); },
+            onIssue: issue => { const kind = kindOfIssue(commands, issue); if (kind !== undefined) select([{ kind, key: issue.entry }]); } }),
     ];
 }

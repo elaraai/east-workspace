@@ -57,6 +57,26 @@ export function heldRowOf(held: ScheduleHeldRows | undefined, kind: string, id: 
     const row = rows.get(id);
     return some(row === undefined ? none : some(row.row));
 }
+/**
+ * Where an issue of a kind's session is, as a builder names it — its event's
+ * title, read with the drafts in place — or its key's text while the event is
+ * read, where its read fails, or for an event the drafts removed; empty for
+ * the source as a whole.
+ *
+ * @param editing - The shared editing
+ * @param kind - The kind's slot
+ * @param entry - The issue's entry: its event's key's text
+ * @returns The event's name
+ */
+export function scheduleIssueName(editing: Pick<ScheduleEditing, "read">, kind: string, entry: string): string {
+    if (entry === "") return "";
+    try {
+        return editing.read(kind, entry)?.item.title ?? entry;
+    } catch {
+        return entry;
+    }
+}
+
 /** One event entry's identity in the shared session. */
 export interface ScheduleEntryRef { readonly id: string }
 /** The time range the renderer reads. */
