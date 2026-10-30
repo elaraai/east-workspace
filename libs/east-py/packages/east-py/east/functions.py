@@ -46,6 +46,8 @@ __all__ = [
     "PlatformDependencyType",
     "FunctionExportType",
     "FunctionManifestType",
+    "FunctionExportBatchEntryType",
+    "FunctionExportBatchType",
     "function_ir",
     "platform_dependencies",
     "export_functions",
@@ -92,6 +94,23 @@ FunctionManifestType = StructType([
     ("package", StringType),
     ("version", StringType),
 ])
+
+#: One manifest an ``export-functions`` process writes from a batch
+#: (``--batch <file>``): the functions it exports (``only``, every one when
+#: empty), the platform packages providing their platform calls
+#: (``packages``, as ``-p`` names them) and the file it is written to
+#: (``output``, relative to the batch's directory). The module is imported
+#: once for the whole batch, and each entry's manifest is byte for byte what
+#: ``-o <output> -p … --only …`` writes alone.
+FunctionExportBatchEntryType = StructType([
+    ("only", ArrayType(StringType)),
+    ("output", StringType),
+    ("packages", ArrayType(StringType)),
+])
+
+#: The batch ``export-functions --batch`` reads: one manifest per entry,
+#: written in order.
+FunctionExportBatchType = ArrayType(FunctionExportBatchEntryType)
 
 
 # ── the IR behind a function ─────────────────────────────────────────────────

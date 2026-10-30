@@ -13,8 +13,11 @@ import sys
 from pathlib import Path
 
 from east import East
+from east.functions import FunctionExportBatchEntryType, FunctionExportBatchType
 from east.runtime.compiler import compile_from_value
-from east.types.types import FunctionType, IntegerType
+from east.serialization.beast2 import encode_beast2_v5_for
+from east.types.types import FunctionType, IntegerType, StringType
+from east.types.values import EastArray, EastStruct
 
 MODULE = '''
 from east import East
@@ -44,12 +47,23 @@ platform = platform_functions(__name__)
 '''
 
 
-def _run(*args: str, pythonpath: Path | None = None) -> subprocess.CompletedProcess:
+def _run(*args: str, pythonpath: Path | None = None,
+         env_extra: dict[str, str] | None = None) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     if pythonpath is not None:
         env["PYTHONPATH"] = str(pythonpath) + os.pathsep + env.get("PYTHONPATH", "")
+    env.update(env_extra or {})
     return subprocess.run([sys.executable, "-m", "east_py_cli", *args],
                           capture_output=True, text=True, check=False, env=env)
+
+
+def _batch(path: Path, *entries: tuple[str, list[str], list[str]]) -> Path:
+    """Writes a batch of (output, packages, only) entries."""
+    batch = [EastStruct({"only": EastArray(StringType, only), "output": output,
+                         "packages": EastArray(StringType, packages)})
+             for output, packages, only in entries]
+    path.write_bytes(encode_beast2_v5_for(FunctionExportBatchType)(EastArray(FunctionExportBatchEntryType, batch)))
+    return path
 
 
 def test_export_functions_writes_a_manifest_that_links(tmp_path: Path):
@@ -94,6 +108,63 @@ def test_export_functions_only_the_named_functions(tmp_path: Path):
     result = _run("export-functions", str(module), "-o", str(out), "--only", "double", "--only", "nope")
     assert result.returncode == 1
     assert "exports no function nope — its east_functions are double, shout" in result.stderr
+
+
+def test_export_functions_batch_writes_each_manifest_from_one_import(tmp_path: Path):
+    # The module says each time it is imported, so one import for the whole batch shows.
+    module = tmp_path / "pricing_fns.py"
+    module.write_text(MODULE + '\nimport os\nopen(os.environ["IMPORT_LOG"], "a").write("imported\\n")\n',
+                      encoding="utf-8")
+    (tmp_path / "acme_platform.py").write_text(PLATFORM, encoding="utf-8")
+    log = tmp_path / "imports.log"
+    env = {"IMPORT_LOG": str(log)}
+    common = ("--name", "pricing", "--package-version", "2.0.0")
+    # relative outputs are relative to the batch's directory
+    batch = _batch(tmp_path / "batch.beast2",
+                   ("double.beast2", [], ["double"]),
+                   (str(tmp_path / "all.beast2"), ["acme-platform"], []))
+    result = _run("export-functions", str(module), "--batch", str(batch), *common, pythonpath=tmp_path, env_extra=env)
+    assert result.returncode == 0, result.stderr
+    assert log.read_text(encoding="utf-8") == "imported\n"
+    assert "Exported 1 function(s) of pricing@2.0.0" in result.stderr
+    assert "Exported 2 function(s) of pricing@2.0.0" in result.stderr
+
+    # each entry's manifest is, byte for byte, the one its own call writes
+    single = _run("export-functions", str(module), "-o", str(tmp_path / "double-alone.beast2"), "--only", "double",
+                  *common, pythonpath=tmp_path, env_extra=env)
+    assert single.returncode == 0, single.stderr
+    assert (tmp_path / "double.beast2").read_bytes() == (tmp_path / "double-alone.beast2").read_bytes()
+    single = _run("export-functions", str(module), "-o", str(tmp_path / "all-alone.beast2"), "-p", "acme-platform",
+                  *common, pythonpath=tmp_path, env_extra=env)
+    assert single.returncode == 0, single.stderr
+    assert (tmp_path / "all.beast2").read_bytes() == (tmp_path / "all-alone.beast2").read_bytes()
+
+
+def test_export_functions_batch_ends_at_the_first_entry_that_fails(tmp_path: Path):
+    module = tmp_path / "pricing_fns.py"
+    module.write_text(MODULE, encoding="utf-8")
+    # `shout` calls `log`, which no package of the second entry provides; the third never runs
+    batch = _batch(tmp_path / "batch.beast2",
+                   ("first.beast2", [], ["double"]),
+                   ("second.beast2", [], ["shout"]),
+                   ("third.beast2", [], ["double"]))
+    result = _run("export-functions", str(module), "--batch", str(batch))
+    assert result.returncode == 1
+    assert "no -p package provides: log" in result.stderr
+    assert [p.name for p in sorted(tmp_path.glob("*.beast2"))] == ["batch.beast2", "first.beast2"]
+
+
+def test_export_functions_takes_one_manifest_or_a_batch(tmp_path: Path):
+    module = tmp_path / "pricing_fns.py"
+    module.write_text(MODULE, encoding="utf-8")
+    batch = _batch(tmp_path / "batch.beast2", ("double.beast2", [], ["double"]))
+    for args in ((), ("-o", str(tmp_path / "x.beast2"), "--batch", str(batch))):
+        result = _run("export-functions", str(module), *args)
+        assert result.returncode == 1
+        assert "writes one manifest with -o FILE, or several with --batch FILE" in result.stderr
+    result = _run("export-functions", str(module), "--batch", str(batch), "--only", "double")
+    assert result.returncode == 1
+    assert "with --batch, each entry names its own -p packages and --only functions" in result.stderr
 
 
 def test_export_functions_needs_the_east_functions_dict(tmp_path: Path):

@@ -4,7 +4,8 @@
  */
 
 import { Command } from 'commander';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { createRequire } from 'module';
 import { EastError } from '@elaraai/east/internal';
@@ -15,7 +16,7 @@ import { encodeRebuilt, isDirectory, transpile, transpileDir } from './transpile
 import { exportFunctionsFromModule } from './export-functions.js';
 import { serve as serveLsp } from './lsp.js';
 import { checkModule, formatFinding } from './check.js';
-import { East, UnitResultType, encodeBeast2For, variant, type UnitDecode, type UnitResult } from '@elaraai/east';
+import { East, FunctionExportBatchType, UnitResultType, decodeBeast2For, encodeBeast2For, variant, type FunctionExportBatchEntry, type UnitDecode, type UnitResult } from '@elaraai/east';
 
 const require = createRequire(import.meta.url);
 const pkg = require('../package.json') as { version: string; name: string };
@@ -76,7 +77,8 @@ interface TranspileOptions {
 }
 
 interface ExportFunctionsOptions {
-    output: string;
+    output?: string;
+    batch?: string;
     package?: string[];
     name?: string;
     packageVersion?: string;
@@ -254,16 +256,35 @@ async function cmdTranspile(input: string, options: TranspileOptions): Promise<v
 /**
  * `east-node export-functions` (#628): write a module's `eastFunctions` as a
  * function manifest other packages — in TypeScript or python — import.
+ *
+ * `--batch` takes the `-o` / `-p` / `--only` of several exports as a batch
+ * (`FunctionExportBatchType`) and writes each entry's manifest from one import
+ * of the module — what `e3.export` runs per package (#1459), the twin of
+ * `east-py export-functions --batch`. The entries run in order and the first
+ * that fails ends the export.
  */
 async function cmdExportFunctions(modulePath: string, options: ExportFunctionsOptions): Promise<void> {
     try {
-        const opts: { name?: string; version?: string; packages?: string[]; only?: string[] } = { packages: options.package ?? [] };
-        if (options.name !== undefined) opts.name = options.name;
-        if (options.packageVersion !== undefined) opts.version = options.packageVersion;
-        if (options.only !== undefined) opts.only = options.only;
-        const manifest = await exportFunctionsFromModule(modulePath, opts);
-        writeFileSync(options.output, East.encodeFunctionManifest(manifest));
-        console.error(`Exported ${manifest.functions.length} function(s) of ${manifest.package}@${manifest.version} to ${options.output}`);
+        if ((options.output === undefined) === (options.batch === undefined)) {
+            throw new Error('export-functions writes one manifest with -o <file>, or several with --batch <file>');
+        }
+        if (options.batch !== undefined && (options.package !== undefined || options.only !== undefined)) {
+            throw new Error('with --batch, each entry names its own -p packages and --only functions');
+        }
+        const batch = options.batch;
+        const entries: FunctionExportBatchEntry[] = batch === undefined
+            ? [{ only: options.only ?? [], output: options.output!, packages: options.package ?? [] }]
+            : decodeBeast2For(FunctionExportBatchType)(readFileSync(batch))
+                .map((entry) => ({ ...entry, output: resolve(dirname(batch), entry.output) }));
+        for (const entry of entries) {
+            const opts: { name?: string; version?: string; packages: string[]; only?: string[] } = { packages: entry.packages };
+            if (options.name !== undefined) opts.name = options.name;
+            if (options.packageVersion !== undefined) opts.version = options.packageVersion;
+            if (entry.only.length > 0) opts.only = entry.only;
+            const manifest = await exportFunctionsFromModule(modulePath, opts);
+            writeFileSync(entry.output, East.encodeFunctionManifest(manifest));
+            console.error(`Exported ${manifest.functions.length} function(s) of ${manifest.package}@${manifest.version} to ${entry.output}`);
+        }
     } catch (err) {
         return fail(`Error: ${(err as Error).message}`);
     }
@@ -342,7 +363,10 @@ export function main(): void {
         .command('export-functions')
         .description("Write a module's `eastFunctions` export as a function manifest other packages (TypeScript or python) import")
         .argument('<module>', 'Path to the built module exporting `eastFunctions` (name -> East.function)')
-        .requiredOption('-o, --output <file>', 'The manifest to write (.beast2)')
+        .option('-o, --output <file>', 'The manifest to write (.beast2); or several, with --batch')
+        .option('--batch <file>', 'Write several manifests from one import of the module: <file> is a beast2 batch ' +
+            '(FunctionExportBatchType), each entry naming its output and its -p packages and --only functions. The entries ' +
+            'run in order, and the first that fails ends the export')
         .option('-p, --package <package...>', "Platform packages implementing the functions' platform calls (each dependency must be provided by one)")
         .option('--name <name>', "The package name importers use (default: the module file's stem)")
         .option('--package-version <version>', 'The version recorded in the manifest (default: 0.0.0)')

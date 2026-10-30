@@ -971,6 +971,9 @@ async function deployFromSource(
     try {
       await e3.export(pkg, tempZip, {
         functions,
+        // The exports run on this machine whatever the repository, a package
+        // a process: a remote deploy's on the CPUs here.
+        ...(target.budget !== undefined && { cores: target.budget.cores }),
         onEvent: (e) => {
           if (e.kind === 'capture') {
             progress.phase(`captured ${e.member} (${e.tool}, ${formatBytes(e.bytes)})`);

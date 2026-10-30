@@ -24,18 +24,23 @@
  * (`@elaraai/east-node-std` → `east-py-std`, `east-py-std` →
  * `@elaraai/east-node-std`), a `{ custom }` name passes through on a runner
  * of the exporting runtime. The exporter records them per dependency, so
- * the runner check at link is unchanged. An export is per package and
+ * the runner check at link is unchanged. A manifest is per package and
  * provider set, of exactly the functions the owners with those providers
  * import (`--only`): a sibling function's platform call never fails an
  * owner that does not use it, and each owner links against the manifests
  * produced for its own runner.
+ *
+ * One process exports each package (#1459): it imports the package once and
+ * writes a manifest per provider set, from a batch (`export-functions
+ * --batch`), since the import is where the time goes. The packages' processes
+ * run side by side, as many at once as the export has cores.
  */
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { walkIR, decodeFunctionManifest, IMPORT_PLATFORM, type FunctionManifest } from '@elaraai/east';
+import { spawn } from 'node:child_process';
+import { walkIR, decodeFunctionManifest, encodeBeast2For, FunctionExportBatchType, IMPORT_PLATFORM, type FunctionManifest } from '@elaraai/east';
 import { STOCK_PLATFORM_FAMILIES, type Runner } from './runner.js';
 import { pythonWorkspaceMember, nodeWorkspaceMember } from './environment-capture.js';
 
@@ -51,14 +56,27 @@ export interface ImportReference {
   runner: Runner | undefined;
 }
 
-/** Progress of one resolved package (#652). */
+/** Progress of one resolved package (#652): its manifests, which one process wrote. */
 export interface ResolveEvent {
   /** The package resolved. */
   package: string;
-  /** The tool that produced its manifest. */
+  /** The tool that produced its manifests. */
   tool: string;
-  /** How many functions it exports. */
+  /** How many functions its manifests export between them. */
   count: number;
+}
+
+/**
+ * One entry of a package's export batch (#1459): the manifest the owners on
+ * one provider set link against, of the functions they import from it.
+ */
+export interface ExportBatchEntry {
+  /** The platform packages providing their platform calls, as `-p` names them. */
+  providers: string[];
+  /** The functions to export, as `--only` names them. */
+  only: string[];
+  /** An owner importing them, for messages. */
+  owner: string;
 }
 
 /**
@@ -168,51 +186,119 @@ export function findEastNode(fromDir: string): { command: string; args: string[]
   }
 }
 
+/** How a package's export runs: the tool, what it exports from, and where. */
+interface ExportCommand {
+  /** The tool, as messages name it: `east-py` or `east-node`. */
+  tool: string;
+  /** The executable. */
+  command: string;
+  /** The arguments before the tool's own. */
+  leading: string[];
+  /** What the tool exports from: the python module, or the node member's built entry. */
+  target: string;
+  /** The environment it runs in. */
+  env: NodeJS.ProcessEnv;
+  /** The error for an owner when the executable cannot be found. */
+  unavailable: (owner: string) => string;
+}
+
 /**
- * Exports a python workspace member's `east_functions` as a manifest, in its
- * own environment: `east-py export-functions <package> --name <package>
- * [-p provider…] [--only name…]` with the member's source roots on
+ * Runs a command to completion, its stdout discarded.
+ *
+ * @throws {Error} When it cannot start (its `code` the spawn's), when it exits
+ *   unsuccessfully (its `stderr` what the command wrote there), or when the
+ *   signal aborts it
+ */
+function run(command: string, args: string[], options: { cwd: string; env: NodeJS.ProcessEnv; signal: AbortSignal }): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      signal: options.signal,
+      stdio: ['ignore', 'ignore', 'pipe'],
+      shell: process.platform === 'win32',
+    });
+    const stderr: Buffer[] = [];
+    child.stderr!.on('data', (chunk: Buffer) => stderr.push(chunk));
+    child.on('error', reject);
+    child.on('close', (code, signal) => {
+      if (code === 0) return resolve();
+      reject(Object.assign(new Error(`exited with ${code ?? signal}`), { stderr: Buffer.concat(stderr).toString('utf-8') }));
+    });
+  });
+}
+
+/**
+ * Exports a package's manifests in one process (#1459): `<tool>
+ * export-functions <target> --batch <file> --name <package>
+ * [--package-version <version>]` in the package's directory, the batch in a
+ * temporary directory beside each entry's manifest. The process imports the
+ * package once and writes every entry's manifest.
+ *
+ * @param batch - The manifests to write, one per provider set
+ * @param signal - Aborts the process
+ * @returns Each entry's manifest, in batch order
+ * @throws {Error} Naming the owner of the entry the export failed on — the
+ *   first whose manifest was not written, since the entries run in order and
+ *   the first failure ends them — and the package: no tool to run, or an
+ *   export the tool refused (its own message)
+ */
+async function exportManifests(spec: ExportCommand, pkg: string, dir: string, version: string | null, batch: ExportBatchEntry[], signal: AbortSignal): Promise<FunctionManifest[]> {
+  const outDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'e3-functions-'));
+  try {
+    const file = path.join(outDir, 'batch.beast2');
+    const output = (index: number): string => `${index}.functions.beast2`;
+    await fs.promises.writeFile(file, encodeBeast2For(FunctionExportBatchType)(
+      batch.map((entry, index) => ({ only: entry.only, output: output(index), packages: entry.providers }))));
+    const args = ['export-functions', spec.target, '--batch', file, '--name', pkg, ...(version === null ? [] : ['--package-version', version])];
+    try {
+      await run(spec.command, [...spec.leading, ...args], { cwd: dir, env: spec.env, signal });
+    } catch (err) {
+      if (signal.aborted) throw err;
+      const failed = batch.find((_, index) => !fs.existsSync(path.join(outDir, output(index)))) ?? batch[0]!;
+      const e = err as NodeJS.ErrnoException & { stderr?: string };
+      if (e.code === 'ENOENT') throw new Error(spec.unavailable(failed.owner));
+      const providers = failed.providers.length === 0 ? 'no -p package' : `-p ${failed.providers.join(' -p ')}`;
+      throw new Error(
+        `${failed.owner} imports from "${pkg}": '${spec.tool} export-functions ${spec.target}' failed in '${dir}', ` +
+        `exporting ${failed.only.join(', ')} with ${providers}:\n${e.stderr?.trim() ?? String(err)}`);
+    }
+    return await Promise.all(batch.map(async (_, index) =>
+      decodeFunctionManifest(new Uint8Array(await fs.promises.readFile(path.join(outDir, output(index)))))));
+  } finally {
+    await fs.promises.rm(outDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Exports a python workspace member's `east_functions` as a manifest per
+ * batch entry, in one process in its own environment: `east-py
+ * export-functions <package> --batch …` with the member's source roots on
  * `PYTHONPATH`, so the package imports whether or not it is installed.
  *
- * @param only - The functions to export (what the importing owners use)
+ * @param batch - The manifests to write, one per provider set
+ * @param signal - Aborts the export
+ * @returns Each entry's manifest, in batch order
  * @throws {Error} Naming the owner and the package: no `east-py` to run, or
  *   an export the tool refused (its own message — no `east_functions`, a
  *   function it does not export, a platform call no provider implements, a
  *   function that is not closed)
  */
-export function exportPythonManifest(pkg: string, dir: string, version: string | null, providers: string[], only: string[], owner: string): FunctionManifest {
-  const eastPy = findEastPy(dir);
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-functions-'));
-  const out = path.join(outDir, `${pkg}.functions.beast2`);
-  const module = pkg.replace(/-/g, '_');
-  const args = ['export-functions', module, '-o', out, '--name', pkg, ...(version === null ? [] : ['--package-version', version])];
-  for (const p of providers) args.push('-p', p);
-  for (const name of only) args.push('--only', name);
+export function exportPythonManifests(pkg: string, dir: string, version: string | null, batch: ExportBatchEntry[], signal: AbortSignal): Promise<FunctionManifest[]> {
   const roots = [path.join(dir, 'src'), dir].filter((d) => fs.existsSync(d));
   const pythonPath = [...roots, process.env['PYTHONPATH'] ?? ''].filter((p) => p !== '').join(path.delimiter);
-  try {
-    execFileSync(eastPy, args, {
-      cwd: dir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      // UTF-8 stdio: python encodes a piped stderr in the locale's code page
-      // on Windows (cp1252), and the exporter's messages carry an em dash
-      env: { ...process.env, PYTHONPATH: pythonPath, PYTHONIOENCODING: 'utf-8' },
-      shell: process.platform === 'win32',
-    });
-    return decodeFunctionManifest(new Uint8Array(fs.readFileSync(out)));
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException & { stderr?: Buffer };
-    if (e.code === 'ENOENT') {
-      throw new Error(
-        `${owner} imports from "${pkg}", a package of this workspace at '${dir}', but no east-py is available to export its functions — ` +
-        `install east-py-cli in the project's .venv (uv add east-py-cli) or on PATH, or pass the package's manifest in \`functions:\``,
-      );
-    }
-    const stderr = e.stderr?.toString().trim() ?? String(err);
-    throw new Error(`${owner} imports from "${pkg}": 'east-py ${args.join(' ')}' failed in '${dir}':\n${stderr}`);
-  } finally {
-    fs.rmSync(outDir, { recursive: true, force: true });
-  }
+  return exportManifests({
+    tool: 'east-py',
+    command: findEastPy(dir),
+    leading: [],
+    target: pkg.replace(/-/g, '_'),
+    // UTF-8 stdio: python encodes a piped stderr in the locale's code page
+    // on Windows (cp1252), and the exporter's messages carry an em dash
+    env: { ...process.env, PYTHONPATH: pythonPath, PYTHONIOENCODING: 'utf-8' },
+    unavailable: (owner) =>
+      `${owner} imports from "${pkg}", a package of this workspace at '${dir}', but no east-py is available to export its functions — ` +
+      `install east-py-cli in the project's .venv (uv add east-py-cli) or on PATH, or pass the package's manifest in \`functions:\``,
+  }, pkg, dir, version, batch, signal);
 }
 
 /**
@@ -251,45 +337,32 @@ function nodeFunctionsEntry(pkg: string, dir: string, owner: string): string {
 }
 
 /**
- * Exports a node workspace member's `eastFunctions` as a manifest, in its
- * own environment: `east-node export-functions <entry> --name <package>
- * [-p provider…] [--only name…]` in the member's directory, `<entry>` its
- * built `./functions` export.
+ * Exports a node workspace member's `eastFunctions` as a manifest per batch
+ * entry, in one process in its own environment: `east-node export-functions
+ * <entry> --batch …` in the member's directory, `<entry>` its built
+ * `./functions` export.
  *
- * @param only - The functions to export (what the importing owners use)
+ * @param batch - The manifests to write, one per provider set
+ * @param signal - Aborts the export
+ * @returns Each entry's manifest, in batch order
  * @throws {Error} Naming the owner and the package: no `./functions` export
  *   or an unbuilt one, no `east-node` to run, or an export the tool refused
  *   (its own message — no `eastFunctions`, a function it does not export, a
  *   platform call no provider implements, a function that is not closed)
  */
-export function exportNodeManifest(pkg: string, dir: string, version: string | null, providers: string[], only: string[], owner: string): FunctionManifest {
-  const entry = nodeFunctionsEntry(pkg, dir, owner);
+export async function exportNodeManifests(pkg: string, dir: string, version: string | null, batch: ExportBatchEntry[], signal: AbortSignal): Promise<FunctionManifest[]> {
+  const entry = nodeFunctionsEntry(pkg, dir, batch[0]!.owner);
   const eastNode = findEastNode(dir);
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-functions-'));
-  const out = path.join(outDir, `${pkg.replace(/[^\w.-]+/g, '_')}.functions.beast2`);
-  const args = ['export-functions', entry, '-o', out, '--name', pkg, ...(version === null ? [] : ['--package-version', version])];
-  for (const p of providers) args.push('-p', p);
-  for (const name of only) args.push('--only', name);
-  try {
-    execFileSync(eastNode.command, [...eastNode.args, ...args], {
-      cwd: dir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: process.platform === 'win32',
-    });
-    return decodeFunctionManifest(new Uint8Array(fs.readFileSync(out)));
-  } catch (err) {
-    const e = err as NodeJS.ErrnoException & { stderr?: Buffer };
-    if (e.code === 'ENOENT') {
-      throw new Error(
-        `${owner} imports from "${pkg}", a package of this workspace at '${dir}', but no east-node is available to export its functions — ` +
-        `install @elaraai/east-node-cli in the project (npm install -D @elaraai/east-node-cli) or on PATH, or pass the package's manifest in \`functions:\``,
-      );
-    }
-    const stderr = e.stderr?.toString().trim() ?? String(err);
-    throw new Error(`${owner} imports from "${pkg}": 'east-node ${args.join(' ')}' failed in '${dir}':\n${stderr}`);
-  } finally {
-    fs.rmSync(outDir, { recursive: true, force: true });
-  }
+  return exportManifests({
+    tool: 'east-node',
+    command: eastNode.command,
+    leading: eastNode.args,
+    target: entry,
+    env: process.env,
+    unavailable: (owner) =>
+      `${owner} imports from "${pkg}", a package of this workspace at '${dir}', but no east-node is available to export its functions — ` +
+      `install @elaraai/east-node-cli in the project (npm install -D @elaraai/east-node-cli) or on PATH, or pass the package's manifest in \`functions:\``,
+  }, pkg, dir, version, batch, signal);
 }
 
 /** A workspace member an import resolves to: which workspace holds it, where, and its version. */
@@ -304,25 +377,62 @@ export interface ResolvedManifests {
   forOwner(runner: Runner | undefined): FunctionManifest[];
 }
 
+/** Options for {@link resolveFunctionManifests}. */
+export interface ResolveOptions {
+  /** How many packages export at once (default: the CPUs available). */
+  cores?: number;
+  /** Progress, once per package exported. */
+  onEvent?: (event: ResolveEvent) => void;
+}
+
+/**
+ * Runs each task, at most `limit` at once, starting them in list order. The
+ * first to fail stops the rest: no other starts, those running are aborted
+ * through the signal each was given, and its error is thrown once every task
+ * started has settled.
+ */
+async function inParallel(tasks: Array<(signal: AbortSignal) => Promise<void>>, limit: number): Promise<void> {
+  const controller = new AbortController();
+  let next = 0;
+  let failure: { error: unknown } | undefined;
+  const worker = async (): Promise<void> => {
+    while (failure === undefined && next < tasks.length) {
+      const task = tasks[next++]!;
+      try {
+        await task(controller.signal);
+      } catch (error) {
+        if (failure === undefined) {
+          failure = { error };
+          controller.abort();
+        }
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, limit), tasks.length) }, worker));
+  if (failure !== undefined) throw failure.error;
+}
+
 /**
  * The manifests for every imported package the explicit ones do not cover,
- * produced from the workspace (#652). One export per distinct package and
- * provider set, of the union of the functions the owners with those
- * providers import; a package that is not a local workspace member is an
- * error naming the import.
+ * produced from the workspace (#652). One process exports each package
+ * (#1459), writing a manifest per provider set of the union of the functions
+ * the owners with those providers import; the packages export side by side,
+ * `cores` at once. A package that is not a local workspace member is an
+ * error naming the import, raised before any export runs; the first export to
+ * fail stops the others.
  *
  * @param references - Every import an owner's IR makes, with its runner
  * @param explicit - The manifests the export was given (they win)
  * @param anchorDir - Directory the workspace is resolved from (the export cwd)
- * @param onEvent - Progress per export
+ * @param options - The cores to export on, and progress per package
  * @returns The manifests, served per owner
  */
-export function resolveFunctionManifests(
+export async function resolveFunctionManifests(
   references: ImportReference[],
   explicit: FunctionManifest[],
   anchorDir: string,
-  onEvent?: (event: ResolveEvent) => void,
-): ResolvedManifests {
+  options: ResolveOptions = {},
+): Promise<ResolvedManifests> {
   const covered = new Set(explicit.map((m) => m.package));
   const members = new Map<string, Member | null>();
   const memberOf = (ref: ImportReference): Member | null => {
@@ -339,8 +449,9 @@ export function resolveFunctionManifests(
     member.kind === 'python' ? pythonProviders(runner) : nodeProviders(runner);
   const keyOf = (pkg: string, providers: string[]): string => `${pkg}\0${providers.join(',')}`;
 
-  // One export per package and provider set, of every function its owners import.
-  const groups = new Map<string, { package: string; member: Member; providers: string[]; functions: Set<string>; owner: string }>();
+  // One export per package, of a manifest per provider set: every function
+  // the owners with those providers import.
+  const exports = new Map<string, { member: Member; entries: Map<string, { providers: string[]; functions: Set<string>; owner: string }> }>();
   for (const ref of references) {
     if (covered.has(ref.package)) continue;
     const member = memberOf(ref);
@@ -352,24 +463,32 @@ export function resolveFunctionManifests(
         `or export it where it lives (east-py export-functions / east-node export-functions) and pass the manifest in \`functions:\``,
       );
     }
-    const providers = providersOf(member, ref.runner);
-    const key = keyOf(ref.package, providers);
-    let group = groups.get(key);
-    if (group === undefined) {
-      group = { package: ref.package, member, providers, functions: new Set(), owner: ref.owner };
-      groups.set(key, group);
+    let exported = exports.get(ref.package);
+    if (exported === undefined) {
+      exported = { member, entries: new Map() };
+      exports.set(ref.package, exported);
     }
-    for (const name of ref.functions) group.functions.add(name);
+    const providers = providersOf(member, ref.runner);
+    let entry = exported.entries.get(keyOf(ref.package, providers));
+    if (entry === undefined) {
+      entry = { providers, functions: new Set(), owner: ref.owner };
+      exported.entries.set(keyOf(ref.package, providers), entry);
+    }
+    for (const name of ref.functions) entry.functions.add(name);
   }
   const resolved = new Map<string, FunctionManifest>();
-  for (const [key, group] of groups) {
-    const only = [...group.functions].sort();
-    const manifest = group.member.kind === 'python'
-      ? exportPythonManifest(group.package, group.member.dir, group.member.version, group.providers, only, group.owner)
-      : exportNodeManifest(group.package, group.member.dir, group.member.version, group.providers, only, group.owner);
-    resolved.set(key, manifest);
-    onEvent?.({ package: group.package, tool: `${group.member.kind === 'python' ? 'east-py' : 'east-node'} export-functions`, count: manifest.functions.length });
-  }
+  await inParallel([...exports].map(([pkg, { member, entries }]) => async (signal: AbortSignal) => {
+    const batch = [...entries.values()].map((entry) => ({ providers: entry.providers, only: [...entry.functions].sort(), owner: entry.owner }));
+    const manifests = member.kind === 'python'
+      ? await exportPythonManifests(pkg, member.dir, member.version, batch, signal)
+      : await exportNodeManifests(pkg, member.dir, member.version, batch, signal);
+    batch.forEach((entry, index) => resolved.set(keyOf(pkg, entry.providers), manifests[index]!));
+    options.onEvent?.({
+      package: pkg,
+      tool: `${member.kind === 'python' ? 'east-py' : 'east-node'} export-functions`,
+      count: new Set(batch.flatMap((entry) => entry.only)).size,
+    });
+  }), options.cores ?? os.availableParallelism());
   return {
     forOwner(runner) {
       const own = [...explicit];

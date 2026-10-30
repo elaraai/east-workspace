@@ -79,9 +79,28 @@ export const FunctionManifestType = StructType({
   version: StringType,
 });
 
+/**
+ * One manifest an `export-functions` process writes from a batch (`--batch
+ * <file>`): the functions it exports (`only`, every one when empty), the
+ * platform packages providing their platform calls (`packages`, as `-p`
+ * names them) and the file it is written to (`output`, relative to the
+ * batch's directory). The module is imported once for the whole batch, and
+ * each entry's manifest is byte for byte what `-o <output> -p … --only …`
+ * writes alone. Fields are declared alphabetically in both languages.
+ */
+export const FunctionExportBatchEntryType = StructType({
+  only: ArrayType(StringType),
+  output: StringType,
+  packages: ArrayType(StringType),
+});
+
+/** The batch `east-py export-functions --batch` / `east-node export-functions --batch` read: one manifest per entry, written in order. */
+export const FunctionExportBatchType = ArrayType(FunctionExportBatchEntryType);
+
 export type PlatformDependency = ValueTypeOf<typeof PlatformDependencyType>;
 export type FunctionExport = ValueTypeOf<typeof FunctionExportType>;
 export type FunctionManifest = ValueTypeOf<typeof FunctionManifestType>;
+export type FunctionExportBatchEntry = ValueTypeOf<typeof FunctionExportBatchEntryType>;
 
 /** An import `linkImports` resolved: where it came from and what it needs. */
 export interface LinkedImport {
