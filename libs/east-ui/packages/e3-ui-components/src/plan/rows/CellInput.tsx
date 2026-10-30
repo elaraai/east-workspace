@@ -8,7 +8,9 @@
  * field, as the Sheet's cells use it, at the cell's column and the row's
  * height, the brand ring its chrome, its text in the table's numerals.
  *
- * - Enter writes it; Esc leaves the cell as it was; a blur writes it.
+ * - Enter writes it; Esc leaves the cell as it was; a blur writes it, and so
+ *   does its unmounting with a number unwritten — its series hidden, its row
+ *   gone — where a browser sends no blur (#1440).
  * - Tab and Shift+Tab write it and move along the row's cells that take a
  *   number; ↑ and ↓ write it and move to the rows above and below that take
  *   one — the field's own stepping never sees them.
@@ -22,7 +24,7 @@
  * @packageDocumentation
  */
 
-import { useEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
 import { Box, NumberInput as ChakraNumberInput } from "@chakra-ui/react";
 import { usePlanWords } from "../words.js";
 
@@ -134,6 +136,30 @@ export function PlanCellInput({ styles, x0, x1, text, seed, whole, name, read, o
             onCancel(inputRef.current);
         }
     };
+    // What a blur would write, as the field stands now: what its unmounting writes, below.
+    const leave = useRef<(el: HTMLElement) => void>(() => undefined);
+    useLayoutEffect(() => {
+        leave.current = (el) => {
+            if (done.current) return;
+            const n = read(value);
+            // Text that reads as no number leaves the cell as it was, as a blur does.
+            if (n === null || (n !== undefined && whole && !Number.isInteger(n))) return;
+            done.current = true;
+            onWrite(n, "leave", el);
+        };
+    });
+    // Unmounted holding a number it has not written — its series hidden, its row gone with it — it writes the number as
+    // a blur would: a browser sends no blur to a field it removes, and the number was lost (#1440). A microtask later,
+    // and only if it has not mounted again: StrictMode unmounts every effect once as it mounts, which is no leaving.
+    const mounted = useRef(false);
+    useEffect(() => {
+        const el = inputRef.current;
+        mounted.current = true;
+        return () => {
+            mounted.current = false;
+            queueMicrotask(() => { if (!mounted.current && el !== null) leave.current(el); });
+        };
+    }, []);
     return (
         <Box css={styles.tableCellInput} data-plan-typing="" data-invalid={refusal !== undefined ? "" : undefined}
             data-popover={popover === true ? "" : undefined}

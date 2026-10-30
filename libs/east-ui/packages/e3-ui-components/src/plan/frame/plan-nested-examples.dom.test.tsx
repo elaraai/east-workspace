@@ -100,9 +100,11 @@ const kindsOf = (dataset: string, index?: string) => h.requests().filter((reques
 
 /**
  * planNestedAll mounted with Jobs and Load switched off and every works unfolded, and the first crew's first week of
- * hours in the window typed 500: its cells, and how to read them.
+ * hours in the window typed 500 — written with Enter, or left in the field: its cells, and how to read them.
+ *
+ * @param enter - Whether Enter writes the number
  */
-async function typedCrewHours() {
+async function typedCrewHours({ enter = true }: { enter?: boolean } = {}) {
     const { container: c } = await h.mount(ex.planNestedAll);
     await settle();
     // Jobs and Load switched off, and every works unfolded: the first works' crews under its crew hours.
@@ -131,7 +133,7 @@ async function typedCrewHours() {
     await act(async () => { fireEvent.doubleClick(cellOf("W-10001", "C-10001-1")!); });
     const input = c.querySelector<HTMLInputElement>("[data-plan-typing] input")!;
     await act(async () => { fireEvent.input(input, { target: { value: "500" } }); });
-    await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
+    if (enter) await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
     await settle();
     return { c, cellOf, printed };
 }
@@ -255,6 +257,21 @@ describe("the nested series example on e3 (#1439)", () => {
         const { c, cellOf, printed } = await typedCrewHours();
         await waitFor(() => expect(printed(cellOf("W-10001", "C-10001-1"))).toBe("500"));
         await waitFor(() => expect(printed(cellOf("W-10001"))).toBe("500"));
+    });
+
+    test("planNestedAll: a crew's hours typed, and Crew hours switched off before Enter, are written, not lost: back on, the week reads them, one change pending (#1440)", async () => {
+        const { c, cellOf, printed } = await typedCrewHours({ enter: false });
+        expect(c.querySelector("[data-plan-typing] input")).not.toBeNull();
+        // The eye's click moves no focus: the field leaves with its row, and no blur.
+        const tab = await series(c);
+        await tab.toggle("Crew hours");
+        expect(c.querySelector("[data-plan-typing]")).toBeNull();
+        // Written, though its series was off by the time its works row was read whole to draft it.
+        await waitFor(() => expect(slot(c, "footer")!.querySelector('[data-plan-count="pending"]')?.textContent).toBe("1 pending"));
+        await tab.toggle("Crew hours");
+        await act(async () => { c.querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!.scrollTo({ top: 0 }); });
+        await settle();
+        await waitFor(() => expect(printed(cellOf("W-10001", "C-10001-1"))).toBe("500"));
     });
 
     test("planNestedAll: a crew's hours typed are saved: one commit of the works record, read back with nothing pending", async () => {

@@ -459,6 +459,11 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     const seriesInput: PlanSeriesInput = pick !== undefined
         ? (pickActive(pick as never) as unknown as PlanSeriesInput)
         : config.series as PlanSeriesInput;
+    // A gesture writes the data, whichever series show (#1440): the editing session is built over every series a pick
+    // holds, so a number written as its series is switched off — its field leaving with its row — lands, never refused.
+    const editSeries: PlanSeriesInput = pick !== undefined
+        ? ((pick as unknown as ExprType<StructType<{ all: ArrayType<EastType> }>>).all as unknown as PlanSeriesInput)
+        : seriesInput;
     // The shared row-source resolution (#567): inline collection, paged
     // source, or a whole-value bind handle — one dispatch, one vocabulary,
     // and the series pipeline is the `make` that turns each window's entries
@@ -502,7 +507,7 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
             return extra === undefined ? blocks : blocks.concat(extra);
         },
     ) as unknown as ExprType<PlanRowsType>;
-    const editing = config.editing === undefined ? undefined : buildPlanEditing(resolved, seriesInput, config.editing, planNestedIndex(nested));
+    const editing = config.editing === undefined ? undefined : buildPlanEditing(resolved, editSeries, config.editing, planNestedIndex(nested));
     // Paged beside their nested series index (#1438): the seam the reader reads the index's cells through, and the window
     // its rows are drawn from with what it read — the binding's, or the one the Slice's `rows` source narrows.
     const index = planNestedIndex(nested);
