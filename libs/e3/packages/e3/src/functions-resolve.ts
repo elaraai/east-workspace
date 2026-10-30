@@ -33,16 +33,20 @@
  * One process exports each package (#1459): it imports the package once and
  * writes a manifest per provider set, from a batch (`export-functions
  * --batch`), since the import is where the time goes. The packages' processes
- * run side by side, as many at once as the export has cores.
+ * run side by side, as many at once as the export has cores. A python
+ * member's manifests are kept in the export cache (`functions-cache.ts`),
+ * so a package whose python has not changed since its last export runs no
+ * process at all.
  */
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { walkIR, decodeFunctionManifest, encodeBeast2For, FunctionExportBatchType, IMPORT_PLATFORM, type FunctionManifest } from '@elaraai/east';
 import { STOCK_PLATFORM_FAMILIES, type Runner } from './runner.js';
-import { pythonWorkspaceMember, nodeWorkspaceMember } from './environment-capture.js';
+import { pythonWorkspaceMember, nodeWorkspaceMember, pythonMemberSources } from './environment-capture.js';
+import { ManifestCache, sourceKey } from './functions-cache.js';
 
 /** One package an owner's IR imports from: the functions it names, and the runner whose providers the export takes. */
 export interface ImportReference {
@@ -64,6 +68,8 @@ export interface ResolveEvent {
   tool: string;
   /** How many functions its manifests export between them. */
   count: number;
+  /** Whether every manifest came from the export cache, so no process ran (#1459). */
+  cached: boolean;
 }
 
 /**
@@ -237,13 +243,13 @@ function run(command: string, args: string[], options: { cwd: string; env: NodeJ
  *
  * @param batch - The manifests to write, one per provider set
  * @param signal - Aborts the process
- * @returns Each entry's manifest, in batch order
+ * @returns Each entry's manifest as the tool wrote it, in batch order
  * @throws {Error} Naming the owner of the entry the export failed on — the
  *   first whose manifest was not written, since the entries run in order and
  *   the first failure ends them — and the package: no tool to run, or an
  *   export the tool refused (its own message)
  */
-async function exportManifests(spec: ExportCommand, pkg: string, dir: string, version: string | null, batch: ExportBatchEntry[], signal: AbortSignal): Promise<FunctionManifest[]> {
+async function exportManifests(spec: ExportCommand, pkg: string, dir: string, version: string | null, batch: ExportBatchEntry[], signal: AbortSignal): Promise<Uint8Array[]> {
   const outDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'e3-functions-'));
   try {
     const file = path.join(outDir, 'batch.beast2');
@@ -264,7 +270,7 @@ async function exportManifests(spec: ExportCommand, pkg: string, dir: string, ve
         `exporting ${failed.only.join(', ')} with ${providers}:\n${e.stderr?.trim() ?? String(err)}`);
     }
     return await Promise.all(batch.map(async (_, index) =>
-      decodeFunctionManifest(new Uint8Array(await fs.promises.readFile(path.join(outDir, output(index)))))));
+      new Uint8Array(await fs.promises.readFile(path.join(outDir, output(index))))));
   } finally {
     await fs.promises.rm(outDir, { recursive: true, force: true });
   }
@@ -278,13 +284,13 @@ async function exportManifests(spec: ExportCommand, pkg: string, dir: string, ve
  *
  * @param batch - The manifests to write, one per provider set
  * @param signal - Aborts the export
- * @returns Each entry's manifest, in batch order
+ * @returns Each entry's manifest as east-py wrote it, in batch order
  * @throws {Error} Naming the owner and the package: no `east-py` to run, or
  *   an export the tool refused (its own message — no `east_functions`, a
  *   function it does not export, a platform call no provider implements, a
  *   function that is not closed)
  */
-export function exportPythonManifests(pkg: string, dir: string, version: string | null, batch: ExportBatchEntry[], signal: AbortSignal): Promise<FunctionManifest[]> {
+export function exportPythonManifests(pkg: string, dir: string, version: string | null, batch: ExportBatchEntry[], signal: AbortSignal): Promise<Uint8Array[]> {
   const roots = [path.join(dir, 'src'), dir].filter((d) => fs.existsSync(d));
   const pythonPath = [...roots, process.env['PYTHONPATH'] ?? ''].filter((p) => p !== '').join(path.delimiter);
   return exportManifests({
@@ -299,6 +305,63 @@ export function exportPythonManifests(pkg: string, dir: string, version: string 
       `${owner} imports from "${pkg}", a package of this workspace at '${dir}', but no east-py is available to export its functions — ` +
       `install east-py-cli in the project's .venv (uv add east-py-cli) or on PATH, or pass the package's manifest in \`functions:\``,
   }, pkg, dir, version, batch, signal);
+}
+
+/**
+ * What an east-py says it is (`east-py version`: east-py-cli's version and
+ * east-py's), which the export cache keys on, or null when it cannot run —
+ * whose export then says why.
+ */
+function eastPyVersion(command: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(command, ['version'], {
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+      shell: process.platform === 'win32',
+      encoding: 'utf-8',
+    }, (err, stdout) => resolve(err === null ? stdout : null));
+  });
+}
+
+/**
+ * A python member's manifests (#1459): the ones the export cache keeps for
+ * its source state and what each entry asks for, and the rest exported in
+ * one process, then kept. A member whose sources or east-py cannot be told
+ * is exported every time.
+ *
+ * @param batch - The manifests the owners need, one per provider set
+ * @param cache - The export cache
+ * @param versionOf - What an east-py says it is (`east-py version`)
+ * @param signal - Aborts the export
+ * @returns Each entry's manifest in batch order, and whether all came from the cache
+ * @throws {Error} As {@link exportPythonManifests}
+ */
+async function pythonManifests(
+  pkg: string,
+  member: Member,
+  batch: ExportBatchEntry[],
+  anchorDir: string,
+  cache: ManifestCache,
+  versionOf: (command: string) => Promise<string | null>,
+  signal: AbortSignal,
+): Promise<{ manifests: FunctionManifest[]; cached: boolean }> {
+  const eastPy = findEastPy(member.dir);
+  const sources = pythonMemberSources(pkg, anchorDir, batch[0]!.owner);
+  const version = await versionOf(eastPy);
+  const key = sources === null || version === null ? null : sourceKey({
+    root: sources.root,
+    dirs: sources.dirs,
+    args: [pkg, JSON.stringify(member.version), eastPy, version, process.env['PYTHONPATH'] ?? ''],
+  });
+  const kept = batch.map((entry) => (key === null ? null : cache.read(pkg, key, entry.providers, entry.only)));
+  const missing = batch.filter((_, index) => kept[index] === null);
+  if (missing.length === 0) return { manifests: kept as FunctionManifest[], cached: true };
+  const written = await exportPythonManifests(pkg, member.dir, member.version, missing, signal);
+  const exported = written.map((bytes) => decodeFunctionManifest(bytes));
+  if (key !== null) {
+    cache.write(pkg, key, missing.map((entry, index) => ({ providers: entry.providers, only: entry.only, bytes: written[index]! })));
+  }
+  let next = 0;
+  return { manifests: kept.map((manifest) => manifest ?? exported[next++]!), cached: false };
 }
 
 /**
@@ -344,13 +407,13 @@ function nodeFunctionsEntry(pkg: string, dir: string, owner: string): string {
  *
  * @param batch - The manifests to write, one per provider set
  * @param signal - Aborts the export
- * @returns Each entry's manifest, in batch order
+ * @returns Each entry's manifest as east-node wrote it, in batch order
  * @throws {Error} Naming the owner and the package: no `./functions` export
  *   or an unbuilt one, no `east-node` to run, or an export the tool refused
  *   (its own message — no `eastFunctions`, a function it does not export, a
  *   platform call no provider implements, a function that is not closed)
  */
-export async function exportNodeManifests(pkg: string, dir: string, version: string | null, batch: ExportBatchEntry[], signal: AbortSignal): Promise<FunctionManifest[]> {
+export async function exportNodeManifests(pkg: string, dir: string, version: string | null, batch: ExportBatchEntry[], signal: AbortSignal): Promise<Uint8Array[]> {
   const entry = nodeFunctionsEntry(pkg, dir, batch[0]!.owner);
   const eastNode = findEastNode(dir);
   return exportManifests({
@@ -417,9 +480,11 @@ async function inParallel(tasks: Array<(signal: AbortSignal) => Promise<void>>, 
  * produced from the workspace (#652). One process exports each package
  * (#1459), writing a manifest per provider set of the union of the functions
  * the owners with those providers import; the packages export side by side,
- * `cores` at once. A package that is not a local workspace member is an
- * error naming the import, raised before any export runs; the first export to
- * fail stops the others.
+ * `cores` at once. A python member's manifests come from the export cache
+ * under `<anchorDir>/node_modules/.cache/e3/functions` where it keeps them,
+ * and only the rest are exported. A package that is not a local workspace
+ * member is an error naming the import, raised before any export runs; the
+ * first export to fail stops the others.
  *
  * @param references - Every import an owner's IR makes, with its runner
  * @param explicit - The manifests the export was given (they win)
@@ -476,17 +541,33 @@ export async function resolveFunctionManifests(
     }
     for (const name of ref.functions) entry.functions.add(name);
   }
+  // The export cache lives beside the project, as the bundles of a source
+  // deploy do; each east-py is asked what it is once.
+  const cache = new ManifestCache(path.join(anchorDir, 'node_modules', '.cache', 'e3', 'functions'));
+  const versions = new Map<string, Promise<string | null>>();
+  const versionOf = (command: string): Promise<string | null> => {
+    let version = versions.get(command);
+    if (version === undefined) {
+      version = eastPyVersion(command);
+      versions.set(command, version);
+    }
+    return version;
+  };
   const resolved = new Map<string, FunctionManifest>();
   await inParallel([...exports].map(([pkg, { member, entries }]) => async (signal: AbortSignal) => {
     const batch = [...entries.values()].map((entry) => ({ providers: entry.providers, only: [...entry.functions].sort(), owner: entry.owner }));
-    const manifests = member.kind === 'python'
-      ? await exportPythonManifests(pkg, member.dir, member.version, batch, signal)
-      : await exportNodeManifests(pkg, member.dir, member.version, batch, signal);
+    const { manifests, cached } = member.kind === 'python'
+      ? await pythonManifests(pkg, member, batch, anchorDir, cache, versionOf, signal)
+      : {
+        manifests: (await exportNodeManifests(pkg, member.dir, member.version, batch, signal)).map((bytes) => decodeFunctionManifest(bytes)),
+        cached: false,
+      };
     batch.forEach((entry, index) => resolved.set(keyOf(pkg, entry.providers), manifests[index]!));
     options.onEvent?.({
       package: pkg,
       tool: `${member.kind === 'python' ? 'east-py' : 'east-node'} export-functions`,
       count: new Set(batch.flatMap((entry) => entry.only)).size,
+      cached,
     });
   }), options.cores ?? os.availableParallelism());
   return {

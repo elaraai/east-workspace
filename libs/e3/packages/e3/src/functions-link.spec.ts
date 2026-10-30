@@ -11,7 +11,7 @@
  * embedded functions need.
  */
 
-import { describe, it, before, after } from 'node:test';
+import { describe, it, before, after, beforeEach } from 'node:test';
 import * as assert from 'node:assert';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -254,6 +254,8 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
     execFileSync('uv', ['lock'], { cwd: ws, stdio: 'ignore', shell: process.platform === 'win32' });
   });
   after(() => { if (hasTools) fs.rmSync(ws, { recursive: true, force: true }); });
+  // Each test exports afresh: the export cache lives in the workspace's node_modules.
+  beforeEach(() => { if (hasTools) fs.rmSync(path.join(ws, 'node_modules'), { recursive: true, force: true }); });
 
   /** Runs `f` with the workspace as the export's working directory. */
   async function inWorkspace<T>(f: () => Promise<T>): Promise<T> {
@@ -341,10 +343,12 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
     { skip: !hasTools ? 'uv and east-py on PATH' : process.platform === 'win32' ? 'the counting east-py is a shell script' : false }, async () => {
       // An east-py that logs each export and holds it until two are running,
       // then saying how many were: an export run after another never sees two.
+      // `version`, which the export cache asks, passes straight through.
       const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-resolve-count-'));
       const wrapper = path.join(scratch, 'east-py');
       fs.writeFileSync(wrapper,
         '#!/bin/sh\n' +
+        'if [ "$1" = version ]; then exec "$REAL_EAST_PY" "$@"; fi\n' +
         'touch "$COUNT_DIR/running.$$"\n' +
         'i=0\n' +
         'while [ "$(ls "$COUNT_DIR" | grep -c "^running\\.")" -lt 2 ] && [ "$i" -lt 300 ]; do sleep 0.1; i=$((i+1)); done\n' +
@@ -380,6 +384,41 @@ describe('export_ resolves an imported workspace package itself (#652)', () => {
         }
         fs.rmSync(scratch, { recursive: true, force: true });
         fs.rmSync(path.join(ws, 'exports.log'), { force: true });
+      }
+    });
+
+  it('a redeploy whose python has not changed runs no export; a source edit in the package exports it again, and the cache keeps one state per package (#1459)',
+    { skip: hasTools ? false : 'uv and east-py on PATH' }, async () => {
+      const triple = East.importFunction('pricing', 'triple', FunctionType([IntegerType], IntegerType));
+      const n = input('n', IntegerType, variant('value', 4n));
+      const pkg = package_('importer', '1.0.0', task('use_triple', [n], East.function([IntegerType], IntegerType, ($, x) => triple(x).add(1n))));
+      const exportTo = async (zip: string): Promise<string[]> => {
+        const seen: string[] = [];
+        await inWorkspace(() => export_(pkg, path.join(ws, zip), {
+          onEvent: (e) => { if (e.kind === 'functions') seen.push(`${e.package}:${e.count}:${e.cached ? 'cached' : 'exported'}`); },
+        }));
+        return seen;
+      };
+      assert.deepStrictEqual(await exportTo('first.zip'), ['pricing:1:exported']);
+      assert.deepStrictEqual(await exportTo('again.zip'), ['pricing:1:cached']);
+      // the manifest the cache kept is the one the export wrote: the same package
+      assert.deepStrictEqual(fs.readFileSync(path.join(ws, 'again.zip')), fs.readFileSync(path.join(ws, 'first.zip')));
+
+      const source = path.join(ws, 'packages', 'pricing', 'src', 'pricing', '__init__.py');
+      const other = path.join(ws, 'packages', 'discount', 'src', 'discount', '__init__.py');
+      const [sourceText, otherText] = [fs.readFileSync(source, 'utf-8'), fs.readFileSync(other, 'utf-8')];
+      try {
+        // a package outside pricing's closure changes nothing for it
+        fs.writeFileSync(other, `${otherText}\n# edited\n`);
+        assert.deepStrictEqual(await exportTo('other-edited.zip'), ['pricing:1:cached']);
+        fs.writeFileSync(source, `${sourceText}\n# edited\n`);
+        assert.deepStrictEqual(await exportTo('edited.zip'), ['pricing:1:exported']);
+        assert.deepStrictEqual(await exportTo('edited-again.zip'), ['pricing:1:cached']);
+        assert.strictEqual(fs.readdirSync(path.join(ws, 'node_modules', '.cache', 'e3', 'functions', 'pricing')).length, 1,
+          'one source state kept per package');
+      } finally {
+        fs.writeFileSync(source, sourceText);
+        fs.writeFileSync(other, otherText);
       }
     });
 

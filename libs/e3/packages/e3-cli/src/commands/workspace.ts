@@ -978,7 +978,9 @@ async function deployFromSource(
           if (e.kind === 'capture') {
             progress.phase(`captured ${e.member} (${e.tool}, ${formatBytes(e.bytes)})`);
           } else if (e.kind === 'functions') {
-            progress.phase(`exported ${e.count} function(s) of ${e.package} (${e.tool})`);
+            progress.phase(e.cached
+              ? `reused ${e.count} function(s) of ${e.package}, unchanged since its last export`
+              : `exported ${e.count} function(s) of ${e.package} (${e.tool})`);
           }
         },
       });
