@@ -5,12 +5,12 @@
 
 /**
  * The DecisionQueue's list laid out, for a jsdom that lays nothing out
- * (#1454): its frame as tall as the test gives it, as a Sheet's is
+ * (#1454, #1458): its frame as tall as the test gives it, as a Sheet's is
  * ({@link boundFrame}), and each row the list mounts as tall as the list
- * estimates it ({@link ROW_PX}) — a section's head, a card closed or open, a
- * receipt, the routine band — so its rows stand apart, as a browser draws
- * them, and every card a frame that tall holds mounts. Nothing scrolls the
- * frame: a card opened stays where it stands.
+ * estimates it ({@link ROW_PX}) — a card closed or open, a receipt, or a case
+ * not read yet, its placeholder a closed card's height — so its rows stand
+ * apart, as a browser draws them, and every card a frame that tall holds
+ * mounts. Nothing scrolls the frame: a card opened stays where it stands.
  *
  * Test use only: the package build leaves `*.test-utils.ts` out.
  *
@@ -22,13 +22,10 @@ import { ROW_PX } from "./list.js";
 
 /** How tall the list draws a mounted row, by what it holds; `undefined` for a row of none of the list's kinds. */
 function rowPx(row: HTMLElement): number | undefined {
-    const section = row.querySelector("[data-decision-section]");
-    if (section !== null) return section.hasAttribute("data-first") ? ROW_PX.firstSection : ROW_PX.section;
     if (row.querySelector("[data-decision-receipt]") !== null) return ROW_PX.receipt;
     const card = row.querySelector("[data-decision-card]");
     if (card !== null) return card.hasAttribute("data-open") ? ROW_PX.openCard : ROW_PX.card;
-    const band = row.querySelector("[data-decision-routine]");
-    if (band !== null) return ROW_PX.routine + band.querySelectorAll("[data-decision-routine-case]").length * ROW_PX.routineRow;
+    if (row.querySelector("[data-decision-pending]") !== null) return ROW_PX.card;
     return undefined;
 }
 

@@ -8,7 +8,7 @@
  * which needs one as it loads (#1179).
  *
  * A Sheet target's crop, worked out (#1453, `Decision Queue Spec.md` D7, P3,
- * P4, P13, P14, P16–P18, P21, P25, P26): the first three rows the change
+ * P4, P13, P14, P16, P17, P21, P25, P26): the first three rows the change
  * touches under the Sheet's first column and the columns it sets after it, at
  * most three; each cell as the change marks it; and the sentence's clauses
  * over every row — its words in the queue's table.
@@ -39,10 +39,10 @@ function row(id: string, cells: Record<string, SheetCellValue>): SheetRowValue {
 const order = (id: string, status: string, due: string, rest: Record<string, SheetCellValue> = {}) =>
     row(id, { ref: text(id), job: text("Cut"), status: text(status), due: due === "" ? blank : text(due), qty: text("800"), ...rest });
 
-/** The crop of a change, marked, nothing knocked on, locked, shared or guessed but as given. */
+/** The crop of a change, marked, nothing knocked on, locked or guessed but as given. */
 const crop = (rows: readonly SheetCropInput[], rest: Partial<SheetCropInputs> = {}): SheetCropModel => sheetCrop({
     columns: COLUMNS, rows, marked: true, lands: [],
-    knockOn: () => false, locked: () => false, shared: () => 0, confidence: () => undefined,
+    knockOn: () => false, locked: () => false, confidence: () => undefined,
     ...rest,
 });
 
@@ -99,17 +99,17 @@ describe("sheetCrop", () => {
         expect(model.clauses).toEqual([{ kind: "change", columns: ["Job", "Status", "Due", "Qty"], rows: ["A", "B", "C", "D", "E"] }]);
     });
 
-    test("a row the option knocks on keeps its own fill — its set cells ringed, unmarked; a guessed row's proposed cells carry the dot, and the crop names it; each row's lock and other cases", () => {
+    test("a row the option knocks on keeps its own fill — its set cells ringed, unmarked; a guessed row's proposed cells carry the dot, and the crop names it; each row's lock", () => {
         const model = crop([
             { key: "A", before: order("A", "Ready", ""), after: order("A", "Scheduled", "") },
             { key: "B", before: order("B", "Ready", ""), after: order("B", "Scheduled", "") },
         ], {
             knockOn: key => key === "B", confidence: key => (key === "A" ? 0.69 : undefined),
-            locked: key => key === "A", shared: key => (key === "A" ? 2 : 0),
+            locked: key => key === "A",
         });
         expect(cellsOf(model, 0)[0]).toEqual({ column: "status", text: "Scheduled", was: "Ready", op: "chg", knock: false, cleared: false, guess: true });
         expect(cellsOf(model, 1)[0]).toEqual({ column: "status", text: "Scheduled", was: "Ready", op: undefined, knock: true, cleared: false, guess: false });
-        expect(model.rows.map(r => [r.op, r.knock, r.locked, r.shared, r.confidence])).toEqual([[undefined, false, true, 2, 0.69], [undefined, false, false, 0, undefined]]);
+        expect(model.rows.map(r => [r.op, r.knock, r.locked, r.confidence])).toEqual([[undefined, false, true, 0.69], [undefined, false, false, undefined]]);
         expect(model.guessed).toEqual(["A"]);
     });
 
@@ -122,14 +122,14 @@ describe("sheetCrop", () => {
         expect(model.clauses).toEqual([{ kind: "change", columns: [], rows: ["A"] }]);
     });
 
-    test("nothing marked (P4): the rows as they stand, under the columns the recommendation would set; no clause, no other case counted", () => {
+    test("nothing marked (P4): the rows as they stand, under the columns the recommendation would set; no clause, no guess", () => {
         const a = order("A", "Ready", "");
         const model = crop([{ key: "A", before: a, after: a }], {
-            marked: false, shared: () => 3, confidence: () => 0.5,
+            marked: false, confidence: () => 0.5,
             lands: [{ key: "A", before: a, after: order("A", "Ready", "13 Mar") }],
         });
         expect(model.columns.map(c => c.key)).toEqual(["ref", "due"]);
-        expect(model.rows.map(r => [r.name, r.op, r.shared, r.confidence])).toEqual([["A", undefined, 0, undefined]]);
+        expect(model.rows.map(r => [r.name, r.op, r.confidence])).toEqual([["A", undefined, undefined]]);
         expect(model.rows[0]!.cells.map(cell => [cell.text, cell.op])).toEqual([["", undefined]]);
         expect(model.clauses).toEqual([]);
         expect(model.guessed).toEqual([]);
@@ -152,7 +152,6 @@ describe("the crop's words", () => {
         expect(m.previewCell({ column: "Due", was: "—", is: "13 Mar 28", op: "chg", knock: false })).toBe("Due: — → 13 Mar 28");
         expect(m.previewCell({ column: "Due", was: "9 Mar 28", is: "9 Mar 28", op: "del", knock: false })).toBe("Due: 9 Mar 28 · removed");
         expect(m.previewCell({ column: "Status", was: "Ready", is: "Scheduled", op: undefined, knock: true })).toBe("Status: Ready → Scheduled · knock-on");
-        expect(m.previewRow({ name: "WO-1005", op: "chg", knock: false, locked: true, shared: { n: "2", one: false } }))
-            .toBe("WO-1005 · changed · locked · 2 other cases change it too");
+        expect(m.previewRow({ name: "WO-1005", op: "chg", knock: false, locked: true })).toBe("WO-1005 · changed · locked");
     });
 });

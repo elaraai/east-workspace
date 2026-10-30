@@ -15,11 +15,16 @@
  * (`Schedule.periods`) are this one session, so a builder keeps each record it
  * writes in one session of one history, as the Calendar's and Plan's kinds are.
  *
+ * Its wire carries the record's types — its row's, its drafts' and its key's —
+ * as one constant each ({@link scheduleTypeValue}), so a row however large
+ * costs its program a handful of nodes: a decision's case, its change a patch
+ * of another record's rows, was 8,600 nodes written out, twice.
+ *
  * @packageDocumentation
  */
 
 import {
-    BlobType, East, Expr, IntegerType, NullType, OptionType, StringType, none, some, toEastTypeValue, variant,
+    BlobType, East, EastTypeType, Expr, IntegerType, NullType, OptionType, StringType, encodeBeast2For, none, some, toEastTypeValue, variant,
     type DictType, type EastType, type ExprType, type FunctionType, type StructType, type VariantType,
 } from "@elaraai/east";
 import { EditingApplyResultType, EditingChangeSetTypeFor, EditingDraftFieldType, EditingType, EditingWireApplyType } from "@elaraai/east-ui/internal";
@@ -29,6 +34,22 @@ import { scheduleEntryByKey, scheduleIdOf, scheduleKeyOf, scheduleLastKey } from
 
 /** One entry read by its key: still reading, absent, or held. */
 type KeyRead = VariantType<{ reading: NullType; absent: NullType; held: EastType }>;
+
+/** A type's value as beast2. */
+const encodeTypeValue = encodeBeast2For(EastTypeType);
+
+/**
+ * A type's value as a session's wire carries it: one beast2 constant, decoded
+ * where the wire is built. Written out instead, a value is a node for each of
+ * its parts in every program that builds it, which for a row holding patches of
+ * other records' rows is thousands.
+ *
+ * @param type - The type
+ * @returns Its value, read from the constant
+ */
+export function scheduleTypeValue(type: EastType): ExprType<typeof EastTypeType> {
+    return East.value(encodeTypeValue(toEastTypeValue(type)), BlobType).decodeBeast(EastTypeType, "v2");
+}
 
 /**
  * A record's session, declared (see the module docs): what a builder reads the
@@ -111,11 +132,11 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
             });
             const editing = East.value({
                 sourceId: (handle["binding"] as unknown as { name: ExprType<StringType> }).name,
-                entryType: toEastTypeValue(rowType),
+                entryType: scheduleTypeValue(rowType),
                 idField: none,
-                draftType: toEastTypeValue(draftType),
+                draftType: scheduleTypeValue(draftType),
                 children: none,
-                keyType: some(toEastTypeValue(keyType)),
+                keyType: some(scheduleTypeValue(keyType)),
                 snapshot: byKey === undefined ? some(East.Blob.encodeBeast(readAll(), "v2")) : none,
                 readEntry,
                 onPatch: none,

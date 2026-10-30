@@ -32,10 +32,10 @@
  *   share (`Schedule.events`, `Schedule.resources`), and what a builder
  *   publishes (`Schedule.periods`).
  * - `<DecisionQueue>` — the cases a model leaves to a person, one card open at
- *   a time, over the app's own records: its cases, the verdicts it writes and
- *   where each kind of decision draws on `DecisionQueue`
- *   (`DecisionQueue.decisions`, `DecisionQueue.verdicts`,
- *   `DecisionQueue.change.*`, `DecisionQueue.Types`).
+ *   a time, over the app's own records: its cases, each row carrying the
+ *   verdict it writes, and where each kind of decision draws on
+ *   `DecisionQueue` (`DecisionQueue.decisions`, `DecisionQueue.change.*`,
+ *   `DecisionQueue.Types`).
  * - `<Ontology>` — graph editor over an `OntologyType`-bound dataset.
  * - `Data.bind` — workspace-scoped reactive dataset binding.
  * - `Func.bind` — workspace-scoped named-function (RPC) call binding.
@@ -264,16 +264,16 @@ export {
 } from './experiment/index.js';
 
 // The DecisionQueue (#1447): the cases a model leaves to a person, over the
-// app's own records — its cases (`DecisionQueue.decisions`), the verdicts it
-// writes (`DecisionQueue.verdicts`) and where each kind of decision draws
+// app's own records — its cases, each row carrying the verdict it writes
+// (`DecisionQueue.decisions`), and where each kind of decision draws
 // (`DecisionQueue.change.*`), its types on `DecisionQueue.Types` — and its
 // props.
 export { DecisionQueue, type DecisionQueueNamespace, type DecisionQueueProps } from './decision/queue.js';
 export type {
-    DecisionCaseRole, DecisionCaseRoles, DecisionChangeRole, DecisionOptionChangeRole, DecisionOptionRole, DecisionOptionRoles, DecisionOptions,
-    DecisionProposalRoles, DecisionQueueDecisions, DecisionRecordOfPatch, DecisionRoles, DecisionTargets, DecisionTargetsOf,
+    DecisionCaseRole, DecisionCaseRoles, DecisionChangeRole, DecisionChoiceField, DecisionOptionChangeRole, DecisionOptionRole, DecisionOptionRoles,
+    DecisionOptions, DecisionProposalRoles, DecisionQueueDecisions, DecisionRecordOfPatch, DecisionRoles, DecisionStringOptionField, DecisionTargets,
+    DecisionTargetsOf, DecisionVerdictRoles,
 } from './decision/decisions.js';
-export type { DecisionChoiceField, DecisionQueueVerdicts, DecisionStringOptionField, DecisionVerdictRoles } from './decision/verdicts.js';
 export type {
     DecisionProjectionTargetConfig, DecisionQueueTarget, DecisionRecordTargetConfig, DecisionTargetNames, DecisionZonesTargetConfig,
 } from './decision/targets.js';

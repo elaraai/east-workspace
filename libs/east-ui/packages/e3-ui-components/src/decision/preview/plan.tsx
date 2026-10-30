@@ -30,7 +30,7 @@ import { scheduleWithinCap } from "../../shared/schedule/cells.js";
 import { EMPTY_SCHEDULE_DRAFTS } from "../../shared/schedule/editing.js";
 import { kindPlural } from "../../shared/schedule/words.js";
 import { appliedRows, standingRows, type DecisionTarget } from "../editing.js";
-import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, sharedOf, type PreviewProps } from "./frame.js";
+import { PreviewFailed, PreviewFrame, PreviewPending, guessedOf, leftBy, type PreviewProps } from "./frame.js";
 import { LanesCrop, LanesMap, lanesSentence, mapSentence, type PreviewMap } from "./lanes.js";
 import { UNASSIGNED, laneEvent, laneWindow, lanesOf, lanesPreview, type LaneEvent, type LanesModel } from "./lanes-model.js";
 import { CROP_LANES, lanesMap, type MapResource } from "./map-model.js";
@@ -90,7 +90,7 @@ export interface PlanPreviewProps extends PreviewProps {
  * @param props - The case, its target and record, the rows its change leaves and the queue's editing ({@link PlanPreviewProps})
  * @returns The preview
  */
-export function PlanPreview({ c, view, target, kind, record, rows, changed, schedule, shared, words, styles, now }: PlanPreviewProps) {
+export function PlanPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles, now }: PlanPreviewProps) {
     const option = view.option;
     const read = useCallback((): PlanRead => {
         if (rows === "reading" || rows === "failed") return PENDING;
@@ -206,7 +206,6 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
                 const bytes = bytesOf.get(key);
                 return bytes !== undefined && locked(bytes, key);
             },
-            shared: key => sharedOf(shared, record.key, key),
             overlaps: slot => kind.events.find(k => stringEqual(k.key, slot))?.overlaps.type === "warn",
             pairs: "kind",
             measure: "share",
@@ -243,7 +242,7 @@ export function PlanPreview({ c, view, target, kind, record, rows, changed, sche
                 },
             },
         };
-    }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind, shared, words]);
+    }, [rows, changed, option, c.options, view.recommended, record, target, schedule, kind, words]);
     const { result } = useTrackedEvaluation(read);
     const stale = rows === "stale";
     if (rows === "failed" || !result.ok) {
