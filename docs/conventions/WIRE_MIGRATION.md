@@ -611,16 +611,17 @@ Each wire changed under this rule, with the kind it is.
   the next export is that source's own change. A UI task's output is not
   stored state, so no repository upgrade step ships with it.
 - **e3-ui's `DecisionQueue` reads the app's own records, and `Decision.bind`
-  and `DecisionJournal` are removed (#1447, #1450)** — package-borne. The
-  `DecisionQueue` extension's payload is replaced. It carried a
+  and `DecisionJournal` are removed (#1447, #1450, #1458)** — package-borne.
+  The `DecisionQueue` extension's payload is replaced. It carried a
   `Decision.bind` handle's ref, the host's `modify` and `evidence` views, the
   facets, the Apply and Reject hooks, a `Slice.bind` handle and its
   affordances, and `heading`, `maxHeight`, `density`, `groups`, `groupBy` and
-  `collapsible`. It now carries the cases' kind (`decisions`: the app's cases
-  read through their roles, each option's change its tag and its patch as
-  bytes), the verdicts' kind (`verdicts`: the app's record of verdicts, its
-  session, its read by key and how a verdict is written into its row), each
-  target and the tags it serves (`targets`, `DecisionQueue.Types.Target`),
+  `collapsible`. It now carries the cases' kind (`decisions`: the app's record
+  of cases read through their roles — whole, or a page at a time through the
+  slice's `decisions` source — each option's change its tag and its patch as
+  bytes and each case's verdict read from its row; the session over the
+  record, its read by key and how a verdict is written into a case's row),
+  each target and the tags it serves (`targets`, `DecisionQueue.Types.Target`),
   the chrome of a Slice over several records (`slice`), `onSelect`,
   `readOnly`, `now` and `id` — closed over beast2 bytes as Schedule's kinds
   are, so the payload is one type whatever the app's rows hold. A prop the
@@ -639,19 +640,19 @@ Each wire changed under this rule, with the kind it is.
   (`Decision.Types.Decision`) and its parts, the judgement input and the
   constraint contract — so an application's dataset or record that holds
   them, a reasoning task's decisions or its judgements, changes type: holding
-  its cases and its verdicts in records of its own, which
-  `DecisionQueue.decisions` and `DecisionQueue.verdicts` read and write
-  through their roles, is that application's own migration, as with any
-  record whose type an application changes.
+  its cases in a record of its own, each row carrying its verdict, which
+  `DecisionQueue.decisions` reads and writes through its roles, is that
+  application's own migration, as with any record whose type an application
+  changes.
 - **e3-ui's read of a record by key names its paged read, and the
   DecisionQueue's record target counts its groups through an index (#1447,
   #1454)** — package-borne. `ScheduleEntriesType`, the read by key a kind
   carries beside its session, gains `paged`, after `last`: the `id` of the
   paged read of the record's own entries the others read through, by which a
-  reader asks many entries in one request — the queue's verdicts, and a
+  reader asks many entries in one request — the queue's cases, and a
   change's rows, a request a record. Every kind read by key carries it — a
   Schedule kind's, a period kind's, the Roster's targets', the Schematic's
-  kinds' and the DecisionQueue's verdicts' and targets' — so it travels in the
+  kinds' and the DecisionQueue's cases' and targets' — so it travels in the
   `Calendar`, `Plan`, `Roster`, `Allocation`, `Schematic` and `DecisionQueue`
   extensions' payloads. The record target's kind on the wire
   (`DecisionTargetKindType`'s `record`) gains `count` in its `group`, after
