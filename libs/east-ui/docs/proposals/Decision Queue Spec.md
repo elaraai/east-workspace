@@ -11,16 +11,19 @@ Modify · Apply. The card you act on never moves under you.
 The queue is a builder of the e3-ui family and a standalone component: a
 `BuilderFrame` with neither pane, and nothing else — one toolbar holding its
 count, its rail and its history item, the banners, the list in main, and the
-footer with the shared loading line. It draws no border, no shadow and no
+footer with the Save notice and the shared loading line. It draws no border, no shadow and no
 close of its own. A host places it as it places any builder — a page's region,
 a card, a drawer, a popover — and sizes it.
 
-It reads two of the app's sources through roles mapped to the app's fields, as
+It reads one of the app's records through roles mapped to the app's fields, as
 the Roster and the Schematic do (`Builder Interfaces Spec.md`): the cases,
-which the app's models propose and the queue only reads, narrowed by one
-`Slice.bindRecords` rail; and the verdicts, the app's record the queue writes.
-A verdict is an edit of the shared session, as every editing builder's
-gestures are: a draft until Save, one step of one history that Undo reverses.
+which the app's models propose, each row holding its verdict — waiting until a
+person decides it. The queue writes only the verdict's fields of a case's row,
+through the record's patch door. It reads the cases as the Plan and the Sheet
+read their rows: whole, or through one `Slice.bindRecords` rail a page at a
+time as the list scrolls, in the order the pages come back. A verdict is an
+edit of the shared session, as every editing builder's gestures are: a draft
+until Save, one step of one history that Undo reverses.
 
 One record holds every kind of decision. What kind a decision is, is the tag
 of a variant field of the app's — the option's change — and each tag's value
@@ -52,30 +55,35 @@ step between cards; choose an option, answer the question, open Why, add a
 note, Modify (the Plan's, the kiln's, the roster's and the price list's cards
 have fields), Override…, then Apply — the receipt holds for 5 s, Undo puts the
 card back. The Routine band's Apply all shows the batch banner. The phone
-placement shows the same queue with no card open. The mock keeps its verdicts
-in its own state; the product's are the session's (§9.4). An agent measures
-the mock in a headless browser, through its DOM; nobody reads a screenshot.
+placement shows the same queue with no card open. The mock sections its cases,
+lets a receipt leave after 5 s and batches its routine cases; the product does
+none of these (§11). The mock keeps its verdicts in its own state; the
+product's are fields of the case rows, drafts of the session until Save
+(§9.4). An agent measures the mock in a headless browser, through its DOM;
+nobody reads a screenshot.
 
 ## 1. Summary
 
-- **What.** A queue of the cases waiting on a person, grouped by when they are
-  due, each a card with a preview of where its change lands. One card is open
-  at a time; deciding it turns it into a receipt in place. Routine cases wait
-  in a band at the end, applied together. Every verdict is a draft of the
-  shared session until Save.
+- **What.** A queue of the cases a model leaves to a person, in the order the
+  app's source gives them, each a card with a preview of where its change
+  lands. One card is open at a time; deciding it turns it into a receipt in
+  place. Every verdict is a draft of the shared session until Save. A queue of
+  any size reads only the cases in view, a page at a time, as the Plan and the
+  Sheet read their rows.
 - **Where.** `<DecisionQueue>`, its kinds and its targets in e3-ui; the
   renderer in e3-ui-components, in a `BuilderFrame`, on the shared parts of
   east-ui-components; the previews drawn with each builder's own renderer
   parts and arithmetic, and Modify with each builder's inspector form.
-- **What the app declares.** Its cases, read only — one record, whatever kinds
-  of decision it holds (`DecisionQueue.decisions`); in the change role, a
-  target for each tag of the change's variant — where that kind of decision
-  draws, built from the same consts the app's own builders take
-  (`DecisionQueue.change.*`); and its verdicts record, which the queue writes
-  (`DecisionQueue.verdicts`).
-- **Built in.** Sections, counts and totals; the cards, their options,
+- **What the app declares.** Its cases — one record, whatever kinds of
+  decision it holds, each row carrying its verdict
+  (`DecisionQueue.decisions`); in the change role, a target for each tag of
+  the change's variant — where that kind of decision draws, built from the
+  same consts the app's own builders take (`DecisionQueue.change.*`); and, for
+  a rail, its own indexes — one on whether a case has been judged, for
+  instance (D18).
+- **Built in.** The paged list and its count; the cards, their options,
   figures, question, warning, reason, note and actions; Modify and Override;
-  receipts; the session's history, Save and its banners; the batch; the
+  receipts; the session's history, Save, its banners and its Save notice; the
   anchoring that keeps the card you act on still; the previews, their kinds
   and their marks; the keys; the loading line; the narrowing by the rail.
 - **Removed.** `Decision.bind` and its handle, the stored decision envelope
@@ -85,19 +93,20 @@ the mock in a headless browser, through its DOM; nobody reads a screenshot.
 
 ## 2. Decisions
 
-Q1, Q2 and Q3 were ruled by the user on 28 Oct 2026; the rest are this
-design's.
+Q1, Q2 and Q3 were ruled by the user on 28 Oct 2026, and D4, D5 and D18 on
+30 Oct 2026, when the first design's queue over 20,000 cases opened empty
+behind its 1,000-case cap; the rest are this design's.
 
 | # | Decision |
 |---|---|
-| Q1 | **What Apply writes** (ruled 28 Oct 2026: "Change + verdict"). The change and the verdict: the chosen option's patch, as Modify left it, drafted into its builder's record through its target's kind's own write, and the verdict into the verdicts record, one step across both, as accepting a proposal on the Roster drafts the duty and the week's dismissal, and as an Optimise run's result lands as one step; Save commits both. Nothing waits for the app's next run. |
+| Q1 | **What Apply writes** (ruled 28 Oct 2026: "Change + verdict"). The change and the verdict: the chosen option's patch, as Modify left it, drafted into its builder's record through its target's kind's own write, and the verdict into the case's own row, one step across both, as accepting a proposal on the Roster drafts the duty and the week's dismissal, and as an Optimise run's result lands as one step; Save commits both. Nothing waits for the app's next run. |
 | Q2 | **The session** (ruled 28 Oct 2026: "you could use the edits sessions like we do for the other builder frames"). Verdicts are edits of the shared session, as every editing builder's gestures are: drafts until Save, one history over a session per record the queue writes, the history item at the toolbar's end (D3). |
-| Q3 | **The journal** (ruled 28 Oct 2026: "Remove it"). `<DecisionJournal>` is removed with the handle — its tag, its payload and its renderer: the verdicts are the app's record, shown as the app shows any record of its own — a Sheet over it. |
-| D1 | **Two sources, two writers.** The cases are the models': the queue reads them and never writes them — a record of the app's, which its own mutation fills (e3's tasks read records and never write them), or a task's output, read whole. The verdicts are the people's: the app's record, keyed by the case's key, which the queue writes through its patch door. A case shows while the verdicts hold no verdict under its key, saved or drafted. A verdict stands for its key, so a run that proposes again mints a new one, as the Roster's dismissals stand by key. The app's next run reads the verdicts, as a task reads any record. |
-| D2 | **Standalone: a `BuilderFrame` and nothing else.** The toolbar (`Decisions` and the count, the rail, the past-due count, the history item), the banners, main (the list) and the footer (the shared loading line, `liveFooter`). No start or end pane. The frame draws no border, shadow or close, and no prop is a placement's: a host places the queue and sizes it (§3.4). The cards inside it draw theirs. |
-| D3 | **The session is every editing builder's.** One history over a session per record the queue writes — the verdicts, and each record a change lands in (Q1) — each verdict one step across them; Undo · Redo · Discard · Save in the history item; ⌘Z, ⇧⌘Z and ⌘Y; Save sends each record's changes through its patch door as a request of its own; a conflict, a refusal or an unknown outcome is the session's banner, with Retry where it applies. The drafts are kept by key under the queue's `id`, whatever the narrowing, a remount or a reload, as the Roster's are. |
-| D4 | **Reading.** The cases are read complete: whole through `Data.bind`, or through the slice's `decisions` source a page at a time — at most 1,000; past that, a banner says how many the narrowing holds and to narrow. The verdicts are read by key — the keys of the cases read, through their `entries` — never whole, as the Schematic's details are read beside a kind read through its source. The queue orders and lays out what it read itself: the narrowing is the index's, the order and the sections are the queue's, as the Calendar lays out the events of its window. |
-| D5 | **Sections by when a case is due.** Overdue (due before now), Due today (before the day's end as the app's formatters print it), This week (within the next seven days), Later (after that, or no due date); each shows only with a case. The `routine` role sends a case to the Routine band at the end instead, whatever its due. |
+| Q3 | **The journal** (ruled 28 Oct 2026: "Remove it"). `<DecisionJournal>` is removed with the handle — its tag, its payload and its renderer: the cases and their verdicts are the app's record, shown as the app shows any record of its own — a Sheet over it. |
+| D1 | **One record, two writers** (30 Oct 2026, with D18). The cases are the app's record: its models fill it through the app's own mutation (e3's tasks read records and never write them), each new case waiting, and the queue writes only the verdict's fields of a case's row through the record's patch door — `verdict`, and `option`, `answer`, `reason` and `note` where the roles map them (§5.2) — as a builder writes only the fields its roles name. A decided case stays in the record under its key with its verdict. The app's next run reads the verdicts there, as a task reads any record, and the app's own mutation says what a run does with a decided case: drop it, keep it, or set it waiting again. Every case the queue reads is in its list — a waiting one as a card, a decided one as its receipt — so which cases show is the narrowing's (D18). |
+| D2 | **Standalone: a `BuilderFrame` and nothing else.** The toolbar (`Decisions` and the count, the rail, the history item), the banners, main (the list) and the footer (the Save notice and the shared loading line, `liveFooter`). No start or end pane. The frame draws no border, shadow or close, and no prop is a placement's: a host places the queue and sizes it (§3.4). The cards inside it draw theirs. |
+| D3 | **The session is every editing builder's.** One history over a session per record the queue writes — the cases' record, for their verdicts, and each record a change lands in (Q1) — each verdict one step across them; Undo · Redo · Discard · Save in the history item; ⌘Z, ⇧⌘Z and ⌘Y; Save sends each record's changes through its patch door as a request of its own; a conflict, a refusal or an unknown outcome is the session's banner, with Retry where it applies. The drafts are kept by key under the queue's `id`, whatever the narrowing, a remount or a reload, as the Roster's are. |
+| D4 | **Reading, as the Plan and the Sheet read** (ruled 30 Oct 2026: "slice and paging should all be automated … what do things like Plan, Sheet etc do?"). The cases are read whole through `Record.bind`, or through the slice's `decisions` source a page at a time as the list scrolls, in the order the pages come back, the cases not read yet pending cards. There is no cap: the queue never reads every case of a narrowing to sort, section or count it. Its count is e3's count of the narrowing, or the record's size read whole. A case drafted is read by key through `entries`, the record's `Data.bindPaged`, as the Schematic's kinds are read beside their sources. |
+| D5 | **No sections: the source's order** (ruled 30 Oct 2026: "it doesn't need to sort by date, they should appear in whatever [order] the paged items appear in"). The cases stand in the order their source gives them — the index serving the rail's choices, or the record's key order read whole — never sorted or grouped by the queue. Each card's due words keep their tone: overdue `--neg-text`, due today `--warn-text`, later `--ink-3`. `routine` marks its card (`Routine`, §8), which is applied on that card as any case is. |
 | D6 | **One record, every kind of decision; the tag picks where it draws.** An option's change is a variant field of the app's: its tag is the kind of decision, and each tag's value a `PatchType(DictType(K, R))` of the record that kind changes — the same value that record's `patch: mutation.patch()` takes, what `East.diff` of its rows gives. The change role maps every tag to a target (`of`), as the Roster's `resource: { field, of }` maps each case of a variant field to a kind, and the target's record type must be the tag's (`isTypeEqual`): a tag with no target, or of another type, is refused at build, naming the tag, the record and both types. The records a change lands in are the app's own, the ones its builders edit; the cases are one record, never one a kind. Two tags may share a target, and two targets one record. `of` is typed from the variant `from` returns, which TypeScript infers from `from` alone: its keys are the variant's tags, every one required, and each target's record the one its tag's patch is of — checked when the code compiles and again at build. The target needs no mapping of its own: its kinds are the mapping — `Schedule.events(jobs, { start: "start", resource: { field: "press", of: "presses" } })` already says where a job's start and press are — so the queue reads a patched row as its builder reads it. A Plan's or a Calendar's target holding more than one event kind names the one its tags patch (`event: "job"`). |
 | D7 | **The preview's kind comes from the change and its target.** A change landing on at most two of a builder's rows is a crop; on more, a map — the Roster's by people, or by cost where its target says `map: "cost"`; the Sheet crops its first three rows. A record with no builder shows its changed fields, or — given `measure` or `group` — its mix or its groups (§5.3, P3). Decisions that read by cost are a tag of their own, beside those that read by people. |
 | D8 | **A preview reuses its builder.** A builder's target takes the props of the builder's own tag, typed as that tag types them — `Pick<RosterProps<R>, …>`, `Pick<PlanProps<K>, …>`, `Pick<CalendarProps, …>`, `Pick<AllocationProps<R>, …>`, the Sheet's `SheetColumnSpec<R>` (§5.3) — the same consts handed to both; reads its rows through those kinds' closed builds; draws them with the builder's own slot recipes at the builder's own sizes, the proposal marked as an Optimise run's result is where it lands (the `elara` glow, the ghosts); and works out each row's measure and its breaches with the builder's own functions (the Roster's hours, rules, check and pay, the Allocation's loads and check, the Calendar's and the Plan's overlaps). |
@@ -107,17 +116,18 @@ design's.
 | D12 | **A card's choices are the viewer's until a verdict.** The option chosen, the answer, the note, Modify's edits and the override form are kept under the queue's `id`, so a card closed or the queue remounted loses none; the verdict makes them one step of the session. |
 | D13 | **Every mark is a Font Awesome solid icon** — the options' check and refusal, the empty state, the groups' up and down — never the mock's text glyphs. |
 | D14 | **One interface.** The envelope, the handle, the facets, the old props and the journal (Q3) are removed, with no reader of the old forms and no converter (§13), as the builder interfaces were. |
-| D15 | **A case may be its own one proposal.** Without `options`, the option's roles sit beside the case's and read the case row: a record whose every row is one proposal — a model's plan, its details a variant — is mapped as it is. The card shows no Options and reads `only option` (R14, R15); the verdict's `option` is none. |
+| D15 | **A case may be its own one proposal.** Without `options`, the option's roles sit beside the case's and read the case row: a record whose every row is one proposal — a model's plan, its details a variant — is mapped as it is. The card shows no Options and reads `only option` (R14, R15), so the options' `label` and `note` are not among those roles: a case's `note` is the verdict's (§5.2). The verdict's `option` is none. |
 | D16 | **The model says what it guessed.** The option's `guesses` names the changed rows it is unsure of, with its confidence in each; their changed cells take the mock's low-confidence dot (P26). Nothing else marks a cell. |
-| D17 | **A role the queue reads is an East function; one it writes is a field.** As `Schedule.resources`' and `Roster.shifts`' roles are functions (`label: p => p.name`) and an event kind's `start` and a period's `status` are fields: every decision role is `(row, key) => …` — an option's `(o, key, c) => …` — never a field's name, so TypeScript types each from the row and a part of the card can be one field, two combined, a field inside a struct or a figure worked out, the change's variant anywhere in the row (§5.1). The verdicts' roles, which the queue writes, are fields. |
+| D17 | **A role the queue reads is an East function; one it writes is a field.** As `Schedule.resources`' and `Roster.shifts`' roles are functions (`label: p => p.name`) and an event kind's `start` and a period's `status` are fields: every decision role is `(row, key) => …` — an option's `(o, key, c) => …` — never a field's name, so TypeScript types each from the row and a part of the card can be one field, two combined, a field inside a struct or a figure worked out, the change's variant anywhere in the row (§5.1). The verdict's roles, which the queue writes into the case's row, are fields (§5.2). |
+| D18 | **Judgement is the app's index** (ruled 30 Oct 2026: "we have indexes which apply to the slice automatically, the developer could create a has-judgement index for example and filter by that"). Which cases show is the narrowing's, through the app's own indexes, as for any record a builder pages. An index of the app's on the verdict's tag — `judgement: r.verdict.getTag()` in an `index.key`, beside the fields the rail narrows by — is a field of the rail like any other, and the source's `initial` can start it on `waiting`. Under it, Save takes a decided case out of the list, and the shared Save notice says how many left (R26). The queue knows no index of its own. |
 
 ## 3. The authoring surface
 
 **Where the data comes from.** No record is added for each kind of decision.
-The cases are one record of the app's — or a task's output — whatever kinds of
-decision it holds; the other records an example binds are the app's own, the
-ones its builders already edit, which a case's change lands in and the queue
-reads only to draw the change against the rows it changes.
+The cases are one record of the app's, whatever kinds of decision it holds,
+each row carrying its verdict; the other records an example binds are the
+app's own, the ones its builders already edit, which a case's change lands in
+and the queue reads only to draw the change against the rows it changes.
 
 ```
 the app's records     duties · print jobs · machine jobs and maintenance · bins · work orders · list prices
@@ -126,12 +136,13 @@ the app's records     duties · print jobs · machine jobs and maintenance · bi
 the app's models      its tasks: an optimiser, a forecast, a rule
         │ propose, through the app's own mutation
 one record of cases   every kind of decision; each option's change a variant field — its tag
-                      the kind of decision, its value a patch of the record that kind changes
-        │ read by
+                      the kind of decision, its value a patch of the record that kind changes;
+                      each case's verdict a variant field, waiting as the model writes it
+        │ read by, a page at a time through the rail
 <DecisionQueue>       the change role's `of`: each tag → where it draws
                       rota → the Roster's kinds · print → the Plan's · pricing → a record's fields
         │ writes, at Save
-the verdicts record   a verdict under each case's key — the models' next run reads it
+the cases' record     the verdict's fields of each case decided — the models' next run reads them
 the changed records   on Apply, the option's patch, through each record's patch door (Q1) —
                       the builders over those records show it as they show any edit
 ```
@@ -165,10 +176,10 @@ one roof — the repo's own example records — and the records no builder draws
 its price list, its stock levels, its lines' cure settings and its presses'
 readiness. Its models propose changes to each, and to the rota's cover
 targets, which the Roster edits in a form of its own. Its cases are one
-record, its verdicts another:
+record, each holding its verdict:
 
 ```ts
-import { BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType } from "@elaraai/east";
+import { BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { WarehouseCover, WarehouseDuty } from "../roster/warehouse.js";    // the warehouse rota's duties and its cover targets
 import { PrintJob } from "../plan/plan-events.examples.js";                // the print shop's jobs
@@ -223,7 +234,10 @@ export const OpsOption = StructType({
     change: OpsChange,
 });
 
-/** A case a model leaves to a person. */
+/** When a verdict was given: each case of the verdict but `waiting` holds it. */
+const Given = StructType({ at: DateTimeType });
+
+/** A case a model leaves to a person, and the person's verdict on it. */
 export const OpsCase = StructType({
     area: StringType,                  // "rota" — the app's own field, which the rail narrows by (an index reads a field of the row); the queue maps none
     scope: StringType,                 // "Picking · W10"
@@ -236,33 +250,29 @@ export const OpsCase = StructType({
     ifWrong: OptionType(FloatType),    // −8000
     recommended: StringType,           // the key of the option the card opens on
     options: DictType(StringType, OpsOption),  // keyed by the model's rank, which orders them: `1-pumice`, `2-osier`, …
-});
-
-/** A person's verdict on a case, under the case's key; each case holds when it was given. */
-const Given = StructType({ at: DateTimeType });
-export const OpsVerdict = StructType({
-    verdict: VariantType({ applied: Given, overridden: Given, deferred: Given, handedOff: Given }),
-    option: OptionType(StringType),
+    // The verdict, which the queue writes: waiting, as the model writes every new case, until a person decides it.
+    verdict: VariantType({ waiting: NullType, applied: Given, overridden: Given, deferred: Given, handedOff: Given }),
+    option: OptionType(StringType),    // the option taken
     answer: OptionType(VariantType({ yes: NullType, no: NullType, unsure: NullType })),
     reason: OptionType(VariantType({ context: NullType, data: NullType, priorities: NullType, other: NullType })),
     note: OptionType(StringType),
 });
 
-// The models' cases: the app's record, filled by its own mutation — e3's tasks read records and never write them.
+// The models' cases: the app's record, filled by its own mutation — e3's tasks read records and never write them —
+// and the verdicts the queue writes into them through their patch door.
 export const opsCases = e3.record("ops_cases", DictType(StringType, OpsCase), {
     initial: opsCaseRows,
     indexes: (index) => ({
-        // The app's own fields, which the rail narrows the cases by.
-        ops_cases_by_area: index.on(["area"]),
-        ops_cases_by_scope: index.on(["scope"]),
+        // The app's own: whether anyone has judged a case — its verdict's tag — then a field the rail narrows by.
+        ops_cases_by_judgement_area: index.key(East.function([StringType, OpsCase], StructType({ judgement: StringType, area: StringType }),
+            (_$, _key, c) => ({ judgement: c.verdict.getTag(), area: c.area }))),
+        ops_cases_by_judgement_scope: index.key(East.function([StringType, OpsCase], StructType({ judgement: StringType, scope: StringType }),
+            (_$, _key, c) => ({ judgement: c.verdict.getTag(), scope: c.scope }))),
     }),
-    mutations: (mutation) => ({ ops_propose: mutation.reduce(proposeCases) }),  // the app's: a run's cases in, decided ones out
-});
-
-// The people's verdicts: the record the queue writes.
-export const opsVerdicts = e3.record("ops_verdicts", DictType(StringType, OpsVerdict), {
-    initial: new Map(),
-    mutations: (mutation) => ({ patch: mutation.patch() }),
+    mutations: (mutation) => ({
+        ops_propose: mutation.reduce(proposeCases),  // the app's: a run's cases in, each waiting
+        patch: mutation.patch(),                     // the queue's: the verdicts
+    }),
 });
 ```
 
@@ -287,23 +297,22 @@ export const ProposalDetails = VariantType({
     orders: PatchType(DictType(StringType, OptimiseWorkOrder)),  // the shop's work orders (test/sheet/optimise.examples.tsx)
     pricing: PatchType(DictType(StringType, ListPrice)),         // the price list
 });
-/** A proposal of the app's model, in the app's own words: one decision, no alternatives. */
+/** A proposal of the app's model, in the app's own words: one decision, no alternatives — and the verdict on it. */
 export const Proposal = StructType({
     site: StringType, deadline: OptionType(DateTimeType), metric: StringType, run: StringType, rationale: StringType,
     headline: StringType, brief: StringType, description: StringType, saving: FloatType, details: ProposalDetails,
+    verdict: VariantType({ waiting: NullType, applied: NullType, overridden: NullType, deferred: NullType, handedOff: NullType }),
 });
-export const proposals = e3.record("proposals", DictType(StringType, Proposal), { initial: proposalRows });
-export const proposalVerdicts = e3.record("proposal_verdicts", DictType(StringType, OpsVerdict), {
-    initial: new Map(),
-    mutations: (mutation) => ({ patch: mutation.patch() }),
+export const proposals = e3.record("proposals", DictType(StringType, Proposal), {
+    initial: proposalRows,
+    mutations: (mutation) => ({ patch: mutation.patch() }),  // the queue writes each verdict through it
 });
 ```
 
 ```tsx
 <Reactive>{$ => {
-    const cases = $.let(Data.bind(proposals));
-    const verdicts = $.let(Record.bind(proposalVerdicts));
-    const verdictEntries = $.let(Data.bindPaged(proposalVerdicts));
+    // The proposals, read whole, with the patch door their verdicts are written through.
+    const cases = $.let(Record.bind(proposals));
     // The records the proposals change, each bound with the patch door it declares.
     const workOrders = $.let(Record.bind(optimiseWorkOrders));
     const priceList = $.let(Record.bind(listPrices));
@@ -322,19 +331,19 @@ export const proposalVerdicts = e3.record("proposal_verdicts", DictType(StringTy
                 } }),
                 pricing: DecisionQueue.change.record(priceList, { name: "Pricing", icon: "tag", label: r => r.region }),
             } },
-        })}
-        verdicts={DecisionQueue.verdicts(verdicts, {
-            entries: verdictEntries,
-            verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" },
+            // The verdict: a field of the proposal's, which the queue writes, and which of its cases means what.
+            verdict: { field: "verdict", waiting: "waiting", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" },
         })}
     />;
 }}</Reactive>
 ```
 
 Every optional role left out turns off what it drives: no `routine`, no
-Routine band; no `ifWrong` or `confidence`, those figures read `no data`; no
-`question`, no gate; no `answer`, `reason` or `note` on the verdicts, the card
-offers no answer, no override reason and no note (§5.2).
+Routine mark; no `ifWrong` or `confidence`, those figures read `no data`; no
+`question`, no gate; no `answer`, `reason` or `note` among the verdict's roles,
+the card offers no answer, no override reason and no note (§5.2). With no rail
+every proposal shows — a waiting one as its card, a decided one as its receipt
+— until the app's own mutation drops it.
 
 ### 3.3 The full queue — every builder it lands in
 
@@ -353,16 +362,18 @@ the gallery example's, over the supply side's records (§15).
 
 ```tsx
 <Reactive>{$ => {
-    // The models' cases, narrowed by the rail, and the verdicts the queue writes.
-    const cases = $.let(Data.bindPaged(opsCases));
-    const indexed = $.let(Data.bindPaged(opsCases, { indexes: ["ops_cases_by_area", "ops_cases_by_scope"] }));
+    // The models' cases with the patch door their verdicts are written through, read by key beside the rail's source.
+    const cases = $.let(Record.bind(opsCases));
+    const caseEntries = $.let(Data.bindPaged(opsCases));
+    // The rail: the cases through the app's indexes on their judgement, starting on those waiting.
+    const indexed = $.let(Data.bindPaged(opsCases, { indexes: ["ops_cases_by_judgement_area", "ops_cases_by_judgement_scope"] }));
     const slice = $.let(Slice.bindRecords("ops.decisions", {
         decisions: { source: indexed, icon: { prefix: "fas", name: "inbox" }, search: ["scope"],
-            fields: { area: { label: "Area", hints: ["rota", "print", "yard", "stock", "workshop", "pricing", "trial", "orders", "cover", "ready"] },
-                scope: { label: "Scope" } } },
+            fields: { judgement: { label: "Judgement", hints: ["waiting", "applied", "overridden", "deferred", "handedOff"] },
+                area: { label: "Area", hints: ["rota", "print", "yard", "stock", "workshop", "pricing", "trial", "orders", "cover", "ready"] },
+                scope: { label: "Scope" } },
+            initial: { judgement: ["waiting"] } },
     }));
-    const verdicts = $.let(Record.bind(opsVerdicts));
-    const verdictEntries = $.let(Data.bindPaged(opsVerdicts));
     // The host's: the case open in the queue, which it follows.
     const open = $.let(State.bind([OptionType(StringType)], "ops.open", none));
     const follow = $.const(East.function([OptionType(StringType)], NullType, ($2, key) => { $2(open.write(key)); }));
@@ -501,6 +512,7 @@ the gallery example's, over the supply side's records (§15).
         id="opsQueue"
         slice={{ slice }}
         decisions={DecisionQueue.decisions(cases, {
+            entries: caseEntries,
             scope: c => c.scope, due: c => c.due, routine: c => c.routine, unit: c => c.unit, model: c => c.model,
             why: c => c.why, ifWrong: c => c.ifWrong, recommended: c => c.recommended,
             // Money in dollars, a count as it is.
@@ -517,10 +529,8 @@ the gallery example's, over the supply side's records (§15).
                     yard: yardChange, orders: orderChange, pricing: pricingChange,
                     stock: stockChange, trial: trialChange, cover: coverChange, ready: readyChange,
                 } } },
-        })}
-        verdicts={DecisionQueue.verdicts(verdicts, {
-            entries: verdictEntries,
-            verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" },
+            // The verdict's roles: fields of the case's row, which the queue writes.
+            verdict: { field: "verdict", waiting: "waiting", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" },
             option: "option",
             answer: { field: "answer", yes: "yes", no: "no", unsure: "unsure" },
             reason: { field: "reason", context: "context", data: "data", priorities: "priorities", other: "other" },
@@ -534,14 +544,15 @@ the gallery example's, over the supply side's records (§15).
 The examples are these two queues as written here (`decisionQueueMinimal`,
 `decisionQueueOps`, §15), each placed in a `Box` of a fixed height, as the
 showcase places a builder, with `now` pinned to the mock's, 13:00 on Tuesday
-10 March 2026, so their sections stand as the mock's do whatever the day.
+10 March 2026, so their due words read as the mock's do whatever the day.
 Their cases are the mock's, like for like — its scopes, titles, options,
 figures, questions and warnings — over the rows of the example records each
 case changes: the roster case moves a duty the warehouse rota holds, J.
-Tansy's Friday late. The records keep their own examples' dates — the rota's
-week in March 2028, the print works' day in October 2026 — so `now` drives the
-sections and the due words alone. Where a figure is the app's own arithmetic it
-is the app's, not the mock's: the routine trim's `+$168` and Saturday's cover's
+Tansy's Friday late. They stand in the order the index serving the rail's
+choices gives them (D5). The records keep their own examples' dates — the
+rota's week in March 2028, the print works' day in October 2026 — so `now`
+drives the due words alone. Where a figure is the app's own arithmetic it is
+the app's, not the mock's: the routine trim's `+$168` and Saturday's cover's
 `+$408` are the warehouse's pay for the hours they take off, and the overtime
 case's `+$156` the change its pay codes give over the week (P7). Each case's
 `figure` says whether its figures print as dollars (`+$80K`) or as a count
@@ -568,32 +579,96 @@ a close button are the host's own chrome, never the queue's. Its narrow layout
 follows its own width (R30), whatever holds it. The mock draws two placements,
 a popover and a phone; both are this one component.
 
+### 3.5 A queue of any size — paged through the rail
+
+The cases are read as the Plan and the Sheet read their rows (D4): through the
+rail's source a page at a time as the list scrolls, in its index's order. Here
+a replenishment model's 20,000 reorders across a chain of stores, each its own
+one proposal (D15): the record carries the verdict the queue writes, and an
+index of the app's own on whether anyone has judged a reorder (D18).
+
+```ts
+export const Reorder = StructType({
+    store: StringType, range: StringType, due: OptionType(DateTimeType), /* …the model's fields… */
+    verdict: VariantType({ waiting: NullType, applied: NullType, overridden: NullType, deferred: NullType, handedOff: NullType }),
+    note: OptionType(StringType),
+});
+
+export const reorders = e3.record("reorders", DictType(StringType, Reorder), {
+    initial: () => East.compile(generateReorders, [])(20000n),
+    indexes: (index) => ({
+        // The app's own: whether anyone has judged a reorder, then its store and its range.
+        reorders_by_judgement: index.key(East.function([StringType, Reorder],
+            StructType({ judgement: StringType, store: StringType, range: StringType }),
+            (_$, _key, r) => ({ judgement: r.verdict.getTag(), store: r.store, range: r.range }))),
+    }),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+```
+
+```tsx
+<Reactive>{$ => {
+    const rows = $.let(Record.bind(reorders));
+    const entries = $.let(Data.bindPaged(reorders));
+    const slice = $.let(Slice.bindRecords("ex.decisionQueueRecordIndexes", {
+        decisions: { source: Data.bindPaged(reorders, { indexes: ["reorders_by_judgement"] }), icon: { prefix: "fas", name: "inbox" },
+            fields: { judgement: { label: "Judgement" }, store: { label: "Store" }, range: { label: "Range" } },
+            initial: { judgement: ["waiting"] } },
+    }));
+    const stock = $.let(Record.bind(chainStock));
+    const stockEntries = $.let(Data.bindPaged(chainStock));
+    return <DecisionQueue
+        id="reorders"
+        slice={{ slice }}
+        decisions={DecisionQueue.decisions(rows, {
+            entries,
+            scope: r => East.str`${r.store} · ${r.range}`, due: r => r.due, title: r => r.title, /* …the card's roles… */
+            change: { from: r => r.change, of: { stock: DecisionQueue.change.record(stock, { /* … */ entries: stockEntries }) } },
+            verdict: { field: "verdict", waiting: "waiting", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" },
+            note: "note",
+        })}
+    />;
+}}</Reactive>
+```
+
+The queue opens on the waiting reorders, e3's count of them in its toolbar, and
+reads the page in view. A reorder applied and saved leaves the list, and the
+Save notice says so (R26); Judgement's other choices show the decided ones,
+each its receipt. Without a rail the record is read whole (§3.2).
+
 ## 4. The props
 
 | Prop | Takes | What it does |
 |---|---|---|
-| `id` | `string` | Names the queue's state: the open card, the Routine band's fold, each card's choices (D12) and the session's drafts (D3). Required. |
-| `decisions` | `DecisionQueue.decisions(binding, roles)` | The cases, read only — one source, every kind of decision: the app's source and its roles, the change role a target for each of its tags (§5.1, §5.3). Required. |
-| `verdicts` | `DecisionQueue.verdicts(binding, roles)` | Where each verdict is written: the app's record and its roles (§5.2). Required. |
-| `slice` | `{ slice: Slice.bindRecords(key, { decisions: { source, … } }) }` | The rail: one source, `decisions`, over the cases' record (D4). A `Slice.bind` or a single `Slice.bindRecord` is refused, as every builder refuses them. Optional; without it the cases are read whole. |
+| `id` | `string` | Names the queue's state: the open card, each card's choices (D12) and the session's drafts (D3). Required. |
+| `decisions` | `DecisionQueue.decisions(binding, roles)` | The cases — one record, every kind of decision, each row its verdict: the app's record and its roles, the change role a target for each of its tags, and the verdict's roles the fields the queue writes (§5.1, §5.2, §5.3). Required. |
+| `slice` | `{ slice: Slice.bindRecords(key, { decisions: { source, … } }) }` | The rail: one source, `decisions`, over the cases' record, read a page at a time as the list scrolls (D4); the app's indexes are its fields (D18). A `Slice.bind` or a single `Slice.bindRecord` is refused, as every builder refuses them. Optional; without it the cases are read whole. |
 | `onSelect` | `FunctionType([OptionType(StringType)], NullType)` | Hears the open case's key, `none` when none is open — the host's to follow, as a builder's `onSelect` hears its selection. Optional. |
 | `readOnly` | `SubtypeExprOrValue<Boolean>` | Every card opens and shows everything, and takes no answer and no action; no history item. Default `false`. |
-| `now` | `SubtypeExprOrValue<DateTime>` | The time the sections and the due words count from; the clock by default. Examples and tests pin it. |
+| `now` | `SubtypeExprOrValue<DateTime>` | The time the due words count from; the clock by default. Examples and tests pin it. |
 
 ## 5. The kinds and the East types
 
 ### 5.1 `DecisionQueue.decisions(binding, roles)`
 
-`binding` is the cases, read only: `Data.bind(source)` — a record of the
-app's, or a task's output — read whole, or `Data.bindPaged(record)`, read
-through the slice's `decisions` source. A `Record.bind` is refused, naming
-`Data.bind`: the queue writes no case. The source is a `Dict<String, C>`.
+`binding` is the cases' record with its patch door, `Record.bind(record)`, the
+record a `Dict<String, C>` declaring `patch: mutation.patch()`, through which
+the queue writes the verdict's fields of a case (§5.2) and nothing else of it.
+It is read whole; beside the slice's `decisions` source it is read through the
+source a page at a time (D4), and `entries`, a paged read of the same record
+(`Data.bindPaged(record)`), reads a case by key — a case drafted, and Save's
+confirmation — as the Schematic's kinds are read beside their sources.
+`entries` is required beside the source, and refused where there is none. A
+`Data.bind` or a `Data.bindPaged` is refused, naming `Record.bind(record)`:
+the queue writes each verdict into its case's row, so cases a task outputs,
+which nothing writes, are filled into a record by the app's own mutation first.
 
-Every role here is an East function over the row and its key — an option's
-over the option, its key and its case, `(o, key, c) => …` — because the queue
-only reads them, as `Schedule.resources`' and `Roster.shifts`' roles are
-functions (`label: p => p.name`); the roles a builder writes are fields — an
-event kind's `start`, a period's `status`, the verdicts' (§5.2). A role pairs
+Every role here but the verdict's is an East function over the row and its
+key — an option's over the option, its key and its case, `(o, key, c) => …` —
+because the queue only reads them, as `Schedule.resources`' and
+`Roster.shifts`' roles are functions (`label: p => p.name`); the roles a
+builder writes are fields — an event kind's `start`, a period's `status`, the
+verdict's (§5.2). A role pairs
 a part of the card with what fills it from the app's row — `title: p =>
 p.headline`: the card's title is the row's `headline` — so the app's record
 keeps its own names and its own shape, and a part can be one field, two
@@ -625,8 +700,8 @@ type is refused naming the role and what it returns
 | Role | Returns | Drives | |
 |---|---|---|---|
 | `scope` | `String` | the eyebrow after where it lands (`Roster · Inbound · W10`) | required |
-| `due` | `Option<DateTime>` | the section and the due words (`2h late`, `by 14:00`, `by Fri 13`) | required |
-| `routine` | `Boolean` | the Routine band | optional |
+| `due` | `Option<DateTime>` | the due words and their tone (`2h late`, `by 14:00`, `by Fri 13`) | required |
+| `routine` | `Boolean` | the Routine mark (§8) | optional |
 | `unit` | `String` | the value's word (`uplift`, `saved / wk`) | required |
 | `format` | `Option<Format>` | how values print (east-ui's `Format`) | optional: plain numbers |
 | `ifWrong` | `Option<Float>` | the If wrong figure | optional |
@@ -634,9 +709,10 @@ type is refused naming the role and what it returns
 | `why` | `String` | Why's paragraph | required |
 | `recommended` | `String`, a key of `options` | the option the card opens on, its title the card's | required with `options`; a key naming no option is the case's warning (§12) |
 | `options` | `{ from, …the option's roles }`: `from` returns a `Dict<String, O>` | the case's alternatives, by key; the option's roles below read each `O` | optional: without it the case is its own one proposal, the option's roles beside the case's, reading the case row (D15) |
+| `entries` | a binding, not a function: `Data.bindPaged(record)` over the cases' own record | a case read by key beside the slice's source (D4) | required with the slice's `decisions` source; refused without one |
 
 The option's roles — in `options`, or beside the case's for a case that is its
-own proposal:
+own proposal, `label` and `note` in `options` alone (D15):
 
 | Role | Returns | Drives | |
 |---|---|---|---|
@@ -645,7 +721,7 @@ own proposal:
 | `summary` | `String` | the line beside Proposed / Modified | required |
 | `detail` | `String` | the sentence under Change | required |
 | `note` | `Option<String>` | the option's line in Options (`lands at 38 h of 38`) | optional |
-| `value` | `Float` | the value line, the option's figure, the section's total | required |
+| `value` | `Float` | the value line, the option's figure | required |
 | `confidence` | `Option<Float>` | the Confidence figure, the model's confidence in the option | optional |
 | `question` | `Option<String>` | Your call: a question only a person can answer, gating Apply | optional |
 | `warn` | `Option<String>` | the warning box | optional |
@@ -654,24 +730,26 @@ own proposal:
 | `guesses` | `Dict<String, Float>` | the changed rows the model is unsure of, by key, and its confidence in each (P26) | optional |
 | `change` | `{ from, of }`: `from` returns a variant, its tag the kind of decision, each tag's value a `PatchType(DictType(K, R))`; `of` a target for every tag, `DecisionQueue.change.*` (§5.3) | where it lands: the preview, Modify, what Apply writes | required |
 
-### 5.2 `DecisionQueue.verdicts(binding, roles)`
+### 5.2 The verdict's roles
 
-`binding` is the verdicts record with its patch door, `Record.bind(record)`,
-the record declaring `patch: mutation.patch()`, a `Dict<String, V>` keyed
-by the case's key, and `entries` a paged read of it, `Data.bindPaged(record)`,
-which reads the verdicts of the cases read by key. The queue writes only the
-fields its roles map; a new row's other fields take their type's default, as a
-builder's new rows do. Each role is a field of `V`, by name, never an
-accessor: the queue writes it, as a builder writes only the fields its roles
-name.
+The verdict is fields of the case's own row, which the queue writes through
+the record's patch door, as a builder writes only the fields its roles name
+(D1, D17): each role is a field of `C`, by name, never an accessor. The queue
+writes only the fields its roles map, and every other field of the row stays
+as it was. The roles sit among `DecisionQueue.decisions`' own, beside the
+card's.
 
 | Role | Field type | Written |
 |---|---|---|
-| `verdict` | `{ field, applied, overridden, deferred, handedOff }`: a variant field, not an Option, and which case means which; each case holds Null, or `{ at: DateTime }` — the time it was given — as a period's published case does | always |
+| `verdict` | `{ field, waiting, applied, overridden, deferred, handedOff }`: a variant field, not an Option, and which case means which; `waiting` holds Null — the model writes it on every new case — and each other case Null, or `{ at: DateTime }`, the time it was given, as a period's published case does | always; required |
 | `option` | `Option<String>` | the option taken; for Override, the option the person started from; none for a case that is its own proposal |
 | `answer` | `{ field, yes, no, unsure }`: an `Option` of a variant of unit cases | the answer to the option's question; without it the card asks none |
 | `reason` | `{ field, context, data, priorities, other }`: an `Option` of a variant of unit cases | an override's reason; without it Override asks none |
 | `note` | `Option<String>` | the case's note; without it no note |
+
+A role naming a field the row lacks, or one of another type, a case of the
+variant named twice, or a `waiting` case holding anything but Null, is refused
+at build, naming the field and its type.
 
 ### 5.3 `DecisionQueue.change` — where each kind of decision draws
 
@@ -706,8 +784,7 @@ without it, or it without `group`, is refused, naming the index to declare.
 `entries` is a paged read of a record with no builder,
 `Data.bindPaged(record)`, beside its `Record.bind`, as an event kind's
 `entries` is: the touched rows are read by key, never the record whole — the
-rows every case's change touches in one request a record, as the verdicts are
-(R1). `locked` is an accessor over the record's row (`(row, key) => Boolean`) for
+rows the cases in view change, in one request a record (R1). `locked` is an accessor over the record's row (`(row, key) => Boolean`) for
 the Locked mark. A target's own roles are East functions over the row too —
 the record's `label` and `measure`, the zones' `zone`, `x` and `y`, the
 projection's `points`, `x` and `y` — but `group`, which names the field
@@ -722,11 +799,13 @@ of §9.5 on each.
 
 ### 5.4 The payload
 
-`DecisionQueue.Types.Payload` carries the two kinds' closed builds — each
-role's reading, and the verdicts' writing, as East functions over the row's
-bytes, so the payload is one type whatever the app's rows are, as Schedule's
-kinds are (`Builder Interfaces Spec.md` §4.1) — the slice's chrome and its
-bound source (`recordSources(…).bind($)`, #1356), and one
+`DecisionQueue.Types.Payload` carries the cases' closed build — their reads,
+whole or the slice's source a page at a time, each row read through the roles
+into a case, its verdict among its parts; the session over the cases' record
+with its read by key; and how a verdict is written into a row — as East
+functions over the row's bytes, so the payload is one type whatever the app's
+rows are, as Schedule's kinds are (`Builder Interfaces Spec.md` §4.1); the
+slice's chrome and its bound source (`recordSources(…).bind($)`, #1356); and one
 `DecisionQueue.Types.Target` per target, with the tags it serves: its name and
 icon, its kind (`roster`, `plan`, `calendar`, `allocation`, `sheet`, `record`,
 `zones`, `projection`), the builder's closed kinds and lists as that builder's
@@ -742,10 +821,10 @@ tags' patch type. Nothing of the queue's is stored in the app's records.
 | The frame | `BuilderFrame`: `toolbar`, `banners`, main, `footer` with `liveFooter`, `loading` for the cold load only, `busy` after | east-ui-components `layout/builder-frame/` |
 | The toolbar's row | `Toolbar` items, 28px controls on a 44px row; the rail through `useRecordSlicesToolbarItems`, its summary at `SUMMARY_RANK`, its floor rung; the history item (`historyToolbarItem`) at the end, folding last | east-ui-components `toolbar/`, `editing/`; e3-ui-components' builders |
 | The rail's source | `recordSources(slice, { builder: "DecisionQueue", names: ["decisions"], … })`, bound once in the payload | e3-ui `utils/record-sources.ts` |
-| Reading the narrowing | the paged runtime's windows; `UnloadedRun` for cases not read; `LoadingReveal`, `LoadingLine`, `pagedLoadingLine` | east-ui-components `./internal`, e3-ui-components `shared/loading.ts` |
+| Reading the cases | the paged Library's reading (`PagedLibrary`) made one hook the Library and the queue share: windows of `PAGED_LIBRARY_PAGE` around the view, the rows that last landed standing in, retained, while a new narrowing's, revision's or count's land, and card-sized pending rows for those not read; `LoadingReveal`, `LoadingLine`, `pagedLoadingLine` | east-ui-components `collections/library/`, `./internal`; e3-ui-components `shared/loading.ts` |
 | The list | `VirtualRows` with measured heights and the queue's anchor (§9.2), extended with the top spacer and the glide where it lacks them | east-ui-components `./internal` |
-| The session | one `EditHistory` over a session per record the queue writes — the verdicts, and each record a change lands in, through its kind's own write — the history item, its keys (`shortcuts.ts`), `SessionBanners`, Retry; as the Roster's records are | east-ui-components `editing/`, e3-ui-components `shared/schedule/` |
-| The batch banner | `BannerView`, info tone, an Undo action | east-ui-components |
+| The session | one `EditHistory` over a session per record the queue writes — the cases' record, for their verdicts, and each record a change lands in, through its kind's own write — the history item, its keys (`shortcuts.ts`), `SessionBanners`, Retry; as the Roster's records are | east-ui-components `editing/`, e3-ui-components `shared/schedule/` |
+| The Save notice | `prepareRecordSliceSave` through the session's `prepare`, and `RecordSliceSaveNotice` in the footer: the cases a Save took out of the narrowing | east-ui-components `slice/record/save.tsx` |
 | Your call, Why override | the shared radio group renderer | east-ui-components `forms/` |
 | The note, the override's note | the shared Textarea and StringInput renderers | east-ui-components `forms/` |
 | Modify | the builder's inspector form for one row: its kind's form over its roles and `fields` (`FieldForm` over `Fields.specs`, `baseline` the proposed row), held by `ready`, or the kind's own `inspector` (`RowInspectorType`) — as the Plan's, the Calendar's, the Roster's and the Schematic's inspectors draw one row | east-ui-components `forms/field-form/`, e3-ui `utils/row-inspector.ts`, e3-ui-components' inspectors |
@@ -758,8 +837,8 @@ tags' patch type. Nothing of the queue's is stored in the app's records.
 | Keys | `takeKey` for `j`, `k`, Escape, Enter and Space; the session's ⌘Z, ⇧⌘Z and ⌘Y | east-ui-components |
 | Narrow hosts | `useContainerBelow` on main | east-ui-components |
 
-The queue's own looks — the section heads, the card and its head, the
-receipt, the count chip, the Routine band — are one slot recipe,
+The queue's own looks — the card and its head, the receipt, the count chip —
+are one slot recipe,
 `decisionQueue`, rewritten (§13); a part a builder already draws is that
 builder's recipe, never copied.
 
@@ -767,29 +846,29 @@ builder's recipe, never copied.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
-│ DECISIONS [8]  ⏚ Area: Rota × 3 of 11  2 past due  ↶ ↷ Discard Save │  toolbar: the count · the rail · past due · the history item
+│ DECISIONS [8]  ⏚ Judgement: Waiting × 8 of 11   ↶ ↷ Discard Save │  toolbar: the count · the rail · the history item
 ├──────────────────────────────────────────────────────────────────┤
-│ ● APPLIED 3 routine cases                                  Undo │  banners: the batch; the session's; a read that failed
+│ ● the session's banners · a read that failed                     │  banners
 ├──────────────────────────────────────────────────────────────────┤
-│ OVERDUE [2] ──────────────────────────────────────── +$86k      │  main, on --paper-2: the sections and their cards,
-│ ┌──────────────────────────────────────────────────────┐        │  the receipts in place, the Routine band last,
-│ │ ⛭ ROSTER · INBOUND · W10                     2h late │        │  or the empty state
-│ │ Move 3 night shifts from H. Aspen to C. Clover        │        │
+│ ┌──────────────────────────────────────────────────────┐        │  main, on --paper-2: the cards in the source's
+│ │ ⛭ ROSTER · INBOUND · W10                     2h late │        │  order, the receipts in place, the cases not
+│ │ Move 3 night shifts from H. Aspen to C. Clover        │        │  read yet pending, or the empty state
 │ │ ┌ the preview ─────────────────────────────────────┐ │        │
 │ │ [PROPOSED] C. Clover · Mon, Wed, Thu nights           │        │
 │ │ +$8k uplift                         ● NEEDS ANSWER    │        │
 │ └──────────────────────────────────────────────────────┘        │
+│ ● APPLIED  Raise the Coast list price to $11.00          Undo    │
 ├──────────────────────────────────────────────────────────────────┤
-│                                          ● Loading decisions… │  footer: the shared loading line
+│ 1 decision left this view                   ● Loading decisions… │  footer: the Save notice · the shared loading line
 └──────────────────────────────────────────────────────────────────┘
 ```
 
 | Region | Holds |
 |---|---|
-| Toolbar | `Decisions` and its count chip first; then the rail (its chips, folding first, to its filter icon at the floor) and its summary; the past-due count (`2 past due`, folding to `2 late`); the history item last — its status, its issues, Undo, Redo, Discard and Save — folding to its buttons. Where the whole ladder still leaves the row too wide, the row's floor, the fewest of its rungs that fit: the rail's icon drops its caret, then `Decisions` leaves its count chip — its name said and on hover — then the past-due count is its clock and its number, its words said and on hover, then it leaves the row, its section's head saying it still; the history and Save stay in the row (R30). One row at every width. |
-| Banners | The batch banner (R28); the session's banners (R29); a read of the cases that failed, with Retry; past 1,000 cases, how many the narrowing holds and to narrow. |
-| Main | The list: sections, cards, receipts, the Routine band, or the empty state. It scrolls itself; nothing else does. |
-| Footer | The shared loading line alone (`Loading decisions…`, `Filtering decisions…`, `Couldn't read decisions` with Retry), `liveFooter`; nothing while nothing is in flight. |
+| Toolbar | `Decisions` and its count chip first; then the rail (its chips, folding first, to its filter icon at the floor) and its summary; the history item last — its status, its issues, Undo, Redo, Discard and Save — folding to its buttons. Where the whole ladder still leaves the row too wide, the row's floor, the fewest of its rungs that fit: the rail's icon drops its caret, then `Decisions` leaves its count chip — its name said and on hover; the history and Save stay in the row (R30). One row at every width. |
+| Banners | The session's banners (R29); a read of the cases that failed, with Retry. |
+| Main | The list: the cards in the source's order, the receipts in place, the cases not read yet as pending cards, or the empty state. It scrolls itself; nothing else does. |
+| Footer | The Save notice (`3 decisions left this view`, R26) and the shared loading line (`Loading decisions…`, `Filtering decisions…`, `Couldn't read decisions` with Retry), `liveFooter`; nothing while nothing is in flight. |
 
 ## 8. Anatomy, from the mock
 
@@ -798,29 +877,28 @@ All sizes from the mock; every value a token of the design system.
 **Toolbar.** 44px, the frame's row. `Decisions` in mono, `--fs-label-md`,
 600, tracking 0.14em, upper case, `--ink`; the count chip 16px, `--paper-3`,
 mono `--fs-label-sm` 600, `--ink-2`, its background settling from
-`--brand-tint` to `--paper-3` over `--dur-slow` when the count changes; past
-due mono `--fs-label-xs` 600 in `--neg-text`, at the row's floor Font Awesome's
-`clock` 4 before its number, in the same ink; the history item every editing
-builder's.
+`--brand-tint` to `--paper-3` over `--dur-slow` when the count changes; the
+history item every editing builder's.
 
-**Main.** `--paper-2`. A section: padding 12 12 4, its cards 8 apart; its head
-20 tall — its label mono `--fs-label-sm` 600, tracking 0.14em, upper case,
-`--neg-text` for Overdue and `--ink-4` otherwise, its count chip, a 1px
-`--rule` filling the row, its total mono `--fs-label-xs` `--ink-4`.
+**Main.** `--paper-2`, the list padded 12, its cards and receipts 8 apart. A
+case not read yet is a pending card, a closed card's height: the shared
+skeleton's static `--paper-3` shapes after the reveal clock, as the paged
+Library's pending cards are.
 
 **A card.** `--paper`, 1px `--rule-strong`, `--r-md`, `overflow: clip`. Its
 head: padding 12, rows 8 apart — the eyebrow (the target's icon 14 wide at
 11px, `--ink-3`; `Name · scope` mono `--fs-label-xs` 600, tracking 0.12em,
 upper case, `--ink-4`, cut with an ellipsis; the due words mono
-`--fs-label-md` 600 in the section's tone: `--neg-text`, `--warn-text`,
-`--ink-3`), the title (`--fs-body` 600, line height 1.4, `--ink`, its figures
+`--fs-label-md` 600 in their tone: `--neg-text` overdue, `--warn-text` due
+today, `--ink-3` later), the title (`--fs-body` 600, line height 1.4, `--ink`, its figures
 in mono), the preview, the chip line (`Proposed` or `Modified`, a dashed
 `--brand-d` chip 18 tall, mono `--fs-label-xs` 600, tracking 0.1em; the
 summary mono `--fs-label-md` `--ink-3`, one line), the value line (the value
 mono `--fs-body` 600 — `--brand-dd` once modified — its unit mono
 `--fs-label-md` `--ink-4`, the status at its end: an 8px dot and mono
-`--fs-label-sm` 600 upper case in its tone). Hover `--paper-2`; a modified
-card's head `--brand-tint`.
+`--fs-label-sm` 600 upper case in its tone; a routine case with no other
+status reads `Routine`, its dot and words `--ink-4`). Hover `--paper-2`; a
+modified card's head `--brand-tint`.
 
 **The open card.** Its border `--ink`; its head `--paper-3` with a 1px `--rule`
 under it, sticky at the list's top. Its body: padding 12, sections 16 apart.
@@ -842,13 +920,9 @@ under it, sticky at the list's top. Its body: padding 12, sections 16 apart.
 12: an 8px dot and the verdict mono `--fs-label-sm` 600 upper case in its
 tone (Applied `--pos`, Overridden `--warn`, Deferred `--ink-4`, Handed off
 `--info`), the option's title `--fs-body-sm` `--ink-3` cut with an ellipsis,
-Undo `--fs-body-sm` 600 `--brand-d` while it is the history's (R27).
-
-**The Routine band.** Padding 12: a toggle (the chevron, `ROUTINE`, its count
-chip), the total (`+$3.4k together`, mono `--fs-label-xs` `--ink-4`) and
-`Apply all {n}`; open, a list, 1px `--rule-strong`, `--r-md`: rows at least 40
-tall — the target's icon at 10px, the title `--fs-body-sm` 500 with `Name ·
-scope` under it, the value mono `--fs-body-sm` 600.
+Undo `--fs-body-sm` 600 `--brand-d` while it is the history's (R27). A case
+read decided — saved, or decided in another session — is the same receipt
+with no Undo.
 
 **The empty state.** The shared `EmptyState`: `Nothing waiting`, and two lines
 with Font Awesome icons — `Undo brings the last verdict back`, `New cases arrive
@@ -868,8 +942,6 @@ padding (312 when the queue is 360 wide). Sizes by kind: P2–P12.
 | The anchor's tween, the reveal | 200 ms, ease-out cubic |
 | The reveal's wait | `--dur-base` after the open |
 | The receipt's arrival | the card's height → 40, `--dur-base`, `--ease-out` |
-| The receipt's hold | 5,000 ms; re-checked every 1,000 ms while hovered or focused |
-| The receipt's leaving | height 40 → 0, opacity 1 → 0, margin-bottom 0 → −8px, `--dur-base` |
 | The count chip's settle | `--dur-slow`, `--ease-out` |
 | Under `prefers-reduced-motion` | every duration 0; the anchoring applies |
 
@@ -878,34 +950,32 @@ padding (312 when the queue is 360 wide). Sizes by kind: P2–P12.
 Every rule numbered, with the module that owns it and its test. R are the
 queue's, P the previews'.
 
-### 9.1 Reading and laying out (owner: e3-ui-components `decision/data.ts`, `decision/layout.ts`; test: DOM on e3-web)
+### 9.1 Reading (owner: e3-ui-components `decision/data.ts`; test: DOM on e3-web)
 
-- **R1.** The queue reads its cases complete: whole, or the slice's `decisions`
-  source's narrowing a page at a time (D4), at most 1,000; past that it reads
-  none and its banner says how many the narrowing holds and to narrow. It
-  reads the verdicts of the cases it read by key, every case's in one request,
-  and the rows their changes touch by key, one request a record — through each
-  `entries`' paged read, which its read by key names (`paged`). Nothing is
-  narrowed in the browser.
-- **R2.** It orders the waiting cases by due — earliest first, none last —
-  then by the recommended option's value, greatest first, compared as East
-  compares them; and lays them out: Overdue, Due today, This week, Later (D4),
-  each section only with a case; routine cases in the Routine band, in the
-  same order.
-- **R3.** A case waits while no verdict, saved or drafted, holds its key. The
-  toolbar's count is the waiting cases that are not routine; past due those
-  overdue (`2 past due`, nothing at none). Both are exact over the narrowing,
-  `…` while a read is in flight. A section's count is its cases; its total the
-  sum of its cases' shown values when they share one format, else none.
+- **R1.** The queue reads its cases as the Plan and the Sheet read rows (D4):
+  whole, or the slice's `decisions` source a window at a time — the windows
+  around the view, read as the list scrolls and comes to rest — in the order
+  the source's index gives them; never every case of a narrowing, and with no
+  cap. The rows the cases in view change are read by key, one request a
+  record, through each target's `entries`. Nothing is narrowed in the browser.
+- **R2.** It keeps the source's order: the cases are neither sorted nor
+  grouped (D5). Each stands where its source places it — a waiting case its
+  card, a decided one its receipt (R24) — and a case not read yet is a
+  pending card.
+- **R3.** The toolbar's count is e3's count of the narrowing, or the record's
+  size read whole; `…` while it is read. A case shows waiting while neither
+  its row nor its draft holds a verdict.
 - **R4.** The count chip settles from `--brand-tint` to `--paper-3` each time
   the count changes.
-- **R5.** A new narrowing keeps the cases shown standing in, retained, until
-  its own land, then swaps them at once; the open card stays open if its case
-  is in the new narrowing.
-- **R6.** Another session's change lands as the sources move: a new case takes
-  its place; a case decided elsewhere — its verdict read under its key —
-  leaves quietly, faded, no receipt; and an open card whose case leaves
-  closes, the list anchored.
+- **R5.** A new narrowing — or a new revision, or a new count at the same
+  revision — keeps the cases shown standing in, retained, until its own land,
+  then swaps them at once, a new narrowing's view starting at its start, as the
+  paged Library's rows do (#1424). The open case stays open wherever it shows.
+- **R6.** Another session's change lands as the source moves: its windows are
+  read again at the new revision, the cases shown standing in. A case decided
+  elsewhere reads back with its verdict — its receipt, with no Undo, where the
+  narrowing still holds it — and an open card whose case leaves the list goes
+  with it.
 
 ### 9.2 Expand and collapse (owner: `decision/list.tsx`; test: DOM and the showcase's responsive spec, measured)
 
@@ -927,8 +997,9 @@ queue's, P the previews'.
 - **R11. Reveal.** If less than 64px of the opened body shows, the list glides
   after `--dur-base` until the head is 8px from the top, the head in view
   throughout.
-- **R12. Keys.** `j` and `k` step to the next and the previous card, opening it
-  and anchoring as a click does; Escape closes the override panel, else the
+- **R12. Keys.** `j` and `k` step to the next and the previous waiting case,
+  opening it and anchoring as a click does — a case not read yet is brought
+  into view and opens as it lands; Escape closes the override panel, else the
   open card; Enter or Space on a head toggles it; ⌘Z, ⇧⌘Z and ⌘Y are the
   history's. Focus moves without scrolling. The queue takes these keys; a key
   typed in a field is the field's.
@@ -968,7 +1039,7 @@ queue's, P the previews'.
   Apply reads `Apply with edits`. A row kept as it is, or edited back to the
   row as it stands, is no change: Apply writes nothing of it, the preview
   leaves it out — a change left with no row drawn as an option that changes
-  nothing (P4) — and no other case's `+N` counts it (P18).
+  nothing (P4).
 - **R20. Override…** opens `Why override`: one reason of four and a note —
   `Say what the model got wrong` for Other, else `Add a note (optional)`;
   Override case is on once a reason is chosen, and for Other a note is
@@ -1003,7 +1074,7 @@ off its builder's view is not drawn, and what must hold Apply is the app's
 
 - **R23. A verdict is one step.** Apply drafts the chosen option's change, as
   Modify left it, into its builder's record through its target's kind's own
-  write, and the verdict into the verdicts record — `verdict` with the time,
+  write, and the verdict into the case's own row — `verdict` with the time,
   `option`, `answer` and `note` as the roles map them — one step of the
   queue's history across the records it writes (Q1). Override case drafts the
   verdict with its `reason` and `note`, and the person's own change where the
@@ -1012,28 +1083,29 @@ off its builder's view is not drawn, and what must hold Apply is the app's
   proposal · override or defer.`); Override and Defer stay.
 - **R24. Receipt.** The card becomes a 40px receipt in the same place: the
   dot, the verdict, the option's title and Undo. The card shrinks to it and
-  the cards below rise. The toolbar's count drops by one as it appears.
-- **R25. Hold.** The receipt stays 5 s, and longer while the pointer or the
-  focus is on it; nothing else moves during the hold.
-- **R26. Leave.** The receipt closes and the cards below slide up into its
-  place; a negative margin absorbs the gap, so its removal causes no jump.
-  The focus moves to the next card's head, which neither opens nor scrolls.
+  the cards below rise. A case read decided — saved, or decided in another
+  session — is the same receipt, with no Undo.
+- **R25. Stays.** The receipt stays in its case's place while the case is in
+  the list: no hold and no leaving (ruled 30 Oct 2026, D4). The focus moves to
+  the next card's head, which neither opens nor scrolls.
+- **R26. Leaves at Save.** Once Save's verdicts read back, the source's windows
+  are read again at the new revision: a decided case the narrowing leaves out
+  — every one, under `judgement: waiting` — leaves the list as they land, and
+  the shared Save notice says how many left (`3 decisions left this view`); one
+  the narrowing holds stays, its receipt without Undo (D18).
 - **R27. Undo.** A receipt's Undo is the history's Undo, shown while its
   verdict is the history's last step: the case comes back open where the
   receipt was, anchored as any open, its choices as they were. Once a later
   step lands, the receipt holds without Undo, and the toolbar's Undo reaches
   its step in turn; Redo is the history's.
-- **R28. Batch.** `Apply all {n}` applies the recommended option of every
-  routine case shown whose Apply would be on, as one step, each over the rows
-  the ones before it leave — `{n}` those it applies: a case whose question
-  waits, whose change no longer applies (P21) or whose rows the app's check
-  holds (R19) is left out, and waits on its own card. The banner says
-  `Applied {n} routine cases` with Undo while the step is the history's last.
+- **R28.** *Removed, 30 Oct 2026: the Routine band's batch went with the
+  band (D5).*
 - **R29. Save.** The history item's Save sends each record's changes through
-  its patch door as a request of its own — the verdicts, and each record a
-  change lands in — and a decided case leaves the queue for good once its
-  verdict reads back. A conflict, a refusal or an unknown outcome is the
-  session's banner, with Retry where it applies; that record's drafts stay and
+  its patch door as a request of its own — the cases' record, for their
+  verdicts, and each record a change lands in — and what the narrowing then
+  leaves out leaves the list (R26). A conflict, a refusal or an unknown
+  outcome is the session's banner, with Retry where it applies; that record's
+  drafts stay and
   the others' commits stand, as the Roster's do. A drafted row its record's
   `ready` fails holds Save, as a builder's kinds hold it. Discard returns
   every case decided since the last Save.
@@ -1103,8 +1175,8 @@ off its builder's view is not drawn, and what must hold Apply is the app's
   and takes a dashed `elara.edge` ring, no glow.
 - **P17. Locked.** An entry the declaration's `locked` says is pinned takes
   Font Awesome's `lock`.
-- **P18. Shared.** An entry other cases the queue holds also change — their
-  chosen options' — takes a `+N` chip at its end (`--paper`, 12 tall).
+- **P18.** *Removed, 30 Oct 2026: which other cases change an entry is known
+  only by reading every case (D4).*
 - **P19. As it is.** Unchanged entries in their builder's colours: the shifts'
   colour tokens, the Plan's committed bars `--brand-d`.
 - **P20. Now.** The now line on a time axis, 1px `--brand-d`.
@@ -1133,16 +1205,11 @@ off its builder's view is not drawn, and what must hold Apply is the app's
 
 - **R30.** The queue is one column at every width; a card's parts wrap within
   it; nothing scrolls sideways. Below 480px of main, the rail is its filter
-  icon, the past-due count its short form (`2 late`) and the history item its
-  buttons; the count stays. Where that row is still too wide, it takes the
-  row's floor (§7): `Decisions` leaves its count chip, and then the past-due
-  count is its clock and its number, each saying its words to a screen reader
-  and on hover, so Undo, Redo and Save stay in the row — `2 late` holds beside
-  them down to a 360px parent and a phone's 390px box, and in a 294px parent
-  the clock and the number stand for it (found building it, 30 Oct 2026: with
-  `2 late` beside the history item, the row is wider than a 294px parent
-  leaves it). On a coarse pointer every control is a 44px target by its box or its
-  halo — an option, whose neighbours sit edge to edge, by its own 44px height —
+  icon and the history item its buttons; the count stays. Where that row is
+  still too wide, it takes the row's floor (§7): `Decisions` leaves its count
+  chip, saying its words to a screen reader and on hover, so Undo, Redo and
+  Save stay in the row, down to a 294px parent. On a coarse pointer every
+  control is a 44px target by its box or its halo — an option, whose neighbours sit edge to edge, by its own 44px height —
   the row and the cards unmoved. The width is the queue's own, whatever holds
   it: in a page, a card, a drawer or a popover it is the same component.
 
@@ -1151,11 +1218,9 @@ off its builder's view is not drawn, and what must hold Apply is the app's
 | Where | Copy |
 |---|---|
 | Count | `Decisions` and its chip (at the row's floor the chip, `Decisions` said and on hover) |
-| Past due | `{n} past due` (narrow: `{n} late`; at the row's floor the clock and `{n}`, `{n} past due` said and on hover) |
-| Sections | `Overdue` · `Due today` · `This week` · `Later` |
 | Due words | `{n}m late` · `{n}h late` · `{n}d late` · `by {time}` · `by {weekday} {day}` |
 | Chip | `Proposed` · `Modified` |
-| Status | `Needs answer` · `Blocked` · `Handoff` · `Stale` |
+| Status | `Needs answer` · `Blocked` · `Handoff` · `Stale` · `Routine` |
 | Options | `Options · {n}`; a refused option's line `refused · {reason}` |
 | Change | `Change` |
 | Figures | `{unit}` · `If wrong` · `Confidence` · `no data`; `before your edits` · `proposal {value}` · `only option` · `{difference} vs next best` |
@@ -1167,12 +1232,10 @@ off its builder's view is not drawn, and what must hold Apply is the app's
 | Edit | `Edit` · `Your decision` · `drafts on the proposal` · `{n} changed · drafts on the proposal` · `set what happens instead · the model learns from it` · `Reset all` · `Keep as it is` · `Reset {field} to the proposal`; under a row: the check's `{field}: {message}` · `This edit can't be made` · `Its own form could not be shown: its fields are shown instead` · `This row's form could not be shown` |
 | Override | `Why override` · `Missing context` · `Data is wrong` · `Priorities changed` · `Other` · `Say what the model got wrong` · `Add a note (optional)` · `Cancel` · `Override case` |
 | Receipt | `Applied` · `Overridden` · `Deferred` · `Handed off` · `Undo` |
-| Batch banner | `Applied` `{n} routine cases` · `Undo` |
-| Routine | `Routine` · `{total} together` · `Apply all {n}` |
 | History | the shared editing words: `Undo` · `Redo` · `Discard` · `Save`, the status line and the session's banners (`editingMessages`) |
+| Save notice | the shared words, in the queue's noun: `{n} decision left this view` · `{n} decisions left this view` · `Updating view…` · `Saved; view update failed.` and `Retry` |
 | Empty | `Nothing waiting` · `Undo brings the last verdict back` · `New cases arrive with the next run` |
 | Loading line | `Loading decisions…` · `Filtering decisions…` · `Couldn't read decisions` · `Retry` |
-| Too many | `{n} decisions waiting — narrow the queue to see them` |
 | A guess | `conf {confidence} · a guess` |
 
 ## 11. Where the product differs from the mock
@@ -1184,12 +1247,13 @@ does, and what follows.
 |---|---|---|---|
 | The queue in a 360px popover under a page's button — the trigger, its count and overdue dot, the popover's edge and shadow, the × in the head — and on a phone with the phone's own header | Every builder is its `BuilderFrame` alone, borderless; a host places it and sizes it | The queue alone: a `BuilderFrame` and what is in it (D2, §3.4) | A host places the queue in a page, a card, a drawer or a popover. The trigger, its count and the close are the host's own chrome; no prop of the queue's is a placement's. |
 | The phone opens no card at first | Today's queue: `defaultExpanded` | The first case opens wherever the queue is placed, until the viewer closes it | One behaviour at every width; the viewer's choice is kept under `id`. |
-| A 44px head of the component's own, with no rail | Every builder: one toolbar holding its rail and its history item | The `BuilderFrame` toolbar: the count, the rail, past due, the history item | The mock's head becomes the toolbar's first items. |
-| `Decisions`, its chip and `2 past due` on one head at every width, beside no rail and no history | Every builder's row folds by the shared ladder, and past it by its floor's rungs, as the query builder's Run goes to its icon | The ladder's `2 late`; past it the row's floor: `Decisions` leaves its chip, then the past-due count is its clock and its number (§7, R30) | On a phone the history and Save stay in the row; the words a rung drops are said to a screen reader and on hover. |
+| A 44px head of the component's own, with no rail | Every builder: one toolbar holding its rail and its history item | The `BuilderFrame` toolbar: the count, the rail, the history item | The mock's head becomes the toolbar's first items. |
+| `Decisions`, its chip and `2 past due` on one head at every width, beside no rail and no history | Every builder's row folds by the shared ladder, and past it by its floor's rungs, as the query builder's Run goes to its icon | No past-due count (D4); past the ladder, the row's floor: `Decisions` leaves its chip (§7, R30) | Counting the past-due cases needs every case read; each card's due words say it. On a phone the history and Save stay in the row; the words a rung drops are said to a screen reader and on hover. |
 | No footer | Every builder's footer: the shared loading line (#1398) | The frame's footer, with the shared loading line | At rest the footer is empty. |
-| Three sections (Overdue, Due today, This week) | Today's queue: sorted by urgency, grouped by `groupBy` | Four: `Later` for a case due after the week or never | A case with no due date or a far one has a place. |
+| Three sections — Overdue, Due today, This week — each case in its section, in the order the mock lists them | Every builder over a record pages it a window at a time in its index's order: the Plan, the Sheet, the Calendar, the Flowchart's Flows | No sections: the cases in the order their source gives them, each card's due words in their tone (D5, ruled 30 Oct 2026) | A queue of any size reads only the cases in view; the app orders its cases by the indexes it declares. |
+| The Routine band at the end, folded, its total and Apply all, and the batch banner | — | No band: a routine case is a card like any other, marked `Routine` (D5) | Each routine case is applied on its own card. |
 | The areas' table — a label and an icon per surface | — | Each target's `name` and `icon` (D10) | The mock's areas are where the changes land; nothing else names them. |
-| `Applied · staged for the next run`, the verdict written at once, Undo for 5 s | Today's queue: Apply and Reject through the handle's commit gate. Every builder: drafts of the shared session until Save | A draft of the shared session until Save; the receipt's Undo the history's while its step is the last (Q1, Q2, R27) | A verdict reaches the record at Save. Under Q1 the change lands in its builder's record with the verdict, so nothing waits for a run. |
+| `Applied · staged for the next run`, the verdict written at once, Undo for 5 s, then the receipt leaving | Today's queue: Apply and Reject through the handle's commit gate. Every builder: drafts of the shared session until Save | A draft of the shared session until Save; the receipt stays in its case's place while the case is in the list, its Undo the history's while its step is the last (Q1, Q2, R25, R27) | A verdict reaches the record at Save, and a narrowing on judgement then takes the case out of the list, which the Save notice counts (R26). Under Q1 the change lands in its builder's record with the verdict, so nothing waits for a run. |
 | The open card's `Open in {area} →` link | Every builder's `onSelect` hears its selection | `onSelect` hears the open case; the host follows it | The link inside the card is lost; a host that wants it opens its builder from `onSelect`. |
 | Modify's fields written for each case (the roster's Days and its weekly cap, the Plan's Run time) | Each builder's inspector: its kind's form over its `fields`, held by `ready`, or the kind's own `inspector` | The builder's inspector form for each changed row (D9) | A field that is no field of the record — a weekly cap the next run keeps, a run time — has no place; the note says it. |
 | The checklist chips (Mon · Wed · Thu, Line 1 · 2 · 3) | The shared form renderers: an input per East type, a Set as tags | The input the shared form draws for the field's type | The mock's chips are not drawn. |
@@ -1200,9 +1264,8 @@ does, and what follows.
 | The Sheet crop's low-confidence dot, per row (`conf 0.69 · a guess`) | The Sheet has no confidence mark; a patch carries none | The option's `guesses`: the rows the model is unsure of and its confidence in each, their changed cells dotted (D16, P26) | The model says what it guessed; the dot is the preview's alone, never the Sheet's. |
 | `<DecisionPreview>` as a component of its own | — | The targets, in the change role's `of` | A component is an interface and a renderer: the queue's payload carries the targets. A preview placed on its own is a follow-up. |
 | `--elara-*` tokens awaiting the design system's sign-off | The `elara` tokens Optimise added (#1409) | Those tokens | — |
-| Verdicts in the mock's own state | Today's queue: the handle's stored envelope and its judgement record | The cases and the verdicts, the app's records (D1) | Nothing of the queue's is stored. |
-| Each section's cases in the order the mock lists them | — | By due, earliest first, then by the recommended option's value (R2) | A case's place in its section follows its due wherever the app's rows put it. |
-| A total on every section and on the Routine band (`+$3.4k together`), every figure summed as money | Each case's figures print through its own `format` | A section's total, and the band's, only where its cases share one format (R3) | The examples' This week and Routine band, whose figures mix money with counts — the due dates, the trial's MPa, the press's days — show no total. |
+| Verdicts in the mock's own state | Today's queue: the handle's stored envelope and its judgement record | The verdict on the case's own row, the app's record (D1) | Nothing of the queue's is stored. |
+| A total on every section and on the Routine band (`+$3.4k together`), every figure summed as money | Each case's figures print through its own `format` | No totals (D4) | A total needs every case read, and the examples' figures mix money with counts — the due dates, the trial's MPa, the press's days. |
 | Money in the mock's own words (`+$86.2k`) | `useFormatters`: a value through the app's `Format` | Every figure through the case's `format` — `Format.Currency({ compact: "short" })` prints `+$86K` | The app's format decides the words; a format of more digits prints more. |
 
 ## 12. Edge cases
@@ -1218,22 +1281,23 @@ does, and what follows.
 - A case without `options` and with `recommended`, or with option roles both
   in `options` and beside the case's, is refused at build, naming D15's two
   forms.
-- A run that proposes again under a key a verdict holds: the case never shows
-  (D1).
+- A run that proposes again under a key the record holds: the app's own
+  mutation decides — keep the verdict, or set the case waiting again (D1).
 - A verdict on a case another session decided meanwhile is the session's
-  conflict at Save (R29); the case leaves with no receipt.
-- The 1,000-case cap: the banner names the count; nothing is read.
+  conflict at Save (R29); the case reads back with the other session's verdict.
+- A verdict drafted on a case the rail then hides is kept by key, and Save
+  writes it; its receipt shows wherever the case shows again (D3).
 
 ## 13. What is removed
 
 | Today | Becomes |
 |---|---|
-| `Decision.bind`, its handle (`Decision.Types.Handle`, `HandleFor`, `CommitState`, the `decision_*` primitives, `DecisionBindPlatform`) | `DecisionQueue.decisions` and `DecisionQueue.verdicts` over the app's sources |
+| `Decision.bind`, its handle (`Decision.Types.Handle`, `HandleFor`, `CommitState`, the `decision_*` primitives, `DecisionBindPlatform`) | `DecisionQueue.decisions` over the app's record of cases |
 | `Decision.Types.Decision` and its parts — `Decision.make`, `option`, `reference`, `judgement`; `DecisionType`, `DecisionOptionType`, `EvidenceType`, `PromptType`, `LeverType`, `StakesLevelType`, `UrgencyType`, `DecisionValueAxisType`, `ReferenceType`; the judgement record (`JudgementInputType`, `judgementInputType`, `Judgements`), the constraint contract (`DecisionConstraintType`, `ConstraintFieldType`, `ConstraintVocabularyType`), `AnswerType`, `VerdictType` | The app's own row types, mapped by roles (§3.1, §5) |
-| `<DecisionQueue handle modify evidence defaultExpanded defaultFacet facets onApply onReject slice affordances maxHeight density groups groupBy collapsible>` | `<DecisionQueue id decisions verdicts slice onSelect readOnly now>`; an old prop is refused at build, naming its replacement |
+| `<DecisionQueue handle modify evidence defaultExpanded defaultFacet facets onApply onReject slice affordances maxHeight density groups groupBy collapsible>` | `<DecisionQueue id decisions slice onSelect readOnly now>`; an old prop is refused at build, naming its replacement |
 | The facets — Evidence, Options, Judgement, Modify — the lever builder and the constraint chips (`facets.tsx`, `lever-editor.tsx`, `constraint-format.ts`, `contract.ts`, `grouping.ts`, `handle-runtime.ts`) | The open card (§9.3) and Modify through the builders' inspector forms (D9) |
 | The `decisionQueue` slot recipe's rows, Group-by toolbar, routine summary | The `decisionQueue` recipe rewritten (§8) |
-| `<DecisionJournal handle>` | Removed (Q3): its tag, its payload and its renderer; the verdicts are the app's record |
+| `<DecisionJournal handle>` | Removed (Q3): its tag, its payload and its renderer; the cases and their verdicts are the app's record |
 | e3-ui's `<Diff>` — its tag, payload, runtime and renderer, its showcase page, examples and specs, and the Diff panels in the Ontology's examples | Removed, with this design (ruled 28 Oct 2026: "we dont need it and dont want it"). The binding descriptor the bound handles carry, which the Experiment and the Ontology read, stays, named for what it is — `DataBindingType`, beside `FuncBindingType` |
 | `e3-ui/docs/decision-loop.md` | Rewritten to this design |
 
@@ -1245,10 +1309,10 @@ does, and what follows.
   `id` (`ScheduleEntriesType`'s `paged`), by which the queue asks many rows in
   one request, and the record target's group its `count`: package-borne, a
   line of their own. No
-  stored form of e3's changes: the cases and the verdicts are the app's own
-  records.
-- **Viewer state.** The open card, the band's fold, each card's choices and
-  the session's drafts, under the queue's `id`.
+  stored form of e3's changes: the cases, their verdicts on them, are the
+  app's own record.
+- **Viewer state.** The open card, each card's choices and the session's
+  drafts, under the queue's `id`.
 
 ## 15. Tests
 
@@ -1256,18 +1320,23 @@ does, and what follows.
   missing required role); the type tests of the roles' inference (a renamed
   field, a wrong return, `of` missing a tag or naming another, a target over
   another record — each a compile error); `decisions` bound with a
-  `Record.bind`; the change role's `of` lacking a tag, or a tag whose type is
+  `Data.bind` or a `Data.bindPaged`; `entries` missing beside the slice's
+  source, or given with none; a verdict role naming a field the row lacks or
+  one of another type, a case named twice, `waiting` holding anything but
+  Null; the change role's `of` lacking a tag, or a tag whose type is
   not its target's record's patch (both types named); a target's kind bound
   read only; `map: "cost"` without `pay`; D15's two forms mixed; the builders'
   kinds refused as their tags refuse them; an old prop refused naming its
   replacement; the payload's types.
-- **e3-ui-components, DOM on e3-web.** Reading whole and through the rail, the
-  1,000 cap, the verdicts by key; sections, counts and totals; another
-  session's new case and verdict; each part of the open card (§9.3); each
-  verdict drafted as one step across the records it writes, saved, and read
-  back after a remount; Undo, Redo and Discard; a receipt's Undo while its step
-  is the last, and gone after a later one; the batch; a conflict, a refusal and
-  an unknown outcome; choices kept across a remount; Modify through each
+- **e3-ui-components, DOM on e3-web.** Reading whole, and through the rail a
+  page at a time in the source's order with no cap, the pages read bounded as
+  the list scrolls; e3's count; a narrowing on judgement and the Save notice
+  of the cases a Save took out of it; another session's new case and verdict;
+  each part of the open card (§9.3); each verdict drafted into the case's row
+  as one step across the records it writes, saved, and read back after a
+  remount; Undo, Redo and Discard; a receipt's Undo while its step is the
+  last, and gone after a later one; a conflict, a refusal and an unknown
+  outcome; choices kept across a remount; Modify through each
   builder's inspector form, its `ready` holding Apply, its edits reaching the
   preview and the record; Stale; the keys; read only; every preview kind and
   mark over the builders' example records.
@@ -1284,16 +1353,16 @@ does, and what follows.
   shop's, the workshop's, the kiln yard's and the shop's example records and
   the records no builder draws — the price list, the stock levels, the cure
   settings, the cover targets and the presses' readiness — eleven tags, two of
-  them on the duties), `decisionQueueReadOnly`, `decisionQueueRecordIndexes`
-  (windowed: a replenishment model's 20,000 reorders across forty stores, each
-  its own one proposal, narrowed through the rail's indexes on the store and
-  the range and read a page at a time, the banner past 1,000, the verdicts and
-  the stock rows a reorder changes read by key, a verdict drafted on a case the
-  rail then hides and saved), `decisionQueuePhone` (the full queue in a
-  phone-width container: its cards, its answers and its Save),
-  `decisionQueueRoutine` (the band and the batch: the mock's routine cases,
-  each its own one proposal, landing in the duties, the cover targets and the
-  presses' readiness) and `decisionQueuePreviews` (one case per preview kind
+  them on the duties, narrowed through the app's indexes on judgement),
+  `decisionQueueReadOnly`, `decisionQueueRecordIndexes` (§3.5: a replenishment
+  model's 20,000 reorders across forty stores, each its own one proposal,
+  narrowed through the app's index on judgement, the store and the range,
+  opening on the waiting ones and read a page at a time as the list scrolls,
+  e3's count in its toolbar, a reorder applied and saved leaving the list with
+  the Save notice, the stock rows a reorder changes read by key, a verdict
+  drafted on a case the rail then hides and saved), `decisionQueuePhone` (the
+  full queue in a phone-width container: its cards, its answers and its Save)
+  and `decisionQueuePreviews` (one case per preview kind
   and mark — the projection, the mix, the groups and the zones over the supply
   side's records among them); the plugin index regenerated. The examples seed
   the mock's own cases, like for like (ruled 28 Oct 2026) — the scopes,
@@ -1330,6 +1399,15 @@ commit:
    renderer, its showcase page, examples and specs, and the Diff panels in the
    Ontology's examples; the binding descriptor renamed `DataBindingType`; the
    e3-ui and east-ontology skills' mentions; the plugin index regenerated.
+8. **The queue paged** (ruled 30 Oct 2026: D1, D4, D5, D18). This spec
+   revised; `DecisionQueue.decisions` over the one record with the verdict's
+   roles, `DecisionQueue.verdicts` gone; the paged Library's reading made one
+   hook the queue shares; the queue paged in its source's order, its sections,
+   totals, past-due count, Routine band, batch and cap removed, the Save
+   notice added; each example's record carrying its verdict, the full and the
+   windowed examples narrowed by an index on judgement, the Routine example
+   removed; the DOM tests, the responsive specs, the skill, the decision-loop
+   note and the plugin index.
 
 Each child lands with its packages' build and lint and the specs that read
 what it changed run locally, the index regenerated where examples change;
