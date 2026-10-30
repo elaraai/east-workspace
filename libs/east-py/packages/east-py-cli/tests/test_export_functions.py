@@ -110,6 +110,21 @@ def test_export_functions_only_the_named_functions(tmp_path: Path):
     assert "exports no function nope — its east_functions are double, shout" in result.stderr
 
 
+def test_export_functions_builds_only_the_functions_it_names(tmp_path: Path):
+    # `broken` fails to build, so importing the module would fail; an export
+    # that does not name it never builds it
+    module = tmp_path / "pricing_fns.py"
+    module.write_text(MODULE + 'broken = East.function([IntegerType], StringType, lambda b, x: x + 1)\n'
+                      'east_functions["broken"] = broken\n', encoding="utf-8")
+    out = tmp_path / "double.beast2"
+    result = _run("export-functions", str(module), "-o", str(out), "--only", "double")
+    assert result.returncode == 0, result.stderr
+    assert [f["name"] for f in East.decode_function_manifest(out.read_bytes())["functions"]] == ["double"]
+    result = _run("export-functions", str(module), "-o", str(out), "--only", "broken")
+    assert result.returncode == 1
+    assert "body produced Integer, declared out is String" in result.stderr
+
+
 def test_export_functions_batch_writes_each_manifest_from_one_import(tmp_path: Path):
     # The module says each time it is imported, so one import for the whole batch shows.
     module = tmp_path / "pricing_fns.py"

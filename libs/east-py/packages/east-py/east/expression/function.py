@@ -49,6 +49,7 @@ from east.expression.location import (
     SourceMap,
     author_frames_of,
     capture_frames,
+    frame_location,
     source_map_scope,
 )
 from east.expression.nodes import _builtin, _builtin_slots, _fits, _type_words, _var
@@ -59,10 +60,36 @@ from east.types.types import EastType, is_type_equal
 #: inside a sync body at build time.
 _async_build = False
 
+#: Whether a function declared now is built on its first use, and whether a
+#: function built now is compiled only when it runs (:func:`deferred_builds`).
+_defer_builds = False
+_defer_compiles = False
+
 
 def _in_async_build() -> bool:
     """Whether the open build is an ``East.asyncFunction`` body."""
     return _async_build
+
+
+@contextlib.contextmanager
+def deferred_builds():
+    """Build each ``East.function`` declared inside on its first use, and
+    compile one only when it runs (#1460).
+
+    What an export wants: ``east-py export-functions`` imports a module to
+    read the IR of the functions it names, so a function it does not name, or
+    one they do not call, is never built, and none is compiled. A function
+    built on its first use writes the IR it would have written built at its
+    declaration: it names its variables from 0 as any build does, and its
+    location stacks end at its declaration.
+    """
+    global _defer_builds, _defer_compiles
+    previous = _defer_builds, _defer_compiles
+    _defer_builds = _defer_compiles = True
+    try:
+        yield
+    finally:
+        _defer_builds, _defer_compiles = previous
 
 
 def trace_builtin_call(
@@ -196,18 +223,19 @@ def detached_build():
     would return one too. A stdlib body is closed over nothing, so its
     artifact does not belong to the enclosing build and is better built
     outside it: the memoised value is then always the artifact, whichever use
-    came first.
+    came first. The build happens now even while builds are deferred
+    (:func:`deferred_builds`): it is a first use.
     """
     from east.expression import lift, location, naming, statements
 
-    global _async_build
+    global _async_build, _defer_builds
     saved = {
         "fn": lift._fn_registry, "captured": dict(lift._captured_nodes),
         "effects": list(lift._effect_frames),
         "loops": list(lift._loop_frames), "frames": list(statements._frames),
         "scopes": list(naming._scopes), "pending": set(naming._pending),
         "generated": naming._generated,
-        "async": _async_build, "map": location._current,
+        "async": _async_build, "map": location._current, "defer": _defer_builds,
     }
     lift._fn_registry = None
     lift._captured_nodes.clear()
@@ -217,6 +245,7 @@ def detached_build():
     naming._scopes.clear()
     naming._pending.clear()
     _async_build = False
+    _defer_builds = False
     location._current = None      # its own map, not the enclosing build's
     try:
         yield
@@ -234,6 +263,7 @@ def detached_build():
         # build's go on from where they were, so none is drawn twice
         naming._generated = saved["generated"]
         _async_build = saved["async"]
+        _defer_builds = saved["defer"]
         location._current = saved["map"]
 
 
@@ -396,6 +426,54 @@ class _PlatformFunction:
             f"{entry}(fn, platform=[...])",
             [],
         )
+
+
+class _DeferredFunction(_PlatformFunction):
+    """A pure ``East.function`` built while compiles are deferred
+    (:func:`deferred_builds`): first-class like any artifact — its IR is
+    whole, it exports and splices — and compiled the first time it runs, or
+    is handed to the runtime as a value. An export reads its IR and never
+    compiles it."""
+
+    def __init__(self, fn: Any, ir_value: Any, out_type: EastType,
+                 param_types: list[EastType], fn_binds: list,
+                 is_async: bool, source_map: SourceMap | None) -> None:
+        super().__init__(fn, ir_value, out_type, param_types, fn_binds, (), is_async, source_map)
+        self._native: Any = None
+
+    def __repr__(self) -> str:
+        return f"<East.function {self.__name__} (not compiled yet)>"
+
+    def _compiled(self) -> Any:
+        if self._native is None:
+            from east.runtime.compiler import compile_from_value
+
+            compiled = compile_from_value(self._east_ir, is_async=self._east_is_async,
+                                          source_map=self._east_source_map)
+            # the compiled function values it calls are bound as _assemble binds them (#561)
+            self._native = compiled.bind(*self._east_fn_binds) if self._east_fn_binds else compiled
+        return self._native
+
+    def __call__(self, *args: Any) -> Any:
+        from east.expression.statements import _drop_block
+
+        values = _drop_block(args)
+        if any(isinstance(a, Expression) for a in values):
+            return _splice(self, self._fn, values, slot=len(values) < len(args))
+        return self._compiled()(*values)
+
+    def __getattr__(self, name: str) -> Any:
+        # The compiled function's own surface, as _assemble's artifact carries
+        # it — what hands the function to the runtime as a value.
+        if name == "_east_compiled":
+            return self._compiled()
+        if name == "_eastc_handle":
+            return self._compiled()._eastc_handle
+        if name == "_east_captures":
+            return getattr(self._compiled(), "_east_captures", {})
+        if name == "bind":
+            return getattr(self._compiled(), "bind", None)
+        raise AttributeError(name)
 
 
 def _effects_in(ir: Any) -> bool:
@@ -567,9 +645,11 @@ def _assemble(fn: Any, ir_value: Any, out_type: EastType,
     final form materializes fresh ones (#1459)."""
     scanned = lazy_ir if lazy_ir is not None else ir_value
     deps = _platform_deps(scanned)
-    if deps:
-        artifact = _PlatformFunction(fn, ir_value, out_type, param_types,
-                                     fn_binds, deps, is_async, source_map)
+    if deps or _defer_compiles:
+        artifact = (_PlatformFunction(fn, ir_value, out_type, param_types,
+                                      fn_binds, deps, is_async, source_map) if deps
+                    else _DeferredFunction(fn, ir_value, out_type, param_types,
+                                           fn_binds, is_async, source_map))
         if lazy_ir is not None:
             artifact._east_effectful = _effects_in(lazy_ir)
         return artifact
@@ -657,10 +737,28 @@ def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
     ``caller`` is the frame that called the entry: the build's location
     stacks stop at it (``location.source_map_scope``).
 
+    While builds are deferred (:func:`deferred_builds`) a function declared
+    outside any body is returned unbuilt, a ``LazyFunction`` that builds it on
+    its first use, its stacks ending at this declaration.
+
     Under a check (:func:`collect_build_errors`) a failure is recorded and a
     placeholder returned instead of raising, so one import reports every
     broken function in the module.
     """
+    from east.expression.lift import _tracing
+
+    if _defer_builds and not _tracing():
+        from east.expression.libs import LazyFunction
+
+        declared_at = frame_location(caller)
+
+        def build() -> Any:
+            # This frame is East's own, so a stack stops here and ends where
+            # the declaration's would.
+            return _build_strict(param_types, out, body, is_async=is_async, entry=entry,
+                                 caller=sys._getframe(0), tail=declared_at)
+
+        return LazyFunction(getattr(body, "__name__", entry), build, getattr(body, "__doc__", None))
     if _current_collector() is None:
         return _build_strict(param_types, out, body, is_async=is_async, entry=entry, caller=caller)
     call_site = capture_frames()
@@ -671,8 +769,9 @@ def _build(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
 
 
 def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entry: str,
-                  caller: Any) -> Any:
-    """The build itself — raises on any failure."""
+                  caller: Any, tail: tuple[Location, ...] = ()) -> Any:
+    """The build itself — raises on any failure. ``tail`` ends its location
+    stacks after ``caller`` (``location.source_map_scope``)."""
     types = _check_signature(param_types, out, entry)
     if not callable(body):
         raise TypeError(f"{entry} body must be callable, got {type(body).__name__}")
@@ -692,7 +791,7 @@ def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entr
         # The build's source map: fresh, or the enclosing build's when this
         # function is being built inside another body (#626). Its stacks stop
         # at the caller, so they are the function's own frames (#1460).
-        with source_map_scope(caller) as source_map:
+        with source_map_scope(caller, tail) as source_map:
             lazy_ir, out_type, fn_binds = trace(body, types, out_hint=out, is_async=is_async, lazy=True)
     finally:
         _async_build = previous
