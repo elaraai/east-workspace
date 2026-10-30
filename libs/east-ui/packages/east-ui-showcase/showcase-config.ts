@@ -39,6 +39,48 @@ export function showcaseE3Workspace(area: string): string {
 }
 
 /**
+ * The page's address sharing its e3 with the other tabs of a set (`?shared`,
+ * `?shared=<set>`): opened so, the page's e3 keeps its repository in the
+ * browser (`e3-shared.worker.ts`), and every tab of the set reads and writes
+ * the same workspaces — as two people would: a Save in one reaches the other
+ * at its next poll, and its drafts carry over there, a part both changed a
+ * conflict to choose. A set of another name starts every area afresh.
+ */
+export const SHARED_PARAM = "shared";
+
+/**
+ * The set of tabs a page's address shares its e3 with: the set's name, its
+ * letters and digits, lower case — `1` for `?shared` alone.
+ *
+ * @param search - The address's query, as `location.search` holds it
+ * @returns The set; `undefined` for a page whose e3 is its own
+ */
+export function sharedSetFromAddress(search: string): string | undefined {
+    const text = new URLSearchParams(search).get(SHARED_PARAM);
+    if (text === null) return undefined;
+    const set = text.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    return set === "" ? "1" : set;
+}
+
+/**
+ * The workspace a set of shared tabs reads an area's examples from: the
+ * area's own, the set's, and the bundle's it is made from — a build that
+ * makes another bundle starts the area afresh, never over a workspace another
+ * build made.
+ *
+ * @param area - The area
+ * @param set - The set ({@link sharedSetFromAddress})
+ * @param bundle - The address the area's bundle is served at
+ * @returns The workspace's name
+ */
+export function sharedE3Workspace(area: string, set: string, bundle: string): string {
+    // FNV-1a over the bundle's address, which the build names by its content.
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < bundle.length; i++) hash = Math.imul(hash ^ bundle.charCodeAt(i), 0x01000193) >>> 0;
+    return `${showcaseE3Workspace(area)}-shared-${set}-${hash.toString(36)}`;
+}
+
+/**
  * The name an area's workspace bundle is served under (#849, #1397): the
  * area's workspace as the build made it — its package deployed and its
  * dataflow run — written out in one stream of beast2, which the e3 the page

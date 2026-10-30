@@ -20,10 +20,10 @@ import {
     type E3Config, type ReactiveDatasetCacheInterface,
 } from "@elaraai/e3-ui-components";
 import type { LiveEntry } from "../catalog";
-import { SHOWCASE_REPO, showcaseE3Workspace } from "../showcase-config";
+import { SHOWCASE_REPO } from "../showcase-config";
 import {
     SHOWCASE_POLL_MS, e3AreaOf, exampleReadsLoaded, loadExampleReads, retryShowcaseE3,
-    setShowcaseE3Cache, showcaseE3Status, shownShowcaseE3, startShowcaseE3,
+    setShowcaseE3Cache, showcaseE3PageWorkspace, showcaseE3Status, shownShowcaseE3, startShowcaseE3,
     subscribeShowcaseE3, type ShowcaseE3Status,
 } from "../showcase-e3";
 import { exampleIr } from "./example-ir";
@@ -51,7 +51,7 @@ function useShowcaseE3Config(area: string | undefined, status: ShowcaseE3Status)
         apiUrl: e3.apiUrl,
         fetch: e3.fetch,
         repo: SHOWCASE_REPO,
-        workspace: showcaseE3Workspace(area),
+        workspace: showcaseE3PageWorkspace(area),
         token: null,
     }, [e3, area]);
 }
@@ -207,7 +207,7 @@ export function E3Gate({ entry, children }: { entry: LiveEntry; children: ReactN
     const config = useShowcaseE3Config(area, status);
     useEffect(() => startShowcaseE3(area), [area]);
     const retry = useCallback(() => retryShowcaseE3(area), [area]);
-    const reads = useExampleReads(status.state === "ready" ? status.cache : null, showcaseE3Workspace(area), readsOf(entry));
+    const reads = useExampleReads(status.state === "ready" ? status.cache : null, showcaseE3PageWorkspace(area), readsOf(entry));
     if (status.state === "failed") {
         return <Failed title="e3 did not start in this page" message={status.error.message} onRetry={retry} />;
     }

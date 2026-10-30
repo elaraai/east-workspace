@@ -36,6 +36,14 @@ npm run build        # Production build
 The Code Reference section shows every example in TypeScript (the authored
 source) or Python (printed from the example's IR), from a selector on each
 entry — each example's own choice; `?lang=python` opens every example in Python.
+
+Each page runs its own e3, in memory, so two tabs never see each other's
+writes. `?shared` (before the `#`) shares one e3 between the tabs opened with
+it, kept in the browser: open an e3 example in two tabs — typed in, not
+duplicated, which would copy the first tab's kept edits — and they edit the
+same records as two people would, a Save in one reaching the other within a
+second. `?shared=<name>` starts a fresh set; clearing the site's data removes
+them all.
 The python comes from the plugins' example index
 (`libs/east-plugin/index.json`); after adding or changing a core
 example, regenerate it (`make -C libs/east-plugin index`) or the

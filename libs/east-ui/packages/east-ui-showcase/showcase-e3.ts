@@ -37,7 +37,12 @@
  * no workspace.
  *
  * The e3 lives as long as the page, and so do the areas' workspaces and the
- * edits staged against them.
+ * edits staged against them. A page whose address shares its e3 with the
+ * other tabs of a set (`?shared`, {@link SHARED_SET}) starts the e3 that keeps
+ * its repository in the browser instead (`e3-shared.worker.ts`): the set's
+ * first tab makes the repository and each area's workspace, of the set and of
+ * its bundle, and every other finds them, each start alone among the set's
+ * tabs (a Web Lock) — so the tabs edit the same records, as two people would.
  *
  * A responsive spec that asks for it before the page loads gets a fault hook
  * over the e3's `fetch` (`showcase-e3-faults.ts`, #1398), which holds, fails
@@ -49,20 +54,43 @@
  */
 
 import { createWebE3, type WebE3 } from "@elaraai/e3-web";
-import { repoCreate, workspaceBundleImport, type RequestOptions } from "@elaraai/e3-api-client";
+import { repoCreate, repoList, workspaceBundleImport, workspaceList, type RequestOptions } from "@elaraai/e3-api-client";
+import { StringType, equalFor } from "@elaraai/east";
 import { pathToString, type TreePath } from "@elaraai/e3-types";
 import {
     MemoryStagedAdapter, StagedStore, formatApiError, initializeStagedStore, type ReactiveDatasetCacheInterface,
 } from "@elaraai/e3-ui-components";
 import bundleUrl from "virtual:e3-showcase-bundles";
-import { SHOWCASE_REPO, showcaseE3Workspace } from "./showcase-config";
+import { SHOWCASE_REPO, sharedE3Workspace, sharedSetFromAddress, showcaseE3Workspace } from "./showcase-config";
 import { withFaults } from "./showcase-e3-faults";
 
 // The e3 keeps its repositories in memory, so the edits staged against it are
 // kept there too. Kept in IndexedDB, as they are by default, they would
 // outlive a reload, which starts e3 afresh from its bundles, and stand over
-// values the new e3 never held.
+// values the new e3 never held. Shared with other tabs, they stay the page's:
+// each tab is one person.
 initializeStagedStore(new StagedStore(new MemoryStagedAdapter()));
+
+/** The set of tabs the page's address shares its e3 with (`?shared`); `undefined` for a page whose e3 is its own. */
+export const SHARED_SET: string | undefined = typeof location === "undefined" ? undefined : sharedSetFromAddress(location.search);
+
+const sameText = equalFor(StringType);
+
+/**
+ * The workspace an area's examples read on this page: the area's own, or the
+ * one the page's set of shared tabs reads ({@link SHARED_SET}).
+ *
+ * @param area - The area
+ * @returns The workspace's name
+ */
+export function showcaseE3PageWorkspace(area: string): string {
+    return SHARED_SET === undefined ? showcaseE3Workspace(area) : sharedE3Workspace(area, SHARED_SET, bundleUrl(area) ?? "");
+}
+
+/** A start's step, alone among the page's set of shared tabs — the first makes what the others find — or at once. */
+async function alone<T>(run: () => Promise<T>): Promise<T> {
+    return SHARED_SET === undefined ? run() : await navigator.locks.request(`showcase-shared:${SHARED_SET}`, run);
+}
 
 /** How often what an e3 example reads is polled while it shows, so a write,
  *  a mutation or a dataflow run reaches it: as often as a UI task's preview
@@ -277,7 +305,9 @@ function pageE3(): Promise<WebE3> {
 }
 
 /**
- * Starts the e3 worker and creates its repository.
+ * Starts the e3 worker and creates its repository — or, shared with other
+ * tabs ({@link SHARED_SET}), the worker that keeps it in the browser, and
+ * finds the repository the set's first tab made.
  *
  * @returns The e3
  * @throws {Error} Naming the step that failed and its cause; the worker is
@@ -286,10 +316,16 @@ function pageE3(): Promise<WebE3> {
 async function startPage(): Promise<WebE3> {
     // Its fetch goes through the responsive suite's fault hook when a spec asked for it before the page loaded
     // (`showcase-e3-faults.ts`); a page a person opens has none.
-    const e3 = withFaults(await step("start its e3 worker", () =>
-        createWebE3(new Worker(new URL("./e3.worker.ts", import.meta.url), { type: "module" }))), SHOWCASE_REPO);
+    const e3 = withFaults(await step("start its e3 worker", () => createWebE3(SHARED_SET === undefined
+        ? new Worker(new URL("./e3.worker.ts", import.meta.url), { type: "module" })
+        : new Worker(new URL("./e3-shared.worker.ts", import.meta.url), { type: "module" }))), SHOWCASE_REPO);
     try {
-        await step("create its repository", () => repoCreate(e3.apiUrl, SHOWCASE_REPO, { token: null, fetch: e3.fetch }));
+        const options: RequestOptions = { token: null, fetch: e3.fetch };
+        await alone(async () => {
+            // Shared, the set's first tab made it.
+            if (SHARED_SET !== undefined && (await step("find its repository", () => repoList(e3.apiUrl, options))).some((name) => sameText(name, SHOWCASE_REPO))) return;
+            await step("create its repository", () => repoCreate(e3.apiUrl, SHOWCASE_REPO, options));
+        });
         return e3;
     } catch (err) {
         e3.close();
@@ -299,8 +335,9 @@ async function startPage(): Promise<WebE3> {
 
 /**
  * Starts an area's workspace: the page's e3 first, then the area's bundle
- * fetched and its workspace made from it. A start that fails makes no
- * workspace, so its Retry starts it again whole.
+ * fetched and its workspace made from it — shared with other tabs, the set's
+ * workspace, made only where no tab of the set made it. A start that fails
+ * makes no workspace, so its Retry starts it again whole.
  *
  * @param area - The area
  * @returns The e3, the area's workspace made
@@ -309,7 +346,12 @@ async function startPage(): Promise<WebE3> {
 async function startArea(area: string): Promise<WebE3> {
     const e3 = await pageE3();
     const options: RequestOptions = { token: null, fetch: e3.fetch };
-    const bundle = await step("fetch its workspace bundle", () => fetchBundle(area));
-    await step("make its workspace", () => workspaceBundleImport(e3.apiUrl, SHOWCASE_REPO, showcaseE3Workspace(area), bundle, options));
+    const workspace = showcaseE3PageWorkspace(area);
+    await alone(async () => {
+        // Shared, a tab of the set may have made it.
+        if (SHARED_SET !== undefined && (await step("find its workspace", () => workspaceList(e3.apiUrl, SHOWCASE_REPO, options))).some((info) => sameText(info.name, workspace))) return;
+        const bundle = await step("fetch its workspace bundle", () => fetchBundle(area));
+        await step("make its workspace", () => workspaceBundleImport(e3.apiUrl, SHOWCASE_REPO, workspace, bundle, options));
+    });
     return e3;
 }
