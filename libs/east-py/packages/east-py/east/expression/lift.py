@@ -252,7 +252,16 @@ def _lift_artifact(value: Any) -> Expression | None:
 
     node = _rehome_ir(ir, getattr(value, "_east_source_map", None), current_source_map())
     node = _rename_apart(node)
+    if _trusted_frames and getattr(value, "_east_analyzed", False):
+        _trusted_frames[-1][id(node)] = node
     return Expression(node, node.value["type"])
+
+
+# The functions each open build embedded from a built function, by id, the
+# node kept alive beside it (see ``_rehome_ir``): their bodies were analyzed
+# when they were built, so the build's analysis checks only their boundary
+# (#1459). One frame per build being analyzed, innermost last.
+_trusted_frames: list[dict[int, Any]] = []
 
 
 def value(v: Any, typ: EastType | None = None) -> Any:
