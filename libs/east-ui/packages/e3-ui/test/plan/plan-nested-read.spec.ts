@@ -20,7 +20,7 @@ import { Slice } from "@elaraai/east-ui";
 import { RecordSliceTileType } from "@elaraai/east-ui/internal";
 import { Data, Plan, PlanNestedUseType, PlanPayloadType, type PlanSeriesValue as BrandedSeries } from "@elaraai/e3-ui/internal";
 import { refusingPlatform } from "../refusing-platform.js";
-import * as ex from "../bind/data/data-nested.examples.js";
+import * as ex from "../bind/data/data-nested.fixtures.js";
 
 /** A series value over time with its reads erased, as a list held in a variable typed loosely holds it. */
 type PlanSeriesValue = BrandedSeries<"time">;

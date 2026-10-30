@@ -18,7 +18,7 @@ import { DictType, East, RecursiveType, SortedMap, StringType, StructType, compa
 import { Slice, UIComponentType } from "@elaraai/east-ui";
 import * as e3 from "@elaraai/e3";
 import { Data, Plan, type PlanSeriesValue as BrandedSeries } from "@elaraai/e3-ui/internal";
-import * as ex from "../bind/data/data-nested.examples.js";
+import * as ex from "../bind/data/data-nested.fixtures.js";
 
 /** A series value over time with its reads erased, as a list held in a variable typed loosely holds it. */
 type PlanSeriesValue = BrandedSeries<"time">;

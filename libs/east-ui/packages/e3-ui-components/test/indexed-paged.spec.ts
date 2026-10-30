@@ -34,13 +34,13 @@ import {
 } from "@elaraai/e3-types";
 import { Data, deriveManifest } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
-import * as nx from "@elaraai/e3-ui/examples/bind/data/data-nested";
+import * as nx from "@elaraai/e3-ui/fixtures/bind/data/data-nested";
 import { patchRecord, readDataset } from "../src/e3-web.test-utils.js";
 import { recordSliceBatchesOf } from "../src/platform/indexed-paged.js";
 import { PagedRuntime, createDefaultPagedApi } from "../src/platform/paged-runtime.js";
 import { e3Spec } from "./fixtures/e3.js";
 
-const h = e3Spec({ "bind/data/data": ex, "bind/data/data-nested": nx });
+const h = e3Spec({ "bind/data/data": ex, "bind/data/data-nested.fixtures": nx });
 
 const people = ex.indexedPeople;
 const Person = ex.IndexedPerson;

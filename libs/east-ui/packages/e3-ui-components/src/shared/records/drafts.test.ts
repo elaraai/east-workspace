@@ -25,12 +25,12 @@ import { RecordSummaryOpType, RecordSummaryTotalsType, indexCollectionType, inde
 import { Editing } from "@elaraai/east-ui/internal";
 import { EditSession, getRegisteredPlatformImplementations, liftDraft, type EntryVersion } from "@elaraai/east-ui-components";
 import { Data } from "@elaraai/e3-ui/internal";
-import * as ex from "@elaraai/e3-ui/examples/bind/data/data-drafts";
-import * as nested from "@elaraai/e3-ui/examples/bind/data/data-nested";
+import * as ex from "@elaraai/e3-ui/fixtures/bind/data/data-drafts";
+import * as nested from "@elaraai/e3-ui/fixtures/bind/data/data-nested";
 import { e3Harness, settle } from "../../e3-web-mount.test-utils.js";
 import { RecordDrafts, setRecordDraftsProbe, type PreviewedRow, type RecordDraftsBinding } from "./drafts.js";
 
-const h = e3Harness({ "bind/data/data-drafts": ex, "bind/data/data-nested": nested }, { measure: false });
+const h = e3Harness({ "bind/data/data-drafts.fixtures": ex, "bind/data/data-nested.fixtures": nested }, { measure: false });
 
 afterEach(() => { setRecordDraftsProbe(undefined); });
 
@@ -41,7 +41,7 @@ const stringEqual = equalFor(StringType);
 /** A nested series index's entry key, as far as these tests read it: the run it is in, and its level. */
 type NestedEntry = { readonly ik: { readonly run: { readonly type: string; readonly value: unknown }; readonly level: { readonly type: string } } };
 
-/** A record as the examples declare it: its name, its path, its Dict type and its indexes. */
+/** A record as the fixtures declare it: its name, its path, its Dict type and its indexes. */
 type Rec = typeof ex.draftLedgers | typeof ex.draftJobs | typeof nested.nestedAssemblies;
 /** A record's row. */
 type RowOf<R extends Rec> = R extends { type: DictType<StringType, infer V extends EastType> } ? ValueTypeOf<V> : never;

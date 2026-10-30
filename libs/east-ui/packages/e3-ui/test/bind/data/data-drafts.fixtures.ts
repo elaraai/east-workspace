@@ -10,7 +10,8 @@
  * counted, and the last of each tile summed — from the week to the year; and
  * jobs at presses, each press's jobs totalled a month at a time. A drafted
  * row's Save is previewed over them and held to what e3 keeps once it
- * commits.
+ * commits. They are the fixtures the drafts' tests read, on no page of the
+ * showcase.
  *
  * @packageDocumentation
  */

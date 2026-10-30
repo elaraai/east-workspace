@@ -20,7 +20,7 @@ import { Slice } from "@elaraai/east-ui";
 import type { IndexedSource } from "@elaraai/east-ui/internal";
 import * as e3 from "@elaraai/e3";
 import { Data, Plan, type NestedPart, type PlanNestedItemsOf, type PlanNestedRefusals } from "@elaraai/e3-ui/internal";
-import * as ex from "./data-nested.examples.js";
+import * as ex from "./data-nested.fixtures.js";
 
 /** Whether two types are the same. */
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;

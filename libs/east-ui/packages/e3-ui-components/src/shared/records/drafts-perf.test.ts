@@ -24,8 +24,8 @@ import { DateTimeType, East, SortedMap, StringType, compareFor, none, some, vari
 import { Editing } from "@elaraai/east-ui/internal";
 import { EditSession, getRegisteredPlatformImplementations, liftDraft, type EntryVersion } from "@elaraai/east-ui-components";
 import { Data } from "@elaraai/e3-ui/internal";
-import * as ex from "@elaraai/e3-ui/examples/bind/data/data-drafts";
-import * as nested from "@elaraai/e3-ui/examples/bind/data/data-nested";
+import * as ex from "@elaraai/e3-ui/fixtures/bind/data/data-drafts";
+import * as nested from "@elaraai/e3-ui/fixtures/bind/data/data-nested";
 import { e3Harness, settle } from "../../e3-web-mount.test-utils.js";
 import { RecordDrafts, type RecordDraftsBinding } from "./drafts.js";
 
@@ -33,7 +33,7 @@ import { RecordDrafts, type RecordDraftsBinding } from "./drafts.js";
 const PERF = process.env["E3_UI_PERF"] === "1";
 
 /** e3 with the records deployed — only for the benchmark. */
-const h = PERF ? e3Harness({ "bind/data/data-drafts": ex, "bind/data/data-nested": nested }, { measure: false }) : undefined;
+const h = PERF ? e3Harness({ "bind/data/data-drafts.fixtures": ex, "bind/data/data-nested.fixtures": nested }, { measure: false }) : undefined;
 
 const keyOrder = compareFor(StringType);
 const instantOrder = compareFor(DateTimeType);
@@ -41,7 +41,7 @@ const DAY = 86_400_000;
 /** Monday 5 October 2026. */
 const MONDAY = Date.UTC(2026, 9, 5);
 
-/** A record as the examples declare it. */
+/** A record as the fixtures declare it. */
 type Rec = typeof ex.draftLedgers | typeof nested.nestedMachines;
 /** A record's row. */
 type RowOf<R extends Rec> = R extends { type: { value: infer V extends EastType } } ? ValueTypeOf<V> : never;

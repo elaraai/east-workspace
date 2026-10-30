@@ -23,7 +23,7 @@ import { builtIndex, indexMaintenance } from "@elaraai/e3";
 import { Reactive, Text, UIComponentType, bindRecord, resolveRowSource, type ResolvedRowSource } from "@elaraai/east-ui/internal";
 import { Data, NestedPartType, Sheet, deriveUiAccess, orderedRowSource } from "@elaraai/e3-ui/internal";
 import { refusingPlatform } from "../../refusing-platform.js";
-import * as ex from "./data-nested.examples.js";
+import * as ex from "./data-nested.fixtures.js";
 
 /** A binding's handle type, as its expression holds it. */
 const typeOf = (source: unknown) => Expr.type(source as Expr) as StructType;

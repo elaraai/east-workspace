@@ -10,7 +10,8 @@
  * and its load and its output a day at a time, paged by site and status and
  * filed in time; ledgers, whose measures' readings are rolled up into their
  * ledger's subtotals; and assemblies, whose parts' jobs are filed under every
- * part above them too.
+ * part above them too. They are the fixtures the tests of nested rows read, on
+ * no page of the showcase.
  *
  * @packageDocumentation
  */
