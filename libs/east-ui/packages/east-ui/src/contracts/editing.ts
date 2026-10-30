@@ -115,7 +115,7 @@ export const EditingBatchReadinessType = VariantType({
 export const EditingOriginType = VariantType({
     typed: NullType, pasted: NullType, fill: NullType, row: NullType, pattern: NullType,
     insert: NullType, move: NullType, remove: NullType, resize: NullType, drop: NullType, verdict: NullType, optimise: NullType,
-    undo: NullType, redo: NullType, discard: NullType,
+    undo: NullType, redo: NullType, discard: NullType, settle: NullType,
 });
 
 /**

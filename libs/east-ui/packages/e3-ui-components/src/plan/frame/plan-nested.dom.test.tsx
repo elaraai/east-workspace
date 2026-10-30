@@ -768,11 +768,11 @@ describe("a gesture drafts its row whole (#1438)", () => {
         await letGo();
         await settle();
     }
-    /** Another planner moves one of M-10001's jobs a day on, through the patch door. */
-    async function anotherMoves(id: string): Promise<MachineValue["jobs"] extends ReadonlyMap<string, infer J> ? J : never> {
+    /** Another planner moves one of M-10001's jobs on — a day, unless told otherwise — through the patch door. */
+    async function anotherMoves(id: string, days = 1): Promise<MachineValue["jobs"] extends ReadonlyMap<string, infer J> ? J : never> {
         const now = await readMachines();
         const theirs = now.get("M-10001")!.jobs.get(id)!;
-        const moved = { ...theirs, start: new Date(theirs.start.getTime() + 86_400_000), end: new Date(theirs.end.getTime() + 86_400_000) };
+        const moved = { ...theirs, start: new Date(theirs.start.getTime() + days * 86_400_000), end: new Date(theirs.end.getTime() + days * 86_400_000) };
         const jobs = new Map(now.get("M-10001")!.jobs);
         jobs.set(id, moved);
         await h.patch(ex.machines, withJobs(now, "M-10001", jobs));
@@ -819,14 +819,31 @@ describe("a gesture drafts its row whole (#1438)", () => {
         expect(after.get("M-10001")!.jobs.get("J-10001-120")).toEqual(theirs);
     });
 
-    test("another planner's commit moving the drafted job itself leaves the drafts stale: the banner says the source changed, and Save is off", async () => {
+    test("another planner's commit making the drafted move itself combines with it: nothing is left to save, and nothing is out of date", async () => {
         onTestFinished(emulateWindowScroll());
         const { container: c } = await h.mount(editingPlan, { drag: true });
         await settle();
         await dragADay(c);
-        await anotherMoves("J-10001-114");
-        await waitFor(() => expect(slot(c, "banners")?.textContent ?? "").toContain(editingMessages.bannerStale()));
+        const theirs = await anotherMoves("J-10001-114");
+        // Both moved the job the same day on: the draft is the record's now, and no draft is left.
+        await waitFor(() => expect(c.querySelector('[data-plan-count="pending"]')?.textContent).toBe("0 pending"));
         expect(applyButton(c).hasAttribute("disabled")).toBe(true);
+        expect(slot(c, "banners")?.textContent ?? "").not.toContain(editingMessages.bannerStale());
+        expect((await readMachines()).get("M-10001")!.jobs.get("J-10001-114")).toEqual(theirs);
+    });
+
+    test("another planner's commit moving the drafted job elsewhere is a conflict: the draft's move stands until it is chosen, and Save is off", async () => {
+        onTestFinished(emulateWindowScroll());
+        const { container: c } = await h.mount(editingPlan, { drag: true });
+        await settle();
+        await dragADay(c);
+        const theirs = await anotherMoves("J-10001-114", 2);
+        // The draft is carried over: the job both moved waits to be chosen, its draft standing; nothing is out of date.
+        await waitFor(() => expect(slot(c, "toolbar")!.textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" })));
+        expect(applyButton(c).hasAttribute("disabled")).toBe(true);
+        expect(c.querySelector('[data-plan-count="pending"]')?.textContent).toBe("1 pending");
+        expect(slot(c, "banners")?.textContent ?? "").not.toContain(editingMessages.bannerStale());
+        expect((await readMachines()).get("M-10001")!.jobs.get("J-10001-114")).toEqual(theirs);
     });
 
     test("an author's readiness check over a drafted machine sees every job of it, those out of view too, with the draft in place, and asks e3 nothing", async () => {

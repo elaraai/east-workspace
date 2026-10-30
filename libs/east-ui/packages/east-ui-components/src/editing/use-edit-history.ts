@@ -247,6 +247,8 @@ export function useEditHistory<W>(
             part.session.reconcile(base, readOf);
             part.session.nameConflicts(base, readOf);
             part.session.observeBase(base);
+            // A source that moved under the drafts carries them over, once each is read at its new revision.
+            part.session.merge(base, readOf);
         }
     }, [parts, result, observed]);
 

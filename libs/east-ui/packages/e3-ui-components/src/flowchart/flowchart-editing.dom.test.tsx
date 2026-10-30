@@ -618,7 +618,7 @@ describe("Save's outcomes (FB23)", () => {
         expect(container.querySelector("[data-session-banner='unknown']")).toBeNull();
     });
 
-    test("the source moving under pending drafts makes them out of date: Save is off, and the banner's Discard takes the source as it stands", async () => {
+    test("the source moving under pending drafts carries them over: another write's rename stands beside the lane drafted here, and Save is on", async () => {
         const { source } = captured(() => FLOWS);
         const { container, rerender } = await mount(payload(source));
         await addLane(container);
@@ -630,12 +630,10 @@ describe("Save's outcomes (FB23)", () => {
             </ChakraProvider>,
         );
         await settle();
-        const banner = container.querySelector("[data-session-banner='stale']")!;
-        expect(banner.textContent).toContain(editingMessages.bannerStale());
-        expect(enabled(SAVE)).toBe(false);
-        await gesture(() => { fireEvent.click(banner.querySelector("[data-banner-action='discard']")!); });
-        expect(container.querySelector("[data-session-banner='stale']")).toBeNull();
-        expect(laneHeads(container)).toEqual(["INDUCT", "SORT", "HOLDING"]);
+        expect(container.querySelector("[data-session-banner]")).toBeNull();
+        expect(laneHeads(container)).toEqual(["INDUCT", "SORT", "HOLDING", laneLabel(4).toUpperCase()]);
+        expect(pending(container)).toBe(` · ${m.footerPending({ n: 1, count: "1" })}`);
+        expect(enabled(SAVE)).toBe(true);
     });
 });
 

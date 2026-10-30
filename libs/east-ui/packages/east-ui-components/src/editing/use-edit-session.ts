@@ -58,6 +58,10 @@ export interface EditSessionOptions<W> {
     idOf: (row: W) => string;
     /** The collection's own checks over the drafts, built for the current rows. */
     ready?: EditSessionBinding<W>["ready"];
+    /** The collection's projection of a draft the session made itself — carried over, or settled — where it draws drafts from it. */
+    wireOf?: EditSessionBinding<W>["wireOf"];
+    /** Whether drafts are carried over to a base the source moves to (the default), or go out of date instead. */
+    carryOver?: boolean;
 }
 
 const entryOffsets = new WeakMap<object, Map<string, number>>();
@@ -78,7 +82,7 @@ const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: 
  * @returns The session; the base it observed; its schemas' codecs; each resident row's index; an entry's placement and original version; the encoded drafts; whether editing is available; and the session's version
  */
 export function useEditSession<W>(editing: EditingValue, source: EditSource<W> | undefined, rows: readonly W[], positions: readonly number[], storageKey: string, options: EditSessionOptions<W>) {
-    const { idOf, ready, prepare } = options;
+    const { idOf, ready, prepare, wireOf, carryOver } = options;
     const store = getStore();
     const entryType = useMemo(() => fromEastTypeValue(editing.entryType), [editing.entryType]);
     const draftType = useMemo((): EastType => fromEastTypeValue(editing.draftType), [editing.draftType]);
@@ -87,8 +91,8 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         editing.keyType.type === "some" ? fromEastTypeValue(editing.keyType.value) : undefined, [editing.keyType]);
     const sourceId = editing.sourceId;
     const sourceSessions = useMemo(() => sourceSessionsOf(store, sourceId), [store, sourceId]);
-    const binding = useMemo(() => ({ ...bindingOf<W>(editing, { entryType, draftType, keyType }, ready, source?.refresh), prepare }),
-        [entryType, draftType, keyType, editing, source, ready, prepare]);
+    const binding = useMemo(() => ({ ...bindingOf<W>(editing, { entryType, draftType, keyType }, ready, source?.refresh), prepare, wireOf, carryOver }),
+        [entryType, draftType, keyType, editing, source, ready, prepare, wireOf, carryOver]);
     const schemaKey = useMemo(() => sessionKeyOf(storageKey, editing.entryType, editing.draftType), [storageKey, editing.entryType, editing.draftType]);
     const session = useMemo(() => keptSession<W>(sourceSessions, schemaKey, () => {
         const next = new EditSession<W>(binding);
@@ -179,6 +183,8 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         session.reconcile(observed.base, (id) => observed.reads.get(id));
         session.nameConflicts(observed.base, (id) => observed.reads.get(id));
         session.observeBase(observed.base);
+        // A source that moved under the drafts carries them over, once each is read at its new revision.
+        session.merge(observed.base, (id) => observed.reads.get(id));
     }, [session, result, observed]);
 
     const placeOf = useCallback((id: string): Placement => {

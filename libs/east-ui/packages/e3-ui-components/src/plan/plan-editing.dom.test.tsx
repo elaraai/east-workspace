@@ -154,29 +154,23 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.applies).toHaveLength(1);
         });
 
-        test("a source that moves under pending drafts refuses them — until they are discarded, from the out-of-date banner", async () => {
+        test("a source that moves under pending drafts carries them over: another writer's job on another press stands beside them, and Save stays on", async () => {
             const canvas = await mountCanvas({ arm });
             const c = canvas.container;
             await dropJob(canvas, "job-1", "p1");
-            expect(banner(c, "stale")).toBeNull();
             // Another writer puts a job on Press 2.
             await canvas.move(new Map([...SEED, ["p2", { ...SEED.get("p2")!, jobs: new Map([["job-9", ELSEWHERE]]) }]]));
-            expect(statusLine(canvas)).toBe("Source changed — review or discard these drafts");
-            expect(banner(c, "stale")).not.toBeNull();
-            expect(historyButton(canvas, "Save").disabled).toBe(true);
-            expect(historyButton(canvas, "Undo").disabled).toBe(true);
-            // The canvas takes no gesture meanwhile: no press is a drop target.
-            expect(dropCellOf(c, "p3")).toBeNull();
-            await bannerAction(c, "stale", "discard");
             expect(banner(c, "stale")).toBeNull();
             expect(statusLine(canvas)).toBeNull();
-            // The source as it now stands…
-            expect(jobs(c)).toEqual([[], ["job-9"], []]);
-            expect(marks(c)).toEqual({});
-            // …and it takes a gesture again.
-            await dropJob(canvas, "job-1", "p1");
+            // The draft, over the source as it now stands.
+            expect(jobs(c)).toEqual([["job-1"], ["job-9"], []]);
             expect(marks(c)).toEqual({ p1: "pending" });
-            expect(canvas.applies).toHaveLength(0);
+            expect(historyButton(canvas, "Save").disabled).toBe(false);
+            // The history starts over at the drafts carried over; the canvas takes a gesture.
+            expect(historyButton(canvas, "Undo").disabled).toBe(true);
+            expect(dropCellOf(c, "p3")).not.toBeNull();
+            await history(canvas, "Save");
+            expect(canvas.applies).toHaveLength(1);
         });
 
         test("an acknowledgement lost after the write freezes the session — and Retry sends the SAME request, written once", async () => {

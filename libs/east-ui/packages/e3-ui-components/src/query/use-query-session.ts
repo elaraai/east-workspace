@@ -139,7 +139,10 @@ export function useQuerySession(options: QuerySessionOptions): QuerySessionState
         const { header, query } = entriesQuery(drafted ?? base.entries);
         return queryReadiness(header, query, root, words).readiness;
     }, [base, root, words]);
-    const edit = useEditSession<QueryEntry>(editing, undefined, rows, positions, storageKey, { idOf: entryId, ready });
+    // A query's steps are parsed afresh from its saved program each time it is read, so their identities do not survive
+    // a re-read: a query another session saved under these drafts is out of date — saved under another name, or the
+    // drafts discarded (#936) — never carried over.
+    const edit = useEditSession<QueryEntry>(editing, undefined, rows, positions, storageKey, { idOf: entryId, ready, carryOver: false });
     session.current = edit.session;
     const { version, available, original } = edit;
 

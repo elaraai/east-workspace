@@ -216,16 +216,16 @@ test("Save is one commit through the record's patch door: the history item says 
     expect(disabled(save)).toBe(true);
 });
 
-test("a conflict keeps every draft, with its banner and the out-of-date notice; Save is off, and nothing is rebased (SB28, SB29)", async () => {
+test("a Save another write overtakes on the same cell is a conflict: the draft stands over the record's new value, and Save waits until it is settled (SB28, SB29)", async () => {
     const { container } = await h.mount(ex.sheetBasic);
-    await typeInto(cells(container, "task")[0]!, "Panel cutting, oak");
+    await typeInto(cells(container, "task")[0]!, "Panel cutting, maple");
     // Another write moves the same job just as Save goes: the Save's patch reaches e3 after it.
     await h.race(JOBS, () => click(toolbar(container).getByRole("button", { name: "Save" })),
         (jobs) => jobWith(jobs, "J-0001", { task: "Panel cutting, walnut" }));
-    expect(banners(container)).toEqual(["conflict", "stale"]);
-    expect(statusLine(container)).toBe("Source changed — review or discard these drafts");
-    // The draft stands, unrebased, over the record's new value.
-    expect(tasks(container)[0]).toBe("Panel cutting, oak");
+    await settle();
+    // Carried over to the record's new value: the task, another write's too, is a conflict; the draft's value stands.
+    expect(statusLine(container)).toBeUndefined();
+    expect(tasks(container)[0]).toBe("Panel cutting, maple");
     expect(drafted(container)).toBe(1);
     expect(disabled(toolbar(container).getByRole("button", { name: "Save" }))).toBe(true);
     expect((await readJobs()).get("J-0001")!.task).toBe("Panel cutting, walnut");
@@ -279,20 +279,34 @@ test("a write with no answer leaves the session unknown: Save turns into Retry, 
     expect((await readJobs()).get("J-0003")!.task).toBe("CNC routing, both faces");
 });
 
-test("the record moving under pending drafts makes the session out of date: Save is off, a banner offers Discard, and nothing is rebased (SB29)", async () => {
+test("the record moving under pending drafts carries them over: another write's change of another job stands beside them, and Save keeps both (SB29)", async () => {
     const { container } = await h.mount(ex.sheetBasic);
-    await typeInto(cells(container, "task")[0]!, "Panel cutting, oak");
+    await typeInto(cells(container, "task")[0]!, "Panel cutting, maple");
     // Another write, to another job.
     await writeJob("J-0003", { task: "CNC routing, ash" });
-    expect(banners(container)).toEqual(["stale"]);
-    expect(statusLine(container)).toBe("Source changed — review or discard these drafts");
-    expect(disabled(toolbar(container).getByRole("button", { name: "Save" }))).toBe(true);
-    // The draft as it was, over the record as it is.
-    expect(tasks(container)).toEqual(["Panel cutting, oak", "Edge banding", "CNC routing, ash", "Spray finish"]);
-    await press(slot(container, "banners")!.querySelector('[data-session-banner="stale"] [data-banner-action="discard"]')!);
     expect(banners(container)).toEqual([]);
-    expect(tasks(container)).toEqual(["Panel cutting", "Edge banding", "CNC routing, ash", "Spray finish"]);
+    expect(statusLine(container)).toBeUndefined();
+    // The draft, over the record as it is now.
+    expect(tasks(container)).toEqual(["Panel cutting, maple", "Edge banding", "CNC routing, ash", "Spray finish"]);
+    expect(drafted(container)).toBe(1);
+    await press(toolbar(container).getByRole("button", { name: "Save" }));
+    const jobs = await readJobs();
+    expect([jobs.get("J-0001")!.task, jobs.get("J-0003")!.task]).toEqual(["Panel cutting, maple", "CNC routing, ash"]);
     expect(drafted(container)).toBe(0);
+});
+
+test("another write to another field of a drafted job is carried into the draft: the row draws both, and Save keeps both (SB29)", async () => {
+    const { container } = await h.mount(ex.sheetBasic);
+    await typeInto(cells(container, "task")[0]!, "Panel cutting, maple");
+    // Another write sets the same job's quantity.
+    await writeJob("J-0001", { qty: some(52.0) });
+    expect(banners(container)).toEqual([]);
+    // The drafted row, as the record would show the draft carried over: its task, and the other write's quantity.
+    expect(tasks(container)[0]).toBe("Panel cutting, maple");
+    expect(cells(container, "qty")[0]!.textContent).toBe("52");
+    await press(toolbar(container).getByRole("button", { name: "Save" }));
+    const job = (await readJobs()).get("J-0001")!;
+    expect([job.task, job.qty]).toEqual(["Panel cutting, maple", some(52.0)]);
 });
 
 test("a commit to a record read whole confirms once its own rows read back, whatever another write did meanwhile — to another row, or to another field of its own (#1185, SB29)", async () => {

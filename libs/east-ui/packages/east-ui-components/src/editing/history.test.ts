@@ -260,7 +260,7 @@ test("a session whose own history goes leaves the steps — its source moving un
     expect(history.canUndo).toBe(false);
 });
 
-test("it reads as one session does: its pending changes summed, out of date while one session is, and a sync that takes a session away takes its steps", () => {
+test("it reads as one session does: its pending changes summed, a conflict in one session holding its Save, and a sync that takes a session away takes its steps", () => {
     const { history, sessions } = setup();
     let heard = 0;
     history.subscribe(() => { heard += 1; });
@@ -270,10 +270,9 @@ test("it reads as one session does: its pending changes summed, out of date whil
     expect(heard).toBe(2);
     expect(history.pending).toBe(2);
     expect(history.stale).toBe(false);
-    // The shifts' source moves under its draft: out of date.
+    // The shifts' source moves under its draft, its title another write's too: a conflict, and Save waits for it.
     sessions.shifts.observeBase(variant("snapshot", held([["SH-1", { title: "Early, moved", sheets: 0.0 }]])));
-    expect(history.stale).toBe(true);
-    expect(history.canApply).toBe(true);
+    expect([history.stale, history.unsettled, history.canApply]).toEqual([false, 1, false]);
     // The shifts leave the history: their step with them.
     history.sync([["jobs", sessions.jobs], ["stops", sessions.stops]]);
     expect(history.keys).toEqual(["jobs", "stops"]);
@@ -281,4 +280,20 @@ test("it reads as one session does: its pending changes summed, out of date whil
     history.undo();
     expect(titleOf(sessions, "jobs")).toBe("Spring catalogue");
     expect(history.canUndo).toBe(false);
+});
+
+test("every conflict settled one way is one step across the sessions that hold one, which Undo takes back; one settled in its session is a step of its own", () => {
+    const { history, sessions } = setup();
+    history.record([rename("jobs", "Spring catalogue", "One"), rename("shifts", "Early", "Two")], "typed", "Rename two");
+    sessions.jobs.observeBase(variant("snapshot", held([["J-1", { title: "Spring, theirs", sheets: 96000.0 }]])));
+    sessions.shifts.observeBase(variant("snapshot", held([["SH-1", { title: "Early, theirs", sheets: 0.0 }]])));
+    expect([history.unsettled, history.canApply]).toEqual([2, false]);
+    expect(history.settleAll("source")).toBe(true);
+    expect([history.unsettled, titleOf(sessions, "jobs"), titleOf(sessions, "shifts")]).toEqual([0, "Spring, theirs", "Early, theirs"]);
+    history.undo();
+    expect([history.unsettled, titleOf(sessions, "jobs"), titleOf(sessions, "shifts")]).toEqual([2, "One", "Two"]);
+    const [jobs] = history.conflicts;
+    expect(history.settleConflict(jobs!.key, jobs!.entry.id, jobs!.entry.points[0]!.path, "draft")).toBe(true);
+    expect([history.unsettled, history.canApply]).toEqual([1, false]);
+    expect(history.settled.map((settled) => [settled.key, settled.conflict.choice])).toEqual([["jobs", "draft"]]);
 });

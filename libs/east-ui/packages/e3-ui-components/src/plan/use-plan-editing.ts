@@ -458,9 +458,9 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     // ── A source moving under the drafts (#1438) ─────────────────────────
     // Over rows read whole by key beside their nested series index, another planner's change of what no draft changed
     // stands beside the drafts: each drafted row is read whole at the source's new revision — every one in one request —
-    // and the drafts are carried over to it where each one's change still applies (`EditSession.rebase`). One that does
-    // not leaves the session stale, as any source moving under drafts does.
-    const staleIds = useMemo(() => (whole !== undefined && session.stale ? [...session.entries.keys()] : NO_IDS),
+    // and the drafts are carried over to it (`EditSession.merge`): what combines at once, and a part another planner
+    // changed differently a conflict, the draft's value standing until it is settled.
+    const staleIds = useMemo(() => (whole !== undefined && session.carrying ? [...session.entries.keys()] : NO_IDS),
         // The session is mutable; its version says when it moved.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [whole, session, version]);
@@ -470,7 +470,7 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         if (staleIds.length === 0 || observed === undefined || codec === undefined || !staleRows.ok) return;
         const read = staleRows.value;
         if (read === undefined || read.type !== "some") return;
-        session.rebase(observed.base, (id) => {
+        session.merge(observed.base, (id) => {
             const row = read.value.get(id);
             return row === undefined ? undefined : row.type === "some" ? some(codec.decode(row.value)) : none;
         });

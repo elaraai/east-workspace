@@ -120,8 +120,8 @@ test("a Save whose result could not be read back says why, and its Retry reads i
     expect(kinds(container)).toEqual([]);
 });
 
-test("drafts the source moved under are out of date, with Discard; after a conflict's banner, in that order", async () => {
-    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]) });
+test("drafts the source moved under, in a session that does not carry them over, are out of date, with Discard; after a conflict's banner, in that order", async () => {
+    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]), carryOver: false });
     await act(() => session.apply());
     act(() => session.observeBase(variant("snapshot", [{ ...a, end: 9n }])));
     const { container, actions } = mount(session);
@@ -132,7 +132,7 @@ test("drafts the source moved under are out of date, with Discard; after a confl
 });
 
 test("a session one of several in a history titles each banner with its source's name, in the collection's words; with none, the titles name nothing", async () => {
-    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]) });
+    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]), carryOver: false });
     await act(() => session.apply());
     act(() => session.observeBase(variant("snapshot", [{ ...a, end: 9n }])));
     const conflict = editingMessages.bannerConflict({ n: 1, count: WORDS.number(1) });
@@ -148,7 +148,7 @@ test("a session one of several in a history titles each banner with its source's
 });
 
 test("a banner leaves when what it reports does, following the session itself", async () => {
-    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]) });
+    const session = drafted({ apply: () => variant("conflict", [issue("a", "Changed since this edit began")]), carryOver: false });
     await act(() => session.apply());
     const { container } = mount(session);
     expect(kinds(container)).toEqual(["conflict"]);

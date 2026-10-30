@@ -14,11 +14,11 @@
  * @packageDocumentation
  */
 import { useCallback, useMemo } from "react";
-import { OptionType, StringType, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetEditingType } from "@elaraai/e3-ui/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useEditSession } from "@elaraai/east-ui-components";
-import { prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
+import { normalizeDraft, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
 import { authorReadiness } from "./readiness.js";
 import { prepareCreation } from "./creation.js";
 import type { EntryVersion, EntryUpdate, Origin, Placement, SheetTransactions } from "./transactions.js";
@@ -29,6 +29,8 @@ const stringEqual = equalFor(StringType);
 const encodeWire = encodeBeast2For(Sheet.Types.Row);
 const NO_ROWS: readonly SheetRowValue[] = [];
 const NO_POSITIONS: readonly number[] = [];
+/** A row as the Sheet's `project` answers it. */
+const decodeRow = decodeBeast2For(Sheet.Types.Row);
 const absent: EntryVersion = { draft: undefined, wire: undefined, place: none };
 /** A wire row's id — the entry it projects. */
 const sheetRowId = (row: SheetRowValue): string => row.id;
@@ -110,6 +112,16 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     const currentPositions = replacing ? NO_POSITIONS : positions;
     const editing = useMemo(() => recordSlice === undefined ? declared : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
     const ready = useMemo(() => authorReadiness(editing, currentRows, currentPositions, source !== undefined), [editing, currentRows, currentPositions, source]);
+    // A draft the session made itself — carried over to the record's newer value, or settled — drawn as the record
+    // would show its entry (the Sheet's own `project`); a draft not yet complete keeps the row it had.
+    const wireOf = useMemo(() => {
+        const draftType = fromEastTypeValue(editing.draftType);
+        const encodeEntry = encodeBeast2For(editing.entryType) as (entry: unknown) => Uint8Array;
+        return (id: string, draft: unknown, prior: SheetRowValue | undefined): SheetRowValue | undefined => {
+            const entry = normalizeDraft(draftType, draft, id).domain;
+            return entry === undefined ? prior : decodeRow(editing.project(encodeEntry(entry), id)) as SheetRowValue;
+        };
+    }, [editing]);
     // Only a PINNED source names the revision a session's base is (#880): an
     // unpinned one leaves the session without a base, so nothing is drafted —
     // and the factory refuses such a source an apply.
@@ -120,7 +132,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     }, [source, recordSlice]);
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
     const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
-        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare });
+        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf });
 
     /** Aggregate the renderer's writes — the draft edits beside them, its new entries seeded as it says — into one transaction at the effect boundary. */
     const record = useCallback((events: readonly SheetEditValue[], placements?: ReadonlyMap<string, Placement>, originOverride?: Origin, draftEdits?: ReadonlyMap<string, DraftEdit>, seeds?: SheetSeeds): boolean => {

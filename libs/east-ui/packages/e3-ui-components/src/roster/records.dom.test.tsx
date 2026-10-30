@@ -129,7 +129,7 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(main.queryAllByRole("button", { name: /assign|request/i })).toEqual([]);
     });
 
-    test("B9 — two sessions' edits of different duties of one week both commit; the same duty is the second's conflict, naming it", async () => {
+    test("B9 — two sessions' edits of different duties of one week both commit; the same duty, removed here and noted there, waits in the second to be chosen", async () => {
         const { container: c } = await h.mount(ex.rosterWarehouse);
         await press(within(assignment(c, "s37")).getByRole("button", { name: "Remove C. Clover" }));
         // Another session notes D. Bracken's Thursday between this Save's read and its commit: another duty, both commit.
@@ -139,14 +139,16 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(duties.has("s37")).toBe(false);
         expect(duties.get("s14")!.note).toBe("asked to swap");
         expect(c.querySelector("[data-session-banner]")).toBeNull();
-        // Then both sessions edit R. Birch's Thursday: this one's Save is the conflict, naming the duty; the other's stands.
+        // Then both sessions edit R. Birch's Thursday: this one's Save is refused, and its draft is carried over to the duty
+        // as the other left it — the removal waits to be chosen, Save off; the other's note stands.
         await press(within(assignment(c, "s10")).getByRole("button", { name: "Remove R. Birch" }));
         await h.race(ex.rosterDuties, () => { fireEvent.click(history(c, editingMessages.apply())); },
             now => { now.set("s10", { ...now.get("s10")!, note: "covering for Tuesday" }); return now; });
-        const conflict = c.querySelector('[data-session-banner="conflict"]');
-        expect(conflict, slot(c, "banners").textContent ?? "").not.toBeNull();
-        // Named as the Roster names a duty: whose it is.
-        expect(conflict!.textContent).toContain("R. Birch");
+        await waitFor(() => {
+            expect(c.querySelector("[data-session-banner]"), slot(c, "banners").textContent ?? "").toBeNull();
+            expect(slot(c, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
+        });
+        expect(history(c, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
         expect(assignment(c, "s10").hasAttribute("data-removed")).toBe(true);
         expect((await h.read(ex.rosterDuties)).get("s10")!.note).toBe("covering for Tuesday");
     });

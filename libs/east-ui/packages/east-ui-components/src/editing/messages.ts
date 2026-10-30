@@ -21,7 +21,7 @@
 import type { Formatters } from "../format/index.js";
 
 /** The history bar's states that say something. */
-export type EditHistoryWord = "stale" | "applying" | "unknown" | "reconciling" | "rejected" | "conflict";
+export type EditHistoryWord = "stale" | "carrying" | "applying" | "unknown" | "reconciling" | "rejected" | "conflict";
 
 /**
  * The editing session's message table — the history bar and the draft
@@ -74,7 +74,7 @@ export interface EditingMessages {
     bannerUnknown: () => string;
     /** The banner over a Save whose result could not be read back. */
     bannerConfirmFailed: () => string;
-    /** The banner over drafts the source moved under. */
+    /** The banner over drafts the source moved under, where they are not carried over to it. */
     bannerStale: () => string;
     /** One of a Save's issues in its banner — `J-0002: Changed since this edit began`; `where` is empty for the source as a whole. */
     bannerIssue: (p: { where: string; message: string }) => string;
@@ -91,6 +91,7 @@ export const editingMessages: EditingMessages = {
     historyStatus: ({ status }) => {
         switch (status) {
             case "stale": return "Source changed — review or discard these drafts";
+            case "carrying": return "Checking your changes against the newest data";
             case "applying": return "Saving…";
             case "unknown": return "Awaiting confirmation — retry the same request";
             case "reconciling": return "Saved — loading the confirmed revision…";

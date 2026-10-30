@@ -436,7 +436,7 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     });
 
-    test("B12: a save another session's overtakes is a conflict, in the history item's words — and the other save stands", async () => {
+    test("B12: a save another session's overtakes, removing the tile this one changed, is a conflict: Save waits until it is settled — and the other save stands", async () => {
         const { container } = await mountBuilder();
         await keyOn(container, "c-trend", { key: "[" });
         // Another operator's save lands between this Save's read and its commit: the Overview's trend removed.
@@ -444,8 +444,9 @@ describe("<Studio.Builder> — the canvas (#995)", () => {
         if (stored.type !== "page") throw new Error("expected a page");
         const after: Entry = variant("page", { draft: { title: stored.value.draft.title, cells: stored.value.draft.cells.slice(0, 1) }, live: stored.value.live });
         await h.race(ex.studioPages, () => click(screen.getByRole("button", { name: "Save" })), withEntry(OVERVIEW, after));
-        // The commit is refused, and the canvas, reading the page back, finds its source moved under its drafts.
-        expect(container.querySelector("[data-slot=history]")!.textContent).toContain("Source changed — review or discard these drafts");
+        // The commit is refused, and the canvas, reading the page back, carries its drafts over to it: the tile it moved,
+        // the other save removed — a conflict, and Save waits for it.
+        expect(container.querySelector("[data-slot=history]")!.textContent).not.toContain("Source changed");
         expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
         expect(await commits()).toEqual(["patch", ...before]);
         const overview = (await readRecord()).get(OVERVIEW)!;

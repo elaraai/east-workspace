@@ -281,7 +281,7 @@ describe("Calendar explicit action forms", () => {
         expect(event(container, "job", "job1").hasAttribute("data-selected")).toBe(true);
         expect((await jobs()).get("job1")!.hours).toBeGreaterThan(0);
     });
-    test("a kind whose record another session changes while its Save is out conflicts and keeps its drafts, while another kind's patch commits", async () => {
+    test("a kind whose record another session changes while its Save is out carries its drafts over — the job deleted here and changed there waits to be chosen — while another kind's patch commits", async () => {
         const { container } = await h.mount(ex.calendarOperations);
         for (const [kind, key] of [["job", "job1"], ["service", "service1"]]) {
             await press(event(container, kind!, key!));
@@ -293,7 +293,13 @@ describe("Calendar explicit action forms", () => {
             others.set("job1", { ...others.get("job1")!, customer: "Changed elsewhere" });
             return others;
         });
-        expect(container.querySelector('[data-session-banner="conflict"]')).not.toBeNull();
+        // The jobs' draft is carried over to the record as the other session left it: nothing is out of date, the deletion
+        // stands until it is chosen, and Save is off.
+        await waitFor(() => {
+            expect(container.querySelector("[data-session-banner]")).toBeNull();
+            expect(slot(container, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
+        });
+        expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
         expect((await jobs()).get("job1")!.customer).toBe("Changed elsewhere");
         expect((await h.read(ex.calendarServices)).has("service1")).toBe(false);
         expect(event(container, "job", "job1")).toBeNull();

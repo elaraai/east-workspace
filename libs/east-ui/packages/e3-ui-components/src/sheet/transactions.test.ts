@@ -169,11 +169,11 @@ test("paged overlays require the acknowledged hash and affected entries; refresh
     expect(session.pending).toBe(0);
 });
 
-test("an external revision never silently rebases drafts or positional history", () => {
+test("an external revision holds the drafts while their entries are read there: no gesture, no undo and no Save meanwhile, and Discard still drops them", () => {
     const session = new SheetTransactions(binding());
     session.observeBase(variant("revision", "r1")); editA(session);
     session.observeBase(variant("revision", "r2"));
-    expect(session.stale).toBe(true);
+    expect([session.carrying, session.stale, session.writable]).toEqual([true, false, false]);
     expect(session.canUndo).toBe(false);
     expect(session.canApply).toBe(false);
     expect(session.pending).toBe(1);

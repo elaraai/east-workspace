@@ -564,7 +564,7 @@ describe("Save per kind (PB45–PB48)", () => {
         expect(field(container, "customer").hasAttribute("data-dirty")).toBe(false);
     });
 
-    test("a kind whose record moved since is a conflict: its banner names the event and who changed the record last, its drafts stay, out of date — and the other kinds commit (PB46)", async () => {
+    test("a kind whose record moved since carries its drafts over: the customer both changed waits to be chosen, the draft's standing — and the other kinds commit (PB46)", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         const deployed = await commits(ex.planPrintStops.name);
@@ -578,12 +578,12 @@ describe("Save per kind (PB45–PB48)", () => {
             fireEvent.mouseDown(historyButton(container, SAVE), { button: 0 });
             fireEvent.click(historyButton(container, SAVE));
         }, (jobs) => jobWith(jobs, "J-1001", { customer: "Alder & Finch Group" }));
-        const conflict = editingMessages.bannerConflict({ n: 1, count: "1" });
-        expect(banners(container).map((b) => b.kind)).toEqual(["conflict", "stale"]);
-        expect(banners(container)[0]!.text).toContain(titled("Print job", conflict));
-        expect(banners(container)[0]!.text).toContain(editingMessages.bannerIssue({ where: "Spring catalogue", message: "Changed since this edit began — last changed by another session" }));
-        expect(banners(container)[1]!.text).toContain(titled("Print job", editingMessages.bannerStale()));
-        // The stop committed; the job did not, and its draft stands over the other planner's.
+        // The job's draft is carried over to the jobs as the other planner left them: nothing is out of date.
+        await waitFor(() => {
+            expect(banners(container)).toEqual([]);
+            expect(statusLine(container)).toBeUndefined();
+        });
+        // The stop committed; the job did not, and its draft stands over the other planner's, waiting to be chosen.
         expect(await commits(ex.planPrintStops.name)).toEqual(["patch", ...deployed]);
         expect((await readStops()).get("S-01")!.kind.type).toBe("service");
         expect((await readJobs()).get("J-1001")!.customer).toBe("Alder & Finch Group");
@@ -646,7 +646,7 @@ describe("Save per kind (PB45–PB48)", () => {
         expect(pending(container)).toBe("0 pending");
     });
 
-    test("a kind's record moving under its pending drafts marks that kind out of date: its banner's Discard drops its drafts alone (PB48)", async () => {
+    test("a kind's record moving under its pending drafts carries them over: another job's change stands beside them, and Save sends every kind's (PB48)", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
         await select(bar(container, "J-1001")!);
@@ -656,16 +656,17 @@ describe("Save per kind (PB45–PB48)", () => {
         await settle();
         // Another planner's write to another job.
         await h.commit(ex.planPrintJobs, await jobChanged("J-1005", { customer: "Copperleaf Cafe & Bakery" }));
-        expect(banners(container).map((b) => b.kind)).toEqual(["stale"]);
-        expect(banners(container)[0]!.text).toContain(titled("Print job", editingMessages.bannerStale()));
-        expect(statusLine(container)).toBe(editingMessages.historyStatus({ status: "stale" }));
-        await press(slot(container, "banners")!.querySelector('[data-session-banner="stale"] [data-banner-action="discard"]')!);
+        // The job's draft is carried over to the jobs as the planner left them: nothing is out of date, and Save is on.
+        await waitFor(() => expect(historyButton(container, SAVE).disabled).toBe(false));
         expect(banners(container)).toEqual([]);
-        // The job's draft went; the stop's stands, and Save sends it.
-        expect(pending(container)).toBe("1 pending");
+        expect(statusLine(container)).toBeUndefined();
+        expect(pending(container)).toBe("2 pending");
         await select(bar(container, "J-1001")!);
-        expect(customer(container)).toBe("Alder & Finch");
+        expect(customer(container)).toBe("Alder & Finch Ltd");
+        // Save sends both kinds' drafts; the other planner's change stands beside them.
         await press(historyButton(container, SAVE));
+        expect((await readJobs()).get("J-1001")!.customer).toBe("Alder & Finch Ltd");
+        expect((await readJobs()).get("J-1005")!.customer).toBe("Copperleaf Cafe & Bakery");
         expect((await readStops()).get("S-01")!.kind.type).toBe("service");
         expect(pending(container)).toBe("0 pending");
     });

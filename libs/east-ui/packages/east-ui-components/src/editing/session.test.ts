@@ -477,6 +477,29 @@ test("partial conflict naming restarts on a new revision and preserves every dra
     expect(session.pending).toBe(2);
 });
 
+test("drafts carried over after a Save refused for a conflict keep what the source said of each entry, for the conflicts there (#1199)", async () => {
+    const session = conflicting([recordIssue, said("J1"), said("J2")]);
+    await session.apply();
+    // The source moves on: another write set J1's quantity; J2 stands as its edit began.
+    session.observeBase(variant("revision", "r2"));
+    expect(session.merge(variant("revision", "r2"), (id) => (id === "J1" ? some({ ...cut, qty: 3n }) : some(band)))).toBe("merged");
+    expect([session.status, session.issues, session.unsettled]).toEqual(["idle", [], 1]);
+    const conflict = session.conflicts.get("J1")!;
+    expect(conflict.said).toBe(said("J1").message);
+    // Chosen, it keeps them; undone, the conflict says them again.
+    expect(session.settle("J1", conflict.points[0]!.path, "draft")).toBe(true);
+    expect(session.settled.map((settled) => [settled.id, settled.said])).toEqual([["J1", said("J1").message]]);
+    session.undo();
+    expect(session.conflicts.get("J1")!.said).toBe(said("J1").message);
+});
+
+test("drafts carried over with no refused Save before them hold nothing the source said", () => {
+    const session = conflicting([]);
+    session.observeBase(variant("revision", "r2"));
+    session.merge(variant("revision", "r2"), (id) => (id === "J1" ? some({ ...cut, qty: 3n }) : some(band)));
+    expect(session.conflicts.get("J1")!.said).toBeUndefined();
+});
+
 // ── Drafts carried over a source that moved (#1438) ─────────────────────────
 
 const Bench = StructType({ name: StringType, jobs: DictType(StringType, IntegerType) });
@@ -503,23 +526,94 @@ const movedOff = () => {
 
 test("drafts carried over a source that moved, where each change still applies: another write's change of another job stands beside them (#1438)", () => {
     const session = movedOff();
-    expect(session.stale).toBe(true);
+    expect([session.carrying, session.stale]).toEqual([true, false]);
     // While the bench is read at the new revision, nothing moves.
-    expect(session.rebase(variant("revision", "r2"), () => undefined)).toBe("waiting");
-    expect(session.stale).toBe(true);
+    expect(session.merge(variant("revision", "r2"), () => undefined)).toBe("waiting");
+    expect([session.carrying, session.stale]).toEqual([true, false]);
     // Another write changed j2's hours: the move of j1 still applies.
     const now = benchOf([["j1", 1n], ["j2", 5n]]);
-    expect(session.rebase(variant("revision", "r2"), () => some(now))).toBe("rebased");
-    expect([session.stale, session.writable, session.pending]).toEqual([false, true, 1]);
+    expect(session.merge(variant("revision", "r2"), () => some(now))).toBe("merged");
+    expect([session.carrying, session.stale, session.writable, session.pending]).toEqual([false, false, true, 1]);
     expect(sameBenchDraft(benchDraftOf(session.originals.get("B1")), benchDraftOf(benchVersion(now)))).toBe(true);
     expect(sameBenchDraft(benchDraftOf(session.entries.get("B1")), benchDraftOf(benchVersion(benchOf([["j2", 5n]]))))).toBe(true);
     // The history starts over at the drafts: an undo would take the bench back to its version at the old revision.
     expect(session.canUndo).toBe(false);
 });
 
-test("drafts whose change no longer applies stay stale: another write changed the job they moved (#1438)", () => {
+/** The bench as another write left it at r2: j1's hours changed, where the draft moved j1 off. */
+const changedJ1 = () => some(benchOf([["j1", 3n], ["j2", 2n]]));
+
+test("a part another write changed differently is a conflict: the draft carried over keeps its value there, and Save waits for it", () => {
     const session = movedOff();
-    expect(session.rebase(variant("revision", "r2"), () => some(benchOf([["j1", 3n], ["j2", 2n]])))).toBe("conflict");
-    expect([session.stale, session.writable]).toEqual([true, false]);
+    expect(session.merge(variant("revision", "r2"), changedJ1)).toBe("merged");
+    expect([session.carrying, session.writable, session.unsettled, session.canApply]).toEqual([false, true, 1, false]);
+    expect(session.conflicts.get("B1")!.points.map((point) => point.kind)).toEqual(["changed"]);
     expect(sameBenchDraft(benchDraftOf(session.entries.get("B1")), benchDraftOf(benchVersion(benchOf([["j2", 2n]]))))).toBe(true);
+});
+
+test("settling a conflict for the source's value writes it into the draft; Undo brings the conflict back, Redo settles it again", () => {
+    const session = movedOff();
+    session.merge(variant("revision", "r2"), changedJ1);
+    const [point] = session.conflicts.get("B1")!.points;
+    expect(session.settle("B1", point!.path, "source")).toBe(true);
+    // The draft is the source's value now: nothing pending, nothing to settle.
+    expect([session.unsettled, session.pending]).toEqual([0, 0]);
+    session.undo();
+    expect([session.unsettled, session.pending]).toEqual([1, 1]);
+    session.redo();
+    expect([session.unsettled, session.pending]).toEqual([0, 0]);
+});
+
+test("keeping the draft's value settles the conflict: Save sends the draft's change against the source's newer value", () => {
+    const session = movedOff();
+    session.merge(variant("revision", "r2"), changedJ1);
+    const [point] = session.conflicts.get("B1")!.points;
+    expect(session.settle("B1", point!.path, "draft")).toBe(true);
+    expect([session.unsettled, session.canApply]).toEqual([0, true]);
+    const drafted = session.drafts.entries.get("B1")!;
+    expect((equalFor(OptionType(Bench)) as (a: unknown, b: unknown) => boolean)(drafted.before, changedJ1())).toBe(true);
+    expect(sameBenchDraft(benchDraftOf(drafted.draft), benchDraftOf(benchVersion(benchOf([["j2", 2n]]))))).toBe(true);
+    session.undo();
+    expect([session.unsettled, session.canApply]).toEqual([1, false]);
+});
+
+test("another write to another part, while a conflict stands, is carried over beside it and is no new conflict", () => {
+    const session = movedOff();
+    session.merge(variant("revision", "r2"), changedJ1);
+    session.observeBase(variant("revision", "r3"));
+    expect([session.carrying, session.stale]).toEqual([true, false]);
+    expect(session.merge(variant("revision", "r3"), () => some({ ...benchOf([["j1", 3n], ["j2", 2n]]), name: "Bench one" }))).toBe("merged");
+    expect(session.unsettled).toBe(1);
+    expect(sameBenchDraft(benchDraftOf(session.entries.get("B1")), benchDraftOf(benchVersion({ ...benchOf([["j2", 2n]]), name: "Bench one" })))).toBe(true);
+});
+
+test("settling every conflict one way is one step of the history", () => {
+    const session = new EditSession<Bar>({
+        sourceId: "benches", entryType: Bench, draftType: BenchDraft, keyType: StringType, auto: false,
+        apply: () => variant("applied", { revision: some("r3") }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([
+        { id: "B1", before: benchVersion(benchOf([["j1", 1n]])), after: benchVersion(benchOf([["j1", 4n]])) },
+        { id: "B2", before: benchVersion(benchOf([["k1", 1n]])), after: benchVersion(benchOf([["k1", 4n]])) },
+    ], "typed", "Change both");
+    session.observeBase(variant("revision", "r2"));
+    session.merge(variant("revision", "r2"), (id) => some(id === "B1" ? benchOf([["j1", 2n]]) : benchOf([["k1", 2n]])));
+    expect(session.unsettled).toBe(2);
+    expect(session.settleAll("draft")).toBe(true);
+    expect([session.unsettled, session.canApply]).toEqual([0, true]);
+    session.undo();
+    expect(session.unsettled).toBe(2);
+});
+
+test("an inline source that moved under the drafts carries them over at once: a change apart combines, one of the same field conflicts", () => {
+    const apart = create();
+    apart.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
+    apart.observeBase(variant("snapshot", [{ ...a, start: 2n }]));
+    expect([apart.carrying, apart.unsettled, apart.canApply]).toEqual([false, 0, true]);
+    expect(apart.entries.get("a")!.draft).toEqual(liftDraft(Draft, { ...a, start: 2n, end: 5n }));
+    const clash = create();
+    clash.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
+    clash.observeBase(variant("snapshot", [{ ...a, end: 4n }]));
+    expect([clash.carrying, clash.unsettled, clash.canApply]).toEqual([false, 1, false]);
 });

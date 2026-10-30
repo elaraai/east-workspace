@@ -101,6 +101,7 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, butt
     const pending = session.pending;
     const commitEditor = editing && session.writable;
     const message = session.stale ? m.historyStatus({ status: "stale" })
+        : session.carrying ? m.historyStatus({ status: "carrying" })
         : status !== "idle" ? m.historyStatus({ status })
         : undefined;
     const n = issues.length;

@@ -24,6 +24,13 @@ import { DAY } from "./model.js";
 import { resetKept } from "@elaraai/east-ui-components/internal";
 const h = rosterHarness();
 async function weekKey(c: HTMLElement, key: "[" | "]") { await act(async () => { fireEvent.keyDown(slot(c, "main"), { key }); }); await settle(); }
+/** A draft carried over to the duties as another session left them: no banner, and the history item checking nothing. */
+async function carriedOver(c: HTMLElement) {
+    await waitFor(() => {
+        expect(c.querySelector("[data-session-banner]"), slot(c, "banners").textContent ?? "").toBeNull();
+        expect(slot(c, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
+    });
+}
 /** The weeks' record, as the request log names its dataset. */
 const WEEKS = "records.roster_rota_weeks";
 /** The duties' record, as the request log names its dataset. */
@@ -119,21 +126,23 @@ describe("Roster week lifecycle", () => {
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
         expect((await h.read(ex.rosterLockedDuties)).has("s37")).toBe(true);
     });
-    test("a refreshed record keeps its stale draft and preserves the newer duty", async () => {
+    test("a record moving under a draft carries it over: the duty removed here and moved there waits to be chosen, and Discard takes the newer duty", async () => {
         const { container } = await h.mount(ex.rosterWarehouse);
         await press(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Clover" }));
         // Another session's write to the duties: C. Clover starts an hour early.
         const newer = await h.read(ex.rosterDuties);
         newer.set("s37", { ...newer.get("s37")!, start: at("2028-03-09T05:00:00") });
         await h.patch(ex.rosterDuties, newer);
-        expect(container.querySelector('[data-session-banner="stale"]'), slot(container, "banners").textContent ?? "").not.toBeNull();
+        // The removal is carried over to the duty as the other session left it: it waits to be chosen, and Save is off.
+        await carriedOver(container);
+        expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
         await press(history(container, editingMessages.discard()));
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(false);
         // Its own times differ from its shift's now: the chip says them.
         expect(assignment(container, "s37").textContent).toContain("05:00–14:00");
     });
-    test("a concurrent write during Save is a checked conflict with its draft retained", async () => {
+    test("a concurrent write during Save carries the draft over: the duty removed here and moved there waits to be chosen, the draft retained", async () => {
         const { container } = await h.mount(ex.rosterWarehouse);
         await press(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Clover" }));
         // Another session's write lands between this Save's read and its commit: C. Clover starts an hour early.
@@ -141,7 +150,8 @@ describe("Roster week lifecycle", () => {
             now.set("s37", { ...now.get("s37")!, start: at("2028-03-09T05:00:00") });
             return now;
         });
-        expect(container.querySelector('[data-session-banner="conflict"]'), slot(container, "banners").textContent ?? "").not.toBeNull();
+        await carriedOver(container);
+        expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
         expect((await h.read(ex.rosterDuties)).get("s37")!.start).toEqual(at("2028-03-09T05:00:00"));
     });

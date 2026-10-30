@@ -665,6 +665,13 @@ const bannerTexts = (c: HTMLElement) => [...(slot(c, "banners")?.querySelectorAl
 const inspectorField = (c: HTMLElement, key: string) => slot(c, "end")!.querySelector<HTMLElement>(`[data-inspector-fields='form'] [data-field=${JSON.stringify(key)}]`)!;
 /** The customer the inspector's form shows. */
 const customerOf = (c: HTMLElement) => (within(inspectorField(c, "customer")).getByRole("textbox") as HTMLInputElement).value;
+/** A Save's drafts carried over to the record as another write left it: no banner, and the history item checking nothing. */
+async function carriedOver(c: HTMLElement): Promise<void> {
+    await waitFor(() => {
+        expect(bannerTexts(c)).toEqual([]);
+        expect(slot(c, "toolbar")!.textContent).not.toContain(editingMessages.historyStatus({ status: "carrying" }));
+    });
+}
 /** One of the inspector's facts: its value's words. */
 const factOf = (c: HTMLElement, name: string) => slot(c, "end")!.querySelector(`[data-fact=${JSON.stringify(name)}]`)?.textContent ?? null;
 /** Types a field's new text in the inspector's form, committed with Enter. */
@@ -827,7 +834,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(h.requests("read", JOBS)).toEqual([]);
     });
 
-    test("a Save's conflict names the job another planner moved — read by its key at the record's new revision — and who changed the record last; the other job is not named", async () => {
+    test("a Save another planner's write beat carries the jobs' drafts over — each read by its key at the record's new revision: the customer both changed waits to be chosen, the other job's draft beside it", async () => {
         const { container: c } = await h.mount(editedPlan, DRAG);
         await settle();
         await select(bar(c, "W-0001", "P-1001")!);
@@ -839,14 +846,15 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
             fireEvent.mouseDown(historyButton(c, SAVE), { button: 0 });
             fireEvent.click(historyButton(c, SAVE));
         }, (jobs) => jobWith(jobs, "W-0001", { customer: "Alder & Finch Group" }));
-        await waitFor(() => expect(bannerTexts(c).map((b) => b.kind)).toEqual(["conflict", "stale"]));
-        const conflict = bannerTexts(c)[0]!.text;
-        expect(conflict).toContain(editingMessages.bannerSource({ source: "Print job", title: editingMessages.bannerConflict({ n: 1, count: "1" }) }));
-        expect(conflict).toContain(editingMessages.bannerIssue({ where: "Brochure run", message: "Changed since this edit began — last changed by another session" }));
-        expect(conflict).not.toContain("Museum guide");
+        await carriedOver(c);
+        expect(historyButton(c, SAVE).disabled).toBe(true);
         expect(of("entries")).toEqual(expect.arrayContaining([`seek "W-0001"`, `seek "W-0003"`]));
-        // Nothing of the job's draft was written; the other planner's stands.
+        // Nothing of the job's draft was written; the other planner's stands, and each draft stands over it.
         expect((await readJobs()).get("W-0001")!.customer).toBe("Alder & Finch Group");
+        await select(bar(c, "W-0001", "P-1001")!);
+        expect(customerOf(c)).toBe("Alder & Finch Ltd");
+        await select(bar(c, "W-0003", "P-1002")!);
+        expect(customerOf(c)).toBe("Driftwood Museum Trust");
         expect(h.requests("read", JOBS)).toEqual([]);
     });
 
@@ -930,7 +938,7 @@ describe("the key search standing (#1199)", () => {
 // ============================================================================
 
 describe("planRowDrop's data session, its record read a window at a time (#1199)", () => {
-    test("a Save's conflict names the entry another write moved — read by its key at the record's new revision — and the record is never read whole", async () => {
+    test("a Save another write beat carries the entry's draft over — read by its key at the record's new revision, never the record whole: the run both moved waits to be chosen", async () => {
         const ops = rowDrop.planDropOps;
         const opsPath = pathText(ops.path as TreePath);
         // Its canvas is bounded: laid out, its rows mount.
@@ -958,9 +966,10 @@ describe("planRowDrop's data session, its record read a window at a time (#1199)
                 next.set("p03", { ...p03, jobs: new Map([[id, { ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }]]) });
                 return next;
             });
-            await waitFor(() => expect(bannerTexts(container).map((b) => b.kind)).toEqual(["conflict", "stale"]));
-            expect(bannerTexts(container)[0]!.text)
-                .toContain(editingMessages.bannerIssue({ where: "H1-P03", message: "Changed since this edit began — last changed by another session" }));
+            await carriedOver(container);
+            // The draft stands where both moved the run, and Save waits for it to be chosen.
+            expect(historyButton(container, SAVE).disabled).toBe(true);
+            expect(pending(container)).toBe("1 pending");
             expect(h.requests("find", opsPath).some((request) => request.query.get("key") === '"p03"')).toBe(true);
             expect(h.requests("read", opsPath)).toEqual([]);
         } finally {

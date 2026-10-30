@@ -132,6 +132,7 @@ function refusalOf<W>(session: EditSession<W>, words: SnapGridWords): string {
     if (issues.length > 0) return issues[0]!.message;
     if (session.error !== undefined) return sessionErrorText(session.error, words);
     if (session.stale) return words.m.historyStatus({ status: "stale" });
+    if (session.carrying) return words.m.historyStatus({ status: "carrying" });
     return session.status === "idle" ? words.m.applyRefused() : words.m.historyStatus({ status: session.status });
 }
 

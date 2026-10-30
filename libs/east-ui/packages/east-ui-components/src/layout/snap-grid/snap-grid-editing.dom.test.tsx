@@ -709,7 +709,7 @@ describe("an Apply a screen asks for (#998)", () => {
         expect(canvas.applies).toHaveLength(0);
     }, 30_000);
 
-    test("drafts the source moved under are refused, in the history item's words", async () => {
+    test("drafts the source moved under are carried over — another write's change of another tile beside them — and the Apply asked saves them", async () => {
         const canvas = await mountSnapGrid({ applies: true });
         const c = canvas.container;
         await clickTile(c, "trend");
@@ -717,8 +717,9 @@ describe("an Apply a screen asks for (#998)", () => {
         hostWrites(SEED.map((t) => (t.id === "board" ? { ...t, span: 6n } : t)));
         await canvas.confirm();
         await canvas.hostAsksApply("ask-4");
-        expect(canvas.boundApply()).toEqual(variant("refused", { id: "ask-4", reason: "Source changed — review or discard these drafts" }));
-        expect(canvas.applies).toHaveLength(0);
+        expect(canvas.applies).toHaveLength(1);
+        const stored = canvas.stored();
+        expect([stored.find((t) => t.id === "trend")!.span, stored.find((t) => t.id === "board")!.span]).toEqual([7n, 6n]);
     }, 30_000);
 });
 

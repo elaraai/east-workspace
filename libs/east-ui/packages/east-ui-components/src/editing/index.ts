@@ -26,7 +26,11 @@ export {
     type Origin,
     type DraftedEntry,
     type SessionDrafts,
+    type EntryConflicts,
+    type ConflictChoice,
+    type SettledConflict,
 } from "./session.js";
+export { EntryMerger, conflictSteps, type ConflictKind, type ConflictPoint, type ConflictStep, type MergedEntry } from "./merge.js";
 export { EditHistory, type EditHistoryPart } from "./history.js";
 export {
     useEditHistory,
