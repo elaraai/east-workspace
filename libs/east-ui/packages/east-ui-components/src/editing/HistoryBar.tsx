@@ -41,8 +41,14 @@ export interface HistoryBarProps<W> {
     words: EditingWords;
     /** An open editor is committed before the requested history action. */
     editing: boolean;
-    /** Go to an issue — the collection shows where it is: an issue's, or a conflict's (`EditSession.conflictIssue`). */
+    /** Go to an issue — the collection shows where it is: an issue's, or a conflict's (`EditSession.conflictIssue`) where it gives no `onConflict`. */
     onIssue: (issue: EditIssue) => void;
+    /**
+     * Go to a conflict's item — a conflict's Go to: what shows the item and
+     * selects it, where the collection's issue click opens a list of its
+     * issues instead. `onIssue` by default.
+     */
+    onConflict?: ((issue: EditIssue) => void) | undefined;
     /**
      * Where an issue is, in the collection's words — its row (`J-0002`,
      * `row 4`), as its banners name it ({@link SessionBanners}): what the
@@ -110,7 +116,7 @@ function HistoryButton({ label, tip = label, icon, disabled, locked, styles, onC
  * @param props - The session, the collection's words, and its callbacks
  * @returns The bar
  */
-export function HistoryBar<W>({ session, words, editing, onAction, onIssue, where, issueText, buttonsOnly = false, showError = true, locked = false }: HistoryBarProps<W>) {
+export function HistoryBar<W>({ session, words, editing, onAction, onIssue, onConflict, where, issueText, buttonsOnly = false, showError = true, locked = false }: HistoryBarProps<W>) {
     const recipe = useSlotRecipe({ key: "editHistory" });
     const styles = useMemo(() => recipe({}) as unknown as Styles, [recipe]);
     const { m } = words;
@@ -137,7 +143,7 @@ export function HistoryBar<W>({ session, words, editing, onAction, onIssue, wher
                     tip={m.issuesTip({ n, count: words.number(n) })} locked={false}
                     icon={faTriangleExclamation} disabled={n === 0} onClick={() => { if (issues[0]) onIssue(issues[0]); }} />
             </Box>}
-            <ConflictsControl session={session} words={words} onIssue={onIssue} where={where} issueText={issueText} locked={locked} />
+            <ConflictsControl session={session} words={words} onIssue={onConflict ?? onIssue} where={where} issueText={issueText} locked={locked} />
             <HistoryButton styles={styles} label={m.undo()} tip={m.undoTip()} icon={faArrowRotateLeft} disabled={!session.canUndo && !commitEditor} locked={locked} onClick={() => onAction("undo")} />
             <HistoryButton styles={styles} label={m.redo()} tip={m.redoTip()} icon={faArrowRotateRight} disabled={!session.canRedo} locked={locked} onClick={() => onAction("redo")} />
             <HistoryButton styles={styles} label={m.discard()} tip={m.discardTip()} icon={faXmark} disabled={!session.canDiscard || (pending === 0 && !commitEditor)} locked={locked} onClick={() => onAction("discard")} />

@@ -11,7 +11,8 @@
  * back on — while a conflict waits: the not-equal icon and how many wait, in
  * the warn tone. It never opens by itself. Its popover holds a card for each
  * conflict: the item, named as the collection names its issues, with Go to,
- * which goes to it as an issue's click does; the part's label; Yours and
+ * which shows the item and selects it (the history bar's `onConflict`, else
+ * its issue click); the part's label; Yours and
  * Theirs, a radio group whose choice applies at once as one step of the
  * history, which Undo takes back; and what both began from. Keep all mine and
  * Use all theirs choose every one, chosen or not, in one step. Once every one
@@ -309,7 +310,7 @@ export function ConflictsControl<W>({ session, words, onIssue, where, issueText,
                 {card.choice !== undefined && <FontAwesomeIcon icon={faCheck} />}
             </Box>
             <Box as="span" id={itemId} css={styles.item} data-conflict-item="">{card.item}</Box>
-            <chakra.button type="button" css={styles.goTo} onClick={() => goTo(card)}>{m.conflictGoTo()}</chakra.button>
+            <chakra.button type="button" css={styles.goTo} data-conflict-go="" onClick={() => goTo(card)}>{m.conflictGoTo()}</chakra.button>
         </Box>
     );
     const cardOf = (card: Card, index: number) => {

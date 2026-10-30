@@ -13,13 +13,14 @@
  * the yard's answer.
  */
 import { describe, expect, test, vi } from "vitest";
-import { fireEvent, within } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { DateTimeType, FloatType, SortedMap, StringType, compareFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
 import { editingMessages, formatters } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
+import { conflictCards } from "../e3-web-mount.test-utils.js";
 import { act, allocationHarness, offering, settle, slot, TUE } from "./harness.test-utils.js";
 import { allocationWords } from "./model.js";
 import { RESERVE_PROBE } from "./table.js";
@@ -796,5 +797,29 @@ describe("the keyboard kept as a control goes with its view (#1398)", () => {
         expect(actions(c)).not.toContain("Unlink");
         expect(focused).not.toBe(document.body);
         expect(named(focused)).toEqual([true, "Bin 3113", "LD-2210 · 32 m³"]);
+    });
+});
+
+describe("a conflict's Go to", () => {
+    test("selects its bin and shows its details, as its issue's Show does", async () => {
+        const c = await open();
+        await press(card(c, "3113"));
+        const user = userEvent.setup();
+        const quantity = within(details(c).querySelector<HTMLElement>('[data-field="quantity"]')!).getByRole("spinbutton");
+        await user.clear(quantity);
+        for (const k of "30") { await user.type(quantity, k); await settle(); }
+        await user.keyboard("{Enter}");
+        await settle();
+        // Another bin selected, and the Issues open, before another session sets the same quantity otherwise.
+        await press(card(c, "3101"));
+        await tab(c, "Issues");
+        const bins = await h.read(ex.kilnBins);
+        bins.set("3113", { ...bins.get("3113")!, m3: 28 });
+        await h.patch(ex.kilnBins, bins);
+        await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        const [conflict, ...more] = await conflictCards(c);
+        expect(more).toEqual([]);
+        await press(conflict!.goTo());
+        expect([card(c, "3113").hasAttribute("data-selected"), card(c, "3101").hasAttribute("data-selected"), activeTab(c)?.startsWith("Details")]).toEqual([true, false, true]);
     });
 });

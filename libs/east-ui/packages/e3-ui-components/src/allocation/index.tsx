@@ -516,7 +516,16 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
         return part === undefined ? issue.entry : where(part.kind)(issue);
     };
-    const toolbar = useAllocationToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, where: historyWhere, onAction, onPickerWeeks: setPickerWeeks,
+    // A conflict's Go to: its bin shown on its day and selected, as its issue's Show does; a day's opens the Issues tab.
+    const onConflict = (issue: EditIssue) => {
+        const key = history?.sourceOf(issue);
+        const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
+        const bin = part === undefined || part.kind === PERIODS ? undefined : plan.bins.get(issue.entry) ?? held.bins.get(issue.entry);
+        if (bin === undefined) { onIssues(); return; }
+        window.setView({ ...window.view, date: dayStart(bin.at).getTime() });
+        inspect({ type: "bin", id: issue.entry });
+    };
+    const toolbar = useAllocationToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onConflict, where: historyWhere, onAction, onPickerWeeks: setPickerWeeks,
         status: value.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
         focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: resourcesShown.keys.type === "some" && !resourcesShown.keys.value.has(focus) },

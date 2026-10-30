@@ -50,6 +50,8 @@ interface ToolbarArgs extends RosterWindow {
     issues: readonly Issue[]; onIssues: () => void; onAction: (action: HistoryAction) => void; onPickerDates: (dates: readonly Date[]) => void;
     /** Where an issue of the history's is, in the Roster's words — its banners' — what the history item's conflicts name their items by. */
     where?: ((issue: EditIssue) => string) | undefined;
+    /** A conflict's Go to: its item shown and selected. */
+    onConflict?: ((issue: EditIssue) => void) | undefined;
     /** Search Records over the people's keys (#1398); `undefined` with no one to seek. */
     search?: KeySearchSource | undefined;
     /** The Elara eye (#1409): the run's toolbar item, listed between the issues item and the history item; `undefined` with no optimiser. */
@@ -171,7 +173,7 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         // The Elara eye (#1409), between the issues item and the history item, whose actions a run out locks (R2): in the row
         // at every width the ladder and the rail's caret leave it room, and else the View's entry, never out of the toolbar.
         eye === undefined ? args.optimise : { ...eye.item, forms: [...eye.item.forms, null], rank: OPTIMISE_RANK, bundle: EYE_INTO_VIEW },
-        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, where: args.where, onAction: args.onAction, locked: args.locked === true }),
+        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onConflict: args.onConflict, where: args.where, onAction: args.onAction, locked: args.locked === true }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the week can't publish.
         heldPublish && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!publishable} onClick={() => commands.publish()}>Publish</Button>, null] },
     ];

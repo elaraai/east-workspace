@@ -138,7 +138,14 @@ describe("Roster week lifecycle", () => {
         await carriedOver(container);
         expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(true);
-        expect((await conflictCards(container)).map((card) => [card.item, card.yours])).toEqual([["C. Clover", "Yours, Removed"]]);
+        const [card] = await conflictCards(container);
+        expect([card!.item, card!.yours]).toEqual(["C. Clover", "Yours, Removed"]);
+        // Another duty selected, its Go to selects this one, as its issue's click in the Issues tab does.
+        const other = [...container.querySelectorAll<HTMLElement>("[data-roster-assignment]")].find((el) => el.getAttribute("data-roster-assignment") !== "s37")!;
+        await press(other);
+        expect([assignment(container, "s37").hasAttribute("data-selected"), other.hasAttribute("data-selected")]).toEqual([false, true]);
+        await press(card!.goTo());
+        expect([assignment(container, "s37").hasAttribute("data-selected"), other.hasAttribute("data-selected")]).toEqual([true, false]);
         await press(history(container, editingMessages.discard()));
         expect(assignment(container, "s37").hasAttribute("data-removed")).toBe(false);
         // Its own times differ from its shift's now: the chip says them.

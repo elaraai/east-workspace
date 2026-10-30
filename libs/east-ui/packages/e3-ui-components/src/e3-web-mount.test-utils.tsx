@@ -558,6 +558,8 @@ export interface ConflictCard {
     readonly theirs: string | null;
     /** A choice's radio. */
     readonly radio: (choice: "draft" | "source") => HTMLInputElement;
+    /** Its Go to. */
+    readonly goTo: () => HTMLButtonElement;
 }
 
 /**
@@ -577,5 +579,6 @@ export async function conflictCards(container: HTMLElement): Promise<ConflictCar
         yours: card.querySelector("[data-choice=draft] input")?.getAttribute("aria-label") ?? null,
         theirs: card.querySelector("[data-choice=source] input")?.getAttribute("aria-label") ?? null,
         radio: (choice) => card.querySelector<HTMLInputElement>(`[data-choice=${choice}] input`)!,
+        goTo: () => card.querySelector<HTMLButtonElement>("[data-conflict-go]")!,
     }));
 }

@@ -51,7 +51,7 @@ import { useRosterInspector } from "./inspector.js";
 import { useRosterLibrary } from "./library.js";
 import { rosterMessages, type RosterWords } from "./messages.js";
 import {
-    NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, editableStatus, placeDrafted, placeStored, placeTargets,
+    DAY, NARROW_WIDTH, NO_PAY, NO_PERIOD, RosterPayCache, availableProposals, compareDate, configError, editableStatus, placeDrafted, placeStored, placeTargets,
     rosterContext, rosterDomain, spanWindow, spanWords, started, statusText, weekBefore, weekKey, weekNumber, weekOf, type DraftedDuty, type Issue, type PlacedDuties, type PlacedPeriod,
     type RosterPayload, type RosterStyles, type RosterValue, type Selection, type StoredDuty, type StoredTarget, type WeekState,
 } from "./model.js";
@@ -366,7 +366,17 @@ function RosterFrame(props: FrameProps) {
         const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
         return part === undefined ? issue.entry : where(part.kind)(issue);
     };
-    const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, where: historyWhere, onAction, onPickerDates: setPickerDates, narrow,
+    // A conflict's Go to: its duty shown on its day and selected, as its issue's click in the Issues tab does; a week's or
+    // a target's, or a duty of another week, opens the Issues tab.
+    const onConflict = (issue: EditIssue) => {
+        const key = history?.sourceOf(issue);
+        const part = key === undefined ? undefined : editing?.schedule.sessions.find((held) => keyEqual(held.key, key));
+        const a = part?.kind !== source.duty.kind.key ? undefined : week.assignments.get(issue.entry) ?? held.assignments.get(issue.entry);
+        if (a === undefined) { onIssues(); return; }
+        window.setView({ ...window.view, date: start.getTime() + Number(a.slot.day) * DAY });
+        select({ type: "assignment", key: issue.entry });
+    };
+    const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, onIssues, onConflict, where: historyWhere, onAction, onPickerDates: setPickerDates, narrow,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
         selectedWeek: pickedWeek === undefined ? undefined : new Date(pickedWeek.start),
         status: source.periods.type === "some" ? statusText(heldPeriod) : undefined, unread: !current, publishing, picker: data.picker,
