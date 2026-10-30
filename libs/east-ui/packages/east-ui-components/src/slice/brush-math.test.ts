@@ -91,6 +91,23 @@ describe("brushHitTest — resolves the gesture at pointer-down (#192)", () => {
     });
 });
 
+describe("brushKey — the window's arrows at the track's end (#1440)", () => {
+    test("the window stops at the track's end, its width kept, where the host's step clamps there", () => {
+        // A step as the Plan's: a period a press, never past the track.
+        const clamped = (f: number, n: number) => Math.max(0, Math.min(1, f + n / 10));
+        const right = brushKey("ArrowRight", false, "window", { from: 0.8, to: 0.95 }, clamped);
+        expect(right?.kind).toBe("commit");
+        if (right?.kind !== "commit") return;
+        expect(right.from).toBeCloseTo(0.85);
+        expect(right.to).toBe(1);
+        const left = brushKey("ArrowLeft", false, "window", { from: 0.05, to: 0.2 }, clamped);
+        expect(left?.kind).toBe("commit");
+        if (left?.kind !== "commit") return;
+        expect(left.from).toBe(0);
+        expect(left.to).toBeCloseTo(0.15);
+    });
+});
+
 describe("brushDragWindow — the in-flight window (#192)", () => {
     test("draw spans start→current in either direction, clamped to the track", () => {
         expect(brushDragWindow(drag({ start: 50, current: 120 }))).toEqual({ lo: 50, hi: 120 });

@@ -223,10 +223,12 @@ export function brushKey(key: string, shift: boolean, target: BrushKeyTarget, wi
         const n = (key === "ArrowLeft" ? -1 : 1) * (shift ? 10 : 1);
         if (target === "lo") return commit(Math.min(unit(win.from, n), unit(win.to, -1)), win.to);
         if (target === "hi") return commit(win.from, Math.max(unit(win.to, n), unit(win.from, 1)));
+        // At the track's end the window stops, its width kept — reached, not only passed: a host's step that clamps
+        // there (the Plan's does) never passes it, and the window would narrow a period a press (#1440).
         const from = step(win.from, n);
         const to = step(win.to, n);
-        if (from < 0) return commit(0, width);
-        if (to > 1) return commit(1 - width, 1);
+        if (from <= 0) return commit(0, width);
+        if (to >= 1) return commit(1 - width, 1);
         return commit(from, to);
     }
     if (key === "Home") {
