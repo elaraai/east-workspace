@@ -11,7 +11,7 @@
 
 import { describe, test, expect } from "vitest";
 import {
-    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushHitTest, brushKey, brushRelease, brushZoneSides, type BrushDrag,
+    BRUSH_HANDLE_COARSE_PX, brushBars, brushBucketAt, brushCursor, brushDragWindow, brushHitTest, brushKey, brushRelease, brushZones, type BrushDrag,
 } from "./brush-math.js";
 
 const WIDTH = 400;
@@ -70,24 +70,38 @@ describe("brushHitTest — resolves the gesture at pointer-down (#192)", () => {
         expect(brushHitTest(165, touch, WIDTH, BRUSH_HANDLE_COARSE_PX)).toBe("draw");
     });
 
-    test("a narrow window against the track's end sets that edge's zone just inside it, no further than the other edge: nothing past the track (#1438)", () => {
+    test("a narrow window against the track's end sets that edge's zone just inside it, pushing the other edge's along beside it: nothing past the track (#1438, #1440)", () => {
         // 10px wide, 4px from the start: no room for its start's zone outside.
         const start = { lo: 4, hi: 14 };
-        expect(brushZoneSides(start, WIDTH)).toEqual({ lo: "in", hi: "out" });
+        expect(brushZones(start, WIDTH)).toEqual({ lo: { from: 4, to: 16, side: "in" }, hi: { from: 16, to: 28, side: "out" } });
         expect(brushHitTest(4, start, WIDTH)).toBe("resize-lo");
         expect(brushHitTest(13, start, WIDTH)).toBe("resize-lo");
         expect(brushHitTest(20, start, WIDTH)).toBe("resize-hi");
+        expect(brushHitTest(28, start, WIDTH)).toBe("resize-hi");
         expect(brushHitTest(2, start, WIDTH)).toBe("draw");
-        expect(brushHitTest(27, start, WIDTH)).toBe("draw");
+        expect(brushHitTest(29, start, WIDTH)).toBe("draw");
         // 10px wide, 4px from the end: its end's zone inside, its start's outside.
         const end = { lo: 386, hi: 396 };
-        expect(brushZoneSides(end, WIDTH)).toEqual({ lo: "out", hi: "in" });
+        expect(brushZones(end, WIDTH)).toEqual({ lo: { from: 372, to: 384, side: "out" }, hi: { from: 384, to: 396, side: "in" } });
         expect(brushHitTest(380, end, WIDTH)).toBe("resize-lo");
         expect(brushHitTest(387, end, WIDTH)).toBe("resize-hi");
         expect(brushHitTest(396, end, WIDTH)).toBe("resize-hi");
         expect(brushHitTest(398, end, WIDTH)).toBe("draw");
         // With room on both sides, both outside.
-        expect(brushZoneSides({ lo: 100, hi: 110 }, WIDTH)).toEqual({ lo: "out", hi: "out" });
+        expect(brushZones({ lo: 100, hi: 110 }, WIDTH)).toEqual({ lo: { from: 88, to: 100, side: "out" }, hi: { from: 110, to: 122, side: "out" } });
+    });
+
+    test("a window narrower than a tab at the track's end keeps its two zones side by side, each grabbing its own edge (#1440)", () => {
+        // A decade's first week on a 400px track: 1px from the start.
+        const first = { lo: 0, hi: 1 };
+        expect(brushZones(first, WIDTH)).toEqual({ lo: { from: 0, to: 12, side: "in" }, hi: { from: 12, to: 24, side: "out" } });
+        expect(brushHitTest(5, first, WIDTH)).toBe("resize-lo");
+        expect(brushHitTest(18, first, WIDTH)).toBe("resize-hi");
+        // And its last: 1px at the end.
+        const last = { lo: 399, hi: 400 };
+        expect(brushZones(last, WIDTH)).toEqual({ lo: { from: 376, to: 388, side: "out" }, hi: { from: 388, to: 400, side: "in" } });
+        expect(brushHitTest(380, last, WIDTH)).toBe("resize-lo");
+        expect(brushHitTest(395, last, WIDTH)).toBe("resize-hi");
     });
 });
 

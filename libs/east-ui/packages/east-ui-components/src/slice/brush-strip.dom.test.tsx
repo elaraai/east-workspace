@@ -176,16 +176,24 @@ describe("the horizon brush's hover and gestures (#1438)", () => {
         expect(q("[data-brush-handle][data-pressed]")).toHaveLength(0);
     });
 
-    test("a window narrower than its two zones marks the track narrow and sets each zone, its tab over it, beside its edge — outside it, or against the track's end just inside it", () => {
+    test("a window narrower than its two zones marks the track narrow and sets each zone, its tab over it, beside its edge — outside it, or against the track's end just inside it, the other pushed along beside it", () => {
         const placed = (from: number, to: number) => {
             const { q, track } = strip({ window: { from, to } });
-            const read = { narrow: track.hasAttribute("data-narrow"), sides: [...q("[data-brush-zone]")].map((zone) => zone.getAttribute("data-side")) };
+            const zones = [...q("[data-brush-zone]")];
+            const read = {
+                narrow: track.hasAttribute("data-narrow"),
+                sides: zones.map((zone) => zone.getAttribute("data-side")),
+                lefts: zones.map((zone) => declaredStyle(zone, "left")),
+            };
             cleanup();
             return read;
         };
-        expect(placed(0.5, 0.55)).toEqual({ narrow: true, sides: ["out", "out"] });
-        // 388–396px of 400: no room for the end's zone outside.
-        expect(placed(0.97, 0.99)).toEqual({ narrow: true, sides: ["out", "in"] });
-        expect(placed(0.5, 0.6)).toEqual({ narrow: false, sides: [null, null] });
+        // 200–218.75px of 400: each zone outside its edge.
+        expect(placed(0.5, 0.546875)).toEqual({ narrow: true, sides: ["out", "out"], lefts: ["188px", "218.75px"] });
+        // 388–396px of 400: no room for the end's zone outside, so the start's lies just before it.
+        expect(placed(0.97, 0.99)).toEqual({ narrow: true, sides: ["out", "in"], lefts: ["372px", "384px"] });
+        // The first 1px: two tabs side by side, never one over the other (#1440).
+        expect(placed(0, 0.0025)).toEqual({ narrow: true, sides: ["in", "out"], lefts: ["0px", "12px"] });
+        expect(placed(0.5, 0.6)).toEqual({ narrow: false, sides: [null, null], lefts: ["50%", "60%"] });
     });
 });

@@ -1736,6 +1736,31 @@ test.describe("planNestedAll's rows (#1438)", { tag: "@desktop" }, () => {
         await expect.poll(drawn).toEqual({ ring, outline: "none", inside: true });
     });
 
+    test("a window of the strip's first week, narrower than a tab, draws its two tabs side by side, neither over the other", async ({ page }) => {
+        const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
+        const track = entry.locator("[data-plan-horizon-track] [data-brush-track]");
+        const window = track.locator("[data-brush-window]");
+        // Home on the start's tab, then on the end's: the strip's first week, a pixel or so of a decade.
+        for (const edge of ["lo", "hi"]) {
+            const before = await window.getAttribute("aria-valuetext");
+            await track.locator(`[data-brush-handle="${edge}"]`).focus();
+            await page.keyboard.press("Home");
+            await expect(window).not.toHaveAttribute("aria-valuetext", before!);
+            await settled(page);
+        }
+        const tabs = await track.evaluate((t) => {
+            const box = t.getBoundingClientRect();
+            const of = (edge: string) => {
+                const r = t.querySelector(`[data-brush-handle="${edge}"]`)!.getBoundingClientRect();
+                return { left: r.left - box.left, right: r.right - box.left };
+            };
+            return { lo: of("lo"), hi: of("hi"), narrow: t.hasAttribute("data-narrow") };
+        });
+        expect(tabs.narrow).toBe(true);
+        expect(tabs.lo.left, "the start's tab inside the track").toBeGreaterThanOrEqual(0);
+        expect(tabs.lo.right, "the start's tab ends before the end's begins").toBeLessThanOrEqual(tabs.hi.left);
+    });
+
     test("zooming, panning and moving the window add no style rules once each has been drawn: a place is written inline, never into a class", async ({ page }) => {
         // Wide enough that the toolbar shows every zoom, rather than folding them into a menu.
         await page.setViewportSize({ width: 1440, height: 900 });

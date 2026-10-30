@@ -25,7 +25,8 @@
  * - **zone** — an edge's invisible resize zone, 12 wide (24 on a coarse
  *   pointer), centred on its edge, in lockstep with `brush-math`'s
  *   `BRUSH_HANDLE_PX`; a narrow window's sits beside its edge (`data-side`,
- *   `brushZoneSides`): outside it, or against the track's end just inside.
+ *   `brushZones`, placed where it lies): outside it, or against the track's
+ *   end just inside, the other edge's pushed along beside it.
  * - **handle** — an outlined tab, 9 wide, 2 in from the track's top and
  *   bottom, centred on its edge — beside a narrow window's, over its zone
  *   against the edge: `bg.surface` fill, a 1px `brand.solid` border and two
@@ -111,11 +112,8 @@ export const brushStripSlotRecipe = defineSlotRecipe({
             transform: "translateX(-50%)",
             cursor: "ew-resize",
             _coarse: { width: "24px" },
-            // Beside a narrow window's edge: outside it, or against the track's end just inside it.
-            "&[data-side='out'][data-edge='lo']": { transform: "translateX(-100%)" },
-            "&[data-side='in'][data-edge='hi']": { transform: "translateX(-100%)" },
-            "&[data-side='out'][data-edge='hi']": { transform: "none" },
-            "&[data-side='in'][data-edge='lo']": { transform: "none" },
+            // Beside a narrow window's edge, where its zone lies (`brushZones`): placed whole, not about the edge.
+            "&[data-side]": { transform: "none" },
         },
         handle: {
             position: "absolute",

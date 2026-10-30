@@ -62,6 +62,16 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 /** Where a narrow window's edge zone sits: outside its edge, or just inside it (#1438). */
 export type BrushZoneSide = "out" | "in";
 
+/** A narrow window's edge zone: where it lies on the track, px, and on which side of its edge (#1438). */
+export interface BrushZone {
+    /** Its left end, px from the track's. */
+    from: number;
+    /** Its right end. */
+    to: number;
+    /** Outside its edge, or against the track's end just inside it. */
+    side: BrushZoneSide;
+}
+
 /**
  * Whether a window is narrower than its two edge zones side by side, which
  * then sit beside its edges rather than on them (#1438).
@@ -75,28 +85,33 @@ export function brushNarrow(win: BrushWindowPx, handlePx: number = BRUSH_HANDLE_
 }
 
 /**
- * Where a narrow window's two edge zones sit, the strip drawing each tab
+ * Where a narrow window's two edge zones lie, the strip drawing each tab
  * over its zone (#1438): outside its edge, so a press inside the window moves
  * it, unless the track's end leaves the zone no room, where it sits just
- * inside — nothing past the track.
+ * inside — nothing past the track. The two never overlap (#1440): a zone
+ * just inside one end of the track pushes the other edge's along beside it,
+ * so a window narrower than a tab still shows both, and what is drawn is
+ * what is grabbed.
  *
  * @param win - The window in track px
  * @param width - The track's width (px)
  * @param handlePx - Half-width of each edge zone
- * @returns Each edge's side
+ * @returns Each edge's zone
  */
-export function brushZoneSides(win: BrushWindowPx, width: number, handlePx: number = BRUSH_HANDLE_PX): { lo: BrushZoneSide; hi: BrushZoneSide } {
-    return {
-        lo: win.lo - 2 * handlePx >= 0 ? "out" : "in",
-        hi: win.hi + 2 * handlePx <= width ? "out" : "in",
-    };
+export function brushZones(win: BrushWindowPx, width: number, handlePx: number = BRUSH_HANDLE_PX): { lo: BrushZone; hi: BrushZone } {
+    const zone = 2 * handlePx;
+    let lo: BrushZone = win.lo - zone >= 0 ? { from: win.lo - zone, to: win.lo, side: "out" } : { from: win.lo, to: win.lo + zone, side: "in" };
+    let hi: BrushZone = win.hi + zone <= width ? { from: win.hi, to: win.hi + zone, side: "out" } : { from: win.hi - zone, to: win.hi, side: "in" };
+    if (lo.side === "in" && hi.side === "out" && hi.from < lo.to) hi = { from: lo.to, to: lo.to + zone, side: "out" };
+    if (hi.side === "in" && lo.side === "out" && lo.to > hi.from) lo = { from: hi.from - zone, to: hi.from, side: "out" };
+    return { lo, hi };
 }
 
 /**
  * Resolves which gesture a pointer-down at `x` starts against the applied
  * window. Edge hot zones win over the window interior; no window (or a
  * pointer outside it) means a fresh draw. A window narrower than its two
- * zones side by side sets each zone beside its edge ({@link brushZoneSides}),
+ * zones side by side sets each zone beside its edge ({@link brushZones}),
  * so a press inside it still moves it (#1438).
  *
  * @param x - Pointer-down position (track px)
@@ -108,13 +123,9 @@ export function brushZoneSides(win: BrushWindowPx, width: number, handlePx: numb
 export function brushHitTest(x: number, win: BrushWindowPx | undefined, width: number, handlePx: number = BRUSH_HANDLE_PX): BrushMode {
     if (win === undefined) return "draw";
     if (brushNarrow(win, handlePx)) {
-        const sides = brushZoneSides(win, width, handlePx);
-        const zone = 2 * handlePx;
-        // A zone inside the window reaches no further than its other edge.
-        const [loFrom, loTo] = sides.lo === "out" ? [win.lo - zone, win.lo] : [win.lo, Math.min(win.lo + zone, win.hi)];
-        const [hiFrom, hiTo] = sides.hi === "out" ? [win.hi, win.hi + zone] : [Math.max(win.hi - zone, win.lo), win.hi];
-        if (x >= loFrom && x <= loTo) return "resize-lo";
-        if (x >= hiFrom && x <= hiTo) return "resize-hi";
+        const zones = brushZones(win, width, handlePx);
+        if (x >= zones.lo.from && x <= zones.lo.to) return "resize-lo";
+        if (x >= zones.hi.from && x <= zones.hi.to) return "resize-hi";
         return x > win.lo && x < win.hi ? "move" : "draw";
     }
     if (Math.abs(x - win.lo) <= handlePx) return "resize-lo";
