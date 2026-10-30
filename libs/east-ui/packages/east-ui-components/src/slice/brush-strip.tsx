@@ -92,6 +92,12 @@ export interface BrushStripProps {
     /** A sub-threshold click on empty track, or Escape, cleared the window. */
     onClear: () => void;
     /**
+     * Optional: a gesture on the strip ended, however and wherever it ended —
+     * committed, cleared, a click that changed nothing, cancelled, or let go
+     * off the strip, where nothing around the strip hears the release.
+     */
+    onEnd?: (() => void) | undefined;
+    /**
      * Optional window snapping (fraction pair → fraction pair) — applied to
      * the in-flight draft AND the committed window, so what you see
      * mid-gesture is exactly what releases. The host owns the semantics
@@ -161,7 +167,7 @@ function Handle({ styles, edge, at, side, pressed, name, text, onKeyDown }: {
  * module doc for the visual contract; geometry decisions (draw vs slide vs
  * resize, click-through threshold, keys, bars) live in `brush-math.ts`.
  */
-export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, onCommit, onClear, snapWindow, onPreview, step, valueText, words }: BrushStripProps) {
+export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, onCommit, onClear, onEnd, snapWindow, onPreview, step, valueText, words }: BrushStripProps) {
     const styles = useSlotRecipe({ key: "brushStrip" })();
     const trackRef = useRef<HTMLDivElement | null>(null);
     const anchorRef = useRef<HTMLDivElement | null>(null);
@@ -207,6 +213,7 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
         if (canceled) {
             setDrag(null);
             restoreOrigin();
+            onEnd?.();
             return d;
         }
         const next: DragState = { ...d, current: x };
@@ -221,6 +228,7 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
                 const s = snapWindow !== undefined ? snapWindow(raw.from, raw.to) : raw;
                 onCommit(s.from, s.to);
             } else restoreOrigin();
+            onEnd?.();
             return next;
         }
         // Live preview: adjusting an existing window (move / resize) fires

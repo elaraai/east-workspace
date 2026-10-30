@@ -254,13 +254,7 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     const step = (f: number, n: number): number => toFrac(scale.offset(fromFraction(f), n));
     const valueText = (f: number): string => scale.instantText(fromFraction(f));
     return (
-        <Box css={styles.brushRow} style={{ gridTemplateColumns: gridTemplate }} data-slot="horizon"
-            // The esc rung DISARMS on any release — including the
-            // sub-threshold click where the strip emits neither a commit nor
-            // a clear (`brushRelease` is a noop there), which used to leave
-            // `ui.brush` armed forever and silently eat the next Escape (#615).
-            onPointerUpCapture={() => dispatch({ t: "brush.up" })}
-            onPointerCancelCapture={() => dispatch({ t: "brush.up" })}>
+        <Box css={styles.brushRow} style={{ gridTemplateColumns: gridTemplate }} data-slot="horizon">
             <Box css={styles.brushCaption}>
                 <Box as="span" data-plan-horizon-caption="">{caption}</Box>
                 {/* The meta line (#1438): the largest bucket and its period, or that nothing is in the horizon. */}
@@ -296,6 +290,11 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
                         dispatch({ t: "brush.commit", min: a, max: b });
                     }}
                     onClear={() => { dispatch({ t: "brush.clear" }); }}
+                    // The esc rung DISARMS when the gesture ends, however it ends — the sub-threshold click where the
+                    // strip emits neither a commit nor a clear (`brushRelease` is a noop there), which used to leave
+                    // `ui.brush` armed and silently eat the next Escape (#615), and a release off the strip, which no
+                    // listener around it hears (#1440).
+                    onEnd={() => { dispatch({ t: "brush.up" }); }}
                 />
                 {/* The lens (#949): from the window's edges on the strip's own
                     scale down to the plot's edges — the grid below is this
