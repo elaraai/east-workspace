@@ -11,21 +11,28 @@
 - The passes over a build's tree leave no garbage that grows with the tree:
   each keeps a memo of every node it saw, which its recursive closure — a
   cycle — would hold until the cyclic collector's next pass.
+- While builds are deferred, as an export defers them, a function is built
+  on its first use and compiled when it runs, and it writes the IR and the
+  source map a build at its declaration writes.
 """
 
 from __future__ import annotations
 
 import gc
+import importlib
 import sys
 
 import pytest
 
 from east import East, IntegerType
 from east.expression.finalize import _arrayify_tree, _rehome_ir, _rename_apart
-from east.expression.function import _platform_deps
+from east.expression.function import _platform_deps, deferred_builds
 from east.ir import analyze
 from east.ir.analyze import IRAnalysisError, analyze_ir
 from east.ir.builders import ir_function, ir_variable
+from east.runtime import compiler
+from east.serialization.beast2 import encode_beast2_with_header_for
+from east.types.type_of_type import IRType
 from east.types.types import FunctionType
 
 
@@ -98,3 +105,42 @@ def test_the_passes_over_a_tree_leave_no_garbage_that_grows_with_it():
         (_platform_deps, (small,), (large,)),
     ):
         assert _cyclic_garbage(pass_, *on_small) == _cyclic_garbage(pass_, *on_large), pass_.__name__
+
+
+def _declare_pair():
+    inc = East.function([IntegerType], IntegerType, lambda b, x: x + 1)
+    twice = East.function([IntegerType], IntegerType, lambda b, x: inc(inc(x)))
+    return inc, twice
+
+
+def test_a_deferred_function_is_built_on_its_first_use_and_compiled_when_it_runs(monkeypatch):
+    function = importlib.import_module("east.expression.function")
+    builds, compiles = [], []
+    build, compile_ = function._build_strict, compiler.compile_from_value
+
+    def counted_build(*args, **kwargs):
+        builds.append(args[2])
+        return build(*args, **kwargs)
+
+    def counted_compile(*args, **kwargs):
+        compiles.append(args[0])
+        return compile_(*args, **kwargs)
+
+    monkeypatch.setattr(function, "_build_strict", counted_build)
+    monkeypatch.setattr(compiler, "compile_from_value", counted_compile)
+    with deferred_builds():
+        _inc, twice = _declare_pair()
+        assert builds == []
+        assert twice._east_ir is not None  # its first use builds it, and the function it calls
+        assert (len(builds), compiles) == (2, [])
+        assert twice(1) == 3  # it runs, so it is compiled
+        assert len(compiles) == 1
+
+
+def test_a_function_built_on_its_first_use_writes_what_a_build_at_its_declaration_writes():
+    encode = encode_beast2_with_header_for(IRType)
+    _inc, eager = _declare_pair()
+    with deferred_builds():
+        _inc, deferred = _declare_pair()
+        assert encode(deferred._east_ir) == encode(eager._east_ir)
+        assert deferred._east_source_map.entries() == eager._east_source_map.entries()

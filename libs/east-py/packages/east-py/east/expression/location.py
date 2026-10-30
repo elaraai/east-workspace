@@ -7,8 +7,8 @@
 Every IR node a build constructs carries a ``loc_id``: an index into the
 build's :class:`SourceMap`, whose entry is the stack of PYTHON frames that
 were executing when the node was built — the lambda line that spelled the
-expression, the ``East.function(...)`` call site, and the caller's frames
-above it. A runtime error inside the compiled function resolves its node's
+expression, any helper between, and the ``East.function(...)`` call that
+built it. A runtime error inside the compiled function resolves its node's
 ``loc_id`` back through that map, so ``EastError.location`` names the python
 ``file:line:column`` of the offending expression — on the east-py runner,
 and on every other runner the function is exported to, because the map rides
@@ -446,9 +446,27 @@ def capture_frames() -> tuple[Location, ...]:
             line, column = _position(frame)
             out.append((path, line, column))
         if frame is stop:
+            out.extend(_tail)
             break
         frame = frame.f_back
     return tuple(out)
+
+
+def frame_location(frame: Any) -> tuple[Location, ...]:
+    """What a build's stacks end with when ``frame`` called ``East.function``:
+    the frame's own location when it is the author's, else nothing.
+
+    A function built after its declaration (``function.deferred_builds``)
+    takes it at the declaration, where the frame still is, and ends its
+    stacks with it (:func:`source_map_scope`'s ``tail``), as a build at the
+    declaration would."""
+    if not _capture_enabled:
+        return ()
+    path = _map_path(frame.f_code.co_filename)
+    if path is None:
+        return ()
+    line, column = _position(frame)
+    return ((path, line, column),)
 
 
 # ─── The ambient map ────────────────────────────────────────────────────────
@@ -456,10 +474,12 @@ def capture_frames() -> tuple[Location, ...]:
 _current: SourceMap | None = None
 #: the frame the open build's stacks stop at, or None to walk the whole stack
 _boundary: Any = None
+#: what a stack ends with once the walk stops at the boundary
+_tail: tuple[Location, ...] = ()
 
 
 @contextlib.contextmanager
-def source_map_scope(boundary: Any = None) -> Iterator[SourceMap]:
+def source_map_scope(boundary: Any = None, tail: tuple[Location, ...] = ()) -> Iterator[SourceMap]:
     """Run a build with a source map current, yielding that map.
 
     A fresh map when none is open; the ENCLOSING build's when one is — a
@@ -474,18 +494,23 @@ def source_map_scope(boundary: Any = None) -> Iterator[SourceMap]:
             and never those of the code that imported or called its module.
             A nested build keeps the enclosing build's. ``None`` walks the
             whole stack.
+        tail: What each stack ends with after the boundary: the
+            declaration's location (:func:`frame_location`) for a function
+            built after it was declared, whose boundary is then a frame of
+            East's own.
     """
-    global _current, _boundary
+    global _current, _boundary, _tail
     if _current is not None:
         yield _current
         return
     _current = SourceMap()
-    previous, _boundary = _boundary, boundary
+    previous = _boundary, _tail
+    _boundary, _tail = boundary, tail
     try:
         yield _current
     finally:
         _current = None
-        _boundary = previous
+        _boundary, _tail = previous
 
 
 def current_source_map() -> SourceMap | None:
