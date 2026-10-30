@@ -66,6 +66,22 @@ async function alone(title: (typeof SERIES)[number]) {
     return c;
 }
 
+/** A mounted planNestedAll's Series tab, opened: its lines, each a series and whether it is on, and a toggle by its title. */
+async function series(c: HTMLElement) {
+    const pane = slot(c, "start")!;
+    fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
+    await settle();
+    const panel = () => pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+    return {
+        lines: () => [...panel().querySelectorAll<HTMLElement>("[data-slot='pickPanel'] button[aria-pressed]")]
+            .map((line) => [line.getAttribute("aria-label")!.replace(/^Toggle /, ""), line.getAttribute("aria-pressed") === "true"]),
+        toggle: async (name: string) => {
+            fireEvent.click([...panel().querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!);
+            await settle();
+        },
+    };
+}
+
 /** The first works, W-10001, as the generator made it. */
 const firstWorks = East.compile(ex.generateWorks, [])(0n, 522n);
 /** The window the example opens at, its thirteen weeks from Monday 28 September 2026. */
@@ -162,20 +178,6 @@ describe("the nested series example on e3 (#1439)", () => {
     });
 
     test("planNestedAll: the series a viewer switched open as they were left after a reload", async () => {
-        const series = async (c: HTMLElement) => {
-            const pane = slot(c, "start")!;
-            fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
-            await settle();
-            const panel = () => pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
-            return {
-                lines: () => [...panel().querySelectorAll<HTMLElement>("[data-slot='pickPanel'] button[aria-pressed]")]
-                    .map((line) => [line.getAttribute("aria-label")!.replace(/^Toggle /, ""), line.getAttribute("aria-pressed") === "true"]),
-                toggle: async (name: string) => {
-                    fireEvent.click([...panel().querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === `Toggle ${name}`)!);
-                    await settle();
-                },
-            };
-        };
         const first = await h.mount(ex.planNestedAll);
         await settle();
         const tab = await series(first.container);
@@ -193,6 +195,20 @@ describe("the nested series example on e3 (#1439)", () => {
         await waitFor(() => expect(slot(c, "main")!.querySelector(rowAt(entry("load-line", "W-10001")))).not.toBeNull());
         // Kept under the pick's own key.
         expect(new Set(JSON.parse(localStorage.getItem("pick.ex.planNestedAll.series")!))).toEqual(new Set(["works", "load", "crews", "assembly", "alarm-marks", "job-chips", "alarm-tiles"]));
+    });
+
+    test("planNestedAll: with every series switched off, the strip still spans what they hold", async () => {
+        const { container: c } = await h.mount(ex.planNestedAll);
+        await settle();
+        const caption = () => c.querySelector("[data-plan-horizon-caption]")?.textContent;
+        await waitFor(() => expect(caption()).toBeDefined());
+        const spanned = caption();
+        const tab = await series(c);
+        for (const name of ["Jobs", "Load", "Crew hours", "Parts"]) await tab.toggle(name);
+        expect(tab.lines().filter(([, on]) => on)).toEqual([]);
+        // The horizon as it was — not the window and as much again either side. (Its bars are measured in the browser:
+        // jsdom lays the strip out at no width.)
+        expect(caption()).toBe(spanned);
     });
 
     test("planNestedAll: its load as a line, switched on, reads the works' load through the index: the chart says its least, greatest and last value in the window", async () => {

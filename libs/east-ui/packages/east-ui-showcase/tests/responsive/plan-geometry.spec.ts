@@ -1736,6 +1736,29 @@ test.describe("planNestedAll's rows (#1438)", { tag: "@desktop" }, () => {
         await expect.poll(drawn).toEqual({ ring, outline: "none", inside: true });
     });
 
+    test("with every series switched off, the strip keeps spanning the decade, says it has nothing to count, and a drag moves the window along it", async ({ page }) => {
+        const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
+        const caption = entry.locator("[data-plan-horizon-caption]");
+        const spanned = (await caption.textContent())!;
+        await showOnly(entry, []);
+        await settled(page);
+        const track = entry.locator("[data-plan-horizon-track] [data-brush-track]");
+        await expect(entry.locator("[data-plan-horizon-meta][data-empty]")).toHaveCount(1);
+        await expect(track.locator("[data-brush-bar]")).toHaveCount(0);
+        await expect(caption).toHaveText(spanned);
+        // The window's body dragged along: it moves on the decade, which stays put.
+        const window = track.locator("[data-brush-window]");
+        const before = await window.getAttribute("aria-valuetext");
+        const box = (await window.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+        await page.mouse.down();
+        for (let step = 1; step <= 10; step++) await page.mouse.move(box.x + box.width / 2 + step * 10, box.y + box.height / 2);
+        await page.mouse.up();
+        await expect(window).not.toHaveAttribute("aria-valuetext", before!);
+        await settled(page);
+        await expect(caption).toHaveText(spanned);
+    });
+
     test("a window of the strip's first week, narrower than a tab, draws its two tabs side by side, neither over the other", async ({ page }) => {
         const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
         const track = entry.locator("[data-plan-horizon-track] [data-brush-track]");

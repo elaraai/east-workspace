@@ -468,8 +468,8 @@ export function usePlanCanvas({
     const [nestedLead, setNestedLead] = useState<PlanNestedLead | undefined>(undefined);
     // The rows waiting on the nested series' read in flight (#1438): they wash as a paged kind's unread rows do.
     const [nestedWaiting, setNestedWaiting] = useState<ReadonlySet<RowKey>>(NO_ROWS_WAITING);
-    // The span of the collections the series shown read (#1438): the horizon a canvas holding its own window spans, and
-    // what a zoom keeps that window inside.
+    // The span of what every series reads (#1438), shown or not (#1440): the horizon a canvas holding its own window spans,
+    // and what a zoom keeps that window inside — even with every series switched off.
     const [nestedSpan, setNestedSpan] = useState<PlanNestedSpanRead | typeof SPAN_READING | undefined>(undefined);
     useEffect(() => { windowHold.span = nestedSpan === "reading" ? windowHold.span : nestedSpan?.span; }, [windowHold, nestedSpan]);
     // A link end the cells do not hold (#1438): a run the links focus names on a row read lean, outside the cells read,

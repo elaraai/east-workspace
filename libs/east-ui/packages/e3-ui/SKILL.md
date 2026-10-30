@@ -408,12 +408,13 @@ viewer switch each series on and off from the library's Series tab
 in an East variable (`$.let`), is refused: the Plan could not see what its
 series read. While cells are read — a pan, a zoom, a scroll, a commit — the
 rows waiting on them wash, their plots busy, until the cells land. Its horizon
-spans the time the series shown read, as e3 keeps it beside the index (its
-span, `<index>_span`): from the first month to the last any row's items or
-values touch, in the collections those series read, read again at each commit
-— a series switched off leaves its collections out — so the brush reaches
-every part of the data from the start, not the window's own margins. Its bars
-are how much those collections hold in each month, as the span counts it: a
+spans the time every series reads, shown or not, as e3 keeps it beside the
+index (its span, `<index>_span`): from the first month to the last any row's
+items or values touch, in the collections the series read, read once and again
+at each commit — a series switched off moves no edge of it, and with every
+series off the strip still spans the data — so the brush reaches every part of
+the data from the start, not the window's own margins. Its bars are how much
+the shown series' collections hold in each month, as the span counts it: a
 bar each month, quarter or year — the finest that keeps 4px a bar — toned on
 the heat ramp by its count, the largest in a meta line under the caption
 (`max 1,559 items / mo`), and a bar's hover saying its period and count. Its

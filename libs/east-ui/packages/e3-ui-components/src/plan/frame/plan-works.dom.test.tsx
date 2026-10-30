@@ -136,26 +136,28 @@ describe("the works on a Plan (#1438)", () => {
         expect(worksRow(container, "W-10001")!.querySelectorAll("[data-run]").length).toBeGreaterThan(0);
     });
 
-    test("the horizon spans the ten years the series shown read, as e3 keeps their span, and a series switched off leaves its collections out", async () => {
+    test("the horizon spans the ten years every series reads, as e3 keeps their span, read once: a series switched off asks nothing and moves no edge of it (#1440)", async () => {
         const { container } = await h.mount(ex.planNestedAll);
         await settle();
-        // The span's searches: one for each collection the series read, in one request, then their months.
+        // The span's searches: one for each collection any series reads, shown or not, in one request, then their months.
         const spanReads = () => h.requests().filter(through(SPAN)).map((request) => (request.kind === "find" ? `find ${request.searches.length}` : request.kind));
         expect(spanReads()).toEqual(["find 5", "runs"]);
         // Ten years of weeks, from the works' first month to their last: the strip spans them, not the window's own margins.
         const caption = () => Number((container.querySelector("[data-plan-horizon-caption]")?.textContent ?? "").replace(/[^0-9]/g, ""));
         await waitFor(() => expect(caption()).toBeGreaterThanOrEqual(520));
         expect(caption()).toBeLessThan(540);
-        // Jobs switched off: its jobs and alarms are read no more, and the span of the rest is — their searches held from
-        // the first batch, one read of their months.
+        // Jobs switched off: nothing is asked again — every series' months are in hand — and the horizon stays the ten
+        // years they hold; only the bars leave its collections out.
         const before = spanReads().length;
+        const spanned = caption();
         const pane = slot(container, "start")!;
         fireEvent.click([...pane.querySelectorAll<HTMLElement>('[role="tab"]')].find((t) => t.textContent?.startsWith("Series "))!);
         await settle();
         const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
         fireEvent.click([...panel.querySelectorAll<HTMLElement>("button[aria-pressed]")].find((b) => b.getAttribute("aria-label") === "Toggle Jobs")!);
         await settle();
-        await waitFor(() => expect(spanReads().slice(before)).toEqual(["runs"]));
+        expect(spanReads().slice(before)).toEqual([]);
+        expect(caption()).toBe(spanned);
     });
 
     test("the horizon's bars are each month's items as e3 keeps them in the span: a month a bar toned by its count, the largest in the meta line, a bar's hover its month and count; a narrower strip counts by quarter", async () => {

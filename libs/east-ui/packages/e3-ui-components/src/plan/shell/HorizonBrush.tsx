@@ -70,8 +70,9 @@ export interface HorizonBrushProps {
     parts: readonly PlanWindowPart[];
     /** The axis's stated window, `[from, to)` on its domain: beside the window shown, the horizon of a canvas holding its own. */
     stated: readonly [number, number] | undefined;
-    /** The span of the collections the series shown read through the rows' nested series index (#1438), or its read in flight: beside the
-     *  window shown, the horizon of a canvas holding its own, in place of the stated window's; its months' counts, its bars. */
+    /** The span of what every series reads through the rows' nested series index (#1438, #1440), whichever are shown, or its read in
+     *  flight: beside the window shown, the horizon of a canvas holding its own, in place of the stated window's; its months' counts —
+     *  the series shown's — its bars. */
     span?: PlanNestedSpanRead | typeof SPAN_READING | undefined;
     /** The now instant, if any (domain tick) — on the axis's arm. */
     now: PlanInstantValue | undefined;
@@ -120,8 +121,8 @@ const READING: typeof SPAN_READING = "reading";
 /**
  * The horizon of a canvas holding its own window over rows whose collections
  * it reads through their nested series index (#1438): the span of what its
- * series shown read, and the window shown — the time it can be brushed to, as
- * a source's domain is.
+ * series read, shown or not (#1440), and the window shown — the time it can be
+ * brushed to, as a source's domain is.
  *
  * @param span - The span, `[from, to)` in ms
  * @param shown - The window shown
@@ -168,7 +169,7 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     const own = parts.length === 0;
     const shownFrom = scale.toNumber(scale.window.min);
     const shownTo = scale.toNumber(scale.window.max);
-    // Over the rows' nested series (#1438), the span of what the series shown read, held while it is read.
+    // Over the rows' nested series (#1438), the span of what every series reads (#1440), held while it is read.
     const reading = dataSpan === READING;
     const read = dataSpan === READING ? undefined : dataSpan;
     const domain = own

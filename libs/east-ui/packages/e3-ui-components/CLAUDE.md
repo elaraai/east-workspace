@@ -1395,15 +1395,19 @@ window through the seam with what it read:
   scroll or a commit asks — which wash as a paged kind's unread rows do (the
   plot busy, #1398 CL2, a card's body too) until their cells land: never a
   blank plot that fills.
-- **The span.** The collections the series the canvas holds rows of read
-  (`usePlanNestedSpan`): their months across the record's rows, each with the
-  items and values touching it, as e3 keeps them in the index's span
-  (`<index>_span`, which the binding reads as a summary index, never listed) —
-  one search a collection, an exact match on its place, and one read of their
-  entries, ascending; the span is the first month to the end of the last.
+- **The span.** The collections every series of the canvas reads, shown or
+  not (`usePlanNestedSpan`, #1440): their months across the record's rows,
+  each with the items and values touching it, as e3 keeps them in the index's
+  span (`<index>_span`, which the binding reads as a summary index, never
+  listed) — one search a collection, an exact match on its place, and one read
+  of their entries, ascending, each collection's kept apart; the span is the
+  first month any touches to the end of the last, and the months' counts are
+  the shown series' collections' alone. Switching a series asks nothing, and
+  with every series off the strip still spans the data, its bars empty.
   Reported apart (`onSpan`, a `PlanNestedSpanRead`); the horizon spans it
-  beside the window shown where no source holds the window, its row held while
-  it is first read, and a read again holds the last until it lands.
+  beside the window shown where no source holds the window, a zoom keeps the
+  window inside it, its row held while it is first read, and a read again
+  holds the last until it lands.
 - **The horizon's bars** (`shell/horizon-density.ts`, #1438). Over the span,
   `horizonDensity` buckets the months' counts in the finest of month, quarter
   and year that keeps 4px a bucket on the strip (the band measures its track,
