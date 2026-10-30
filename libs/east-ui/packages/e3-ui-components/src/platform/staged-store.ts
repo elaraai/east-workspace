@@ -48,6 +48,7 @@
 import { BlobType, equalFor } from "@elaraai/east";
 import type { TreePath } from "@elaraai/e3-types";
 import { datasetCacheKey } from "./dataset-store.js";
+import { onClearKept } from "@elaraai/east-ui-components/internal";
 
 const blobEqual = equalFor(BlobType);
 
@@ -141,6 +142,12 @@ export interface StagedStoreInterface {
      *  failures fall back to a console warning. Lets a host surface a
      *  'not durably saved' state, mirroring `BindRuntime.onWriteError`. */
     onPersistError(cb: (key: string, err: unknown) => void): () => void;
+    /**
+     * Drop every staged entry, in memory and persisted, in every scope —
+     * what one person staged is never another's: east-ui-components' kept
+     * state clears it at a sign-out (`clearKept`), and a test between cases.
+     */
+    clear(): Promise<void>;
 }
 
 // ============================================================================
@@ -396,15 +403,19 @@ export class StagedStore implements StagedStoreInterface {
         return () => { this.errorListeners.delete(cb); };
     }
 
-    /** Test-only: clear in-memory + persisted state, in every scope. */
-    async clear(): Promise<void> {
+    clear(): Promise<void> {
         const keys = [...this.entries.keys()];
         this.entries.clear();
         for (const key of new Set(keys.map(cacheKeyOf))) this.notify(key);
         // Drain in-flight saves/removes before wiping persistence, so a save
-        // that lands after the wipe can't resurrect a discarded entry.
-        await this.flushPending();
-        await this.adapter.clear();
+        // that lands after the wipe can't resurrect a discarded entry. The wipe
+        // is in flight itself: what flushes the store waits for it.
+        const wiped: Promise<void> = this.flushPending().then(() => this.adapter.clear()).then(
+            () => undefined,
+            (err: unknown) => { this.emitPersistError("", err); },
+        ).then(() => { this.inFlight.delete(wiped); });
+        this.inFlight.add(wiped);
+        return wiped;
     }
 
     // ----- internals -------------------------------------------------------
@@ -510,6 +521,9 @@ function detectDefaultAdapter(): StagedPersistenceAdapter {
 }
 
 let _stagedStore: StagedStoreInterface | null = null;
+
+// A sign-out clears what is staged with what is kept (east-ui-components' kept state): the store installed then.
+onClearKept(() => { void _stagedStore?.clear(); });
 
 /**
  * The staged store the package uses: the one installed
