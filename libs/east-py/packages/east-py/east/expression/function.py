@@ -29,7 +29,7 @@ from typing import Any
 
 from east.expression.errors import ExpressionError
 from east.expression.expr import Expression
-from east.expression.finalize import _function_ir
+from east.expression.finalize import _arrayify_tree, _function_ir, _function_node
 from east.expression.lift import (
     _clear_registries,
     _effect_frames,
@@ -40,6 +40,7 @@ from east.expression.lift import (
     _push_registries,
     _registry_entries,
     _trace_inner_fn,
+    _trusted_frames,
 )
 from east.expression.location import (
     Location,
@@ -105,9 +106,14 @@ def trace_builtin_call(
 
 def trace(fn: Any, param_types: list[EastType],
           out_hint: EastType | None = None,
-          is_async: bool = False) -> tuple[Any, EastType, list]:
+          is_async: bool = False,
+          lazy: bool = False) -> tuple[Any, EastType, list]:
     """Trace ``fn`` over expression proxies; return
     ``(IR value, output type, called-function binds)``.
+
+    ``lazy`` returns the Function node before it is finalized — python
+    lists where the final form has East arrays (``finalize._listify``) —
+    which ``East.function`` analyzes, then finalizes itself (#1459).
 
     The body runs inside a statement frame (``east.expression.statements``):
     the statements it appends and the value it returns assemble by the
@@ -173,7 +179,7 @@ def trace(fn: Any, param_types: list[EastType],
     params = [_var(n, t) for n, t in zip(names, param_types, strict=True)]
     all_types = list(param_types) + [t for _name, _hold, t in fn_consts]
     all_params = params + [_var(name, t) for name, _hold, t in fn_consts]
-    ir = _function_ir(all_types, all_params, result, is_async=is_async, out=out_hint)
+    ir = (_function_node if lazy else _function_ir)(all_types, all_params, result, is_async=is_async, out=out_hint)
     return ir, result.east_type, [hold for _name, hold, _t in fn_consts]
 
 
@@ -327,7 +333,13 @@ def _platform_deps(ir_value: Any) -> tuple[tuple[str, bool], ...]:
             for x in node:
                 walk(x)
 
-    walk(ir_value)
+    try:
+        walk(ir_value)
+    finally:
+        # `walk` refers to itself, so the closure is a cycle: emptied, `seen`
+        # and every node it holds are freed now, not by the cyclic collector
+        # (#1459).
+        seen.clear()
     return tuple(deps.items())
 
 
@@ -346,6 +358,7 @@ class _PlatformFunction:
                  deps: tuple, is_async: bool, source_map: SourceMap | None) -> None:
         self._fn = fn
         self._east_ir = ir_value
+        self._east_analyzed = True
         self._east_out_type = out_type
         self._east_param_types = tuple(param_types)
         self._east_fn_binds = tuple(fn_binds)
@@ -379,24 +392,29 @@ class _PlatformFunction:
         )
 
 
+def _effects_in(ir: Any) -> bool:
+    """Whether an IR value mutates or raises anywhere in it."""
+    from east.expression.finalize import _node_children
+    from east.expression.nodes import _MUTATING_BUILTINS
+
+    stack = [ir]
+    while stack:
+        node = stack.pop()
+        kind = getattr(node, "type", None)
+        if kind == "Error" or (kind == "Builtin" and node.value["builtin"] in _MUTATING_BUILTINS):
+            return True
+        if kind is not None:
+            stack.extend(_node_children(node))
+    return False
+
+
 def _effectful(artifact: Any) -> bool:
     """Whether a built function mutates or raises: a call of it whose value
     is thrown away loses that, which the build must name (#565). Read once
-    per artifact."""
+    per artifact; a build records it as it assembles the artifact."""
     hit = getattr(artifact, "_east_effectful", None)
     if hit is None:
-        from east.expression.finalize import _node_children
-        from east.expression.nodes import _MUTATING_BUILTINS
-
-        hit = False
-        stack = [artifact._east_ir]
-        while stack and not hit:
-            node = stack.pop()
-            kind = getattr(node, "type", None)
-            if kind == "Error" or (kind == "Builtin" and node.value["builtin"] in _MUTATING_BUILTINS):
-                hit = True
-            elif kind is not None:
-                stack.extend(_node_children(node))
+        hit = _effects_in(artifact._east_ir)
         artifact._east_effectful = hit
     return hit
 
@@ -530,15 +548,25 @@ def _splice(artifact: Any, fn: Any, args: tuple, *, slot: bool = False) -> Any:
 
 def _assemble(fn: Any, ir_value: Any, out_type: EastType,
               param_types: list[EastType], fn_binds: list,
-              is_async: bool, source_map: SourceMap | None) -> Any:
+              is_async: bool, source_map: SourceMap | None,
+              lazy_ir: Any = None) -> Any:
     """Compile a traced body and wrap it as the dual-mode artifact — or, when
     the body declares platform calls, return the uncompiled first-class value
     (``East.compile`` finishes it). ``source_map`` is the build's authoring
-    map: the compile hands it to east-c and the artifact carries it."""
-    deps = _platform_deps(ir_value)
+    map: the compile hands it to east-c and the artifact carries it. The
+    caller has analyzed the IR, which the artifact records
+    (``_east_analyzed``). ``lazy_ir`` is the build's tree before it was
+    finalized: what the artifact calls and whether it mutates are read off
+    it, whose nodes are the build's own objects, where every read of the
+    final form materializes fresh ones (#1459)."""
+    scanned = lazy_ir if lazy_ir is not None else ir_value
+    deps = _platform_deps(scanned)
     if deps:
-        return _PlatformFunction(fn, ir_value, out_type, param_types,
-                                 fn_binds, deps, is_async, source_map)
+        artifact = _PlatformFunction(fn, ir_value, out_type, param_types,
+                                     fn_binds, deps, is_async, source_map)
+        if lazy_ir is not None:
+            artifact._east_effectful = _effects_in(lazy_ir)
+        return artifact
     from east.runtime.compiler import compile_from_value
 
     compiled = compile_from_value(ir_value, is_async=is_async, source_map=source_map)
@@ -569,6 +597,9 @@ def _assemble(fn: Any, ir_value: Any, out_type: EastType,
     # _mark_function, _function_out_type, bind) sees an ordinary compiled function.
     function_callable._eastc_handle = compiled._eastc_handle
     function_callable._east_ir = getattr(compiled, "_east_ir", None)
+    function_callable._east_analyzed = True
+    if lazy_ir is not None:
+        function_callable._east_effectful = _effects_in(lazy_ir)
     function_callable._east_captures = getattr(compiled, "_east_captures", {})
     function_callable.bind = getattr(compiled, "bind", None)
     function_callable._east_compiled = compiled  # owns the C resources; keep alive
@@ -644,21 +675,30 @@ def _build_strict(param_types: Any, out: Any, body: Any, *, is_async: bool, entr
     global _async_build
     previous = _async_build
     _async_build = is_async
+    # The functions this build embeds from analyzed builds (#1459).
+    trusted: dict[int, Any] = {}
+    _trusted_frames.append(trusted)
     try:
         # The build's source map: fresh, or the enclosing build's when this
         # function is being built inside another body (#626).
         with source_map_scope() as source_map:
-            ir_value, out_type, fn_binds = trace(body, types, out_hint=out, is_async=is_async)
+            lazy_ir, out_type, fn_binds = trace(body, types, out_hint=out, is_async=is_async, lazy=True)
     finally:
         _async_build = previous
+        _trusted_frames.pop()
     if not _output_matches(out_type, out):
         raise ExpressionError(
             f"{entry} body produced {out_type.type}, declared out is {out.type}"
         )
     from east.ir.analyze import analyze_ir
 
-    analyze_ir(ir_value, source_map=source_map)
-    return _assemble(body, ir_value, out, types, fn_binds, is_async, source_map)
+    # The lazy tree is analyzed, before it is finalized: its nodes and types
+    # are the build's own objects, where the final form materializes fresh
+    # ones on every read, and a function it embedded from an analyzed build is
+    # checked at its boundary only (#1459).
+    analyze_ir(lazy_ir, source_map=source_map, trusted=trusted)
+    ir_value = _arrayify_tree(lazy_ir)
+    return _assemble(body, ir_value, out, types, fn_binds, is_async, source_map, lazy_ir=lazy_ir)
 
 
 # ─── Check mode (#653) ──────────────────────────────────────────────────────

@@ -14,6 +14,7 @@ Memory management rules:
 """
 
 from cpython.bytes cimport PyBytes_AS_STRING, PyBytes_GET_SIZE
+from cpython.object cimport PyObject_TypeCheck, PyTypeObject
 from cpython.unicode cimport PyUnicode_AsUTF8AndSize, PyUnicode_DecodeUTF8
 from libc.stddef cimport size_t
 from libc.stdint cimport int64_t, uint8_t, uintptr_t
@@ -1041,21 +1042,27 @@ cdef _eastc.EastValue* _py_value_to_c_impl(object val, _eastc.EastType *c_type, 
     # child type(s) — passing a wrong-shaped or mislabelled proxy by raw
     # pointer would hand east-c a union-mismatched value and cause a wild
     # deref at the next typed access (#467).
-    if isinstance(val, EastArrayProxy):
+    #
+    # Each proxy is told by a C type check, not isinstance: the proxy classes
+    # derive from ABCs (MutableSequence and kin), whose isinstance runs a
+    # python-level __instancecheck__, and this asks it of every value
+    # converted — a fifth of a build's time (#1459). No class registers as a
+    # virtual proxy, so the MRO answers the same.
+    if PyObject_TypeCheck(val, <PyTypeObject*>EastArrayProxy):
         if kind != _eastc.EAST_TYPE_ARRAY:
             raise TypeError(f"EastArrayProxy supplied where C type kind {kind} expected")
         _check_proxy_type(<uintptr_t>val._c_elem_type_ptr, c_type.data.element, "Array element")
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
-    if isinstance(val, EastSetProxy):
+    if PyObject_TypeCheck(val, <PyTypeObject*>EastSetProxy):
         if kind != _eastc.EAST_TYPE_SET:
             raise TypeError(f"EastSetProxy supplied where C type kind {kind} expected")
         _check_proxy_type(<uintptr_t>val._c_elem_type_ptr, c_type.data.element, "Set element")
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
-    if isinstance(val, EastDictProxy):
+    if PyObject_TypeCheck(val, <PyTypeObject*>EastDictProxy):
         if kind != _eastc.EAST_TYPE_DICT:
             raise TypeError(f"EastDictProxy supplied where C type kind {kind} expected")
         _check_proxy_type(<uintptr_t>val._c_key_type_ptr, c_type.data.dict.key, "Dict key")
@@ -1063,7 +1070,7 @@ cdef _eastc.EastValue* _py_value_to_c_impl(object val, _eastc.EastType *c_type, 
         result = <_eastc.EastValue*><uintptr_t>val._c_ptr
         _eastc.east_value_retain(result)
         return result
-    if isinstance(val, EastRefProxy):
+    if PyObject_TypeCheck(val, <PyTypeObject*>EastRefProxy):
         if kind != _eastc.EAST_TYPE_REF:
             raise TypeError(f"EastRefProxy supplied where C type kind {kind} expected")
         _check_proxy_type(<uintptr_t>val._c_inner_type_ptr, c_type.data.element, "Ref inner")
