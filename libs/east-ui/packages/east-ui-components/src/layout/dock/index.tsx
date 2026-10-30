@@ -14,7 +14,7 @@ import { Dock } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
 import { usePersistedState } from "../../hooks/usePersistedState";
-import { keptRead } from "../../platform/kept.js";
+import { kept, keptFlag, keptRead } from "../../platform/kept.js";
 import { fitTabs, type TabRowMeasure } from "./fold.js";
 import { useFormatters } from "../../format/index.js";
 
@@ -199,10 +199,13 @@ export function DockPane(props: DockPaneProps) {
 
     const defaultCollapsed = props.defaultCollapsed ?? false;
     const horizontal = orientation === "horizontal";
-    const persistKey = `${storageKey}.dock.collapsed`;
+    // The viewer's last collapse, kept for a persisted pane (platform/kept.ts) and read before the pane's first draw.
+    const choice = useMemo(() => persist === "none" ? undefined
+        : kept(`${storageKey}.dock.collapsed`, keptFlag, { where: persist === "session" ? "tab" : "browser" }), [storageKey, persist]);
 
-    // Interactive-state: local state seeded from collapsed ?? defaultCollapsed.
-    const [collapsedState, setCollapsed] = useState<boolean>(collapsedProp ?? defaultCollapsed);
+    // Interactive-state: local state seeded from collapsed, else the viewer's kept collapse, else defaultCollapsed.
+    const [seeded] = useState<boolean>(() => collapsedProp ?? choice?.read() ?? defaultCollapsed);
+    const [collapsedState, setCollapsed] = useState<boolean>(seeded);
     // Controlled: a State-driven `collapsed` prop pushes into local state as
     // it changes — in the render it arrives in, so the pane is never drawn a
     // frame in its old state (a host frame placing it by that state, #1125).
@@ -213,32 +216,16 @@ export function DockPane(props: DockPaneProps) {
     }
     // A pane that never collapses is expanded whatever its state says.
     const collapsed = collapsible && collapsedState;
-    // Uncontrolled + persist: hydrate once from storage on mount.
-    useEffect(() => {
-        if (collapsedProp !== undefined || persist === "none") return;
-        try {
-            const store = persist === "session" ? window.sessionStorage : window.localStorage;
-            const raw = store.getItem(persistKey);
-            if (raw !== null) setCollapsed(raw === "true");
-        } catch { /* storage unavailable (SSR / privacy mode) */ }
-        // Mount-only hydrate.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
 
     // `lazy`: mount the body only after the first expand.
-    const [everExpanded, setEverExpanded] = useState<boolean>(!(collapsedProp ?? defaultCollapsed) || !lazy);
+    const [everExpanded, setEverExpanded] = useState<boolean>(!seeded || !lazy);
 
     const setCollapsedState = useCallback((next: boolean) => {
         setCollapsed(next);
         if (!next) setEverExpanded(true);
-        if (collapsedProp === undefined && persist !== "none") {
-            try {
-                const store = persist === "session" ? window.sessionStorage : window.localStorage;
-                store.setItem(persistKey, String(next));
-            } catch { /* storage unavailable */ }
-        }
+        if (collapsedProp === undefined) choice?.write(next);
         if (onCollapsedChangeFn) queueMicrotask(() => onCollapsedChangeFn(next));
-    }, [collapsedProp, persist, persistKey, onCollapsedChangeFn]);
+    }, [collapsedProp, choice, onCollapsedChangeFn]);
 
     const handleToggle = useCallback(() => { setCollapsedState(!collapsed); }, [collapsed, setCollapsedState]);
 

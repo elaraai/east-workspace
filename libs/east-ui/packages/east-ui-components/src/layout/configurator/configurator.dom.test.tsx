@@ -24,6 +24,7 @@ import { EastChakraComponent } from "../../component.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { UIStore } from "../../platform/state-store.js";
+import { keptName } from "../../platform/kept.js";
 
 afterEach(() => {
     cleanup();
@@ -95,7 +96,7 @@ describe("Configurator — collapsible control column", () => {
         // assert the suffix contract rather than a hard-coded literal.
         expect(window.localStorage.length).toBe(1);
         const key = window.localStorage.key(0)!;
-        expect(key.startsWith("cfg-test")).toBe(true);
+        expect(key.startsWith(keptName("cfg-test"))).toBe(true);
         expect(key.endsWith(".controlsCollapsed")).toBe(true);
         expect(window.localStorage.getItem(key)).toBe("true");
         first.unmount();

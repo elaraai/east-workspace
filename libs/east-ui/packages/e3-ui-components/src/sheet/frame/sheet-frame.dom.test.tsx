@@ -238,7 +238,7 @@ test("the panes are BuilderFrame's: their open tab and collapsed state persist u
     fireEvent.click(slot(first.container, "end")!.querySelector('button[aria-label="Collapse Inspector"]')!);
     await settle();
     expect(localStorage.getItem(keptName("sheet.jobs.frame.start.dock.tab"))).toBe(JSON.stringify({ key: "columns" }));
-    expect(localStorage.getItem("sheet.jobs.frame.end.dock.collapsed")).toBe("true");
+    expect(localStorage.getItem(keptName("sheet.jobs.frame.end.dock.collapsed"))).toBe("true");
     first.unmount();
 
     const again = await h.mountPayload(jobsPayload);

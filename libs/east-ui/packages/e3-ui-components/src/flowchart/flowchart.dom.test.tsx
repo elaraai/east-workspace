@@ -27,7 +27,7 @@ import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { SortedMap, StringType, compareFor, some, none, variant, type ValueTypeOf } from "@elaraai/east";
 import { UIStore, formatters, system } from "@elaraai/east-ui-components";
-import { initializeStore } from "@elaraai/east-ui-components/internal";
+import { initializeStore, keptName } from "@elaraai/east-ui-components/internal";
 import { flowchartKeys, type FlowchartLibraryTabType } from "@elaraai/e3-ui/internal";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { EastChakraFlowchart, type FlowchartCanvasValue, type FlowchartFlowValue, type FlowchartValue } from "./index.js";
@@ -320,7 +320,7 @@ describe("the frame's panes and footer (#1245)", () => {
         expect(collapsed(container)).toBe(false);
         await act(async () => { fireEvent.click(within(container).getByRole("button", { name: "Collapse Library" })); });
         expect(collapsed(container)).toBe(true);
-        expect(Object.keys(localStorage).some((key) => key.startsWith(`${flowchartKeys("depot").frame}.start`))).toBe(true);
+        expect(Object.keys(localStorage).some((key) => key.startsWith(keptName(`${flowchartKeys("depot").frame}.start`)))).toBe(true);
         cleanup();
         // Mounted again under its name, it opens as the viewer left it; another flowchart keeps its own.
         expect(collapsed(mount(depot).container)).toBe(true);

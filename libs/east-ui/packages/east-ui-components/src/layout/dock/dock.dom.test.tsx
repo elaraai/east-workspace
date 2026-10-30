@@ -36,6 +36,7 @@ import { DockPane } from "./index.js";
 import { initializeStore } from "../../platform/state-runtime.js";
 import { getRegisteredPlatformImplementations } from "../../platform/registry.js";
 import { UIStore } from "../../platform/state-store.js";
+import { keptName } from "../../platform/kept.js";
 
 afterEach(cleanup);
 
@@ -324,6 +325,25 @@ describe("DockPane — the open tab, driven by its host (K1, #935)", () => {
         await act(async () => { fireEvent.click(again.getAllByRole("tab")[2]!); });
         expect(open(again.getAllByRole)).toEqual(["Library"]);
         expect(told).toEqual(["library"]);
+    });
+});
+
+describe("DockPane — a viewer's collapse, kept", () => {
+    test("a pane kept collapsed is drawn collapsed from its first render: its lazy body never mounts", () => {
+        initializeStore(new UIStore());
+        window.localStorage.setItem(keptName("dock-kept.dock.collapsed"), "true");
+        let mounted = 0;
+        function Body() {
+            useLayoutEffect(() => { mounted++; }, []);
+            return <>BODY</>;
+        }
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <DockPane storageKey="dock-kept" label="Library" persist="local" lazy body={<Body />} />
+            </ChakraProvider>,
+        );
+        expect(container.querySelector("[data-collapsed]")).not.toBeNull();
+        expect(mounted).toBe(0);
     });
 });
 

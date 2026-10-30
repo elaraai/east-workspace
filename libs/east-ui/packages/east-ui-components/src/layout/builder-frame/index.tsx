@@ -59,12 +59,13 @@
  */
 
 import {
-    useCallback, useLayoutEffect, useRef, useState,
+    useCallback, useLayoutEffect, useMemo, useRef, useState,
     type CSSProperties, type KeyboardEvent, type MutableRefObject, type ReactNode, type Ref,
 } from "react";
 import { flushSync } from "react-dom";
 import { Box, Skeleton, type SystemStyleObject } from "@chakra-ui/react";
 import { useSlotStyles } from "../../theme/slot-styles.js";
+import { kept, keptFlag } from "../../platform/kept.js";
 import { DockPane, type DockRailMark } from "../dock/index.js";
 import { Toolbar, type ToolbarItem } from "../../toolbar/index.js";
 import { useDragLayerOptional } from "../../dnd/drag-layer";
@@ -241,16 +242,6 @@ function pxOf(size: string): number | undefined {
     return px === null ? undefined : Number(px[1]);
 }
 
-/**
- * The browser storage a persisted pane keeps its collapsed state in.
- *
- * @param persist - Where it persists
- * @returns The storage
- */
-function storeOf(persist: "local" | "session"): Storage {
-    return persist === "session" ? window.sessionStorage : window.localStorage;
-}
-
 /** A described pane's collapsed state, as the frame keeps it. */
 interface PaneCollapse {
     /** Whether it is collapsed — never, for a pane that does not collapse. */
@@ -278,8 +269,10 @@ function usePaneCollapse(key: string, dock: BuilderFrameDock | undefined, onHost
     const prop = dock?.collapsed;
     const persist = dock?.persist ?? "none";
     const onChange = dock?.onCollapsedChange;
-    const persistKey = `${key}.dock.collapsed`;
-    const [own, setOwn] = useState<boolean>(() => prop ?? dock?.defaultCollapsed ?? false);
+    // The viewer's last choice, kept for a persisted pane (platform/kept.ts) and read before the pane's first draw.
+    const choice = useMemo(() => persist === "none" ? undefined
+        : kept(`${key}.dock.collapsed`, keptFlag, { where: persist === "session" ? "tab" : "browser" }), [key, persist]);
+    const [own, setOwn] = useState<boolean>(() => prop ?? choice?.read() ?? dock?.defaultCollapsed ?? false);
     const ownRef = useRef(own);
     ownRef.current = own;
     const onHostRef = useRef(onHost);
@@ -290,25 +283,11 @@ function usePaneCollapse(key: string, dock: BuilderFrameDock | undefined, onHost
         setOwn(prop);
         onHostRef.current(prop);
     }, [prop]);
-    // Uncontrolled and persisted: read once, as the pane mounts.
-    useLayoutEffect(() => {
-        if (prop !== undefined || persist === "none") return;
-        try {
-            const raw = storeOf(persist).getItem(persistKey);
-            if (raw !== null) setOwn(raw === "true");
-        } catch { /* storage unavailable (SSR / privacy mode) */ }
-        // Mount-only hydrate, as DockPane's.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
     const set = useCallback((next: boolean, by: "viewer" | "frame") => {
         setOwn(next);
-        if (by === "viewer" && prop === undefined && persist !== "none") {
-            try {
-                storeOf(persist).setItem(persistKey, String(next));
-            } catch { /* storage unavailable */ }
-        }
+        if (by === "viewer" && prop === undefined) choice?.write(next);
         if (onChange) queueMicrotask(() => onChange(next));
-    }, [prop, persist, persistKey, onChange]);
+    }, [prop, choice, onChange]);
     return { collapsed: dock !== undefined && dock.collapsible !== false && own, set };
 }
 
