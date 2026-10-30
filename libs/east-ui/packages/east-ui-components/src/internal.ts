@@ -15,6 +15,14 @@
  * @packageDocumentation
  */
 
+// Kept state (see platform/kept.ts): the one way a renderer keeps state in the
+// browser — a value read before the first draw and written before its task
+// ends, its codecs and the readers of plain view state's shape; another store
+// cleared with it at a sign-out.
+export {
+    kept, useKept, keptText, keptFlag, keptBytes, keptJson, keptRead, NOT_KEPT, onClearKept,
+    type Kept, type KeptCodec, type KeptOptions, type KeptReader,
+} from "./platform/kept.js";
 // Formatting: a tick's spec and printers, a date pattern's printer and reader,
 // the theme's colour lookup, and a density's row heights.
 export { formatDatePattern, parseDatePattern, tickFormatter, type TickFormat } from "./charts/spec/index.js";

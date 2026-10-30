@@ -431,6 +431,14 @@ export {
     type AssignmentMessagesProviderProps,
 } from "./collections/shared/assignment-messages.js";
 
+// Kept state: what the components keep in the browser for a reload — who it is
+// kept for (a host sets it as someone signs in), its clearing (a sign-out), and
+// the values storage could not keep.
+export {
+    setKeptScope, clearKept, onKeptFailure, keptReachable,
+    type KeptFailure, type KeptFailureReason, type KeptWhere,
+} from "./platform/kept.js";
+
 // Hooks
 export { usePersistedState, type PersistedStateResult } from "./hooks/usePersistedState.js";
 export { useColorMode, applyColorMode, type ColorMode } from "./hooks/useColorMode.js";
