@@ -4,7 +4,7 @@
  *
  * @vitest-environment jsdom
  *
- * Modify on e3 itself (#1453, `Decision Queue Spec.md` D9, R19–R21), over
+ * Modify on e3 itself (#1453, #1458, `Decision Queue Spec.md` D9, R19–R21), over
  * the full queue's example (§3.3): each row a case's change writes is edited
  * in the form its builder's inspector shows for one row — the Roster's duty,
  * its times, its position and the duty kind's other fields; the Calendar's
@@ -16,7 +16,7 @@
  * reading Modified and Apply `Apply with edits`; a row kept as it is writes
  * nothing; the record's `ready` holds Apply, in its own words, while an edit
  * fails it; Reset and Reset all put the proposal back; and Save writes each
- * row as edited.
+ * row as edited, and the verdict into the case's own row.
  */
 
 import { afterEach, beforeEach, expect, test } from "vitest";
@@ -72,7 +72,8 @@ const keep = (row: HTMLElement) => [...row.querySelectorAll<HTMLElement>('[data-
 async function open() {
     const ui = await h.mount(ex.decisionQueueOps);
     await waitFor(() => expect(heads(ui.container)).toEqual([
-        "rota-tansy", "print-j3007", "yard-ld2235", "stock-c5", "workshop-press1", "orders-ready", "trial-cure", "price-coast", "rota-overtime",
+        "cover-saturday", "orders-ready", "price-coast", "print-j3007", "ready-a1", "rota-overtime", "rota-tansy", "rota-trim", "stock-c5", "trial-cure",
+        "workshop-press1", "yard-ld2235",
     ]));
     await waitFor(() => expect(previewRows(preview(ui.container, "rota-tansy"))).not.toEqual([]));
     return ui;
@@ -127,6 +128,7 @@ async function applyAndSave(container: HTMLElement, key: string) {
 test("the rota case's duty in the Roster's form: its unpaid break edited, B. Pumice's hours in the preview follow it, the field tinted with its Reset and the panel counting it; Save writes the duty as edited (D9, R19, R21)", async () => {
     const { container } = await open();
     const duties = await h.read(ex.rosterDuties);
+    await press(head(container, "rota-tansy"));
     await answerYes(container, "rota-tansy");
     await modify(container, "rota-tansy");
     expect(panelMeta(container, "rota-tansy")).toBe(m.editMeta({ changed: undefined, override: false }));
@@ -144,7 +146,7 @@ test("the rota case's duty in the Roster's form: its unpaid break edited, B. Pum
     expect(panelMeta(container, "rota-tansy")).toBe(m.editMeta({ changed: "1", override: false }));
     expect(chipLine(container, "rota-tansy").textContent).toBe(`${m.chip({ modified: true })}B. Pumice · Fri 14–22`);
     await applyAndSave(container, "rota-tansy");
-    expect(mutated()).toEqual([ex.opsVerdicts.name, ex.rosterDuties.name].sort());
+    expect(mutated()).toEqual([ex.opsCases.name, ex.rosterDuties.name].sort());
     const friday = duties.get("s234")!;
     expect(dutiesEqual(await h.read(ex.rosterDuties),
         new SortedMap([...duties, ["s234", { ...friday, who: variant("staff", "bpumice"), unpaidBreak: 30 }]], byString))).toBe(true);
@@ -153,6 +155,7 @@ test("the rota case's duty in the Roster's form: its unpaid break edited, B. Pum
 test("the rota case's only duty kept as it is: nothing changes — the preview draws the people the change lands on as they stand, unmarked, its form prints the duty as it stands — and Apply with edits writes the verdict alone (P4, R19, R23)", async () => {
     const { container } = await open();
     const duties = await h.read(ex.rosterDuties);
+    await press(head(container, "rota-tansy"));
     await answerYes(container, "rota-tansy");
     await modify(container, "rota-tansy");
     const row = () => editRow(container, "rota-tansy", "s234");
@@ -165,7 +168,7 @@ test("the rota case's only duty kept as it is: nothing changes — the preview d
     expect([printed.hasAttribute("readonly"), (printed as HTMLInputElement).value]).toEqual([true, "0"]);
     expect(panelMeta(container, "rota-tansy")).toBe(m.editMeta({ changed: "1", override: false }));
     await applyAndSave(container, "rota-tansy");
-    expect(mutated()).toEqual([ex.opsVerdicts.name]);
+    expect(mutated()).toEqual([ex.opsCases.name]);
     expect(dutiesEqual(await h.read(ex.rosterDuties), duties)).toBe(true);
 });
 
@@ -199,7 +202,7 @@ test("the workshop case's maintenance in the Calendar's form: its title — the 
     await settle();
     await waitFor(() => expect(panelMeta(container, "workshop-press1")).toBe(m.editMeta({ changed: "3", override: false })));
     await applyAndSave(container, "workshop-press1");
-    expect(mutated()).toEqual([ex.calendarServices.name, ex.opsVerdicts.name].sort());
+    expect(mutated()).toEqual([ex.calendarServices.name, ex.opsCases.name].sort());
     const service = services.get("service1")!;
     expect(servicesEqual(await h.read(ex.calendarServices), new SortedMap([...services, ["service1", {
         ...service, title: "Tooling inspection", start: SAT_06, end: SAT_08, machine: "press2", notes: "Bring the torque wrench.",
@@ -222,7 +225,7 @@ test("the yard case's bin in the Allocation's form: its quantity edited, the par
     await waitFor(() => expect(measure(previewRow(frame(), "K-305"), "0 → 6 m³")).toBeUndefined());
     expect(row().querySelector('[data-field="quantity"][data-dirty]')).not.toBeNull();
     await applyAndSave(container, "yard-ld2235");
-    expect(mutated()).toEqual([ex.kilnBins.name, ex.opsVerdicts.name].sort());
+    expect(mutated()).toEqual([ex.kilnBins.name, ex.opsCases.name].sort());
     expect(binsEqual(await h.read(ex.kilnBins), new SortedMap([...bins, ["3127", {
         bay: "B-1", at: new Date("2027-05-11T14:15:00Z"), load: some("LD-2235"), m3: 6, spec: some("MC10"), dryFor: variant("days", 9),
         kilns: new SortedMap([["K-305", 6]], byString), specBooked: "MC10", specMeasured: "MC10", gradeBooked: "P", gradeMeasured: "P1",
@@ -252,7 +255,7 @@ test("the orders case's work orders in the Sheet's row form: WO-1007's status ed
     expect(frame().getAttribute("aria-label")).toBe("Status and Due change on WO-1005 and WO-1007. WO-1007 is a low-confidence guess");
     expect(panelMeta(container, "orders-ready")).toBe(m.editMeta({ changed: "2", override: false }));
     await applyAndSave(container, "orders-ready");
-    expect(mutated()).toEqual([ex.opsVerdicts.name, ex.optimiseWorkOrders.name].sort());
+    expect(mutated()).toEqual([ex.opsCases.name, ex.optimiseWorkOrders.name].sort());
     expect(ordersEqual(await h.read(ex.optimiseWorkOrders), new SortedMap([...orders,
         ["WO-1005", { ...orders.get("WO-1005")!, status: "Scheduled", due: some(MON_16) }],
         ["WO-1007", { ...orders.get("WO-1007")!, status: "On hold", due: some(TUE_17) }],
@@ -292,6 +295,6 @@ test("the price case's row in the price list's form: a price off the 5¢ steps f
     expect(issues()).toEqual([]);
     expect(chipLine(container, "price-coast").textContent).toBe(`${m.chip({ modified: true })}Coast $10.50 → $11.00`);
     await applyAndSave(container, "price-coast");
-    expect(mutated()).toEqual([ex.listPrices.name, ex.opsVerdicts.name].sort());
+    expect(mutated()).toEqual([ex.listPrices.name, ex.opsCases.name].sort());
     expect(pricesEqual(await h.read(ex.listPrices), new SortedMap([...prices, ["coast", { ...prices.get("coast")!, price: 11.05, demand: 13_916 }]], byString))).toBe(true);
 });

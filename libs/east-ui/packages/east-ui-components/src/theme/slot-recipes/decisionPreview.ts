@@ -33,12 +33,11 @@
  * - ruler, rulerPlot, tick, plot, gridLine, now: the lanes' time ruler, 20 tall, its ticks mono `--fs-label-xs` 500
  *   `--ink-4` (`--pv-at`; the first set in 4 from the start, the last 4 from the end, `data-edge`); a lane's plot, its
  *   grid lines and the now line, 1px `--brand-d` (P20).
- * - bar, barText, icon, shared: an entry on a lane at its place (`--pv-left`, `--pv-width`, `--pv-lane`): the
+ * - bar, barText, icon: an entry on a lane at its place (`--pv-left`, `--pv-width`, `--pv-lane`): the
  *   Plan's committed bar `--brand-d` with `--paper` words (P19), an Allocation's bin (`data-shape="bin"`) the board's
  *   card, 1px `--rule-strong` on `--paper`, `--r-md`, and a resource's job as the board's row draws it (`data-look`):
  *   the one under way on the day on `--paper-3`, one planned after it dashed `--ink-4`, unfilled, its words `--ink-4`;
- *   its lock or its warning (`icon`, `data-tone="warn"`, P15, P17) and the `+N` chip of the other cases changing it
- *   (`shared`, `--paper`, 12 tall, P18).
+ *   and its lock or its warning (`icon`, `data-tone="warn"`, P15, P17).
  * - map, mapRow, mapLabel, mapTiles, mapTile: a builder's map (P5) — its resources as 22px tiles, eight a row, under
  *   their group's label; one the change touches on the dirty fill with the glow, one it moves off a ghost, the rest
  *   `--paper-3` on `--rule-strong`; the rest of a group past a row its count (`data-more`).
@@ -47,8 +46,8 @@
  * - people, peopleRow, peopleDay, peopleName, mark: the Roster's map by people (P5): rows 16, its days' letters 12, a
  *   person's name and hours, and a day's mark, 12 tall, over the Roster's `mark`.
  * - count, countText, countFigure: what a map names beside its rows — `+ 16 more people` — and its count, `20 of 36`.
- * - sheetKey, sheetCell, guess: a Sheet's row — its first column's value mono `--fs-label-md` `--ink-3`, then its lock
- *   and its `+N`; its cells, a quantity's figures at the end (`data-numeric`) and a date's in place (`data-mono`) in
+ * - sheetKey, sheetCell, guess: a Sheet's row — its first column's value mono `--fs-label-md` `--ink-3`, then its
+ *   lock; its cells, a quantity's figures at the end (`data-numeric`) and a date's in place (`data-mono`) in
  *   mono, its changed cells' values on the dirty fill (`data-fill="cell"`), a cleared one the Sheet's blank, italic
  *   `--ink-4` (`data-empty`) — and a guessed cell's dot, Font Awesome's `circle` 6px in `--warn`, 6 before its value
  *   (P26).
@@ -187,7 +186,7 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
         "root",
         "header", "headerCell", "row", "rowHead", "rowName", "measure",
         "cell", "tile", "off",
-        "lanes", "ruler", "rulerPlot", "tick", "plot", "gridLine", "now", "bar", "barText", "icon", "shared",
+        "lanes", "ruler", "rulerPlot", "tick", "plot", "gridLine", "now", "bar", "barText", "icon",
         "map", "mapRow", "mapLabel", "mapTiles", "mapTile",
         "when", "whenLabel", "whenStrip", "whenTick",
         "people", "peopleRow", "peopleDay", "peopleName", "mark",
@@ -388,17 +387,6 @@ export const decisionPreviewSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             color: "inherit",
             "&[data-tone=warn]": { color: "status.warn" },
-        },
-        shared: {
-            flex: "none",
-            height: "12px",
-            display: "inline-flex",
-            alignItems: "center",
-            paddingInline: "4px",
-            borderRadius: "2px",
-            background: "bg.surface",
-            color: "fg",
-            fontSize: "label.xs",
         },
 
         // ── A builder's map (P5) ──

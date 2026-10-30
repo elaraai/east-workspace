@@ -4,13 +4,12 @@
  */
 
 /**
- * The DecisionQueue's interface (#1450, `Decision Queue Spec.md` §5, §12, §13,
- * §15): what `DecisionQueue.decisions`, `DecisionQueue.verdicts`, each
- * `DecisionQueue.change.*` and the tag refuse at build, each naming the change
- * to make; the roles' inference, each mistake a compile error; and the
- * payload's types. Building reads no record, so what a payload holds once read
- * is checked on e3 itself, in e3-ui-components; here, what is refused before
- * anything is read.
+ * The DecisionQueue's interface (#1450, #1458, `Decision Queue Spec.md` §5,
+ * §12, §13, §15): what `DecisionQueue.decisions`, each `DecisionQueue.change.*`
+ * and the tag refuse at build, each naming the change to make; the roles'
+ * inference, each mistake a compile error; and the payload's types. Building
+ * reads no record, so what a payload holds once read is checked on e3 itself,
+ * in e3-ui-components; here, what is refused before anything is read.
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
@@ -47,6 +46,9 @@ function inBlock<T>(build: ($: BlockBuilder<NullType>) => T): T {
 /** A proposal, as its roles read it. */
 type P = ExprType<typeof ops.Proposal>;
 
+/** The proposal's verdict (§5.2): its own field, which the queue writes, and which of its cases means what. */
+const verdict = { field: "verdict", waiting: "waiting", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" } as const;
+
 /** The proposals' targets (§3.2): the work orders as the Sheet draws them, and the price list, which no builder draws. */
 function proposalTargets($: BlockBuilder<NullType>) {
     const orders = $.let(Record.bind(optimiseWorkOrders));
@@ -60,11 +62,12 @@ function proposalTargets($: BlockBuilder<NullType>) {
     };
 }
 
-/** The proposals' roles (§3.2): each an East function over the app's own row, the option's beside the case's (D15). */
+/** The proposals' roles (§3.2): each an East function over the app's own row, the option's beside the case's (D15), and the verdict's field. */
 const proposalRoles = (of: unknown) => ({
     scope: (p: P) => p.site, due: (p: P) => p.deadline, unit: (p: P) => p.metric, model: (p: P) => p.run, why: (p: P) => p.rationale,
     title: (p: P) => p.headline, summary: (p: P) => p.brief, detail: (p: P) => p.description, value: (p: P) => p.saving,
     change: { from: (p: P) => p.details, of } as { from: unknown; of: unknown },
+    verdict: { ...verdict } as Readonly<Record<string, unknown>>,
 });
 
 /** The proposals' roles, as a test changes them. */
@@ -72,11 +75,12 @@ type ProposalRoles = ReturnType<typeof proposalRoles> & Readonly<Record<string, 
 
 /**
  * Declares the proposals' cases: the roles the test gives beside or in place of
- * the base's, over the binding it gives — `Data.bind(proposals)` by default.
+ * the base's, over the binding it gives — the record with its patch door,
+ * `Record.bind(proposals)`, by default.
  */
 function proposalCases(
     roles: (base: ProposalRoles) => object = (base) => base,
-    binding: ($: BlockBuilder<NullType>) => unknown = ($) => $.let(Data.bind(ops.proposals)),
+    binding: ($: BlockBuilder<NullType>) => unknown = ($) => $.let(Record.bind(ops.proposals)),
 ) {
     return inBlock(($) => {
         const cases = binding($);
@@ -84,53 +88,73 @@ function proposalCases(
     });
 }
 
-/** The verdicts' roles over the app's verdict row (§3.1): every part of a verdict, each a field by name. */
-const verdictRoles = (entries: unknown) => ({
-    entries,
-    verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" } as Readonly<Record<string, unknown>>,
-    option: "option",
-    answer: { field: "answer", yes: "yes", no: "no", unsure: "unsure" } as Readonly<Record<string, unknown>>,
-    reason: { field: "reason", context: "context", data: "data", priorities: "priorities", other: "other" } as Readonly<Record<string, unknown>>,
-    note: "note",
-});
-
-/** The verdicts' roles, as a test changes them. */
-type VerdictRoles = ReturnType<typeof verdictRoles> & Readonly<Record<string, unknown>>;
-
-/**
- * Declares the proposals' verdicts: the roles the test gives beside or in place
- * of the base's, over the binding it gives — the record with its patch door by default.
- */
-function proposalVerdicts(
-    roles: (base: VerdictRoles) => object = (base) => base,
-    binding: ($: BlockBuilder<NullType>) => unknown = ($) => $.let(Record.bind(ops.proposalVerdicts)),
-) {
-    return inBlock(($) => {
-        const rows = binding($);
-        const entries = $.let(Data.bindPaged(ops.proposalVerdicts));
-        return DecisionQueue.verdicts(rows as never, roles(verdictRoles(entries) as VerdictRoles) as never);
-    });
-}
-
-/**
- * Builds the smallest queue's payload: the props the test gives beside or in
- * place of the base's, its cases bound as the test binds them.
- */
+/** Builds the smallest queue's payload: the props the test gives beside or in place of the base's. */
 function proposalQueue(change: (base: DecisionQueueProps, $: BlockBuilder<NullType>) => object = (base) => base) {
     return inBlock(($) => {
-        const cases = $.let(Data.bind(ops.proposals));
-        const verdictRows = $.let(Record.bind(ops.proposalVerdicts));
-        const verdictEntries = $.let(Data.bindPaged(ops.proposalVerdicts));
+        const cases = $.let(Record.bind(ops.proposals));
         const decisions = DecisionQueue.decisions(cases, {
             scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale,
             title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving,
             change: { from: (p) => p.details, of: proposalTargets($) },
+            verdict,
         });
-        const verdicts = DecisionQueue.verdicts(verdictRows, {
-            entries: verdictEntries,
-            verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" },
-        });
-        return createDecisionQueuePayload(change({ id: "proposals", decisions, verdicts }, $) as DecisionQueueProps);
+        return createDecisionQueuePayload(change({ id: "proposals", decisions }, $) as DecisionQueueProps);
+    });
+}
+
+// ============================================================================
+// The judged proposals (§5.2): every part of a verdict, a field of the row
+// ============================================================================
+
+/** When a verdict was given: each case of the verdict but `waiting` holds it. */
+const Given = StructType({ at: DateTimeType });
+
+/**
+ * A proposal of the test's own carrying every part of a verdict (§5.2): the
+ * verdict and when it was given, the option taken, the answer to the option's
+ * question, an override's reason and a note.
+ */
+const Judged = StructType({
+    ...ops.Proposal.fields,
+    verdict: VariantType({ waiting: NullType, applied: Given, overridden: Given, deferred: Given, handedOff: Given }),
+    option: OptionType(StringType),
+    answer: OptionType(VariantType({ yes: NullType, no: NullType, unsure: NullType })),
+    reason: OptionType(VariantType({ context: NullType, data: NullType, priorities: NullType, other: NullType })),
+    note: OptionType(StringType),
+});
+
+/** A judged proposal, as its roles read it. */
+type J = ExprType<typeof Judged>;
+
+/** The judged proposals, with the patch door the queue writes each verdict through. */
+const judged = e3.record("decision_spec_judged", DictType(StringType, Judged), {
+    initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
+/** The verdict's roles over the judged proposal (§5.2): every part of a verdict, each a field by name. */
+const judgedRoles = () => ({
+    verdict: { ...verdict } as Readonly<Record<string, unknown>>,
+    option: "option" as unknown,
+    answer: { field: "answer", yes: "yes", no: "no", unsure: "unsure" } as Readonly<Record<string, unknown>>,
+    reason: { field: "reason", context: "context", data: "data", priorities: "priorities", other: "other" } as Readonly<Record<string, unknown>>,
+    note: "note" as unknown,
+});
+
+/** The judged proposals' roles, as a test changes them. */
+type JudgedRoles = ProposalRoles & ReturnType<typeof judgedRoles>;
+
+/**
+ * Declares the judged proposals' cases: the proposals' roles and every part of
+ * the verdict, the test's beside or in place of the base's, over the binding it
+ * gives — the judged proposals with their patch door by default.
+ */
+function judgedCases(
+    roles: (base: JudgedRoles) => object = (base) => base,
+    binding: ($: BlockBuilder<NullType>) => unknown = ($) => $.let(Record.bind(judged)),
+) {
+    return inBlock(($) => {
+        const cases = binding($);
+        return DecisionQueue.decisions(cases as never, roles({ ...proposalRoles(proposalTargets($)), ...judgedRoles() } as JudgedRoles) as never);
     });
 }
 
@@ -153,12 +177,13 @@ const opsRoles = () => ({
         refused: (o: O) => o.refused, knockOn: (o: O) => o.knockOn, guesses: (o: O) => o.guesses,
         change: { from: (o: O) => o.change, of: {} },
     } as Readonly<Record<string, unknown>>,
+    verdict: { ...verdict } as Readonly<Record<string, unknown>>,
 });
 
 /** Declares the app's cases with alternatives, the roles the test gives — refused before any target is read. */
 function opsCases(roles: (base: ReturnType<typeof opsRoles> & Readonly<Record<string, unknown>>) => object) {
     return inBlock(($) => {
-        const cases = $.let(Data.bind(ops.opsCases));
+        const cases = $.let(Record.bind(ops.opsCases));
         return DecisionQueue.decisions(cases as never, roles(opsRoles()) as never);
     });
 }
@@ -175,21 +200,21 @@ test("the queue is one tag over the app's records: Decision.bind and <DecisionJo
 
 describe("the props §13 removed, each refused naming its replacement", () => {
     const removed: readonly (readonly [string, RegExp])[] = [
-        ["handle", /DecisionQueue: `handle` is gone — the queue reads the app's cases and writes its verdicts: decisions=\{DecisionQueue\.decisions\(Data\.bind\(cases\), \{ … \}\)\} verdicts=\{DecisionQueue\.verdicts\(Record\.bind\(verdicts\), \{ entries, verdict \}\)\}/],
+        ["handle", /DecisionQueue: `handle` is gone — the queue reads the app's record of cases and writes each verdict into its case's row: decisions=\{DecisionQueue\.decisions\(Record\.bind\(cases\), \{ …, verdict: \{ field, waiting, applied, overridden, deferred, handedOff \} \}\)\}/],
         ["heading", /DecisionQueue: `heading` is gone — the queue fills the box its host gives it, and a heading over it is the host's own/],
         ["modify", /DecisionQueue: `modify` is gone — Modify edits a row in its target's own form/],
         ["evidence", /DecisionQueue: `evidence` is gone — the open card draws where its option's change lands, its target's preview/],
         ["defaultExpanded", /DecisionQueue: `defaultExpanded` is gone — the open case is the queue's own, kept under its `id`; the host hears it with `onSelect`/],
         ["defaultFacet", /DecisionQueue: `defaultFacet` is gone — the open card shows its change, its options, Why and Your call together/],
         ["facets", /DecisionQueue: `facets` is gone — the open card shows its change, its options, Why and Your call together; a role left out turns off what it drives/],
-        ["onApply", /DecisionQueue: `onApply` is gone — Apply writes the option's change through its target's patch door and the verdict through `verdicts`/],
-        ["onReject", /DecisionQueue: `onReject` is gone — Override, Defer and Hand off each write a verdict through `verdicts`/],
+        ["onApply", /DecisionQueue: `onApply` is gone — Apply writes the option's change through its target's patch door and the verdict into the case's row through `decisions`' verdict roles/],
+        ["onReject", /DecisionQueue: `onReject` is gone — Override, Defer and Hand off each write a verdict into the case's row through `decisions`' verdict roles/],
         ["affordances", /DecisionQueue: `affordances` is gone — the rail is the slice's: slice=\{\{ slice: Slice\.bindRecords\(key, \{ decisions: \{ source, … \} \}\) \}\}/],
         ["maxHeight", /DecisionQueue: `maxHeight` is gone — the queue fills the box its host gives it, which the host sizes/],
         ["density", /DecisionQueue: `density` is gone — the queue's cards keep one spacing, and its narrow layout follows its own width/],
-        ["groups", /DecisionQueue: `groups` is gone — the queue sections its cases by when they are due, routine ones in a band of their own/],
-        ["groupBy", /DecisionQueue: `groupBy` is gone — the queue sections its cases by when they are due, routine ones in a band of their own/],
-        ["collapsible", /DecisionQueue: `collapsible` is gone — the Routine band folds, its fold kept under the queue's `id`/],
+        ["groups", /DecisionQueue: `groups` is gone — the cases stand in their source's order \(D5\); narrow them by the app's own indexes, the fields of the slice's `decisions` source/],
+        ["groupBy", /DecisionQueue: `groupBy` is gone — the cases stand in their source's order \(D5\); narrow them by the app's own indexes, the fields of the slice's `decisions` source/],
+        ["collapsible", /DecisionQueue: `collapsible` is gone — the queue folds nothing: each case stands where its source places it, a waiting one its card and a decided one its receipt/],
     ];
     for (const [prop, refusal] of removed) {
         test(`\`${prop}\``, () => {
@@ -200,16 +225,14 @@ describe("the props §13 removed, each refused naming its replacement", () => {
 
 describe("the tag's own props", () => {
     test("`id` names the queue's state, and is required", () => {
-        const refusal = /DecisionQueue: `id` names the queue's state — the open card, the Routine band's fold, each card's choices and the session's drafts: id="opsQueue"/;
+        const refusal = /DecisionQueue: `id` names the queue's state — the open card, each card's choices and the session's drafts: id="opsQueue"/;
         assert.throws(() => proposalQueue((base) => ({ ...base, id: undefined })), refusal);
         assert.throws(() => proposalQueue((base) => ({ ...base, id: "" })), refusal);
     });
 
-    test("`decisions` is DecisionQueue.decisions, and `verdicts` DecisionQueue.verdicts", () => {
-        assert.throws(() => proposalQueue((base, $) => ({ ...base, decisions: $.let(Data.bind(ops.proposals)) })),
-            /DecisionQueue: `decisions` is DecisionQueue\.decisions\(binding, roles\) — the app's cases, and the roles that read each part of a card from them/);
-        assert.throws(() => proposalQueue((base, $) => ({ ...base, verdicts: $.let(Record.bind(ops.proposalVerdicts)) })),
-            /DecisionQueue: `verdicts` is DecisionQueue\.verdicts\(Record\.bind\(record\), \{ entries, verdict, … \}\) — the app's record each verdict is written to, declaring patch: mutation\.patch\(\)/);
+    test("`decisions` is DecisionQueue.decisions", () => {
+        assert.throws(() => proposalQueue((base, $) => ({ ...base, decisions: $.let(Record.bind(ops.proposals)) })),
+            /DecisionQueue: `decisions` is DecisionQueue\.decisions\(Record\.bind\(record\), roles\) — the app's record of cases with its patch door, the roles that read each part of a card from it, and the verdict's fields the queue writes/);
     });
 
     test("`onSelect`, `readOnly` and `now` are taken as values or East expressions", () => {
@@ -218,23 +241,26 @@ describe("the tag's own props", () => {
     });
 });
 
-describe("the rail: one Slice.bindRecords, its `decisions` source over the cases' record (D4)", () => {
+describe("the rail: one Slice.bindRecords, its `decisions` source over the cases' record, a case read by key through `entries` (D4)", () => {
     /** The proposals by site: the rail's one source. */
     const bySite = () => Data.bindPaged(ops.proposals, { indexes: ["proposals_by_site"] });
-    /** The base's cases, bound for a read through the slice's source. */
+    /** The base's cases, read through the slice's source: a case read by key through the record's own entries beside it. */
     const paged = (base: DecisionQueueProps, $: BlockBuilder<NullType>) => {
-        const cases = $.let(Data.bindPaged(ops.proposals));
+        const cases = $.let(Record.bind(ops.proposals));
+        const entries = $.let(Data.bindPaged(ops.proposals));
         return {
             ...base,
             decisions: DecisionQueue.decisions(cases, {
+                entries,
                 scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale,
                 title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving,
                 change: { from: (p) => p.details, of: proposalTargets($) },
+                verdict,
             }),
         };
     };
 
-    test("the cases bound Data.bindPaged read through the slice's `decisions` source", () => {
+    test("the cases read through the slice's `decisions` source a page at a time, a case by key through `entries`", () => {
         assert.doesNotThrow(() => proposalQueue((base, $) => {
             const slice = $.let(Slice.bindRecords("spec.queue", { decisions: { source: bySite(), fields: { site: { label: "Site" } } } }));
             return { ...paged(base, $), slice: { slice } };
@@ -255,13 +281,22 @@ describe("the rail: one Slice.bindRecords, its `decisions` source over the cases
         }), /DecisionQueue: `slice` narrows its cases, through one source over the cases' record — its source 'cases' is none of them/);
     });
 
-    test("cases bound Data.bind beside the slice's source, or Data.bindPaged with none, are refused naming the other", () => {
+    test("`entries` is required beside the slice's source, and refused where there is none", () => {
         assert.throws(() => proposalQueue((base, $) => {
-            const slice = $.let(Slice.bindRecords("spec.whole", { decisions: { source: bySite() } }));
+            const slice = $.let(Slice.bindRecords("spec.unkeyed", { decisions: { source: bySite() } }));
             return { ...base, slice: { slice } };
-        }), /DecisionQueue\.decisions: Data\.bind\(source\) reads the cases whole, which the slice's `decisions` source exists to avoid — bind them Data\.bindPaged\(record\)/);
+        }), /DecisionQueue\.decisions: `entries` reads a case by key beside the slice's `decisions` source — a case drafted, and Save's confirmation: give entries: Data\.bindPaged\(record\), the cases' own record \(D4\)/);
         assert.throws(() => proposalQueue((base, $) => paged(base, $)),
-            /DecisionQueue\.decisions: Data\.bindPaged\(record\) reads the cases through the slice's `decisions` source — give slice=\{\{ slice: Slice\.bindRecords\(key, \{ decisions: \{ source: Data\.bindPaged\(record, \{ indexes \}\) \} \}\) \}\}, or bind Data\.bind\(source\)/);
+            /DecisionQueue\.decisions: `entries` reads a case by key beside the slice's `decisions` source — and the queue has no slice, so its cases are read whole: leave `entries` out, or give slice=\{\{ slice: Slice\.bindRecords\(key, \{ decisions: \{ source, … \} \}\) \}\}/);
+    });
+
+    test("`entries` and the slice's source read the cases' own record: another's is refused", () => {
+        assert.throws(() => proposalCases((base) => ({ ...base, entries: Data.bindPaged(ops.opsCases) })),
+            /DecisionQueue\.decisions: `entries` reads the record's own entries by key — Data\.bindPaged\(record\), a window at a time of /);
+        assert.throws(() => proposalQueue((base, $) => {
+            const slice = $.let(Slice.bindRecords("spec.other", { decisions: { source: Data.bindPaged(ops.opsCases, { indexes: ["ops_cases_by_judgement_area"] }) } }));
+            return { ...paged(base, $), slice: { slice } };
+        }), /DecisionQueue: `slice`'s `decisions` source pages the cases' own record, its rows joined — Data\.bindPaged\(record, \{ indexes \}\) over the record the cases are bound to/);
     });
 });
 
@@ -269,18 +304,18 @@ describe("the rail: one Slice.bindRecords, its `decisions` source over the cases
 // The cases
 // ============================================================================
 
-describe("DecisionQueue.decisions: the cases, read only, each role an East function over the app's row (§5.1)", () => {
+describe("DecisionQueue.decisions: the cases, bound with their patch door, each role an East function over the app's row (§5.1)", () => {
     test("the proposals declare: each case its own one proposal, its option's roles beside the case's (D15)", () => {
         assert.doesNotThrow(() => proposalCases());
     });
 
-    test("the cases are read only: a Record.bind is refused, naming Data.bind and Data.bindPaged", () => {
-        // The proposals as a record declaring its patch door, which the queue never writes through.
-        const editable = e3.record("decision_spec_proposals", DictType(StringType, ops.Proposal), {
-            initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }),
-        });
-        assert.throws(() => proposalCases(undefined, ($) => $.let(Record.bind(editable))),
-            /DecisionQueue\.decisions: the cases are read only — bind them Data\.bind\(source\) to read them whole, or Data\.bindPaged\(record\) to read them through the slice's `decisions` source: the queue writes no case, only its verdict/);
+    test("the cases are bound with their patch door: Data.bind and Data.bindPaged are refused, naming Record.bind", () => {
+        const refusal = /DecisionQueue\.decisions: the queue writes each verdict into its case's row — bind the cases' record with its patch door, Record\.bind\(record\), its record declaring patch: mutation\.patch\(\); cases a task outputs, which nothing writes, are filled into a record by the app's own mutation first/;
+        assert.throws(() => proposalCases(undefined, ($) => $.let(Data.bind(ops.proposals))), refusal);
+        assert.throws(() => proposalCases(undefined, ($) => $.let(Data.bindPaged(ops.proposals))), refusal);
+        // The proposals as a record declaring no patch door, through which no verdict could be written.
+        const closed = e3.record("decision_spec_closed", DictType(StringType, ops.Proposal), { initial: new Map() });
+        assert.throws(() => proposalCases(undefined, ($) => $.let(Record.bind(closed))), /DecisionQueue\.decisions: `record` is bound without its patch door/);
     });
 
     test("a role is an East function, never a field's name", () => {
@@ -322,9 +357,11 @@ describe("DecisionQueue.decisions: the cases, read only, each role an East funct
             /DecisionQueue\.decisions: `options` is \{ from, …the option's roles \} — from: \(c\) => c\.options, a Dict<String, O> of the case's alternatives/);
     });
 
-    test("D15's two forms are never mixed: `recommended` with no `options`, or an option's role both beside the case's and in `options`", () => {
+    test("D15's two forms are never mixed: `recommended` or `label` with no `options`, or an option's role both beside the case's and in `options`", () => {
         assert.throws(() => proposalCases((base) => ({ ...base, recommended: (p: P) => p.site })),
             /DecisionQueue\.decisions: `recommended` names one of a case's `options` — and no `options` are given: give options: \{ from, … \} with the option's roles inside it, or leave `recommended` out for cases that are each their own one proposal, the option's roles beside the case's \(D15\)/);
+        assert.throws(() => proposalCases((base) => ({ ...base, label: (p: P) => p.site })),
+            /DecisionQueue\.decisions: `label` is an option's row in Options — and a case that is its own one proposal shows none \(D15\): give the case's alternatives in options: \{ from, label, … \}, or leave `label` out/);
         assert.throws(() => opsCases((base) => ({ ...base, title: (c: C) => c.scope })),
             /DecisionQueue\.decisions: `title` is given beside the case's roles and `options` too — an option's roles go in options: \{ from, … \} for cases with alternatives, or beside the case's for cases that are each their own one proposal, never both \(D15\)/);
     });
@@ -333,7 +370,7 @@ describe("DecisionQueue.decisions: the cases, read only, each role an East funct
 describe("the change role: the app's variant, and a target for each of its tags (D6)", () => {
     /** The proposals' targets, bound in the declaration's block. */
     const withChange = (change: (of: ReturnType<typeof proposalTargets>) => unknown) => inBlock(($) => {
-        const cases = $.let(Data.bind(ops.proposals));
+        const cases = $.let(Record.bind(ops.proposals));
         return DecisionQueue.decisions(cases as never, { ...proposalRoles(undefined), change: change(proposalTargets($)) } as never);
     });
 
@@ -361,7 +398,7 @@ describe("the change role: the app's variant, and a target for each of its tags 
     test("a projection reads its series from the options' own row: one over another is refused, naming both", () => {
         const Series = StructType({ forecast: ArrayType(StructType({ week: FloatType, units: FloatType })) });
         assert.throws(() => inBlock(($) => {
-            const cases = $.let(Data.bind(ops.proposals));
+            const cases = $.let(Record.bind(ops.proposals));
             const prices = $.let(Record.bind(ops.listPrices));
             const { orders } = proposalTargets($);
             const pricing = DecisionQueue.change.projection(prices, { name: "Demand", icon: "chart-line", option: Series,
@@ -371,101 +408,117 @@ describe("the change role: the app's variant, and a target for each of its tags 
     });
 });
 
-test("the roles' inference: a renamed field, a wrong return, `of` missing a tag or naming another, a target over another record — each a compile error", () => {
+test("the roles' inference: a renamed field, a wrong return, `of` missing a tag or naming another, a target over another record, a verdict role naming no field or case — each a compile error", () => {
     // Type-level: the build never runs. A declaration that accepted any of these would fail the build on its unused directive.
     const never = (): void => {
         inBlock(($) => {
-            const cases = $.let(Data.bind(ops.proposals));
+            const cases = $.let(Record.bind(ops.proposals));
             const { orders, pricing } = proposalTargets($);
             // The declaration that compiles, for the ones below that must not.
-            $(DecisionQueue.decisions(cases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } } }).build(undefined));
+            $(DecisionQueue.decisions(cases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } }, verdict }).build(undefined));
             // @ts-expect-error — `sight` is no field of the proposal: a role reads the app's own names
-            DecisionQueue.decisions(cases, { scope: (p) => p.sight, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } } });
+            DecisionQueue.decisions(cases, { scope: (p) => p.sight, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } }, verdict });
             // @ts-expect-error — `saving` is a Float, and `scope` takes a String
-            DecisionQueue.decisions(cases, { scope: (p) => p.saving, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } } });
+            DecisionQueue.decisions(cases, { scope: (p) => p.saving, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } }, verdict });
             // @ts-expect-error — `of` gives the tag `pricing` no target
-            DecisionQueue.decisions(cases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders } } });
+            DecisionQueue.decisions(cases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders } }, verdict });
             // @ts-expect-error — `of` names `shipping`, no tag of the variant
-            DecisionQueue.decisions(cases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing, shipping: pricing } } });
+            DecisionQueue.decisions(cases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing, shipping: pricing } }, verdict });
             // @ts-expect-error — `orders` patches the work orders, and its target draws the price list
-            DecisionQueue.decisions(cases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders: pricing, pricing } } });
+            DecisionQueue.decisions(cases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders: pricing, pricing } }, verdict });
             // Cases with alternatives of the test's own, each option's change the proposals' variant: the option's type is read
             // from `options.from`, for the roles after it.
             const Offer = StructType({ title: StringType, brief: StringType, value: FloatType, details: ops.ProposalDetails });
             const Choice = StructType({ site: StringType, deadline: OptionType(DateTimeType), metric: StringType, run: StringType, rationale: StringType,
-                pick: StringType, offers: DictType(StringType, Offer) });
-            const choices = $.let(Data.bind(e3.record("decision_spec_choices", DictType(StringType, Choice), { initial: new Map() })));
-            $(DecisionQueue.decisions(choices, { scope: (c) => c.site, due: (c) => c.deadline, unit: (c) => c.metric, model: (c) => c.run, why: (c) => c.rationale, recommended: (c) => c.pick, options: { from: (c) => c.offers, title: (o) => o.title, summary: (o) => o.brief, detail: (o, key, c) => East.str`${key} at ${c.site}`, value: (o) => o.value, change: { from: (o) => o.details, of: { orders, pricing } } } }).build(undefined));
+                pick: StringType, offers: DictType(StringType, Offer), verdict: ops.Proposal.fields.verdict });
+            const choices = $.let(Record.bind(e3.record("decision_spec_choices", DictType(StringType, Choice), {
+                initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }),
+            })));
+            $(DecisionQueue.decisions(choices, { scope: (c) => c.site, due: (c) => c.deadline, unit: (c) => c.metric, model: (c) => c.run, why: (c) => c.rationale, recommended: (c) => c.pick, options: { from: (c) => c.offers, title: (o) => o.title, summary: (o) => o.brief, detail: (o, key, c) => East.str`${key} at ${c.site}`, value: (o) => o.value, change: { from: (o) => o.details, of: { orders, pricing } } }, verdict }).build(undefined));
             // @ts-expect-error — `headline` is no field of the option
-            DecisionQueue.decisions(choices, { scope: (c) => c.site, due: (c) => c.deadline, unit: (c) => c.metric, model: (c) => c.run, why: (c) => c.rationale, recommended: (c) => c.pick, options: { from: (c) => c.offers, title: (o) => o.headline, summary: (o) => o.brief, detail: (o) => o.brief, value: (o) => o.value, change: { from: (o) => o.details, of: { orders, pricing } } } });
+            DecisionQueue.decisions(choices, { scope: (c) => c.site, due: (c) => c.deadline, unit: (c) => c.metric, model: (c) => c.run, why: (c) => c.rationale, recommended: (c) => c.pick, options: { from: (c) => c.offers, title: (o) => o.headline, summary: (o) => o.brief, detail: (o) => o.brief, value: (o) => o.value, change: { from: (o) => o.details, of: { orders, pricing } } }, verdict });
             // @ts-expect-error — the option's `of` gives the tag `orders` no target
-            DecisionQueue.decisions(choices, { scope: (c) => c.site, due: (c) => c.deadline, unit: (c) => c.metric, model: (c) => c.run, why: (c) => c.rationale, recommended: (c) => c.pick, options: { from: (c) => c.offers, title: (o) => o.title, summary: (o) => o.brief, detail: (o) => o.brief, value: (o) => o.value, change: { from: (o) => o.details, of: { pricing } } } });
-            const verdictRows = $.let(Record.bind(ops.proposalVerdicts));
-            const entries = $.let(Data.bindPaged(ops.proposalVerdicts));
-            // The verdicts' roles that compile, for the ones below that must not: each a field of the verdict's row, by name.
-            $(DecisionQueue.verdicts(verdictRows, { entries, verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" }, option: "option", note: "note" }).build());
-            // @ts-expect-error — `outcome` is no field of the verdict's row
-            DecisionQueue.verdicts(verdictRows, { entries, verdict: { field: "outcome", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" } });
+            DecisionQueue.decisions(choices, { scope: (c) => c.site, due: (c) => c.deadline, unit: (c) => c.metric, model: (c) => c.run, why: (c) => c.rationale, recommended: (c) => c.pick, options: { from: (c) => c.offers, title: (o) => o.title, summary: (o) => o.brief, detail: (o) => o.brief, value: (o) => o.value, change: { from: (o) => o.details, of: { pricing } } }, verdict });
+            // The verdict's roles that compile, for the ones below that must not: each a field of the case's row, by name.
+            const judgedCases = $.let(Record.bind(judged));
+            $(DecisionQueue.decisions(judgedCases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } }, verdict, option: "option", answer: { field: "answer", yes: "yes", no: "no", unsure: "unsure" }, note: "note" }).build(undefined));
+            // @ts-expect-error — `outcome` is no field of the case's row
+            DecisionQueue.decisions(judgedCases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } }, verdict: { ...verdict, field: "outcome" } });
             // @ts-expect-error — `done` is no case of the verdict's variant
-            DecisionQueue.verdicts(verdictRows, { entries, verdict: { field: "verdict", applied: "done", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" } });
+            DecisionQueue.decisions(judgedCases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } }, verdict: { ...verdict, applied: "done" } });
             // @ts-expect-error — `verdict` is a variant, and the option taken is an Option<String> field
-            DecisionQueue.verdicts(verdictRows, { entries, verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" }, option: "verdict" });
+            DecisionQueue.decisions(judgedCases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } }, verdict, option: "verdict" });
+            // @ts-expect-error — `maybe` is no case of the answer's variant
+            DecisionQueue.decisions(judgedCases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } }, verdict, answer: { field: "answer", yes: "yes", no: "no", unsure: "maybe" } });
+            // @ts-expect-error — a role the queue writes is a field by name, never an accessor (D17)
+            DecisionQueue.decisions(judgedCases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } }, verdict, note: (p) => p.note });
+            // @ts-expect-error — `verdict` is required: the queue writes it
+            DecisionQueue.decisions(judgedCases, { scope: (p) => p.site, due: (p) => p.deadline, unit: (p) => p.metric, model: (p) => p.run, why: (p) => p.rationale, title: (p) => p.headline, summary: (p) => p.brief, detail: (p) => p.description, value: (p) => p.saving, change: { from: (p) => p.details, of: { orders, pricing } } });
         });
     };
     assert.equal(typeof never, "function");
 });
 
 // ============================================================================
-// The verdicts
+// The verdict
 // ============================================================================
 
-describe("DecisionQueue.verdicts: the app's record the queue writes, each role a field by name (§5.2)", () => {
-    test("every part of a verdict mapped to a field of the app's row, or only the verdict", () => {
-        assert.doesNotThrow(() => proposalVerdicts());
-        assert.doesNotThrow(() => proposalVerdicts((base) => ({ entries: base.entries, verdict: base.verdict })));
+describe("the verdict's roles: fields of the case's row, by name, which the queue writes (§5.2, D17)", () => {
+    test("every part of a verdict mapped to a field of the row, or only the verdict", () => {
+        assert.doesNotThrow(() => judgedCases());
+        assert.doesNotThrow(() => judgedCases((base) => ({ ...base, option: undefined, answer: undefined, reason: undefined, note: undefined })));
     });
 
-    test("the record is bound with its patch door, and read by key through `entries`", () => {
-        assert.throws(() => proposalVerdicts(undefined, ($) => $.let(Data.bind(ops.proposalVerdicts))),
-            /DecisionQueue\.verdicts: the queue writes each verdict — bind the record with its patch door, Record\.bind\(record\), its record declaring patch: mutation\.patch\(\), and read it by key beside it, entries: Data\.bindPaged\(record\)/);
-        assert.throws(() => proposalVerdicts((base) => ({ ...base, entries: undefined })),
-            /DecisionQueue\.verdicts: `entries` reads the verdicts by key — the keys of the cases read — never whole: give entries: Data\.bindPaged\(record\), the record's own entries/);
+    test("`verdict` is required, the field and which of its cases means what", () => {
+        assert.throws(() => judgedCases((base) => ({ ...base, verdict: undefined })),
+            /DecisionQueue\.decisions: `verdict` names the case's verdict field and its cases — \{ field, waiting, applied, overridden, deferred, handedOff \}: the queue writes it/);
+        assert.throws(() => judgedCases((base) => ({ ...base, verdict: "verdict" })),
+            /DecisionQueue\.decisions: `verdict` is \{ field, waiting, applied, overridden, deferred, handedOff \} — the field, and which of its cases each means/);
     });
 
     test("`verdict` names a variant field of the row and a case of it for each of the queue's, each a case of its own", () => {
-        assert.throws(() => proposalVerdicts((base) => ({ ...base, verdict: undefined })),
-            /DecisionQueue\.verdicts: `verdict` names the row's verdict field and its cases — \{ field, applied, overridden, deferred, handedOff \}/);
-        assert.throws(() => proposalVerdicts((base) => ({ ...base, verdict: { ...base.verdict, field: "outcome" } })),
-            /DecisionQueue\.verdicts: `verdict\.field` names "outcome", a field the row does not have \(verdict, option, answer, reason, note\)/);
-        assert.throws(() => proposalVerdicts((base) => ({ ...base, verdict: { ...base.verdict, field: "answer" } })),
-            /DecisionQueue\.verdicts: `verdict\.field` names a variant field, not an Option — "answer" holds/);
-        assert.throws(() => proposalVerdicts((base) => ({ ...base, verdict: { ...base.verdict, applied: "done" } })),
-            /DecisionQueue\.verdicts: `verdict\.applied` names a case of "verdict" \(applied, deferred, handedOff, overridden\) — and it names "done"/);
-        assert.throws(() => proposalVerdicts((base) => ({ ...base, verdict: { ...base.verdict, overridden: "applied" } })),
-            /DecisionQueue\.verdicts: `verdict` names a case of "verdict" for each of applied, overridden, deferred, handedOff — each a case of its own — and it names applied, applied, deferred, handedOff/);
+        assert.throws(() => judgedCases((base) => ({ ...base, verdict: { ...base.verdict, field: "outcome" } })),
+            /DecisionQueue\.decisions: `verdict\.field` names "outcome", a field the row does not have \(site, /);
+        assert.throws(() => judgedCases((base) => ({ ...base, verdict: { ...base.verdict, field: "answer" } })),
+            /DecisionQueue\.decisions: `verdict\.field` names a variant field, not an Option — "answer" holds/);
+        assert.throws(() => judgedCases((base) => ({ ...base, verdict: { ...base.verdict, applied: "done" } })),
+            /DecisionQueue\.decisions: `verdict\.applied` names a case of "verdict" \(applied, deferred, handedOff, overridden, waiting\) — and it names "done"/);
+        assert.throws(() => judgedCases((base) => ({ ...base, verdict: { ...base.verdict, overridden: "applied" } })),
+            /DecisionQueue\.decisions: `verdict` names a case of "verdict" for each of waiting, applied, overridden, deferred, handedOff — each a case of its own — and it names waiting, applied, applied, deferred, handedOff/);
     });
 
-    test("a verdict's case holds Null, or when the verdict was given", () => {
-        const Odd = StructType({ verdict: VariantType({ applied: StringType, overridden: NullType, deferred: NullType, handedOff: NullType }) });
-        const odd = e3.record("decision_spec_odd_verdicts", DictType(StringType, Odd), {
-            initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }),
-        });
-        assert.throws(() => inBlock(($) => {
-            const rows = $.let(Record.bind(odd));
-            const entries = $.let(Data.bindPaged(odd));
-            return DecisionQueue.verdicts(rows, { entries, verdict: { field: "verdict", applied: "applied", overridden: "overridden", deferred: "deferred", handedOff: "handedOff" } });
-        }), /DecisionQueue\.verdicts: the case "applied" holds Null or \{ at: DateTime \}, the time the verdict was given — and it holds .*String/);
+    test("a verdict's case holds Null, or when the verdict was given — and the waiting case Null alone, as the model writes it", () => {
+        const Odd = StructType({ ...Judged.fields, verdict: VariantType({ waiting: NullType, applied: StringType, overridden: NullType, deferred: NullType, handedOff: NullType }) });
+        const odd = e3.record("decision_spec_odd", DictType(StringType, Odd), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
+        assert.throws(() => judgedCases(undefined, ($) => $.let(Record.bind(odd))),
+            /DecisionQueue\.decisions: the case "applied" holds Null or \{ at: DateTime \}, the time the verdict was given — and it holds .*String/);
+        const Stamped = StructType({ ...Judged.fields, verdict: VariantType({ waiting: Given, applied: Given, overridden: Given, deferred: Given, handedOff: Given }) });
+        const stamped = e3.record("decision_spec_stamped", DictType(StringType, Stamped), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
+        assert.throws(() => judgedCases(undefined, ($) => $.let(Record.bind(stamped))),
+            /DecisionQueue\.decisions: `verdict\.waiting` names "waiting", which holds .*at.* — the waiting case holds Null, as the model writes it on every new case/);
+    });
+
+    test("`verdict` names every case of its variant: a case the queue would read and could not tell is refused, naming it", () => {
+        const Pending = StructType({ ...Judged.fields, verdict: VariantType({ waiting: NullType, pending: NullType, applied: Given, overridden: Given, deferred: Given, handedOff: Given }) });
+        const pending = e3.record("decision_spec_pending", DictType(StringType, Pending), { initial: new Map(), mutations: (mutation) => ({ patch: mutation.patch() }) });
+        assert.throws(() => judgedCases(undefined, ($) => $.let(Record.bind(pending))),
+            /DecisionQueue\.decisions: `verdict` names every case of "verdict" — "pending" is none of waiting, applied, overridden, deferred, handedOff: a case the queue reads is waiting, or holds one of the four verdicts/);
     });
 
     test("`answer` and `reason` name an Option of a variant of unit cases; `option` and `note` an Option<String>; each a field of its own", () => {
-        assert.throws(() => proposalVerdicts((base) => ({ ...base, answer: { ...base.answer, field: "note" } })),
-            /DecisionQueue\.verdicts: `answer\.field` names an Option of a variant, its cases 3 of the app's — "note" holds/);
-        assert.throws(() => proposalVerdicts((base) => ({ ...base, reason: { ...base.reason, other: "elsewhere" } })),
-            /DecisionQueue\.verdicts: `reason\.other` names a case of "reason" \(context, data, other, priorities\) — and it names "elsewhere"/);
-        assert.throws(() => proposalVerdicts((base) => ({ ...base, option: "verdict" })),
-            /DecisionQueue\.verdicts: `option` names an Option<String> field — "verdict" holds/);
-        assert.throws(() => proposalVerdicts((base) => ({ ...base, option: "note" })),
-            /DecisionQueue\.verdicts: two roles name "note" — each part of the verdict is written to a field of its own/);
+        assert.throws(() => judgedCases((base) => ({ ...base, answer: { ...base.answer, field: "note" } })),
+            /DecisionQueue\.decisions: `answer\.field` names an Option of a variant, its cases 3 of the app's — "note" holds/);
+        assert.throws(() => judgedCases((base) => ({ ...base, reason: { ...base.reason, other: "elsewhere" } })),
+            /DecisionQueue\.decisions: `reason\.other` names a case of "reason" \(context, data, other, priorities\) — and it names "elsewhere"/);
+        assert.throws(() => judgedCases((base) => ({ ...base, option: "verdict" })),
+            /DecisionQueue\.decisions: `option` names an Option<String> field — "verdict" holds/);
+        assert.throws(() => judgedCases((base) => ({ ...base, option: "note" })),
+            /DecisionQueue\.decisions: two roles name "note" — each part of the verdict is written to a field of its own/);
+    });
+
+    test("a role the queue writes is a field by name, never an accessor (D17)", () => {
+        assert.throws(() => judgedCases((base) => ({ ...base, note: (p: J) => p.note })),
+            /DecisionQueue\.decisions: `note` names a field of the case's row, which the queue writes \(D17\) — one of site, /);
     });
 });
 

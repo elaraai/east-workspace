@@ -5,7 +5,7 @@
 
 /**
  * What an Allocation target's preview draws (`Decision Queue Spec.md` D8, P4,
- * P13–P20, P24, P25): a lane a resource a day the change's bins land on, and
+ * P13–P17, P19, P20, P24, P25): a lane a resource a day the change's bins land on, and
  * the waiting row of what no resource holds yet. A bin is drawn on each
  * resource it has a part on, its part's quantity, from its time to the end of
  * its hold — counted from its day, as the board's loads hold the resource; a
@@ -110,8 +110,6 @@ export interface AllocationCropInput {
     readonly knockOn: (key: string) => boolean;
     /** Whether the target's `locked` pins a bin. */
     readonly locked: (key: string) => boolean;
-    /** How many other cases change a bin. */
-    readonly shared: (key: string) => number;
     /** A hold, in ms. */
     readonly ms: (step: TimeStep) => number;
     /** The crop's words. */
@@ -197,7 +195,7 @@ export function allocationCrop(input: AllocationCropInput): LanesModel | undefin
     };
 
     const before = new Map<string, LaneEvent | undefined>(), after = new Map<string, LaneEvent | undefined>();
-    // The bin each entry the change touches is a part of: what knocks it on, locks it and shares it.
+    // The bin each entry the change touches is a part of: what knocks it on and locks it.
     const binOfEntry = new Map<string, string>();
     const touch = (entry: string, bin: string | undefined, b: LaneEvent | undefined, a: LaneEvent | undefined) => {
         before.set(entry, b);
@@ -332,10 +330,6 @@ export function allocationCrop(input: AllocationCropInput): LanesModel | undefin
         locked: entry => {
             const bin = binOfEntry.get(entry);
             return bin !== undefined && input.locked(bin);
-        },
-        shared: entry => {
-            const bin = binOfEntry.get(entry);
-            return bin === undefined ? 0 : input.shared(bin);
         },
         overlaps: () => false,
         pairs: "kind",

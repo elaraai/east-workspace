@@ -27,7 +27,7 @@ function cropOf(context: readonly LaneEvent[], locked: readonly string[] = []): 
     const after = new Map([["J-2", job("J-2", "A1", 11, 14)]]);
     const input: LanesInput = {
         window: laneWindow([...before.values(), ...after.values()])!, context, before, after, lands: [], marked: true,
-        knockOn: () => false, locked: key => locked.some(k => stringEqual(k, key)), shared: () => 0, overlaps: () => false,
+        knockOn: () => false, locked: key => locked.some(k => stringEqual(k, key)), overlaps: () => false,
         pairs: "kind", measure: "share", nameOf: lane => lane,
     };
     return lanesPreview(input);

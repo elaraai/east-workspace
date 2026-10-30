@@ -37,7 +37,7 @@ import { appliedRows, draftedRows, standingRows, type DecisionTarget } from "../
 import { payFormat } from "../figures.js";
 import type { DecisionQueueWords } from "../messages.js";
 import { costPreview, type CostModel } from "./cost-model.js";
-import { NAMED, PreviewFailed, PreviewFrame, PreviewPending, flag, guessedOf, leftBy, sharedOf, staleNames, type PreviewProps } from "./frame.js";
+import { NAMED, PreviewFailed, PreviewFrame, PreviewPending, flag, guessedOf, leftBy, staleNames, type PreviewProps } from "./frame.js";
 import { WEEK_DAYS, firstStart, rosterPreview, type RosterPreviewModel, type RosterPreviewRow, type RosterPreviewTile } from "./roster-model.js";
 
 /** A Roster target's kind, decoded. */
@@ -87,7 +87,7 @@ export interface RosterPreviewProps extends PreviewProps {
  * @param props - The case, its target and record, the rows its change leaves and the queue's editing ({@link RosterPreviewProps})
  * @returns The preview
  */
-export function RosterPreview({ c, view, target, kind, record, rows, changed, schedule, shared, words, styles }: RosterPreviewProps) {
+export function RosterPreview({ c, view, target, kind, record, rows, changed, schedule, words, styles }: RosterPreviewProps) {
     const roster = kind.roster;
     const roles = useSlotStyles("rosterBuilder");
     const domain = useMemo(() => rosterDomain(roster.duty.rowType), [roster]);
@@ -161,10 +161,9 @@ export function RosterPreview({ c, view, target, kind, record, rows, changed, sc
                 domain, roster, context, start, stored, drafts, before, after, lands, marked,
                 knockOn: key => knockOn?.has(key) === true,
                 locked: (bytes, key) => locked(bytes, key),
-                shared: key => (record === undefined ? 0 : sharedOf(shared, record.key, key)),
             }),
         };
-    }, [rows, changed, option, c.options, view.recommended, record, target, schedule, roster, domain, context, shared, cost, pays]);
+    }, [rows, changed, option, c.options, view.recommended, record, target, schedule, roster, domain, context, cost, pays]);
     const { result } = useTrackedEvaluation(read);
     const stale = rows === "stale";
     if (rows === "failed" || !result.ok) {
@@ -264,7 +263,6 @@ function tileTitle(tile: RosterPreviewTile, day: Date, roster: RosterPayload, wo
     return m.previewTile({
         what: shiftOf(roster, tile.shift)?.label ?? tile.shift, when: `${words.weekday(day)} ${words.number(day.getUTCDate())}`,
         op: tile.op, to: tile.to, knock: tile.knock, locked: tile.locked, breach: tile.breach,
-        shared: tile.shared > 0 ? { n: words.number(tile.shared), one: tile.shared === 1 } : undefined,
     });
 }
 
@@ -305,7 +303,7 @@ function Crop({ model, label, stale, words, styles, roles, roster }: ViewProps) 
     );
 }
 
-/** A duty's tile in the crop: the Roster's tile, its shift's code, its marks, its lock and its rule broken, and the `+N` of other cases. */
+/** A duty's tile in the crop: the Roster's tile, its shift's code, its marks, its lock and its rule broken. */
 function Tile({ tile, day, words, styles, roles, roster }: {
     readonly tile: RosterPreviewTile; readonly day: Date; readonly words: DecisionQueueWords; readonly styles: SlotStyles; readonly roles: SlotStyles;
     readonly roster: RosterPayload;
@@ -318,7 +316,6 @@ function Tile({ tile, day, words, styles, roles, roster }: {
             <span data-tile-label="">{shift?.code ?? tile.shift}</span>
             {tile.locked && <Box as="span" css={styles.icon} aria-hidden="true"><FontAwesomeIcon icon={faLock} /></Box>}
             {tile.breach !== undefined && <Box as="span" css={styles.icon} data-tone="warn" aria-hidden="true"><FontAwesomeIcon icon={faTriangleExclamation} /></Box>}
-            {tile.shared > 0 && <Box as="span" css={styles.shared} data-preview-shared="">{words.m.previewShared({ n: words.number(tile.shared) })}</Box>}
         </Box>
     );
 }

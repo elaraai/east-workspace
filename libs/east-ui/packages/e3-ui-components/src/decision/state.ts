@@ -16,14 +16,14 @@
 
 import { BlobType, FloatType, OptionType, StringType, compareFor, equalFor, none, some, type option } from "@elaraai/east";
 import { bytesOf, optionId, type CaseChoice, type RowEdit } from "./choices.js";
-import { recommendedIndex, type DecisionCase, type DecisionOption } from "./layout.js";
+import { recommendedIndex, type DecisionCase, type DecisionOption } from "./cases.js";
 import type { DecisionAnswerWord } from "./messages.js";
 
 /** Your call's state (R16): unanswered, blocked by a No, handed on by a Don't know, or answered Yes. */
 export type CallState = "needs" | "blocked" | "handoff" | "answered";
 
-/** A card's status, at its value line's end (R16, P21). */
-export type CardStatus = "needsAnswer" | "blocked" | "handoff" | "stale";
+/** A card's status, at its value line's end (R16, P21, §8). */
+export type CardStatus = "needsAnswer" | "blocked" | "handoff" | "stale" | "routine";
 
 /** Why Apply is off (R16, R23, §12). */
 export type ApplyOff = "needs" | "blocked" | "handoff" | "stale" | "reading" | "failed" | "malformed" | "unready";
@@ -86,15 +86,17 @@ export function cardView(c: DecisionCase, choice: CaseChoice, asks: boolean): Ca
 }
 
 /**
- * The card's status (R16, P21): what Your call says, else Stale where the open card's change no longer applies.
+ * The card's status (R16, P21, §8): what Your call says, else Stale where the card's change no longer applies, else
+ * Routine for a routine case.
  *
  * @param view - What the card shows
  * @param stale - Whether the chosen option's change no longer applies to the rows it touches
+ * @param routine - Whether the case is routine (D5)
  * @returns The status; `undefined` for none
  */
-export function cardStatus(view: CardView, stale: boolean): CardStatus | undefined {
+export function cardStatus(view: CardView, stale: boolean, routine: boolean): CardStatus | undefined {
     const said = view.call === undefined ? undefined : STATUSES[view.call];
-    return said ?? (stale ? "stale" : undefined);
+    return said ?? (stale ? "stale" : routine ? "routine" : undefined);
 }
 
 /**

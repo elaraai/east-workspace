@@ -4,8 +4,8 @@
  */
 
 /**
- * What a lanes crop draws (`Decision Queue Spec.md` D8, P4, P6, P13–P20, P24,
- * P25): the Plan's crop of the resources a change lands on, the Calendar's of
+ * What a lanes crop draws (`Decision Queue Spec.md` D8, P4, P6, P13–P17,
+ * P19, P20, P24, P25): the Plan's crop of the resources a change lands on, the Calendar's of
  * the days it lands on, and the Allocation's of the resources and the waiting
  * row its bins move between. The Plan's and the Allocation's window is whole
  * hours from two before the first event the change touches to two after the
@@ -302,8 +302,6 @@ export interface LaneBar {
     readonly breach: LaneBreach | undefined;
     /** How it is drawn, for a resource's job. */
     readonly look: LaneLook | undefined;
-    /** How many other cases' chosen options change it too (P18). */
-    readonly shared: number;
     /** A ghost's: where its event goes. */
     readonly to: LaneMove | undefined;
 }
@@ -367,14 +365,12 @@ export type LaneClause =
     | { readonly kind: "remove"; readonly what: string; readonly from: string }
     | { readonly kind: "change"; readonly what: string; readonly on: string };
 
-/** An event the sentence names beside what moves (P17, P18, P25): what it is, and where it stands or how many other cases change it. */
+/** An event the sentence names beside what moves (P17, P25): one the target's `locked` pins, and where it stands. */
 export interface LaneNamed {
     /** What the sentence names it by. */
     readonly what: string;
-    /** Where it stands, by its lane's name, for one the target's `locked` pins. */
+    /** Where it stands, by its lane's name. */
     readonly on: string;
-    /** How many other cases change it, for one the change touches. */
-    readonly n: number;
 }
 
 /** What the change does to one resource, for a map (P5): the events it lands there and those it takes off. */
@@ -419,8 +415,6 @@ export interface LanesModel {
     readonly clauses: readonly LaneClause[];
     /** The events on the lanes the target's `locked` pins and the change leaves as they stand (P17), for the sentence; none while nothing is marked. */
     readonly pinned: readonly LaneNamed[];
-    /** The events the change touches that other cases' chosen options change too (P18), for the sentence; none while nothing is marked. */
-    readonly shared: readonly LaneNamed[];
     /** What the change does to each resource its events stand on, by the resource as its events name it; empty while nothing is marked. */
     readonly tally: ReadonlyMap<string, LaneTally>;
     /** The new times it gives the events it moves or adds, in the order they start; none while nothing is marked. */
@@ -445,8 +439,6 @@ export interface LanesInput {
     readonly knockOn: (key: string) => boolean;
     /** Whether the target's `locked` pins an event the change touches. */
     readonly locked: (key: string) => boolean;
-    /** How many other cases change an event. */
-    readonly shared: (key: string) => number;
     /** Whether two events of a kind on one resource at once are a conflict: the kind's `overlaps`, by its slot name. */
     readonly overlaps: (kind: string) => boolean;
     /** How events pair, as `scheduleOverlaps` groups them: within each kind that warns, as a Plan pairs them, or across every kind that warns, as a Calendar does. */
@@ -635,23 +627,23 @@ export function lanesPreview(input: LanesInput): LanesModel {
         const origin = input.originOf?.(lane) ?? 0;
         const shareOf = (t: Date) => Math.min(1, Math.max(0, (t.getTime() - origin - from) / span));
         const entries: Omit<LaneBar, "lane">[] = [];
-        const entry = (e: LaneEvent, mark: Pick<LaneBar, "op" | "knock" | "locked" | "breach" | "shared" | "to">) => {
+        const entry = (e: LaneEvent, mark: Pick<LaneBar, "op" | "knock" | "locked" | "breach" | "to">) => {
             const left = shareOf(e.start);
             entries.push({ key: e.key, title: e.title, start: e.start, end: e.end, left, width: Math.max(LEAST, shareOf(e.end) - left), look: e.look, ...mark });
         };
-        for (const e of context.filter(on(lane))) entry(e, { op: undefined, knock: false, locked: e.locked === true, breach: breachOf(e), shared: 0, to: undefined });
+        for (const e of context.filter(on(lane))) entry(e, { op: undefined, knock: false, locked: e.locked === true, breach: breachOf(e), to: undefined });
         for (const key of touched) {
             const b = before.get(key), a = after.get(key);
             const knock = marked && input.knockOn(key);
             // The event as the change leaves it, the change's marked.
             if (on(lane)(a)) {
                 const op: PreviewOp | undefined = !marked || knock ? undefined : b !== undefined && samePlace(b, a) ? "chg" : "add";
-                entry(a, { op, knock, locked: input.locked(key), breach: breachOf(a), shared: marked ? input.shared(key) : 0, to: undefined });
+                entry(a, { op, knock, locked: input.locked(key), breach: breachOf(a), to: undefined });
             }
             // Where the change moves it off, or takes it off: a ghost (P14).
             if (marked && on(lane)(b) && !(a !== undefined && samePlace(b, a))) {
                 entry(b, {
-                    op: a === undefined ? "del" : "from", knock: false, locked: input.locked(key), breach: undefined, shared: 0,
+                    op: a === undefined ? "del" : "from", knock: false, locked: input.locked(key), breach: undefined,
                     to: a === undefined ? undefined : { name: moved(b, a) ? where(a) : undefined, start: a.start, end: a.end },
                 });
             }
@@ -679,7 +671,6 @@ export function lanesPreview(input: LanesInput): LanesModel {
 
     const clauses: LaneClause[] = [];
     const pinned: LaneNamed[] = [];
-    const shared: LaneNamed[] = [];
     const tally = new Map<string, Tallied>();
     const landings: LaneLanding[] = [];
     if (marked) {
@@ -696,7 +687,7 @@ export function lanesPreview(input: LanesInput): LanesModel {
         for (const e of context) {
             if (e.locked !== true || !lanes.some(lane => stringEqual(lane, e.lane)) || pins.some(held => sameEvent(held, e))) continue;
             pins.push(e);
-            pinned.push({ what: e.what ?? e.title, on: where(e), n: 0 });
+            pinned.push({ what: e.what ?? e.title, on: where(e) });
         }
         for (const key of touched) {
             const b = before.get(key), a = after.get(key);
@@ -710,9 +701,6 @@ export function lanesPreview(input: LanesInput): LanesModel {
                 } else clauses.push({ kind: "change", what, on: where(a) });
             } else if (b !== undefined) clauses.push({ kind: "remove", what: b.what ?? b.title, from: where(b) });
             else if (a !== undefined) clauses.push({ kind: "add", what: a.what ?? a.title, on: where(a), verb: verb(a.lane), start: a.start, end: a.end, breach: breachOf(a) });
-            // The other cases changing it (P18).
-            const n = input.shared(key), named = a ?? b;
-            if (n > 0 && named !== undefined) shared.push({ what: named.what ?? named.title, on: where(named), n });
             // What it does to each resource, and the new time it gives the event, for a map.
             if (a !== undefined) {
                 const held = tallyOf(a.resource);
@@ -726,5 +714,5 @@ export function lanesPreview(input: LanesInput): LanesModel {
         landings.sort((x, y) => compareDate(x.start, y.start) || compareString(x.key, y.key));
     }
     const { ticks, grid } = laneTicks(w);
-    return { window: w, ticks, grid, measure, unit: load?.unit ?? "", rows, clauses, pinned, shared, tally, landings };
+    return { window: w, ticks, grid, measure, unit: load?.unit ?? "", rows, clauses, pinned, tally, landings };
 }
