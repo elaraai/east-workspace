@@ -137,8 +137,7 @@ export function PlanCellInput({ styles, x0, x1, text, seed, whole, name, read, o
     return (
         <Box css={styles.tableCellInput} data-plan-typing="" data-invalid={refusal !== undefined ? "" : undefined}
             data-popover={popover === true ? "" : undefined}
-            left={x0 !== undefined ? `${x0 * 100}%` : undefined}
-            width={x0 !== undefined && x1 !== undefined ? `${(x1 - x0) * 100}%` : undefined}
+            style={{ left: x0 !== undefined ? `${x0 * 100}%` : undefined, width: x0 !== undefined && x1 !== undefined ? `${(x1 - x0) * 100}%` : undefined }}
             onMouseDown={stop} onClick={stop} onDoubleClick={stop}>
             <ChakraNumberInput.Root css={styles.tableCellField} value={value} locale={words.locale}
                 formatOptions={whole ? INTEGER_FORMAT : NUMBER_FORMAT}

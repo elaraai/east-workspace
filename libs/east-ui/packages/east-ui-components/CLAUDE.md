@@ -44,6 +44,19 @@ from `app_design_system/tokens/*.css`. Recipes and renderers name these
 tokens, never a raw hex, a raw palette step (`brand.600`) or a size outside
 the scale.
 
+**A computed place is written inline (#1440).** A position or size a
+renderer computes — a bar's left and width, a row's height, a grid's
+template, a clip — goes through `style` (or a CSS variable set there), never
+a Chakra style prop. A prop mints an emotion class for each distinct value,
+each carrying a copy of its element's recipe, and the page never removes
+one: a canvas that zoomed or panned grew its style sheet by thousands of
+rules a gesture (planNestedAll's Year zoom alone, 57,000), every frame's
+styling slowed with it, and past about 262,000 rules Chrome applies no new
+one, so whatever then draws at a new place draws unstyled. A value from a
+bounded set — a token, a state's literal — stays a prop. The responsive
+suite's `plan-geometry.spec.ts` holds planNestedAll's rule count still across
+zooms, pans and strip drags.
+
 | Target (from `libs/east-ui/`) | What it does |
 |---|---|
 | `make design` | Serves the design system's download (`app_design_system/`) on :5174. |

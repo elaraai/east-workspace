@@ -109,8 +109,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
         <Box
             ref={grid.ref}
             css={styles.groupBand}
-            gridTemplateColumns={gridTemplate}
-            height={`${height}px`}
+            style={{ gridTemplateColumns: gridTemplate, height: `${height}px` }}
             role="row"
             aria-level={depth + 1}
             aria-expanded={!collapsed}
@@ -125,7 +124,7 @@ export function GroupRow({ row, kind, styles, gridTemplate, height, depth, colla
             data-plan-partial={partial === true ? "" : undefined}
             onClick={() => dispatch({ t: "group.toggle", key: row.key })}
         >
-            <Box css={styles.groupName} role="rowheader" paddingLeft={`${12 + depth * INDENT_PX}px`}>
+            <Box css={styles.groupName} role="rowheader" style={{ paddingLeft: `${12 + depth * INDENT_PX}px` }}>
                 <Box as="span" css={styles.caret} data-collapsed={collapsed ? "" : undefined}>
                     <FontAwesomeIcon icon={faCaretDown} />
                 </Box>

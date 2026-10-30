@@ -125,8 +125,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
             tabIndex={-1}
             role="button"
             aria-label={runName(run, scale, words)}
-            left={`${left * 100}%`}
-            width={`${width * 100}%`}
+            style={{ left: `${left * 100}%`, width: `${width * 100}%` }}
             {...handle}
             // Carried by the keyboard (#825) — dimmed as a dragged origin is.
             data-dragging={carried ? "" : undefined}
@@ -198,7 +197,7 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, ctx, mo
                 });
                 return (
                     <Box key={`band-${i}`} css={styles.rollBand} data-state={runStateKey(band.state)} data-ctx={ctxAttr}
-                        data-plan-band="" left={`${left * 100}%`} width={`${width * 100}%`}>
+                        data-plan-band="" style={{ left: `${left * 100}%`, width: `${width * 100}%` }}>
                         {/* Ellipsized, or hidden below a letter and the ellipsis, its hover saying it (#1264). */}
                         <Box as="span" css={styles.rollBandLabel} data-plan-label="">{caption}</Box>
                     </Box>
@@ -210,11 +209,11 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, ctx, mo
                 // ports sit clipped at rest and slide in on a brush pan.
                 if (x <= scale.renderMin || x >= scale.renderMax) return null;
                 const label = port.label.type === "some" ? port.label.value : undefined;
-                if (label === undefined) return <Box key={`port-${i}`} css={styles.port} left={`${x * 100}%`} />;
+                if (label === undefined) return <Box key={`port-${i}`} css={styles.port} style={{ left: `${x * 100}%` }} />;
                 // The label is the port's accessible name, and the canvas's
                 // one tooltip shows it on hover (#816) — the design-system
                 // tooltip, never the native `title=` (#617).
-                return <Box key={`port-${i}`} css={styles.port} left={`${x * 100}%`} data-port={i}
+                return <Box key={`port-${i}`} css={styles.port} style={{ left: `${x * 100}%` }} data-port={i}
                     role="img" aria-label={label} />;
             })}
             {kind.decisions.map((dec) => {
@@ -223,7 +222,7 @@ export function SpanRow({ rowKey, rowId, kind, bands: rollBands, styles, ctx, mo
                 const ref = variant("mark", { row: rowId, mark: dec.key }) as PlanElementRefValue;
                 return (
                     <Box key={dec.key} css={styles.diamond} data-applied={dec.applied ? "" : undefined} data-ctx={ctxAttr}
-                        data-mark={dec.key} data-plan-frac={x.toFixed(4)} left={`${x * 100}%`} tabIndex={-1}
+                        data-mark={dec.key} data-plan-frac={x.toFixed(4)} style={{ left: `${x * 100}%` }} tabIndex={-1}
                         role="button" aria-label={decisionName(dec, scale, words)}
                         // Selects its row like every other element — Enter on
                         // it does the same (#819).

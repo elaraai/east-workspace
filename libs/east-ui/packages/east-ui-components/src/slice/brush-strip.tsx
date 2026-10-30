@@ -128,10 +128,11 @@ type Styles = ReturnType<ReturnType<typeof useSlotRecipe>>;
 /** One layer of the histogram's bars, each at its whole-pixel place: dimmed outside the window, or clipped to it. */
 function Bars({ bars, styles, dim, clip }: { bars: readonly BrushBar[]; styles: Styles; dim?: boolean; clip?: string }) {
     return (
-        <Box css={styles.bars} data-brush-bars={clip === undefined ? "" : "in"} data-dim={dim ? "" : undefined} clipPath={clip}>
+        <Box css={styles.bars} data-brush-bars={clip === undefined ? "" : "in"} data-dim={dim ? "" : undefined}
+            style={clip === undefined ? undefined : { clipPath: clip }}>
             {bars.map((b) => (
                 <Box key={b.index} css={styles.bar} data-brush-bar="" data-step={b.step} data-count={b.count}
-                    left={`${b.x}px`} width={`${b.width}px`} height={`${b.height}px`} />
+                    style={{ left: `${b.x}px`, width: `${b.width}px`, height: `${b.height}px` }} />
             ))}
         </Box>
     );
@@ -143,7 +144,7 @@ function Handle({ styles, edge, at, side, pressed, name, text, onKeyDown }: {
     onKeyDown: (e: KeyboardEvent<HTMLElement>) => void;
 }) {
     return (
-        <Box css={styles.zone} data-brush-zone="" data-edge={edge} data-side={side} left={`${at * 100}%`}>
+        <Box css={styles.zone} data-brush-zone="" data-edge={edge} data-side={side} style={{ left: `${at * 100}%` }}>
             <Box css={styles.handle} data-brush-handle={edge} data-pressed={pressed ? "" : undefined}
                 role="slider" tabIndex={0} aria-label={name} aria-orientation="horizontal"
                 aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(at * 100)} aria-valuetext={text}
@@ -288,7 +289,7 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
         <Box
             ref={trackRef}
             css={styles.track}
-            height={`${height}px`}
+            style={{ height: `${height}px` }}
             cursor={drag !== null ? brushCursor(drag.mode) : "crosshair"}
             data-brush-track=""
             data-state={read === "loading" ? "loading" : bars.length === 0 ? "empty" : "drawn"}
@@ -298,20 +299,20 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
             onPointerMove={(e: PointerEvent<HTMLDivElement>) => { handlers.onPointerMove?.(e); hoverAt(e); }}
             onPointerLeave={(e: PointerEvent<HTMLDivElement>) => { handlers.onPointerLeave?.(e); setHover(undefined); }}
         >
-            {shown !== undefined && <Box css={styles.band} data-brush-band="" left={`${shown.from * 100}%`} width={`${(shown.to - shown.from) * 100}%`} />}
+            {shown !== undefined && <Box css={styles.band} data-brush-band="" style={{ left: `${shown.from * 100}%`, width: `${(shown.to - shown.from) * 100}%` }} />}
             <Box css={styles.baseline} data-brush-baseline="" />
             {bars.length > 0 && <Bars bars={bars} styles={styles} dim={shown !== undefined} />}
             {bars.length > 0 && shown !== undefined && (
                 <Bars bars={bars} styles={styles} clip={`inset(0 ${(1 - shown.to) * 100}% 0 ${shown.from * 100}%)`} />
             )}
             {nowFrac !== undefined && nowFrac >= 0 && nowFrac <= 1 && (
-                <Box css={styles.now} data-brush-now="" left={`${nowFrac * 100}%`} />
+                <Box css={styles.now} data-brush-now="" style={{ left: `${nowFrac * 100}%` }} />
             )}
             {shown !== undefined && (
                 <>
                     <Handle styles={styles} edge="lo" at={shown.from} side={sides?.lo} pressed={pressed === "lo"} name={said.start} text={text(shown.from)}
                         onKeyDown={keyOn("lo")} />
-                    <Box css={styles.window} data-brush-window="" left={`${shown.from * 100}%`} width={`${(shown.to - shown.from) * 100}%`}
+                    <Box css={styles.window} data-brush-window="" style={{ left: `${shown.from * 100}%`, width: `${(shown.to - shown.from) * 100}%` }}
                         role="slider" tabIndex={0} aria-label={said.window} aria-orientation="horizontal"
                         aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(shown.from * 100)}
                         aria-valuetext={`${text(shown.from)} – ${text(shown.to)}`}
@@ -322,7 +323,7 @@ export function BrushStrip({ buckets, window: win, nowFrac, height, barHeight, o
             )}
             {tip !== undefined && (
                 <>
-                    <Box ref={anchorRef} css={styles.anchor} data-brush-anchor="" left={`${tip.from * 100}%`} width={`${(tip.to - tip.from) * 100}%`} />
+                    <Box ref={anchorRef} css={styles.anchor} data-brush-anchor="" style={{ left: `${tip.from * 100}%`, width: `${(tip.to - tip.from) * 100}%` }} />
                     <Tooltip.Root open positioning={{
                         placement: "top", gutter: 8, flip: false,
                         getAnchorElement: () => anchorRef.current,

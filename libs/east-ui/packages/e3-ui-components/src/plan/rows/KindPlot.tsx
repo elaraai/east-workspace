@@ -69,12 +69,12 @@ function PlanGhosts({ rowKey, styles, ctx }: { rowKey: string; styles: Styles; c
                 const title = ghost.op === "del" ? optimiseMessages.ghostRemoved({ run: ghost.run }) : optimiseMessages.ghostMoved({ run: ghost.run });
                 return ghost.shape === "span" ? (
                     <Box key={`ghost:${ghost.key}`} css={styles.bar} data-plan-ghost={ghost.key} data-op={ghost.op} aria-hidden="true" title={title}
-                        left={`calc(${Math.max(0, f0) * 100}% + ${PLAN_CELL_INSET}px)`} width={`calc(${Math.max(0, Math.min(1, f1) - Math.max(0, f0)) * 100}% - ${2 * PLAN_CELL_INSET}px)`}>
+                        style={{ left: `calc(${Math.max(0, f0) * 100}% + ${PLAN_CELL_INSET}px)`, width: `calc(${Math.max(0, Math.min(1, f1) - Math.max(0, f0)) * 100}% - ${2 * PLAN_CELL_INSET}px)` }}>
                         {ghost.label}
                     </Box>
                 ) : (
                     <Box key={`ghost:${ghost.key}`} css={styles.tile} data-plan-ghost={ghost.key} data-op={ghost.op} aria-hidden="true" title={title}
-                        position="absolute" left={`${f0 * 100}%`}>
+                        position="absolute" style={{ left: `${f0 * 100}%` }}>
                         {ghost.label}
                     </Box>
                 );

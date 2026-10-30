@@ -209,7 +209,7 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     // strip's place and the caption's in its own, so the rows below never move as the span lands.
     if (domain === undefined && (scale.kind === "time" || scale.kind === "number")) {
         return (
-            <Box css={styles.brushRow} gridTemplateColumns={gridTemplate} data-slot="horizon" data-plan-horizon="pending" aria-hidden="true">
+            <Box css={styles.brushRow} style={{ gridTemplateColumns: gridTemplate }} data-slot="horizon" data-plan-horizon="pending" aria-hidden="true">
                 <Box css={styles.brushCaption}><PlaceholderShape kind="label" index={0} /></Box>
                 <Box css={styles.brushPending} />
             </Box>
@@ -254,7 +254,7 @@ export function HorizonBrush({ styles, gridTemplate, parts, stated, span: dataSp
     const step = (f: number, n: number): number => toFrac(scale.offset(fromFraction(f), n));
     const valueText = (f: number): string => scale.instantText(fromFraction(f));
     return (
-        <Box css={styles.brushRow} gridTemplateColumns={gridTemplate} data-slot="horizon"
+        <Box css={styles.brushRow} style={{ gridTemplateColumns: gridTemplate }} data-slot="horizon"
             // The esc rung DISARMS on any release — including the
             // sub-threshold click where the strip emits neither a commit nor
             // a clear (`brushRelease` is a noop there), which used to leave

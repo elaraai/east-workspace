@@ -87,7 +87,7 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
     // moves, the same draggable (#825).
     const common = {
         role: "button", "aria-label": markName(mark, scale, words),
-        "data-mark": mark.key, "data-plan-frac": frac, left: `${x * 100}%`, tabIndex: -1, onClick: select.onClick,
+        "data-mark": mark.key, "data-plan-frac": frac, style: { left: `${x * 100}%` }, tabIndex: -1, onClick: select.onClick,
         // A mark that moves takes the recipe's grab cursor.
         cursor: handle !== undefined ? undefined : "pointer",
         ...handle,
@@ -138,7 +138,7 @@ export function EventsRow({ rowKey, rowId, kind, styles, ctx, move }: EventsRowP
                         <MarkGlyph mark={mark} x={x} rowKey={rowKey} rowId={rowId} styles={styles} ctx={ctx} move={move} />
                         {label !== undefined && (
                             <Box css={styles.markLabel} data-ctx={ctxAttr} data-mark={mark.key} aria-hidden="true"
-                                left={`calc(${x * 100}% + 9px)`}>{label}</Box>
+                                style={{ left: `calc(${x * 100}% + 9px)` }}>{label}</Box>
                         )}
                     </Box>
                 );

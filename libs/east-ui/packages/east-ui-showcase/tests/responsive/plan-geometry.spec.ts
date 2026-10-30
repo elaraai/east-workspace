@@ -1735,4 +1735,53 @@ test.describe("planNestedAll's rows (#1438)", { tag: "@desktop" }, () => {
         });
         await expect.poll(drawn).toEqual({ ring, outline: "none", inside: true });
     });
+
+    test("zooming, panning and moving the window add no style rules once each has been drawn: a place is written inline, never into a class", async ({ page }) => {
+        // Wide enough that the toolbar shows every zoom, rather than folding them into a menu.
+        await page.setViewportSize({ width: 1440, height: 900 });
+        const entry = await openExample(page, "planNestedAll", NESTED_EXAMPLES);
+        /** Every style rule the page's emotion sheet holds, those nested in its layers counted. */
+        const rules = () => page.evaluate(() => {
+            const count = (list: CSSRuleList): number => {
+                let n = 0;
+                for (const rule of list) n += 1 + ("cssRules" in rule ? count((rule as CSSGroupingRule).cssRules) : 0);
+                return n;
+            };
+            const sheet = [...document.styleSheets].find((s) => s.ownerNode instanceof Element && s.ownerNode.getAttribute("data-emotion") === "css");
+            return sheet === undefined ? 0 : count(sheet.cssRules);
+        });
+        const toolbar = entry.locator('[data-frame-slot="toolbar"]').first();
+        const track = entry.locator("[data-plan-horizon-track] [data-brush-track]");
+        /** A drag on the strip from one place on it to another, in steps. */
+        const drag = async (from: number, to: number) => {
+            const box = (await track.boundingBox())!;
+            const y = box.y + box.height / 2;
+            await page.mouse.move(box.x + from, y);
+            await page.mouse.down();
+            for (let step = 1; step <= 10; step++) await page.mouse.move(box.x + from + ((to - from) * step) / 10, y);
+            await page.mouse.up();
+            await settled(page);
+        };
+        /** Every zoom, two pans, and a window drawn on the strip and moved along it: the canvas at places it has not drawn. */
+        const round = async (at: number) => {
+            for (const zoom of ["Month", "Quarter", "Year", "Week"]) {
+                await toolbar.getByRole("radio", { name: new RegExp(`^${zoom}$`, "i") }).click();
+                await settled(page);
+            }
+            await entry.locator("[data-plan-row]").first().click();
+            for (let pan = 0; pan < 2; pan++) {
+                await page.keyboard.press("]");
+                await settled(page);
+            }
+            await drag(at, at + 60);
+            const window = (await entry.locator("[data-plan-horizon-track] [data-brush-window]").boundingBox())!;
+            const start = window.x - (await track.boundingBox())!.x + window.width / 2;
+            await drag(start, start + 40);
+        };
+        await round(40);
+        const drawn = await rules();
+        // The same gestures again, every place on the canvas and the strip a new one.
+        await round(160);
+        expect(await rules(), "style rules after a second round at new places").toBe(drawn);
+    });
 });

@@ -138,7 +138,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                     </PlanPartBoundary>
                 </Box>
             )}
-            <Box css={styles.narrowCardBody} height={`${h}px`} data-plan-cardbody={row.kind.type}
+            <Box css={styles.narrowCardBody} style={{ height: `${h}px` }} data-plan-cardbody={row.kind.type}
                 aria-busy={unread ? true : undefined} data-plan-unread={unread ? "" : undefined}>
                 {/* Under everything the body draws after it, as the canvas's row's plot washes (#1398, CL2). */}
                 {unread && <LoadingWash />}
@@ -160,7 +160,7 @@ export const NarrowRowCard = memo(function NarrowRowCard({
                 {scale.nowFrac !== undefined && <NowLine styles={styles} at={scale.nowFrac} data-plan-axisline />}
             </Box>
             {drill !== undefined && (
-                <Box css={styles.narrowRender} data-plan-expandrender height={`${renderPx}px`}>
+                <Box css={styles.narrowRender} data-plan-expandrender style={{ height: `${renderPx}px` }}>
                     <PlanPartBoundary part={{ kind: "expandRender" }} resetKey={drill.body} styles={styles}>
                         <EastChakraComponent value={drill.body} storageKey={`${storageKey}.${row.key}.expand`} />
                     </PlanPartBoundary>

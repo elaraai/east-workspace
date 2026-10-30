@@ -41,7 +41,7 @@
  */
 
 import {
-    useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type ReactNode,
+    useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type MouseEvent, type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
 import { Box, Menu as ChakraMenu, Portal, chakra } from "@chakra-ui/react";
@@ -71,8 +71,8 @@ export interface BucketCellProps {
     readonly rowKey: string;
     /** The cell's key — its `data-plan-cell`. */
     readonly cellKey: string;
-    /** Where the cell sits: its left, width, top and height. */
-    readonly place: Readonly<Record<string, string>>;
+    /** Where the cell sits: its left, width, top and height — inline, as a gesture moves them. */
+    readonly place: Readonly<CSSProperties>;
     /** Its marker's status — the ring — when it has one. */
     readonly over: string | undefined;
     /** Its lane caption, drawn first. */
@@ -224,7 +224,7 @@ export function BucketCell(props: BucketCellProps) {
         <Box css={styles.cell}
             data-plan-cell={cellKey}
             data-over={over}
-            {...place}
+            style={place}
             onClick={onClick}
         >
             {caption}

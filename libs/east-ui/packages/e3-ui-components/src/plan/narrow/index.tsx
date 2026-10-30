@@ -458,7 +458,7 @@ export function PlanNarrow({
                                 </Box>
                             </Box>
                             {arm !== undefined && (
-                                <Box css={styles.narrowCardBody} height={`${geometry.narrowStrip}px`} data-plan-cardbody="group">
+                                <Box css={styles.narrowCardBody} style={{ height: `${geometry.narrowStrip}px` }} data-plan-cardbody="group">
                                     <GridSeparators styles={styles} />
                                     {derived.diagnostics.has(row.key) ? (
                                         <RowDiagnostic diagnostic={derived.diagnostics.get(row.key)!} styles={styles} />

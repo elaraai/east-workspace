@@ -334,8 +334,8 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
         if (uniform && !laneCaptioned(li)) {
             cells.push(
                 <Box key={`wash-${li}`} css={styles.cellWash} data-plan-cellwash={li}
-                    {...laneY(li)}
                     style={{
+                        ...laneY(li),
                         backgroundImage: `repeating-linear-gradient(to right, transparent 0 2px, var(--chakra-colors-bg-panel) 2px calc(100% / ${n} - 2px), transparent calc(100% / ${n} - 2px) calc(100% / ${n}))`,
                     }} />,
             );

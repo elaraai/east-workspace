@@ -883,7 +883,10 @@ essential actions accessible without hover and retain shared touch targets.
 ### Styling must agree in the browser
 
 Put static appearance in slot recipes and select states with attributes.
-Inline values are for computed geometry only. Reuse the app's named text styles
+Inline values are for computed geometry only, written through `style` (or a
+CSS variable set there), never a Chakra style prop, which mints a CSS class
+for each value that the page never removes (east-ui-components' CLAUDE.md ›
+Visual style, #1440). Reuse the app's named text styles
 and existing recipe parts for toolbar, column headings, axis labels, rows,
 cards, inspector, library and footer. Verify every role: font family, size,
 weight, line height, tracking, case and tabular numerals. Merely loading the

@@ -373,7 +373,7 @@ export function TableRowCells({ rowKey, rowId, series, split, format, styles, ct
                         aria-label={cellName(scale, b, printed.length > 0 ? tablePartsText(printed.map((p) => p.text), words) : words.m.noValue(), words)}
                         data-split={multi ? split : undefined}
                         data-plan-dotted={dot !== undefined ? "" : undefined}
-                        left={`${b.x0 * 100}%`} width={`${(b.x1 - b.x0) * 100}%`}
+                        style={{ left: `${b.x0 * 100}%`, width: `${(b.x1 - b.x0) * 100}%` }}
                         onClick={(e) => {
                             e.stopPropagation();
                             dispatch({ t: "row.select", key: rowKey });
