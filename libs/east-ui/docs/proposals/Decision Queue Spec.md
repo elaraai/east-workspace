@@ -161,27 +161,35 @@ row is one proposal maps the option's roles beside the case's (D15, §3.2).
 ### 3.1 The app's records
 
 The example app is a warehouse, a print shop, a kiln yard and a workshop under
-one roof — the repo's own example records — and the supply side that stocks
-them: its stock orders, its stores' stock, its catalogue's minimum stock and
-its service rounds' areas, records no builder draws. Its models propose
-changes to each. Its cases are one record, its verdicts another:
+one roof — the repo's own example records — and the records no builder draws:
+its price list, its stock levels, its lines' cure settings and its presses'
+readiness. Its models propose changes to each, and to the rota's cover
+targets, which the Roster edits in a form of its own. Its cases are one
+record, its verdicts another:
 
 ```ts
-import { ArrayType, BooleanType, DateTimeType, DictType, FloatType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType } from "@elaraai/east";
+import { BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType } from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { WarehouseDuty } from "../roster/warehouse.js";                    // the warehouse rota's duties
+import { WarehouseCover, WarehouseDuty } from "../roster/warehouse.js";    // the warehouse rota's duties and its cover targets
 import { PrintJob } from "../plan/plan-events.examples.js";                // the print shop's jobs
 import { CalendarService } from "../calendar/calendar.examples.js";        // the workshop's machine maintenance
 import { KilnBin } from "../allocation/kiln-yard.js";                      // the kiln yard's bins
 import { OptimiseWorkOrder } from "../sheet/optimise.examples.js";         // the shop's work orders
-import { CatalogueItem, ForecastPoint, ServiceArea, StockOrder, StoreStock } from "./supply.js";  // the supply side's, which no builder draws
 
-/** A list price, and the demand a week the model expects at it: a record no builder draws. */
+// The records no builder draws, each changed in a form of its own (§5.3).
+/** A list price, and the demand a week the model expects at it. */
 export const ListPrice = StructType({ region: StringType, price: FloatType, demand: FloatType, from: DateTimeType });
+/** An item's stock: the units on order, and the model's stock-out risk in the week ahead, in percent. */
+export const StockLevel = StructType({ item: StringType, onOrder: FloatType, risk: FloatType });
+/** A line's cure: its cure time in minutes, the bond strength it gives in MPa, and the batches on trial at the slow cure. */
+export const CureSetting = StructType({ line: StringType, cure: FloatType, bond: FloatType, trialBatches: IntegerType });
+/** A press's readiness: the days until it is ready, as the forecast has them, and whether a person confirmed them. */
+export const PressReadiness = StructType({ press: StringType, days: FloatType, confirmed: BooleanType });
 export const listPrices = e3.record("list_prices", DictType(StringType, ListPrice), {
     initial: listPriceRows,
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
+// … and `stock_levels`, `cure_settings` and `press_readiness` alike, each with its patch door.
 
 /** What an option changes: its tag is the kind of decision, its value a patch of the record that kind changes. */
 export const OpsChange = VariantType({
@@ -191,11 +199,11 @@ export const OpsChange = VariantType({
     workshop: PatchType(DictType(StringType, CalendarService)),  // the workshop's machine maintenance, as the Calendar draws it
     yard: PatchType(DictType(StringType, KilnBin)),              // the kiln yard's bins, as the Allocation draws them
     orders: PatchType(DictType(StringType, OptimiseWorkOrder)),  // the shop's work orders, as the Sheet draws them
-    pricing: PatchType(DictType(StringType, ListPrice)),         // the price list, which no builder draws
-    restock: PatchType(DictType(StringType, StockOrder)),        // the stock orders, read by each option's own forecast
-    split: PatchType(DictType(StringType, StoreStock)),          // one item's stock across the stores, read as a mix
-    minimums: PatchType(DictType(StringType, CatalogueItem)),    // the catalogue's minimum stock, a rule across its ranges
-    rounds: PatchType(DictType(StringType, ServiceArea)),        // the service rounds' areas, each in a round
+    pricing: PatchType(DictType(StringType, ListPrice)),         // the price list
+    stock: PatchType(DictType(StringType, StockLevel)),          // the stock levels
+    trial: PatchType(DictType(StringType, CureSetting)),         // the lines' cure settings
+    cover: PatchType(DictType(StringType, WarehouseCover)),      // the rota's cover targets, which the Roster edits in a form of its own
+    ready: PatchType(DictType(StringType, PressReadiness)),      // the presses' readiness
 });
 
 /** One way to decide a case: the app's own words for it, what it is worth, and its change. */
@@ -209,10 +217,9 @@ export const OpsOption = StructType({
     confidence: OptionType(FloatType), // 0.82
     question: OptionType(StringType),  // "Has B. Pumice been told this is on the table?"
     warn: OptionType(StringType),      // "A. Osier lands 2h over contract, paid at 1.5×."
-    refused: OptionType(StringType),   // "busy 12:00–17:00 with J-3006" — a refused option says why
+    refused: OptionType(StringType),   // "takes no board stock" — a refused option says why
     knockOn: SetType(StringType),      // rows of the target moved because of the change, not by it
-    guesses: DictType(StringType, FloatType), // the changed rows the model is unsure of, by key: "WO-1004" → 0.69
-    forecast: ArrayType(ForecastPoint),       // the stock on hand the option leaves, by week: what a projection draws
+    guesses: DictType(StringType, FloatType), // the changed rows the model is unsure of, by key: "WO-1007" → 0.69
     change: OpsChange,
 });
 
@@ -223,7 +230,7 @@ export const OpsCase = StructType({
     due: OptionType(DateTimeType),
     routine: BooleanType,
     unit: StringType,                  // "uplift"
-    figure: VariantType({ money: NullType, count: NullType, percent: NullType }),  // what its figures are — money, a count (the orders') or a share — which `format` reads
+    figure: VariantType({ money: NullType, count: NullType }),  // what its figures are — money, or a count (the orders' due dates, the trial's MPa) — which `format` reads
     model: StringType,                 // "staffing-v3.2.1 · run #42"
     why: StringType,
     ifWrong: OptionType(FloatType),    // −8000
@@ -334,13 +341,15 @@ offers no answer, no override reason and no note (§5.2).
 The same app, its cases narrowed by a rail, its eleven kinds of decision
 landing in the Roster's duties — by people, and by cost — the Plan's jobs, the
 Calendar's machine maintenance, the Allocation's bins, the Sheet's work orders,
-the price list and the supply side's records: the stock orders as a
-projection, the stores' stock as a mix, the catalogue's minimums as groups and
-the service rounds' areas as zones. Each builder's kinds and lists are the consts its own tag
+and the records no builder draws, each in a form of its own: the price list,
+the stock levels, the lines' cure settings, the rota's cover targets and the
+presses' readiness. Each builder's kinds and lists are the consts its own tag
 takes in its example — declared once and handed to both, with their own
 `fields`, `ready` and `inspector`, which Modify uses (D9). The bindings are
 named for the records they bind (`duties`, `workOrders`, `priceList`); the
-tags for the kinds of decision (`rota`, `orders`, `pricing`).
+tags for the kinds of decision (`rota`, `orders`, `pricing`). The previews the
+mock draws only in its gallery — a projection, a mix, groups and zones — are
+the gallery example's, over the supply side's records (§15).
 
 ```tsx
 <Reactive>{$ => {
@@ -349,7 +358,8 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
     const indexed = $.let(Data.bindPaged(opsCases, { indexes: ["ops_cases_by_area", "ops_cases_by_scope"] }));
     const slice = $.let(Slice.bindRecords("ops.decisions", {
         decisions: { source: indexed, icon: { prefix: "fas", name: "inbox" }, search: ["scope"],
-            fields: { area: { label: "Area", hints: ["rota", "print", "workshop", "yard", "orders", "pricing"] }, scope: { label: "Scope" } } },
+            fields: { area: { label: "Area", hints: ["rota", "print", "yard", "stock", "workshop", "pricing", "trial", "orders", "cover", "ready"] },
+                scope: { label: "Scope" } } },
     }));
     const verdicts = $.let(Record.bind(opsVerdicts));
     const verdictEntries = $.let(Data.bindPaged(opsVerdicts));
@@ -432,19 +442,16 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
     const loadRows = Allocation.arrivals(loads.read(), { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays),
         kind: l => some(l.spec), due: l => some(l.due), window: l => some({ from: l.from, to: l.to }) });
 
-    // The Sheet's work orders, as `sheetOptimise` binds them, and the price list.
+    // The Sheet's work orders, as `sheetOptimise` binds them.
     const workOrders = $.let(Record.bind(optimiseWorkOrders));
-    const priceList = $.let(Record.bind(listPrices));
 
-    // The supply side's records, which no builder draws: the stock orders, which a projection reads by each option's
-    // own forecast; the stores' stock, read as a mix; the catalogue, its minimums a rule whose ranges are counted
-    // through its index on them, its rows read by key through its entries; and the service rounds' areas.
-    const restocks = $.let(Record.bind(stockOrders));
-    const storeUnits = $.let(Record.bind(storeStock));
-    const items = $.let(Record.bind(catalogue));
-    const itemEntries = $.let(Data.bindPaged(catalogue));
-    const itemRanges = $.let(Data.bindPaged(catalogue, { indexes: ["catalogue_by_range"] }));
-    const areas = $.let(Record.bind(serviceAreas));
+    // The records no builder draws, each changed in a form of its own: the price list, the stock levels, the lines'
+    // cure settings and the presses' readiness; and the rota's cover targets, which the Roster edits in its own.
+    const priceList = $.let(Record.bind(listPrices));
+    const stock = $.let(Record.bind(stockLevels));
+    const cures = $.let(Record.bind(cureSettings));
+    const cover = $.let(Record.bind(rosterCover));
+    const readiness = $.let(Record.bind(pressReadiness));
 
     // Where each kind of decision draws: a target for each tag of the options' change.
     const rotaChange = DecisionQueue.change.roster({ name: "Roster", icon: "users",
@@ -464,22 +471,31 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
     } });
     // The price list's form, and the app's check on a price Modify leaves, which holds Apply: a list price moves in 5¢ steps.
     const pricingChange = DecisionQueue.change.record(priceList, { name: "Pricing", icon: "tag", label: r => r.region,
-        fields: { price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05, help: "In 5¢ steps" }) },
+        fields: {
+            price: Fields.number({ label: "List price", unit: "$ / unit", min: 10.0, max: 12.5, step: 0.05, help: "In 5¢ steps" }),
+            demand: Fields.number({ label: "Demand / wk", unit: "units" }),
+        },
         ready: r => r.price.subtract(East.Float.roundNearest(r.price, 0.05)).abs().greater(0.000001).ifElse(
             () => variant("invalid", [{ field: "price", message: "A list price moves in 5¢ steps" }]), () => variant("ready", null)) });
-    // The supply side's: a projection of each option's forecast against the minimum, the stores' stock as a mix, the
-    // catalogue's minimums by range, and the rounds' areas in their zones.
-    const restockChange = DecisionQueue.change.projection(restocks, { name: "Stock", icon: "boxes-stacked", option: OpsOption,
-        points: o => o.forecast, x: p => p.week, y: p => p.units, limit: { y: 400.0, label: "min" } });
-    const splitChange = DecisionQueue.change.record(storeUnits, { name: "Stock", icon: "truck-ramp-box", label: s => s.store, measure: s => s.units });
-    const minimumsChange = DecisionQueue.change.record(items, { name: "Catalogue", icon: "layer-group", label: i => i.name, measure: i => i.min,
-        entries: itemEntries, group: "range", source: itemRanges });
-    const roundsChange = DecisionQueue.change.zones(areas, { name: "Rounds", icon: "map-location-dot",
-        zone: a => a.round, x: a => a.column, y: a => a.row, depot: a => a.depot,
-        zones: [
-            { key: "a", label: "Round A", color: Style.ColorToken("blue", "500") },
-            { key: "b", label: "Round B", color: Style.ColorToken("purple", "500") },
-        ] });
+    // The stock levels' form: the units on order and the risk of running out.
+    const stockChange = DecisionQueue.change.record(stock, { name: "Inventory", icon: "boxes-stacked", label: s => s.item,
+        fields: {
+            onOrder: Fields.number({ label: "On order", unit: "units", min: 0.0 }),
+            risk: Fields.number({ label: "Stock-out risk · wk 11", unit: "%", min: 0.0, max: 100.0 }),
+        } });
+    // The lines' cure settings: a cure time, the bond it gives, and the batches on trial.
+    const trialChange = DecisionQueue.change.record(cures, { name: "Experiment", icon: "flask", label: c => c.line,
+        fields: {
+            cure: Fields.number({ label: "Cure time", unit: "min" }),
+            bond: Fields.number({ label: "Bond strength", unit: "MPa" }),
+            trialBatches: Fields.number({ label: "Batches on trial", min: 0n }),
+        } });
+    // The rota's cover targets: the heads a team's shift needs on a day.
+    const coverChange = DecisionQueue.change.record(cover, { name: "Capacity", icon: "gauge-high", label: c => East.str`${c.team} · ${c.shift}`,
+        fields: { heads: Fields.number({ label: "Heads", min: 0n }) } });
+    // The presses' readiness: the days the forecast gives, and whether a person confirmed them.
+    const readyChange = DecisionQueue.change.record(readiness, { name: "Forecast", icon: "chart-line", label: r => r.press,
+        fields: { days: Fields.number({ label: "Days to ready", unit: "days", min: 0.0 }) } });
 
     return <DecisionQueue
         id="opsQueue"
@@ -487,11 +503,10 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
         decisions={DecisionQueue.decisions(cases, {
             scope: c => c.scope, due: c => c.due, routine: c => c.routine, unit: c => c.unit, model: c => c.model,
             why: c => c.why, ifWrong: c => c.ifWrong, recommended: c => c.recommended,
-            // Money in dollars, a share as a percent, a count as it is.
+            // Money in dollars, a count as it is.
             format: c => c.figure.match({
                 money: () => some(Format.Currency({ currency: "USD", compact: "short" })),
                 count: () => none,
-                percent: () => some(Format.Percent({ maximumFractionDigits: 0n })),
             }),
             options: { from: c => c.options, label: o => o.label, title: o => o.title, summary: o => o.summary,
                 detail: o => o.detail, note: o => o.note, value: o => o.value, confidence: o => o.confidence,
@@ -500,7 +515,7 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
                 change: { from: o => o.change, of: {
                     rota: rotaChange, rotaCost: rotaCostChange, print: printChange, workshop: workshopChange,
                     yard: yardChange, orders: orderChange, pricing: pricingChange,
-                    restock: restockChange, split: splitChange, minimums: minimumsChange, rounds: roundsChange,
+                    stock: stockChange, trial: trialChange, cover: coverChange, ready: readyChange,
                 } } },
         })}
         verdicts={DecisionQueue.verdicts(verdicts, {
@@ -518,12 +533,19 @@ tags for the kinds of decision (`rota`, `orders`, `pricing`).
 
 The examples are these two queues as written here (`decisionQueueMinimal`,
 `decisionQueueOps`, §15), each placed in a `Box` of a fixed height, as the
-showcase places a builder, with `now` pinned to 15:00 on 8 March 2028 so their
-sections stand as the mock's do whatever the day. Their cases carry the mock's
-words and figures over the rows of the example records each case changes — the
-roster case moves a duty the warehouse rota holds, J. Tansy's Friday late — and
-each case's `figure` says whether its figures print as dollars (`+$80K`), as a
-percent (`3%`) or as a count (`+3`).
+showcase places a builder, with `now` pinned to the mock's, 13:00 on Tuesday
+10 March 2026, so their sections stand as the mock's do whatever the day.
+Their cases are the mock's, like for like — its scopes, titles, options,
+figures, questions and warnings — over the rows of the example records each
+case changes: the roster case moves a duty the warehouse rota holds, J.
+Tansy's Friday late. The records keep their own examples' dates — the rota's
+week in March 2028, the print works' day in October 2026 — so `now` drives the
+sections and the due words alone. Where a figure is the app's own arithmetic it
+is the app's, not the mock's: the routine trim's `+$168` and Saturday's cover's
+`+$408` are the warehouse's pay for the hours they take off, and the overtime
+case's `+$156` the change its pay codes give over the week (P7). Each case's
+`figure` says whether its figures print as dollars (`+$80K`) or as a count
+(`+3`).
 
 A record with no builder declares its form in its target, with the names an
 event kind gives them: `fields` (east-ui's `Fields` hints: `Fields.number`,
@@ -532,7 +554,9 @@ Every other target's form is its builder's: the duty's is the Roster's
 inspector for one duty, the job's the Plan's for one event, a work order's the
 Sheet's Details for one row. `rota` and `rotaCost` land in the same record
 through two targets: the cover decisions' map reads by people, the pay
-decisions' by cost (D7, P7).
+decisions' by cost (D7, P7). The rota's cover targets, which the `<Roster>`
+edits in its targets' form, take a record target here: the Roster's target
+draws a change to the duties.
 
 ### 3.4 Placement
 
@@ -762,7 +786,7 @@ builder's recipe, never copied.
 
 | Region | Holds |
 |---|---|
-| Toolbar | `Decisions` and its count chip first; then the rail (its chips, folding first, to its filter icon at the floor) and its summary; the past-due count (`2 past due`); the history item last — its status, its issues, Undo, Redo, Discard and Save — folding to its buttons. One row at every width. |
+| Toolbar | `Decisions` and its count chip first; then the rail (its chips, folding first, to its filter icon at the floor) and its summary; the past-due count (`2 past due`, folding to `2 late`); the history item last — its status, its issues, Undo, Redo, Discard and Save — folding to its buttons. Where the whole ladder still leaves the row too wide, the row's floor, the fewest of its rungs that fit: the rail's icon drops its caret, then `Decisions` leaves its count chip — its name said and on hover — then the past-due count is its clock and its number, its words said and on hover, then it leaves the row, its section's head saying it still; the history and Save stay in the row (R30). One row at every width. |
 | Banners | The batch banner (R28); the session's banners (R29); a read of the cases that failed, with Retry; past 1,000 cases, how many the narrowing holds and to narrow. |
 | Main | The list: sections, cards, receipts, the Routine band, or the empty state. It scrolls itself; nothing else does. |
 | Footer | The shared loading line alone (`Loading decisions…`, `Filtering decisions…`, `Couldn't read decisions` with Retry), `liveFooter`; nothing while nothing is in flight. |
@@ -775,7 +799,8 @@ All sizes from the mock; every value a token of the design system.
 600, tracking 0.14em, upper case, `--ink`; the count chip 16px, `--paper-3`,
 mono `--fs-label-sm` 600, `--ink-2`, its background settling from
 `--brand-tint` to `--paper-3` over `--dur-slow` when the count changes; past
-due mono `--fs-label-xs` 600 in `--neg-text`; the history item every editing
+due mono `--fs-label-xs` 600 in `--neg-text`, at the row's floor Font Awesome's
+`clock` 4 before its number, in the same ink; the history item every editing
 builder's.
 
 **Main.** `--paper-2`. A section: padding 12 12 4, its cards 8 apart; its head
@@ -1109,17 +1134,24 @@ off its builder's view is not drawn, and what must hold Apply is the app's
 - **R30.** The queue is one column at every width; a card's parts wrap within
   it; nothing scrolls sideways. Below 480px of main, the rail is its filter
   icon, the past-due count its short form (`2 late`) and the history item its
-  buttons; the count stays. On a coarse pointer every control is a 44px target
-  by its box or its halo, the row and the cards unmoved. The width is the
-  queue's own, whatever holds it: in a page, a card, a drawer or a popover it
-  is the same component.
+  buttons; the count stays. Where that row is still too wide, it takes the
+  row's floor (§7): `Decisions` leaves its count chip, and then the past-due
+  count is its clock and its number, each saying its words to a screen reader
+  and on hover, so Undo, Redo and Save stay in the row — `2 late` holds beside
+  them down to a 360px parent and a phone's 390px box, and in a 294px parent
+  the clock and the number stand for it (found building it, 30 Oct 2026: with
+  `2 late` beside the history item, the row is wider than a 294px parent
+  leaves it). On a coarse pointer every control is a 44px target by its box or its
+  halo — an option, whose neighbours sit edge to edge, by its own 44px height —
+  the row and the cards unmoved. The width is the queue's own, whatever holds
+  it: in a page, a card, a drawer or a popover it is the same component.
 
 ## 10. Copy
 
 | Where | Copy |
 |---|---|
-| Count | `Decisions` and its chip |
-| Past due | `{n} past due` (narrow: `{n} late`) |
+| Count | `Decisions` and its chip (at the row's floor the chip, `Decisions` said and on hover) |
+| Past due | `{n} past due` (narrow: `{n} late`; at the row's floor the clock and `{n}`, `{n} past due` said and on hover) |
 | Sections | `Overdue` · `Due today` · `This week` · `Later` |
 | Due words | `{n}m late` · `{n}h late` · `{n}d late` · `by {time}` · `by {weekday} {day}` |
 | Chip | `Proposed` · `Modified` |
@@ -1153,6 +1185,7 @@ does, and what follows.
 | The queue in a 360px popover under a page's button — the trigger, its count and overdue dot, the popover's edge and shadow, the × in the head — and on a phone with the phone's own header | Every builder is its `BuilderFrame` alone, borderless; a host places it and sizes it | The queue alone: a `BuilderFrame` and what is in it (D2, §3.4) | A host places the queue in a page, a card, a drawer or a popover. The trigger, its count and the close are the host's own chrome; no prop of the queue's is a placement's. |
 | The phone opens no card at first | Today's queue: `defaultExpanded` | The first case opens wherever the queue is placed, until the viewer closes it | One behaviour at every width; the viewer's choice is kept under `id`. |
 | A 44px head of the component's own, with no rail | Every builder: one toolbar holding its rail and its history item | The `BuilderFrame` toolbar: the count, the rail, past due, the history item | The mock's head becomes the toolbar's first items. |
+| `Decisions`, its chip and `2 past due` on one head at every width, beside no rail and no history | Every builder's row folds by the shared ladder, and past it by its floor's rungs, as the query builder's Run goes to its icon | The ladder's `2 late`; past it the row's floor: `Decisions` leaves its chip, then the past-due count is its clock and its number (§7, R30) | On a phone the history and Save stay in the row; the words a rung drops are said to a screen reader and on hover. |
 | No footer | Every builder's footer: the shared loading line (#1398) | The frame's footer, with the shared loading line | At rest the footer is empty. |
 | Three sections (Overdue, Due today, This week) | Today's queue: sorted by urgency, grouped by `groupBy` | Four: `Later` for a case due after the week or never | A case with no due date or a far one has a place. |
 | The areas' table — a label and an icon per surface | — | Each target's `name` and `icon` (D10) | The mock's areas are where the changes land; nothing else names them. |
@@ -1168,6 +1201,9 @@ does, and what follows.
 | `<DecisionPreview>` as a component of its own | — | The targets, in the change role's `of` | A component is an interface and a renderer: the queue's payload carries the targets. A preview placed on its own is a follow-up. |
 | `--elara-*` tokens awaiting the design system's sign-off | The `elara` tokens Optimise added (#1409) | Those tokens | — |
 | Verdicts in the mock's own state | Today's queue: the handle's stored envelope and its judgement record | The cases and the verdicts, the app's records (D1) | Nothing of the queue's is stored. |
+| Each section's cases in the order the mock lists them | — | By due, earliest first, then by the recommended option's value (R2) | A case's place in its section follows its due wherever the app's rows put it. |
+| A total on every section and on the Routine band (`+$3.4k together`), every figure summed as money | Each case's figures print through its own `format` | A section's total, and the band's, only where its cases share one format (R3) | The examples' This week and Routine band, whose figures mix money with counts — the due dates, the trial's MPa, the press's days — show no total. |
+| Money in the mock's own words (`+$86.2k`) | `useFormatters`: a value through the app's `Format` | Every figure through the case's `format` — `Format.Currency({ compact: "short" })` prints `+$86K` | The app's format decides the words; a format of more digits prints more. |
 
 ## 12. Edge cases
 
@@ -1239,24 +1275,32 @@ does, and what follows.
   1px across an open, a close, a receipt, an Undo, a `j`); the sticky head; the
   receipt's 40px; each preview kind's height and frame; the toolbar at every
   width, the 28px controls and the history item's fold; the footer's line; the
-  same queue in a 294px parent and a 360px one; computed styles of the card,
+  same queue in a 294px parent and a 360px one, the row's floor in the first;
+  computed styles of the card,
   the open card, the receipt and the marks in both themes; reduced motion.
 - **Examples.** `decisionQueueMinimal` (§3.2: one record of proposals with no
-  alternatives, two tags, a target each), `decisionQueueOps` (§3.3, over the
-  warehouse's, the print shop's, the workshop's, the kiln yard's and the
-  shop's example records, a price list and the supply side's records, eleven
-  tags, two of them on the duties), `decisionQueueReadOnly`,
-  `decisionQueueRecordIndexes` (windowed: 20,000 cases, narrowed through the
-  rail's indexes and read a page at a time, the banner past 1,000, the
-  verdicts read by key, a verdict drafted on a case the rail then hides and
-  saved), `decisionQueuePhone` (the full queue in a phone-width container: its
-  cards, its answers and its Save), `decisionQueueRoutine` (the band and the
-  batch) and `decisionQueuePreviews` (one case per preview kind and mark); the
-  plugin index regenerated. The examples seed the mock's own cases, like for
-  like (ruled 28 Oct 2026) — the scopes, titles, options, figures, questions,
-  warnings and previews `Decision Queue Spec.html` draws, over the builders'
-  example records — so the showcase's queue and the mock can be compared side
-  by side.
+  alternatives, two tags, a target each), `decisionQueueOps` (§3.3: the mock's
+  nine cases and its three routine ones over the warehouse's, the print
+  shop's, the workshop's, the kiln yard's and the shop's example records and
+  the records no builder draws — the price list, the stock levels, the cure
+  settings, the cover targets and the presses' readiness — eleven tags, two of
+  them on the duties), `decisionQueueReadOnly`, `decisionQueueRecordIndexes`
+  (windowed: a replenishment model's 20,000 reorders across forty stores, each
+  its own one proposal, narrowed through the rail's indexes on the store and
+  the range and read a page at a time, the banner past 1,000, the verdicts and
+  the stock rows a reorder changes read by key, a verdict drafted on a case the
+  rail then hides and saved), `decisionQueuePhone` (the full queue in a
+  phone-width container: its cards, its answers and its Save),
+  `decisionQueueRoutine` (the band and the batch: the mock's routine cases,
+  each its own one proposal, landing in the duties, the cover targets and the
+  presses' readiness) and `decisionQueuePreviews` (one case per preview kind
+  and mark — the projection, the mix, the groups and the zones over the supply
+  side's records among them); the plugin index regenerated. The examples seed
+  the mock's own cases, like for like (ruled 28 Oct 2026) — the scopes,
+  titles, options, figures, questions, warnings and previews `Decision Queue
+  Spec.html` draws, over the builders' example records — so the showcase's
+  queue and the mock can be compared side by side; each example's DOM test
+  reads its cards back as the mock draws them.
 
 ## 16. How it ships
 
